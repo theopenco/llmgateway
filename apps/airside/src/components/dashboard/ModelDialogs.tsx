@@ -966,6 +966,9 @@ export function RegisterModelDialog({
 		apiFormat,
 		contextSize: Number(contextSize) || undefined,
 		maxOutput: Number(maxOutput) || undefined,
+		promptCaching:
+			Boolean(cachedInputPrice) ||
+			regionFares.some((fare) => Boolean(fare.cachedInputPrice)),
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)

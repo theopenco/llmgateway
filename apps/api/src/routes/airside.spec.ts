@@ -205,6 +205,7 @@ async function createModel(
 	cookie: string,
 	providerCompanyId: string,
 	overrides: Record<string, unknown> = {},
+	verifiedPromptCaching?: boolean,
 ) {
 	const body: Record<string, unknown> = {
 		providerCompanyId,
@@ -251,6 +252,10 @@ async function createModel(
 			contextSize:
 				typeof body.contextSize === "number" ? body.contextSize : null,
 			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
+			promptCaching:
+				verifiedPromptCaching ??
+				(body.pricing as { cachedInputPrice?: string }).cachedInputPrice !==
+					undefined,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -4090,6 +4095,28 @@ describe("airside provider portal", () => {
 			cachedInputPrice: "5e-7",
 			requestPrice: "0.002",
 		});
+	});
+
+	it("requires a prompt-caching preflight for a cached input price", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(
+			cookie,
+			company.id,
+			{
+				modelName: "mistral-uncached-x",
+				pricing: {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					cachedInputPrice: "5e-7",
+				},
+			},
+			false,
+		);
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("changed after verification");
 	});
 
 	it("imports catalogue models as managed listings", async () => {

@@ -73,6 +73,7 @@ export interface VerificationTargetInput {
 	webSearch?: boolean | null;
 	contextSize?: number | null;
 	maxOutput?: number | null;
+	promptCaching?: boolean | null;
 }
 
 const CAPABILITY_KEYS = [
@@ -149,7 +150,49 @@ export function buildVerificationTarget(
 		webSearch: input.webSearch ?? false,
 		contextSize: input.contextSize ?? null,
 		maxOutput: input.maxOutput ?? null,
+		promptCaching: input.promptCaching ?? false,
 	};
+}
+
+interface DeclaredPrices {
+	cachedInputPrice?: string | null;
+	regionPrices?: Array<{ cachedInputPrice?: string | null }> | null;
+}
+
+/** A cached input price, default or regional, claims prompt caching. */
+export function declaresPromptCaching(prices: DeclaredPrices): boolean {
+	return (
+		(prices.cachedInputPrice !== null &&
+			prices.cachedInputPrice !== undefined) ||
+		(prices.regionPrices ?? []).some(
+			(region) =>
+				region.cachedInputPrice !== null &&
+				region.cachedInputPrice !== undefined,
+		)
+	);
+}
+
+/** Whether a listing's prices awaiting review, else its current ones, claim caching. */
+export async function listingDeclaresPromptCaching(
+	draftModelId: string,
+): Promise<boolean> {
+	const filings = await db.query.providerPriceFiling.findMany({
+		where: {
+			draftModelId: { eq: draftModelId },
+			status: { in: ["pending", "approved"] },
+		},
+		columns: {
+			status: true,
+			cachedInputPrice: true,
+			regionPrices: true,
+			createdAt: true,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	const filing =
+		filings.find((entry) => entry.status === "pending") ??
+		filings.find((entry) => entry.status === "approved");
+	return filing ? declaresPromptCaching(filing) : false;
 }
 
 export function verificationTargetsMatch(
@@ -177,7 +220,8 @@ export function verificationTargetsMatch(
 			JSON.stringify(right.reasoningEfforts) &&
 		left.webSearch === right.webSearch &&
 		(left.contextSize ?? null) === (right.contextSize ?? null) &&
-		(left.maxOutput ?? null) === (right.maxOutput ?? null)
+		(left.maxOutput ?? null) === (right.maxOutput ?? null) &&
+		(left.promptCaching ?? false) === (right.promptCaching ?? false)
 	);
 }
 
@@ -191,6 +235,7 @@ const BOOLEAN_CAPABILITIES = [
 	"reasoning",
 	"reasoningMaxTokens",
 	"webSearch",
+	"promptCaching",
 ] as const;
 
 /** Tool choices: null or empty declares every mode. */
