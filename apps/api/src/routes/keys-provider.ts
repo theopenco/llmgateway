@@ -30,8 +30,11 @@ import {
 	cdb,
 	db,
 	eq,
+	deletedProviderKeyStatus,
 	inArray,
-	ne,
+	isRemovedProviderKeyStatus,
+	notInArray,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	shortid,
 	sql,
 	tables,
@@ -174,6 +177,12 @@ export const providerKeyPublicSchema = z.object({
 
 type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
 
+// A key in its teardown grace period is deleted as far as its owner is
+// concerned.
+function publicProviderKeyStatus(status: ProviderKeyRow["status"]) {
+	return status === "pending_deletion" ? "deleted" : status;
+}
+
 // Every row served by these routes is organization-owned: they all query by
 // organizationId. Platform-managed credentials (organizationId NULL) are
 // administered from the admin dashboard and never surface here.
@@ -188,7 +197,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		description: row.description,
 		baseUrl: row.baseUrl,
 		options: row.options,
-		status: row.status,
+		status: publicProviderKeyStatus(row.status),
 		customModelsOnly: row.customModelsOnly,
 		// The organization's own compliance attestation for its custom provider,
 		// shown back in the dashboard. Not secret-bearing.
@@ -848,7 +857,12 @@ keysProvider.openapi(listActive, async (c) => {
 		},
 	});
 
-	return c.json({ providerKeys });
+	return c.json({
+		providerKeys: providerKeys.map((key) => ({
+			provider: key.provider,
+			status: publicProviderKeyStatus(key.status),
+		})),
+	});
 });
 
 // Soft-delete a provider key
@@ -927,10 +941,20 @@ keysProvider.openapi(deleteKey, async (c) => {
 
 	assertOrganizationProviderKey(providerKey);
 
+	if (isRemovedProviderKeyStatus(providerKey.status)) {
+		return c.json({
+			message: "Provider key deleted successfully",
+		});
+	}
+
+	// Conversations whose replayed reasoning only this key can verify keep
+	// using it through the grace period; nothing else routes to it.
+	const status = deletedProviderKeyStatus(providerKey.provider);
 	await cdb
 		.update(tables.providerKey)
 		.set({
-			status: "deleted",
+			status,
+			deletionRequestedAt: status === "pending_deletion" ? new Date() : null,
 		})
 		.where(eq(tables.providerKey.id, id));
 
@@ -1038,7 +1062,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		},
 	});
 
-	if (!providerKey) {
+	if (!providerKey || isRemovedProviderKeyStatus(providerKey.status)) {
 		throw new HTTPException(404, {
 			message: "Provider key not found",
 		});
@@ -1337,7 +1361,7 @@ keysProvider.openapi(reorder, async (c) => {
 			organizationId: { eq: organizationId },
 			provider: { eq: provider },
 			managed: { eq: false },
-			status: { ne: "deleted" },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 		},
 		columns: { id: true, sortOrder: true, createdAt: true },
 	});
@@ -1376,7 +1400,9 @@ keysProvider.openapi(reorder, async (c) => {
 				eq(tables.providerKey.organizationId, organizationId),
 				eq(tables.providerKey.provider, provider),
 				eq(tables.providerKey.managed, false),
-				ne(tables.providerKey.status, "deleted"),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
 			),
 		)
 		.returning();

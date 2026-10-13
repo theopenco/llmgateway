@@ -84,6 +84,7 @@ import {
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
 import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
+import { tearDownPendingProviderKeys } from "./services/provider-key-teardown.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import {
 	backfillHistoryIfNeeded,
@@ -2835,6 +2836,7 @@ async function runApiKeyExpirationLoop() {
 		while (!isStopRequested()) {
 			try {
 				await disableExpiredApiKeys();
+				await tearDownPendingProviderKeys();
 
 				await interruptibleSleep(interval);
 			} catch (error) {

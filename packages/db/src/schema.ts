@@ -2171,9 +2171,15 @@ export const providerKey = snakeCase.table(
 		customModelsOnly: boolean().notNull().default(false),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
+		// "pending_deletion" is a deleted key inside its teardown grace period:
+		// out of every list and routing decision, but still eligible to serve a
+		// conversation pinned to it by provider-bound reasoning. The worker
+		// flips it to "deleted" once the grace period has passed.
 		status: text({
-			enum: ["active", "inactive", "deleted"],
+			enum: ["active", "inactive", "pending_deletion", "deleted"],
 		}).default("active"),
+		// When the key was moved to "pending_deletion"; starts the grace period.
+		deletionRequestedAt: timestamp(),
 		// When true this is a platform-managed credential used to serve
 		// credits-mode traffic (the DB-backed replacement for the `LLM_*` env
 		// vars) instead of an organization-owned BYOK key. Managed rows have a

@@ -551,6 +551,21 @@ Automatic retry to a different provider is disabled when:
 Retries can still happen within the same provider when multiple keys are
 configured and the current key fails with a retryable error.
 
+### Encrypted reasoning stays on its key
+
+OpenAI and Azure only accept replayed encrypted reasoning on the account that
+produced it: another OpenAI organization or Azure resource rejects it with
+`The encrypted content for item rs_... could not be verified`. The gateway
+remembers which credential produced each encrypted reasoning item, and the turn
+that replays it is sent with that same key. Such a turn is never retried on
+another key. A conversation without a remembered key (older than 24 hours since
+its last turn) uses normal key selection.
+
+Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
+During that time it serves only conversations that replay reasoning it
+produced; it is never selected for any other request, and it is fully deleted
+afterwards. Custom-provider keys are deleted immediately.
+
 ### Routing Transparency
 
 Every provider attempt — both failed and successful — is recorded in the `routing` array in the response metadata (streaming and non-streaming alike) and activity logs:

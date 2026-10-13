@@ -60,9 +60,12 @@ import {
 	desc,
 	eq,
 	gte,
+	deletedProviderKeyStatus,
 	inArray,
+	isRemovedProviderKeyStatus,
 	lt,
-	ne,
+	notInArray,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	shortid,
 	sql,
 	tables,
@@ -113,7 +116,11 @@ const credentialSchema = z.object({
 	comment: z.string().nullable(),
 	variant: variantSchema,
 	region: z.string().nullable(),
-	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	status: z
+		.enum(["active", "inactive", "pending_deletion", "deleted"])
+		.nullable(),
+	/** Start of the teardown grace period for a "pending_deletion" credential. */
+	deletionRequestedAt: z.date().nullable(),
 	config: z.record(z.string(), z.string()),
 	/** USD spend cap; the credential auto-deactivates when usage reaches it. */
 	usageLimit: z.string().nullable(),
@@ -299,6 +306,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		variant: row.variant,
 		region: row.region,
 		status: row.status,
+		deletionRequestedAt: row.deletionRequestedAt,
 		config: row.config ?? {},
 		usageLimit: row.usageLimit,
 		usage: row.usage,
@@ -777,7 +785,9 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	const rows = await db.query.providerKey.findMany({
 		where: {
 			managed: { eq: true },
-			...(includeDeleted === "true" ? {} : { status: { ne: "deleted" } }),
+			...(includeDeleted === "true"
+				? {}
+				: { status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] } }),
 			...(provider ? { provider: { eq: provider } } : {}),
 		},
 		orderBy: {
@@ -1699,7 +1709,9 @@ const spendOverviewKeySchema = z.object({
 	region: z.string().nullable(),
 	comment: z.string().nullable(),
 	maskedToken: z.string(),
-	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	status: z
+		.enum(["active", "inactive", "pending_deletion", "deleted"])
+		.nullable(),
 	/** Lifetime counter the spend limit is enforced against. */
 	usage: z.string(),
 	usageLimit: z.string().nullable(),
@@ -1843,7 +1855,10 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 		bucket: bucketUnit,
 		buckets: getWindowBucketTimestamps(window),
 		keys: keys
-			.filter((key) => key.status !== "deleted" || totalsByKey.has(key.id))
+			.filter(
+				(key) =>
+					!isRemovedProviderKeyStatus(key.status) || totalsByKey.has(key.id),
+			)
 			.map((key) => {
 				const totals = totalsByKey.get(key.id);
 				return {
@@ -2054,7 +2069,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 	// Soft-deleted credentials stay editable (e.g. renamed for the history they
 	// are kept for), but never move back into rotation.
-	const wasDeleted = existing.status === "deleted";
+	const wasDeleted = isRemovedProviderKeyStatus(existing.status);
 	if (wasDeleted && body.status !== undefined) {
 		throw new HTTPException(400, {
 			message: "A deleted credential cannot change status.",
@@ -2205,8 +2220,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 				eq(tables.providerKey.id, id),
 				eq(tables.providerKey.managed, true),
 				wasDeleted
-					? eq(tables.providerKey.status, "deleted")
-					: ne(tables.providerKey.status, "deleted"),
+					? inArray(tables.providerKey.status, [
+							...REMOVED_PROVIDER_KEY_STATUSES,
+						])
+					: notInArray(tables.providerKey.status, [
+							...REMOVED_PROVIDER_KEY_STATUSES,
+						]),
 			),
 		)
 		.returning();
@@ -2260,7 +2279,7 @@ async function resolveCredentialUnderTest(
 			where: {
 				id: { eq: body.credentialId },
 				managed: { eq: true },
-				status: { ne: "deleted" },
+				status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 			},
 		});
 		if (!credential) {
@@ -2621,15 +2640,33 @@ adminProviderCredentials.openapi(deleteCredential, async (c) => {
 	// Soft delete: request logs reference provider-key ids for health tracking
 	// and attribution, so the row must survive. The status predicate makes a
 	// repeat delete report 404 instead of succeeding against an already-deleted
-	// row.
+	// row. The credential first enters its teardown grace period, where it
+	// only serves conversations pinned to it by replayed reasoning.
+	const existing = await db.query.providerKey.findFirst({
+		where: {
+			id: { eq: id },
+			managed: { eq: true },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
+		},
+		columns: { provider: true },
+	});
+	if (!existing) {
+		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	const status = deletedProviderKeyStatus(existing.provider);
 	const [deleted] = await cdb
 		.update(tables.providerKey)
-		.set({ status: "deleted" })
+		.set({
+			status,
+			deletionRequestedAt: status === "pending_deletion" ? new Date() : null,
+		})
 		.where(
 			and(
 				eq(tables.providerKey.id, id),
 				eq(tables.providerKey.managed, true),
-				ne(tables.providerKey.status, "deleted"),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
 			),
 		)
 		.returning({ id: tables.providerKey.id });
@@ -2712,7 +2749,7 @@ adminProviderCredentials.openapi(reorderCredentials, async (c) => {
 		where: {
 			managed: { eq: true },
 			provider: { eq: provider },
-			status: { ne: "deleted" },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 		},
 		columns: { id: true },
 	});
@@ -2744,7 +2781,9 @@ adminProviderCredentials.openapi(reorderCredentials, async (c) => {
 				inArray(tables.providerKey.id, credentialIds),
 				eq(tables.providerKey.managed, true),
 				eq(tables.providerKey.provider, provider),
-				ne(tables.providerKey.status, "deleted"),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
 			),
 		)
 		.returning();

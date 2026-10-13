@@ -345,6 +345,11 @@ import {
 } from "./tools/provider-filter-reasons.js";
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
+	type ReasoningCredential,
+	rememberReasoningCredential,
+	resolveReasoningCredentialPin,
+} from "./tools/reasoning-credential-pin.js";
+import {
 	flushTaggedStreamingRemainder,
 	hasProviderBoundReasoning,
 	splitTaggedStreamingContentChunk,
@@ -6559,6 +6564,24 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
+	// The credential the current attempt sends, as recorded against the
+	// account-bound reasoning it produces.
+	function currentReasoningCredential(): ReasoningCredential | undefined {
+		if (!usedApiKeyHash || !usedProvider) {
+			return undefined;
+		}
+		const base = { provider: usedProvider, apiKeyHash: usedApiKeyHash };
+		if (providerKey) {
+			return { ...base, source: "byok", providerKeyId: providerKey.id };
+		}
+		if (managedKey) {
+			return { ...base, source: "managed", providerKeyId: managedKey.id };
+		}
+		if (envVarName) {
+			return { ...base, source: "env", envVarName };
+		}
+		return undefined;
+	}
 	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
@@ -6573,6 +6596,22 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Replayed account-bound reasoning only verifies on the credential that
+	// produced it, so that credential replaces normal key selection.
+	const pinnedCredential = usedProviderEncryptsReasoning()
+		? await resolveReasoningCredentialPin({
+				organizationId: project.organizationId,
+				projectMode: project.mode,
+				provider: usedProvider,
+				model: usedInternalModel,
+				messages,
+			})
+		: undefined;
+	const pinnedPlatformCredential =
+		pinnedCredential?.kind === "platform"
+			? pinnedCredential.credential
+			: undefined;
+
 	if (project.mode === "api-keys") {
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
@@ -6581,6 +6620,8 @@ chat.openapi(completions, async (c) => {
 				customProviderName,
 				usedInternalModel,
 			);
+		} else if (pinnedCredential?.kind === "byok") {
+			providerKey = pinnedCredential.providerKey;
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
@@ -6695,13 +6736,15 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		const platformCredential = await resolvePlatformCredential(usedProvider, {
-			selectionScope: usedInternalModel,
-			model: usedInternalModel,
-			variant: envVariant,
-			region: usedRegion,
-			requiresServiceTier: isRequestedServiceTier(service_tier),
-		});
+		const platformCredential =
+			pinnedPlatformCredential ??
+			(await resolvePlatformCredential(usedProvider, {
+				selectionScope: usedInternalModel,
+				model: usedInternalModel,
+				variant: envVariant,
+				region: usedRegion,
+				requiresServiceTier: isRequestedServiceTier(service_tier),
+			}));
 		managedKey = platformCredential.managedKey;
 		usedToken = platformCredential.token;
 		configIndex = platformCredential.configIndex;
@@ -6711,8 +6754,9 @@ chat.openapi(completions, async (c) => {
 		// Override with region-specific env var if a non-default region is selected.
 		// Managed credentials are already selected per region, so this only
 		// applies to the env-var path. Health attribution must follow the
-		// credential we actually send.
-		if (usedRegion && !managedKey) {
+		// credential we actually send. A pinned env credential already names
+		// the exact var that produced the replayed reasoning.
+		if (usedRegion && !managedKey && !pinnedPlatformCredential) {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
 				usedRegion,
@@ -6735,6 +6779,13 @@ chat.openapi(completions, async (c) => {
 				customProviderName,
 				usedInternalModel,
 			);
+		} else if (pinnedCredential) {
+			// A platform pin leaves providerKey unset, so the platform branch
+			// below serves it.
+			providerKey =
+				pinnedCredential.kind === "byok"
+					? pinnedCredential.providerKey
+					: undefined;
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
@@ -6838,13 +6889,15 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const platformCredential = await resolvePlatformCredential(usedProvider, {
-				selectionScope: usedInternalModel,
-				model: usedInternalModel,
-				variant: envVariant,
-				region: usedRegion,
-				requiresServiceTier: isRequestedServiceTier(service_tier),
-			});
+			const platformCredential =
+				pinnedPlatformCredential ??
+				(await resolvePlatformCredential(usedProvider, {
+					selectionScope: usedInternalModel,
+					model: usedInternalModel,
+					variant: envVariant,
+					region: usedRegion,
+					requiresServiceTier: isRequestedServiceTier(service_tier),
+				}));
 			managedKey = platformCredential.managedKey;
 			usedToken = platformCredential.token;
 			configIndex = platformCredential.configIndex;
@@ -6855,7 +6908,7 @@ chat.openapi(completions, async (c) => {
 			// Managed credentials are already selected per region, so this only
 			// applies to the env-var path. Health attribution must follow the
 			// credential we actually send.
-			if (usedRegion && !managedKey) {
+			if (usedRegion && !managedKey && !pinnedPlatformCredential) {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
 					usedRegion,
@@ -8659,6 +8712,10 @@ chat.openapi(completions, async (c) => {
 		streamValue: boolean,
 	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
 		if (!usedProvider || !usedInternalModel) {
+			return null;
+		}
+		// Another credential cannot verify the replayed reasoning.
+		if (pinnedCredential) {
 			return null;
 		}
 
@@ -11520,6 +11577,12 @@ chat.openapi(completions, async (c) => {
 									searchStart = eventEnd;
 									continue;
 								}
+
+								await rememberReasoningCredential(
+									project.organizationId,
+									transformedData.choices?.[0]?.delta?.reasoning_details,
+									currentReasoningCredential(),
+								);
 
 								// A chunk whose finish_reason signals an upstream failure (e.g.
 								// Embercloud's "error") is not a valid OpenAI completion chunk —
@@ -15552,6 +15615,11 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.reasoning_details =
 			parsedResponse.reasoningDetails;
+		await rememberReasoningCredential(
+			project.organizationId,
+			parsedResponse.reasoningDetails,
+			currentReasoningCredential(),
+		);
 	}
 	// Surface the OpenAI Responses assistant-message phase so stateless clients
 	// can replay it as part of complete conversation history.

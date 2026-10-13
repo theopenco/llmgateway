@@ -399,7 +399,16 @@ function usageMetric(
 }
 
 function isDeletedCredential(credential: ProviderCredential): boolean {
-	return credential.status === "deleted";
+	return (
+		credential.status === "deleted" || credential.status === "pending_deletion"
+	);
+}
+
+/** Why a deleted credential is still listed, including its grace period. */
+function deletedCredentialDescription(credential: ProviderCredential): string {
+	return credential.status === "pending_deletion"
+		? "Pending deletion: only serves conversations whose replayed reasoning it produced, until its teardown grace period ends."
+		: "Deleted: kept for its spend and request history only.";
 }
 
 /** Rotation position, or a dash for a credential the gateway skips. */
@@ -425,7 +434,7 @@ function RotationPosition({
 			className="text-xs text-muted-foreground"
 			title={
 				isDeletedCredential(credential)
-					? "Deleted: kept for its spend and request history only."
+					? deletedCredentialDescription(credential)
 					: "Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
 			}
 		>
@@ -2471,8 +2480,7 @@ function CredentialDialog({
 						<div className="flex flex-col gap-2">
 							<Label>Status</Label>
 							<p className="text-sm text-muted-foreground">
-								Deleted: kept for its spend and request history only, and never
-								selected by the gateway.
+								{deletedCredentialDescription(credential)}
 							</p>
 						</div>
 					) : isEdit ? (

@@ -68,6 +68,7 @@ import {
 	isNotNull,
 	isNull,
 	ne,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -740,7 +741,10 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 	const keys =
 		keyIds.length > 0
 			? await db.query.providerKey.findMany({
-					where: { id: { in: keyIds }, status: { ne: "deleted" } },
+					where: {
+						id: { in: keyIds },
+						status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
+					},
 					columns: { id: true, tokenMasked: true, createdAt: true },
 				})
 			: [];

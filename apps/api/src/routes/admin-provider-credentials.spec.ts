@@ -419,7 +419,15 @@ describe("admin provider credentials", () => {
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
-		expect(row?.status).toBe("deleted");
+		// First the teardown grace period; the worker finishes the deletion.
+		expect(row?.status).toBe("pending_deletion");
+		expect(row?.deletionRequestedAt).toBeInstanceOf(Date);
+
+		const again = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(again.status).toBe(404);
 	});
 
 	test("lists soft-deleted credentials only when asked", async () => {
@@ -436,7 +444,7 @@ describe("admin provider credentials", () => {
 		expect((await list()).map((c) => c.id)).toEqual([kept.id]);
 		const withDeleted = await list("?includeDeleted=true");
 		expect(withDeleted.map((c) => [c.id, c.status])).toEqual([
-			[deleted.id, "deleted"],
+			[deleted.id, "pending_deletion"],
 			[kept.id, "active"],
 		]);
 	});
@@ -462,14 +470,14 @@ describe("admin provider credentials", () => {
 		expect(renamed.status).toBe(200);
 		const { credential: updated } = await renamed.json();
 		expect(updated.comment).toBe("old prod key");
-		expect(updated.status).toBe("deleted");
+		expect(updated.status).toBe("pending_deletion");
 
 		const revived = await patch({ status: "active" });
 		expect(revived.status).toBe(400);
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
-		expect(row?.status).toBe("deleted");
+		expect(row?.status).toBe("pending_deletion");
 	});
 
 	test("does not manage organization-owned provider keys", async () => {
