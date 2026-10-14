@@ -445,6 +445,26 @@ describe("reasoning credential pinning", () => {
 		expect(res.status).toBe(200);
 		expect(attempts).toEqual(["Bearer sk-managed-a", "Bearer sk-managed-a"]);
 		expect(replayedReasoning).toEqual([true, false]);
+
+		// The rejected attempt is logged as retried by the successful one, so
+		// activity views show only the success.
+		const logs = await waitForLogs(2);
+		const failed = logs.find((log) => log.hasError);
+		const success = logs.find((log) => !log.hasError);
+		expect(failed?.retried).toBe(true);
+		expect(failed?.retriedByLogId).toBe(success?.id);
+		expect(failed?.unifiedFinishReason).toBe("client_error");
+		expect(success?.retried).toBe(false);
+		expect(success?.routingMetadata?.encryptedReasoningDropped).toBe(true);
+		expect(
+			success?.routingMetadata?.routing?.map((attempt) => [
+				attempt.status_code,
+				attempt.succeeded,
+			]),
+		).toEqual([
+			[400, false],
+			[200, true],
+		]);
 	});
 
 	test("does not retry a rejected replay more than once", async () => {
