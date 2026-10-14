@@ -4505,6 +4505,50 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 	],
 );
 
+// Hourly rollup of log.gatewayContentFilterEvaluation broken out by the API key
+// that sent the request, so violations can be traced to a key without scanning
+// `log`. Same conventions as contentFilterHourlyStats (an "all" row with the
+// totals, category rows with violationCount only), without durations. Every
+// log row carries an apiKeyId (end-user sessions log their end-customer key),
+// so these rows sum to the contentFilterHourlyStats totals.
+export const contentFilterHourlyApiKeyStats = snakeCase.table(
+	"content_filter_hourly_api_key_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		apiKeyId: text().notNull(),
+		category: text().notNull(),
+		classifier: text().notNull(),
+		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		// Leads with hourTimestamp, so it also serves the per-hour replace.
+		unique("content_filter_hourly_api_key_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.apiKeyId,
+			table.category,
+			table.classifier,
+			table.role,
+		),
+		index("content_filter_hourly_api_key_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Hourly classifier latency from log.gatewayContentFilterEvaluation, platform
 // wide, so the classifier's own speed can be read without scanning `log`. One
 // row per classifier and, for the internal classifier, the scope it read

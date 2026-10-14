@@ -35,6 +35,7 @@ const GATEWAY_TEST_DB_LOCK_ID = 41001;
  */
 const RESET_TABLES = [
 	tables.log,
+	tables.contentFilterHourlyApiKeyStats,
 	tables.contentFilterHourlyModelStats,
 	tables.contentFilterHourlyStats,
 	tables.systemSetting,
