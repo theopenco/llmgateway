@@ -4592,6 +4592,58 @@ export const contentFilterHourlyLatencyStats = snakeCase.table(
 	],
 );
 
+// Hourly rollup of the moderation errors stored on
+// log.gatewayContentFilterEvaluation.moderationErrors, so failed moderation
+// calls can be reviewed in the admin dashboard without reading the gateway's
+// logs or scanning `log`. One row per (org, project, classifier, source, kind,
+// status, code); an evaluation with several errors counts once per error.
+export const contentFilterHourlyErrorStats = snakeCase.table(
+	"content_filter_hourly_error_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		// The deciding classifier of the evaluation.
+		classifier: text().notNull(),
+		// The classifier whose call failed; differs from `classifier` when a
+		// text-only classifier delegated an image to OpenAI.
+		source: text().notNull(),
+		kind: text().notNull(),
+		inputType: text().notNull().default(""),
+		status: integer().notNull().default(0),
+		code: text().notNull().default(""),
+		errorCount: integer().notNull().default(0),
+		// Latest message and request in the hour, for drill-down.
+		lastMessage: text().notNull().default(""),
+		lastRequestId: text().notNull().default(""),
+		lastSeenAt: timestamp().notNull(),
+	},
+	(table) => [
+		unique("content_filter_hourly_error_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.classifier,
+			table.source,
+			table.kind,
+			table.inputType,
+			table.status,
+			table.code,
+		),
+		index("content_filter_hourly_error_stats_ts_idx").on(table.hourTimestamp),
+		index("content_filter_hourly_error_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization

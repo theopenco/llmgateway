@@ -292,6 +292,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 				classifierDurationMs: result.classifierDurationMs,
 				classifierRequests: result.classifierRequests,
 				imageDurationMs: result.imageDurationMs,
+				moderationErrors: result.errors,
 			},
 		),
 		results: [result],
