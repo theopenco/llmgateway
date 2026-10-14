@@ -559,9 +559,10 @@ by another OpenAI organization or Azure resource with
 `The encrypted content for item rs_... could not be verified`. For every model
 with provider-bound reasoning, the gateway remembers which key produced each
 encrypted reasoning item or thought signature, and the turn that replays it is
-sent with that same key. Such a turn is never retried on another key. A
-conversation without a remembered key (older than 24 hours since its last turn)
-uses normal key selection.
+routed to that provider and sent with that same key, with or without a session
+id. Such a turn is never retried on another key. A conversation without a
+remembered key (older than 24 hours since its last turn) uses normal routing
+and key selection.
 
 Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
 During that time it serves only conversations that replay reasoning it
