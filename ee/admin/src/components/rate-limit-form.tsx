@@ -293,8 +293,8 @@ export function RateLimitForm({
 						{rateLimit ? "Edit Rate Limit" : "Add Rate Limit"}
 					</DialogTitle>
 					<DialogDescription>
-						Set a maximum requests per minute or per day cap for a provider,
-						model, or combination.
+						Cap requests or tokens per minute or per day for a provider, model,
+						or combination.
 					</DialogDescription>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="space-y-4">

@@ -52,6 +52,10 @@ interface Credential {
 	usage: string;
 	maskedToken: string;
 	tokenHash: string | null;
+	maxRpm: number | null;
+	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
 }
 
 describe("admin provider credentials", () => {
@@ -348,6 +352,38 @@ describe("admin provider credentials", () => {
 		);
 		expect(clear.status).toBe(200);
 		expect((await list())[0].usageLimit).toBeNull();
+	});
+
+	test("stores and updates rate limits", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-rate-limited",
+			maxRpm: 60,
+			maxTpd: 1_000_000,
+		});
+		expect(res.status).toBe(201);
+		const [credential] = await list();
+		expect(credential).toMatchObject({
+			maxRpm: 60,
+			maxRpd: null,
+			maxTpm: null,
+			maxTpd: 1_000_000,
+		});
+
+		const update = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ maxRpm: null, maxTpm: 50_000 }),
+			},
+		);
+		expect(update.status).toBe(200);
+		expect((await list())[0]).toMatchObject({
+			maxRpm: null,
+			maxTpm: 50_000,
+			maxTpd: 1_000_000,
+		});
 	});
 
 	test("refuses to reactivate a credential still at its spend limit", async () => {
