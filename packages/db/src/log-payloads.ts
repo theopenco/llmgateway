@@ -28,6 +28,29 @@ export const contentFilterClassifierSchema = z.enum([
 	"internal",
 ]);
 
+/** Why a moderation call failed, coarse enough to aggregate on. */
+export const contentFilterModerationErrorKindSchema = z.enum([
+	// The classifier rejected the input (unsupported image format, corrupt
+	// file, unreachable image URL). Expected, caused by the request.
+	"upstream_4xx",
+	"upstream_5xx",
+	"timeout",
+	"network",
+	// A 2xx whose body was not a moderation response.
+	"bad_response",
+	"unexpected",
+]);
+
+export const contentFilterModerationErrorSchema = z.object({
+	source: contentFilterClassifierSchema,
+	kind: contentFilterModerationErrorKindSchema,
+	inputType: z.enum(["text", "image"]).optional(),
+	status: z.number().int().optional(),
+	// Upstream error code (`invalid_image_format`) or network code (`ECONNRESET`).
+	code: z.string().optional(),
+	message: z.string(),
+});
+
 export const gatewayContentFilterEvaluationSchema = z.object({
 	sampled: z.literal(true),
 	provider: z.string(),
@@ -80,6 +103,12 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 
 export type ContentFilterClassifier = z.infer<
 	typeof contentFilterClassifierSchema
+>;
+export type ContentFilterModerationErrorKind = z.infer<
+	typeof contentFilterModerationErrorKindSchema
+>;
+export type ContentFilterModerationError = z.infer<
+	typeof contentFilterModerationErrorSchema
 >;
 export type ModerationApiPayload = z.infer<typeof moderationApiPayloadSchema>;
 export type GatewayContentFilterResponse = z.infer<
