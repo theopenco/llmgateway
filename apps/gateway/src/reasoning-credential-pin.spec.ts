@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 import { rememberReasoningCredential } from "@/chat/tools/reasoning-credential-pin.js";
+import { setPreferredProvider } from "@/lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -48,10 +49,12 @@ describe("reasoning credential pinning", () => {
 		managed: boolean;
 		sortOrder?: number;
 		provider?: string;
+		config?: Record<string, string>;
 	}) {
 		await cdb.insert(tables.providerKey).values({
 			id: values.id,
 			provider: values.provider ?? "openai",
+			config: values.config,
 			...encryptProviderKeyForStorage(
 				values.token,
 				values.id,
@@ -74,8 +77,10 @@ describe("reasoning credential pinning", () => {
 	function mockUpstream(status = 200): string[] {
 		const authorizations: string[] = [];
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			const headers = new Headers(init?.headers);
 			const authorization =
-				new Headers(init?.headers).get("authorization") ?? "";
+				headers.get("authorization") ??
+				(headers.has("api-key") ? `api-key ${headers.get("api-key")}` : "");
 			authorizations.push(authorization);
 			if (status !== 200) {
 				return new Response(
@@ -111,7 +116,7 @@ describe("reasoning credential pinning", () => {
 		return authorizations;
 	}
 
-	async function turn(reasoningData?: string) {
+	async function turn(reasoningData?: string, model = MODEL) {
 		const messages: unknown[] = [{ role: "user", content: "Start" }];
 		if (reasoningData) {
 			messages.push(
@@ -136,7 +141,7 @@ describe("reasoning credential pinning", () => {
 				Authorization: "Bearer real-token",
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ model: MODEL, messages }),
+			body: JSON.stringify({ model, messages }),
 		});
 		return res;
 	}
@@ -149,6 +154,32 @@ describe("reasoning credential pinning", () => {
 		expect(typeof data).toBe("string");
 		return data as string;
 	}
+
+	test("routes a replay to the provider that produced its reasoning", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-openai", token: "sk-openai", managed: true });
+		await seedKey({
+			id: "managed-azure",
+			token: "azure-token",
+			managed: true,
+			provider: "azure",
+			config: { resource: "pin-test" },
+		});
+		const authorizations = mockUpstream();
+
+		const reasoning = await firstTurnReasoning();
+		expect(authorizations).toEqual(["Bearer sk-openai"]);
+
+		// Without a session id, the org-wide preferred provider would win.
+		await setPreferredProvider("org-id", "gpt-6.1-sol", "azure");
+		expect((await turn(reasoning, "gpt-6.1-sol")).status).toBe(200);
+		expect((await turn(undefined, "gpt-6.1-sol")).status).toBe(200);
+		expect(authorizations).toEqual([
+			"Bearer sk-openai",
+			"Bearer sk-openai",
+			"api-key azure-token",
+		]);
+	});
 
 	test("keeps a managed credential after the primary changes and it is deleted", async () => {
 		await harness.setProjectMode("credits");

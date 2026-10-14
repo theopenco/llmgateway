@@ -345,6 +345,7 @@ import {
 } from "./tools/provider-filter-reasons.js";
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
+	lookupReasoningPin,
 	type ReasoningCredential,
 	rememberReasoningCredential,
 	resolveReasoningCredentialPin,
@@ -3022,9 +3023,22 @@ chat.openapi(completions, async (c) => {
 		ReturnType<typeof createSessionProviderStore>
 	>();
 	const pendingSessionPins = new Set<string>();
+	// Replayed provider-bound reasoning only verifies where it was produced, so
+	// the provider recorded for it outranks the session pin, and pins requests
+	// without a session id too. The key is pinned at credential selection.
+	// Looked up whenever the last assistant turn carries bound reasoning or
+	// tool calls: a Gemini signature may only exist in the cache, keyed by call.
+	const reasoningPin = await lookupReasoningPin(
+		project.organizationId,
+		messages,
+	);
+	const reasoningPinnedProvider = async () =>
+		reasoningPin ? { providerId: reasoningPin.provider } : null;
 	const createSessionStore = (modelId: string) => {
 		if (!sessionStickyEnabled || !sessionId) {
-			return undefined;
+			return reasoningPin
+				? { get: reasoningPinnedProvider, set: async () => {} }
+				: undefined;
 		}
 		let store = sessionStores.get(modelId);
 		if (!store) {
@@ -3037,7 +3051,9 @@ chat.openapi(completions, async (c) => {
 			let initialPin: ReturnType<typeof persistent.get> | undefined;
 			store = {
 				get: () => {
-					initialPin ??= persistent.get();
+					initialPin ??= reasoningPinnedProvider().then(
+						async (pinned) => pinned ?? (await persistent.get()),
+					);
 					return initialPin;
 				},
 				// Commit the final pin only after the rate-limit gate accepts it.
@@ -6036,14 +6052,18 @@ chat.openapi(completions, async (c) => {
 					// Skip for exploration requests — they exist to refresh per-provider
 					// metrics — and for sticky sessions, which already pin the provider
 					// per-session via the session store inside provider selection.
+					// Replayed provider-bound reasoning pins the provider the same way.
 					let selectedProvider = cheapestResult.provider;
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
+					const reasoningPinApplied =
+						reasoningPin?.provider === cheapestResult.provider.providerId;
 
 					if (
 						hysteresisSelectionReason !== "random-exploration" &&
 						routingCfg.sticky.enabled &&
-						!sessionStickyEnabled
+						!sessionStickyEnabled &&
+						!reasoningPinApplied
 					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
@@ -6604,7 +6624,7 @@ chat.openapi(completions, async (c) => {
 				projectMode: project.mode,
 				provider: usedProvider,
 				model: usedInternalModel,
-				messages,
+				pin: reasoningPin,
 			})
 		: undefined;
 	const pinnedPlatformCredential =

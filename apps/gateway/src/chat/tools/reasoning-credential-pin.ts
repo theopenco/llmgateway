@@ -231,6 +231,18 @@ function resolveEnvCredential(
 }
 
 /**
+ * The credential recorded for the provider-bound reasoning a request replays,
+ * if any. Routing uses its provider; credential selection its key.
+ */
+export async function lookupReasoningPin(
+	organizationId: string,
+	messages: readonly ({ role: string } & ReasoningCarrier)[],
+): Promise<ReasoningCredential | undefined> {
+	const ids = replayedReasoningIds(messages);
+	return ids.length === 0 ? undefined : await readPin(organizationId, ids);
+}
+
+/**
  * The credential that produced the reasoning this request replays, when the
  * project may still use it. Undefined means "select a credential normally".
  * A key deleted within its grace period ("pending_deletion") still resolves:
@@ -241,13 +253,9 @@ export async function resolveReasoningCredentialPin(params: {
 	projectMode: string;
 	provider: string;
 	model: string;
-	messages: readonly ({ role: string } & ReasoningCarrier)[];
+	pin: ReasoningCredential | undefined;
 }): Promise<PinnedCredential | undefined> {
-	const ids = replayedReasoningIds(params.messages);
-	if (ids.length === 0) {
-		return undefined;
-	}
-	const pin = await readPin(params.organizationId, ids);
+	const { pin } = params;
 	if (!pin || pin.provider !== params.provider) {
 		return undefined;
 	}
