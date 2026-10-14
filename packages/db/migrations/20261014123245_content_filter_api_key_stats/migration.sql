@@ -15,5 +15,4 @@ CREATE TABLE "content_filter_hourly_api_key_stats" (
 	CONSTRAINT "content_filter_hourly_api_key_stats_bucket_unique" UNIQUE("hour_timestamp","organization_id","project_id","api_key_id","category","classifier","role")
 );
 --> statement-breakpoint
-CREATE INDEX "content_filter_hourly_api_key_stats_org_ts_idx" ON "content_filter_hourly_api_key_stats" ("organization_id","hour_timestamp");--> statement-breakpoint
-CREATE INDEX "content_filter_hourly_api_key_stats_key_ts_idx" ON "content_filter_hourly_api_key_stats" ("api_key_id","hour_timestamp");
+CREATE INDEX "content_filter_hourly_api_key_stats_org_ts_idx" ON "content_filter_hourly_api_key_stats" ("organization_id","hour_timestamp");

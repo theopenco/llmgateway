@@ -35,6 +35,10 @@ interface ContentFilterStatsRow extends Record<string, unknown> {
 	duration_sum_ms: string | number;
 	duration_count: number;
 	duration_max_ms: number | null;
+	// Which grouping set produced the row; both false on the (org, project)
+	// and latency rows.
+	by_api_key: boolean;
+	by_model: boolean;
 	// Set only on the platform-wide latency rows.
 	latency: ContentFilterLatency | null;
 }
@@ -198,6 +202,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			)::bigint as duration_sum_ms,
 			count(distinct request_id) filter (where duration_ms is not null)::int as duration_count,
 			max(duration_ms)::int as duration_max_ms,
+			grouping(api_key_id) = 0 as by_api_key,
+			grouping(used_model) = 0 as by_model,
 			null::jsonb as latency
 		from verdicts
 		group by grouping sets (
@@ -221,6 +227,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			0::bigint as duration_sum_ms,
 			0 as duration_count,
 			null::int as duration_max_ms,
+			grouping(api_key_id) = 0 as by_api_key,
+			grouping(used_model) = 0 as by_model,
 			null::jsonb as latency
 		from verdicts
 		cross join lateral jsonb_array_elements_text(
@@ -248,6 +256,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			0::bigint as duration_sum_ms,
 			0 as duration_count,
 			null::int as duration_max_ms,
+			false as by_api_key,
+			false as by_model,
 			jsonb_build_object(
 				'internalScope', internal_scope,
 				'checkCount', count(*),
@@ -281,7 +291,10 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			});
 			continue;
 		}
-		if (row.api_key_id !== null) {
+		if (row.by_api_key) {
+			if (row.api_key_id === null) {
+				throw new Error("content filter API key row without an api_key_id");
+			}
 			apiKeyValues.push({
 				hourTimestamp: start,
 				organizationId: row.organization_id,
@@ -311,9 +324,12 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			durationMaxMs:
 				row.duration_max_ms === null ? null : Number(row.duration_max_ms),
 		};
-		if (row.used_model === null || row.used_provider === null) {
+		if (!row.by_model) {
 			values.push(counts);
 		} else {
+			if (row.used_model === null || row.used_provider === null) {
+				throw new Error("content filter model row without a used model");
+			}
 			modelValues.push({
 				...counts,
 				usedModel: row.used_model,

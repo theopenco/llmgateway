@@ -762,6 +762,46 @@ describe("content filter stats aggregator", () => {
 		]);
 	});
 
+	it("sums one API key's internal scopes into a single row per category", async () => {
+		await db.insert(log).values(
+			(["full", "latest_turn"] as const).map((internalScope) =>
+				logRow({
+					gatewayContentFilterEvaluation: evaluation({
+						classifier: "internal",
+						internalScope,
+						violation: true,
+						action: "logged",
+						matchedCategories: ["violence"],
+					}),
+				}),
+			),
+		);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		expect(await apiKeyStatsRows()).toEqual([
+			{
+				projectId: "cf-proj",
+				apiKeyId: "cf-key",
+				category: "all",
+				classifier: "internal",
+				role: "deciding",
+				sampledCount: 2,
+				violationCount: 2,
+				blockedCount: 0,
+			},
+			{
+				projectId: "cf-proj",
+				apiKeyId: "cf-key",
+				category: "violence",
+				classifier: "internal",
+				role: "deciding",
+				sampledCount: 0,
+				violationCount: 2,
+				blockedCount: 0,
+			},
+		]);
+	});
+
 	it("is idempotent across reruns", async () => {
 		await db.insert(log).values([
 			logRow({

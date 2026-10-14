@@ -4546,10 +4546,6 @@ export const contentFilterHourlyApiKeyStats = snakeCase.table(
 			table.organizationId,
 			table.hourTimestamp,
 		),
-		index("content_filter_hourly_api_key_stats_key_ts_idx").on(
-			table.apiKeyId,
-			table.hourTimestamp,
-		),
 	],
 );
 

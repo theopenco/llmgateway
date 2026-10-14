@@ -383,6 +383,15 @@ describe("admin content filter violations", () => {
 				violationCount: 1,
 				blockedCount: 0,
 			},
+			// Sampled without a violation: takes no top-key slot.
+			{
+				...row,
+				hourTimestamp: hoursAgo(1),
+				apiKeyId: "cf-key-clean",
+				sampledCount: 50,
+				violationCount: 0,
+				blockedCount: 0,
+			},
 			// Category rows and shadow rows never feed the totals.
 			{
 				...row,

@@ -17,6 +17,7 @@ import {
 import {
 	aliasedTable,
 	and,
+	asc,
 	CONTENT_FILTER_STATS_ALL_CATEGORY,
 	contentFilterHourlyApiKeyStats,
 	contentFilterHourlyModelStats,
@@ -27,6 +28,7 @@ import {
 	gte,
 	inArray,
 	isNotNull,
+	lte,
 	ne,
 	sql,
 	tables,
@@ -109,6 +111,11 @@ const organizationApiKeySchema = apiKeyBreakdownSchema.extend({
 type ApiKeyBreakdown = z.infer<typeof apiKeyBreakdownSchema>;
 
 // The rollup has no foreign key to api_key, so a removed key keeps its counts.
+const apiKeyJoin = and(
+	eq(tables.apiKey.id, contentFilterHourlyApiKeyStats.apiKeyId),
+	eq(tables.apiKey.projectId, contentFilterHourlyApiKeyStats.projectId),
+);
+
 const apiKeyColumns = {
 	apiKeyId: contentFilterHourlyApiKeyStats.apiKeyId,
 	projectId: contentFilterHourlyApiKeyStats.projectId,
@@ -527,39 +534,67 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		modelsByOrg.set(row.organizationId, list);
 	}
 
+	// Ranked per organization in the database, so only the top keys of each
+	// org leave it. Keys without a violation never take a slot here; the
+	// per-org activity endpoint still lists them.
+	const rankedApiKeys = db
+		.select({
+			organizationId: contentFilterHourlyApiKeyStats.organizationId,
+			apiKeyId: contentFilterHourlyApiKeyStats.apiKeyId,
+			projectId: contentFilterHourlyApiKeyStats.projectId,
+			sampledCount: apiKeySampled.as("sampled_count"),
+			violationCount: apiKeyViolations.as("violation_count"),
+			blockedCount: apiKeyBlocked.as("blocked_count"),
+			rank: sql<number>`row_number() over (
+				partition by ${contentFilterHourlyApiKeyStats.organizationId}
+				order by sum(${contentFilterHourlyApiKeyStats.violationCount}) desc,
+					sum(${contentFilterHourlyApiKeyStats.sampledCount}) desc,
+					${contentFilterHourlyApiKeyStats.apiKeyId}
+			)`.as("rank"),
+		})
+		.from(contentFilterHourlyApiKeyStats)
+		.where(
+			and(
+				gte(contentFilterHourlyApiKeyStats.hourTimestamp, windowStart),
+				isDecidingApiKey,
+				eq(
+					contentFilterHourlyApiKeyStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+				inArray(contentFilterHourlyApiKeyStats.organizationId, organizationIds),
+			),
+		)
+		.groupBy(
+			contentFilterHourlyApiKeyStats.organizationId,
+			contentFilterHourlyApiKeyStats.apiKeyId,
+			contentFilterHourlyApiKeyStats.projectId,
+		)
+		.having(sql`sum(${contentFilterHourlyApiKeyStats.violationCount}) > 0`)
+		.as("ranked_api_keys");
+
 	const apiKeyRows =
 		organizationIds.length > 0
 			? await db
 					.select({
-						organizationId: contentFilterHourlyApiKeyStats.organizationId,
-						...apiKeyColumns,
+						organizationId: rankedApiKeys.organizationId,
+						apiKeyId: rankedApiKeys.apiKeyId,
+						projectId: rankedApiKeys.projectId,
+						description: tables.apiKey.description,
+						status: tables.apiKey.status,
+						sampledCount: rankedApiKeys.sampledCount,
+						violationCount: rankedApiKeys.violationCount,
+						blockedCount: rankedApiKeys.blockedCount,
 					})
-					.from(contentFilterHourlyApiKeyStats)
+					.from(rankedApiKeys)
 					.leftJoin(
 						tables.apiKey,
-						eq(tables.apiKey.id, contentFilterHourlyApiKeyStats.apiKeyId),
-					)
-					.where(
 						and(
-							gte(contentFilterHourlyApiKeyStats.hourTimestamp, windowStart),
-							isDecidingApiKey,
-							eq(
-								contentFilterHourlyApiKeyStats.category,
-								CONTENT_FILTER_STATS_ALL_CATEGORY,
-							),
-							inArray(
-								contentFilterHourlyApiKeyStats.organizationId,
-								organizationIds,
-							),
+							eq(tables.apiKey.id, rankedApiKeys.apiKeyId),
+							eq(tables.apiKey.projectId, rankedApiKeys.projectId),
 						),
 					)
-					.groupBy(
-						contentFilterHourlyApiKeyStats.organizationId,
-						contentFilterHourlyApiKeyStats.apiKeyId,
-						contentFilterHourlyApiKeyStats.projectId,
-						tables.apiKey.description,
-						tables.apiKey.status,
-					)
+					.where(lte(rankedApiKeys.rank, TOP_API_KEYS))
+					.orderBy(rankedApiKeys.organizationId, rankedApiKeys.rank)
 			: [];
 
 	const apiKeysByOrg = new Map<string, ApiKeyBreakdown[]>();
@@ -678,13 +713,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_MODELS),
 			topProviders: toProviderBreakdowns(orgModels).slice(0, TOP_PROVIDERS),
-			topApiKeys: (apiKeysByOrg.get(row.organizationId) ?? [])
-				.sort(
-					(a, b) =>
-						b.violationCount - a.violationCount ||
-						b.sampledCount - a.sampledCount,
-				)
-				.slice(0, TOP_API_KEYS),
+			topApiKeys: apiKeysByOrg.get(row.organizationId) ?? [],
 			topUpNet: toDollars(revenue?.topUpNet ?? 0),
 			subscriptionNet: toDollars(revenue?.subscriptionNet ?? 0),
 		};
@@ -1001,10 +1030,7 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 		db
 			.select({ ...apiKeyColumns, projectName: tables.project.name })
 			.from(contentFilterHourlyApiKeyStats)
-			.leftJoin(
-				tables.apiKey,
-				eq(tables.apiKey.id, contentFilterHourlyApiKeyStats.apiKeyId),
-			)
+			.leftJoin(tables.apiKey, apiKeyJoin)
 			.leftJoin(
 				tables.project,
 				eq(tables.project.id, contentFilterHourlyApiKeyStats.projectId),
@@ -1025,7 +1051,11 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 				tables.apiKey.status,
 				tables.project.name,
 			)
-			.orderBy(desc(apiKeyViolations), desc(apiKeySampled))
+			.orderBy(
+				desc(apiKeyViolations),
+				desc(apiKeySampled),
+				asc(contentFilterHourlyApiKeyStats.apiKeyId),
+			)
 			.limit(TOP_ORGANIZATION_API_KEYS),
 	]);
 
