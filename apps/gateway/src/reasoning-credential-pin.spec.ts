@@ -8,6 +8,7 @@ import {
 } from "@/chat/tools/reasoning-credential-pin.js";
 import { setPreferredProvider } from "@/lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -79,18 +80,41 @@ describe("reasoning credential pinning", () => {
 	}
 
 	/** Upstream that answers every request with reasoning tied to its token. */
-	function mockUpstream(status = 200): string[] {
+	/** Each upstream call's credential and whether it replayed reasoning. */
+	const replayedReasoning: boolean[] = [];
+
+	function mockUpstream(
+		status: number | ((authorization: string, body: string) => number) = 200,
+	): string[] {
 		const authorizations: string[] = [];
+		replayedReasoning.length = 0;
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
 			const headers = new Headers(init?.headers);
 			const authorization =
 				headers.get("authorization") ??
 				(headers.has("api-key") ? `api-key ${headers.get("api-key")}` : "");
 			authorizations.push(authorization);
-			if (status !== 200) {
+			const body = typeof init?.body === "string" ? init.body : "";
+			replayedReasoning.push(body.includes('"encrypted_content"'));
+			const code =
+				typeof status === "function" ? status(authorization, body) : status;
+			if (code === 400) {
+				return new Response(
+					JSON.stringify({
+						error: {
+							message:
+								"The encrypted content for item rs_1 could not be verified.",
+							type: "invalid_request_error",
+							code: "invalid_encrypted_content",
+						},
+					}),
+					{ status: 400, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			if (code !== 200) {
 				return new Response(
 					JSON.stringify({ error: { message: "upstream failure" } }),
-					{ status, headers: { "Content-Type": "application/json" } },
+					{ status: code, headers: { "Content-Type": "application/json" } },
 				);
 			}
 			return new Response(
@@ -384,7 +408,7 @@ describe("reasoning credential pinning", () => {
 		]);
 	});
 
-	test("does not retry a pinned turn on another credential", async () => {
+	test("fails a pinned turn over to another key without its reasoning", async () => {
 		await harness.setProjectMode("credits");
 		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
 		const healthy = mockUpstream();
@@ -393,13 +417,43 @@ describe("reasoning credential pinning", () => {
 
 		await seedKey({ id: "managed-b", token: "sk-managed-b", managed: true });
 		vi.restoreAllMocks();
-		const failing = mockUpstream(500);
-
-		expect((await turn(reasoning)).status).toBeGreaterThanOrEqual(500);
-		expect(failing.length).toBeGreaterThan(0);
-		expect(failing.every((value) => value === "Bearer sk-managed-a")).toBe(
-			true,
+		const attempts = mockUpstream((authorization) =>
+			authorization === "Bearer sk-managed-a" ? 429 : 200,
 		);
+
+		const res = await turn(reasoning);
+		expect(res.status).toBe(200);
+		expect(attempts).toEqual(["Bearer sk-managed-a", "Bearer sk-managed-b"]);
+		// The pinned key gets the reasoning; the other key cannot verify it.
+		expect(replayedReasoning).toEqual([true, false]);
+		const logs = await waitForLogs(2);
+		expect(
+			logs.find((log) => !log.hasError)?.routingMetadata
+				?.encryptedReasoningDropped,
+		).toBe(true);
+	});
+
+	test("retries once without reasoning an account rejects", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		// No pin: the reasoning came from somewhere this gateway never saw.
+		const attempts = mockUpstream((_authorization, body) =>
+			body.includes('"encrypted_content"') ? 400 : 200,
+		);
+
+		const res = await turn("enc:from-another-account");
+		expect(res.status).toBe(200);
+		expect(attempts).toEqual(["Bearer sk-managed-a", "Bearer sk-managed-a"]);
+		expect(replayedReasoning).toEqual([true, false]);
+	});
+
+	test("does not retry a rejected replay more than once", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		const attempts = mockUpstream(400);
+
+		expect((await turn("enc:from-another-account")).status).toBe(400);
+		expect(attempts).toHaveLength(2);
 	});
 });
 

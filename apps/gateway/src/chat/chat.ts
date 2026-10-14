@@ -346,11 +346,13 @@ import {
 } from "./tools/provider-filter-reasons.js";
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
+	isInvalidEncryptedContentError,
 	lookupReasoningPin,
 	reasoningPinBindsModel,
 	type ReasoningCredential,
 	rememberReasoningCredential,
 	resolveReasoningCredentialPin,
+	stripAccountBoundReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
 	flushTaggedStreamingRemainder,
@@ -3165,9 +3167,13 @@ chat.openapi(completions, async (c) => {
 	// Only a mapping that returns provider-bound reasoning can use the replayed
 	// payloads, so only such a mapping holds the request to its provider; image
 	// and other non-reasoning mappings keep cross-provider fallback.
+	// OpenAI-format encrypted reasoning is dropped on a retry that leaves its
+	// credential (see resolveProviderContextForRetry), so only reasoning that
+	// cannot be dropped — Gemini signatures — still blocks fallback.
 	const isProviderPinned = () =>
 		sessionStickyEnabled ||
-		(hasProviderBoundReasoning(messages) && usedProviderEncryptsReasoning());
+		(hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
+			usedProviderEncryptsReasoning());
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -8626,7 +8632,10 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		return await resolveProviderContext(
+		// A retry moves to another credential or provider, which cannot verify
+		// the encrypted reasoning another account produced, so it goes without.
+		const replay = stripAccountBoundReasoning(messages);
+		const ctx = await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
 			retryOrganizationContext,
@@ -8640,7 +8649,7 @@ chat.openapi(completions, async (c) => {
 				sponsoredOnboarding,
 				stream: streamValue,
 				effectiveStream,
-				messages: messages as BaseMessage[],
+				messages: replay.messages as BaseMessage[],
 				response_format,
 				tools,
 				tool_choice,
@@ -8674,11 +8683,19 @@ chat.openapi(completions, async (c) => {
 				verbosity,
 			},
 		);
+		if (replay.stripped) {
+			contextsWithoutEncryptedReasoning.add(ctx);
+		}
+		return ctx;
 	}
+	const contextsWithoutEncryptedReasoning = new WeakSet();
 
 	async function applyResolvedProviderContext(
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
+		if (contextsWithoutEncryptedReasoning.has(ctx) && routingMetadata) {
+			routingMetadata.encryptedReasoningDropped = true;
+		}
 		usedProvider = ctx.usedProvider;
 		airsideCustomBaseUrl = ctx.airsideCustomBaseUrl;
 		transportProvider = ctx.transportProvider;
@@ -8776,10 +8793,6 @@ chat.openapi(completions, async (c) => {
 		if (!usedProvider || !usedInternalModel) {
 			return null;
 		}
-		// Another credential cannot verify the replayed reasoning.
-		if (pinnedCredential) {
-			return null;
-		}
 
 		const currentProviderKeyId = providerKey?.id;
 		const currentEnvVarName = envVarName;
@@ -8809,6 +8822,41 @@ chat.openapi(completions, async (c) => {
 				return null;
 			}
 
+			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return null;
+			}
+			return nextContext;
+		} catch {
+			return null;
+		}
+	}
+
+	// Self-heal: an account rejected the replayed encrypted reasoning (no pin,
+	// an expired one, a key already torn down, history from elsewhere). Retry
+	// once on the same provider without it; the retry context drops it.
+	let retriedWithoutEncryptedReasoning = false;
+	async function tryResolveRetryWithoutEncryptedReasoning(
+		streamValue: boolean,
+		errorText: string | undefined,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			retriedWithoutEncryptedReasoning ||
+			!usedProvider ||
+			!isInvalidEncryptedContentError(errorText) ||
+			!stripAccountBoundReasoning(messages).stripped
+		) {
+			return null;
+		}
+		retriedWithoutEncryptedReasoning = true;
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
 			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
 				return null;
 			}
@@ -10008,6 +10056,11 @@ chat.openapi(completions, async (c) => {
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
 						}
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutEncryptedReasoning(
+								true,
+								errorResponseText,
+							);
 
 						// Check if we should retry before logging so we can mark the log as retried
 						const willRetryHttpError = shouldRetryRequest({
@@ -10391,6 +10444,11 @@ chat.openapi(completions, async (c) => {
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
 						}
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutEncryptedReasoning(
+								true,
+								errorResponseText,
+							);
 
 						const willRetryStreamingError = shouldRetryRequest({
 							requestedProvider,
@@ -14393,6 +14451,11 @@ chat.openapi(completions, async (c) => {
 				sameProviderRetryContext =
 					await tryResolveAlternateKeyForCurrentProvider(stream);
 			}
+			sameProviderRetryContext ??=
+				await tryResolveRetryWithoutEncryptedReasoning(
+					stream,
+					errorResponseText,
+				);
 
 			// Check if we should retry before logging so we can mark the log as retried
 			const willRetryHttpNonStreaming = shouldRetryRequest({

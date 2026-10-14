@@ -2583,6 +2583,9 @@ export const log = snakeCase.table(
 			// premium tier was in play.
 			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
+			// A retry dropped the conversation's OpenAI-format encrypted
+			// reasoning to move to a credential that could not verify it.
+			encryptedReasoningDropped?: boolean;
 			// Set when the request was resolved through a named dynamic route.
 			dynamicRoute?: {
 				name: string;

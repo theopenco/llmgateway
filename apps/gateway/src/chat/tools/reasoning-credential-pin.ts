@@ -49,6 +49,55 @@ export type PinnedCredential =
 	| { kind: "byok"; providerKey: ProviderKeyRow }
 	| { kind: "platform"; credential: PlatformCredential };
 
+const OPENAI_REASONING_FORMAT = "openai-responses-v1";
+
+function isAccountBoundReasoningDetail(detail: ReasoningDetail): boolean {
+	return (
+		detail?.type === "reasoning.encrypted" &&
+		detail.format === OPENAI_REASONING_FORMAT
+	);
+}
+
+/**
+ * The messages without OpenAI-format encrypted reasoning, which only verifies
+ * on the account that produced it. It is optional context — by default the
+ * model drops reasoning from before the last user message anyway — so a turn
+ * that must move to another credential, or whose reasoning an account rejects,
+ * can still be served without it. Gemini signatures are kept: a signed function
+ * call is required, not optional.
+ */
+export function stripAccountBoundReasoning<
+	T extends { role: string; reasoning_details?: unknown },
+>(messages: readonly T[]): { messages: T[]; stripped: boolean } {
+	let stripped = false;
+	const result = messages.map((message) => {
+		if (
+			message.role !== "assistant" ||
+			!Array.isArray(message.reasoning_details)
+		) {
+			return message;
+		}
+		const details = message.reasoning_details as ReasoningDetail[];
+		const kept = details.filter(
+			(detail) => !isAccountBoundReasoningDetail(detail),
+		);
+		if (kept.length === details.length) {
+			return message;
+		}
+		stripped = true;
+		const { reasoning_details: _dropped, ...rest } = message;
+		return (kept.length > 0 ? { ...rest, reasoning_details: kept } : rest) as T;
+	});
+	return { messages: result, stripped };
+}
+
+/** An upstream rejection of encrypted reasoning from another account. */
+export function isInvalidEncryptedContentError(
+	errorText: string | undefined,
+): boolean {
+	return errorText?.includes("invalid_encrypted_content") ?? false;
+}
+
 /** An assistant message or streamed delta that may carry bound reasoning. */
 export interface ReasoningCarrier {
 	reasoning_details?: unknown;

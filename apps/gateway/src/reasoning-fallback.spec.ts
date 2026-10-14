@@ -281,7 +281,31 @@ describe("reasoning model retry before output", () => {
 		},
 	);
 
-	test.each(["encrypted", "session", "explicit", "no-fallback"])(
+	test("falls back without encrypted reasoning another account produced", async () => {
+		await setup();
+		const attempts = mockUpstreams();
+		const bodies: string[] = [];
+		const mocked = vi.mocked(globalThis.fetch);
+		const forward = mocked.getMockImplementation()!;
+		mocked.mockImplementation(async (input, init) => {
+			bodies.push(typeof init?.body === "string" ? init.body : "");
+			return await forward(input, init);
+		});
+		const res = await request({
+			messages: [...encryptedHistory, { role: "user", content: "Continue" }],
+		});
+		expect(await res.text()).toContain("Hello");
+		expect(attempts).toEqual(["azure-0.example.com", "openai-0.example.com"]);
+		expect(bodies.map((body) => body.includes("opaque-reasoning"))).toEqual([
+			true,
+			false,
+		]);
+		const logs = await waitForLogs(2);
+		const success = logs.find((log) => !log.hasError);
+		expect(success?.routingMetadata?.encryptedReasoningDropped).toBe(true);
+	});
+
+	test.each(["session", "explicit", "no-fallback"])(
 		"preserves the %s provider pin",
 		async (pin) => {
 			await setup();
@@ -289,12 +313,6 @@ describe("reasoning model retry before output", () => {
 			const res = await request(
 				{
 					...(pin === "explicit" && { model: `azure/${model}` }),
-					...(pin === "encrypted" && {
-						messages: [
-							...encryptedHistory,
-							{ role: "user", content: "Continue" },
-						],
-					}),
 				},
 				pin === "session"
 					? { "x-session-id": "retry-session" }

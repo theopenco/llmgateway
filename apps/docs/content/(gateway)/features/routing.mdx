@@ -544,7 +544,7 @@ Automatic retry to a different provider is disabled when:
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
 - The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
-- The request replays [provider-bound reasoning](#smart-routing-algorithm), such as encrypted reasoning or signed thought parts — another provider would reject those payloads. This pin only applies when the selected model returns provider-bound reasoning on that provider; image models and other models without reasoning keep fallback. A reasoning-capable model alone does not disable retries: requests without replayed payloads can fail over before output starts.
+- The request replays signed Gemini thought parts on a model that returns them — another provider would reject them. Image models and other models without reasoning keep fallback. OpenAI encrypted reasoning does not block fallback: the retry is sent without it (see below).
 - No alternative providers are available for the requested model
 - The maximum retry count (default 2) has been exhausted
 
@@ -560,10 +560,19 @@ by another OpenAI organization or Azure resource with
 with provider-bound reasoning, the gateway remembers which key produced each
 encrypted reasoning item or thought signature, and the turn that replays it is
 routed to that provider and sent with that same key, with or without a session
-id. Such a turn is never retried on another key. A conversation without a
-remembered key (older than 24 hours since its last turn) uses normal routing
-and key selection. Only models that reason on that provider are pinned; image models and
-other models without reasoning use normal routing and key selection.
+id. A conversation without a remembered key (older than 24 hours since its last
+turn) uses normal routing and key selection. Only models that reason on that
+provider are pinned; image models and other models without reasoning use normal
+routing and key selection.
+
+If that key fails with a retryable error (a rate limit, a timeout, a server
+error), the request still fails over to another key or provider. OpenAI
+encrypted reasoning is optional context, so the retry is sent without it: the
+model loses the earlier reasoning for that turn instead of the request failing.
+When an upstream rejects replayed encrypted reasoning anyway (for example
+history from another gateway, or older than its pin), the gateway retries once
+on the same provider without it. Either way the log's
+`routingMetadata.encryptedReasoningDropped` is `true`.
 
 Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
 During that time it serves only conversations that replay reasoning it
