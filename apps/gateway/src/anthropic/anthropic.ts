@@ -50,6 +50,7 @@ import {
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 import {
+	anthropicToolChoiceDisablesParallelUse,
 	isAnthropicToolChoice,
 	mapAnthropicToolChoice,
 } from "./tool-choice.js";
@@ -1125,6 +1126,9 @@ anthropic.openapi(messages, async (c) => {
 		const toolChoice = mapAnthropicToolChoice(anthropicRequest.tool_choice);
 		if (toolChoice) {
 			openaiRequest.tool_choice = toolChoice;
+		}
+		if (anthropicToolChoiceDisablesParallelUse(anthropicRequest.tool_choice)) {
+			openaiRequest.parallel_tool_calls = false;
 		}
 	}
 
