@@ -25,10 +25,16 @@ import {
 } from "@/lib/airside-metadata.js";
 import { effectiveClaimKind } from "@/lib/airside-profile.js";
 import {
+	buildErrorMessageMatchExpr,
+	buildIgnoredErrorsClause,
+	buildIncidentErrorScopeClause,
+	errorScopeSchema,
+	listIgnoredErrorMatchers,
+} from "@/lib/error-filters.js";
+import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
 	incidentsWindowSchema,
-	incidentErrorsClause,
 	byokClauseFor,
 	notRetriedClause,
 	queryIncidentErrorTypes,
@@ -1650,6 +1656,8 @@ const listIncidents = createRoute({
 			window: incidentsWindowSchema.default("24h").optional(),
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
+			/** Upstream + gateway errors (default), plus client errors, or client only. */
+			errorScope: errorScopeSchema.optional(),
 		}),
 	},
 	responses: {
@@ -1679,6 +1687,7 @@ adminAirside.openapi(listIncidents, async (c) => {
 			windowHours,
 			mapping,
 			includeByok: query.includeByok === "true",
+			errorScope: query.errorScope,
 		}),
 	});
 });
@@ -1695,6 +1704,12 @@ const listIncidentErrorTypes = createRoute({
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Upstream + gateway errors (default), plus client errors, or client only. */
+			errorScope: errorScopeSchema.optional(),
+			/** Drop errors matching a stored expected-error matcher. */
+			ignoreExpected: z.enum(["true", "false"]).optional(),
+			/** Only errors whose public or internal details contain this text. */
+			errorMessage: z.string().max(500).optional(),
 		}),
 	},
 	responses: {
@@ -1719,6 +1734,10 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 		interval: windowInterval,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(query.window, "24h");
+	const errorScope = query.errorScope ?? "non_client";
+	const errorMessage = query.errorMessage?.trim() || null;
+	const ignoredMatchers =
+		query.ignoreExpected === "true" ? await listIgnoredErrorMatchers() : [];
 	return c.json({
 		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		...(await queryIncidentErrorTypes({
@@ -1728,12 +1747,17 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 				windowHours,
 				mapping: query.mapping ?? null,
 				includeByok: query.includeByok === "true",
+				errorScope,
 			}),
 			windowInterval,
 			extraClauses: [
-				incidentErrorsClause,
+				buildIncidentErrorScopeClause(errorScope),
 				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
+				buildIgnoredErrorsClause(ignoredMatchers),
+				errorMessage !== null
+					? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
+					: sql``,
 			],
 		})),
 	});

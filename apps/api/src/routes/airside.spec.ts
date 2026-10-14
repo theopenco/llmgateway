@@ -2229,6 +2229,98 @@ describe("airside provider portal", () => {
 		expect((await adminTypes.json()).sampledErrors).toBe(3);
 	});
 
+	it("counts client errors on admin incidents when asked", async () => {
+		await setUserEmail("ops@mistral.ai");
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			requestCount: 10,
+			apiKeysRequestCount: 6,
+			errorCount: 4,
+			upstreamErrorCount: 1,
+			clientErrorCount: 3,
+		});
+		await db.insert(tables.log).values(
+			(
+				[
+					["credits", "upstream_error", "upstream down"],
+					["credits", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+				] as const
+			).map(([usedMode, unifiedFinishReason, responseText], i) => ({
+				id: `client-incident-log-${i}`,
+				requestId: `client-incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				unifiedFinishReason,
+				errorDetails: { statusCode: 400, statusText: "err", responseText },
+				duration: 100,
+				usedMode,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: usedMode,
+			})),
+		);
+
+		const get = async (path: string) =>
+			await (await app.request(path, { headers: { Cookie: cookie } })).json();
+		const base = "/admin/airside/incidents?providerId=mistral";
+		const defaults = (await get(base)).mappings;
+		expect(defaults).toEqual([
+			expect.objectContaining({ requestCount: 4, errorCount: 1 }),
+		]);
+		expect(defaults[0]).not.toHaveProperty("clientErrorCount");
+		expect((await get(`${base}&errorScope=all`)).mappings).toEqual([
+			expect.objectContaining({
+				requestCount: 4,
+				errorCount: 2,
+				clientErrorCount: 1,
+				errorRate: 0.5,
+			}),
+		]);
+		expect(
+			(await get(`${base}&errorScope=all&includeByok=true`)).mappings,
+		).toEqual([
+			expect.objectContaining({
+				requestCount: 10,
+				errorCount: 4,
+				clientErrorCount: 3,
+			}),
+		]);
+		expect((await get(`${base}&errorScope=client`)).mappings).toEqual([
+			expect.objectContaining({ errorCount: 1, clientErrorCount: 1 }),
+		]);
+
+		const types = "/admin/airside/incidents/error-types?providerId=mistral";
+		expect((await get(types)).sampledErrors).toBe(1);
+		expect((await get(`${types}&errorScope=all`)).sampledErrors).toBe(2);
+		expect(
+			(await get(`${types}&errorScope=all&includeByok=true`)).sampledErrors,
+		).toBe(4);
+		expect(
+			(await get(`${types}&errorScope=all&errorMessage=bad%20request`))
+				.sampledErrors,
+		).toBe(1);
+
+		const errors =
+			"/admin/unstable-mappings/errors?provider=mistral&model=mistral/mistral-large-3&incidentsOnly=true";
+		expect((await get(errors)).sampledErrors).toBe(1);
+		expect((await get(`${errors}&errorScope=all`)).sampledErrors).toBe(2);
+		expect((await get(`${errors}&errorScope=client`)).sampledErrors).toBe(1);
+	});
+
 	it("gates claims on the listing fee when configured", async () => {
 		process.env.AIRSIDE_LISTING_PRICE_ID = "price_test_airside";
 		await setUserEmail("ops@mistral.ai");

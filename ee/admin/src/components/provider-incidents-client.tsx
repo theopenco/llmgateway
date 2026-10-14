@@ -12,6 +12,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useState } from "react";
 
 import { ProviderIncidentErrorTypes } from "@/components/provider-incident-error-types";
+import { SegmentedQueryToggle } from "@/components/segmented-query-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -32,12 +33,18 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { UnstableErrorMessageFilter } from "@/components/unstable-error-message-filter";
 import {
 	ErrorDetails,
 	errorRateClass,
 	percentFormatter,
 } from "@/components/unstable-mappings-table";
 import { useApi } from "@/lib/fetch-client";
+import {
+	parseUnstableErrorScope,
+	UNSTABLE_ERROR_SCOPE_DEFAULT,
+	UNSTABLE_ERROR_SCOPE_OPTIONS,
+} from "@/lib/unstable-mappings-params";
 import { cn } from "@/lib/utils";
 
 import {
@@ -58,8 +65,8 @@ const GROUPINGS = [
 	{ value: "model", label: "By model" },
 	{ value: "error", label: "By error type" },
 ] as const;
-// Mirrors the carrier's Airside view: every upstream and gateway error in the
-// window (up to this cap), no expected-error matchers.
+// Mirrors the carrier's Airside view: every error of the selected classes in
+// the window (up to this cap).
 const DRILLDOWN_LOG_LIMIT = 100_000;
 
 /** The carrier's Airside Incidents view, scoped to one provider. */
@@ -75,6 +82,14 @@ export function ProviderIncidentsClient({
 	const mapping = searchParams.get("mapping");
 	const groupByError = searchParams.get("group") === "error";
 	const includeByok = searchParams.get("includeByok") === "true";
+	// Defaults mirror the carrier's view: upstream and gateway errors only, no
+	// expected-error matchers.
+	const errorScope = parseUnstableErrorScope(
+		searchParams.get("errorScope") ?? undefined,
+	);
+	const includesClientErrors = errorScope !== "non_client";
+	const ignoreExpected = searchParams.get("ignoreExpected") === "true";
+	const errorMessage = searchParams.get("errorMessage")?.trim() || null;
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [includeRetried, setIncludeRetried] = useState(true);
 	const [expanded, setExpanded] = useState<string | null>(null);
@@ -93,6 +108,7 @@ export function ProviderIncidentsClient({
 					providerId,
 					window: timeWindow,
 					includeByok: includeByok ? "true" : "false",
+					errorScope,
 				},
 			},
 		},
@@ -108,6 +124,7 @@ export function ProviderIncidentsClient({
 					window: timeWindow,
 					mapping: mapping ?? "",
 					includeByok: includeByok ? "true" : "false",
+					errorScope,
 				},
 			},
 		},
@@ -160,6 +177,11 @@ export function ProviderIncidentsClient({
 							What the carrier sees in Airside for{" "}
 							<span className="font-mono">{providerId}</span>: failed requests
 							over the last {timeWindow}. {INCIDENT_BREAKDOWN_DESCRIPTION}{" "}
+							{errorScope === "all"
+								? "Client errors are included. "
+								: errorScope === "client"
+									? "Only client errors are counted. "
+									: ""}
 							{groupByError
 								? "Each error lists the models it hit, split by streaming and non-streaming requests."
 								: "Counts include retried attempts; expand a row for the top error shapes."}
@@ -265,6 +287,46 @@ export function ProviderIncidentsClient({
 				</div>
 			</div>
 
+			<div className="flex flex-wrap items-center gap-4">
+				<div className="flex items-center gap-2">
+					<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Errors
+					</span>
+					<SegmentedQueryToggle
+						param="errorScope"
+						label="Error classes"
+						value={errorScope}
+						defaultValue={UNSTABLE_ERROR_SCOPE_DEFAULT}
+						options={UNSTABLE_ERROR_SCOPE_OPTIONS}
+					/>
+				</div>
+				<SegmentedQueryToggle
+					param="ignoreExpected"
+					label="Expected-error matchers"
+					value={ignoreExpected ? "true" : "false"}
+					defaultValue="false"
+					options={[
+						{ value: "false", label: "Show all errors" },
+						{ value: "true", label: "Ignore expected" },
+					]}
+				/>
+				<div className="flex items-center gap-2">
+					<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Message
+					</span>
+					<UnstableErrorMessageFilter
+						key={errorMessage ?? ""}
+						errorMessage={errorMessage}
+					/>
+				</div>
+			</div>
+			{(ignoreExpected || errorMessage !== null) && !groupByError && (
+				<p className="-mt-3 text-xs text-muted-foreground">
+					Expected-error and message filters apply to the error details; the
+					per-model counts come from hourly rollups and ignore them.
+				</p>
+			)}
+
 			{activeQuery.isError && !groupByError && (
 				<div
 					role="alert"
@@ -304,6 +366,9 @@ export function ProviderIncidentsClient({
 						window={timeWindow}
 						includeRetried={includeRetried}
 						includeByok={includeByok}
+						errorScope={errorScope}
+						ignoreExpected={ignoreExpected}
+						errorMessage={errorMessage}
 					/>
 				) : !data ? (
 					activeQuery.isError ? null : (
@@ -330,6 +395,9 @@ export function ProviderIncidentsClient({
 								<TableHead className="text-right">Error Rate</TableHead>
 								<TableHead className="text-right">Errors</TableHead>
 								<TableHead className="text-right">Upstream / Gateway</TableHead>
+								{includesClientErrors && (
+									<TableHead className="text-right">Client</TableHead>
+								)}
 								<TableHead className="text-right">Requests</TableHead>
 							</TableRow>
 						</TableHeader>
@@ -387,13 +455,21 @@ export function ProviderIncidentsClient({
 												{formatNumber(row.upstreamErrorCount)} /{" "}
 												{formatNumber(row.gatewayErrorCount)}
 											</TableCell>
+											{includesClientErrors && (
+												<TableCell className="text-right tabular-nums text-muted-foreground">
+													{formatNumber(row.clientErrorCount ?? 0)}
+												</TableCell>
+											)}
 											<TableCell className="text-right tabular-nums text-muted-foreground">
 												{formatNumber(row.requestCount)}
 											</TableCell>
 										</TableRow>
 										{isOpen && (
 											<TableRow className="hover:bg-transparent">
-												<TableCell colSpan={6} className="bg-muted/20 p-0">
+												<TableCell
+													colSpan={includesClientErrors ? 7 : 6}
+													className="bg-muted/20 p-0"
+												>
 													<ErrorDetails
 														usedModel={row.usedModel}
 														provider={row.providerId}
@@ -401,8 +477,10 @@ export function ProviderIncidentsClient({
 														includeRetried={includeRetried}
 														window={timeWindow}
 														logLimit={DRILLDOWN_LOG_LIMIT}
-														ignoreExpected={false}
+														ignoreExpected={ignoreExpected}
 														includeByok={includeByok}
+														errorScope={errorScope}
+														errorMessage={errorMessage}
 														incidentsOnly
 													/>
 												</TableCell>

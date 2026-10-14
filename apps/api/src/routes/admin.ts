@@ -32,12 +32,21 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import {
+	buildErrorMessageMatchExpr,
+	buildIgnoredErrorMatchExpr,
+	buildIgnoredErrorsClause,
+	buildIncidentErrorScopeClause,
+	buildUnstableErrorScopeClause,
+	errorScopeSchema,
+	listIgnoredErrorMatchers,
+} from "@/lib/error-filters.js";
+import { escapeLikePattern } from "@/lib/like-pattern.js";
 import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
 	notRetriedClause,
-	incidentErrorsClause,
 	platformOnlyClause,
 	byokClauseFor,
 	queryMappingErrorShapes,
@@ -196,15 +205,6 @@ function escapeHtml(text: string): string {
 		"'": "&#x27;",
 	};
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
-}
-
-// Search terms and stored matchers are plain substrings, so LIKE
-// metacharacters must be escaped before wrapping them in wildcards. For the
-// organization search this is a safety guard, not just correctness: an
-// unescaped "%" would silently become a match-everything filter, and the bulk
-// block endpoint reuses that filter to decide which organizations get banned.
-function escapeLikePattern(value: string): string {
-	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 /**
@@ -13145,61 +13145,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Which error classes count against a mapping. `non_client` (default) drops
-// client-error logs from the sample; `client` drops every other failure, so
-// both rate against successes plus the selected errors.
-const unstableErrorScopeSchema = z.enum(["non_client", "all", "client"]);
-
-function buildUnstableErrorScopeClause(
-	scope: z.infer<typeof unstableErrorScopeSchema>,
-) {
-	switch (scope) {
-		case "all":
-			return sql``;
-		case "client":
-			return sql`AND (${tables.log.hasError} IS NOT TRUE OR ${tables.log.unifiedFinishReason} = 'client_error')`;
-		default:
-			return sql`AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'`;
-	}
-}
-
-interface IgnoredErrorMatcherTarget {
-	pattern: string | null;
-	statusCode: number | null;
-}
-
-// Builds an OR chain across all stored matchers so expected upstream errors
-// can be treated as non-errors. A substring pattern is matched
-// case-insensitively against the serialized error details JSON (covering
-// status text, response body, and cause); a status code is matched against the
-// upstream `statusCode` field. When a matcher has both, both must match.
-function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
-	return sql.join(
-		matchers.map((matcher) => {
-			const conditions = [];
-			if (matcher.pattern !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}::text ILIKE ${`%${escapeLikePattern(matcher.pattern)}%`}`,
-				);
-			}
-			if (matcher.statusCode !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}->>'statusCode' = ${String(matcher.statusCode)}`,
-				);
-			}
-			return sql`(${sql.join(conditions, sql` AND `)})`;
-		}),
-		sql` OR `,
-	);
-}
-
-// Case-insensitive substring match against the serialized public and internal
-// error details JSON, so stealth-provider errors are searchable too.
-function buildErrorMessageMatchExpr(message: string) {
-	const pattern = `%${escapeLikePattern(message)}%`;
-	return sql`COALESCE(${tables.log.errorDetails}::text ILIKE ${pattern} OR ${tables.log.internalErrorDetails}::text ILIKE ${pattern}, false)`;
-}
-
 /**
  * Every `used_model` (`provider/model[:region]`) a canonical model id logs
  * under: catalogue mappings plus DB-only (Airside, deactivated) rows.
@@ -13233,14 +13178,6 @@ async function listUsedModelsForModelId(modelId: string) {
 	}
 
 	return [...usedModels];
-}
-
-async function listIgnoredErrorMatchers() {
-	return await db.query.ignoredErrorMatcher.findMany({
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
 }
 
 /**
@@ -13324,7 +13261,7 @@ const unstableMappingsListSchema = z.object({
 	ignoreExpected: z.boolean(),
 	splitByKey: z.boolean(),
 	includeByok: z.boolean(),
-	errorScope: unstableErrorScopeSchema,
+	errorScope: errorScopeSchema,
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 	// The exact `used_model` the ranking is narrowed to, if any.
@@ -13351,7 +13288,7 @@ const getUnstableMappings = createRoute({
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
 			model: z.string().optional(),
 			provider: z.string().optional(),
@@ -13543,7 +13480,7 @@ const getUnstableMappingErrors = createRoute({
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/**
 			 * Narrows the sample to one provider key, mirroring a row of the
 			 * key-split ranking. The literal `__unattributed__` selects logs with
@@ -13551,7 +13488,10 @@ const getUnstableMappingErrors = createRoute({
 			 * one).
 			 */
 			providerKeyId: z.string().optional(),
-			/** Only upstream and gateway errors, matching the Incidents counts. */
+			/**
+			 * Only the error classes the Incidents counts use: upstream and
+			 * gateway errors, plus client errors under `errorScope=all|client`.
+			 */
 			incidentsOnly: z.enum(["true", "false"]).optional(),
 			/**
 			 * Top error shapes per provider key instead of overall. Ignored when
@@ -13618,10 +13558,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	// drilldown shows the same errors that counted against the mapping.
 	const ignoredMatchers =
 		ignoreExpected !== "false" ? await listIgnoredErrorMatchers() : [];
-	const ignoredClause =
-		ignoredMatchers.length > 0
-			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
-			: sql``;
 
 	const shapes = await queryMappingErrorShapes({
 		usedModel: model,
@@ -13635,9 +13571,10 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			providerKeyClause,
 			retriedClause,
 			byokClause,
-			ignoredClause,
-			buildUnstableErrorScopeClause(errorScope ?? "non_client"),
-			incidentsOnly === "true" ? incidentErrorsClause : sql``,
+			buildIgnoredErrorsClause(ignoredMatchers),
+			incidentsOnly === "true"
+				? buildIncidentErrorScopeClause(errorScope ?? "non_client")
+				: buildUnstableErrorScopeClause(errorScope ?? "non_client"),
 			errorMessage !== null
 				? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
 				: sql``,

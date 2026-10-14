@@ -28,6 +28,7 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ErrorTimeline } from "@/components/error-shape-timeline";
 import type { paths } from "@/lib/api/v1";
+import type { UnstableErrorScope } from "@/lib/unstable-mappings-params";
 
 type ErrorTypesQuery = paths["/admin/airside/incidents/error-types"]["get"];
 type ErrorType =
@@ -194,12 +195,18 @@ export function ProviderIncidentErrorTypes({
 	window,
 	includeRetried,
 	includeByok,
+	errorScope,
+	ignoreExpected,
+	errorMessage,
 }: {
 	providerId: string;
 	mapping: string | null;
 	window: NonNullable<ErrorTypesQuery["parameters"]["query"]["window"]>;
 	includeRetried: boolean;
 	includeByok: boolean;
+	errorScope: UnstableErrorScope;
+	ignoreExpected: boolean;
+	errorMessage: string | null;
 }) {
 	const $api = useApi();
 	const { data, isError, isFetching, isPlaceholderData, refetch } =
@@ -213,7 +220,10 @@ export function ProviderIncidentErrorTypes({
 						window,
 						includeRetried: includeRetried ? "true" : "false",
 						includeByok: includeByok ? "true" : "false",
+						errorScope,
+						ignoreExpected: ignoreExpected ? "true" : "false",
 						...(mapping !== null ? { mapping } : {}),
+						...(errorMessage ? { errorMessage } : {}),
 					},
 				},
 			},
