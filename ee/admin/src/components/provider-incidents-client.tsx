@@ -38,6 +38,7 @@ import {
 	ErrorDetails,
 	errorRateClass,
 	percentFormatter,
+	parseErrorGroupBy,
 } from "@/components/unstable-mappings-table";
 import { useApi } from "@/lib/fetch-client";
 import {
@@ -60,6 +61,7 @@ type IncidentsWindow = NonNullable<
 >;
 
 const WINDOWS: IncidentsWindow[] = ["1h", "4h", "24h", "3d"];
+const DEFAULT_WINDOW: IncidentsWindow = "24h";
 const ALL_MAPPINGS = "__all__";
 const GROUPINGS = [
 	{ value: "model", label: "By model" },
@@ -90,8 +92,11 @@ export function ProviderIncidentsClient({
 	const includesClientErrors = errorScope !== "non_client";
 	const ignoreExpected = searchParams.get("ignoreExpected") === "true";
 	const errorMessage = searchParams.get("errorMessage")?.trim() || null;
-	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
-	const [includeRetried, setIncludeRetried] = useState(true);
+	const windowParam = searchParams.get("window");
+	const timeWindow =
+		WINDOWS.find((value) => value === windowParam) ?? DEFAULT_WINDOW;
+	const includeRetried = searchParams.get("includeRetried") !== "false";
+	const detailsGroupBy = parseErrorGroupBy(searchParams.get("detailsGroup"));
 	const [expanded, setExpanded] = useState<string | null>(null);
 
 	const queryOptions = {
@@ -143,14 +148,16 @@ export function ProviderIncidentsClient({
 		mappingOptions.unshift(mapping);
 	}
 
-	function setParam(name: string, next: string | null) {
+	function setParam(name: string, next: string | null, collapse = true) {
 		const params = new URLSearchParams(searchParams.toString());
 		if (next) {
 			params.set(name, next);
 		} else {
 			params.delete(name);
 		}
-		setExpanded(null);
+		if (collapse) {
+			setExpanded(null);
+		}
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
 	}
@@ -194,10 +201,9 @@ export function ProviderIncidentsClient({
 							key={value}
 							size="sm"
 							variant={timeWindow === value ? "default" : "outline"}
-							onClick={() => {
-								setExpanded(null);
-								setTimeWindow(value);
-							}}
+							onClick={() =>
+								setParam("window", value === DEFAULT_WINDOW ? null : value)
+							}
 						>
 							{value}
 						</Button>
@@ -267,7 +273,9 @@ export function ProviderIncidentsClient({
 					<Switch
 						id="include-retried"
 						checked={includeRetried}
-						onCheckedChange={setIncludeRetried}
+						onCheckedChange={(checked) =>
+							setParam("includeRetried", checked ? null : "false", false)
+						}
 					/>
 					<Label htmlFor="include-retried" className="text-xs">
 						{groupByError ? "Retried errors" : "Retried errors in details"}
@@ -482,6 +490,14 @@ export function ProviderIncidentsClient({
 														errorScope={errorScope}
 														errorMessage={errorMessage}
 														incidentsOnly
+														groupBy={detailsGroupBy}
+														onGroupByChange={(next) =>
+															setParam(
+																"detailsGroup",
+																next === "none" ? null : next,
+																false,
+															)
+														}
 													/>
 												</TableCell>
 											</TableRow>
