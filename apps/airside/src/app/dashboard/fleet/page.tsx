@@ -62,6 +62,7 @@ const DELIST_REASON_LABEL: Record<
 > = {
 	removed: "Delisted by your crew",
 	claim_revoked: "Delisted · claim revoked",
+	admin: "Delisted by LLM Gateway",
 };
 
 type RegionPrice = NonNullable<

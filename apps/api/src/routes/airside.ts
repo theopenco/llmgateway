@@ -17,7 +17,6 @@ import {
 	latestListing,
 } from "@/lib/airside-carrier-keys.js";
 import {
-	dematerializeAirsideModel,
 	materializeAirsideModel,
 	setAirsideModelServing,
 	staticCatalogueHasActiveMapping,
@@ -25,6 +24,7 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { assertListingContextSize } from "@/lib/airside-context-size.js";
+import { delistAirsideListing } from "@/lib/airside-delist.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
 	claimableProvidersForDomains,
@@ -421,7 +421,7 @@ const modelSchema = z.object({
 	// Set while an active listing is paused by the carrier.
 	pausedAt: z.string().nullable(),
 	delistedAt: z.string().nullable(),
-	delistReason: z.enum(["removed", "claim_revoked"]).nullable(),
+	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
@@ -3726,55 +3726,9 @@ airside.openapi(deleteModel, async (c) => {
 			.where(eq(tables.providerDraftModel.id, id));
 		return c.json({ status: "deleted" as const });
 	}
-	await cdb.transaction(async (tx) => {
-		await tx
-			.update(tables.providerDraftModel)
-			.set({
-				status: "delisted",
-				delistedAt: new Date(),
-				delistReason: "removed",
-				pausedAt: null,
-			})
-			.where(eq(tables.providerDraftModel.id, id));
-		// A delisted model's pending filing would otherwise linger in the admin
-		// queue and approve as a silent no-op.
-		await tx
-			.update(tables.providerPriceFiling)
-			.set({
-				status: "rejected",
-				reviewNote: "Model delisted",
-				reviewedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(tables.providerPriceFiling.draftModelId, id),
-					eq(tables.providerPriceFiling.status, "pending"),
-				),
-			);
-		await tx
-			.delete(tables.providerRoutingSettings)
-			.where(
-				and(
-					eq(tables.providerRoutingSettings.providerId, model.providerId),
-					eq(tables.providerRoutingSettings.modelId, model.modelName),
-				),
-			);
-		await tx
-			.update(tables.providerRoutingFiling)
-			.set({
-				status: "rejected",
-				reviewNote: "Model delisted",
-				reviewedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(tables.providerRoutingFiling.providerId, model.providerId),
-					eq(tables.providerRoutingFiling.modelId, model.modelName),
-					eq(tables.providerRoutingFiling.status, "pending"),
-				),
-			);
-		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
-	});
+	await cdb.transaction(
+		async (tx) => await delistAirsideListing(tx, model, "removed"),
+	);
 	return c.json({ status: "delisted" as const });
 });
 

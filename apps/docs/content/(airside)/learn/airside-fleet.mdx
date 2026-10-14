@@ -94,7 +94,10 @@ its catalogue entry.
 ## Relisting a model
 
 A delisted row shows who took it out of service and when: **Delisted by your
-crew** or **Delisted · claim revoked**. Run **Verify** first: **Relist** needs a
+crew**, **Delisted · claim revoked**, or **Delisted by LLM Gateway** when a
+listing no longer meets the listing rules, such as a context size more than 10%
+below the model's window. A listing that still breaks a rule cannot be relisted.
+Run **Verify** first: **Relist** needs a
 preflight that passed after the model was delisted, then puts it back in service
 immediately at its last approved fare, without review. Relisting also needs an
 active claim on the carrier, and fails while another listing uses the same
