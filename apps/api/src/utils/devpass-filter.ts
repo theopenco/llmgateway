@@ -29,6 +29,11 @@ export const planExcludedTypes = [
 	"subscription_upgrade",
 	"subscription_downgrade",
 	"subscription_renewal",
+	// Refunds of plan payments belong to the plan economy too: their charges
+	// are excluded above, so counting the refund's positive `amount` in the
+	// "processed" metrics would be asymmetric. (Historical plan refunds still
+	// typed credit_refund converge once backfill-subscription-refunds runs.)
+	"subscription_refund",
 	"chat_plan_start",
 	"chat_plan_upgrade",
 	"chat_plan_downgrade",

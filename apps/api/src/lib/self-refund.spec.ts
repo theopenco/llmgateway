@@ -5,7 +5,10 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
-import { computeSelfRefundEligibility } from "./self-refund.js";
+import {
+	computeSelfRefundEligibility,
+	hasRefundAction,
+} from "./self-refund.js";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -196,6 +199,33 @@ describe("computeSelfRefundEligibility", () => {
 			amount: "100",
 			creditAmount: "-100",
 			stripeRefundId: "re_test_1",
+			relatedTransactionId: tx.id,
+			stripePaymentIntentId: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "already_refunded",
+		});
+	});
+
+	test("plan payments refunded as subscription_refund are not eligible", async () => {
+		await seedOrg({
+			devPlan: "pro",
+			devPlanStripeSubscriptionId: "sub_test_1",
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_start",
+			amount: "79",
+			creditAmount: "0",
+			stripePaymentIntentId: null,
+			stripeInvoiceId: "in_test_1",
+		});
+		await seedTransaction({
+			type: "subscription_refund",
+			amount: "79",
+			creditAmount: "0",
+			stripeRefundId: "re_test_2",
 			relatedTransactionId: tx.id,
 			stripePaymentIntentId: null,
 		});
@@ -571,8 +601,9 @@ describe("computeSelfRefundEligibility", () => {
 			createdAt: daysAgo(1),
 			stripePaymentIntentId: "pi_test_newer",
 		});
+		// Reset Pass refunds are recorded as subscription_refund by the webhook.
 		await seedTransaction({
-			type: "credit_refund",
+			type: "subscription_refund",
 			amount: "29",
 			creditAmount: "0",
 			stripeRefundId: "re_test_newer",
@@ -694,6 +725,22 @@ describe("computeSelfRefundEligibility", () => {
 			eligible: false,
 			reason: "already_refunded",
 		});
+	});
+});
+
+describe("hasRefundAction", () => {
+	const row = (type: string, amount: string | null) =>
+		({ type, amount }) as Parameters<typeof hasRefundAction>[0];
+
+	test("refund rows never get a refund control", () => {
+		expect(hasRefundAction(row("credit_refund", "10"))).toBe(false);
+		expect(hasRefundAction(row("subscription_refund", "29"))).toBe(false);
+	});
+
+	test("paid charges get a refund control", () => {
+		expect(hasRefundAction(row("dev_plan_start", "29"))).toBe(true);
+		expect(hasRefundAction(row("credit_topup", "10"))).toBe(true);
+		expect(hasRefundAction(row("dev_plan_cancel", null))).toBe(false);
 	});
 });
 

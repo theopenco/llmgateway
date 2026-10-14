@@ -94,7 +94,11 @@ export function isSelfRefundCandidateType(
  * rewards) get nothing.
  */
 export function hasRefundAction(transaction: TransactionRow): boolean {
-	return transaction.type !== "credit_refund" && dec(transaction.amount).gt(0);
+	return (
+		transaction.type !== "credit_refund" &&
+		transaction.type !== "subscription_refund" &&
+		dec(transaction.amount).gt(0)
+	);
 }
 
 const REFUND_FEEDBACK_KIND_BY_TYPE: Record<
@@ -310,7 +314,11 @@ function checkResetPassEligibility(
 
 	const refundedIds = new Set(
 		transactions
-			.filter((t) => t.type === "credit_refund" && t.relatedTransactionId)
+			.filter(
+				(t) =>
+					(t.type === "credit_refund" || t.type === "subscription_refund") &&
+					t.relatedTransactionId,
+			)
 			.map((t) => t.relatedTransactionId),
 	);
 	const tierPrice = dec(DEV_PLAN_RESET_PASS_PRICES[tier]);
@@ -363,7 +371,8 @@ export function computeSelfRefundEligibility({
 	if (
 		transactions.some(
 			(t) =>
-				t.type === "credit_refund" && t.relatedTransactionId === transaction.id,
+				(t.type === "credit_refund" || t.type === "subscription_refund") &&
+				t.relatedTransactionId === transaction.id,
 		)
 	) {
 		return ineligible("already_refunded");
@@ -411,8 +420,9 @@ export function computeSelfRefundEligibility({
 
 /**
  * Issue the Stripe refund for an already-eligibility-checked transaction. All
- * bookkeeping is left to the webhooks: charge.refunded records the credit_refund
- * row (and, for a dev/chat plan payment, cancels the Stripe subscription), and
+ * bookkeeping is left to the webhooks: charge.refunded records the refund row
+ * (credit_refund for top-ups, subscription_refund for plan payments — and, for
+ * a dev/chat plan payment, cancels the Stripe subscription), and
  * the resulting customer.subscription.deleted resets the plan fields. Keeping
  * the cancellation in the webhook means it fires for every refund source, not
  * just this endpoint.

@@ -92,8 +92,10 @@ export function computeAdminRefundability({
 
 /**
  * Total already refunded per payment, keyed by the refunded transaction's id.
- * `credit_refund` rows carry the refunded dollar amount as a positive `amount`
- * and point back at the original purchase via `relatedTransactionId`.
+ * Refund rows carry the refunded dollar amount as a positive `amount` and point
+ * back at the original purchase via `relatedTransactionId`. Both refund types
+ * count: plan refunds are `subscription_refund`, top-up refunds are
+ * `credit_refund` (as are all refunds recorded before that type existed).
  */
 export async function sumRefundsByTransaction(
 	organizationId: string,
@@ -113,7 +115,10 @@ export async function sumRefundsByTransaction(
 		.where(
 			and(
 				eq(tables.transaction.organizationId, organizationId),
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [
+					"credit_refund",
+					"subscription_refund",
+				]),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.relatedTransactionId, transactionIds),
 			),
@@ -141,7 +146,7 @@ export type AdminRefundReason = (typeof ADMIN_REFUND_REASONS)[number];
 /**
  * Issue a Stripe refund on behalf of a customer. Like the self-service path,
  * every bookkeeping side effect is left to the `charge.refunded` webhook: it
- * writes the `credit_refund` row, deducts top-up credits, claws back an unused
+ * writes the refund row, deducts top-up credits, claws back an unused
  * Reset Pass, and cancels the subscription when a plan payment is refunded in
  * full.
  *
