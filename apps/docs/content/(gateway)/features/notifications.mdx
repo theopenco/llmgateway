@@ -28,7 +28,7 @@ Provider alerts require at least 20 non-cached, non-client-error requests and an
 
 When you bring your own provider keys, a key can stop working without any change on your side: the provider revokes it, its quota runs out, or a model is removed from the account. Owners and admins can turn on error-rate alerts for the organization's own keys under **Organization → Preferences → Provider Key Alerts**. Platform-managed credentials used for credit traffic are never evaluated.
 
-Each rule fires when a key's gateway and upstream errors over the window reach the error rate, after at least the minimum number of non-client-error requests. The defaults are a 15-minute window at 50% and a 4-hour window at 30%; you can edit, add (up to 5), disable, or delete rules. Windows are evaluated on hourly statistics and widen to the start of the hour they begin in, so a 15-minute rule looks at 15 to 75 minutes of traffic. A key alerts at most once per rule and cooldown.
+Alerts are off and have no rules until an owner or admin adds some (up to 5), for example a 15-minute window at 50% and a 4-hour window at 30%. Each rule fires when a key's gateway and upstream errors over the window reach the error rate, after at least the minimum number of non-client-error requests. Windows are evaluated on hourly statistics and widen to the start of the hour they begin in, so a 15-minute rule looks at 15 to 75 minutes of traffic. A key alerts at most once per rule and cooldown.
 
 The alert names the key, the share of failed requests, and the models with the highest error rates, and links to the provider keys page. Delivery is in-app, email, or Slack per the organization's choice; each owner or admin can still turn off in-app or email delivery for their own account.
 

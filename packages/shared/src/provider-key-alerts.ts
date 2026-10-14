@@ -29,26 +29,18 @@ export const providerKeyAlertRuleSchema = z.object({
 
 export type ProviderKeyAlertRule = z.infer<typeof providerKeyAlertRuleSchema>;
 
-export const DEFAULT_PROVIDER_KEY_ALERT_RULES: ProviderKeyAlertRule[] = [
-	{
-		id: "short",
-		label: "15m critical",
-		enabled: true,
-		windowMinutes: 15,
-		errorRatePercent: 50,
-		minRequests: 10,
-		cooldownMinutes: 60,
-	},
-	{
-		id: "long",
-		label: "4h warning",
-		enabled: true,
-		windowMinutes: 240,
-		errorRatePercent: 30,
-		minRequests: 20,
-		cooldownMinutes: 240,
-	},
-];
+/** Starting values for a rule added in the dashboard; nothing ships enabled. */
+export const PROVIDER_KEY_ALERT_RULE_TEMPLATE: Omit<
+	ProviderKeyAlertRule,
+	"id"
+> = {
+	label: "New rule",
+	enabled: true,
+	windowMinutes: 60,
+	errorRatePercent: 30,
+	minRequests: 20,
+	cooldownMinutes: 120,
+};
 
 export const providerKeyAlertSettingsSchema = z.object({
 	// Master switch; nothing is evaluated while off.
@@ -77,10 +69,11 @@ export type ProviderKeyAlertSettings = z.infer<
 	typeof providerKeyAlertSettingsSchema
 >;
 
+/** Unconfigured organizations: off, no rules, so nothing alerts until set up. */
 export const DEFAULT_PROVIDER_KEY_ALERT_SETTINGS: ProviderKeyAlertSettings = {
 	enabled: false,
 	inApp: true,
 	email: true,
 	channels: [],
-	rules: DEFAULT_PROVIDER_KEY_ALERT_RULES,
+	rules: [],
 };

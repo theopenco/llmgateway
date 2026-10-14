@@ -5,11 +5,12 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import {
-	DEFAULT_PROVIDER_KEY_ALERT_RULES,
 	DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
+	PROVIDER_KEY_ALERT_RULE_TEMPLATE,
 } from "@llmgateway/shared/provider-key-alerts";
 
 const organizationId = "provider-key-alerts-org";
+const rule = { id: "short", ...PROVIDER_KEY_ALERT_RULE_TEMPLATE };
 
 describe("provider key alerts", () => {
 	let cookie: string;
@@ -38,7 +39,7 @@ describe("provider key alerts", () => {
 		});
 	}
 
-	test("returns the defaults until configured", async () => {
+	test("returns no rules until configured", async () => {
 		const res = await request();
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({
@@ -51,7 +52,7 @@ describe("provider key alerts", () => {
 		const settings = {
 			...DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
 			enabled: true,
-			rules: [{ ...DEFAULT_PROVIDER_KEY_ALERT_RULES[0], errorRatePercent: 40 }],
+			rules: [{ ...rule, errorRatePercent: 40 }],
 		};
 		const res = await request("PUT", settings);
 		expect(res.status).toBe(200);
@@ -75,15 +76,12 @@ describe("provider key alerts", () => {
 		const noRules = await request("PUT", {
 			...DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
 			enabled: true,
-			rules: [{ ...DEFAULT_PROVIDER_KEY_ALERT_RULES[0], enabled: false }],
+			rules: [{ ...rule, enabled: false }],
 		});
 		expect(noRules.status).toBe(400);
 		const duplicate = await request("PUT", {
 			...DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
-			rules: [
-				DEFAULT_PROVIDER_KEY_ALERT_RULES[0],
-				DEFAULT_PROVIDER_KEY_ALERT_RULES[0],
-			],
+			rules: [rule, rule],
 		});
 		expect(duplicate.status).toBe(400);
 	});

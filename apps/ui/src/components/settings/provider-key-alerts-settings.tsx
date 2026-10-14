@@ -19,6 +19,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import {
 	DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
+	PROVIDER_KEY_ALERT_RULE_TEMPLATE,
 	PROVIDER_KEY_ALERTS_MAX_RULES,
 	type ProviderKeyAlertRule,
 	type ProviderKeyAlertSettings,
@@ -107,12 +108,7 @@ export function ProviderKeyAlertsSettings() {
 				...settings.rules,
 				{
 					id: `rule-${Date.now().toString(36)}`,
-					label: "New rule",
-					enabled: true,
-					windowMinutes: 60,
-					errorRatePercent: 30,
-					minRequests: 20,
-					cooldownMinutes: 120,
+					...PROVIDER_KEY_ALERT_RULE_TEMPLATE,
 				},
 			],
 		});
@@ -226,6 +222,12 @@ export function ProviderKeyAlertsSettings() {
 
 			<div className="space-y-3">
 				<Label>Rules</Label>
+				{settings.rules.length === 0 ? (
+					<p className="text-sm text-muted-foreground">
+						No rules yet. Add one to start, for example a 15-minute window at
+						50% or a 4-hour window at 30%.
+					</p>
+				) : null}
 				{settings.rules.map((rule) => (
 					<div
 						key={rule.id}

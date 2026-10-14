@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { redisClient } from "@llmgateway/cache";
 import { db, tables } from "@llmgateway/db";
-import { DEFAULT_PROVIDER_KEY_ALERT_RULES } from "@llmgateway/shared/provider-key-alerts";
 
 import {
 	alertEventKey,
@@ -13,11 +12,31 @@ import {
 	windowBucketStart,
 } from "./provider-key-alerts.js";
 
-import type { ProviderKeyAlertSettings } from "@llmgateway/shared/provider-key-alerts";
+import type {
+	ProviderKeyAlertRule,
+	ProviderKeyAlertSettings,
+} from "@llmgateway/shared/provider-key-alerts";
 
 const ORG = "pka-org";
 const KEY = "pka-key";
-const [shortRule, longRule] = DEFAULT_PROVIDER_KEY_ALERT_RULES;
+const shortRule: ProviderKeyAlertRule = {
+	id: "short",
+	label: "15m critical",
+	enabled: true,
+	windowMinutes: 15,
+	errorRatePercent: 50,
+	minRequests: 10,
+	cooldownMinutes: 60,
+};
+const longRule: ProviderKeyAlertRule = {
+	id: "long",
+	label: "4h warning",
+	enabled: true,
+	windowMinutes: 240,
+	errorRatePercent: 30,
+	minRequests: 20,
+	cooldownMinutes: 240,
+};
 
 const counts = {
 	providerKeyId: KEY,

@@ -256,8 +256,8 @@ export {
 } from "./model-error-rate-alerts.js";
 
 export {
-	DEFAULT_PROVIDER_KEY_ALERT_RULES,
 	DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
+	PROVIDER_KEY_ALERT_RULE_TEMPLATE,
 	PROVIDER_KEY_ALERTS_MAX_RULES,
 	type ProviderKeyAlertRule,
 	providerKeyAlertRuleSchema,
