@@ -2083,11 +2083,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		(body.token !== undefined ||
 			body.config !== undefined ||
 			body.region !== undefined ||
-			body.variant !== undefined)
+			body.variant !== undefined ||
+			body.allowedModels !== undefined)
 	) {
 		throw new HTTPException(400, {
 			message:
-				"A credential pending deletion cannot change its token, config, region or variant.",
+				"A credential pending deletion cannot change its token, config, region, variant or allowed models.",
 		});
 	}
 	if (body.token !== undefined && existing.provider !== "custom") {

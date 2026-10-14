@@ -480,6 +480,8 @@ describe("admin provider credentials", () => {
 		expect(rotated.status).toBe(400);
 		const moved = await patch({ region: "eu" });
 		expect(moved.status).toBe(400);
+		const narrowed = await patch({ allowedModels: ["gpt-4o-mini"] });
+		expect(narrowed.status).toBe(400);
 
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },

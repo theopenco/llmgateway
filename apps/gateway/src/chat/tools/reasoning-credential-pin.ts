@@ -137,7 +137,13 @@ function replayedReasoningIds(
 			}
 		}
 		if (ids.length > 0) {
-			return [...new Set(ids)].reverse();
+			// Payload-derived ids first, latest first; tool-call ids only as a
+			// fallback for signatures the client did not send back.
+			const unique = [...new Set(ids)];
+			return [
+				...unique.filter((id) => !id.startsWith("call:")).reverse(),
+				...unique.filter((id) => id.startsWith("call:")),
+			];
 		}
 	}
 	return [];

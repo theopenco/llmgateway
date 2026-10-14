@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 import {
+	lookupReasoningPin,
 	reasoningPinBindsModel,
 	rememberReasoningCredential,
 } from "@/chat/tools/reasoning-credential-pin.js";
@@ -382,6 +383,57 @@ describe("reasoning credential pinning", () => {
 		expect(failing.every((value) => value === "Bearer sk-managed-a")).toBe(
 			true,
 		);
+	});
+});
+
+describe("reasoning pin lookup order", () => {
+	test("checks payload ids before tool-call ids", async () => {
+		const credential = (provider: string) => ({
+			provider,
+			source: "managed" as const,
+			providerKeyId: `key-${provider}`,
+			apiKeyHash: "hash",
+		});
+		// A stale pin under the tool-call id must not outrank the payload's.
+		await rememberReasoningCredential(
+			"order-org",
+			{
+				tool_calls: [
+					{
+						id: "call_order",
+						extra_content: { google: { thought_signature: "old-sig" } },
+					},
+				],
+			},
+			credential("azure"),
+		);
+		await rememberReasoningCredential(
+			"order-org",
+			{
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						data: "payload-order",
+						format: "openai-responses-v1",
+					},
+				],
+			},
+			credential("openai"),
+		);
+		const pin = await lookupReasoningPin("order-org", [
+			{
+				role: "assistant",
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						data: "payload-order",
+						format: "openai-responses-v1",
+					},
+				],
+				tool_calls: [{ id: "call_order" }],
+			},
+		]);
+		expect(pin?.provider).toBe("openai");
 	});
 });
 
