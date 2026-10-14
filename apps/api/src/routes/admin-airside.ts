@@ -1382,9 +1382,6 @@ const listListings = createRoute({
 	request: {
 		query: z.object({
 			providerId: z.string().optional(),
-			// Only in-service listings whose context window would be refused
-			// today or that bare-id routing skips.
-			contextIssues: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -1400,18 +1397,8 @@ const listListings = createRoute({
 });
 
 adminAirside.openapi(listListings, async (c) => {
-	const { providerId, contextIssues } = c.req.valid("query");
-	const listings = await adminListings({ providerId });
-	return c.json({
-		listings:
-			contextIssues === "true"
-				? listings.filter(
-						(listing) =>
-							listing.status === "active" &&
-							(listing.contextDeviation !== null || listing.autoRouteExcluded),
-					)
-				: listings,
-	});
+	const { providerId } = c.req.valid("query");
+	return c.json({ listings: await adminListings({ providerId }) });
 });
 
 const delistListing = createRoute({

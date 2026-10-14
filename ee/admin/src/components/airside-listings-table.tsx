@@ -2,7 +2,6 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -76,28 +75,16 @@ function ContextCell({ listing }: { listing: Listing }) {
 
 /**
  * Airside listings with their context-window standing and an admin delist
- * action. `contextIssues` narrows to in-service listings that new submissions
- * would be refused for, or that bare-id routing skips.
+ * action.
  */
-export function AirsideListingsTable({
-	providerId,
-	contextIssues = false,
-	showProvider = false,
-}: {
-	providerId?: string;
-	contextIssues?: boolean;
-	showProvider?: boolean;
-}) {
+export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 	const $api = useApi();
 	const queryClient = useQueryClient();
 	const editable = canWrite(useAdminRole());
 	const [pending, setPending] = useState<Listing | null>(null);
 	const query = $api.useQuery("get", "/admin/airside/listings", {
 		params: {
-			query: {
-				...(providerId ? { providerId } : {}),
-				...(contextIssues ? { contextIssues: "true" as const } : {}),
-			},
+			query: providerId ? { providerId } : {},
 		},
 	});
 	const delist = $api.useMutation(
@@ -126,13 +113,7 @@ export function AirsideListingsTable({
 	}
 	const listings = query.data?.listings ?? [];
 	if (listings.length === 0) {
-		return (
-			<p className="p-4 text-sm text-muted-foreground">
-				{contextIssues
-					? "No in-service listing has a context window issue."
-					: "No listings."}
-			</p>
-		);
+		return <p className="p-4 text-sm text-muted-foreground">No listings.</p>;
 	}
 
 	return (
@@ -140,7 +121,6 @@ export function AirsideListingsTable({
 			<Table>
 				<TableHeader>
 					<TableRow>
-						{showProvider ? <TableHead>Carrier</TableHead> : null}
 						<TableHead>Model</TableHead>
 						<TableHead>Status</TableHead>
 						<TableHead>Context</TableHead>
@@ -154,19 +134,6 @@ export function AirsideListingsTable({
 							key={listing.id}
 							data-testid={`airside-listing-${listing.id}`}
 						>
-							{showProvider ? (
-								<TableCell>
-									<Link
-										href={`/providers/${listing.providerId}`}
-										className="font-medium hover:underline"
-									>
-										{listing.providerId}
-									</Link>
-									<div className="text-xs text-muted-foreground">
-										{listing.company.name}
-									</div>
-								</TableCell>
-							) : null}
 							<TableCell className="font-mono text-sm">
 								{listing.modelName}
 							</TableCell>

@@ -1488,39 +1488,6 @@ describe("airside provider portal", () => {
 		expect(again.status).toBe(409);
 	});
 
-	it("lists in-service listings with context window issues", async () => {
-		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
-		await setUserEmail("ops@mistral.ai");
-		const company = await createCompany(cookie);
-		await claimProvider(cookie, company.id);
-		await activateClaim();
-		const modelName = "deepseek-v4.1-flash";
-		// Accepted before submissions were checked.
-		await db.insert(tables.providerDraftModel).values({
-			id: "legacy-short-listing",
-			providerCompanyId: company.id,
-			providerId: "mistral",
-			modelName,
-			externalId: modelName,
-			contextSize: 200_000,
-			streaming: true,
-			status: "active",
-		});
-
-		const res = await app.request(
-			"/admin/airside/listings?contextIssues=true",
-			{ headers: { Cookie: cookie } },
-		);
-		expect(res.status).toBe(200);
-		expect((await res.json()).listings).toEqual([
-			expect.objectContaining({
-				id: "legacy-short-listing",
-				contextDeviation: "below",
-				referenceContextSize: getReferenceContextSize(modelName),
-			}),
-		]);
-	});
-
 	it("runs the approval lifecycle through the admin queue", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");

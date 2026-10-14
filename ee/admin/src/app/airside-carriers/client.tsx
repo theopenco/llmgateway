@@ -12,7 +12,6 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { AirsideListingsTable } from "@/components/airside-listings-table";
 import {
 	credentialErrorRate,
 	formatErrorPercent,
@@ -546,22 +545,6 @@ export function AirsideCarriersClient() {
 							) : null}
 						</>
 					)}
-				</CardContent>
-			</Card>
-
-			<Card>
-				<CardHeader>
-					<CardTitle>Listings with context window issues</CardTitle>
-					<CardDescription>
-						In-service listings more than 10% away from the model&apos;s
-						reference window, which new submissions are refused for, and
-						listings that requests without a provider prefix skip because a
-						full-window provider serves the model. Delisting stops their
-						routing; the carrier can relist once the listing meets the rules.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					<AirsideListingsTable contextIssues showProvider />
 				</CardContent>
 			</Card>
 		</div>
