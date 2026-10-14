@@ -6,7 +6,10 @@ import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
-import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
+import {
+	repriceDraftRenewalInvoice,
+	voidPendingCycleRenewalInvoices,
+} from "@/lib/pending-renewal.js";
 import {
 	renewalPaymentResultSchema,
 	retryDevPlanRenewal,
@@ -1570,6 +1573,18 @@ devPlans.openapi(changeTier, async (c) => {
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 
+			// If Stripe already drafted the upcoming renewal invoice (this change
+			// landed inside the pre-renewal finalization window), it still bills the
+			// old price — re-price it to match the tier taking effect at renewal.
+			// Runs after the pending tier is persisted so a renewal webhook firing
+			// mid-reprice never sees an adjusted charge without the matching tier.
+			await repriceDraftRenewalInvoice({
+				subscriptionId,
+				customer: subscription.customer,
+				newPriceId,
+				newTier,
+			});
+
 			// Scheduled downgrades keep their historical no-amount transaction row.
 			// A scheduled upgrade records no transaction: `dev_plan_upgrade` rows
 			// are treated as payment rows by the invoice list and self-refund
@@ -1783,6 +1798,17 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 			.update(tables.organization)
 			.set({ devPlanPendingTier: null })
 			.where(eq(tables.organization.id, personalOrg.id));
+
+		// Scheduling the change may have re-priced a drafted renewal invoice to the
+		// target tier; re-price it back so the renewal bills the current tier. Runs
+		// after the pending tier is cleared so a renewal webhook firing mid-reprice
+		// never applies the cancelled tier to a charge restored to the current one.
+		await repriceDraftRenewalInvoice({
+			subscriptionId: personalOrg.devPlanStripeSubscriptionId,
+			customer: subscription.customer,
+			newPriceId: currentTierPriceId,
+			newTier: currentTier,
+		});
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
