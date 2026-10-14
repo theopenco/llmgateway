@@ -49,6 +49,10 @@ import {
 } from "./openai-request-detection.js";
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
+import {
+	isAnthropicToolChoice,
+	mapAnthropicToolChoice,
+} from "./tool-choice.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type {
@@ -262,6 +266,34 @@ const anthropicRequestSchema = z.object({
 	tools: z.array(anthropicToolSchema).optional().openapi({
 		description: "Available tools for the model to use",
 	}),
+	tool_choice: z
+		.preprocess(
+			// OpenAI-style values ("auto", { type: "function" }) were stripped before
+			// this field existed; keep dropping them rather than turning them into 400s.
+			(value) => (isAnthropicToolChoice(value) ? value : undefined),
+			z
+				.discriminatedUnion("type", [
+					z.object({
+						type: z.literal("auto"),
+						disable_parallel_tool_use: z.boolean().optional(),
+					}),
+					z.object({
+						type: z.literal("any"),
+						disable_parallel_tool_use: z.boolean().optional(),
+					}),
+					z.object({
+						type: z.literal("tool"),
+						name: z.string(),
+						disable_parallel_tool_use: z.boolean().optional(),
+					}),
+					z.object({ type: z.literal("none") }),
+				])
+				.optional(),
+		)
+		.openapi({
+			description:
+				"How the model should use the provided tools: `auto`, `any` (must call a tool), `tool` (must call the named tool) or `none`.",
+		}),
 	stream: z.boolean().optional().default(false).openapi({
 		description: "Whether to stream the response",
 		example: false,
@@ -1090,6 +1122,10 @@ anthropic.openapi(messages, async (c) => {
 
 	if (openaiTools && openaiTools.length > 0) {
 		openaiRequest.tools = openaiTools;
+		const toolChoice = mapAnthropicToolChoice(anthropicRequest.tool_choice);
+		if (toolChoice) {
+			openaiRequest.tool_choice = toolChoice;
+		}
 	}
 
 	// Translate Anthropic reasoning controls (extended `thinking` and adaptive
