@@ -22,6 +22,8 @@ const { values: opts } = parseArgs({
 		reps: { type: "string", default: "1" },
 		concurrency: { type: "string", default: "3" },
 		"timeout-min": { type: "string", default: "25" },
+		"max-spend": { type: "string" },
+		"min-credits": { type: "string", default: "2" },
 		suite: { type: "string", default: new Date().toISOString().slice(0, 10) },
 	},
 });
@@ -58,16 +60,47 @@ const sh = (cmd, args, cwd) =>
 		maxBuffer: 64 * 1024 * 1024,
 	}).toString();
 
-async function keyUsage() {
+async function account() {
 	try {
 		const res = await fetch("https://internal.llmgateway.io/mcp/account", {
 			headers: { Authorization: `Bearer ${apiKey}` },
 		});
 		const body = await res.json();
-		return body.apiKey?.usageUsd ?? null;
+		return {
+			usage: body.apiKey?.usageUsd ?? null,
+			limit: body.apiKey?.usageLimitUsd ?? null,
+			credits: body.creditsBalanceUsd ?? null,
+		};
 	} catch {
-		return null;
+		return { usage: null, limit: null, credits: null };
 	}
+}
+
+async function keyUsage() {
+	return (await account()).usage;
+}
+
+async function budgetStop(startUsage) {
+	const now = await account();
+	if (now.credits !== null && now.credits < Number(opts["min-credits"])) {
+		return `organization credits at $${now.credits.toFixed(2)}, below --min-credits`;
+	}
+	if (
+		now.limit !== null &&
+		now.usage !== null &&
+		now.limit - now.usage < Number(opts["min-credits"])
+	) {
+		return `API key at $${now.usage.toFixed(2)} of its $${now.limit} limit`;
+	}
+	if (
+		opts["max-spend"] &&
+		now.usage !== null &&
+		startUsage !== null &&
+		now.usage - startUsage >= Number(opts["max-spend"])
+	) {
+		return `spent $${(now.usage - startUsage).toFixed(2)}, reached --max-spend`;
+	}
+	return null;
 }
 
 function startProxy(runId, logFile) {
@@ -395,6 +428,12 @@ const usageBefore = await keyUsage();
 await Promise.all(
 	Array.from({ length: Number(opts.concurrency) }, async () => {
 		while (queue.length) {
+			const stop = await budgetStop(usageBefore);
+			if (stop) {
+				console.log(`stopping before ${queue.length} queued runs: ${stop}`);
+				queue.length = 0;
+				break;
+			}
 			const job = queue.shift();
 			try {
 				await runOne(job);
