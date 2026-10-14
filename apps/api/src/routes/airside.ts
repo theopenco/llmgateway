@@ -17,7 +17,6 @@ import {
 	latestListing,
 } from "@/lib/airside-carrier-keys.js";
 import {
-	dematerializeAirsideModel,
 	materializeAirsideModel,
 	setAirsideModelServing,
 	staticCatalogueHasActiveMapping,
@@ -25,6 +24,7 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { assertListingContextSize } from "@/lib/airside-context-size.js";
+import { delistAirsideListing } from "@/lib/airside-delist.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
 	claimableProvidersForDomains,
@@ -77,6 +77,8 @@ import {
 } from "@/lib/mapping-error-shapes.js";
 import {
 	buildVerificationTarget,
+	declaresPromptCaching,
+	listingDeclaresPromptCaching,
 	clearClaimVerificationKey,
 	enqueueModelVerification,
 	modelVerificationSchema,
@@ -248,6 +250,8 @@ const verificationMappingSchema = z.object({
 	webSearch: z.boolean().optional(),
 	contextSize: z.number().int().positive().nullish(),
 	maxOutput: z.number().int().positive().nullish(),
+	// Set when the listing declares a cached input price.
+	promptCaching: z.boolean().optional(),
 });
 
 /** The capability subset a carrier can preflight before saving an edit. */
@@ -418,7 +422,7 @@ const modelSchema = z.object({
 	// Set while an active listing is paused by the carrier.
 	pausedAt: z.string().nullable(),
 	delistedAt: z.string().nullable(),
-	delistReason: z.enum(["removed", "claim_revoked"]).nullable(),
+	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
@@ -606,6 +610,7 @@ function verificationTarget(
 function draftVerificationTarget(
 	model: DraftModelRow,
 	proposed: CapabilityOverrides = {},
+	promptCaching = false,
 ): ProviderModelVerificationTarget {
 	// `null` is a meaningful proposal for the list-valued fields ("no
 	// restriction" / "parameter unsupported"), so they fall back on undefined
@@ -639,6 +644,7 @@ function draftVerificationTarget(
 				: proposed.contextSize,
 		maxOutput:
 			proposed.maxOutput === undefined ? model.maxOutput : proposed.maxOutput,
+		promptCaching,
 	});
 }
 
@@ -2928,10 +2934,14 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 	}
 	// Without an explicit proposal, verify what the listing currently claims —
 	// including a capability edit still awaiting review.
-	const target = draftVerificationTarget(model, {
-		...(await pendingFiledCapabilities(model.id)),
-		...proposed,
-	});
+	const target = draftVerificationTarget(
+		model,
+		{
+			...(await pendingFiledCapabilities(model.id)),
+			...proposed,
+		},
+		await listingDeclaresPromptCaching(model.id),
+	);
 	const credential = await resolveVerificationCredential(target, apiKey, claim);
 	if (apiKey) {
 		await saveClaimVerificationKey(claim, apiKey);
@@ -3174,9 +3184,12 @@ airside.openapi(createModel, async (c) => {
 			message: "This verification has already been used.",
 		});
 	}
-	if (
-		!verificationTargetsMatch(verification.target, verificationTarget(body))
-	) {
+	// A cached input price is a claim the preflight has to prove.
+	const target = verificationTarget({
+		...body,
+		promptCaching: declaresPromptCaching(body.pricing),
+	});
+	if (!verificationTargetsMatch(verification.target, target)) {
 		throw new HTTPException(409, {
 			message:
 				"The mapping changed after verification. Run verification again.",
@@ -3210,21 +3223,13 @@ airside.openapi(createModel, async (c) => {
 	}
 	if (firstProviderKey) {
 		await assertProviderKeyIsSeparate(claim, firstProviderKey);
-		await assertProviderKeyServes(
-			claim,
-			firstProviderKey,
-			verificationTarget(body),
-		);
+		await assertProviderKeyServes(claim, firstProviderKey, target);
 	} else if (effectiveClaimKind(claim) === "custom" && keyOnFile) {
 		const servingKey = await db.query.providerKey.findFirst({
 			where: { id: { eq: keyOnFile } },
 		});
 		if (servingKey) {
-			await assertProviderKeyServes(
-				claim,
-				readProviderKey(servingKey),
-				verificationTarget(body),
-			);
+			await assertProviderKeyServes(claim, readProviderKey(servingKey), target);
 		}
 	}
 
@@ -3725,55 +3730,9 @@ airside.openapi(deleteModel, async (c) => {
 			.where(eq(tables.providerDraftModel.id, id));
 		return c.json({ status: "deleted" as const });
 	}
-	await cdb.transaction(async (tx) => {
-		await tx
-			.update(tables.providerDraftModel)
-			.set({
-				status: "delisted",
-				delistedAt: new Date(),
-				delistReason: "removed",
-				pausedAt: null,
-			})
-			.where(eq(tables.providerDraftModel.id, id));
-		// A delisted model's pending filing would otherwise linger in the admin
-		// queue and approve as a silent no-op.
-		await tx
-			.update(tables.providerPriceFiling)
-			.set({
-				status: "rejected",
-				reviewNote: "Model delisted",
-				reviewedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(tables.providerPriceFiling.draftModelId, id),
-					eq(tables.providerPriceFiling.status, "pending"),
-				),
-			);
-		await tx
-			.delete(tables.providerRoutingSettings)
-			.where(
-				and(
-					eq(tables.providerRoutingSettings.providerId, model.providerId),
-					eq(tables.providerRoutingSettings.modelId, model.modelName),
-				),
-			);
-		await tx
-			.update(tables.providerRoutingFiling)
-			.set({
-				status: "rejected",
-				reviewNote: "Model delisted",
-				reviewedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(tables.providerRoutingFiling.providerId, model.providerId),
-					eq(tables.providerRoutingFiling.modelId, model.modelName),
-					eq(tables.providerRoutingFiling.status, "pending"),
-				),
-			);
-		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
-	});
+	await cdb.transaction(
+		async (tx) => await delistAirsideListing(tx, model, "removed"),
+	);
 	return c.json({ status: "delisted" as const });
 });
 
@@ -4478,6 +4437,7 @@ const incidentsRoute = createRoute({
 			providerId: z.string().optional(),
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
+			model: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
@@ -4514,6 +4474,7 @@ airside.openapi(incidentsRoute, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
+			model: query.model,
 			includeByok: query.includeByok === "true",
 		}),
 	});

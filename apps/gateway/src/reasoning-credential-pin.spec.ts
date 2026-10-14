@@ -11,6 +11,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { models } from "@llmgateway/models";
 import {
@@ -56,11 +57,13 @@ describe("reasoning credential pinning", () => {
 		sortOrder?: number;
 		provider?: string;
 		config?: Record<string, string>;
+		maxRpm?: number;
 	}) {
 		await cdb.insert(tables.providerKey).values({
 			id: values.id,
 			provider: values.provider ?? "openai",
 			config: values.config,
+			maxRpm: values.maxRpm,
 			...encryptProviderKeyForStorage(
 				values.token,
 				values.id,
@@ -273,6 +276,71 @@ describe("reasoning credential pinning", () => {
 		expect(authorizations).toEqual([
 			"Bearer sk-byok-only",
 			"Bearer sk-byok-only",
+		]);
+	});
+
+	async function waitForKeyRequests(id: string, count: number) {
+		await vi.waitFor(
+			async () => {
+				expect(
+					await redisClient.zcard(`rate_limit:provider_key:rpm:${id}`),
+				).toBe(count);
+			},
+			{ timeout: 5000 },
+		);
+	}
+
+	test("keeps a replay on its own key at the key's rate limit", async () => {
+		await harness.setProjectMode("api-keys");
+		await seedKey({
+			id: "byok-capped",
+			token: "sk-byok-capped",
+			managed: false,
+			maxRpm: 1,
+			sortOrder: 0,
+		});
+		await seedKey({
+			id: "byok-spare",
+			token: "sk-byok-spare",
+			managed: false,
+			sortOrder: 1,
+		});
+		const authorizations = mockUpstream();
+
+		const reasoning = await firstTurnReasoning();
+		await waitForKeyRequests("byok-capped", 1);
+
+		// Only the capped key can verify the replay; new traffic avoids it.
+		expect((await turn(reasoning, "gpt-6.1-sol")).status).toBe(200);
+		expect((await turn(undefined, "gpt-6.1-sol")).status).toBe(200);
+		expect(authorizations).toEqual([
+			"Bearer sk-byok-capped",
+			"Bearer sk-byok-capped",
+			"Bearer sk-byok-spare",
+		]);
+	});
+
+	test("keeps a provider routable for a replay pinned to its only capped credential", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({
+			id: "managed-capped",
+			token: "sk-managed-capped",
+			managed: true,
+			maxRpm: 1,
+		});
+		const authorizations = mockUpstream();
+
+		const reasoning = await firstTurnReasoning();
+		await waitForKeyRequests("managed-capped", 1);
+
+		expect((await turn(reasoning, "gpt-6.1-sol")).status).toBe(200);
+		// A fresh request has no uncapped credential left.
+		expect(
+			(await turn(undefined, "gpt-6.1-sol")).status,
+		).toBeGreaterThanOrEqual(400);
+		expect(authorizations).toEqual([
+			"Bearer sk-managed-capped",
+			"Bearer sk-managed-capped",
 		]);
 	});
 

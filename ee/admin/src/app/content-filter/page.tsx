@@ -235,19 +235,26 @@ export default async function ContentFilterPage({
 
 	return (
 		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
-			<header className="flex items-center gap-3">
-				<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-					<ShieldCheck className="h-5 w-5" />
+			<header className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex items-center gap-3">
+					<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+						<ShieldCheck className="h-5 w-5" />
+					</div>
+					<div>
+						<h1 className="text-2xl font-semibold tracking-tight">
+							Content Filter
+						</h1>
+						<p className="text-sm text-muted-foreground">
+							Tiered gateway moderation: sampling, enforcement and per-provider
+							rollout
+						</p>
+					</div>
 				</div>
-				<div>
-					<h1 className="text-2xl font-semibold tracking-tight">
-						Content Filter
-					</h1>
-					<p className="text-sm text-muted-foreground">
-						Tiered gateway moderation: sampling, enforcement and per-provider
-						rollout
-					</p>
-				</div>
+				<Button asChild variant="outline" size="sm">
+					<Link href={`/content-filter/errors?window=${window}`}>
+						Moderation errors
+					</Link>
+				</Button>
 			</header>
 
 			<Card>
@@ -366,6 +373,7 @@ export default async function ContentFilterPage({
 										<TableHead>Top providers</TableHead>
 										<TableHead>Top models</TableHead>
 										<TableHead>Top mappings</TableHead>
+										<TableHead>Top API keys</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -454,6 +462,24 @@ export default async function ContentFilterPage({
 																className="whitespace-nowrap"
 															>
 																{m.usedModel} ({formatNumber(m.violationCount)})
+															</span>
+														))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{org.topApiKeys.length === 0 ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topApiKeys.map((k) => (
+															<span
+																key={k.apiKeyId}
+																className="whitespace-nowrap"
+																title={k.apiKeyId}
+															>
+																{k.description ?? k.apiKeyId} (
+																{formatNumber(k.violationCount)})
 															</span>
 														))}
 													</div>

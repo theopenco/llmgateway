@@ -15,6 +15,7 @@ export * from "./routing-score-multiplier.js";
 export * from "./rate-limit-helpers.js";
 export * from "./schema.js";
 export * from "./log-payloads.js";
+export * from "./log-filters.js";
 export * from "./mapping-history-scope.js";
 export * from "./log-retention.js";
 export * from "./types.js";

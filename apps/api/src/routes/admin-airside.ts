@@ -17,6 +17,7 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { referenceContextSizes } from "@/lib/airside-context-size.js";
+import { delistAirsideListing } from "@/lib/airside-delist.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
@@ -24,10 +25,16 @@ import {
 } from "@/lib/airside-metadata.js";
 import { effectiveClaimKind } from "@/lib/airside-profile.js";
 import {
+	buildErrorMessageMatchExpr,
+	buildIgnoredErrorsClause,
+	buildIncidentErrorScopeClause,
+	errorScopeSchema,
+	listIgnoredErrorMatchers,
+} from "@/lib/error-filters.js";
+import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
 	incidentsWindowSchema,
-	incidentErrorsClause,
 	byokClauseFor,
 	notRetriedClause,
 	queryIncidentErrorTypes,
@@ -63,6 +70,7 @@ import {
 	db,
 	eq,
 	excludeRegionalMappingRows,
+	gt,
 	gte,
 	inArray,
 	isNotNull,
@@ -74,6 +82,7 @@ import {
 } from "@llmgateway/db";
 import {
 	getContextSizeDeviation,
+	getContextTierMinSize,
 	getReferenceContextSize,
 	models as catalogueModels,
 	providers as catalogueProviders,
@@ -84,6 +93,7 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
+import { cachedInputPriceWarning } from "@llmgateway/shared/prompt-cache";
 
 import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
@@ -159,11 +169,15 @@ const adminFilingSchema = z.object({
 			deviation: z.enum(["below", "above"]),
 		})
 		.nullable(),
+	// Cached input prices unusually close to their input price, default and
+	// per region; usually a typo or the wrong unit.
+	cachedPriceWarnings: z.array(z.string()),
 	// The model's currently effective pricing, for diffing update filings.
 	currentPricing: z
 		.object({
 			inputPrice: z.string(),
 			outputPrice: z.string(),
+			cachedInputPrice: z.string().nullable(),
 			// Live regional fares, so a filing that changes or drops a region
 			// shows the reviewer what it replaces.
 			regionPrices: z
@@ -286,6 +300,32 @@ function contextSizeWarningFor(
 		: null;
 }
 
+function cachedPriceWarnings(
+	row: typeof tables.providerPriceFiling.$inferSelect,
+): string[] {
+	if (row.kind === "metadata") {
+		return [];
+	}
+	const warnings: string[] = [];
+	const fallback = cachedInputPriceWarning(
+		row.inputPrice,
+		row.cachedInputPrice,
+	);
+	if (fallback) {
+		warnings.push(fallback);
+	}
+	for (const entry of row.regionPrices ?? []) {
+		const warning = cachedInputPriceWarning(
+			entry.inputPrice,
+			entry.cachedInputPrice ?? row.cachedInputPrice,
+		);
+		if (warning) {
+			warnings.push(`${entry.region}: ${warning}`);
+		}
+	}
+	return warnings;
+}
+
 function serializeAdminFiling(
 	row: FilingWithRelations,
 	listingReference?: (
@@ -344,10 +384,12 @@ function serializeAdminFiling(
 			website: row.providerCompany.website,
 		},
 		contextSizeWarning: contextSizeWarningFor(row, listingReference),
+		cachedPriceWarnings: cachedPriceWarnings(row),
 		currentPricing: approved
 			? {
 					inputPrice: approved.inputPrice,
 					outputPrice: approved.outputPrice,
+					cachedInputPrice: approved.cachedInputPrice,
 					regionPrices: approved.regionPrices
 						? approved.regionPrices.map((entry) => ({
 								region: entry.region,
@@ -1237,6 +1279,182 @@ adminAirside.openapi(rejectClaim, async (c) => {
 	});
 });
 
+const adminListingSchema = z.object({
+	id: z.string(),
+	providerId: z.string(),
+	modelName: z.string(),
+	status: z.enum(["draft", "active", "rejected", "delisted"]),
+	contextSize: z.number().nullable(),
+	// The window the listing is held to: the catalogue's largest, or for models
+	// outside it the largest window other carriers list.
+	referenceContextSize: z.number().nullable(),
+	// More than 10% away from the reference: new listings are refused.
+	contextDeviation: z.enum(["below", "above"]).nullable(),
+	// Below the model's full-window tier, so requests without a provider prefix
+	// skip it.
+	autoRouteExcluded: z.boolean(),
+	mappingIds: z.array(z.string()),
+	company: z.object({ id: z.string(), name: z.string() }),
+	delistedAt: z.string().nullable(),
+	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
+});
+
+type AdminListing = z.infer<typeof adminListingSchema>;
+
+async function adminListings(filter: {
+	providerId?: string;
+	listingId?: string;
+}): Promise<AdminListing[]> {
+	const rows = await db.query.providerDraftModel.findMany({
+		where: {
+			...(filter.providerId ? { providerId: { eq: filter.providerId } } : {}),
+			...(filter.listingId ? { id: { eq: filter.listingId } } : {}),
+		},
+		with: { providerCompany: true },
+		orderBy: { modelName: "asc" },
+	});
+	if (rows.length === 0) {
+		return [];
+	}
+	const reference = await referenceContextSizes(rows);
+	const modelIds = [...new Set(rows.map((row) => row.modelName))];
+	const mappings = await db
+		.select({
+			id: tables.modelProviderMapping.id,
+			modelId: tables.modelProviderMapping.modelId,
+			providerId: tables.modelProviderMapping.providerId,
+			source: tables.modelProviderMapping.source,
+			contextSize: tables.modelProviderMapping.contextSize,
+			deactivatedAt: tables.modelProviderMapping.deactivatedAt,
+		})
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				inArray(tables.modelProviderMapping.modelId, modelIds),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+	const tierMinSize = new Map(
+		modelIds.map((modelId) => [
+			modelId,
+			getContextTierMinSize(
+				modelId,
+				mappings
+					.filter((mapping) => mapping.modelId === modelId)
+					.map((mapping) => ({
+						providerId: mapping.providerId,
+						contextSize: mapping.contextSize ?? undefined,
+						deactivatedAt: mapping.deactivatedAt ?? undefined,
+					})),
+			),
+		]),
+	);
+	return rows.map((row) => {
+		const own = mappings.filter(
+			(mapping) =>
+				mapping.source === "airside" &&
+				mapping.modelId === row.modelName &&
+				mapping.providerId === row.providerId,
+		);
+		const referenceContextSize =
+			reference(row.modelName, row.providerId) ?? null;
+		const minSize = tierMinSize.get(row.modelName);
+		return {
+			id: row.id,
+			providerId: row.providerId,
+			modelName: row.modelName,
+			status: row.status,
+			contextSize: row.contextSize,
+			referenceContextSize,
+			contextDeviation:
+				getContextSizeDeviation(row.contextSize, referenceContextSize) ?? null,
+			autoRouteExcluded:
+				row.status === "active" &&
+				minSize !== undefined &&
+				own.some(
+					(mapping) =>
+						mapping.contextSize !== null && mapping.contextSize < minSize,
+				),
+			mappingIds: own.map((mapping) => mapping.id),
+			company: {
+				id: row.providerCompanyId,
+				name: row.providerCompany?.name ?? row.providerCompanyId,
+			},
+			delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
+			delistReason: row.delistReason,
+		};
+	});
+}
+
+const listListings = createRoute({
+	method: "get",
+	path: "/airside/listings",
+	request: {
+		query: z.object({
+			providerId: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listings: z.array(adminListingSchema) }),
+				},
+			},
+			description: "Airside listings with their context-window standing.",
+		},
+	},
+});
+
+adminAirside.openapi(listListings, async (c) => {
+	const { providerId } = c.req.valid("query");
+	return c.json({ listings: await adminListings({ providerId }) });
+});
+
+const delistListing = createRoute({
+	method: "post",
+	path: "/airside/listings/{id}/delist",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listing: adminListingSchema }),
+				},
+			},
+			description:
+				"The delisted listing. It stops routing; the carrier can relist it once it meets the listing rules.",
+		},
+	},
+});
+
+adminAirside.openapi(delistListing, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	// cdb: the gateway caches listing resolution off these tables.
+	await cdb.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			.$withCache(false);
+		if (!locked) {
+			throw new HTTPException(404, { message: "Listing not found" });
+		}
+		if (locked.status !== "active") {
+			throw new HTTPException(409, {
+				message: "Only listings in service can be delisted.",
+			});
+		}
+		await delistAirsideListing(tx, locked, "admin", user?.id ?? null);
+	});
+	const [listing] = await adminListings({ listingId: id });
+	return c.json({ listing });
+});
+
 const revokeClaim = createRoute({
 	method: "post",
 	path: "/airside/claims/{id}/revoke",
@@ -1442,6 +1660,8 @@ const listIncidents = createRoute({
 			window: incidentsWindowSchema.default("24h").optional(),
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
+			/** Upstream + gateway errors (default), plus client errors, or client only. */
+			errorScope: errorScopeSchema.optional(),
 		}),
 	},
 	responses: {
@@ -1471,6 +1691,7 @@ adminAirside.openapi(listIncidents, async (c) => {
 			windowHours,
 			mapping,
 			includeByok: query.includeByok === "true",
+			errorScope: query.errorScope,
 		}),
 	});
 });
@@ -1487,6 +1708,12 @@ const listIncidentErrorTypes = createRoute({
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Upstream + gateway errors (default), plus client errors, or client only. */
+			errorScope: errorScopeSchema.optional(),
+			/** Drop errors matching a stored expected-error matcher. */
+			ignoreExpected: z.enum(["true", "false"]).optional(),
+			/** Only errors whose public or internal details contain this text. */
+			errorMessage: z.string().max(500).optional(),
 		}),
 	},
 	responses: {
@@ -1511,6 +1738,10 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 		interval: windowInterval,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(query.window, "24h");
+	const errorScope = query.errorScope ?? "non_client";
+	const errorMessage = query.errorMessage?.trim() || null;
+	const ignoredMatchers =
+		query.ignoreExpected === "true" ? await listIgnoredErrorMatchers() : [];
 	return c.json({
 		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		...(await queryIncidentErrorTypes({
@@ -1520,12 +1751,17 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 				windowHours,
 				mapping: query.mapping ?? null,
 				includeByok: query.includeByok === "true",
+				errorScope,
 			}),
 			windowInterval,
 			extraClauses: [
-				incidentErrorsClause,
+				buildIncidentErrorScopeClause(errorScope),
 				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
+				buildIgnoredErrorsClause(ignoredMatchers),
+				errorMessage !== null
+					? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
+					: sql``,
 			],
 		})),
 	});
@@ -1727,6 +1963,10 @@ async function getCarrierTrafficSeries(
 			and(
 				inArray(history.providerId, providerIds),
 				gte(history.hourTimestamp, starts[0]),
+				// Most hourly rows are idle mappings that add nothing to the sums;
+				// this lets the planner use the partial active-rows index instead
+				// of reading every row in the window from the heap.
+				gt(history.logsCount, 0),
 				excludeRegionalMappingRows(history),
 			),
 		)

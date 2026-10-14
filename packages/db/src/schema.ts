@@ -17,6 +17,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
+import { logErrorSql, rootModelIdSql } from "./log-filters.js";
+
 import type {
 	gatewayContentFilterEvaluationSchema,
 	gatewayContentFilterResponseSchema,
@@ -2228,6 +2230,13 @@ export const providerKey = snakeCase.table(
 		// When false the daily model sync leaves this key's `allowedModels`
 		// alone, so new models are only ever enabled by hand.
 		modelSyncEnabled: boolean().notNull().default(true),
+		// Optional request and token (prompt + completion) caps for this one
+		// credential, mirroring the upstream account's quota. A key at any cap
+		// drops out of rotation until its window frees up. NULL = uncapped.
+		maxRpm: integer(),
+		maxRpd: integer(),
+		maxTpm: integer(),
+		maxTpd: integer(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -2355,6 +2364,7 @@ export const API_ORIGINS = [
 	"systemone",
 	"decisions",
 	"search",
+	"realtime",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
@@ -2748,6 +2758,12 @@ export const log = snakeCase.table(
 		index("log_error_used_provider_used_model_created_at_idx")
 			.on(table.usedProvider, table.usedModel, table.createdAt)
 			.where(sql`has_error = true`),
+		// Serves error-filtered log lists per project; the trailing model id lets
+		// a model filter run inside the index. Build CONCURRENTLY out of band in
+		// prod before deploying.
+		index("log_error_project_id_created_at_idx")
+			.on(table.projectId, table.createdAt, rootModelIdSql(table.usedModel))
+			.where(logErrorSql(table)),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -4189,6 +4205,20 @@ export const modelProviderMappingHistoryHourly = snakeCase.table(
 				table.totalDuration,
 			)
 			.where(sql`logs_count > 0`),
+		// Covering index for per-provider traffic series (admin carriers page):
+		// provider first so each provider is one contiguous index-only range.
+		index("mpm_history_hourly_provider_ts_active_idx")
+			.on(
+				table.providerId,
+				table.hourTimestamp,
+				table.modelProviderMappingId,
+				table.logsCount,
+				table.totalCost,
+				table.clientErrorsCount,
+				table.gatewayErrorsCount,
+				table.upstreamErrorsCount,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 
@@ -4410,6 +4440,9 @@ export const contentFilterHourlyStats = snakeCase.table(
 		// Rows written before classifiers were selectable all ran on OpenAI.
 		classifier: text().notNull().default("openai"),
 		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		// Input the internal classifier read ("full" or "latest_turn"); empty for
+		// other classifiers and for rows written before the scope was recorded.
+		internalScope: text().notNull().default(""),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
@@ -4426,6 +4459,7 @@ export const contentFilterHourlyStats = snakeCase.table(
 			table.category,
 			table.classifier,
 			table.role,
+			table.internalScope,
 		),
 		index("content_filter_hourly_stats_org_ts_idx").on(
 			table.organizationId,
@@ -4460,6 +4494,8 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 		// Rows written before classifiers were selectable all ran on OpenAI.
 		classifier: text().notNull().default("openai"),
 		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		// Same as contentFilterHourlyStats.internalScope.
+		internalScope: text().notNull().default(""),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
@@ -4478,6 +4514,7 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 			table.category,
 			table.classifier,
 			table.role,
+			table.internalScope,
 		),
 		index("content_filter_hourly_model_stats_org_ts_idx").on(
 			table.organizationId,
@@ -4488,6 +4525,50 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 			table.hourTimestamp,
 		),
 		index("content_filter_hourly_model_stats_ts_idx").on(table.hourTimestamp),
+	],
+);
+
+// Hourly rollup of log.gatewayContentFilterEvaluation broken out by the API key
+// that sent the request, so violations can be traced to a key without scanning
+// `log`. Same conventions as contentFilterHourlyStats (an "all" row with the
+// totals, category rows with violationCount only), without durations. Every
+// log row carries an apiKeyId (end-user sessions log their end-customer key),
+// so these rows sum to the contentFilterHourlyStats totals.
+export const contentFilterHourlyApiKeyStats = snakeCase.table(
+	"content_filter_hourly_api_key_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		apiKeyId: text().notNull(),
+		category: text().notNull(),
+		classifier: text().notNull(),
+		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		// Leads with hourTimestamp, so it also serves the per-hour replace.
+		unique("content_filter_hourly_api_key_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.apiKeyId,
+			table.category,
+			table.classifier,
+			table.role,
+		),
+		index("content_filter_hourly_api_key_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
 	],
 );
 
@@ -4530,6 +4611,58 @@ export const contentFilterHourlyLatencyStats = snakeCase.table(
 			table.hourTimestamp,
 			table.classifier,
 			table.internalScope,
+		),
+	],
+);
+
+// Hourly rollup of the moderation errors stored on
+// log.gatewayContentFilterEvaluation.moderationErrors, so failed moderation
+// calls can be reviewed in the admin dashboard without reading the gateway's
+// logs or scanning `log`. One row per (org, project, classifier, source, kind,
+// status, code); an evaluation with several errors counts once per error.
+export const contentFilterHourlyErrorStats = snakeCase.table(
+	"content_filter_hourly_error_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		// The deciding classifier of the evaluation.
+		classifier: text().notNull(),
+		// The classifier whose call failed; differs from `classifier` when a
+		// text-only classifier delegated an image to OpenAI.
+		source: text().notNull(),
+		kind: text().notNull(),
+		inputType: text().notNull().default(""),
+		status: integer().notNull().default(0),
+		code: text().notNull().default(""),
+		errorCount: integer().notNull().default(0),
+		// Latest message and request in the hour, for drill-down.
+		lastMessage: text().notNull().default(""),
+		lastRequestId: text().notNull().default(""),
+		lastSeenAt: timestamp().notNull(),
+	},
+	(table) => [
+		unique("content_filter_hourly_error_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.classifier,
+			table.source,
+			table.kind,
+			table.inputType,
+			table.status,
+			table.code,
+		),
+		index("content_filter_hourly_error_stats_ts_idx").on(table.hourTimestamp),
+		index("content_filter_hourly_error_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
 		),
 	],
 );
@@ -5276,6 +5409,10 @@ export const rateLimit = snakeCase.table(
 		maxRpm: integer(),
 		// Maximum requests per day
 		maxRpd: integer(),
+		// Maximum tokens (prompt + completion) per minute
+		maxTpm: integer(),
+		// Maximum tokens (prompt + completion) per day
+		maxTpd: integer(),
 		// How the counter is bucketed across orgs (only meaningful for global rows):
 		// "per_org" = each org gets its own counter (default), "global" = single shared counter
 		enforcement: text({ enum: ["per_org", "global"] })
@@ -5290,13 +5427,15 @@ export const rateLimit = snakeCase.table(
 		reason: text(),
 	},
 	(table) => [
-		// One row per org/provider/model combo with both RPM and RPD on the same row.
-		// Coalesce nulls to sentinels so Postgres treats them as equal.
+		// One row per org/provider/model/window, so a target can carry request
+		// and token caps with their own enforcement and mode. Coalesce nulls to
+		// sentinels so Postgres treats them as equal.
 		uniqueIndex("rate_limit_org_provider_model_unique").using(
 			"btree",
 			sql`coalesce(${table.organizationId}, '__global__')`,
 			sql`coalesce(${table.provider}, '__all_providers__')`,
 			sql`coalesce(${table.model}, '__all_models__')`,
+			sql`(case when ${table.maxRpm} is not null then 'rpm' when ${table.maxRpd} is not null then 'rpd' when ${table.maxTpm} is not null then 'tpm' when ${table.maxTpd} is not null then 'tpd' end)`,
 		),
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),
@@ -5731,7 +5870,7 @@ export const providerDraftModel = snakeCase.table(
 		delistedAt: timestamp(),
 		// Why the listing left service: the carrier removed it, or an admin
 		// revoked the claim it was listed under.
-		delistReason: text({ enum: ["removed", "claim_revoked"] }),
+		delistReason: text({ enum: ["removed", "claim_revoked", "admin"] }),
 		// Mapping fields a catalogue import carries over from the static entry
 		// that the listing form does not manage. Materialized with the listing
 		// so it keeps serving the same way once the static entry is removed.
@@ -5805,6 +5944,8 @@ export interface ProviderModelVerificationTarget {
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;
+	/** The listing declares a cached input price, so repeats must report cache hits. */
+	promptCaching?: boolean;
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The

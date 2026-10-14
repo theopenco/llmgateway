@@ -53,6 +53,7 @@ import {
 	suggestModelId,
 } from "@llmgateway/models";
 import { formatNumber } from "@llmgateway/shared/number-format";
+import { cachedInputPriceWarning } from "@llmgateway/shared/prompt-cache";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
@@ -541,6 +542,25 @@ function regionFaresToBody(rows: RegionFareRow[]) {
  * region with `provider/model:region`; every other request pays the default
  * fares.
  */
+function CachedPriceWarning({
+	inputPrice,
+	cachedInputPrice,
+}: {
+	inputPrice: string;
+	cachedInputPrice: string;
+}) {
+	const warning = cachedInputPriceWarning(inputPrice, cachedInputPrice);
+	return warning ? (
+		<p
+			className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400"
+			data-testid="cached-price-warning"
+		>
+			<AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+			{warning}
+		</p>
+	) : null;
+}
+
 function RegionFaresEditor({
 	idPrefix,
 	rows,
@@ -641,6 +661,10 @@ function RegionFaresEditor({
 									setRow(index, { cachedInputPrice: e.target.value })
 								}
 								placeholder="same as default"
+							/>
+							<CachedPriceWarning
+								inputPrice={row.inputPrice}
+								cachedInputPrice={row.cachedInputPrice}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -966,6 +990,9 @@ export function RegisterModelDialog({
 		apiFormat,
 		contextSize: Number(contextSize) || undefined,
 		maxOutput: Number(maxOutput) || undefined,
+		promptCaching:
+			Boolean(cachedInputPrice) ||
+			regionFares.some((fare) => Boolean(fare.cachedInputPrice)),
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -1491,6 +1518,10 @@ export function RegisterModelDialog({
 									value={cachedInputPrice}
 									onChange={(e) => setCachedInputPrice(e.target.value)}
 									placeholder="0.5"
+								/>
+								<CachedPriceWarning
+									inputPrice={inputPrice}
+									cachedInputPrice={cachedInputPrice}
 								/>
 							</div>
 							<div className="space-y-2">
@@ -2456,6 +2487,10 @@ export function FileFareDialog({
 								value={cachedInputPrice}
 								onChange={(e) => setCachedInputPrice(e.target.value)}
 								placeholder="0.5"
+							/>
+							<CachedPriceWarning
+								inputPrice={inputPrice}
+								cachedInputPrice={cachedInputPrice}
 							/>
 						</div>
 						<div className="space-y-2">

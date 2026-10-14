@@ -205,6 +205,7 @@ async function createModel(
 	cookie: string,
 	providerCompanyId: string,
 	overrides: Record<string, unknown> = {},
+	verifiedPromptCaching?: boolean,
 ) {
 	const body: Record<string, unknown> = {
 		providerCompanyId,
@@ -251,6 +252,10 @@ async function createModel(
 			contextSize:
 				typeof body.contextSize === "number" ? body.contextSize : null,
 			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
+			promptCaching:
+				verifiedPromptCaching ??
+				(body.pricing as { cachedInputPrice?: string }).cachedInputPrice !==
+					undefined,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -1403,6 +1408,86 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("warns reviewers about a cached input price close to the input price", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-cache-typo",
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				cachedInputPrice: "1.8e-6",
+				regionPrices: [
+					{ region: "eu", inputPrice: "2e-6", outputPrice: "6e-6" },
+					{
+						region: "us",
+						inputPrice: "2e-6",
+						outputPrice: "6e-6",
+						cachedInputPrice: "2e-7",
+					},
+				],
+			},
+		});
+		expect(created.status, await created.clone().text()).toBe(201);
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const [filing] = (await queue.json()).filings;
+		expect(filing.cachedPriceWarnings).toEqual([
+			expect.stringContaining("Cached input costs 90% of the input price"),
+			expect.stringMatching(/^eu: Cached input costs 90%/),
+		]);
+	});
+
+	it("lets admins list and delist a listing", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id);
+		const { model } = await created.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		const listed = await app.request(
+			"/admin/airside/listings?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(listed.status).toBe(200);
+		const [listing] = (await listed.json()).listings;
+		expect(listing).toMatchObject({
+			id: model.id,
+			modelName: "mistral-large-3",
+			status: "active",
+			contextDeviation: null,
+			autoRouteExcluded: false,
+		});
+		expect(listing.mappingIds.length).toBeGreaterThan(0);
+
+		const delisted = await app.request(
+			`/admin/airside/listings/${model.id}/delist`,
+			json(cookie),
+		);
+		expect(delisted.status).toBe(200);
+		expect((await delisted.json()).listing).toMatchObject({
+			status: "delisted",
+			delistReason: "admin",
+			mappingIds: [],
+		});
+		const again = await app.request(
+			`/admin/airside/listings/${model.id}/delist`,
+			json(cookie),
+		);
+		expect(again.status).toBe(409);
+	});
+
 	it("runs the approval lifecycle through the admin queue", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1425,6 +1510,7 @@ describe("airside provider portal", () => {
 			company: expect.objectContaining({ name: "Mistral Ops" }),
 			model: expect.objectContaining({ modelName: "mistral-large-3" }),
 			contextSizeWarning: null,
+			cachedPriceWarnings: [],
 		});
 
 		// Approve the initial filing → model activates, pricing becomes current.
@@ -1666,6 +1752,44 @@ describe("airside provider portal", () => {
 					"sparse-airside-idle",
 				),
 			);
+	});
+
+	it("filters a fleet model across regions before the incident result limit", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values([
+			...Array.from({ length: 201 }, (_, index) => ({
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: `mistral/other-${index}`,
+				usedProvider: "mistral",
+				requestCount: 10,
+				upstreamErrorCount: 10,
+			})),
+			...["mistral/mistral-large-3", "mistral/mistral-large-3:eu"].map(
+				(usedModel) => ({
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					usedModel,
+					usedProvider: "mistral",
+					requestCount: 10,
+					upstreamErrorCount: 1,
+				}),
+			),
+		]);
+		const response = await app.request(
+			`/airside/incidents?providerCompanyId=${company.id}&model=mistral/mistral-large-3`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(
+			body.mappings.map((row: { usedModel: string }) => row.usedModel).sort(),
+		).toEqual(["mistral/mistral-large-3", "mistral/mistral-large-3:eu"]);
 	});
 
 	it("returns per-mapping incidents scoped to claimed providers", async () => {
@@ -2103,6 +2227,98 @@ describe("airside provider portal", () => {
 			{ headers: { Cookie: cookie } },
 		);
 		expect((await adminTypes.json()).sampledErrors).toBe(3);
+	});
+
+	it("counts client errors on admin incidents when asked", async () => {
+		await setUserEmail("ops@mistral.ai");
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			requestCount: 10,
+			apiKeysRequestCount: 6,
+			errorCount: 4,
+			upstreamErrorCount: 1,
+			clientErrorCount: 3,
+		});
+		await db.insert(tables.log).values(
+			(
+				[
+					["credits", "upstream_error", "upstream down"],
+					["credits", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+				] as const
+			).map(([usedMode, unifiedFinishReason, responseText], i) => ({
+				id: `client-incident-log-${i}`,
+				requestId: `client-incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				unifiedFinishReason,
+				errorDetails: { statusCode: 400, statusText: "err", responseText },
+				duration: 100,
+				usedMode,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: usedMode,
+			})),
+		);
+
+		const get = async (path: string) =>
+			await (await app.request(path, { headers: { Cookie: cookie } })).json();
+		const base = "/admin/airside/incidents?providerId=mistral";
+		const defaults = (await get(base)).mappings;
+		expect(defaults).toEqual([
+			expect.objectContaining({ requestCount: 4, errorCount: 1 }),
+		]);
+		expect(defaults[0]).not.toHaveProperty("clientErrorCount");
+		expect((await get(`${base}&errorScope=all`)).mappings).toEqual([
+			expect.objectContaining({
+				requestCount: 4,
+				errorCount: 2,
+				clientErrorCount: 1,
+				errorRate: 0.5,
+			}),
+		]);
+		expect(
+			(await get(`${base}&errorScope=all&includeByok=true`)).mappings,
+		).toEqual([
+			expect.objectContaining({
+				requestCount: 10,
+				errorCount: 4,
+				clientErrorCount: 3,
+			}),
+		]);
+		expect((await get(`${base}&errorScope=client`)).mappings).toEqual([
+			expect.objectContaining({ errorCount: 1, clientErrorCount: 1 }),
+		]);
+
+		const types = "/admin/airside/incidents/error-types?providerId=mistral";
+		expect((await get(types)).sampledErrors).toBe(1);
+		expect((await get(`${types}&errorScope=all`)).sampledErrors).toBe(2);
+		expect(
+			(await get(`${types}&errorScope=all&includeByok=true`)).sampledErrors,
+		).toBe(4);
+		expect(
+			(await get(`${types}&errorScope=all&errorMessage=bad%20request`))
+				.sampledErrors,
+		).toBe(1);
+
+		const errors =
+			"/admin/unstable-mappings/errors?provider=mistral&model=mistral/mistral-large-3&incidentsOnly=true";
+		expect((await get(errors)).sampledErrors).toBe(1);
+		expect((await get(`${errors}&errorScope=all`)).sampledErrors).toBe(2);
+		expect((await get(`${errors}&errorScope=client`)).sampledErrors).toBe(1);
 	});
 
 	it("gates claims on the listing fee when configured", async () => {
@@ -4090,6 +4306,28 @@ describe("airside provider portal", () => {
 			cachedInputPrice: "5e-7",
 			requestPrice: "0.002",
 		});
+	});
+
+	it("requires a prompt-caching preflight for a cached input price", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(
+			cookie,
+			company.id,
+			{
+				modelName: "mistral-uncached-x",
+				pricing: {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					cachedInputPrice: "5e-7",
+				},
+			},
+			false,
+		);
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("changed after verification");
 	});
 
 	it("imports catalogue models as managed listings", async () => {

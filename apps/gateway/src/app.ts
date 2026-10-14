@@ -38,6 +38,7 @@ import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
+import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
@@ -186,6 +187,12 @@ app.onError((error, c) => {
 			statusCode: error.statusCode,
 		});
 		return renderGatewayError(c, error.statusCode, error.message);
+	}
+
+	if (error instanceof ProviderKeyRateLimitError && error.retryAfter) {
+		c.header("Retry-After", error.retryAfter.toString());
+		c.header("RateLimit-Reset", error.retryAfter.toString());
+		c.header("RateLimit-Remaining", "0");
 	}
 
 	if (error instanceof HTTPException) {

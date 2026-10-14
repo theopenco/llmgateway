@@ -1816,4 +1816,114 @@ describe("model verification", () => {
 			),
 		).toThrow();
 	});
+
+	describe("prompt caching", () => {
+		const cachingTarget: ProviderModelVerificationTarget = {
+			...target,
+			streaming: false,
+			vision: false,
+			audio: false,
+			tools: false,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+			promptCaching: true,
+		};
+		// Reports cache hits from the given (1-based) caching request onwards.
+		const cachingFrom = (hitFrom: number) => {
+			let cachingRequests = 0;
+			return vi.fn<typeof fetch>().mockImplementation(async (_url, request) => {
+				const body = String(request?.body);
+				const caching = body.includes("Verification run");
+				if (caching) {
+					cachingRequests++;
+				}
+				return Response.json(
+					chatBody({ content: "OK" }, "stop", {
+						prompt_tokens: 6_000,
+						completion_tokens: 1,
+						prompt_tokens_details: {
+							cached_tokens: caching && cachingRequests >= hitFrom ? 5_888 : 0,
+						},
+					}),
+				);
+			});
+		};
+		const run = async (fetchImplementation: typeof fetch) => {
+			vi.useFakeTimers({ toFake: ["setTimeout"] });
+			try {
+				const result = runProviderModelVerification({
+					target: cachingTarget,
+					token: "provider-key",
+					fetchImplementation,
+				});
+				await vi.runAllTimersAsync();
+				return await result;
+			} finally {
+				vi.useRealTimers();
+			}
+		};
+
+		it("only queues the check for a listing with a cached input price", () => {
+			expect(
+				createQueuedModelVerificationChecks(cachingTarget).map(({ id }) => id),
+			).toEqual(["basic", "prompt_caching"]);
+			expect(
+				createQueuedModelVerificationChecks({
+					...cachingTarget,
+					promptCaching: false,
+				}).map(({ id }) => id),
+			).toEqual(["basic"]);
+		});
+
+		it("passes once a repeat reports cached input tokens", async () => {
+			const fetchImplementation = cachingFrom(3);
+			const result = await run(fetchImplementation);
+
+			expect(result.passed).toBe(true);
+			expect(fetchImplementation).toHaveBeenCalledTimes(4);
+			const check = result.checks.find(({ id }) => id === "prompt_caching");
+			expect(check?.feedback).toBe(
+				"Request 3 reported 5888 cached input tokens.",
+			);
+			expect(check?.probes?.map(({ feedback }) => feedback)).toEqual([
+				"0 of 6000 input tokens cached.",
+				"0 of 6000 input tokens cached.",
+				"5888 of 6000 input tokens cached.",
+			]);
+			const prompts = fetchImplementation.mock.calls
+				.slice(1)
+				.map(([, request]) => String(request?.body));
+			expect(new Set(prompts).size).toBe(1);
+		});
+
+		it("fails when no repeat reports cached input tokens", async () => {
+			const fetchImplementation = cachingFrom(Number.POSITIVE_INFINITY);
+			const result = await run(fetchImplementation);
+
+			expect(result.passed).toBe(false);
+			expect(fetchImplementation).toHaveBeenCalledTimes(6);
+			expect(
+				result.checks.find(({ id }) => id === "prompt_caching"),
+			).toMatchObject({
+				status: "failed",
+				feedback: expect.stringContaining(
+					"5 identical requests reported no cached input tokens",
+				),
+			});
+			expect(disprovedCapabilities(result.checks)).toEqual([]);
+		});
+
+		it("starts every run cold", async () => {
+			const first = cachingFrom(1);
+			const second = cachingFrom(1);
+			await run(first);
+			await run(second);
+			expect(String(first.mock.calls[1][1]?.body)).not.toBe(
+				String(second.mock.calls[1][1]?.body),
+			);
+		});
+	});
 });

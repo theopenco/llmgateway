@@ -54,6 +54,26 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ModelVerification } from "@/components/model-verification-dialog";
 
+function FilingQueryError({
+	message,
+	onRetry,
+}: {
+	message: string;
+	onRetry: () => void;
+}) {
+	return (
+		<div
+			role="alert"
+			className="flex items-center justify-between gap-3 py-4 text-sm"
+		>
+			<p>{message}</p>
+			<Button variant="outline" size="sm" onClick={onRetry}>
+				Retry
+			</Button>
+		</div>
+	);
+}
+
 type FilingStatus = "pending" | "approved" | "rejected";
 
 const PAGE_SIZE = 50;
@@ -873,6 +893,11 @@ export function AirsideFilingsClient() {
 						<div className="flex h-32 items-center justify-center">
 							<Loader2 className="text-muted-foreground size-5 animate-spin" />
 						</div>
+					) : query.isError && !query.data ? (
+						<FilingQueryError
+							message="Could not load filings."
+							onRetry={() => void query.refetch()}
+						/>
 					) : filings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
 							No {status === "all" ? "" : status} filings.
@@ -897,7 +922,10 @@ export function AirsideFilingsClient() {
 									<Fragment key={filing.id}>
 										<TableRow
 											className={
-												filing.contextSizeWarning ? "border-b-0" : undefined
+												filing.contextSizeWarning ||
+												filing.cachedPriceWarnings.length > 0
+													? "border-b-0"
+													: undefined
 											}
 											data-testid={`filing-${filing.model.providerId}-${filing.model.modelName}`}
 										>
@@ -981,6 +1009,20 @@ export function AirsideFilingsClient() {
 																: ""}
 															{formatPerMillion(filing.outputPrice)}
 														</div>
+														{filing.cachedInputPrice ||
+														filing.currentPricing?.cachedInputPrice ? (
+															<div>
+																cached:{" "}
+																{filing.currentPricing &&
+																filing.currentPricing.cachedInputPrice !==
+																	filing.cachedInputPrice
+																	? `${filing.currentPricing.cachedInputPrice ? formatPerMillion(filing.currentPricing.cachedInputPrice) : "none"} → `
+																	: ""}
+																{filing.cachedInputPrice
+																	? formatPerMillion(filing.cachedInputPrice)
+																	: "none"}
+															</div>
+														) : null}
 														{(() => {
 															const current = new Map(
 																(filing.currentPricing?.regionPrices ?? []).map(
@@ -1128,6 +1170,24 @@ export function AirsideFilingsClient() {
 												</TableCell>
 											</TableRow>
 										) : null}
+										{filing.cachedPriceWarnings.length > 0 ? (
+											<TableRow className="hover:bg-transparent">
+												<TableCell colSpan={9} className="pt-0">
+													<Alert
+														className="border-2 border-amber-500 bg-amber-500/10"
+														data-testid={`cached-price-warning-${filing.id}`}
+													>
+														<AlertTriangle />
+														<AlertTitle>Unusual cached input price</AlertTitle>
+														<AlertDescription>
+															{filing.cachedPriceWarnings.map((warning) => (
+																<div key={warning}>{warning}</div>
+															))}
+														</AlertDescription>
+													</Alert>
+												</TableCell>
+											</TableRow>
+										) : null}
 									</Fragment>
 								))}
 							</TableBody>
@@ -1153,7 +1213,14 @@ export function AirsideFilingsClient() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					{routingFilings.length === 0 ? (
+					{query.isLoading ? (
+						<Loader2 className="mx-auto size-5 animate-spin" />
+					) : query.isError && !query.data ? (
+						<FilingQueryError
+							message="Could not load fare changes."
+							onRetry={() => void query.refetch()}
+						/>
+					) : routingFilings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
 							No {status === "all" ? "" : status} fare changes.
 						</p>

@@ -25,6 +25,7 @@ const origins: Record<string, ApiOrigin> = {
 	audio_transcriptions: "transcriptions",
 	videos: "videos",
 	ai_sdk: "ai-sdk",
+	realtime: "realtime",
 };
 
 export const rejectionLogMiddleware: MiddlewareHandler<ServerTypes> = async (

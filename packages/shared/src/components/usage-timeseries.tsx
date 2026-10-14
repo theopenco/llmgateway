@@ -12,6 +12,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { sortByValueDesc } from "@/chart-tooltip";
 import { formatCompactNumber, formatNumber } from "@/number-format";
 import {
 	cacheRateStatus,
@@ -406,7 +407,10 @@ export function UsageTimeseriesChart({
 											all matching traffic
 										</p>
 									)}
-									{data.series.map((series, index) => {
+									{sortByValueDesc(
+										data.series.map((series, index) => ({ series, index })),
+										({ index }) => row?.[`series${index}`],
+									).map(({ series, index }) => {
 										const entry = point.entries.find(
 											(entry) => entry.key === series.key,
 										);

@@ -32,12 +32,21 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import {
+	buildErrorMessageMatchExpr,
+	buildIgnoredErrorMatchExpr,
+	buildIgnoredErrorsClause,
+	buildIncidentErrorScopeClause,
+	buildUnstableErrorScopeClause,
+	errorScopeSchema,
+	listIgnoredErrorMatchers,
+} from "@/lib/error-filters.js";
+import { escapeLikePattern } from "@/lib/like-pattern.js";
 import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
 	notRetriedClause,
-	incidentErrorsClause,
 	platformOnlyClause,
 	byokClauseFor,
 	queryMappingErrorShapes,
@@ -55,6 +64,7 @@ import {
 	organizationTimeseriesQuery,
 	organizationTimeseriesSchema,
 } from "@/lib/organization-timeseries.js";
+import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -144,6 +154,7 @@ import {
 	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
+	rootModelIdSql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -196,15 +207,6 @@ function escapeHtml(text: string): string {
 		"'": "&#x27;",
 	};
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
-}
-
-// Search terms and stored matchers are plain substrings, so LIKE
-// metacharacters must be escaped before wrapping them in wildcards. For the
-// organization search this is a safety guard, not just correctness: an
-// unescaped "%" would silently become a match-everything filter, and the bulk
-// block endpoint reuses that filter to decide which organizations get banned.
-function escapeLikePattern(value: string): string {
-	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 /**
@@ -4292,12 +4294,7 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	}
 
 	if (query.model) {
-		whereConditions.push(
-			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
-				ELSE ${tables.log.usedModel}
-			END = ${query.model}`,
-		);
+		whereConditions.push(eq(rootModelIdSql(tables.log.usedModel), query.model));
 	}
 
 	if (query.source) {
@@ -5542,7 +5539,8 @@ const rateLimitSchema = z.object({
 	organizationId: z.string().nullable(),
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
+	// Requests for rpm/rpd, prompt + completion tokens for tpm/tpd.
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
 	mode: z.enum(["strict", "soft", "lax"]),
@@ -5559,11 +5557,12 @@ const rateLimitsListSchema = z.object({
 const createRateLimitBodySchema = z.object({
 	provider: z.string().nullable().optional(),
 	model: z.string().nullable().optional(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
-		.min(0, "Limit must be at least 0"),
+		.min(0, "Limit must be at least 0")
+		.max(PG_INTEGER_MAX, `Limit must be at most ${PG_INTEGER_MAX}`),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	// Soft preserves session pins; lax also permits explicit provider requests.
 	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
@@ -5791,6 +5790,18 @@ const deleteOrganizationRateLimit = createRoute({
 	},
 });
 
+type RateLimitType = z.infer<typeof rateLimitSchema>["limitType"];
+
+// Each row carries one window; the others stay null.
+function rateLimitColumns(limitType: RateLimitType, maxRequests: number) {
+	return {
+		maxRpm: limitType === "rpm" ? maxRequests : null,
+		maxRpd: limitType === "rpd" ? maxRequests : null,
+		maxTpm: limitType === "tpm" ? maxRequests : null,
+		maxTpd: limitType === "tpd" ? maxRequests : null,
+	};
+}
+
 // Helper to format rate limit for response
 function formatRateLimit(r: {
 	id: string;
@@ -5799,14 +5810,23 @@ function formatRateLimit(r: {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
 	enforcement: string;
 	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 }) {
-	const limitType: "rpm" | "rpd" = r.maxRpd !== null ? "rpd" : "rpm";
-	const maxRequests = r.maxRpd ?? r.maxRpm ?? 0;
+	const limitType: RateLimitType =
+		r.maxTpd !== null
+			? "tpd"
+			: r.maxTpm !== null
+				? "tpm"
+				: r.maxRpd !== null
+					? "rpd"
+					: "rpm";
+	const maxRequests = r.maxTpd ?? r.maxTpm ?? r.maxRpd ?? r.maxRpm ?? 0;
 
 	return {
 		id: r.id,
@@ -5859,8 +5879,7 @@ async function updateRateLimit(
 				.set({
 					provider,
 					model,
-					maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-					maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+					...rateLimitColumns(body.limitType, body.maxRequests),
 					enforcement: body.enforcement,
 					mode: body.mode,
 					reason: body.reason ?? null,
@@ -5881,7 +5900,7 @@ async function updateRateLimit(
 		) {
 			throw new HTTPException(409, {
 				message:
-					"A rate limit already exists for this provider/model combination",
+					"A rate limit already exists for this provider/model/limit type combination",
 			});
 		}
 		throw error;
@@ -5920,8 +5939,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			organizationId: null,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			enforcement: body.enforcement,
 			mode: body.mode,
 			reason: body.reason ?? null,
@@ -6813,8 +6831,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			organizationId: orgId,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			mode: body.mode,
 			reason: body.reason ?? null,
 		})
@@ -6839,6 +6856,8 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: created.maxRpm,
 			maxRpd: created.maxRpd,
+			maxTpm: created.maxTpm,
+			maxTpd: created.maxTpd,
 			mode: created.mode,
 			reason: created.reason,
 			source: "admin",
@@ -6899,6 +6918,8 @@ admin.openapi(deleteOrganizationRateLimit, async (c) => {
 			model: deleted.model,
 			maxRpm: deleted.maxRpm,
 			maxRpd: deleted.maxRpd,
+			maxTpm: deleted.maxTpm,
+			maxTpd: deleted.maxTpd,
 			source: "admin",
 		},
 	});
@@ -13151,61 +13172,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Which error classes count against a mapping. `non_client` (default) drops
-// client-error logs from the sample; `client` drops every other failure, so
-// both rate against successes plus the selected errors.
-const unstableErrorScopeSchema = z.enum(["non_client", "all", "client"]);
-
-function buildUnstableErrorScopeClause(
-	scope: z.infer<typeof unstableErrorScopeSchema>,
-) {
-	switch (scope) {
-		case "all":
-			return sql``;
-		case "client":
-			return sql`AND (${tables.log.hasError} IS NOT TRUE OR ${tables.log.unifiedFinishReason} = 'client_error')`;
-		default:
-			return sql`AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'`;
-	}
-}
-
-interface IgnoredErrorMatcherTarget {
-	pattern: string | null;
-	statusCode: number | null;
-}
-
-// Builds an OR chain across all stored matchers so expected upstream errors
-// can be treated as non-errors. A substring pattern is matched
-// case-insensitively against the serialized error details JSON (covering
-// status text, response body, and cause); a status code is matched against the
-// upstream `statusCode` field. When a matcher has both, both must match.
-function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
-	return sql.join(
-		matchers.map((matcher) => {
-			const conditions = [];
-			if (matcher.pattern !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}::text ILIKE ${`%${escapeLikePattern(matcher.pattern)}%`}`,
-				);
-			}
-			if (matcher.statusCode !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}->>'statusCode' = ${String(matcher.statusCode)}`,
-				);
-			}
-			return sql`(${sql.join(conditions, sql` AND `)})`;
-		}),
-		sql` OR `,
-	);
-}
-
-// Case-insensitive substring match against the serialized public and internal
-// error details JSON, so stealth-provider errors are searchable too.
-function buildErrorMessageMatchExpr(message: string) {
-	const pattern = `%${escapeLikePattern(message)}%`;
-	return sql`COALESCE(${tables.log.errorDetails}::text ILIKE ${pattern} OR ${tables.log.internalErrorDetails}::text ILIKE ${pattern}, false)`;
-}
-
 /**
  * Every `used_model` (`provider/model[:region]`) a canonical model id logs
  * under: catalogue mappings plus DB-only (Airside, deactivated) rows.
@@ -13239,14 +13205,6 @@ async function listUsedModelsForModelId(modelId: string) {
 	}
 
 	return [...usedModels];
-}
-
-async function listIgnoredErrorMatchers() {
-	return await db.query.ignoredErrorMatcher.findMany({
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
 }
 
 /**
@@ -13330,7 +13288,7 @@ const unstableMappingsListSchema = z.object({
 	ignoreExpected: z.boolean(),
 	splitByKey: z.boolean(),
 	includeByok: z.boolean(),
-	errorScope: unstableErrorScopeSchema,
+	errorScope: errorScopeSchema,
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 	// The exact `used_model` the ranking is narrowed to, if any.
@@ -13357,7 +13315,7 @@ const getUnstableMappings = createRoute({
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
 			model: z.string().optional(),
 			provider: z.string().optional(),
@@ -13549,7 +13507,7 @@ const getUnstableMappingErrors = createRoute({
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/**
 			 * Narrows the sample to one provider key, mirroring a row of the
 			 * key-split ranking. The literal `__unattributed__` selects logs with
@@ -13557,7 +13515,10 @@ const getUnstableMappingErrors = createRoute({
 			 * one).
 			 */
 			providerKeyId: z.string().optional(),
-			/** Only upstream and gateway errors, matching the Incidents counts. */
+			/**
+			 * Only the error classes the Incidents counts use: upstream and
+			 * gateway errors, plus client errors under `errorScope=all|client`.
+			 */
 			incidentsOnly: z.enum(["true", "false"]).optional(),
 			/**
 			 * Top error shapes per provider key instead of overall. Ignored when
@@ -13624,10 +13585,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	// drilldown shows the same errors that counted against the mapping.
 	const ignoredMatchers =
 		ignoreExpected !== "false" ? await listIgnoredErrorMatchers() : [];
-	const ignoredClause =
-		ignoredMatchers.length > 0
-			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
-			: sql``;
 
 	const shapes = await queryMappingErrorShapes({
 		usedModel: model,
@@ -13641,9 +13598,10 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			providerKeyClause,
 			retriedClause,
 			byokClause,
-			ignoredClause,
-			buildUnstableErrorScopeClause(errorScope ?? "non_client"),
-			incidentsOnly === "true" ? incidentErrorsClause : sql``,
+			buildIgnoredErrorsClause(ignoredMatchers),
+			incidentsOnly === "true"
+				? buildIncidentErrorScopeClause(errorScope ?? "non_client")
+				: buildUnstableErrorScopeClause(errorScope ?? "non_client"),
 			errorMessage !== null
 				? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
 				: sql``,

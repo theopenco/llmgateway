@@ -24,6 +24,7 @@ import {
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
+	findRateLimitedManagedKeyIds,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -108,6 +109,10 @@ import {
 	applyPromptReference,
 	promptResponseHeaders,
 } from "@/lib/prompt-template.js";
+import {
+	excludeRateLimitedProviderKeys,
+	getRateLimitedProviderKeyIds,
+} from "@/lib/provider-key-rate-limit.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
@@ -118,8 +123,8 @@ import {
 	type ProviderRateLimitResult,
 	peekProviderRateLimit,
 	pickNonRateLimitedCandidates,
-	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
+import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
@@ -244,6 +249,7 @@ import {
 	isChatPlanModelAllowed,
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
+	isContentFilterErrorText,
 } from "@llmgateway/shared";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 import {
@@ -282,7 +288,6 @@ import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import {
 	isContentFilterClassifierCompliant,
-	evaluateContentFilterWithClassifiers,
 	runContentFilterClassifier,
 	type ContentFilterCheckResult,
 } from "./tools/content-filter-classifier.js";
@@ -344,6 +349,7 @@ import {
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
+import { assertProviderKeysNotRateLimited } from "./tools/provider-key-rate-limit-error.js";
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
 	isInvalidEncryptedContentError,
@@ -394,8 +400,14 @@ import {
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
 import {
+	getContentFilterLogResponse,
+	startTieredContentFilter,
+	type TieredContentFilterOutcome,
+} from "./tools/run-tiered-content-filter.js";
+import {
 	assertServiceTierHonored,
 	getForwardedServiceTier,
+	isFlexUnavailableError,
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
@@ -1379,17 +1391,14 @@ function inferStreamingErrorStatusCode(
 	if (
 		errorType === "content_filter" ||
 		errorCode === "content_filter" ||
-		errorText.includes("responsibleaipolicyviolation") ||
-		errorText.includes("sensitivecontentdetected") ||
-		errorType === "data_inspection_failed" ||
-		errorCode === "data_inspection_failed" ||
-		errorText.includes("input data may contain inappropriate content") ||
+		isContentFilterErrorText(errorText) ||
 		errorText.includes("content violates usage guidelines")
 	) {
 		return 400;
 	}
 	if (
 		errorType === "invalid_request_error" ||
+		errorType === "invalid_request" ||
 		errorType === "invalid_argument"
 	) {
 		return 400;
@@ -2872,6 +2881,8 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (isRequestedServiceTier(service_tier)) {
+		// Captured: closures reassign `service_tier`, which defeats narrowing.
+		const routedServiceTier = service_tier;
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
 		);
@@ -2880,7 +2891,7 @@ chat.openapi(completions, async (c) => {
 				mappingSupportsRequestedServiceTier(
 					modelInfo.id,
 					mapping,
-					service_tier,
+					routedServiceTier,
 					configIndex,
 					envVariant,
 				),
@@ -2925,7 +2936,7 @@ chat.openapi(completions, async (c) => {
 			mappingSupportsRequestedServiceTier(
 				modelInfo.id,
 				mapping,
-				service_tier,
+				routedServiceTier,
 				configIndex,
 				envVariant,
 			);
@@ -3070,6 +3081,31 @@ chat.openapi(completions, async (c) => {
 		!keys.some((key) => key.id === reasoningPinnedKey.id)
 			? [...keys, reasoningPinnedKey]
 			: keys;
+	// A managed credential the conversation is pinned to keeps its provider
+	// routable even at its own rate limit: it is the only credential that can
+	// verify the replay, and pinned traffic is exempt from key caps.
+	const managedAvailabilityFor = async (
+		variant: Parameters<typeof findManagedProviderAvailability>[0],
+		modelId: string,
+		rateLimited?: ReadonlySet<string>,
+	) => {
+		const pinnedManagedKeyId =
+			reasoningPinFor(modelId)?.source === "managed"
+				? reasoningPin?.providerKeyId
+				: undefined;
+		if (!pinnedManagedKeyId) {
+			return await findManagedProviderAvailability(
+				variant,
+				modelId,
+				rateLimited,
+			);
+		}
+		const limited = new Set(
+			rateLimited ?? (await findRateLimitedManagedKeyIds()),
+		);
+		limited.delete(pinnedManagedKeyId);
+		return await findManagedProviderAvailability(variant, modelId, limited);
+	};
 	const createSessionStore = (modelId: string) => {
 		const modelReasoningPin = reasoningPinFor(modelId);
 		const reasoningPinnedProvider = async () =>
@@ -4225,6 +4261,14 @@ chat.openapi(completions, async (c) => {
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
 		const autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
+		// Keys at one of their own caps cannot serve any candidate this request,
+		// so read the caps once instead of per candidate model.
+		const rateLimitedProviderKeyIds =
+			await getRateLimitedProviderKeyIds(providerKeys);
+		const rateLimitedManagedKeyIds =
+			project.mode === "api-keys"
+				? new Set<string>()
+				: await findRateLimitedManagedKeyIds();
 		const customProviderKeysById = new Map(
 			providerKeys
 				.filter((key) => key.provider === "custom" && key.name !== null)
@@ -4450,11 +4494,20 @@ chat.openapi(completions, async (c) => {
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
-					withReasoningPinnedKey(providerKeys, modelDef.id).filter((key) =>
+					withReasoningPinnedKey(
+						providerKeys.filter(
+							(key) => !rateLimitedProviderKeyIds.has(key.id),
+						),
+						modelDef.id,
+					).filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, modelDef.id),
 					),
 					activeMappings.map((mapping) => mapping.providerId),
-					await findManagedProviderAvailability(envVariant, modelDef.id),
+					await managedAvailabilityFor(
+						envVariant,
+						modelDef.id,
+						rateLimitedManagedKeyIds,
+					),
 				);
 
 			const candidateProviders = preferConcreteRegionalMappings(
@@ -5344,11 +5397,14 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						withReasoningPinnedKey(providerKeys, baseModelId).filter((key) =>
+						withReasoningPinnedKey(
+							await excludeRateLimitedProviderKeys(providerKeys),
+							baseModelId,
+						).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await findManagedProviderAvailability(envVariant, baseModelId),
+						await managedAvailabilityFor(envVariant, baseModelId),
 					);
 
 				const rateLimitContextTierMinSize = getContextTierMinSize(
@@ -5572,11 +5628,14 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						withReasoningPinnedKey(providerKeys, baseModelId).filter((key) =>
+						withReasoningPinnedKey(
+							await excludeRateLimitedProviderKeys(providerKeys),
+							baseModelId,
+						).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await findManagedProviderAvailability(envVariant, baseModelId),
+						await managedAvailabilityFor(envVariant, baseModelId),
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -5830,11 +5889,14 @@ chat.openapi(completions, async (c) => {
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
-					withReasoningPinnedKey(providerKeys, routedModelId).filter((key) =>
+					withReasoningPinnedKey(
+						await excludeRateLimitedProviderKeys(providerKeys),
+						routedModelId,
+					).filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, routedModelId),
 					),
 					providerIds,
-					await findManagedProviderAvailability(envVariant, routedModelId),
+					await managedAvailabilityFor(envVariant, routedModelId),
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
@@ -6701,6 +6763,11 @@ chat.openapi(completions, async (c) => {
 		}
 
 		if (!providerKey) {
+			await assertProviderKeysNotRateLimited(
+				project.organizationId,
+				usedProvider,
+				{ customProviderName, filter: serviceTierKeyFilter },
+			);
 			const providerDisplayName =
 				usedProvider === "custom" && customProviderName
 					? customProviderName
@@ -6893,6 +6960,14 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 		} else {
+			// Custom providers have no platform credential to fall back to.
+			if (usedProvider === "custom") {
+				await assertProviderKeysNotRateLimited(
+					project.organizationId,
+					usedProvider,
+					{ customProviderName },
+				);
+			}
 			// No API key available, fall back to credits
 			// This path bills org credits with a platform credential exactly like
 			// the `credits` branch above, so it needs the same spend-cap gate —
@@ -7162,9 +7237,6 @@ chat.openapi(completions, async (c) => {
 	// classifier so a request never triggers a duplicate moderation call. Only a
 	// verdict that can block is awaited; otherwise the classifier runs in the
 	// background and its evaluation is attached to the log once it settles.
-	type TieredContentFilterOutcome = Awaited<
-		ReturnType<typeof evaluateContentFilterWithClassifiers>
-	>;
 	let tieredContentFilter: TieredContentFilterOutcome = null;
 	let pendingTieredContentFilter: Promise<TieredContentFilterOutcome> | null =
 		null;
@@ -7174,46 +7246,17 @@ chat.openapi(completions, async (c) => {
 		await getContentFilterSettings(),
 	);
 	if (tieredContentFilterPlan) {
-		const plan = tieredContentFilterPlan;
-		const runTieredContentFilter = async (signal: AbortSignal | undefined) => {
-			const outcome = await evaluateContentFilterWithClassifiers({
-				plan,
-				messages: messages as BaseMessage[],
-				context: contentFilterContext,
-				signal,
-				imagesAllowed: openAiContentFilterAllowed,
-				classifierAllowed: contentFilterClassifierAllowed,
-				existing: envContentFilterResult,
-			});
-			if (outcome?.evaluation.violation) {
-				logger.debug("gateway_content_filter_tier", {
-					requestId,
-					organizationId: project.organizationId,
-					provider: usedProvider,
-					tier: plan.tier,
-					level: plan.level,
-					classifier: plan.classifier,
-					action: outcome.evaluation.action,
-					matchedCategories: outcome.evaluation.matchedCategories,
-				});
-			}
-			return outcome;
-		};
-		if (plan.enforce) {
-			tieredContentFilter = await runTieredContentFilter(c.req.raw.signal);
-		} else {
-			// Detached from the client's signal so a hang-up does not cancel the
-			// observation; each classifier's own timeout bounds it.
-			pendingTieredContentFilter = trackPendingWork(
-				runTieredContentFilter(undefined).catch((error: unknown) => {
-					logger.warn("Background gateway content filter failed", {
-						requestId,
-						error: toError(error),
-					});
-					return null;
-				}),
-			);
-		}
+		const started = await startTieredContentFilter({
+			plan: tieredContentFilterPlan,
+			messages: messages as BaseMessage[],
+			context: contentFilterContext,
+			signal: c.req.raw.signal,
+			imagesAllowed: openAiContentFilterAllowed,
+			classifierAllowed: contentFilterClassifierAllowed,
+			existing: envContentFilterResult,
+		});
+		tieredContentFilter = started.outcome;
+		pendingTieredContentFilter = started.pending;
 	}
 	const tierContentFilterBlocked =
 		tieredContentFilter?.evaluation.action === "blocked";
@@ -7235,9 +7278,7 @@ chat.openapi(completions, async (c) => {
 				evaluation?.violation === true,
 			// Stored for every moderated request; the 30-day data retention cleanup
 			// nulls it again, so the extra jsonb per sampled row is bounded.
-			response: results.some((result) => result.responses.length > 0)
-				? results.flatMap((result) => result.responses)
-				: null,
+			response: getContentFilterLogResponse(results),
 			evaluation,
 		};
 	};
@@ -8866,6 +8907,49 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// The coding-plan flex default is a soft cost preference, so when the
+	// provider has no Flex capacity, retry it at standard instead of failing.
+	// A tier the client asked for itself is never downgraded.
+	async function tryResolveStandardTierRetryContext(
+		errorText: string,
+		streamValue: boolean,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			serviceTierSource !== "coding-plan-default" ||
+			service_tier !== "flex" ||
+			!usedProvider ||
+			!isFlexUnavailableError(errorText)
+		) {
+			return null;
+		}
+
+		service_tier = undefined;
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
+			if (!(await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return nextContext;
+			}
+		} catch (error) {
+			logger.warn(
+				"Failed to resolve standard-tier retry after flex_unavailable",
+				{
+					error: toError(error).message,
+					usedProvider,
+					usedInternalModel,
+				},
+			);
+		}
+		service_tier = "flex";
+		return null;
+	}
+
 	// Handle streaming response if requested
 	// For image generation models, we skip real streaming and use fake streaming later
 	// For stream-only models where the client didn't request streaming, use the non-streaming path
@@ -10040,8 +10124,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								finishReason,
 								res.status,
@@ -10428,8 +10516,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								errorType,
 								inferredStatusCode,
@@ -14439,8 +14531,12 @@ chat.openapi(completions, async (c) => {
 
 			let sameProviderRetryContext: Awaited<
 				ReturnType<typeof resolveProviderContext>
-			> | null = null;
+			> | null = await tryResolveStandardTierRetryContext(
+				errorResponseText,
+				stream,
+			);
 			if (
+				!sameProviderRetryContext &&
 				shouldRetryAlternateKey(finishReason, res.status, errorResponseText)
 			) {
 				rememberFailedKey(usedProvider, usedRegion, {
