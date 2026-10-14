@@ -134,7 +134,7 @@ result.images.forEach((image, i) => {
 
 ## OpenAI Images Edit API
 
-The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subset of `images.edit` parameters.
+The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subset of `images.edit` parameters. This endpoint limits each input image to 20 MB; image inputs sent through chat completions use your organization’s image-size limit. Remote downloads stop as soon as they exceed the applicable limit, even if the server omits or understates `Content-Length`.
 
 ### Parameters
 

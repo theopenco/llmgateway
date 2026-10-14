@@ -4,7 +4,7 @@
  * incomplete event are skipped.
  */
 export function extractSseEventData(buffer: string): string[] {
-	const completeEvents = buffer.replace(/\r\n/g, "\n").split("\n\n");
+	const completeEvents = buffer.replace(/\r\n|\r/g, "\n").split("\n\n");
 	completeEvents.pop();
 
 	const payloads: string[] = [];

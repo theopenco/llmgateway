@@ -441,7 +441,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
+				"Controls computational effort when the selected provider mapping supports it. Check supported_parameters in /v1/models for current capabilities.",
 			example: "medium",
 		}),
 	verbosity: z

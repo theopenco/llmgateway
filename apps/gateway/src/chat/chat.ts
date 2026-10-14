@@ -262,7 +262,6 @@ import {
 } from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
-import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
 import {
 	applyAnthropicSafeguards,
 	extractAnthropicSafeguards,
@@ -7471,6 +7470,7 @@ chat.openapi(completions, async (c) => {
 
 	if (cachingEnabled) {
 		const cachePayload = {
+			...validationResult.data,
 			provider: usedProvider,
 			model: usedInternalModel,
 			messages,
@@ -9263,19 +9263,6 @@ chat.openapi(completions, async (c) => {
 							serviceTier: forwardedServiceTier,
 						});
 						headers["Content-Type"] = "application/json";
-
-						// Add the effort beta header whenever the outgoing body uses
-						// Anthropic's effort-based reasoning fields — triggered by the
-						// explicit `effort` param or by a `reasoning_effort` mapped onto an
-						// adaptive model (Opus 4.7+).
-						if (
-							anthropicRequestNeedsEffortBeta(transportProvider, requestBody)
-						) {
-							const currentBeta = headers["anthropic-beta"];
-							headers["anthropic-beta"] = currentBeta
-								? `${currentBeta},effort-2025-11-24`
-								: "effort-2025-11-24";
-						}
 
 						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 						if (
@@ -13736,16 +13723,6 @@ chat.openapi(completions, async (c) => {
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
-			}
-
-			// Add the effort beta header whenever the outgoing body uses Anthropic's
-			// effort-based reasoning fields — triggered by the explicit `effort` param
-			// or by a `reasoning_effort` mapped onto an adaptive model (Opus 4.7+).
-			if (anthropicRequestNeedsEffortBeta(transportProvider, requestBody)) {
-				const currentBeta = headers["anthropic-beta"];
-				headers["anthropic-beta"] = currentBeta
-					? `${currentBeta},effort-2025-11-24`
-					: "effort-2025-11-24";
 			}
 
 			// Add structured outputs beta header for Anthropic if json_schema response_format is specified

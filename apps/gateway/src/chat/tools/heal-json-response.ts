@@ -13,6 +13,8 @@
  * - Format inconsistencies: Converts JavaScript-style syntax to valid JSON
  */
 
+import { jsonrepair } from "jsonrepair";
+
 import { logger } from "@llmgateway/logger";
 
 export interface HealingResult {
@@ -149,21 +151,15 @@ function extractBalancedJson(content: string, start: number): string | null {
  * - Single quotes instead of double quotes
  */
 function fixJsonSyntax(content: string): string {
-	let fixed = content;
-
-	// Remove trailing commas before } or ]
-	fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
-
-	// Fix unquoted keys (e.g., {name: "value"} -> {"name": "value"})
-	// Match word characters followed by : but not inside quotes
-	fixed = fixed.replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3');
-
-	// Replace single quotes with double quotes for string values
-	// This is more complex as we need to avoid replacing apostrophes within strings
-	// Simple approach: only replace single quotes that look like string delimiters
-	fixed = fixed.replace(/'([^'\\]*(\\.[^'\\]*)*)'/g, '"$1"');
-
-	return fixed;
+	if (!/^[{[]/.test(content.trim())) {
+		return content;
+	}
+	try {
+		return jsonrepair(content);
+	} catch {
+		logger.debug("JSON syntax repair could not recover the response");
+		return content;
+	}
 }
 
 /**
@@ -278,7 +274,23 @@ export function healJsonResponse(content: string): HealingResult {
 		}
 	}
 
-	// Strategy 3: Fix common syntax issues
+	// Strategy 3: Complete truncated JSON (add missing brackets)
+	const completed = completeTruncatedJson(workingContent);
+	if (completed) {
+		try {
+			JSON.parse(completed);
+			return {
+				healed: true,
+				content: completed,
+				originalContent,
+				healingMethod: "truncation_completion",
+			};
+		} catch {
+			// Last resort failed
+		}
+	}
+
+	// Strategy 4: Fix common syntax issues
 	const syntaxFixed = fixJsonSyntax(workingContent);
 	if (syntaxFixed !== workingContent) {
 		try {
@@ -292,22 +304,6 @@ export function healJsonResponse(content: string): HealingResult {
 		} catch {
 			// Continue with the fixed content
 			workingContent = syntaxFixed;
-		}
-	}
-
-	// Strategy 4: Complete truncated JSON (add missing brackets)
-	const completed = completeTruncatedJson(workingContent);
-	if (completed) {
-		try {
-			JSON.parse(completed);
-			return {
-				healed: true,
-				content: completed,
-				originalContent,
-				healingMethod: "truncation_completion",
-			};
-		} catch {
-			// Last resort failed
 		}
 	}
 
@@ -373,7 +369,7 @@ export function validateJsonSchema(
 		const required = schema.required as string[] | undefined;
 		if (required && Array.isArray(required)) {
 			for (const prop of required) {
-				if (!(prop in parsed)) {
+				if (!Object.hasOwn(parsed, prop)) {
 					return false;
 				}
 			}
@@ -383,7 +379,7 @@ export function validateJsonSchema(
 		const properties = schema.properties as Record<string, any> | undefined;
 		if (properties && typeof parsed === "object" && !Array.isArray(parsed)) {
 			for (const [key, propSchema] of Object.entries(properties)) {
-				if (key in parsed) {
+				if (Object.hasOwn(parsed, key)) {
 					const value = parsed[key];
 					const propType = propSchema.type;
 
@@ -401,7 +397,9 @@ export function validateJsonSchema(
 					}
 					if (
 						propType === "object" &&
-						(typeof value !== "object" || Array.isArray(value))
+						(typeof value !== "object" ||
+							Array.isArray(value) ||
+							value === null)
 					) {
 						return false;
 					}
