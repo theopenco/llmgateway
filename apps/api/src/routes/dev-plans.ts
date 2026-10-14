@@ -522,13 +522,6 @@ devPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	if (paygEnabled && !personalOrg.devPlanPaygEnabled) {
-		await cdb
-			.update(tables.organization)
-			.set({ devPlanPaygEnabled: true })
-			.where(eq(tables.organization.id, personalOrg.id));
-	}
-
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
@@ -537,7 +530,19 @@ devPlans.openapi(subscribe, async (c) => {
 		// the card fingerprint against existing DevPass orgs; if it conflicts
 		// we reject the activation without ever creating a Stripe subscription
 		// or charging the user. The shared metadata carries everything the
-		// finalize step needs to create the subscription server-side.
+		// finalize step needs to create the subscription server-side,
+		// including the pay-as-you-go opt-in, which is applied only on activation.
+		const checkoutMetadata = {
+			organizationId: personalOrg.id,
+			subscriptionType: "dev_plan",
+			devPlan: tier,
+			devPlanCycle: cycle,
+			priceId,
+			userEmail: user.email,
+			...(paygEnabled !== undefined
+				? { devPlanPaygEnabled: String(paygEnabled) }
+				: {}),
+		};
 		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "setup",
@@ -545,24 +550,8 @@ devPlans.openapi(subscribe, async (c) => {
 			...(await forcedDevPlanThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
-			metadata: {
-				organizationId: personalOrg.id,
-				subscriptionType: "dev_plan",
-				devPlan: tier,
-				devPlanCycle: cycle,
-				priceId,
-				userEmail: user.email,
-			},
-			setup_intent_data: {
-				metadata: {
-					organizationId: personalOrg.id,
-					subscriptionType: "dev_plan",
-					devPlan: tier,
-					devPlanCycle: cycle,
-					priceId,
-					userEmail: user.email,
-				},
-			},
+			metadata: checkoutMetadata,
+			setup_intent_data: { metadata: checkoutMetadata },
 		});
 
 		if (!session.url) {

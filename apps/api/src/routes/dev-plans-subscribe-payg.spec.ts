@@ -33,8 +33,8 @@ process.env.STRIPE_SECRET_KEY ??= "sk_test_mock";
 const ORG_ID = "test-dev-plan-subscribe-org";
 const originalLitePriceId = process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID;
 
-// The pay-as-you-go opt-in offered on the plan chooser is written before the
-// Stripe redirect, so the plan activates with overflow already on.
+// The pay-as-you-go opt-in offered on the plan chooser rides the checkout
+// metadata and is applied on activation, never before the Stripe redirect.
 describe("POST /dev-plans/subscribe pay-as-you-go opt-in", () => {
 	let token: string;
 
@@ -84,7 +84,7 @@ describe("POST /dev-plans/subscribe pay-as-you-go opt-in", () => {
 		});
 	}
 
-	it("enables overflow on the personal org before redirecting to checkout", async () => {
+	it("carries the overflow opt-in through checkout metadata without touching the org", async () => {
 		const res = await subscribe({ tier: "lite", paygEnabled: true });
 
 		expect(res.status).toBe(200);
@@ -92,19 +92,23 @@ describe("POST /dev-plans/subscribe pay-as-you-go opt-in", () => {
 			checkoutUrl: "https://checkout.stripe.test/session",
 		});
 		expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+		const params = stripeMock.checkout.sessions.create.mock.calls[0][0];
+		expect(params.metadata.devPlanPaygEnabled).toBe("true");
+		expect(params.setup_intent_data.metadata.devPlanPaygEnabled).toBe("true");
 
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
-		expect(org?.devPlanPaygEnabled).toBe(true);
-		// Nothing else about the plan is touched until checkout is finalized.
+		expect(org?.devPlanPaygEnabled).toBe(false);
 		expect(org?.devPlan).toBe("none");
 	});
 
-	it("leaves overflow off when the opt-in is not sent", async () => {
+	it("omits the opt-in from metadata when it is not sent", async () => {
 		const res = await subscribe({ tier: "lite" });
 
 		expect(res.status).toBe(200);
+		const params = stripeMock.checkout.sessions.create.mock.calls[0][0];
+		expect(params.metadata).not.toHaveProperty("devPlanPaygEnabled");
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});

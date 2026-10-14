@@ -856,6 +856,14 @@ export function isDevPlanCardDedupeEnforced(): boolean {
 	return process.env.NODE_ENV !== "development";
 }
 
+// The plan chooser's pay-as-you-go opt-in travels through checkout metadata
+// as "true"/"false"; absent means the org keeps its existing setting.
+function parseDevPlanPaygEnabled(
+	value: string | undefined,
+): boolean | undefined {
+	return value === "true" ? true : value === "false" ? false : undefined;
+}
+
 /**
  * Finalize a DevPass setup-mode checkout session: verify the card fingerprint
  * is not already in use by another organization, then create the Stripe
@@ -887,6 +895,9 @@ export async function finalizeDevPlanSetupSession(
 		metadata.devPlanCycle === "annual" ? "annual" : "monthly";
 	const priceId = metadata.priceId;
 	const userEmail = metadata.userEmail;
+	const devPlanPaygEnabled = parseDevPlanPaygEnabled(
+		metadata.devPlanPaygEnabled,
+	);
 
 	if (!organizationId || !devPlanTier || !priceId) {
 		return { status: "invalid_session", reason: "missing_metadata" };
@@ -1025,6 +1036,9 @@ export async function finalizeDevPlanSetupSession(
 					devPlanCycle,
 					setupSessionId: sessionId,
 					userEmail: userEmail ?? "",
+					...(devPlanPaygEnabled !== undefined
+						? { devPlanPaygEnabled: String(devPlanPaygEnabled) }
+						: {}),
 				},
 				expand: ["latest_invoice.payment_intent"],
 			},
@@ -1085,6 +1099,7 @@ export async function finalizeDevPlanSetupSession(
 			devPlanCancelled: false,
 			devPlanCycle,
 			devPlanCardFingerprint: fingerprint,
+			...(devPlanPaygEnabled !== undefined ? { devPlanPaygEnabled } : {}),
 			subscriptionPaymentStatus: "current",
 		})
 		.where(
@@ -4143,6 +4158,9 @@ export async function handleInvoicePaymentSucceeded(event: {
 		DevPlanTier | undefined;
 	const initialDevPlanCycle: DevPlanCycle =
 		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
+	const initialDevPlanPaygEnabled = parseDevPlanPaygEnabled(
+		subscriptionMetadata.devPlanPaygEnabled,
+	);
 	const isInitialDevPlanSubscription =
 		subscriptionMetadata.subscriptionType === "dev_plan" &&
 		!!initialDevPlanTier &&
@@ -4207,6 +4225,9 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlanCancelled: false,
 				devPlanCycle: initialDevPlanCycle,
 				devPlanCardFingerprint: fingerprint,
+				...(initialDevPlanPaygEnabled !== undefined
+					? { devPlanPaygEnabled: initialDevPlanPaygEnabled }
+					: {}),
 				subscriptionPaymentStatus: "current",
 			})
 			.where(

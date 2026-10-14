@@ -191,8 +191,7 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		},
 		{
 			question: "Can I pin a specific provider, like on pay-as-you-go?",
-			answer:
-				"No — DevPass always smart-routes. You request a model by its plain id (e.g. claude-sonnet-5) and the gateway picks the best provider in real time based on uptime, speed, price, and prompt caching — that routing is part of how DevPass stretches every dollar into $${usagePerDollar} of usage. Provider-prefixed model ids like openai/gpt-4o aren't available on DevPass; your coding sessions still stick to one provider automatically to keep prompt caches warm. If you need to pin an exact provider or region, use LLM Gateway's pay-as-you-go API on llmgateway.io, which fully supports provider pinning.",
+			answer: `No — DevPass always smart-routes. You request a model by its plain id (e.g. claude-sonnet-5) and the gateway picks the best provider in real time based on uptime, speed, price, and prompt caching — that routing is part of how DevPass stretches every dollar into $${usagePerDollar} of usage. Provider-prefixed model ids like openai/gpt-4o aren't available on DevPass; your coding sessions still stick to one provider automatically to keep prompt caches warm. If you need to pin an exact provider or region, use LLM Gateway's pay-as-you-go API on llmgateway.io, which fully supports provider pinning.`,
 			content: (
 				<>
 					<p>
