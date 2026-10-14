@@ -24,6 +24,7 @@ import {
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
+	findRateLimitedManagedKeyIds,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -4167,9 +4168,14 @@ chat.openapi(completions, async (c) => {
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
 		const autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
-		// Keys at one of their own caps cannot serve any candidate this request.
+		// Keys at one of their own caps cannot serve any candidate this request,
+		// so read the caps once instead of per candidate model.
 		const rateLimitedProviderKeyIds =
 			await getRateLimitedProviderKeyIds(providerKeys);
+		const rateLimitedManagedKeyIds =
+			project.mode === "api-keys"
+				? new Set<string>()
+				: await findRateLimitedManagedKeyIds();
 		const customProviderKeysById = new Map(
 			providerKeys
 				.filter((key) => key.provider === "custom" && key.name !== null)
@@ -4401,7 +4407,11 @@ chat.openapi(completions, async (c) => {
 							providerKeyAllowsModel(key.allowedModels, modelDef.id),
 					),
 					activeMappings.map((mapping) => mapping.providerId),
-					await findManagedProviderAvailability(envVariant, modelDef.id),
+					await findManagedProviderAvailability(
+						envVariant,
+						modelDef.id,
+						rateLimitedManagedKeyIds,
+					),
 				);
 
 			const candidateProviders = preferConcreteRegionalMappings(
@@ -6616,7 +6626,7 @@ chat.openapi(completions, async (c) => {
 			await assertProviderKeysNotRateLimited(
 				project.organizationId,
 				usedProvider,
-				serviceTierKeyFilter,
+				{ customProviderName, filter: serviceTierKeyFilter },
 			);
 			const providerDisplayName =
 				usedProvider === "custom" && customProviderName
@@ -6800,6 +6810,14 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 		} else {
+			// Custom providers have no platform credential to fall back to.
+			if (usedProvider === "custom") {
+				await assertProviderKeysNotRateLimited(
+					project.organizationId,
+					usedProvider,
+					{ customProviderName },
+				);
+			}
 			// No API key available, fall back to credits
 			// This path bills org credits with a platform credential exactly like
 			// the `credits` branch above, so it needs the same spend-cap gate —

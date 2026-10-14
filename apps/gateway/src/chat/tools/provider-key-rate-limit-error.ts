@@ -1,7 +1,11 @@
-import { HTTPException } from "hono/http-exception";
-
-import { listEligibleProviderKeys } from "@/lib/cached-queries.js";
-import { getRateLimitedProviderKeyIds } from "@/lib/provider-key-rate-limit.js";
+import {
+	listCustomProviderKeys,
+	listEligibleProviderKeys,
+} from "@/lib/cached-queries.js";
+import {
+	getRateLimitedProviderKeys,
+	ProviderKeyRateLimitError,
+} from "@/lib/provider-key-rate-limit.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -12,15 +16,29 @@ import type { InferSelectModel, tables } from "@llmgateway/db";
 export async function assertProviderKeysNotRateLimited(
 	organizationId: string,
 	provider: string,
-	filter?: (key: InferSelectModel<typeof tables.providerKey>) => boolean,
+	options: {
+		customProviderName?: string;
+		filter?: (key: InferSelectModel<typeof tables.providerKey>) => boolean;
+	} = {},
 ): Promise<void> {
-	if (provider === "custom") {
-		return;
-	}
-	const keys = await listEligibleProviderKeys(organizationId, provider, filter);
-	if ((await getRateLimitedProviderKeyIds(keys)).size > 0) {
-		throw new HTTPException(429, {
-			message: `Every API key for provider ${provider} is at its configured rate limit. Please try again later.`,
-		});
+	const keys =
+		provider === "custom"
+			? options.customProviderName
+				? await listCustomProviderKeys(
+						organizationId,
+						options.customProviderName,
+					)
+				: []
+			: await listEligibleProviderKeys(
+					organizationId,
+					provider,
+					options.filter,
+				);
+	const limited = await getRateLimitedProviderKeys(keys);
+	if (limited.size > 0) {
+		throw new ProviderKeyRateLimitError(
+			`Every API key for provider ${options.customProviderName ?? provider} is at its configured rate limit. Please try again later.`,
+			limited,
+		);
 	}
 }

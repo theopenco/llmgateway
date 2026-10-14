@@ -69,7 +69,7 @@ A key's secret and base URL cannot be edited — delete the key and add it again
 
 ## Rate Limits
 
-Each key can cap its own requests per minute or day (RPM/RPD) and prompt + completion tokens per minute or day (TPM/TPD), for example to match the quota of the upstream account. While a key is at any of its caps it is skipped: the next key for the provider serves the request, routing prefers other providers, and in hybrid mode the request falls back to LLM Gateway credits. If every key for the requested provider is capped and nothing else can serve the request, the gateway returns `429`.
+Each key can cap its own requests per minute or day (RPM/RPD) and prompt + completion tokens per minute or day (TPM/TPD), for example to match the quota of the upstream account. While a key is at any of its caps it is skipped: the next key for the provider serves the request, routing prefers other providers, and in hybrid mode the request falls back to LLM Gateway credits. If every key for the requested provider is capped and nothing else can serve the request, the gateway returns `429` with a `Retry-After` header.
 
 Requests and tokens are counted once a request completes, so requests already in flight and the request that crosses a cap still finish. Leave a field empty for no limit.
 

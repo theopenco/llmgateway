@@ -5411,13 +5411,15 @@ export const rateLimit = snakeCase.table(
 		reason: text(),
 	},
 	(table) => [
-		// One row per org/provider/model combo with every window on the same row.
-		// Coalesce nulls to sentinels so Postgres treats them as equal.
+		// One row per org/provider/model/window, so a target can carry request
+		// and token caps with their own enforcement and mode. Coalesce nulls to
+		// sentinels so Postgres treats them as equal.
 		uniqueIndex("rate_limit_org_provider_model_unique").using(
 			"btree",
 			sql`coalesce(${table.organizationId}, '__global__')`,
 			sql`coalesce(${table.provider}, '__all_providers__')`,
 			sql`coalesce(${table.model}, '__all_models__')`,
+			sql`(case when ${table.maxRpm} is not null then 'rpm' when ${table.maxRpd} is not null then 'rpd' when ${table.maxTpm} is not null then 'tpm' when ${table.maxTpd} is not null then 'tpd' end)`,
 		),
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),

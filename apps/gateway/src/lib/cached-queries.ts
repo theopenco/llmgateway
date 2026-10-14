@@ -543,7 +543,22 @@ export async function findCustomProviderKey(
 	selectionScope?: string,
 	excludedKeyIds?: ReadonlySet<string>,
 ): Promise<ProviderKey | undefined> {
-	const results = await swrWrap(
+	return await selectAvailableProviderKey(
+		await listCustomProviderKeys(organizationId, customProviderName),
+		selectionScope,
+		excludedKeyIds,
+	);
+}
+
+/**
+ * Every active key of an organization's custom provider, in selection order
+ * (cacheable).
+ */
+export async function listCustomProviderKeys(
+	organizationId: string,
+	customProviderName: string,
+): Promise<ProviderKey[]> {
+	return await swrWrap(
 		`providerKey:custom:${organizationId}:${customProviderName}`,
 		[providerKeyTableName],
 		async () =>
@@ -567,11 +582,6 @@ export async function findCustomProviderKey(
 					asc(providerKeyTable.createdAt),
 					asc(providerKeyTable.id),
 				),
-	);
-	return await selectAvailableProviderKey(
-		results,
-		selectionScope,
-		excludedKeyIds,
 	);
 }
 
@@ -1107,11 +1117,30 @@ export async function findManagedProviderKey(
 	provider: string,
 	options: FindManagedProviderKeyOptions = {},
 ): Promise<ProviderKey | undefined> {
+	return await selectAvailableProviderKey(
+		await listManagedProviderKeyCandidates(provider, options),
+		options.selectionScope,
+		options.excludedKeyIds,
+	);
+}
+
+/**
+ * The managed credentials {@link findManagedProviderKey} selects from: the
+ * provider's credentials narrowed by filter, variant and region, before
+ * exclusions, rate limits and health are applied.
+ */
+export async function listManagedProviderKeyCandidates(
+	provider: string,
+	options: Pick<
+		FindManagedProviderKeyOptions,
+		"variant" | "region" | "filter"
+	> = {},
+): Promise<ProviderKey[]> {
 	const results = await listManagedProviderKeys(provider);
 
 	const candidates = options.filter ? results.filter(options.filter) : results;
 	if (candidates.length === 0) {
-		return undefined;
+		return [];
 	}
 
 	const variant = options.variant ?? "default";
@@ -1121,17 +1150,7 @@ export async function findManagedProviderKey(
 			? variantMatches
 			: candidates.filter((key) => key.variant === "default");
 
-	const byRegion = narrowManagedKeysToRegion(
-		byVariant,
-		provider,
-		options.region,
-	);
-
-	return await selectAvailableProviderKey(
-		byRegion,
-		options.selectionScope,
-		options.excludedKeyIds,
-	);
+	return narrowManagedKeysToRegion(byVariant, provider, options.region);
 }
 
 /**
@@ -1189,14 +1208,11 @@ export interface ManagedProviderAvailability {
 	pinnedRegions: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
-export async function findManagedProviderAvailability(
-	variant?: EnvVarVariant,
-	modelId?: string,
-): Promise<ManagedProviderAvailability> {
+function listManagedProviderScopes() {
 	// Fetched whole and narrowed in memory so the request's variant stays out
 	// of the cache key, the same way findManagedProviderKey keeps variant,
 	// region and exclusions out of its own.
-	const rows = await swrWrap(
+	return swrWrap(
 		`providerKey:managedProviderScopes`,
 		[providerKeyTableName],
 		async () =>
@@ -1220,10 +1236,34 @@ export async function findManagedProviderAvailability(
 					),
 				),
 	);
+}
+
+/**
+ * Ids of every managed credential currently at one of its own caps. Lets a
+ * caller that checks availability for several models read the caps once.
+ */
+export async function findRateLimitedManagedKeyIds(): Promise<Set<string>> {
+	return await getRateLimitedProviderKeyIds(await listManagedProviderScopes());
+}
+
+export async function findManagedProviderAvailability(
+	variant?: EnvVarVariant,
+	modelId?: string,
+	rateLimitedKeyIds?: ReadonlySet<string>,
+): Promise<ManagedProviderAvailability> {
+	const rows = await listManagedProviderScopes();
 
 	// A credential at one of its own caps cannot serve this request, so a
 	// provider whose every credential is capped is not advertised as usable.
-	const rateLimited = await getRateLimitedProviderKeyIds(rows);
+	const rateLimited =
+		rateLimitedKeyIds ??
+		(await getRateLimitedProviderKeyIds(
+			modelId
+				? rows.filter((row) =>
+						providerKeyAllowsModel(row.allowedModels, modelId),
+					)
+				: rows,
+		));
 
 	const configured = new Set<string>();
 	const pinnedRegions = new Map<string, Set<string>>();

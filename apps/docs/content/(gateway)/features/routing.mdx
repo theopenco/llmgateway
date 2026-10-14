@@ -44,6 +44,9 @@ minute or day (RPM/RPD) and on tokens per minute or day (TPM/TPD). Global
 limits support **Global** (shared) or **Per-organization** counters. Changes
 propagate through the rate-limit cache (default 60 seconds).
 
+Each window is its own rule, so one provider/model target can carry request
+and token caps with different enforcement and modes.
+
 Token caps count prompt + completion tokens once a request completes, so the
 request that crosses a token cap still finishes and later requests are routed
 away until the window frees up. Cached responses do not count.

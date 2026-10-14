@@ -627,7 +627,10 @@ export async function resolveProviderContext(
 			await assertProviderKeysNotRateLimited(
 				project.organizationId,
 				usedProvider,
-				byokKeyFilter,
+				{
+					customProviderName: options.customProviderName,
+					filter: byokKeyFilter,
+				},
 			);
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${usedProvider}`,
@@ -678,6 +681,14 @@ export async function resolveProviderContext(
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
+			// Custom providers have no platform credential to fall back to.
+			if (usedProvider === "custom") {
+				await assertProviderKeysNotRateLimited(
+					project.organizationId,
+					usedProvider,
+					{ customProviderName: options.customProviderName },
+				);
+			}
 			assertOrganizationHasCreditsForEnvFallback(
 				organization,
 				modelInfo,

@@ -140,6 +140,7 @@ describe("token and provider key rate limits", () => {
 
 		const res = await chatCompletion();
 		expect(res.status).toBe(429);
+		expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
 		expect(await res.text()).toContain("configured rate limit");
 	});
 });

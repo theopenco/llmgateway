@@ -17,6 +17,9 @@ export type ProviderKeyRateLimitInputs = Record<
 	string
 >;
 
+// The cap columns are Postgres `integer`.
+const PG_INTEGER_MAX = 2_147_483_647;
+
 const RATE_LIMIT_FIELDS: Array<{
 	field: ProviderKeyRateLimitField;
 	label: string;
@@ -73,8 +76,10 @@ export function parseProviderKeyRateLimitInputs(
 			continue;
 		}
 		const value = Number(trimmed);
-		if (!Number.isInteger(value) || value < 1) {
-			return { error: `${label} must be a whole number of at least 1.` };
+		if (!Number.isInteger(value) || value < 1 || value > PG_INTEGER_MAX) {
+			return {
+				error: `${label} must be a whole number between 1 and ${PG_INTEGER_MAX.toLocaleString("en-US")}.`,
+			};
 		}
 		limits[field] = value;
 	}

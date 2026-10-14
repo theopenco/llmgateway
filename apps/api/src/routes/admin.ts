@@ -55,6 +55,7 @@ import {
 	organizationTimeseriesQuery,
 	organizationTimeseriesSchema,
 } from "@/lib/organization-timeseries.js";
+import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -5558,7 +5559,8 @@ const createRateLimitBodySchema = z.object({
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
-		.min(0, "Limit must be at least 0"),
+		.min(0, "Limit must be at least 0")
+		.max(PG_INTEGER_MAX, `Limit must be at most ${PG_INTEGER_MAX}`),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	// Soft preserves session pins; lax also permits explicit provider requests.
 	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
@@ -5896,7 +5898,7 @@ async function updateRateLimit(
 		) {
 			throw new HTTPException(409, {
 				message:
-					"A rate limit already exists for this provider/model combination",
+					"A rate limit already exists for this provider/model/limit type combination",
 			});
 		}
 		throw error;

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { HTTPException } from "hono/http-exception";
+
 import { logger } from "@llmgateway/logger";
 
 import {
@@ -58,15 +60,16 @@ function getProviderKeyRateLimitKey(
 }
 
 /**
- * Windows at which a provider key is currently capped. Read-only. Fails open
- * (no windows) on Redis errors so a limiter outage never takes keys offline.
+ * Seconds until a provider key is below every one of its caps again, or
+ * undefined when it is not capped. Read-only. Fails open (not capped) on Redis
+ * errors so a limiter outage never takes keys offline.
  */
-export async function getProviderKeyBlockedWindows(
+async function getProviderKeyRetryAfter(
 	key: ProviderKeyRateLimits,
-): Promise<ProviderRateLimitWindow[]> {
+): Promise<number | undefined> {
 	const windows = configuredWindows(key);
 	if (windows.length === 0) {
-		return [];
+		return undefined;
 	}
 	try {
 		const now = Date.now();
@@ -76,7 +79,7 @@ export async function getProviderKeyBlockedWindows(
 					providerRateLimitWindows[window].unit === "tokens"
 						? readTokenWindow
 						: readRequestWindow;
-				const state = await read(
+				return await read(
 					getProviderKeyRateLimitKey(key.id, window),
 					window,
 					limit,
@@ -84,36 +87,68 @@ export async function getProviderKeyBlockedWindows(
 					"none",
 					"strict",
 				);
-				return { window, rateLimited: state.rateLimited };
 			}),
 		);
-		return states
-			.filter((state) => state.rateLimited)
-			.map((state) => state.window);
+		const blocked = states.filter((state) => state.rateLimited);
+		return blocked.length === 0
+			? undefined
+			: Math.max(
+					1,
+					...blocked.map(
+						(state) => state.retryAfter ?? providerRateLimitWindows.rpd.seconds,
+					),
+				);
 	} catch (error) {
 		logger.error("Error reading provider key rate limit:", error as Error);
-		return [];
+		return undefined;
 	}
 }
 
 /**
- * Ids of the given provider keys that are at one of their own RPM/RPD/TPM/TPD
- * caps. Only keys with a cap configured touch Redis.
+ * The given provider keys that are at one of their own RPM/RPD/TPM/TPD caps,
+ * mapped to the seconds until each is usable again. Only keys with a cap
+ * configured touch Redis.
  */
+export async function getRateLimitedProviderKeys(
+	keys: readonly ProviderKeyRateLimits[],
+): Promise<Map<string, number>> {
+	const capped = keys.filter(hasProviderKeyRateLimits);
+	if (capped.length === 0) {
+		return new Map();
+	}
+	const results = await Promise.all(
+		capped.map(async (key) => ({
+			id: key.id,
+			retryAfter: await getProviderKeyRetryAfter(key),
+		})),
+	);
+	const limited = new Map<string, number>();
+	for (const { id, retryAfter } of results) {
+		if (retryAfter !== undefined) {
+			limited.set(id, retryAfter);
+		}
+	}
+	return limited;
+}
+
 export async function getRateLimitedProviderKeyIds(
 	keys: readonly ProviderKeyRateLimits[],
 ): Promise<Set<string>> {
-	const capped = keys.filter(hasProviderKeyRateLimits);
-	if (capped.length === 0) {
-		return new Set();
+	return new Set((await getRateLimitedProviderKeys(keys)).keys());
+}
+
+/**
+ * Every key that could serve the request is at one of its own caps. Carries
+ * the seconds until the first of them frees up for the `Retry-After` header.
+ */
+export class ProviderKeyRateLimitError extends HTTPException {
+	public readonly retryAfter: number | undefined;
+
+	public constructor(message: string, limited: ReadonlyMap<string, number>) {
+		super(429, { message });
+		this.retryAfter =
+			limited.size > 0 ? Math.min(...limited.values()) : undefined;
 	}
-	const blocked = await Promise.all(
-		capped.map(async (key) => ({
-			id: key.id,
-			blocked: (await getProviderKeyBlockedWindows(key)).length > 0,
-		})),
-	);
-	return new Set(blocked.filter((key) => key.blocked).map((key) => key.id));
 }
 
 /** The given keys minus those currently at one of their own caps. */

@@ -16,10 +16,14 @@ export type ProviderKeyRateLimits = Record<
 	number | null
 >;
 
+// The cap columns are Postgres `integer`.
+export const PG_INTEGER_MAX = 2_147_483_647;
+
 const rateLimitValueSchema = z
 	.number()
 	.int("Rate limits must be whole numbers")
 	.min(1, "Rate limits must be at least 1")
+	.max(PG_INTEGER_MAX, `Rate limits must be at most ${PG_INTEGER_MAX}`)
 	.nullable()
 	.optional();
 

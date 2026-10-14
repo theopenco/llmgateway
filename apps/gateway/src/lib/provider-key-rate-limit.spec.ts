@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	getRateLimitedProviderKeyIds,
+	getRateLimitedProviderKeys,
+	ProviderKeyRateLimitError,
 	recordProviderKeyUsage,
 } from "./provider-key-rate-limit.js";
 
@@ -73,6 +75,34 @@ describe("provider key rate limits", () => {
 		]);
 
 		expect([...limited].sort()).toEqual(["key-rpm", "key-tpd"]);
+	});
+
+	it("reports when each capped key frees up and the earliest across keys", async () => {
+		vi.mocked(redis.zcard).mockResolvedValue(1);
+		vi.mocked(redis.zrange).mockImplementation(async (key) => [
+			"member",
+			String(
+				key === "rate_limit:provider_key:rpm:key-a"
+					? now - 50_000
+					: now - 10_000,
+			),
+		]);
+
+		const limited = await getRateLimitedProviderKeys([
+			{ id: "key-a", ...uncapped, maxRpm: 1 },
+			{ id: "key-b", ...uncapped, maxRpm: 1 },
+		]);
+
+		expect(limited).toEqual(
+			new Map([
+				["key-a", 10],
+				["key-b", 50],
+			]),
+		);
+		expect(new ProviderKeyRateLimitError("capped", limited)).toMatchObject({
+			status: 429,
+			retryAfter: 10,
+		});
 	});
 
 	it("fails open when Redis errors", async () => {
