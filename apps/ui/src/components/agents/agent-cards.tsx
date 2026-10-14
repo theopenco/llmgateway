@@ -20,6 +20,7 @@ import {
 	UserSearch,
 	Wrench,
 	Zap,
+	Database,
 } from "lucide-react";
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
@@ -81,6 +82,16 @@ const agents: Agent[] = [
 		capabilities: ["Structured Output", "Action Items", "Slack & Discord"],
 		tags: ["TypeScript", "AI SDK 7", "Zod"],
 		gradient: "from-yellow-500/20 via-amber-500/20 to-orange-500/20",
+	},
+	{
+		name: "SQL Agent",
+		description:
+			"Ask questions about your data in plain English. Reads the schema, writes read-only SQLite, fixes its own query when it errors, and answers with a table plus the final SQL.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/sql-agent",
+		icon: Database,
+		capabilities: ["Schema Discovery", "Read-only SQL", "Self-correcting"],
+		tags: ["TypeScript", "AI SDK 7", "SQLite"],
+		gradient: "from-blue-500/20 via-sky-500/20 to-cyan-500/20",
 	},
 	{
 		name: "Support Triage",
