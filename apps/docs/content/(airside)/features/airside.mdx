@@ -34,7 +34,13 @@ A listing can also carry optional **rate limits** in requests per minute and per
 
 Registering a model that already exists in the catalogue reuses its identity: display name, description, and family come from the catalogue model, and **Use catalog price** copies another provider's flat prices into your initial tariff as a starting point. For a new model, the family field suggests existing catalogue families.
 
-Declare the context window your endpoint really accepts. For a model the catalogue or another carrier already serves, it must be within 10% of the largest window the model is served with: a listing outside that range cannot be submitted, and editing an existing one requires bringing it into range. The same 10% rule decides routing, since requests that don't name a provider only go to deployments that serve the model's full window.
+### Context window
+
+Declare the context window your endpoint really accepts. For a model the catalogue or another carrier already serves, it must be within 10% of the largest window the model is served with (its **full window**). The fleet form checks this while you type: a context size outside that range shows a warning with the model's full window and cannot be saved or submitted, and the API refuses it as well. Editing an existing listing requires bringing it into range. The **context size** preflight check then confirms your endpoint really accepts it.
+
+The same rule decides routing. A request that names a model without a provider prefix (for example `deepseek-v4-flash`) only goes to deployments within 10% of the model's full window, as soon as at least one provider serves that window, so a long conversation never lands on a deployment that cannot hold it. Requests that name your carrier (for example `your-carrier/deepseek-v4-flash`) still reach a smaller deployment.
+
+Listings accepted before this rule can sit below the model's full window. They keep serving requests that name your carrier, but requests without a provider prefix skip them. To get back into that traffic, serve at least 90% of the model's full window and update the listing's context size. LLM Gateway may delist a listing that stays below the full window; the fleet page then shows it as **Delisted by LLM Gateway**, and it can be relisted once its context size is in range and preflight passes.
 
 Draft listings save immediately. On a live listing, a metadata change (description, context size, capabilities, quantization, and so on) is filed for review and applies once approved. Saving again while that change is pending replaces it in place, and saving the live values withdraws it. A pending price filing blocks metadata edits until it is reviewed.
 
