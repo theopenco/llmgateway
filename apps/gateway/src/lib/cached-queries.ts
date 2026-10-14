@@ -70,6 +70,7 @@ import {
 } from "./api-key-health.js";
 import {
 	getRateLimitedProviderKeyIds,
+	type ProviderKeyRateLimitExemption,
 	type ProviderKeyRateLimits,
 } from "./provider-key-rate-limit.js";
 
@@ -210,15 +211,18 @@ function selectProviderKeyWithFailover<T extends { id: string }>(
 /**
  * {@link selectProviderKeyWithFailover} over the keys that are not at one of
  * their own RPM/RPD/TPM/TPD caps. A key at a cap drops out of rotation like an
- * excluded one; when every key is capped there is nothing to select.
+ * excluded one, unless its soft/lax mode exempts this request; when every key
+ * is capped there is nothing to select.
  */
 async function selectAvailableProviderKey(
 	items: ProviderKey[],
 	selectionScope?: string,
 	excludedKeyIds: ReadonlySet<string> = new Set(),
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
 ): Promise<ProviderKey | undefined> {
 	const rateLimited = await getRateLimitedProviderKeyIds(
 		items.filter((item) => !excludedKeyIds.has(item.id)),
+		rateLimitExemption,
 	);
 	return selectProviderKeyWithFailover(
 		items,
@@ -542,11 +546,13 @@ export async function findCustomProviderKey(
 	customProviderName: string,
 	selectionScope?: string,
 	excludedKeyIds?: ReadonlySet<string>,
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
 ): Promise<ProviderKey | undefined> {
 	return await selectAvailableProviderKey(
 		await listCustomProviderKeys(organizationId, customProviderName),
 		selectionScope,
 		excludedKeyIds,
+		rateLimitExemption,
 	);
 }
 
@@ -918,6 +924,7 @@ export async function findProviderKey(
 	selectionScope?: string,
 	excludedKeyIds?: ReadonlySet<string>,
 	filter?: (key: ProviderKey) => boolean,
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
 ): Promise<ProviderKey | undefined> {
 	const eligible = await listEligibleProviderKeys(
 		organizationId,
@@ -928,6 +935,7 @@ export async function findProviderKey(
 		eligible,
 		selectionScope,
 		excludedKeyIds,
+		rateLimitExemption,
 	);
 }
 
@@ -1015,6 +1023,7 @@ export interface FindManagedProviderKeyOptions {
 	selectionScope?: string;
 	excludedKeyIds?: ReadonlySet<string>;
 	filter?: (key: ProviderKey) => boolean;
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 }
 
 /**
@@ -1121,6 +1130,7 @@ export async function findManagedProviderKey(
 		await listManagedProviderKeyCandidates(provider, options),
 		options.selectionScope,
 		options.excludedKeyIds,
+		options.rateLimitExemption,
 	);
 }
 
@@ -1227,6 +1237,7 @@ function listManagedProviderScopes() {
 					maxRpd: providerKeyTable.maxRpd,
 					maxTpm: providerKeyTable.maxTpm,
 					maxTpd: providerKeyTable.maxTpd,
+					rateLimitMode: providerKeyTable.rateLimitMode,
 				})
 				.from(providerKeyTable)
 				.where(
@@ -1242,14 +1253,20 @@ function listManagedProviderScopes() {
  * Ids of every managed credential currently at one of its own caps. Lets a
  * caller that checks availability for several models read the caps once.
  */
-export async function findRateLimitedManagedKeyIds(): Promise<Set<string>> {
-	return await getRateLimitedProviderKeyIds(await listManagedProviderScopes());
+export async function findRateLimitedManagedKeyIds(
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
+): Promise<Set<string>> {
+	return await getRateLimitedProviderKeyIds(
+		await listManagedProviderScopes(),
+		rateLimitExemption,
+	);
 }
 
 export async function findManagedProviderAvailability(
 	variant?: EnvVarVariant,
 	modelId?: string,
 	rateLimitedKeyIds?: ReadonlySet<string>,
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
 ): Promise<ManagedProviderAvailability> {
 	const rows = await listManagedProviderScopes();
 
@@ -1263,6 +1280,7 @@ export async function findManagedProviderAvailability(
 						providerKeyAllowsModel(row.allowedModels, modelId),
 					)
 				: rows,
+			rateLimitExemption,
 		));
 
 	const configured = new Set<string>();
@@ -1332,6 +1350,8 @@ export async function findProviderKeyRateLimits(
 			await db
 				.select({
 					id: providerKeyTable.id,
+					provider: providerKeyTable.provider,
+					rateLimitMode: providerKeyTable.rateLimitMode,
 					maxRpm: providerKeyTable.maxRpm,
 					maxRpd: providerKeyTable.maxRpd,
 					maxTpm: providerKeyTable.maxTpm,

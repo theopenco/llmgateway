@@ -21,6 +21,7 @@ export * from "./multi-provider-selector";
 export * from "./provider-icons";
 export * from "./provider-marks";
 export * from "./provider-key-rate-limit-fields";
+export * from "./rate-limit-mode-field";
 export * from "./refund-reason-fieldset";
 export * from "./reorderable-list";
 export * from "./searchable-select";

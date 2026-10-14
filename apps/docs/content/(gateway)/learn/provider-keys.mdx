@@ -73,6 +73,14 @@ Each key can cap its own requests per minute or day (RPM/RPD) and prompt + compl
 
 Requests and tokens are counted once a request completes, so requests already in flight and the request that crosses a cap still finish. Leave a field empty for no limit.
 
+The **limit mode** decides which requests a capped key still serves, with the same meaning as [provider rate limits](/features/routing#global-provider-rate-limits):
+
+- **Strict** (default) — the key is skipped for every request.
+- **Soft** — a [session](/features/sessions) already pinned to the key's provider keeps using the key, so multi-turn conversations, including encrypted reasoning on OpenAI and Azure, keep working. New sessions and requests without a session use other keys or providers.
+- **Lax** — like soft, and requests that name the provider explicitly (`provider/model`) may also use the key. Automatic routing and fallback from another provider still skip it.
+
+Exempt requests still count toward the key's caps.
+
 ## Restricting a Key to Specific Models
 
 Provider accounts often only have some of a provider's models enabled. Set

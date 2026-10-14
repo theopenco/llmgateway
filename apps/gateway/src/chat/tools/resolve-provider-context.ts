@@ -61,6 +61,7 @@ import {
 	providerKeySupportsServiceTier,
 } from "./service-tier.js";
 
+import type { ProviderKeyRateLimitExemption } from "@/lib/provider-key-rate-limit.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
@@ -183,6 +184,8 @@ export interface ProviderContextOptions {
 	customProviderName: string | undefined;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	/** Lets soft/lax-capped provider keys serve this request. */
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 	n?: number;
 	providerCacheControlMode: ProviderCacheControlMode;
 	providerCacheAutoTtl?: "5m" | "1h";
@@ -612,6 +615,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -620,6 +624,7 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
@@ -631,6 +636,7 @@ export async function resolveProviderContext(
 					customProviderName: options.customProviderName,
 					filter: byokKeyFilter,
 					excludedKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
 				},
 			);
 			throw new HTTPException(400, {
@@ -655,6 +661,7 @@ export async function resolveProviderContext(
 				requiresServiceTier: serviceTierKeyFilter !== undefined,
 				excludedEnvIndices: options.excludedEnvKeyIndices,
 				excludedProviderKeyIds: options.excludedProviderKeyIds,
+				rateLimitExemption: options.rateLimitExemption,
 			},
 		);
 		managedKey = platformCredential.managedKey;
@@ -668,6 +675,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -676,6 +684,7 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
@@ -690,6 +699,7 @@ export async function resolveProviderContext(
 					{
 						customProviderName: options.customProviderName,
 						excludedKeyIds: options.excludedProviderKeyIds,
+						rateLimitExemption: options.rateLimitExemption,
 					},
 				);
 			}
@@ -708,6 +718,7 @@ export async function resolveProviderContext(
 					requiresServiceTier: serviceTierKeyFilter !== undefined,
 					excludedEnvIndices: options.excludedEnvKeyIndices,
 					excludedProviderKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
 				},
 			);
 			managedKey = platformCredential.managedKey;

@@ -27,11 +27,13 @@ vi.mock("@llmgateway/logger", () => ({
 const { redisClient: redis } = await import("@llmgateway/cache");
 
 const uncapped = {
+	provider: "openai",
 	maxRpm: null,
 	maxRpd: null,
 	maxTpm: null,
 	maxTpd: null,
-};
+	rateLimitMode: "strict",
+} as const;
 
 describe("provider key rate limits", () => {
 	const now = 1_700_000_000_000;
@@ -104,6 +106,37 @@ describe("provider key rate limits", () => {
 			retryAfter: 10,
 		});
 	});
+
+	it.each([
+		["strict", { sessionPinned: true, explicitProvider: true }, true],
+		["soft", { sessionPinned: true }, false],
+		["soft", { explicitProvider: true }, true],
+		["lax", { explicitProvider: true }, false],
+		["lax", {}, true],
+	] as const)(
+		"treats a capped %s key with exemption %o as capped: %s",
+		async (rateLimitMode, exemption, capped) => {
+			vi.mocked(redis.zcard).mockResolvedValue(1);
+			const keys = [
+				{ id: "key-1", ...uncapped, maxRpm: 1, rateLimitMode },
+				{
+					id: "key-other",
+					...uncapped,
+					provider: "azure",
+					maxRpm: 1,
+					rateLimitMode,
+				},
+			];
+
+			const limited = await getRateLimitedProviderKeyIds(keys, (provider) =>
+				provider === "openai" ? exemption : {},
+			);
+
+			expect(limited.has("key-1")).toBe(capped);
+			// A session pinned to one provider exempts none of another's keys.
+			expect(limited.has("key-other")).toBe(true);
+		},
+	);
 
 	it("fails open when Redis errors", async () => {
 		vi.mocked(redis.zremrangebyscore).mockRejectedValue(new Error("down"));

@@ -2231,6 +2231,12 @@ export const providerKey = snakeCase.table(
 		maxRpd: integer(),
 		maxTpm: integer(),
 		maxTpd: integer(),
+		// How the caps above treat a key at its cap, with `rate_limit.mode`
+		// semantics: "soft" keeps a session already pinned to the provider on
+		// the key, "lax" also serves explicitly requested providers.
+		rateLimitMode: text({ enum: ["strict", "soft", "lax"] })
+			.notNull()
+			.default("strict"),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.

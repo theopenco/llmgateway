@@ -26,7 +26,9 @@ describe("token and provider key rate limits", () => {
 	async function seedOpenAiKey(
 		id: string,
 		limits: Partial<
-			Record<"maxRpm" | "maxRpd" | "maxTpm" | "maxTpd", number>
+			Record<"maxRpm" | "maxRpd" | "maxTpm" | "maxTpd", number> & {
+				rateLimitMode: "strict" | "soft" | "lax";
+			}
 		> = {},
 		sortOrder?: number,
 	) {
@@ -41,7 +43,7 @@ describe("token and provider key rate limits", () => {
 		});
 	}
 
-	async function chatCompletion() {
+	async function chatCompletion(headers: Record<string, string> = {}) {
 		return await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
@@ -49,6 +51,7 @@ describe("token and provider key rate limits", () => {
 				Authorization: `Bearer ${TOKEN}`,
 				// A capped explicit provider is otherwise served as the only option.
 				"X-No-Fallback": "true",
+				...headers,
 			},
 			body: JSON.stringify({
 				model: `openai/${MODEL}`,
@@ -142,5 +145,49 @@ describe("token and provider key rate limits", () => {
 		expect(res.status).toBe(429);
 		expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
 		expect(await res.text()).toContain("configured rate limit");
+	});
+
+	async function waitForKeyRequests(keyId: string, count: number) {
+		await vi.waitFor(
+			async () => {
+				expect(
+					await redisClient.zcard(`rate_limit:provider_key:rpm:${keyId}`),
+				).toBe(count);
+			},
+			{ timeout: 5000 },
+		);
+	}
+
+	test("a soft key cap keeps serving the session already pinned to it", async () => {
+		await seedApiKey();
+		await seedOpenAiKey("provider-key-trl-soft", {
+			maxRpm: 1,
+			rateLimitMode: "soft",
+		});
+		const session = { "x-session-id": "session-trl-soft" };
+
+		expect((await chatCompletion(session)).status).toBe(200);
+		await waitForKeyRequests("provider-key-trl-soft", 1);
+
+		// At its cap: the pinned session keeps the key, and still counts.
+		expect((await chatCompletion(session)).status).toBe(200);
+		await waitForKeyRequests("provider-key-trl-soft", 2);
+
+		expect(
+			(await chatCompletion({ "x-session-id": "session-trl-new" })).status,
+		).toBe(429);
+		expect((await chatCompletion()).status).toBe(429);
+	});
+
+	test("a lax key cap also serves explicit provider requests", async () => {
+		await seedApiKey();
+		await seedOpenAiKey("provider-key-trl-lax", {
+			maxRpm: 1,
+			rateLimitMode: "lax",
+		});
+
+		expect((await chatCompletion()).status).toBe(200);
+		await waitForKeyRequests("provider-key-trl-lax", 1);
+		expect((await chatCompletion()).status).toBe(200);
 	});
 });

@@ -7,21 +7,36 @@ import { logger } from "@llmgateway/logger";
 import {
 	addTokenWindowEntry,
 	addWindowEntry,
+	isRateLimitExempt,
 	PROVIDER_RATE_LIMIT_WINDOWS,
 	providerRateLimitWindows,
 	readRequestWindow,
 	readTokenWindow,
+	type ProviderRateLimitExemption,
 	type ProviderRateLimitWindow,
 } from "./rate-limit-windows.js";
+
+import type { RateLimitMode } from "@llmgateway/db";
 
 /** The per-credential caps a `provider_key` row carries. */
 export interface ProviderKeyRateLimits {
 	id: string;
+	provider: string;
 	maxRpm: number | null;
 	maxRpd: number | null;
 	maxTpm: number | null;
 	maxTpd: number | null;
+	/** Same semantics as `rate_limit.mode`, applied to every window. */
+	rateLimitMode: RateLimitMode;
 }
+
+/**
+ * The request's exemption from soft/lax key caps, per provider: a session is
+ * pinned to one provider, so only that provider's keys may be exempt.
+ */
+export type ProviderKeyRateLimitExemption = (
+	provider: string,
+) => ProviderRateLimitExemption;
 
 function getKeyWindowLimit(
 	key: ProviderKeyRateLimits,
@@ -106,13 +121,22 @@ async function getProviderKeyRetryAfter(
 
 /**
  * The given provider keys that are at one of their own RPM/RPD/TPM/TPD caps,
- * mapped to the seconds until each is usable again. Only keys with a cap
+ * mapped to the seconds until each is usable again. A soft or lax key the
+ * request is exempt from never counts as capped. Only keys with a cap
  * configured touch Redis.
  */
 export async function getRateLimitedProviderKeys(
 	keys: readonly ProviderKeyRateLimits[],
+	exemption?: ProviderKeyRateLimitExemption,
 ): Promise<Map<string, number>> {
-	const capped = keys.filter(hasProviderKeyRateLimits);
+	const capped = keys.filter(
+		(key) =>
+			hasProviderKeyRateLimits(key) &&
+			!(
+				exemption &&
+				isRateLimitExempt(key.rateLimitMode, exemption(key.provider))
+			),
+	);
 	if (capped.length === 0) {
 		return new Map();
 	}
@@ -133,8 +157,9 @@ export async function getRateLimitedProviderKeys(
 
 export async function getRateLimitedProviderKeyIds(
 	keys: readonly ProviderKeyRateLimits[],
+	exemption?: ProviderKeyRateLimitExemption,
 ): Promise<Set<string>> {
-	return new Set((await getRateLimitedProviderKeys(keys)).keys());
+	return new Set((await getRateLimitedProviderKeys(keys, exemption)).keys());
 }
 
 /**
@@ -154,8 +179,8 @@ export class ProviderKeyRateLimitError extends HTTPException {
 /** The given keys minus those currently at one of their own caps. */
 export async function excludeRateLimitedProviderKeys<
 	T extends ProviderKeyRateLimits,
->(keys: T[]): Promise<T[]> {
-	const limited = await getRateLimitedProviderKeyIds(keys);
+>(keys: T[], exemption?: ProviderKeyRateLimitExemption): Promise<T[]> {
+	const limited = await getRateLimitedProviderKeyIds(keys, exemption);
 	return limited.size === 0 ? keys : keys.filter((key) => !limited.has(key.id));
 }
 

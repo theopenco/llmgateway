@@ -1,5 +1,9 @@
 "use client";
 
+import {
+	RateLimitModeField,
+	type RateLimitModeOption,
+} from "./rate-limit-mode-field";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 
@@ -9,13 +13,13 @@ export type ProviderKeyRateLimitField =
 export type ProviderKeyRateLimits = Record<
 	ProviderKeyRateLimitField,
 	number | null
->;
+> & { rateLimitMode: RateLimitModeOption };
 
 /** Form state: one string per cap, empty meaning uncapped. */
 export type ProviderKeyRateLimitInputs = Record<
 	ProviderKeyRateLimitField,
 	string
->;
+> & { rateLimitMode: RateLimitModeOption };
 
 // The cap columns are Postgres `integer`.
 const PG_INTEGER_MAX = 2_147_483_647;
@@ -31,7 +35,9 @@ const RATE_LIMIT_FIELDS: Array<{
 	{ field: "maxTpd", label: "Tokens / day", unit: "TPD" },
 ];
 
-/** Compact summary such as "60 RPM · 200,000 TPM"; null when uncapped. */
+/**
+ * Compact summary such as "60 RPM · 200,000 TPM (soft)"; null when uncapped.
+ */
 export function formatProviderKeyRateLimits(
 	limits: Partial<ProviderKeyRateLimits>,
 ): string | null {
@@ -41,7 +47,13 @@ export function formatProviderKeyRateLimits(
 			? []
 			: [`${value.toLocaleString("en-US")} ${unit}`];
 	});
-	return parts.length > 0 ? parts.join(" · ") : null;
+	if (parts.length === 0) {
+		return null;
+	}
+	const summary = parts.join(" · ");
+	return limits.rateLimitMode && limits.rateLimitMode !== "strict"
+		? `${summary} (${limits.rateLimitMode})`
+		: summary;
 }
 
 export function toProviderKeyRateLimitInputs(
@@ -54,6 +66,7 @@ export function toProviderKeyRateLimitInputs(
 		maxRpd: format(limits?.maxRpd),
 		maxTpm: format(limits?.maxTpm),
 		maxTpd: format(limits?.maxTpd),
+		rateLimitMode: limits?.rateLimitMode ?? "strict",
 	};
 }
 
@@ -69,6 +82,7 @@ export function parseProviderKeyRateLimitInputs(
 		maxRpd: null,
 		maxTpm: null,
 		maxTpd: null,
+		rateLimitMode: inputs.rateLimitMode,
 	};
 	for (const { field, label } of RATE_LIMIT_FIELDS) {
 		const trimmed = inputs[field].trim();
@@ -95,8 +109,8 @@ export interface ProviderKeyRateLimitFieldsProps {
 
 /**
  * Request and token caps for one provider key. A key at any cap drops out of
- * rotation until its window frees up; tokens are prompt + completion and are
- * counted once a request completes.
+ * rotation until its window frees up, except for the traffic its mode exempts;
+ * tokens are prompt + completion and are counted once a request completes.
  */
 export function ProviderKeyRateLimitFields({
 	idPrefix,
@@ -135,6 +149,14 @@ export function ProviderKeyRateLimitFields({
 				request. Tokens are prompt + completion, counted once a request
 				completes. Leave empty for no limit.
 			</p>
+			<RateLimitModeField
+				id={`${idPrefix}-rateLimitMode`}
+				subject="key"
+				value={values.rateLimitMode}
+				onChange={(rateLimitMode) => onChange({ ...values, rateLimitMode })}
+				disabled={disabled}
+				label="Limit mode"
+			/>
 		</fieldset>
 	);
 }

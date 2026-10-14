@@ -56,6 +56,7 @@ interface Credential {
 	maxRpd: number | null;
 	maxTpm: number | null;
 	maxTpd: number | null;
+	rateLimitMode: string;
 }
 
 describe("admin provider credentials", () => {
@@ -375,7 +376,11 @@ describe("admin provider credentials", () => {
 			{
 				method: "PATCH",
 				headers: { Cookie: cookie, "Content-Type": "application/json" },
-				body: JSON.stringify({ maxRpm: null, maxTpm: 50_000 }),
+				body: JSON.stringify({
+					maxRpm: null,
+					maxTpm: 50_000,
+					rateLimitMode: "lax",
+				}),
 			},
 		);
 		expect(update.status).toBe(200);
@@ -383,6 +388,7 @@ describe("admin provider credentials", () => {
 			maxRpm: null,
 			maxTpm: 50_000,
 			maxTpd: 1_000_000,
+			rateLimitMode: "lax",
 		});
 	});
 

@@ -1151,6 +1151,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		maxRpd?: number | null;
 		maxTpm?: number | null;
 		maxTpd?: number | null;
+		rateLimitMode?: "strict" | "soft" | "lax";
 	} = { ...rateLimitUpdates };
 	if (status !== undefined) {
 		updates.status = status;
