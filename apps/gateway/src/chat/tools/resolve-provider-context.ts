@@ -630,6 +630,7 @@ export async function resolveProviderContext(
 				{
 					customProviderName: options.customProviderName,
 					filter: byokKeyFilter,
+					excludedKeyIds: options.excludedProviderKeyIds,
 				},
 			);
 			throw new HTTPException(400, {
@@ -686,7 +687,10 @@ export async function resolveProviderContext(
 				await assertProviderKeysNotRateLimited(
 					project.organizationId,
 					usedProvider,
-					{ customProviderName: options.customProviderName },
+					{
+						customProviderName: options.customProviderName,
+						excludedKeyIds: options.excludedProviderKeyIds,
+					},
 				);
 			}
 			assertOrganizationHasCreditsForEnvFallback(
