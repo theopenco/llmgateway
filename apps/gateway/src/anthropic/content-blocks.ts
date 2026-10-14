@@ -18,6 +18,35 @@ export const anthropicCustomToolSchema = z.object({
 	defer_loading: z.boolean().optional(),
 });
 
+function blockType(entry: unknown): string | undefined {
+	return entry && typeof entry === "object"
+		? String((entry as { type?: unknown }).type)
+		: undefined;
+}
+
+// Nested tool_result blocks are forwarded verbatim, so an `image` with a `url`
+// source would have the provider fetch a caller-supplied URL that never went
+// through the gateway's URL guard. Top-level `image` blocks only accept
+// `base64` (see anthropicKnownContentBlockSchema), so hold tool_result images to the same
+// rule.
+const toolResultContentBlocksSchema = z
+	.array(z.unknown())
+	.superRefine((blocks, ctx) => {
+		blocks.forEach((block, index) => {
+			if (blockType(block) !== "image") {
+				return;
+			}
+			const source = (block as { source?: { type?: unknown } }).source;
+			if (source?.type !== "base64") {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: [index, "source", "type"],
+					message: "tool_result image blocks must use a base64 source",
+				});
+			}
+		});
+	});
+
 const anthropicKnownContentBlockSchema = z.union([
 	z.object({
 		type: z.literal("text"),
@@ -46,7 +75,7 @@ const anthropicKnownContentBlockSchema = z.union([
 	z.object({
 		type: z.literal("tool_result"),
 		tool_use_id: z.string(),
-		content: z.union([z.string(), z.array(z.unknown())]).optional(),
+		content: z.union([z.string(), toolResultContentBlocksSchema]).optional(),
 		is_error: z.boolean().optional(),
 		// Anthropic allows a breakpoint here, and in an agentic loop the
 		// stable prefix usually ends on a tool result — dropping it would
