@@ -229,11 +229,11 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 
 	// A carrier-claimed provider runs on the carrier's own credential, so our
 	// managed keys never pay for testing a listing we do not bill for.
-	const credential = await resolveVerificationCredential(
-		target,
-		apiKey,
-		await activeProviderClaim(target.providerId),
-	);
+	const claim = await activeProviderClaim(target.providerId);
+	const credential = await resolveVerificationCredential(target, apiKey, claim);
+	// The worker resolves a custom carrier's endpoint from its claim, which it
+	// finds through the run's company; a live mapping carries none of its own.
+	providerCompanyId ??= claim?.providerCompanyId ?? null;
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
