@@ -114,6 +114,7 @@ By default the filter only records its findings. When blocking is active, a requ
 - **Messages** (`/v1/messages`): `stop_reason: "refusal"` with the same explanation as the text content.
 - **Images**: HTTP `200` with an empty `data` array.
 - **Videos**: HTTP `403` with the explanation in `error.message`; no job is created.
+- **Speech** (`/v1/audio/speech`): HTTP `403` with the explanation in `error.message`; the `input` text is screened and no audio is generated.
 
 A moderation outage never fails a request: if the moderation model is unavailable, the request goes through as normal.
 

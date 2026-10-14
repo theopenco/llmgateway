@@ -281,7 +281,6 @@ import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import {
 	isContentFilterClassifierCompliant,
-	evaluateContentFilterWithClassifiers,
 	runContentFilterClassifier,
 	type ContentFilterCheckResult,
 } from "./tools/content-filter-classifier.js";
@@ -383,6 +382,11 @@ import {
 	shouldRetrySameKey,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
+import {
+	getContentFilterLogResponse,
+	startTieredContentFilter,
+	type TieredContentFilterOutcome,
+} from "./tools/run-tiered-content-filter.js";
 import {
 	assertServiceTierHonored,
 	getForwardedServiceTier,
@@ -7044,9 +7048,6 @@ chat.openapi(completions, async (c) => {
 	// classifier so a request never triggers a duplicate moderation call. Only a
 	// verdict that can block is awaited; otherwise the classifier runs in the
 	// background and its evaluation is attached to the log once it settles.
-	type TieredContentFilterOutcome = Awaited<
-		ReturnType<typeof evaluateContentFilterWithClassifiers>
-	>;
 	let tieredContentFilter: TieredContentFilterOutcome = null;
 	let pendingTieredContentFilter: Promise<TieredContentFilterOutcome> | null =
 		null;
@@ -7056,46 +7057,17 @@ chat.openapi(completions, async (c) => {
 		await getContentFilterSettings(),
 	);
 	if (tieredContentFilterPlan) {
-		const plan = tieredContentFilterPlan;
-		const runTieredContentFilter = async (signal: AbortSignal | undefined) => {
-			const outcome = await evaluateContentFilterWithClassifiers({
-				plan,
-				messages: messages as BaseMessage[],
-				context: contentFilterContext,
-				signal,
-				imagesAllowed: openAiContentFilterAllowed,
-				classifierAllowed: contentFilterClassifierAllowed,
-				existing: envContentFilterResult,
-			});
-			if (outcome?.evaluation.violation) {
-				logger.debug("gateway_content_filter_tier", {
-					requestId,
-					organizationId: project.organizationId,
-					provider: usedProvider,
-					tier: plan.tier,
-					level: plan.level,
-					classifier: plan.classifier,
-					action: outcome.evaluation.action,
-					matchedCategories: outcome.evaluation.matchedCategories,
-				});
-			}
-			return outcome;
-		};
-		if (plan.enforce) {
-			tieredContentFilter = await runTieredContentFilter(c.req.raw.signal);
-		} else {
-			// Detached from the client's signal so a hang-up does not cancel the
-			// observation; each classifier's own timeout bounds it.
-			pendingTieredContentFilter = trackPendingWork(
-				runTieredContentFilter(undefined).catch((error: unknown) => {
-					logger.warn("Background gateway content filter failed", {
-						requestId,
-						error: toError(error),
-					});
-					return null;
-				}),
-			);
-		}
+		const started = await startTieredContentFilter({
+			plan: tieredContentFilterPlan,
+			messages: messages as BaseMessage[],
+			context: contentFilterContext,
+			signal: c.req.raw.signal,
+			imagesAllowed: openAiContentFilterAllowed,
+			classifierAllowed: contentFilterClassifierAllowed,
+			existing: envContentFilterResult,
+		});
+		tieredContentFilter = started.outcome;
+		pendingTieredContentFilter = started.pending;
 	}
 	const tierContentFilterBlocked =
 		tieredContentFilter?.evaluation.action === "blocked";
@@ -7117,9 +7089,7 @@ chat.openapi(completions, async (c) => {
 				evaluation?.violation === true,
 			// Stored for every moderated request; the 30-day data retention cleanup
 			// nulls it again, so the extra jsonb per sampled row is bounded.
-			response: results.some((result) => result.responses.length > 0)
-				? results.flatMap((result) => result.responses)
-				: null,
+			response: getContentFilterLogResponse(results),
 			evaluation,
 		};
 	};
