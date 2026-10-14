@@ -3138,8 +3138,12 @@ chat.openapi(completions, async (c) => {
 		);
 	// Check replayed data at retry time, after cached Google signatures are
 	// restored. Reasoning capability alone does not bind a fresh request.
+	// Only a mapping that returns provider-bound reasoning can use the replayed
+	// payloads, so only such a mapping holds the request to its provider; image
+	// and other non-reasoning mappings keep cross-provider fallback.
 	const isProviderPinned = () =>
-		sessionStickyEnabled || hasProviderBoundReasoning(messages);
+		sessionStickyEnabled ||
+		(hasProviderBoundReasoning(messages) && usedProviderEncryptsReasoning());
 
 	const retryProjectContext = {
 		mode: project.mode,

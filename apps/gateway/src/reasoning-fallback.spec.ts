@@ -203,7 +203,7 @@ describe("reasoning model retry before output", () => {
 	});
 
 	test.each([false, true])(
-		"pins signed reasoning independently of mapping capability (signed=%s)",
+		"keeps fallback for a mapping without encrypted reasoning (signed=%s)",
 		async (signed) => {
 			await setup();
 			await harness.setProjectMode("api-keys");
@@ -258,15 +258,13 @@ describe("reasoning model retry before output", () => {
 					{ role: "user", content: "Continue" },
 				],
 			});
-			expect(res.status).toBe(signed ? 500 : 200);
-			expect(attempts).toEqual(
-				signed
-					? ["novita.example.com"]
-					: ["novita.example.com", "deepinfra.example.com"],
-			);
-			const logs = await waitForLogs(signed ? 1 : 2);
+			expect(res.status).toBe(200);
+			// Replayed signatures cannot bind a mapping that does not return
+			// them, so the request still falls back.
+			expect(attempts).toEqual(["novita.example.com", "deepinfra.example.com"]);
+			const logs = await waitForLogs(2);
 			const failure = logs.find((log) => log.usedProvider === "novita");
-			expect(failure?.retried).toBe(!signed);
+			expect(failure?.retried).toBe(true);
 			expect(failure?.errorDetails?.statusCode).toBe(429);
 		},
 	);
