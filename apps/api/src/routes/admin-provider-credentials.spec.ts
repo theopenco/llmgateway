@@ -430,6 +430,27 @@ describe("admin provider credentials", () => {
 		expect(again.status).toBe(404);
 	});
 
+	test("deletes a disabled credential without a grace period", async () => {
+		await create({ provider: "openai", token: "sk-disabled-one" });
+		const [credential] = await list();
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, credential.id));
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		// A disabled key must never serve pinned conversations again.
+		expect(row?.status).toBe("deleted");
+		expect(row?.deletionRequestedAt).toBeNull();
+	});
+
 	test("lists soft-deleted credentials only when asked", async () => {
 		await create({ provider: "openai", token: "sk-deleted-one" });
 		await create({ provider: "openai", token: "sk-kept-one" });

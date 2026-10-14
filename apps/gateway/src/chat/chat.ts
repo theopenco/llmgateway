@@ -35,6 +35,7 @@ import {
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	findPinnableProviderKey,
 	getContentFilterSettings,
 	listAirsidePairs,
 	type AirsideListedModel,
@@ -3044,6 +3045,29 @@ chat.openapi(completions, async (c) => {
 		)
 			? reasoningPin
 			: undefined;
+	// The organization's own key a pin names may be pending deletion, so no
+	// active-key list contains it. Routing counts it as a key for its provider
+	// for the models it binds; credential selection then uses exactly it.
+	const pinnedByokKey =
+		reasoningPin?.source === "byok" && reasoningPin.providerKeyId
+			? await findPinnableProviderKey(reasoningPin.providerKeyId)
+			: undefined;
+	const reasoningPinnedKey =
+		pinnedByokKey &&
+		!pinnedByokKey.managed &&
+		pinnedByokKey.organizationId === project.organizationId &&
+		pinnedByokKey.provider === reasoningPin?.provider
+			? pinnedByokKey
+			: undefined;
+	const withReasoningPinnedKey = (
+		keys: InferSelectModel<typeof tables.providerKey>[],
+		modelId: string,
+	) =>
+		reasoningPinnedKey &&
+		reasoningPinFor(modelId) &&
+		!keys.some((key) => key.id === reasoningPinnedKey.id)
+			? [...keys, reasoningPinnedKey]
+			: keys;
 	const createSessionStore = (modelId: string) => {
 		const modelReasoningPin = reasoningPinFor(modelId);
 		const reasoningPinnedProvider = async () =>
@@ -4420,7 +4444,7 @@ chat.openapi(completions, async (c) => {
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
-					providerKeys.filter((key) =>
+					withReasoningPinnedKey(providerKeys, modelDef.id).filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, modelDef.id),
 					),
 					activeMappings.map((mapping) => mapping.providerId),
@@ -5314,7 +5338,7 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						providerKeys.filter((key) =>
+						withReasoningPinnedKey(providerKeys, baseModelId).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
@@ -5542,7 +5566,7 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						providerKeys.filter((key) =>
+						withReasoningPinnedKey(providerKeys, baseModelId).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
@@ -5800,7 +5824,7 @@ chat.openapi(completions, async (c) => {
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
-					providerKeys.filter((key) =>
+					withReasoningPinnedKey(providerKeys, routedModelId).filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, routedModelId),
 					),
 					providerIds,

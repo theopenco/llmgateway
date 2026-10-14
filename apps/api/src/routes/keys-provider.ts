@@ -949,7 +949,7 @@ keysProvider.openapi(deleteKey, async (c) => {
 
 	// Conversations whose replayed reasoning only this key can verify keep
 	// using it through the grace period; nothing else routes to it.
-	const status = deletedProviderKeyStatus(providerKey.provider);
+	const status = deletedProviderKeyStatus(providerKey);
 	await cdb
 		.update(tables.providerKey)
 		.set({

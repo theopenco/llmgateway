@@ -2664,12 +2664,12 @@ adminProviderCredentials.openapi(deleteCredential, async (c) => {
 			managed: { eq: true },
 			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 		},
-		columns: { provider: true },
+		columns: { provider: true, status: true },
 	});
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
-	const status = deletedProviderKeyStatus(existing.provider);
+	const status = deletedProviderKeyStatus(existing);
 	const [deleted] = await cdb
 		.update(tables.providerKey)
 		.set({

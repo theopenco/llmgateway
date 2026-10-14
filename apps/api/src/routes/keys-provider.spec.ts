@@ -994,6 +994,23 @@ describe("provider keys route", () => {
 		expect(patch.status).toBe(404);
 	});
 
+	test("DELETE /keys/provider/{id} skips the grace period for a disabled key", async () => {
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, "test-provider-key-id"));
+
+		const res = await app.request("/keys/provider/test-provider-key-id", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
+		expect(providerKey?.status).toBe("deleted");
+	});
+
 	describe("PATCH /keys/provider/{id} complianceAttestation", () => {
 		async function seedCustomKey(plan: "pro" | "enterprise" = "enterprise") {
 			await db

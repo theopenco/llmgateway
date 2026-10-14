@@ -235,6 +235,23 @@ describe("reasoning credential pinning", () => {
 		]);
 	});
 
+	test("serves a replay when the deleted key was the only one", async () => {
+		await harness.setProjectMode("api-keys");
+		await seedKey({ id: "byok-only", token: "sk-byok-only", managed: false });
+		const authorizations = mockUpstream();
+
+		const reasoning = await firstTurnReasoning();
+		await markPendingDeletion("byok-only");
+
+		expect((await turn(reasoning, "gpt-6.1-sol")).status).toBe(200);
+		// Nothing else may use it: a fresh conversation has no key left.
+		expect((await turn(undefined, "gpt-6.1-sol")).status).toBe(400);
+		expect(authorizations).toEqual([
+			"Bearer sk-byok-only",
+			"Bearer sk-byok-only",
+		]);
+	});
+
 	test("resolves an env credential by fingerprint, not position", async () => {
 		await harness.setProjectMode("credits");
 		process.env.LLM_OPENAI_API_KEY = "sk-env-a,sk-env-b";

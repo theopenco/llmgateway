@@ -568,7 +568,8 @@ other models without reasoning use normal routing and key selection.
 Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
 During that time it serves only conversations that replay reasoning it
 produced; it is never selected for any other request, and it is fully deleted
-afterwards. Custom-provider keys are deleted immediately.
+afterwards, or as soon as it reaches its spend limit. Custom-provider keys and keys
+that are already disabled are deleted immediately.
 
 ### Routing Transparency
 

@@ -18,12 +18,16 @@ export function isRemovedProviderKeyStatus(
 }
 
 /**
- * Status a deleted key moves to. Custom-provider keys never carry
- * provider-bound reasoning, so they are deleted immediately and free their
- * name for reuse.
+ * Status a deleted key moves to. Only an active key gets the grace period:
+ * a key someone already disabled (e.g. its spend fuse tripped) must never
+ * serve again, not even pinned conversations. Custom-provider keys never
+ * carry provider-bound reasoning, so they are deleted immediately and free
+ * their name for reuse.
  */
-export function deletedProviderKeyStatus(
-	provider: string,
-): "pending_deletion" | "deleted" {
-	return provider === "custom" ? "deleted" : "pending_deletion";
+export function deletedProviderKeyStatus(key: {
+	provider: string;
+	status: string | null;
+}): "pending_deletion" | "deleted" {
+	const active = key.status === "active" || key.status === null;
+	return active && key.provider !== "custom" ? "pending_deletion" : "deleted";
 }
