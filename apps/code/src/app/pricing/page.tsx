@@ -19,6 +19,7 @@ import { buildDevPassProductSchema } from "@/lib/product-schema";
 import { formatUsageRatio } from "@/lib/utils";
 
 import {
+	DEV_PLAN_DAILY_PERCENT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
@@ -27,6 +28,7 @@ import {
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	SELF_REFUND_WINDOW_DAYS,
+	type DevPlanTier,
 } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
@@ -56,6 +58,7 @@ interface UsageRow {
 const liteCredits = getDevPlanCreditsLimit("lite");
 const proCredits = getDevPlanCreditsLimit("pro");
 const maxCredits = getDevPlanCreditsLimit("max");
+const usagePerDollar = liteCredits / DEV_PLAN_PRICES.lite;
 
 const premiumInputPerM = Math.round(HIGH_COST_INPUT_PRICE * 1_000_000);
 const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
@@ -63,6 +66,16 @@ const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
 const productSchema = buildDevPassProductSchema(
 	"https://devpass.llmgateway.io/pricing",
 );
+
+const pct = (fraction: number) => `${Math.round(fraction * 100)}%`;
+
+function resetPassCell(tier: DevPlanTier): string {
+	const included = DEV_PLAN_INCLUDED_RESET_PASSES[tier];
+	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
+	return included > 0
+		? `${included}/month · extras $${price}`
+		: `Buy anytime · $${price}`;
+}
 
 const usageRows: UsageRow[] = [
 	{
@@ -73,16 +86,22 @@ const usageRows: UsageRow[] = [
 		emphasis: true,
 	},
 	{
-		label: `Premium model fair-use ($${premiumInputPerM}+/M input or $${premiumOutputPerM}+/M output)`,
-		lite: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite * 100)}% of credits`,
-		pro: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro * 100)}% of credits`,
-		max: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max * 100)}% of credits`,
+		label: "Daily pacing (share of monthly credits per rolling 24h, any model)",
+		lite: `${pct(DEV_PLAN_DAILY_PERCENT.lite)} of credits`,
+		pro: `${pct(DEV_PLAN_DAILY_PERCENT.pro)} of credits`,
+		max: `${pct(DEV_PLAN_DAILY_PERCENT.max)} of credits`,
 	},
 	{
-		label: "Reset Passes included (instant premium-allowance reset)",
-		lite: `Buy anytime · $${DEV_PLAN_RESET_PASS_PRICES.lite}`,
-		pro: `${DEV_PLAN_INCLUDED_RESET_PASSES.pro}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.pro}`,
-		max: `${DEV_PLAN_INCLUDED_RESET_PASSES.max}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.max}`,
+		label: `Premium model fair-use per week ($${premiumInputPerM}+/M input or $${premiumOutputPerM}+/M output)`,
+		lite: `${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite)} of credits`,
+		pro: `${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro)} of credits`,
+		max: `${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max)} of credits`,
+	},
+	{
+		label: "Reset Passes (instant premium-allowance reset)",
+		lite: resetPassCell("lite"),
+		pro: resetPassCell("pro"),
+		max: resetPassCell("max"),
 	},
 	{
 		label: "Priority routing on flagship models",
@@ -189,9 +208,11 @@ export default function PricingPage() {
 							</h1>
 							<p className="mx-auto max-w-xl text-lg leading-relaxed text-muted-foreground">
 								Every dollar you pay turns into{" "}
-								<span className="font-semibold text-foreground">$3</span> of
-								model usage at provider rates — metered transparently, shown in
-								your dashboard in real time.
+								<span className="font-semibold text-foreground">
+									${usagePerDollar}
+								</span>{" "}
+								of model usage at provider rates — metered transparently, shown
+								in your dashboard in real time.
 							</p>
 						</div>
 					</div>
@@ -220,9 +241,9 @@ export default function PricingPage() {
 								Where the plans differ
 							</h2>
 							<p className="mt-3 text-muted-foreground">
-								Every tier ships with the full model catalog. Three dials
-								change: your monthly usage allowance, the weekly premium-model
-								fair-use, and support.
+								Every tier ships with the full model catalog. Four dials change:
+								your monthly usage allowance, its daily pacing, the weekly
+								premium-model fair-use, and support.
 							</p>
 						</div>
 
@@ -361,7 +382,9 @@ export default function PricingPage() {
 					</div>
 				</section>
 
-				<Faq />
+				<Faq
+					credits={{ lite: liteCredits, pro: proCredits, max: maxCredits }}
+				/>
 
 				<section className="border-t py-20 px-4">
 					<div className="container mx-auto max-w-2xl text-center">

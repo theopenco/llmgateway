@@ -380,6 +380,7 @@ import {
 	resolvePlatformCredential,
 } from "./tools/resolve-platform-credential.js";
 import {
+	assertDevPlanDailyCapNotExceeded,
 	assertDevPlanPremiumCapNotExceeded,
 	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
@@ -3235,6 +3236,8 @@ chat.openapi(completions, async (c) => {
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
 		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
 		devPlanPremiumWeekStart: organization.devPlanPremiumWeekStart,
+		devPlanDailyCreditsUsed: organization.devPlanDailyCreditsUsed,
+		devPlanDayStart: organization.devPlanDayStart,
 		devPlanExpiresAt: organization.devPlanExpiresAt,
 		chatPlan: organization.chatPlan,
 		chatPlanCreditsLimit: organization.chatPlanCreditsLimit,
@@ -6850,6 +6853,7 @@ chat.openapi(completions, async (c) => {
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
 		);
+		assertDevPlanDailyCapNotExceeded(organization, true);
 		const {
 			devPlanCreditsRemaining,
 			chatPlanCreditsRemaining,
@@ -7033,6 +7037,7 @@ chat.openapi(completions, async (c) => {
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
 			);
+			assertDevPlanDailyCapNotExceeded(organization, true);
 			const {
 				devPlanCreditsRemaining,
 				chatPlanCreditsRemaining,
