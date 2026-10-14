@@ -1,17 +1,10 @@
-import { BASE_ERROR_CODES } from "@better-auth/core/error";
 import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
-import {
-	APIError,
-	createAuthMiddleware,
-	formCsrfMiddleware,
-	signInEmail,
-} from "better-auth/api";
+import { createAuthMiddleware } from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
-import { z } from "zod/v4";
 
 import { createAuthDatabase } from "@/auth/database.js";
 import {
@@ -19,10 +12,6 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
-import {
-	delayLikePasswordHash,
-	timedVerifyPassword,
-} from "@/auth/sign-in-timing.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
@@ -277,13 +266,6 @@ export async function checkAndRecordSignupAttempt(
 // per-IP window.
 export const SIGN_IN_DAILY_LIMIT = 100;
 const DAY_SECONDS = 24 * 60 * 60;
-
-// Better Auth validates the body, runs its CSRF middleware, then rejects a
-// malformed email with 400 before looking the user up. The unknown-email
-// shortcut must apply the same checks first, or those 400/403 responses
-// would only appear for known emails.
-const signInEmailBody = signInEmail().options.body;
-const signInEmailFormat = z.email();
 
 /**
  * Count an email sign-in attempt against a fixed 24h window per IP.
@@ -863,7 +845,6 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			emailAndPassword: {
 				enabled: true,
 				revokeSessionsOnPasswordReset: true,
-				password: { verify: timedVerifyPassword },
 				// Enforced on sign-up/reset/change/set-password only, never on
 				// sign-in, so existing accounts with shorter passwords keep working.
 				minPasswordLength: MIN_PASSWORD_LENGTH,
@@ -1088,7 +1069,6 @@ The LLM Gateway Team`.trim();
 						}
 					}
 
-					let isUnknownSignInEmail = false;
 					if (ctx.path.startsWith("/sign-in")) {
 						const body = ctx.body as { email?: string } | undefined;
 						const email = body?.email?.trim().toLowerCase();
@@ -1097,11 +1077,6 @@ The LLM Gateway Team`.trim();
 								where: { email: { eq: email } },
 								columns: { status: true, blockReason: true },
 							});
-							isUnknownSignInEmail =
-								!existingUser &&
-								ctx.path === "/sign-in/email" &&
-								signInEmailBody.safeParse(ctx.body).success &&
-								signInEmailFormat.safeParse(body?.email).success;
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({
@@ -1125,23 +1100,6 @@ The LLM Gateway Team`.trim();
 						if (await isSSOEnforcedForEmail(body?.email)) {
 							return ssoRequiredResponse();
 						}
-					}
-
-					// Answer unknown emails here so Better Auth skips its throwaway
-					// scrypt hash; see delayLikePasswordHash.
-					if (isUnknownSignInEmail) {
-						await formCsrfMiddleware(ctx);
-						// Repeat Better Auth's user+account lookup so the DB work matches
-						// the wrong-password path, not just the hash time.
-						await ctx.context.internalAdapter.findUserByEmail(
-							(ctx.body as { email: string }).email,
-							{ includeAccounts: true },
-						);
-						await delayLikePasswordHash();
-						throw APIError.from(
-							"UNAUTHORIZED",
-							BASE_ERROR_CODES.INVALID_EMAIL_OR_PASSWORD,
-						);
 					}
 
 					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
