@@ -8,6 +8,7 @@ export type ModelCategoryFilter =
 	| "image-to-image"
 	| "video"
 	| "embedding"
+	| "decisions"
 	| "web-search"
 	| "vision"
 	| "reasoning"
@@ -167,7 +168,7 @@ export const curatedCategoryModelIds: Record<
 		"minimax-m3",
 		"grok-4-20-reasoning",
 		"grok-4-3",
-		"mimo-v2.5-pro",
+		"mimo-v2.6-pro",
 	]),
 };
 
@@ -216,6 +217,7 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 // Proprietary models whose family is otherwise open-source (e.g. Meta's
 // API-only Muse Spark models alongside the open Llama family)
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
+	"muse-wonder-1.0",
 	"muse-spark-1.1",
 	"muse-spark-1.2",
 	"muse-spark-1.2-contributor",
@@ -275,6 +277,8 @@ export function applyCategoryFilter(
 			return model.output?.includes("video") === true;
 		case "embedding":
 			return model.output?.includes("embedding") === true;
+		case "decisions":
+			return model.output?.includes("decision") === true;
 		case "web-search":
 			return mappings.some((m) => m.webSearch);
 		case "vision":

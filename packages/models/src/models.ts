@@ -740,6 +740,13 @@ export interface ProviderModelMapping {
 	 */
 	supportsAssistantPrefill?: boolean;
 	/**
+	 * Whether this mapping's upstream accepts `system` messages inside the
+	 * Anthropic `messages` array (Claude Opus 4.8 and later). When unset, a
+	 * system message that arrives mid-conversation is sent in place as a user
+	 * `<system-reminder>` instead.
+	 */
+	midConversationSystem?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
@@ -826,10 +833,11 @@ export interface ProviderModelMapping {
 	 */
 	rerank?: boolean;
 	/**
-	 * Whether this model uses a dedicated typed-decision API (TypeSafe System
-	 * One). When true, requests are routed to the gateway's /v1/systemone
-	 * endpoint, which answers named questions with probabilities instead of
-	 * generated text. Billed on input tokens only.
+	 * Whether this model uses a dedicated typed-decision API (OpenAI Decisions,
+	 * TypeSafe System One). When true, requests are routed to the gateway's
+	 * /v1/decisions endpoint (TypeSafe models also on the legacy /v1/systemone),
+	 * which answers typed questions with probabilities instead of generated
+	 * text. Billed on input tokens only.
 	 */
 	decisions?: boolean;
 	/**

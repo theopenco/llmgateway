@@ -17,6 +17,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
+import { logErrorSql, rootModelIdSql } from "./log-filters.js";
+
 import type {
 	gatewayContentFilterEvaluationSchema,
 	gatewayContentFilterResponseSchema,
@@ -26,6 +28,7 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -122,6 +125,10 @@ export const user = snakeCase.table(
 		xUsername: text(),
 	},
 	(table) => [
+		index("user_created_at_verified_idx").on(
+			table.createdAt,
+			table.emailVerified,
+		),
 		// Admin "Flagged accounts" listing. Partial so the index only carries the
 		// handful of reviewed accounts, not every user row.
 		index("user_risk_status_idx")
@@ -322,6 +329,10 @@ export const organization = snakeCase.table(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Provider/model allow or deny list set by LLM Gateway staff in the admin
+		// dashboard, enforced by the gateway as a ceiling over IAM rules. The
+		// organization cannot edit it. Null = no restriction.
+		providerAccessRestriction: json().$type<ProviderAccessRestriction>(),
 		// Enterprise smart-routing ("smart" model) configuration: which models the
 		// gateway may pick from and which classifier ranks the request. Null =
 		// the built-in default candidate set and no classifier. Projects may
@@ -491,6 +502,7 @@ export const organization = snakeCase.table(
 		}),
 	},
 	(table) => [
+		index("organization_created_at_idx").on(table.createdAt),
 		index("organization_dev_plan_card_fingerprint_idx").on(
 			table.devPlanCardFingerprint,
 		),
@@ -698,6 +710,14 @@ export const transaction = snakeCase.table(
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		index("transaction_status_created_at_idx").on(
+			table.status,
+			table.createdAt,
+		),
+		index("transaction_organization_type_idx").on(
+			table.organizationId,
+			table.type,
+		),
 		// Serves the top-up velocity gate's rolling-window SUM
 		// (org + created_at range over credit_topup rows) without scanning an
 		// org's full transaction history.
@@ -1429,6 +1449,9 @@ export const project = snakeCase.table(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		providerCacheAutoTtl: text({ enum: ["5m", "1h"] })
+			.notNull()
+			.default("5m"),
 		// How provider-side prompt-cache markers are handled for this project.
 		// "passthrough" exists because a single key often serves both a coding
 		// agent that manages its own markers and traffic that must not pay the
@@ -2326,7 +2349,9 @@ export const API_ORIGINS = [
 	"transcriptions",
 	"rerank",
 	"systemone",
+	"decisions",
 	"search",
+	"realtime",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
@@ -2717,6 +2742,12 @@ export const log = snakeCase.table(
 		index("log_error_used_provider_used_model_created_at_idx")
 			.on(table.usedProvider, table.usedModel, table.createdAt)
 			.where(sql`has_error = true`),
+		// Serves error-filtered log lists per project; the trailing model id lets
+		// a model filter run inside the index. Build CONCURRENTLY out of band in
+		// prod before deploying.
+		index("log_error_project_id_created_at_idx")
+			.on(table.projectId, table.createdAt, rootModelIdSql(table.usedModel))
+			.where(logErrorSql(table)),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -3820,6 +3851,20 @@ export const modelProviderMapping = snakeCase.table(
 	],
 );
 
+export const aggregationProgress = snakeCase.table(
+	"aggregation_progress",
+	{
+		job: text().notNull(),
+		bucketTimestamp: timestamp().notNull(),
+		refreshedAt: timestamp(),
+		finalizedAt: timestamp(),
+	},
+	(t) => [
+		uniqueIndex().on(t.job, t.bucketTimestamp),
+		index().on(t.bucketTimestamp),
+	],
+);
+
 export const modelProviderMappingHistory = snakeCase.table(
 	"model_provider_mapping_history",
 	{
@@ -4118,6 +4163,46 @@ export const modelProviderMappingHistoryHourly = snakeCase.table(
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
+		// Partial covering index for the public provider stats aggregations
+		// (filter by hourTimestamp range, group by providerId, sum metrics).
+		// Nine in ten hourly rows belong to mappings that saw no traffic that
+		// hour and contribute nothing to a sum, so the predicate keeps the index
+		// to the rows that matter; readers add `logs_count > 0` so the planner
+		// can pick it. Covers every column those readers sum, which the v4 index
+		// no longer does, so they get an index-only scan again.
+		index("mpm_history_hourly_active_provider_stats_v1_idx")
+			.on(
+				table.hourTimestamp,
+				table.usedMode,
+				table.providerId,
+				table.logsCount,
+				table.clientErrorsCount,
+				table.gatewayErrorsCount,
+				table.upstreamErrorsCount,
+				table.cachedCount,
+				table.totalTimeToFirstToken,
+				table.timeToFirstTokenCount,
+				table.totalTimeToFirstReasoningToken,
+				table.timeToFirstReasoningTokenCount,
+				table.totalOutputTokens,
+				table.totalTokens,
+				table.totalDuration,
+			)
+			.where(sql`logs_count > 0`),
+		// Covering index for per-provider traffic series (admin carriers page):
+		// provider first so each provider is one contiguous index-only range.
+		index("mpm_history_hourly_provider_ts_active_idx")
+			.on(
+				table.providerId,
+				table.hourTimestamp,
+				table.modelProviderMappingId,
+				table.logsCount,
+				table.totalCost,
+				table.clientErrorsCount,
+				table.gatewayErrorsCount,
+				table.upstreamErrorsCount,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 
@@ -4189,6 +4274,17 @@ export const modelHistoryHourly = snakeCase.table(
 			table.modelId,
 			table.hourTimestamp,
 		),
+		// Partial covering index for the public model rankings (tokens and
+		// requests per model over a window). Restricted to rows with traffic for
+		// the same reason as mpm_history_hourly_active_provider_stats_v1_idx.
+		index("model_history_hourly_active_model_stats_v1_idx")
+			.on(
+				table.hourTimestamp,
+				table.modelId,
+				table.totalTokens,
+				table.logsCount,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 
@@ -4409,6 +4505,50 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 	],
 );
 
+// Hourly rollup of log.gatewayContentFilterEvaluation broken out by the API key
+// that sent the request, so violations can be traced to a key without scanning
+// `log`. Same conventions as contentFilterHourlyStats (an "all" row with the
+// totals, category rows with violationCount only), without durations. Every
+// log row carries an apiKeyId (end-user sessions log their end-customer key),
+// so these rows sum to the contentFilterHourlyStats totals.
+export const contentFilterHourlyApiKeyStats = snakeCase.table(
+	"content_filter_hourly_api_key_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		apiKeyId: text().notNull(),
+		category: text().notNull(),
+		classifier: text().notNull(),
+		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		// Leads with hourTimestamp, so it also serves the per-hour replace.
+		unique("content_filter_hourly_api_key_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.apiKeyId,
+			table.category,
+			table.classifier,
+			table.role,
+		),
+		index("content_filter_hourly_api_key_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Hourly classifier latency from log.gatewayContentFilterEvaluation, platform
 // wide, so the classifier's own speed can be read without scanning `log`. One
 // row per classifier and, for the internal classifier, the scope it read
@@ -4452,6 +4592,58 @@ export const contentFilterHourlyLatencyStats = snakeCase.table(
 	],
 );
 
+// Hourly rollup of the moderation errors stored on
+// log.gatewayContentFilterEvaluation.moderationErrors, so failed moderation
+// calls can be reviewed in the admin dashboard without reading the gateway's
+// logs or scanning `log`. One row per (org, project, classifier, source, kind,
+// status, code); an evaluation with several errors counts once per error.
+export const contentFilterHourlyErrorStats = snakeCase.table(
+	"content_filter_hourly_error_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		// The deciding classifier of the evaluation.
+		classifier: text().notNull(),
+		// The classifier whose call failed; differs from `classifier` when a
+		// text-only classifier delegated an image to OpenAI.
+		source: text().notNull(),
+		kind: text().notNull(),
+		inputType: text().notNull().default(""),
+		status: integer().notNull().default(0),
+		code: text().notNull().default(""),
+		errorCount: integer().notNull().default(0),
+		// Latest message and request in the hour, for drill-down.
+		lastMessage: text().notNull().default(""),
+		lastRequestId: text().notNull().default(""),
+		lastSeenAt: timestamp().notNull(),
+	},
+	(table) => [
+		unique("content_filter_hourly_error_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.classifier,
+			table.source,
+			table.kind,
+			table.inputType,
+			table.status,
+			table.code,
+		),
+		index("content_filter_hourly_error_stats_ts_idx").on(table.hourTimestamp),
+		index("content_filter_hourly_error_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
@@ -4461,6 +4653,7 @@ export const auditLogActions = [
 	"organization.block",
 	"organization.manage",
 	"organization.sso_auto_join.update",
+	"organization.provider_access_update",
 	// Project
 	"project.create",
 	"project.update",
@@ -4558,6 +4751,7 @@ export const auditLogActions = [
 	"discount.create",
 	"discount.delete",
 	"rate_limit.create",
+	"rate_limit.update",
 	"rate_limit.delete",
 	// Dev Plan
 	"dev_plan.subscribe",
@@ -5198,8 +5392,8 @@ export const rateLimit = snakeCase.table(
 			.notNull()
 			.default("per_org"),
 		// "soft" keeps a session already pinned to the capped provider on it;
-		// all other traffic is routed away exactly as under "strict".
-		mode: text({ enum: ["strict", "soft"] })
+		// "lax" also allows explicitly requested providers past the cap.
+		mode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
 		// Optional metadata
@@ -5647,7 +5841,7 @@ export const providerDraftModel = snakeCase.table(
 		delistedAt: timestamp(),
 		// Why the listing left service: the carrier removed it, or an admin
 		// revoked the claim it was listed under.
-		delistReason: text({ enum: ["removed", "claim_revoked"] }),
+		delistReason: text({ enum: ["removed", "claim_revoked", "admin"] }),
 		// Mapping fields a catalogue import carries over from the static entry
 		// that the listing form does not manage. Materialized with the listing
 		// so it keeps serving the same way once the static entry is removed.
@@ -5721,6 +5915,8 @@ export interface ProviderModelVerificationTarget {
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;
+	/** The listing declares a cached input price, so repeats must report cache hits. */
+	promptCaching?: boolean;
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The
@@ -6048,6 +6244,15 @@ export const projectHourlyStats = snakeCase.table(
 		unique().on(table.projectId, table.hourTimestamp),
 		// Index for worker refresh queries (find hours to update)
 		index("project_hourly_stats_hour_timestamp_idx").on(table.hourTimestamp),
+		// Covers dashboard spend without reading wide hourly rows.
+		index("project_hourly_stats_dashboard_spend_idx").on(
+			table.hourTimestamp,
+			table.projectId,
+			table.cost,
+			table.creditsCost,
+			table.apiKeysCost,
+			table.apiKeysDataStorageCost,
+		),
 	],
 );
 
@@ -6690,71 +6895,73 @@ export type GlobalStatsOrgKind = (typeof GLOBAL_STATS_ORG_KINDS)[number];
 // Global model statistics — cross-org, cross-project aggregation by model.
 // Rows are day-bucketed (`dayTimestamp`); the worker can update them at any
 // cadence via the configurable bucket size.
+const globalModelStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	usedModel: text().notNull(),
+	usedProvider: text().notNull(),
+	// Billing mode the request was actually served under (log.usedMode).
+	// "unknown" on rows aggregated before this column existed.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	// organization.kind at aggregation time. "unknown" on rows aggregated
+	// before this column existed and on requests whose organization row is
+	// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+	// Gateway margin earned on Airside-carrier traffic:
+	// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+	// requests. 0 for providers without routing settings.
+	providerMarginAmount: real().notNull().default(0),
+});
+
 export const globalModelStats = snakeCase.table(
 	"global_model_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		usedModel: text().notNull(),
-		usedProvider: text().notNull(),
-		// Billing mode the request was actually served under (log.usedMode).
-		// "unknown" on rows aggregated before this column existed.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		// organization.kind at aggregation time. "unknown" on rows aggregated
-		// before this column existed and on requests whose organization row is
-		// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
-		// Gateway margin earned on Airside-carrier traffic:
-		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
-		// requests. 0 for providers without routing settings.
-		providerMarginAmount: real().notNull().default(0),
+		...globalModelStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		// usedMode/orgKind are part of the key: every metric is therefore
@@ -6767,6 +6974,12 @@ export const globalModelStats = snakeCase.table(
 			table.orgKind,
 		),
 		index("global_model_stats_day_timestamp_idx").on(table.dayTimestamp),
+		index("global_model_stats_provider_margin_idx").on(
+			table.usedProvider,
+			table.usedMode,
+			table.dayTimestamp,
+			table.providerMarginAmount,
+		),
 		index("global_model_stats_used_model_day_timestamp_idx").on(
 			table.usedModel,
 			table.dayTimestamp,
@@ -6780,64 +6993,66 @@ export const globalModelStats = snakeCase.table(
 );
 
 // Global source statistics — cross-org, cross-project aggregation by x-source header.
+const globalSourceStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	// NULL log.source rows are stored under the literal 'unknown' so the
+	// unique constraint and onConflictDoUpdate target stay valid.
+	source: text().notNull(),
+	// See globalModelStats for the semantics of these two dimensions.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+});
+
 export const globalSourceStats = snakeCase.table(
 	"global_source_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		// NULL log.source rows are stored under the literal 'unknown' so the
-		// unique constraint and onConflictDoUpdate target stay valid.
-		source: text().notNull(),
-		// See globalModelStats for the semantics of these two dimensions.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
+		...globalSourceStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		unique().on(
@@ -6859,64 +7074,66 @@ export const globalSourceStats = snakeCase.table(
 // rows with a non-null `log.providerKeyId` land here (see
 // providerKeyHourlyStats), so summing this table never reproduces the global
 // totals; it answers "which models did this credential serve, at what cost".
+const globalProviderKeyModelStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	providerKeyId: text().notNull(),
+	usedModel: text().notNull(),
+	usedProvider: text().notNull(),
+	// See globalModelStats for the semantics of these two dimensions.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+});
+
 export const globalProviderKeyModelStats = snakeCase.table(
 	"global_provider_key_model_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		providerKeyId: text().notNull(),
-		usedModel: text().notNull(),
-		usedProvider: text().notNull(),
-		// See globalModelStats for the semantics of these two dimensions.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
+		...globalProviderKeyModelStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		// Named explicitly: the auto-generated six-column name exceeds Postgres'
@@ -7614,4 +7831,60 @@ export const promptLabel = snakeCase.table(
 		version: integer().notNull(),
 	},
 	(table) => [unique().on(table.promptId, table.label)],
+);
+
+export const globalHourlyModelStats = snakeCase.table(
+	"global_hourly_model_stats",
+	{
+		...globalModelStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_model_stats_hour_idx").on(table.hourTimestamp),
+	],
+);
+
+export const globalHourlySourceStats = snakeCase.table(
+	"global_hourly_source_stats",
+	{
+		...globalSourceStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.source,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_source_stats_hour_idx").on(table.hourTimestamp),
+	],
+);
+
+export const globalHourlyProviderKeyModelStats = snakeCase.table(
+	"global_hourly_provider_key_model_stats",
+	{
+		...globalProviderKeyModelStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.providerKeyId,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_provider_key_model_stats_hour_idx").on(
+			table.hourTimestamp,
+		),
+	],
 );

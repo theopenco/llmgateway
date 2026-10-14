@@ -30,6 +30,14 @@ const counts = {
 };
 
 describe("findMappingsOverThreshold", () => {
+	it("makes the same alert decision without idle mappings", () => {
+		const active = { ...counts, upstreamErrorsCount: 40 };
+		const idle = { ...counts, mappingId: "idle", logsCount: 0 };
+		expect(findMappingsOverThreshold(shortRule, [active, idle])).toEqual(
+			findMappingsOverThreshold(shortRule, [active]),
+		);
+	});
+
 	it("flags mappings at or above the threshold with enough traffic", () => {
 		const hits = findMappingsOverThreshold(shortRule, [
 			{ ...counts, mappingId: "at", upstreamErrorsCount: 30 },

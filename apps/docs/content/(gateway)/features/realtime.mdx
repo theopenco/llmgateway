@@ -366,7 +366,8 @@ model generation — whether triggered by your `response.create` or by
 server-side VAD — passes the gateway's authorization gates first (credits,
 API key status, usage limits, IAM rules), so a session cannot run past an
 exhausted balance. A blocked generation surfaces as a standard `error` event
-on the session instead of a response.
+on the session instead of a response, and is recorded in your request logs like
+a [rejected request](/resources/error-handling#rejected-request-logs).
 
 Default per-session safety limits:
 

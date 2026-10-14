@@ -80,7 +80,7 @@ If your provider key stores an explicit region, that region acts as a lock for p
 
 ## Keep your own copies minimal
 
-The other half of GDPR exposure is what you retain. LLM Gateway's default is metadata-only — no prompts or responses stored, just usage records — and full payload retention is a per-organization opt-in with automatic deletion after the retention period. Our [LLM data retention guide](/blog/llm-data-retention) covers the levels, costs, and deletion behavior.
+The other half of GDPR exposure is what you retain. LLM Gateway's default is metadata-only — no prompts or responses stored, just usage records — and full payload retention is an Enterprise-only, per-organization opt-in with automatic deletion after the retention period. Our [LLM data retention guide](/blog/llm-data-retention) covers the levels, costs, and deletion behavior.
 
 For teams that need the gateway itself inside their boundary, the core is AGPLv3 and self-hostable: routing decisions, logs, and stored data all stay in your own infrastructure.
 

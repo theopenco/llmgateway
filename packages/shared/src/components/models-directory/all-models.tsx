@@ -90,7 +90,10 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
-import { matchesCapability } from "./capability-filters";
+import {
+	matchesCapability,
+	matchesOutputCapabilities,
+} from "./capability-filters";
 import {
 	formatDeprecationDate,
 	formatPerImagePriceRange,
@@ -217,6 +220,17 @@ const PRICE_UNIT_OPTIONS: {
 		unit: "$/1K chars",
 	},
 ];
+
+function addedAtMs(model: ApiModel): number {
+	const addedAt = model.createdAt ?? model.releasedAt;
+	return addedAt ? new Date(addedAt).getTime() : 0;
+}
+
+// Newest first. Many models share a date, and the API returns ties in no fixed
+// order, so the id tiebreak keeps pagination stable across fetches.
+function compareNewestFirst(a: ApiModel, b: ApiModel): number {
+	return addedAtMs(b) - addedAtMs(a) || a.id.localeCompare(b.id);
+}
 
 function minAcross<T>(
 	items: T[],
@@ -386,8 +400,11 @@ const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	imageGeneration: "Image Generation",
 	videoGeneration: "Video Generation",
 	audioGeneration: "Speech Generation",
+	transcription: "Transcription",
 	embedding: "Embeddings",
 	rerank: "Rerank",
+	decisions: "Decisions",
+	searchApi: "Search API",
 	webSearch: "Web Search",
 };
 
@@ -965,8 +982,11 @@ export function AllModels({
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			videoGeneration: searchParams.get("videoGeneration") === "true",
 			audioGeneration: searchParams.get("audioGeneration") === "true",
+			transcription: searchParams.get("transcription") === "true",
 			embedding: searchParams.get("embedding") === "true",
 			rerank: searchParams.get("rerank") === "true",
+			decisions: searchParams.get("decisions") === "true",
+			searchApi: searchParams.get("searchApi") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -1271,31 +1291,7 @@ export function AllModels({
 			) {
 				return false;
 			}
-			if (
-				filters.capabilities.imageGeneration &&
-				!model.output?.includes("image")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.videoGeneration &&
-				!model.output?.includes("video")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.audioGeneration &&
-				!model.output?.includes("audio")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.embedding &&
-				!model.output?.includes("embedding")
-			) {
-				return false;
-			}
-			if (filters.capabilities.rerank && !model.output?.includes("rerank")) {
+			if (!matchesOutputCapabilities(filters.capabilities, model.output)) {
 				return false;
 			}
 			if (
@@ -1400,19 +1396,7 @@ export function AllModels({
 
 		// Default to createdAt (falls back to releasedAt) descending (newest first)
 		if (!sortField) {
-			return [...filteredModels].sort((a, b) => {
-				const aDate = a.createdAt
-					? new Date(a.createdAt).getTime()
-					: a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: 0;
-				const bDate = b.createdAt
-					? new Date(b.createdAt).getTime()
-					: b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: 0;
-				return bDate - aDate;
-			});
+			return [...filteredModels].sort(compareNewestFirst);
 		}
 
 		const sortKey = (model: ModelWithProviders): string | number | null => {
@@ -1527,19 +1511,11 @@ export function AllModels({
 
 		// Default: sort by createdAt (falls back to releasedAt) descending (newest first)
 		if (!sortField) {
-			return rows.sort((a, b) => {
-				const aDate = a.model.createdAt
-					? new Date(a.model.createdAt).getTime()
-					: a.model.releasedAt
-						? new Date(a.model.releasedAt).getTime()
-						: 0;
-				const bDate = b.model.createdAt
-					? new Date(b.model.createdAt).getTime()
-					: b.model.releasedAt
-						? new Date(b.model.releasedAt).getTime()
-						: 0;
-				return bDate - aDate;
-			});
+			return rows.sort(
+				(a, b) =>
+					compareNewestFirst(a.model, b.model) ||
+					a.rowKey.localeCompare(b.rowKey),
+			);
 		}
 
 		const sortKey = (row: FlattenedModelRow): string | number | null => {
@@ -1759,8 +1735,11 @@ export function AllModels({
 				imageGeneration: false,
 				videoGeneration: false,
 				audioGeneration: false,
+				transcription: false,
 				embedding: false,
 				rerank: false,
+				decisions: false,
+				searchApi: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1791,8 +1770,11 @@ export function AllModels({
 			imageGeneration: undefined,
 			videoGeneration: undefined,
 			audioGeneration: undefined,
+			transcription: undefined,
 			embedding: undefined,
 			rerank: undefined,
+			decisions: undefined,
+			searchApi: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -1904,6 +1886,12 @@ export function AllModels({
 											<div className="flex items-center gap-2">
 												<Sparkles className="h-4 w-4 text-amber-500" />
 												Multimodal (Vision)
+											</div>
+										</SelectItem>
+										<SelectItem value="decisions">
+											<div className="flex items-center gap-2">
+												<SlidersHorizontal className="h-4 w-4 text-teal-500" />
+												Decisions
 											</div>
 										</SelectItem>
 									</SelectContent>
@@ -2022,6 +2010,12 @@ export function AllModels({
 									color: "text-rose-500",
 								},
 								{
+									key: "transcription",
+									label: "Transcription",
+									icon: Mic,
+									color: "text-sky-500",
+								},
+								{
 									key: "embedding",
 									label: "Embeddings",
 									icon: Boxes,
@@ -2032,6 +2026,18 @@ export function AllModels({
 									label: "Rerank",
 									icon: ListOrdered,
 									color: "text-amber-500",
+								},
+								{
+									key: "decisions",
+									label: "Decisions",
+									icon: SlidersHorizontal,
+									color: "text-teal-500",
+								},
+								{
+									key: "searchApi",
+									label: "Search API",
+									icon: Search,
+									color: "text-sky-500",
 								},
 								{
 									key: "webSearch",

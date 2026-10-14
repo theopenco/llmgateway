@@ -1450,4 +1450,29 @@ describe("admin routing analytics endpoint", () => {
 		);
 		await assertParity("weighted");
 	});
+	it("routing analytics match without stored idle usage", async () => {
+		const hourTimestamp = currentHourStart();
+		await db.insert(tables.modelProviderMappingHistoryHourly).values({
+			modelId: testModel.id,
+			providerId: providerA,
+			modelProviderMappingId: "sparse-analytics-idle",
+			hourTimestamp,
+			usedMode: "credits",
+		});
+		const first = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(first.status).toBe(200);
+		const dense = await first.json();
+		await db
+			.delete(tables.modelProviderMappingHistoryHourly)
+			.where(
+				eq(
+					tables.modelProviderMappingHistoryHourly.modelProviderMappingId,
+					"sparse-analytics-idle",
+				),
+			);
+		await redisClient.flushdb();
+		const second = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(second.status).toBe(200);
+		expect(await second.json()).toEqual(dense);
+	});
 });

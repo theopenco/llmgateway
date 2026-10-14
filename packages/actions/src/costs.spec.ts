@@ -579,6 +579,53 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
+	it.each([
+		// model, input, 5m write, 1h write (USD per 1M tokens)
+		["claude-sonnet-4-5", 3, 3.75, 6],
+		["claude-sonnet-4-6", 3, 3.75, 6],
+		["claude-haiku-4-5", 1, 1.25, 2],
+		["claude-opus-4-5-20251101", 5, 6.25, 10],
+		["claude-opus-4-6", 5, 6.25, 10],
+		["claude-opus-4-7", 5, 6.25, 10],
+		["claude-sonnet-5", 2, 2.5, 4],
+	])(
+		"bills Vertex %s cache writes at the write rates",
+		async (model, input, write5m, write1h) => {
+			// 4 uncached + 300 5m writes + 700 1h writes = 1004 prompt tokens.
+			const result = await calculateCosts(
+				model,
+				"vertex-anthropic",
+				null,
+				1004,
+				50,
+				0,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{
+					cacheWriteTokens: 1000,
+					cacheWrite1hTokens: 700,
+				},
+			);
+
+			const fiveMinuteWriteCost = 300 * write5m;
+			const oneHourWriteCost = 700 * write1h;
+			expect(result.inputCost).toBeCloseTo((4 * input) / 1e6, 12);
+			expect(result.cacheWriteInputCost).toBeCloseTo(
+				(fiveMinuteWriteCost + oneHourWriteCost) / 1e6,
+				12,
+			);
+			expect(result.cacheWriteTokens).toBe(1000);
+		},
+	);
+
 	it("applies AWS Bedrock 10% regional pricing but not global pricing", async () => {
 		const global = await calculateCosts(
 			"claude-opus-4-8",
@@ -676,6 +723,28 @@ describe("calculateCosts", () => {
 
 		expect(geoCacheRead.cachedInputCost).toBeCloseTo(0.55);
 	});
+
+	it.each([
+		{ provider: "anthropic", region: null, cachedInputCost: 0.1 },
+		{ provider: "azure-anthropic", region: null, cachedInputCost: 0.1 },
+		{ provider: "aws-bedrock", region: "global", cachedInputCost: 0.1 },
+		{ provider: "aws-bedrock", region: "us", cachedInputCost: 0.11 },
+		{ provider: "aws-bedrock", region: "eu", cachedInputCost: 0.11 },
+	])(
+		"bills 1M cached Claude Sonnet 5.5 tokens on $provider:$region at 0.05x input",
+		async ({ provider, region, cachedInputCost }) => {
+			const result = await calculateCosts(
+				"claude-sonnet-5-5",
+				provider,
+				region,
+				1_000_000,
+				0,
+				1_000_000,
+			);
+
+			expect(result.cachedInputCost).toBeCloseTo(cachedInputCost, 10);
+		},
+	);
 
 	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
 		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
@@ -1929,6 +1998,27 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(
 			(result.inputCost ?? 0) + 0.09 + (result.requestCost ?? 0),
 		);
+	});
+
+	it("bills Qwen Image 2.1 Turbo at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"qwen-image-2.1-turbo",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			2,
+			"2048x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.032);
+		expect(result.outputCost).toBeCloseTo(0.032);
+		expect(result.totalCost).toBeCloseTo(0.032);
 	});
 
 	it("bills Muse at its flat per-image price", async () => {

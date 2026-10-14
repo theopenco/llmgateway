@@ -382,6 +382,60 @@ describe("validateProviderKey model-specific probes", () => {
 		});
 	});
 
+	it("probes an OpenAI decision model via the Decisions API", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+			undefined,
+			"gpt-6-luna-decisions",
+		);
+
+		expect(result).toEqual({ valid: true, model: "gpt-6-luna-decisions" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.openai.com/v1/decisions",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "gpt-6-luna",
+			input: "Hello",
+			questions: [
+				{
+					type: "predicate",
+					name: "greeting",
+					instructions: "Is this a greeting?",
+				},
+			],
+		});
+	});
+
+	it("probes Microsoft-Decision-1 on the Azure resource's Foundry host", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"azure",
+			"azure-test",
+			undefined,
+			false,
+			{ azure_resource: "my-resource" },
+			"microsoft-decision-1",
+		);
+
+		expect(result).toEqual({ valid: true, model: "microsoft-decision-1" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://my-resource.services.ai.azure.com/providers/microsoft/v1/systemone",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "Decision-1",
+			state: "Hello",
+			questions: {
+				greeting: { type: "noul", instructions: "Is this a greeting?" },
+			},
+		});
+	});
+
 	it("sends a minimal inline image to the OCR endpoint", async () => {
 		const fetchMock = mockSuccess();
 
@@ -465,14 +519,23 @@ describe("validateProviderKey model-specific probes", () => {
 	it("includes a reference image for image-edit mappings", async () => {
 		const fetchMock = mockSuccess();
 
-		const result = await validateProviderKey(
-			"alibaba",
-			"alibaba-test",
-			undefined,
-			false,
-			{ env_config: { region: "singapore" } },
-			"qwen-image-edit-plus",
-		);
+		// Alibaba retired its last image-edit mappings on 2026-10-10; pin the
+		// clock before that so the probe shape stays covered.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-01T00:00:00Z"));
+		let result: Awaited<ReturnType<typeof validateProviderKey>>;
+		try {
+			result = await validateProviderKey(
+				"alibaba",
+				"alibaba-test",
+				undefined,
+				false,
+				{ env_config: { region: "singapore" } },
+				"qwen-image-edit-plus",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 
 		expect(result.valid).toBe(true);
 		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));

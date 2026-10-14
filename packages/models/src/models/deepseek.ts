@@ -511,6 +511,7 @@ export const deepseekModels = [
 				// the original preview build, at its own rate card, even after the
 				// 0813 GA release; the GA build only serves under this dedicated slug.
 				externalId: "accounts/fireworks/models/deepseek-v4-pro-0813",
+				deactivatedAt: new Date("2026-10-13"),
 				inputPrice: "1.32e-6",
 				cachedInputPrice: "0.044e-6",
 				outputPrice: "3.96e-6",
@@ -785,6 +786,7 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				deactivatedAt: new Date("2026-10-22"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.28e-6",

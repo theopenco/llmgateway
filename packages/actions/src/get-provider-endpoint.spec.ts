@@ -705,7 +705,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
-				"mimo-v2.5-pro",
+				"mimo-v2.6-pro",
 			);
 
 			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
@@ -729,7 +729,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
-				"mimo-v2.5",
+				"mimo-v2.6-flash",
 				undefined,
 				true,
 			);
@@ -1562,4 +1562,10 @@ describe("getProviderEndpoint", () => {
 			).toBe("https://api.perplexity.ai/chat/completions");
 		});
 	});
+});
+
+it("routes GPT-6 Astra chat requests through Responses for tool support", () => {
+	expect(
+		getProviderEndpoint("openai", "https://example.com", "gpt-6-astra"),
+	).toBe("https://example.com/v1/responses");
 });

@@ -3,8 +3,20 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { and, db, eq, tables } from "@llmgateway/db";
-import { models } from "@llmgateway/models";
+import {
+	and,
+	cdb,
+	db,
+	eq,
+	tables,
+	getEffectiveProviders,
+} from "@llmgateway/db";
+import {
+	getReferenceContextSize,
+	models,
+	providers,
+	type ProviderDefinition,
+} from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -22,7 +34,12 @@ import {
 	waitForLogByRequestId,
 } from "./test-utils/test-helpers.js";
 
-import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
+import type {
+	BaseMessage,
+	ModelDefinition,
+	ProviderApiFormat,
+	ToolChoiceMode,
+} from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
 interface CapturedRequest {
@@ -55,6 +72,39 @@ describe("airside-listed models", () => {
 					headers: req.headers,
 					body: parsed,
 				});
+				if (req.url?.startsWith("/deepseek-rule/")) {
+					const messages = parsed.messages;
+					const missingReasoning =
+						Array.isArray(messages) &&
+						messages.some(
+							(message: Record<string, unknown>) =>
+								message.role === "assistant" &&
+								Array.isArray(message.tool_calls) &&
+								message.tool_calls.length > 0 &&
+								typeof message.reasoning_content !== "string",
+						);
+					const duplicateReasoning =
+						Array.isArray(messages) &&
+						messages.some(
+							(message: Record<string, unknown>) =>
+								message.reasoning !== undefined &&
+								message.reasoning_content !== undefined,
+						);
+					if (missingReasoning || duplicateReasoning) {
+						res.writeHead(400, { "content-type": "application/json" });
+						res.end(
+							JSON.stringify({
+								error: {
+									message: duplicateReasoning
+										? "duplicate field 'reasoning_content'"
+										: "The `reasoning_content` in the thinking mode must be passed back to the API.",
+									type: "invalid_request_error",
+								},
+							}),
+						);
+						return;
+					}
+				}
 				if (req.url?.startsWith("/fail/")) {
 					res.writeHead(503, { "content-type": "application/json" });
 					res.end(
@@ -1202,7 +1252,8 @@ describe("airside-listed models", () => {
 			modelId: "ling-3.0-flash",
 			inputPrice: "2e-6",
 			outputPrice: "1e-5",
-			contextSize: 128000,
+			// The full window, or bare-id fallback would skip it.
+			contextSize: getReferenceContextSize("ling-3.0-flash"),
 		});
 
 		const requestId = "airside-fallback-req-1";
@@ -1237,9 +1288,12 @@ describe("airside-listed models", () => {
 			modelId?: string;
 			providerId?: string;
 			basePath?: string;
+			externalId?: string;
+			contextSize?: number;
 		} = {},
 	) {
 		const modelId = options.modelId ?? "sky-large";
+		const contextSize = options.contextSize ?? 64000;
 		const providerId = options.providerId ?? "acme-sky";
 		captured = [];
 		await clearCache();
@@ -1278,7 +1332,7 @@ describe("airside-listed models", () => {
 			externalId: modelId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
 			displayName: modelId === "gpt-5.6-luna" ? "GPT 5.6 Luna" : "Sky Large",
-			contextSize: 64000,
+			contextSize,
 			streaming: true,
 			status: "active",
 		});
@@ -1294,12 +1348,13 @@ describe("airside-listed models", () => {
 		await materializeTestMapping({
 			providerId,
 			modelId,
+			externalId: options.externalId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
 			inputPrice: "3e-6",
 			outputPrice: "9e-6",
 			providerName: "Acme Sky",
 			modelName: "Sky Large",
-			contextSize: 64000,
+			contextSize,
 		});
 		if (options.managedCredential !== false) {
 			await db.insert(tables.providerKey).values({
@@ -1422,6 +1477,49 @@ describe("airside-listed models", () => {
 		expect(secondLog?.routingMetadata?.selectionReason).toBe("session-sticky");
 	});
 
+	test("bare-id routing skips a listing far below the model's context window", async () => {
+		const token = "airside-context-tier";
+		await setupCustomCarrier(token);
+		await setupCustomCarrier("airside-tier-cloud", {
+			providerId: "acme-cloud",
+		});
+		await setupCustomCarrier("airside-tier-third", {
+			providerId: "acme-third",
+		});
+		for (const providerId of ["acme-cloud", "acme-third"]) {
+			await materializeTestMapping({
+				providerId,
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 256000,
+			});
+		}
+		for (const providerId of ["acme-sky", "acme-cloud", "acme-third"]) {
+			await setRoutingUptime("sky-large", providerId, 100);
+		}
+		await clearCache();
+
+		const bare = await carrierRequest(token, "sky-large");
+		expect(bare.status, await bare.text()).toBe(200);
+		const bareLog = await waitForLogByRequestId(`${token}-request`);
+		expect(["acme-cloud", "acme-third"]).toContain(bareLog?.usedProvider);
+		expect(
+			bareLog?.routingMetadata?.filteredProviders?.find(
+				(filtered) => filtered.providerId === "acme-sky",
+			)?.codes,
+		).toContain("context_size");
+
+		const pinned = await carrierRequest(
+			"airside-tier-cloud",
+			"acme-sky/sky-large",
+		);
+		expect(pinned.status, await pinned.text()).toBe(200);
+		const pinnedLog = await waitForLogByRequestId("airside-tier-cloud-request");
+		expect(pinnedLog?.usedProvider).toBe("acme-sky");
+	});
+
 	test.each([false, true])(
 		"fallback switches Airside endpoints and credentials (stream=%s)",
 		async (stream) => {
@@ -1529,6 +1627,448 @@ describe("airside-listed models", () => {
 		},
 	);
 
+	test("replays reasoning_content on DeepSeek V4 tool turns to a carrier", async () => {
+		const token = "airside-deepseek-v4";
+		await setupCustomCarrier(token, {
+			providerId: "acme-deep",
+			modelId: "deepseek-v4.1-flash",
+		});
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "acme-deep/deepseek-v4.1-flash",
+				messages: [
+					{ role: "user", content: "Weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Paris"}',
+								},
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+				],
+			}),
+		});
+		expect(res.status, await res.text()).toBe(200);
+		expect(captured).toHaveLength(1);
+		const messages = captured[0].body.messages as Record<string, unknown>[];
+		expect(messages[1].reasoning_content).toBe(" ");
+	});
+
+	const deepseekModel = "deepseek-v4.1-flash";
+	const deepseekHistory: BaseMessage[] = [
+		{ role: "user", content: "Weather in Paris, then Rome?" },
+		...["Paris", "Rome"].flatMap<BaseMessage>((city, index) => [
+			{
+				role: "assistant",
+				content: "",
+				tool_calls: [
+					{
+						id: `call_${index}`,
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: JSON.stringify({ city }),
+						},
+					},
+				],
+			},
+			{ role: "tool", tool_call_id: `call_${index}`, content: "sunny" },
+		]),
+		{ role: "assistant", content: "Both cities are sunny." },
+		{ role: "user", content: "Thanks!" },
+	];
+
+	function deepseekPayload(
+		endpoint: string,
+		model: string,
+		stream: boolean,
+		withReasoning = false,
+	) {
+		const history = deepseekHistory.map((message) =>
+			withReasoning && message.tool_calls?.length
+				? { ...message, reasoning: "call the weather tool" }
+				: message,
+		);
+		if (endpoint.endsWith("/language-model")) {
+			return {
+				maxOutputTokens: 128,
+				prompt: history.map((message) => ({
+					role: message.role,
+					content: message.tool_calls?.length
+						? [
+								...(message.reasoning
+									? [{ type: "reasoning", text: message.reasoning }]
+									: []),
+								...message.tool_calls.map((call) => ({
+									type: "tool-call",
+									toolCallId: call.id,
+									toolName: call.function.name,
+									input: JSON.parse(call.function.arguments),
+								})),
+							]
+						: message.tool_call_id
+							? [
+									{
+										type: "tool-result",
+										toolCallId: message.tool_call_id,
+										toolName: "get_weather",
+										output: { type: "text", value: message.content },
+									},
+								]
+							: [{ type: "text", text: message.content }],
+				})),
+			};
+		}
+		if (endpoint === "/v1/messages") {
+			return {
+				model,
+				stream,
+				max_tokens: 128,
+				messages: history.map((message) => {
+					if (message.tool_calls?.length) {
+						return {
+							role: "assistant",
+							content: [
+								...(message.reasoning
+									? [{ type: "thinking", thinking: message.reasoning }]
+									: []),
+								...message.tool_calls.map((call) => ({
+									type: "tool_use",
+									id: call.id,
+									name: call.function.name,
+									input: JSON.parse(call.function.arguments),
+								})),
+							],
+						};
+					}
+					if (message.tool_call_id) {
+						return {
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: message.tool_call_id,
+									content: message.content,
+								},
+							],
+						};
+					}
+					return message;
+				}),
+			};
+		}
+		if (endpoint.startsWith("/v1/responses")) {
+			return {
+				model,
+				stream,
+				max_output_tokens: 128,
+				store: false,
+				input: history.flatMap<Record<string, unknown>>((message) => {
+					if (message.tool_calls?.length) {
+						return [
+							...(message.reasoning
+								? [
+										{
+											type: "reasoning",
+											summary: [
+												{ type: "summary_text", text: message.reasoning },
+											],
+										},
+									]
+								: []),
+							...message.tool_calls.map((call) => ({
+								type: "function_call",
+								call_id: call.id,
+								name: call.function.name,
+								arguments: call.function.arguments,
+							})),
+						];
+					}
+					if (message.tool_call_id) {
+						return [
+							{
+								type: "function_call_output",
+								call_id: message.tool_call_id,
+								output: message.content,
+							},
+						];
+					}
+					return [{ role: message.role, content: message.content }];
+				}),
+			};
+		}
+		return { model, stream, max_tokens: 128, messages: history };
+	}
+
+	function expectDeepseekReplay(withReasoning = false) {
+		for (const request of captured) {
+			const messages = request.body.messages as Record<string, unknown>[];
+			const toolTurns = messages.filter((message) =>
+				Array.isArray(message.tool_calls),
+			);
+			expect(toolTurns.map((message) => message.reasoning_content)).toEqual([
+				withReasoning ? "call the weather tool" : " ",
+				withReasoning ? "call the weather tool" : " ",
+			]);
+			expect(
+				toolTurns.every((message) => message.reasoning === undefined),
+			).toBe(true);
+			expect(
+				messages
+					.filter((message) => !Array.isArray(message.tool_calls))
+					.every((message) => message.reasoning_content === undefined),
+			).toBe(true);
+			expect(request.body.model).toBe("vendor/deployment");
+		}
+	}
+
+	describe.each([false, true])(
+		"tool reasoning supplied=%s",
+		(withReasoning) => {
+			test.each([
+				["/v1/chat/completions", false],
+				["/v1/chat/completions", true],
+				["/v1/messages", false],
+				["/v1/messages", true],
+				["/v1/responses", false],
+				["/v1/responses", true],
+				["/v4/ai/language-model", false],
+				["/v4/ai/language-model", true],
+				["/v1/responses/compact", false],
+			])(
+				"DeepSeek V4 replay passes enforcing carrier from %s (stream=%s)",
+				async (endpoint, stream) => {
+					const token = "airside-deepseek-entrypoint";
+					await setupCustomCarrier(token, {
+						providerId: "acme-deep",
+						modelId: deepseekModel,
+						basePath: "/deepseek-rule",
+						externalId: "vendor/deployment",
+					});
+					const res = await app.request(endpoint, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${token}`,
+							"x-no-fallback": "true",
+							"ai-language-model-id": `acme-deep/${deepseekModel}`,
+							"ai-language-model-specification-version": "4",
+							"ai-language-model-streaming": String(stream),
+						},
+						body: JSON.stringify(
+							deepseekPayload(
+								endpoint,
+								`acme-deep/${deepseekModel}`,
+								stream,
+								withReasoning,
+							),
+						),
+					});
+					const body = await res.text();
+					expect(res.status, body).toBe(200);
+					expect(body).toContain(
+						endpoint.endsWith("/compact")
+							? "response.compaction"
+							: "Hello from Luna",
+					);
+					expect(captured).toHaveLength(1);
+					expectDeepseekReplay(withReasoning && endpoint !== "/v1/messages");
+				},
+			);
+		},
+	);
+
+	test.each(["bare", "auto", "smart", "dynamic", "region", "custom"])(
+		"DeepSeek V4 replay honors %s routing",
+		async (mode) => {
+			const token = "airside-deepseek-routing";
+			await setupCustomCarrier(token, {
+				providerId: "acme-deep",
+				modelId: deepseekModel,
+				basePath: "/deepseek-rule",
+				externalId: "vendor/deployment",
+			});
+			await restrictCarriers(token, ["acme-deep", "llmgateway", "custom"]);
+			if (mode === "smart") {
+				await db
+					.update(tables.project)
+					.set({
+						smartRoutingConfig: { classifier: "none", models: [deepseekModel] },
+					})
+					.where(eq(tables.project.id, "project-id"));
+			}
+			if (mode === "dynamic") {
+				await createDynamicRoute(token, deepseekModel, "acme-deep");
+			}
+			if (mode === "region") {
+				await db.insert(tables.modelProviderMapping).values({
+					modelId: deepseekModel,
+					providerId: "acme-deep",
+					region: "au",
+					source: "airside",
+					externalId: "vendor/deployment",
+					inputPrice: "3e-6",
+					outputPrice: "9e-6",
+					streaming: true,
+					status: "active",
+				});
+			}
+			if (mode === "custom") {
+				await db
+					.update(tables.project)
+					.set({ mode: "api-keys" })
+					.where(eq(tables.project.id, "project-id"));
+				const id = `${token}-custom-key`;
+				await db.insert(tables.providerKey).values({
+					id,
+					provider: "custom",
+					name: "review-host",
+					organizationId: "org-id",
+					baseUrl: `${upstreamUrl}/deepseek-rule`,
+					...encryptProviderKeyForStorage("mock-custom-key", id, "org-id"),
+				});
+			}
+			await clearCache();
+			const model =
+				mode === "bare"
+					? deepseekModel
+					: mode === "dynamic"
+						? "dynamic/airside-owned"
+						: mode === "region"
+							? `acme-deep/${deepseekModel}:au`
+							: mode === "custom"
+								? `review-host/${deepseekModel}`
+								: mode;
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify(
+					deepseekPayload("/v1/chat/completions", model, false),
+				),
+			});
+			if (mode === "auto") {
+				expect(res.status, await res.text()).toBe(403);
+				expect(captured).toHaveLength(0);
+				return;
+			}
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toHaveLength(1);
+			if (mode === "custom") {
+				expect(captured[0].body.model).toBe(deepseekModel);
+				const history = captured[0].body.messages as Record<string, unknown>[];
+				expect(
+					history
+						.filter((message) => message.tool_calls)
+						.map((message) => message.reasoning_content),
+				).toEqual([" ", " "]);
+			} else {
+				expectDeepseekReplay();
+			}
+		},
+	);
+
+	test.each([false, true])(
+		"DeepSeek V4 replay survives provider fallback (stream=%s)",
+		async (stream) => {
+			const token = "airside-deepseek-fallback";
+			await setupCustomCarrier(token, {
+				providerId: "acme-deep",
+				modelId: deepseekModel,
+				basePath: "/fail/first",
+				externalId: "vendor/deployment",
+			});
+			await setupCustomCarrier(`${token}-second`, {
+				providerId: "acme-next",
+				modelId: deepseekModel,
+				basePath: "/deepseek-rule/second",
+				externalId: "vendor/deployment",
+			});
+			await restrictCarriers(token, ["acme-deep", "acme-next", "llmgateway"]);
+			await createDynamicRoute(token, deepseekModel, [
+				"acme-deep",
+				"acme-next",
+			]);
+			await setRoutingUptime(deepseekModel, "acme-deep", 100);
+			await setRoutingUptime(deepseekModel, "acme-next", 100);
+			await clearCache();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify(
+					deepseekPayload(
+						"/v1/chat/completions",
+						"dynamic/airside-owned",
+						stream,
+					),
+				),
+			});
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured.map((request) => request.url)).toEqual([
+				"/fail/first/v1/chat/completions",
+				"/deepseek-rule/second/v1/chat/completions",
+			]);
+			expectDeepseekReplay();
+		},
+	);
+
+	test.each([
+		"google-vertex",
+		"openai-responses",
+	] satisfies ProviderApiFormat[])(
+		"DeepSeek V4 replay uses native %s carrier fields",
+		async (apiFormat) => {
+			const token = "airside-deepseek-wire";
+			await setupCustomCarrier(token, {
+				providerId: "acme-deep",
+				modelId: deepseekModel,
+				apiFormat,
+			});
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify(
+					deepseekPayload(
+						"/v1/chat/completions",
+						`acme-deep/${deepseekModel}`,
+						false,
+					),
+				),
+			});
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toHaveLength(1);
+			expect(captured[0].body).not.toHaveProperty("messages");
+			expect(JSON.stringify(captured[0].body)).not.toContain(
+				'"reasoning_content"',
+			);
+			expect(JSON.stringify(captured[0].body)).toContain("get_weather");
+		},
+	);
+
 	test.each(["pin", "no-fallback"])(
 		"keeps the chosen Airside carrier for %s requests",
 		async (restriction) => {
@@ -1569,9 +2109,11 @@ describe("airside-listed models", () => {
 		async ({ fromAirside, stream }) => {
 			const token = `airside-catalogue-${fromAirside}-${stream}`;
 			const modelId = "gpt-5.6-luna";
+			// Both serve the full window, or bare-id fallback would skip one.
 			await setupCustomCarrier(token, {
 				modelId,
 				basePath: fromAirside ? "/fail" : "/carrier",
+				contextSize: getReferenceContextSize(modelId),
 			});
 			await materializeTestMapping({
 				providerId: "openai",
@@ -1579,7 +2121,7 @@ describe("airside-listed models", () => {
 				apiFormat: "openai-chat-completions",
 				inputPrice: fromAirside ? "30e-6" : "0.3e-6",
 				outputPrice: fromAirside ? "90e-6" : "0.9e-6",
-				contextSize: 64000,
+				contextSize: getReferenceContextSize(modelId),
 			});
 			await db.insert(tables.providerKey).values({
 				id: `${token}-openai`,
@@ -2049,5 +2591,159 @@ describe("airside-listed models", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(captured).toHaveLength(0);
+	});
+	test("resolves a pinned canonical alias on an Airside-only carrier", async () => {
+		const canonical = (models as readonly ModelDefinition[]).find(
+			(model) => model.aliases?.length,
+		);
+		expect(canonical).toBeDefined();
+		await setupCustomCarrier("airside-alias-token", { modelId: canonical!.id });
+		const resolution = await resolveAirsideModel(
+			`acme-sky/${canonical!.aliases![0]}`,
+		);
+		expect(resolution?.parseResult).toMatchObject({
+			requestedModel: canonical!.id,
+			requestedProvider: "acme-sky",
+		});
+	});
+
+	test("routes BYOK keys for Airside-only carriers to the carrier endpoint unless the key sets one", async () => {
+		const token = "airside-byok-endpoint";
+		await setupCustomCarrier(token, { basePath: "/carrier" });
+		await db
+			.update(tables.project)
+			.set({ mode: "api-keys" })
+			.where(eq(tables.project.id, "project-id"));
+		const id = `${token}-byok-key`;
+		await db.insert(tables.providerKey).values({
+			id,
+			provider: "acme-sky",
+			organizationId: "org-id",
+			...encryptProviderKeyForStorage("byok-carrier-key", id, "org-id"),
+		});
+		const send = async () => {
+			await clearCache();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "acme-sky/sky-large",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+			expect(res.status, await res.text()).toBe(200);
+			return captured.at(-1);
+		};
+		const carrier = await send();
+		expect(carrier?.url).toBe("/carrier/v1/chat/completions");
+		expect(carrier?.headers.authorization).toBe("Bearer byok-carrier-key");
+		await db
+			.update(tables.providerKey)
+			.set({ baseUrl: `${upstreamUrl}/byok` })
+			.where(eq(tables.providerKey.id, id));
+		expect((await send())?.url).toBe("/byok/v1/chat/completions");
+	});
+
+	test("keeps identity, billing and compliance across catalogue removal", async () => {
+		await setupCustomCarrier("transition-token", {
+			providerId: "openai",
+			modelId: "transition-model",
+		});
+		await db
+			.update(tables.providerKey)
+			.set({ config: { baseUrl: upstreamUrl } })
+			.where(eq(tables.providerKey.id, "transition-token-managed-key"));
+		await cdb
+			.update(tables.providerClaim)
+			.set({
+				kind: "catalogue",
+				apiTraining: false,
+				promptLogging: false,
+				retentionPeriod: "0 days",
+				headquarters: "US",
+			})
+			.where(eq(tables.providerClaim.id, "transition-token-claim"));
+		await cdb
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: { enabled: true, blockApiTraining: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+		const catalogue = providers as ProviderDefinition[];
+		const index = catalogue.findIndex((provider) => provider.id === "openai");
+		const definition = catalogue[index];
+		await clearCache();
+		const send = async (suffix: string) =>
+			await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer transition-token",
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+					"x-request-id": `catalogue-removal-${suffix}`,
+				},
+				body: JSON.stringify({
+					model: "openai/transition-model",
+					messages: [{ role: "user", content: `hello ${suffix}` }],
+				}),
+			});
+		try {
+			const before = await send("before");
+			expect(before.status).toBe(200);
+			await before.json();
+			// Keep caches warm: only this process's catalogue changed.
+			catalogue.splice(index, 1);
+			const after = await send("after");
+			expect(after.status).toBe(200);
+			const body = await after.json();
+			expect(body.usage).toMatchObject({
+				prompt_tokens: 1000,
+				completion_tokens: 500,
+			});
+			expect(captured.at(-1)?.url).toBe("/v1/chat/completions");
+			const log = await waitForLogByRequestId("catalogue-removal-after");
+			expect(log?.usedProvider).toBe("openai");
+			expect(Number(log?.cost)).toBeCloseTo(0.0075, 6);
+			expect(
+				(await getEffectiveProviders()).find(
+					(provider) => provider.id === "openai",
+				)?.dataPolicy?.apiTraining,
+			).toBe(false);
+			await cdb
+				.update(tables.providerClaim)
+				.set({ apiTraining: true })
+				.where(eq(tables.providerClaim.id, "transition-token-claim"));
+			expect(
+				(await getEffectiveProviders()).find(
+					(provider) => provider.id === "openai",
+				)?.dataPolicy?.apiTraining,
+			).toBe(true);
+			expect((await send("profile-edited")).status).toBe(403);
+			await cdb
+				.update(tables.providerClaim)
+				.set({ status: "revoked" })
+				.where(eq(tables.providerClaim.id, "transition-token-claim"));
+			expect(
+				(await getEffectiveProviders()).some(
+					(provider) => provider.id === "openai",
+				),
+			).toBe(false);
+			expect(
+				await findAirsideModel("openai", "transition-model"),
+			).toBeUndefined();
+		} finally {
+			if (!catalogue.some((provider) => provider.id === "openai")) {
+				catalogue.splice(index, 0, definition);
+			}
+			// Later files sharing this worker's database enumerate openai's
+			// Airside listings, so this one must not outlive the test.
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, "transition-model"));
+		}
 	});
 });

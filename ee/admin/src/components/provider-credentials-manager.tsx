@@ -565,26 +565,26 @@ function ManagedCredentialCells({
 							</Link>
 						</Button>
 					)}
-					{/* Update and delete both reject a deleted credential. */}
+					{isAdmin ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
+							onClick={() => onEdit(credential)}
+						>
+							<Pencil className="h-4 w-4" />
+						</Button>
+					) : null}
+					{/* Delete rejects an already-deleted credential. */}
 					{isDeleted || !isAdmin ? null : (
-						<>
-							<Button
-								variant="ghost"
-								size="sm"
-								aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
-								onClick={() => onEdit(credential)}
-							>
-								<Pencil className="h-4 w-4" />
-							</Button>
-							<Button
-								variant="ghost"
-								size="sm"
-								aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
-								onClick={() => onDelete(credential)}
-							>
-								<Trash2 className="h-4 w-4" />
-							</Button>
-						</>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
+							onClick={() => onDelete(credential)}
+						>
+							<Trash2 className="h-4 w-4" />
+						</Button>
 					)}
 				</div>
 			</TableCell>
@@ -1357,7 +1357,10 @@ export function ProviderCredentialsManager({
 								comment: values.comment || null,
 								variant: values.variant,
 								region: values.region || null,
-								status: values.status,
+								// A deleted credential keeps its status; the API rejects any.
+								...(isDeletedCredential(editing)
+									? {}
+									: { status: values.status }),
 								config: values.config,
 								usageLimit: values.usageLimit || null,
 								allowedModels:
@@ -2464,7 +2467,15 @@ function CredentialDialog({
 						</p>
 					</div>
 
-					{isEdit ? (
+					{credential && isDeletedCredential(credential) ? (
+						<div className="flex flex-col gap-2">
+							<Label>Status</Label>
+							<p className="text-sm text-muted-foreground">
+								Deleted: kept for its spend and request history only, and never
+								selected by the gateway.
+							</p>
+						</div>
+					) : isEdit ? (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="status">Status</Label>
 							<Select

@@ -47,9 +47,9 @@ const features = [
 	},
 	{
 		icon: Database,
-		title: "Unlimited Data Retention",
+		title: "Full Data Retention",
 		description:
-			"Keep your request logs and analytics data forever. No automatic deletion or storage limits.",
+			"Store full request and response payloads, not just metadata, with a retention period set by your organization's policy and no storage limits.",
 	},
 	{
 		icon: Headphones,

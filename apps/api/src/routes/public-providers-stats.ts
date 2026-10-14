@@ -12,6 +12,7 @@ import {
 	effectiveTtftTotals,
 	eq,
 	excludeRegionalMappingRows,
+	gt,
 	gte,
 	sql,
 	tables,
@@ -129,9 +130,12 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		// region-less root row of a mapping already includes their traffic.
 		// Platform-credential traffic only; BYOK failures reflect the customer's
 		// key, not the provider.
+		// `logs_count > 0` changes no sum: it is what lets the planner use the
+		// partial covering index that skips the idle mappings' zero rows.
 		.where(
 			and(
 				gte(mphTs, startDate),
+				gt(mph.logsCount, 0),
 				eq(mph.usedMode, "credits"),
 				excludeRegionalMappingRows(mph),
 			),

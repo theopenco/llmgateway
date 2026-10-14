@@ -334,14 +334,14 @@ function ProviderSpendChart({
 						/>
 						<ChartTooltip
 							content={(props) => {
-								const sortedPayload = [...(props.payload ?? [])]
-									.filter((item) => Number(item.value ?? 0) > 0)
-									.sort((a, b) => Number(b.value ?? 0) - Number(a.value ?? 0));
+								const visiblePayload = [...(props.payload ?? [])].filter(
+									(item) => Number(item.value ?? 0) > 0,
+								);
 								return (
 									<ChartTooltipContent
 										active={props.active}
 										label={props.label}
-										payload={sortedPayload}
+										payload={visiblePayload}
 										labelFormatter={(value) =>
 											format(
 												new Date(value as string),

@@ -16,6 +16,9 @@ import { Header } from "@/components/Header";
 import { HeroScene } from "@/components/HeroScene";
 import { Button } from "@/components/ui/button";
 
+import { JsonLd } from "@llmgateway/shared/json-ld";
+import { DEFAULT_ROUTING_WEIGHTS } from "@llmgateway/shared/routing-defaults";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -58,17 +61,31 @@ const DISPATCH_WEIGHTS = [
 	{
 		label: "Fares",
 		detail: "price after your discount & landing fee",
-		weight: 0.6,
+		weight: DEFAULT_ROUTING_WEIGHTS.price,
 	},
 	{
 		label: "On-time performance",
 		detail: "availability & uptime",
-		weight: 0.5,
+		weight: DEFAULT_ROUTING_WEIGHTS.uptime,
 	},
-	{ label: "Cache", detail: "prompt-cache support", weight: 0.2 },
-	{ label: "Runway capacity", detail: "throughput", weight: 0.05 },
-	{ label: "Taxi time", detail: "latency to first token", weight: 0.025 },
-];
+	{
+		label: "Runway capacity",
+		detail: "throughput",
+		weight: DEFAULT_ROUTING_WEIGHTS.throughput,
+	},
+	{
+		label: "Taxi time",
+		detail: "latency to first token",
+		weight: DEFAULT_ROUTING_WEIGHTS.latency,
+	},
+	{
+		label: "Cache",
+		detail: "prompt-cache support",
+		weight: DEFAULT_ROUTING_WEIGHTS.cache,
+	},
+].filter((w) => w.weight > 0);
+
+const MAX_DISPATCH_WEIGHT = Math.max(...DISPATCH_WEIGHTS.map((w) => w.weight));
 
 const FAQ = [
 	{
@@ -145,12 +162,7 @@ export default function LandingPage() {
 	return (
 		<div className="flex min-h-screen flex-col">
 			{JSON_LD.map((schema) => (
-				<script
-					key={schema["@id"]}
-					type="application/ld+json"
-					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-					dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-				/>
+				<JsonLd key={schema["@id"]} data={schema} />
 			))}
 			<Header />
 
@@ -288,7 +300,9 @@ export default function LandingPage() {
 										<div className="bg-muted h-2 overflow-hidden rounded-full">
 											<div
 												className="bg-primary h-full rounded-full"
-												style={{ width: `${(w.weight / 0.6) * 100}%` }}
+												style={{
+													width: `${(w.weight / MAX_DISPATCH_WEIGHT) * 100}%`,
+												}}
 											/>
 										</div>
 									</div>

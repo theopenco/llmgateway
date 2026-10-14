@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, isCachingEnabled, tables } from "@llmgateway/db";
 
 describe("projects route", () => {
 	let token: string;
@@ -247,6 +247,95 @@ describe("projects route", () => {
 			message: expect.stringContaining("Provider prompt caching"),
 		});
 	});
+	describe("automatic cache duration", () => {
+		async function patch(body: Record<string, unknown>, cookie = token) {
+			return await app.request("/projects/test-project-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: cookie },
+				body: JSON.stringify(body),
+			});
+		}
+
+		test("defaults to 5m and invalidates the gateway cache on changes", async () => {
+			expect(
+				(await isCachingEnabled("test-project-id")).providerCacheAutoTtl,
+			).toBe("5m");
+			for (const ttl of ["1h", "5m"] as const) {
+				const response = await patch({ providerCacheAutoTtl: ttl });
+				expect(response.status).toBe(200);
+				expect((await response.json()).project.providerCacheAutoTtl).toBe(ttl);
+				expect(
+					(await isCachingEnabled("test-project-id")).providerCacheAutoTtl,
+				).toBe(ttl);
+			}
+			const audit = await db.query.auditLog.findMany({
+				where: {
+					organizationId: { eq: "test-org-id" },
+					action: { eq: "project.update" },
+				},
+			});
+			expect(
+				audit.some((entry) =>
+					JSON.stringify(entry.metadata).includes('"providerCacheAutoTtl"'),
+				),
+			).toBe(true);
+		});
+
+		test.each([undefined, "5m", "1h"])(
+			"creates projects with %s duration",
+			async (ttl) => {
+				const response = await app.request("/projects", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({
+						name: "Cache Settings",
+						organizationId: "test-org-id",
+						providerCacheAutoTtl: ttl,
+					}),
+				});
+				expect(response.status).toBe(201);
+				expect((await response.json()).project.providerCacheAutoTtl).toBe(
+					ttl ?? "5m",
+				);
+			},
+		);
+
+		test("rejects invalid durations and unauthorized writes", async () => {
+			for (const value of ["30m", 3600, null]) {
+				expect((await patch({ providerCacheAutoTtl: value })).status).toBe(400);
+			}
+			expect((await patch({ providerCacheAutoTtl: "1h" }, "")).status).toBe(
+				401,
+			);
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "developer" })
+				.where(eq(tables.userOrganization.organizationId, "test-org-id"));
+			expect((await patch({ providerCacheAutoTtl: "1h" })).status).not.toBe(
+				200,
+			);
+			expect(
+				(await isCachingEnabled("test-project-id")).providerCacheAutoTtl,
+			).toBe("5m");
+		});
+
+		test("preserves the preference when caching is disabled", async () => {
+			expect(
+				(
+					await patch({
+						providerCacheAutoTtl: "1h",
+						providerCacheControlMode: "off",
+					})
+				).status,
+			).toBe(200);
+			expect((await patch({ name: "Renamed" })).status).toBe(200);
+			expect(await isCachingEnabled("test-project-id")).toMatchObject({
+				providerCacheAutoTtl: "1h",
+				providerCacheControlMode: "off",
+			});
+		});
+	});
+
 	describe("auto routing configuration", () => {
 		async function patchSmartRouting(body: unknown) {
 			return await app.request("/projects/test-project-id", {

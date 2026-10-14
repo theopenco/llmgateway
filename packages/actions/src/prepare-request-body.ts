@@ -20,6 +20,7 @@ import {
 	type PerplexityAgentRequestBody,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
+	type ProviderCacheAutoTtl,
 	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	type ReasoningDetail,
@@ -34,6 +35,10 @@ import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
+	anthropicThinkingBlocksFor,
+	toConverseReasoningContent,
+} from "./anthropic-thinking.js";
+import {
 	isToolSearchTool,
 	stripAnthropicNativeBlocks,
 	stripAnthropicToolExtensions,
@@ -41,19 +46,61 @@ import {
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
+import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
+	getCallerCacheControls,
+	getToolResultCacheControl,
+	getToolResultText,
+	longBlockMarkerLimit,
 	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
+	toSystemReminderText,
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 type OpenAIImageModeration = "auto" | "low";
+/**
+ * Bedrock Converse renders a turn's toolResult blocks in the preceding
+ * assistant turn's toolUse order, not the order they were sent. Claude Code
+ * and other agents send results in completion order, so a cachePoint after the
+ * last result sent can land mid-group once Bedrock reorders, leaving the
+ * results moved behind it uncached on every turn. Sort the results into toolUse
+ * order and move the group's cachePoints after them, which is where the stable
+ * prefix actually ends. Groups already in toolUse order are left untouched.
+ */
+function orderBedrockToolResults(
+	blocks: any[],
+	previousMessage: { role?: string; content?: unknown } | undefined,
+): any[] {
+	if (
+		previousMessage?.role !== "assistant" ||
+		!Array.isArray(previousMessage.content)
+	) {
+		return blocks;
+	}
+	const toolUseOrder = new Map<string, number>();
+	for (const block of previousMessage.content) {
+		const id = block?.toolUse?.toolUseId;
+		if (typeof id === "string" && !toolUseOrder.has(id)) {
+			toolUseOrder.set(id, toolUseOrder.size);
+		}
+	}
+	const results = blocks.filter((block) => block?.toolResult);
+	const rank = (block: any) =>
+		toolUseOrder.get(block.toolResult.toolUseId) ?? Number.MAX_SAFE_INTEGER;
+	const sorted = [...results].sort((a, b) => rank(a) - rank(b));
+	if (sorted.every((block, i) => block === results[i])) {
+		return blocks;
+	}
+	const rest = blocks.filter((block) => !block?.toolResult);
+	return [...sorted, ...rest];
+}
 
 export { RequestError } from "./request-error.js";
 
@@ -402,9 +449,37 @@ function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
  */
-function convertOpenAISchemaToGoogle(schema: any): any {
+function convertOpenAISchemaToGoogle(
+	schema: any,
+	rootDefs: Record<string, any> = schema?.$defs ?? schema?.definitions ?? {},
+	seenRefs: Set<string> = new Set(),
+	rootSchema: any = schema,
+): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
+	}
+
+	// Google's responseSchema has no $ref, so expand it inline. A recursive
+	// reference collapses to a generic object instead of recursing forever.
+	if (typeof schema.$ref === "string") {
+		if (seenRefs.has(schema.$ref)) {
+			return schema.description
+				? { type: "OBJECT", description: schema.description }
+				: { type: "OBJECT" };
+		}
+		const resolved = resolveRef(schema.$ref, rootDefs, rootSchema);
+		if (resolved) {
+			const expanded = convertOpenAISchemaToGoogle(
+				resolved,
+				rootDefs,
+				new Set(seenRefs).add(schema.$ref),
+				rootSchema,
+			);
+			if (schema.description && !expanded.description) {
+				expanded.description = schema.description;
+			}
+			return expanded;
+		}
 	}
 
 	const converted: any = {};
@@ -435,13 +510,52 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 	if (schema.properties) {
 		converted.properties = {};
 		for (const [key, value] of Object.entries(schema.properties)) {
-			converted.properties[key] = convertOpenAISchemaToGoogle(value);
+			converted.properties[key] = convertOpenAISchemaToGoogle(
+				value,
+				rootDefs,
+				seenRefs,
+				rootSchema,
+			);
 		}
 	}
 
 	// Handle array items
 	if (schema.items) {
-		converted.items = convertOpenAISchemaToGoogle(schema.items);
+		converted.items = convertOpenAISchemaToGoogle(
+			schema.items,
+			rootDefs,
+			seenRefs,
+			rootSchema,
+		);
+	}
+
+	// Unions: Google has `anyOf` but no null type, so a null member becomes
+	// `nullable` and a lone remaining member is folded into this node. A
+	// single-member `allOf` (older pydantic wraps described refs in one) is
+	// folded the same way.
+	const union = Array.isArray(schema.anyOf)
+		? schema.anyOf
+		: Array.isArray(schema.oneOf)
+			? schema.oneOf
+			: Array.isArray(schema.allOf) && schema.allOf.length === 1
+				? schema.allOf
+				: undefined;
+	if (Array.isArray(union)) {
+		const members = union.filter((member: any) => member?.type !== "null");
+		if (members.length !== union.length) {
+			converted.nullable = true;
+		}
+		const convertedMembers = members.map((member: any) =>
+			convertOpenAISchemaToGoogle(member, rootDefs, seenRefs, rootSchema),
+		);
+		if (convertedMembers.length === 1) {
+			Object.assign(converted, {
+				...convertedMembers[0],
+				...converted,
+			});
+		} else if (convertedMembers.length > 1) {
+			converted.anyOf = convertedMembers;
+		}
 	}
 
 	// Copy required array if present
@@ -449,11 +563,19 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Google's Schema proto represents every enum member as a string, including
-	// members of numeric and boolean schemas.
+	// Google's Schema proto represents every enum member as a string, and
+	// Vertex rejects an enum on any non-STRING schema with a 400. Keep a
+	// numeric or boolean enum as a description hint so the type survives.
 	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
 	if (normalizedEnum !== undefined) {
-		converted.enum = normalizedEnum;
+		if (!converted.type || converted.type === "STRING") {
+			converted.enum = normalizedEnum;
+		} else {
+			const hint = `Allowed values: ${normalizedEnum.join(", ")}`;
+			converted.description = converted.description
+				? `${converted.description} (${hint})`
+				: hint;
+		}
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -544,14 +666,33 @@ function sanitizeCerebrasSchema(schema: any): any {
 /**
  * Resolves a $ref path like "#/$defs/QuestionOption" to the actual definition
  */
-function resolveRef(ref: string, rootDefs: Record<string, any>): any {
-	// Handle JSON Pointer format: #/$defs/Name or #/definitions/Name
-	const match = ref.match(/^#\/(\$defs|definitions)\/(.+)$/);
-	if (match) {
-		const defName = match[2];
-		return rootDefs[defName];
+function resolveRef(
+	ref: string,
+	rootDefs: Record<string, any>,
+	rootSchema?: any,
+): any {
+	if (ref === "#") {
+		return rootSchema ?? null;
 	}
-	return null;
+	if (!ref.startsWith("#/")) {
+		return null;
+	}
+	const [first, ...rest] = ref
+		.slice(2)
+		.split("/")
+		.map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+	// Prefer the namespace the ref names, so #/definitions/X still resolves
+	// when the root also carries $defs.
+	let node: any =
+		rootSchema?.[first] ??
+		(first === "$defs" || first === "definitions" ? rootDefs : undefined);
+	for (const segment of rest) {
+		if (!node || typeof node !== "object") {
+			return null;
+		}
+		node = node[segment];
+	}
+	return node && typeof node === "object" ? node : null;
 }
 
 /**
@@ -1002,6 +1143,28 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Rewrites a mid-conversation system message as the user `<system-reminder>`
+ * Claude clients use on models without a system role inside `messages`.
+ */
+function toSystemReminderMessage(message: BaseMessage): BaseMessage {
+	if (message.role !== "system") {
+		return message;
+	}
+	return {
+		...message,
+		role: "user",
+		content:
+			typeof message.content === "string"
+				? toSystemReminderText(message.content)
+				: message.content.map((part) =>
+						isTextContent(part) && part.text
+							? { ...part, text: toSystemReminderText(part.text) }
+							: part,
+					),
+	};
+}
+
+/**
  * Maps the OpenAI-only `developer` role to `system`. Applied only for mappings
  * that declare `supportsDeveloperRole: false`, i.e. upstreams that reject
  * `developer` with a 400 ("developer is not one of ['system', 'assistant',
@@ -1052,9 +1215,11 @@ function transformContentForResponsesApi(content: any, role: string): any {
 				// through directly — no need to scan/validate the (possibly huge)
 				// data-URL payload here.
 				const imageUrl = part.image_url?.url ?? part.image_url;
+				const detail = part.image_url?.detail;
 				return {
 					type: "input_image",
 					image_url: imageUrl,
+					...(detail !== undefined && { detail }),
 					...breakpoint,
 				};
 			}
@@ -1394,7 +1559,22 @@ export async function prepareRequestBody(
 	 */
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
+	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
 ): Promise<ProviderRequestBody | FormData> {
+	// Check before provider transforms can strip a caller's markers.
+	const hasCacheMarker = (part: object) =>
+		"cache_control" in part && part.cache_control !== undefined;
+	const hasCallerCacheMarkers =
+		providerCacheAutoTtl === "1h" &&
+		providerCacheControlMode === "auto" &&
+		(tools?.some(hasCacheMarker) ||
+			messages.some(
+				(message) =>
+					message.tool_result_cache_control !== undefined ||
+					(Array.isArray(message.content) &&
+						message.content.some(hasCacheMarker)) ||
+					message.anthropic_native_blocks?.some(hasCacheMarker),
+			));
 	tools = normalizeToolParameters(tools);
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
 	// tool) only exists on the Anthropic Messages API. Anywhere else the tools
@@ -1886,13 +2066,27 @@ export async function prepareRequestBody(
 	// working while traffic that sends no markers never pays the write premium.
 	const allowProviderCacheWrites = providerCacheControlMode !== "off";
 	const autoInjectCacheControl = providerCacheControlMode === "auto";
+	const automaticCacheTtl =
+		autoInjectCacheControl &&
+		!hasCallerCacheMarkers &&
+		providerCacheAutoTtl === "1h" &&
+		providerMappingForOptions?.cacheWriteInputPrice1h !== undefined
+			? ("1h" as const)
+			: undefined;
 
 	// A tool message's `tool_result_cache_control` only has a destination on the
 	// Anthropic Messages API, where it becomes a marker on the tool_result block
-	// the message is lowered to. Anywhere else it would reach the upstream as an
-	// unknown message field, and a project that opted out of provider cache
-	// writes must not emit it at all.
-	if (!anthropicMessagesApi || !allowProviderCacheWrites) {
+	// the message is lowered to, and on Bedrock Converse, where it becomes a
+	// cachePoint after the toolResult. Anywhere else it would reach the upstream
+	// as an unknown message field, and a project that opted out of provider
+	// cache writes must not emit it at all.
+	const bedrockConverseApi =
+		usedProvider === "aws-bedrock" &&
+		providerMappingForOptions?.apiFormat !== "openai-chat-completions";
+	if (
+		!(anthropicMessagesApi || bedrockConverseApi) ||
+		!allowProviderCacheWrites
+	) {
 		processedMessages = processedMessages.map((m) => {
 			if (m.tool_result_cache_control === undefined) {
 				return m;
@@ -2026,34 +2220,37 @@ export async function prepareRequestBody(
 	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
 	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
 	// clients usually drop reasoning between turns, so translate the OpenAI-style
-	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
-	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
-	// kimi-k2.6) treat an empty string as missing — use a single space as a
-	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
-	// upstream constraint, so apply the DeepSeek behavior there too.
-	// Match by the canonical model id — never by the upstream form. DeepSeek
-	// V4 roots are `deepseek-v4*` regardless of which provider proxies them.
-	const isNovitaDeepseekV4 =
-		usedProvider === "novita" && usedInternalModel.startsWith("deepseek-v4");
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek's
+	// own API accepts an empty string, but Moonshot's newer reasoning models
+	// (kimi-k2.5, kimi-k2.6) and Novita's DeepSeek V4 treat it as missing, so
+	// every other host gets a single space. Any host of DeepSeek V4 can enforce
+	// the constraint, including Airside carriers (e.g. Luminal) that reach this
+	// function as the "openai" transport, so match V4 by the canonical model id.
+	const isDeepseekV4 = usedInternalModel.startsWith("deepseek-v4");
 	if (
 		usedProvider === "deepseek" ||
 		usedProvider === "moonshot" ||
-		isNovitaDeepseekV4
+		isDeepseekV4
 	) {
-		const fallback =
-			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
+		const fallback = usedProvider === "deepseek" ? "" : " ";
 		processedMessages = processedMessages.map((m) => {
+			if (m.role !== "assistant") {
+				return m;
+			}
+			// Never send both fields: Runware treats `reasoning` as an alias of
+			// `reasoning_content` and rejects a message carrying both.
+			const { reasoning, ...rest } = m;
+			if (m.reasoning_content !== undefined) {
+				return reasoning === undefined ? m : rest;
+			}
 			if (
-				m.role !== "assistant" ||
 				!m.tool_calls ||
 				!Array.isArray(m.tool_calls) ||
-				m.tool_calls.length === 0 ||
-				m.reasoning_content !== undefined
+				m.tool_calls.length === 0
 			) {
 				return m;
 			}
-			const reasoning = m.reasoning ?? fallback;
-			return { ...m, reasoning_content: reasoning || fallback };
+			return { ...rest, reasoning_content: reasoning || fallback };
 		});
 	}
 
@@ -2111,7 +2308,10 @@ export async function prepareRequestBody(
 						);
 						return {
 							...part,
-							image_url: { url: `data:${mimeType};base64,${data}` },
+							image_url: {
+								...(typeof part.image_url === "object" && part.image_url),
+								url: `data:${mimeType};base64,${data}`,
+							},
 						};
 					}),
 				);
@@ -2159,9 +2359,16 @@ export async function prepareRequestBody(
 	// are OpenAI Responses assistant-message markers. No chat-completions
 	// upstream understands them, and strict providers reject unknown message
 	// fields, so strip them from every path except the Responses API transform
-	// above. An assistant message that carried only reasoning (no
-	// content/tool_calls — an incomplete prior turn replayed for the Responses
-	// API) becomes empty here, so drop it.
+	// above and Claude's Messages/Converse transforms below, which rebuild each
+	// message and replay the provider's own thinking blocks from it. An
+	// assistant message that carried only reasoning (no content/tool_calls — an
+	// incomplete prior turn replayed for the Responses API) becomes empty here,
+	// so drop it.
+	const replaysAnthropicThinking =
+		modelDef?.family === "anthropic" &&
+		(usesAnthropicMessagesApi(usedProvider) ||
+			(usedProvider === "aws-bedrock" &&
+				providerMappingForOptions?.apiFormat !== "openai-chat-completions"));
 	processedMessages = processedMessages.flatMap((m) => {
 		if (
 			m.reasoning_details === undefined &&
@@ -2186,7 +2393,11 @@ export async function prepareRequestBody(
 		) {
 			return [];
 		}
-		return [rest];
+		return [
+			replaysAnthropicThinking && reasoningDetails !== undefined
+				? { ...rest, reasoning_details: reasoningDetails }
+				: rest,
+		];
 	});
 
 	// The OpenAI-style `reasoning` field on replayed assistant turns is tolerated
@@ -2501,13 +2712,16 @@ export async function prepareRequestBody(
 					}
 				}
 
-				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
-				// surface is what the Responses API path always uses) document
-				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
-				// neither documents it and an unknown field risks a 400.
+				// Abuse-attribution identifier. OpenAI, Azure (whose v1 surface is
+				// what the Responses API path always uses) and Meta document
+				// `safety_identifier`; Bedrock Mantle does not, and an unknown field
+				// risks a 400.
 				if (
 					safety_identifier !== undefined &&
-					(usedProvider === "openai" || usedProvider === "azure")
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					responsesBody.safety_identifier = safety_identifier;
 				}
@@ -2629,9 +2843,14 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
-				if (usedProvider === "openai" || usedProvider === "azure") {
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta" ||
+					usedProvider === "meta-contributor"
+				) {
 					if (safety_identifier !== undefined) {
-						if (usedProvider === "openai") {
+						if (usedProvider !== "azure") {
 							requestBody.safety_identifier = safety_identifier;
 						} else {
 							// Azure's deployment-based APIs predate safety_identifier but
@@ -3151,19 +3370,36 @@ export async function prepareRequestBody(
 			);
 			requestBody.max_tokens = max_tokens ?? fallbackMaxTokens;
 
-			// Extract system messages for Anthropic's system field (required for prompt caching)
-			const systemMessages = processedMessages.filter(
-				(m) => m.role === "system",
-			);
-			const nonSystemMessages = processedMessages.filter(
+			// Only the system messages that open the conversation go into
+			// Anthropic's system field (required for prompt caching). Hoisting a
+			// later one would change the prefix every time a client such as Claude
+			// Code appends one, re-writing the cached conversation on each turn, so
+			// those stay in place: natively where the mapping accepts the role at
+			// that position, otherwise as a user system-reminder. Reminders that
+			// interrupt tool results move after the complete result set.
+			const conversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
+			const systemMessages =
+				conversationStart === -1
+					? processedMessages
+					: processedMessages.slice(0, conversationStart);
+			const conversationMessages =
+				conversationStart === -1
+					? []
+					: orderToolResultReminders(
+							processedMessages.slice(conversationStart),
+						);
+			const nonSystemMessages =
+				providerMappingForOptions?.midConversationSystem === true
+					? conversationMessages
+					: conversationMessages.map(toSystemReminderMessage);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
 			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
 			// cache entries" —
 			// platform.claude.com/docs/en/build-with-claude/prompt-caching;
-			// processing order: tools, system, messages). The gateway's heuristics
+			// processing order: tools, system, messages). With caller markers, the gateway's heuristics
 			// inject ttl-less markers (5m default), so when the caller placed an
 			// explicit ttl:"1h" marker in the messages, any auto-injected marker
 			// would land before it and Anthropic rejects the request ("a ttl='1h'
@@ -3172,13 +3408,10 @@ export async function prepareRequestBody(
 			// case — including when the 1h marker rides on a tool_result, which
 			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
-			const callerUses1hTtlInMessages = nonSystemMessages.some(
-				(m) =>
-					m.tool_result_cache_control?.ttl === "1h" ||
-					(Array.isArray(m.content) &&
-						m.content.some(
-							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-						)),
+			const callerMessageCacheControls =
+				getCallerCacheControls(nonSystemMessages);
+			const callerUses1hTtlInMessages = callerMessageCacheControls.some(
+				(marker) => marker.ttl === "1h",
 			);
 			const autoCacheControlEnabled =
 				autoInjectCacheControl && !callerUses1hTtlInMessages;
@@ -3321,14 +3554,20 @@ export async function prepareRequestBody(
 						const shouldCache =
 							autoCacheControlEnabled &&
 							text.length >= minCacheableChars &&
-							systemCacheControlCount < maxCacheControlBlocks;
+							systemCacheControlCount + callerMessageCacheControls.length <
+								maxCacheControlBlocks &&
+							systemCacheControlCount <
+								longBlockMarkerLimit(nonSystemMessages.length);
 
 						if (shouldCache) {
 							systemCacheControlCount++;
 							systemContent.push({
 								type: "text",
 								text,
-								cache_control: { type: "ephemeral" },
+								cache_control: {
+									type: "ephemeral",
+									...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+								},
 							});
 						} else {
 							systemContent.push({ type: "text", text });
@@ -3345,8 +3584,8 @@ export async function prepareRequestBody(
 				nonSystemMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
-						m.role === "assistant"
-							? "assistant"
+						m.role === "assistant" || m.role === "system"
+							? m.role
 							: m.role === "tool"
 								? "user" // Tool results become user messages in Anthropic
 								: "user",
@@ -3361,6 +3600,7 @@ export async function prepareRequestBody(
 				systemCacheControlCount, // Pass count to respect the 4 block limit
 				minCacheableChars, // Model-specific minimum cacheable characters
 				autoCacheControlEnabled,
+				automaticCacheTtl,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -3625,12 +3865,25 @@ export async function prepareRequestBody(
 				};
 			};
 
-			// Extract system messages for Bedrock's system field (required for prompt caching)
-			const bedrockSystemMessages = processedMessages.filter(
-				(m) => m.role === "system",
-			);
-			const bedrockNonSystemMessages = processedMessages.filter(
+			// Mirror the Anthropic branch: only the system messages that open the
+			// conversation go into Bedrock's system field (required for prompt
+			// caching). Converse has no system role inside messages, so a later one
+			// becomes a user system-reminder, after any interrupted tool results.
+			const bedrockConversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
+			);
+			const bedrockSystemMessages =
+				bedrockConversationStart === -1
+					? processedMessages
+					: processedMessages.slice(0, bedrockConversationStart);
+			const bedrockNonSystemMessages =
+				bedrockConversationStart === -1
+					? []
+					: orderToolResultReminders(
+							processedMessages.slice(bedrockConversationStart),
+						).map(toSystemReminderMessage);
+			const bedrockLongBlockLimit = longBlockMarkerLimit(
+				bedrockNonSystemMessages.length,
 			);
 
 			// Mirror the Anthropic branch: Bedrock enforces the same
@@ -3640,15 +3893,14 @@ export async function prepareRequestBody(
 			// supports 1h, i.e. the marker won't be downgraded to 5m — suppress
 			// heuristic cachePoint injection so an auto-added 5m point can't
 			// precede the caller's 1h point.
+			const bedrockCallerCacheControls = getCallerCacheControls(
+				bedrockNonSystemMessages,
+				"bedrock",
+			);
+			let bedrockPendingCallerMarkers = bedrockCallerCacheControls.length;
 			const bedrockCallerUses1hTtlInMessages =
 				bedrockSupports1hTtl &&
-				bedrockNonSystemMessages.some(
-					(m) =>
-						Array.isArray(m.content) &&
-						m.content.some(
-							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-						),
-				);
+				bedrockCallerCacheControls.some((marker) => marker.ttl === "1h");
 			const bedrockAutoCachePointEnabled =
 				autoInjectCacheControl && !bedrockCallerUses1hTtlInMessages;
 
@@ -3706,11 +3958,13 @@ export async function prepareRequestBody(
 						bedrockAutoCachePointEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
-						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+						bedrockCacheControlCount + bedrockPendingCallerMarkers <
+							bedrockMaxCacheControlBlocks &&
+						bedrockCacheControlCount < bedrockLongBlockLimit;
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
-						systemContent.push(createBedrockCachePoint());
+						systemContent.push(createBedrockCachePoint(automaticCacheTtl));
 					}
 				}
 
@@ -3727,6 +3981,10 @@ export async function prepareRequestBody(
 
 			const flushPendingToolResults = () => {
 				if (pendingToolResultMessage?.content?.length) {
+					pendingToolResultMessage.content = orderBedrockToolResults(
+						pendingToolResultMessage.content,
+						bedrockMessages[bedrockMessages.length - 1],
+					);
 					bedrockMessages.push(pendingToolResultMessage);
 				}
 				pendingToolResultMessage = null;
@@ -3742,10 +4000,7 @@ export async function prepareRequestBody(
 						content: [],
 					};
 
-					const textContent =
-						typeof msg.content === "string"
-							? msg.content
-							: JSON.stringify(msg.content ?? "");
+					const textContent = getToolResultText(msg);
 
 					pendingToolResultMessage.content.push({
 						toolResult: {
@@ -3760,15 +4015,37 @@ export async function prepareRequestBody(
 							],
 						},
 					});
+					// In an agentic loop the caller's breakpoint sits on the last tool
+					// result, which is where the stable prefix ends.
+					const toolResultCacheControl = getToolResultCacheControl(msg);
+					if (toolResultCacheControl) {
+						bedrockPendingCallerMarkers--;
+						if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
+							bedrockCacheControlCount++;
+							pendingToolResultMessage.content.push(
+								createBedrockCachePoint(toolResultCacheControl.ttl),
+							);
+						}
+					}
 					continue;
 				}
 
 				flushPendingToolResults();
 
 				const role = msg.role === "user" ? "user" : "assistant";
+				// Converse's form of the Anthropic thinking blocks that open the turn.
+				const reasoningBlocks =
+					role === "assistant"
+						? anthropicThinkingBlocksFor(
+								"aws-bedrock",
+								msg.reasoning_details,
+							).map((block) => ({
+								reasoningContent: toConverseReasoningContent(block),
+							}))
+						: [];
 				const bedrockMessage: any = {
 					role,
-					content: [],
+					content: [...reasoningBlocks],
 				};
 
 				// Handle assistant messages with tool calls
@@ -3808,11 +4085,15 @@ export async function prepareRequestBody(
 						const shouldCache =
 							bedrockAutoCachePointEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
-							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+							bedrockCacheControlCount + bedrockPendingCallerMarkers <
+								bedrockMaxCacheControlBlocks &&
+							bedrockCacheControlCount < bedrockLongBlockLimit;
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
-							bedrockMessage.content.push(createBedrockCachePoint());
+							bedrockMessage.content.push(
+								createBedrockCachePoint(automaticCacheTtl),
+							);
 						}
 					}
 				} else if (Array.isArray(msg.content)) {
@@ -3826,6 +4107,7 @@ export async function prepareRequestBody(
 								});
 
 								if (part.cache_control) {
+									bedrockPendingCallerMarkers--;
 									if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 										bedrockCacheControlCount++;
 										bedrockMessage.content.push(
@@ -3838,11 +4120,15 @@ export async function prepareRequestBody(
 									const shouldCache =
 										bedrockAutoCachePointEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
-										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+										bedrockCacheControlCount + bedrockPendingCallerMarkers <
+											bedrockMaxCacheControlBlocks &&
+										bedrockCacheControlCount < bedrockLongBlockLimit;
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
-										bedrockMessage.content.push(createBedrockCachePoint());
+										bedrockMessage.content.push(
+											createBedrockCachePoint(automaticCacheTtl),
+										);
 									}
 								}
 							}
@@ -3902,9 +4188,10 @@ export async function prepareRequestBody(
 				// Bedrock's Converse API rejects messages whose content array is
 				// empty ("The content field in the Message object at messages.N is
 				// empty"), while the Anthropic API accepts empty assistant turns.
-				// Mirror transformAnthropicMessages and drop such messages —
-				// Bedrock accepts the resulting consecutive same-role messages.
-				if (bedrockMessage.content.length === 0) {
+				// Mirror transformAnthropicMessages and drop such messages, including
+				// a turn left with only its thinking — Bedrock accepts the resulting
+				// consecutive same-role messages.
+				if (bedrockMessage.content.length === reasoningBlocks.length) {
 					continue;
 				}
 
@@ -3941,10 +4228,25 @@ export async function prepareRequestBody(
 							boundaryMsg.content[boundaryMsg.content.length - 1];
 						// Only add if the last block isn't already a cachePoint.
 						if (!lastBlock.cachePoint) {
-							boundaryMsg.content.push(createBedrockCachePoint());
+							boundaryMsg.content.push(
+								createBedrockCachePoint(automaticCacheTtl),
+							);
 							bedrockCacheControlCount++;
 						}
 					}
+				}
+			}
+
+			// And after the final message, as in transformAnthropicMessages, so a
+			// growing conversation reads the whole previous request back.
+			if (
+				bedrockAutoCachePointEnabled &&
+				bedrockMessages.length >= 3 &&
+				bedrockCacheControlCount < bedrockMaxCacheControlBlocks
+			) {
+				const tail = bedrockMessages[bedrockMessages.length - 1].content;
+				if (tail.length > 0 && !tail[tail.length - 1].cachePoint) {
+					tail.push(createBedrockCachePoint(automaticCacheTtl));
 				}
 			}
 
@@ -4272,10 +4574,21 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.responseMimeType = "application/json";
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
-				// Convert OpenAI's JSON schema format to Google's format
 				if (response_format.json_schema?.schema) {
-					requestBody.generationConfig.responseSchema =
-						convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					// AI Studio and Vertex take standard JSON Schema ($ref, $defs,
+					// anyOf, type arrays, numeric enums) via responseJsonSchema; the
+					// compatible transports still get the OpenAPI-subset conversion in
+					// responseSchema.
+					if (
+						usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex"
+					) {
+						requestBody.generationConfig.responseJsonSchema =
+							foldSingleMemberAllOf(response_format.json_schema.schema);
+					} else {
+						requestBody.generationConfig.responseSchema =
+							convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					}
 				}
 			}
 
@@ -4912,4 +5225,33 @@ export async function prepareRequestBody(
 	}
 
 	return requestBody;
+}
+/**
+ * Gemini's responseJsonSchema ignores `allOf`, leaving the field unconstrained.
+ * Fold the single-member `allOf` older pydantic emits around described refs
+ * into its parent so the constraint survives.
+ */
+function foldSingleMemberAllOf(schema: any): any {
+	if (Array.isArray(schema)) {
+		return schema.map((item) => foldSingleMemberAllOf(item));
+	}
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+	const result: any = {};
+	for (const [key, value] of Object.entries(schema)) {
+		result[key] = foldSingleMemberAllOf(value);
+	}
+	const member = result.allOf?.[0];
+	if (
+		Array.isArray(result.allOf) &&
+		result.allOf.length === 1 &&
+		member &&
+		typeof member === "object" &&
+		!Array.isArray(member)
+	) {
+		delete result.allOf;
+		return { ...member, ...result };
+	}
+	return result;
 }

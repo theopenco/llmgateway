@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { anthropicThinkingBlocksFor } from "@llmgateway/actions";
+
+import { extractReasoning } from "./extract-reasoning.js";
 import { extractTokenUsage } from "./extract-token-usage.js";
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
@@ -543,6 +546,48 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it("emits AWS Bedrock thinking as a replayable signed detail", () => {
+		const anthropicThinkingText = new Map<number, string>();
+		const chunks = [
+			{ text: "Compare the " },
+			{ text: "constraints." },
+			{ signature: "upstream-signature" },
+			{ redactedContent: "upstream-redacted-payload" },
+		].map((reasoningContent) =>
+			transformStreamingToOpenai(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				{
+					__aws_event_type: "contentBlockDelta",
+					contentBlockIndex: "redactedContent" in reasoningContent ? 1 : 0,
+					delta: { reasoningContent },
+				},
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ anthropicThinkingText },
+			),
+		);
+		const details = chunks.flatMap(
+			(chunk) => chunk.choices[0].delta.reasoning_details ?? [],
+		);
+
+		expect(
+			chunks.map((chunk) => extractReasoning(chunk, "aws-bedrock")).join(""),
+		).toBe("Compare the constraints.");
+		expect(anthropicThinkingBlocksFor("aws-bedrock", details)).toEqual([
+			{
+				type: "thinking",
+				thinking: "Compare the constraints.",
+				signature: "upstream-signature",
+			},
+			{ type: "redacted_thinking", data: "upstream-redacted-payload" },
+		]);
+		expect(anthropicThinkingBlocksFor("anthropic", details)).toEqual([]);
+	});
+
 	it("maps AWS Bedrock messageStop refusal to content_filter", () => {
 		warn.mockClear();
 
@@ -610,28 +655,6 @@ describe("transformStreamingToOpenai", () => {
 				},
 			},
 		});
-		expect(warn).not.toHaveBeenCalled();
-	});
-
-	it("treats non-text AWS Bedrock contentBlockDelta members as handled", () => {
-		warn.mockClear();
-
-		const result = transformStreamingToOpenai(
-			"aws-bedrock",
-			"anthropic.claude-sonnet-4-6",
-			{
-				__aws_event_type: "contentBlockDelta",
-				contentBlockIndex: 0,
-				delta: {
-					reasoningContent: {
-						signature: "sig_123",
-					},
-				},
-			},
-			[],
-		);
-
-		expect(result).toBeNull();
 		expect(warn).not.toHaveBeenCalled();
 	});
 

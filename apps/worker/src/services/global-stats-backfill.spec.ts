@@ -9,6 +9,9 @@ import {
 	eq,
 	globalAggregationState,
 	globalModelStats,
+	globalHourlyModelStats,
+	globalHourlySourceStats,
+	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
 	log,
@@ -66,6 +69,9 @@ const readProviderState = () =>
 
 async function clearStats() {
 	await db.delete(globalAggregationState);
+	await db.delete(globalHourlyModelStats);
+	await db.delete(globalHourlySourceStats);
+	await db.delete(globalHourlyProviderKeyModelStats);
 	await db.delete(globalProviderKeyModelStats);
 	await db.delete(globalModelStats);
 	await db.delete(globalSourceStats);
@@ -83,6 +89,11 @@ describe("provider-key global stats backfill", () => {
 			lastProcessedHour: LATEST_HOUR,
 			lastSafetyNetDay: YESTERDAY,
 		});
+		await db.insert(globalAggregationState).values({
+			id: "hourly",
+			lastProcessedHour: LATEST_HOUR,
+			lastSafetyNetDay: YESTERDAY,
+		});
 	});
 
 	afterEach(async () => {
@@ -90,6 +101,45 @@ describe("provider-key global stats backfill", () => {
 		vi.useRealTimers();
 		resetShutdown();
 		await clearStats();
+	});
+
+	test("bootstraps hourly history without changing daily totals and does not double count retries", async () => {
+		await db
+			.delete(globalAggregationState)
+			.where(eq(globalAggregationState.id, "hourly"));
+		await insertLog(new Date("2026-06-14T12:30:00Z"));
+		await insertLog(new Date("2026-06-15T11:30:00Z"));
+		await processClosedHours();
+		const before = await db.query.globalHourlyModelStats.findMany({
+			orderBy: { hourTimestamp: "asc" },
+		});
+		expect(before.map((row) => row.requestCount)).toEqual([1, 1]);
+		expect(before.map((row) => row.hourTimestamp.toISOString())).toEqual([
+			"2026-06-14T12:00:00.000Z",
+			"2026-06-15T11:00:00.000Z",
+		]);
+		expect(await db.query.globalModelStats.findMany()).toEqual([]);
+		await processClosedHours();
+		expect(
+			await db.query.globalHourlyModelStats.findMany({
+				orderBy: { hourTimestamp: "asc" },
+			}),
+		).toEqual(before);
+		expect(
+			await db.query.globalHourlyProviderKeyModelStats.findMany(),
+		).toHaveLength(2);
+		// Recompute yesterday to pick up a late request without adding it twice.
+		await insertLog(new Date("2026-06-14T12:45:00Z"));
+		await db
+			.update(globalAggregationState)
+			.set({ lastSafetyNetDay: null })
+			.where(eq(globalAggregationState.id, "hourly"));
+		await processClosedHours();
+		await processClosedHours();
+		const repaired = await db.query.globalHourlyModelStats.findMany({
+			orderBy: { hourTimestamp: "asc" },
+		});
+		expect(repaired.map((row) => row.requestCount)).toEqual([2, 1]);
 	});
 
 	test("backfills beyond the global lookback without changing existing totals", async () => {

@@ -28,6 +28,7 @@ not evidence that a migration ran outside the normal workflow.
 ## Generate migrations
 
 - Run all commands from the repository root.
+- CI allows at most one new migration per PR (`scripts/check-new-migrations.sh`). For follow-up schema changes, delete and regenerate the PR’s unmerged migration instead of adding another; never delete a merged migration.
 - Make schema changes in `packages/db/src/schema.ts`. Tables use `snakeCase.table`, which maps camelCase fields to snake_case columns.
 - Generate the migration with `pnpm migrations --name <name>`. It also runs the commutativity check below.
 - Name it after the change in snake_case, at most four words: `<table>_<column>` for an added column, `<table>` for a new table, `<index_name>` for an index, and a `drop_` or `rename_` prefix for destructive changes (`project_description`, `api_key_status_idx`, `drop_transaction_note`). Never keep Drizzle's random default name.

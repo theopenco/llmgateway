@@ -3603,6 +3603,100 @@ describe("api", () => {
 		);
 	});
 
+	test.each([false, true])(
+		"/v1/chat/completions retries the dev-plan flex default at standard on flex_unavailable (stream: %s)",
+		async (stream) => {
+			const suffix = stream ? "stream" : "json";
+			await db.insert(tables.apiKey).values({
+				id: `token-id-devplan-flex-unavailable-${suffix}`,
+				...hashApiKeyForStorage(
+					`real-token-devplan-flex-unavailable-${suffix}`,
+				),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const providerKeyId = `provider-key-id-devplan-flex-unavailable-${suffix}`;
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-test-key", providerKeyId, "org-id"),
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token-devplan-flex-unavailable-${suffix}`,
+				},
+				body: JSON.stringify({
+					model: "gpt-5.5",
+					stream,
+					messages: [{ role: "user", content: "TRIGGER_FLEX_UNAVAILABLE" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body).toContain("mock response");
+			expect(body).not.toContain("flex_unavailable");
+
+			const logs = await waitForLogs(2);
+			expect(logs.length).toBe(2);
+			const failed = logs.find((log) => log.retried);
+			const succeeded = logs.find((log) => !log.retried);
+			expect(failed?.errorDetails?.responseText).toContain("flex_unavailable");
+			expect(failed?.retriedByLogId).toBe(succeeded?.id);
+			expect(succeeded?.usedProvider).toBe("openai");
+			expect(succeeded?.hasError).toBe(false);
+			expect(succeeded?.usedServiceTier).toBeNull();
+		},
+	);
+
+	test("/v1/chat/completions does not downgrade an explicit flex tier on flex_unavailable", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-explicit-flex-unavailable",
+			...hashApiKeyForStorage("real-token-explicit-flex-unavailable"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-explicit-flex-unavailable",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-explicit-flex-unavailable",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-explicit-flex-unavailable",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "flex",
+				messages: [{ role: "user", content: "TRIGGER_FLEX_UNAVAILABLE" }],
+			}),
+		});
+
+		expect(res.status).not.toBe(200);
+		const logs = await waitForLogs(1);
+		expect(logs.every((log) => log.hasError)).toBe(true);
+	});
+
 	test("/v1/chat/completions records providers dropped by the dev-plan flex default", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devplan-flex-filtered",
@@ -7453,14 +7547,14 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-4",
+				model: "openai/gpt-4o",
 				messages: [
 					{
 						role: "user",
 						content: "Hello",
 					},
 				],
-				max_tokens: 10000, // This exceeds gpt-4's maxOutput of 8192
+				max_tokens: 20000, // This exceeds gpt-4o's maxOutput of 16384
 			}),
 		});
 
@@ -7470,8 +7564,8 @@ describe("api", () => {
 		expect(json.error.message).toContain(
 			"exceeds the maximum output tokens allowed",
 		);
-		expect(json.error.message).toContain("10000");
-		expect(json.error.message).toContain("8192");
+		expect(json.error.message).toContain("20000");
+		expect(json.error.message).toContain("16384");
 	});
 
 	test("Max tokens validation allows valid token count", async () => {
@@ -7503,14 +7597,14 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-4",
+				model: "openai/gpt-4o",
 				messages: [
 					{
 						role: "user",
 						content: "Hello",
 					},
 				],
-				max_tokens: 4000, // This is within gpt-4's maxOutput of 8192
+				max_tokens: 4000, // This is within gpt-4o's maxOutput of 16384
 			}),
 		});
 
@@ -7811,6 +7905,93 @@ describe("api", () => {
 
 		const afterBypass = await waitForLogs(3);
 		expect(afterBypass.filter((log) => log.cached).length).toBe(1);
+	});
+
+	// Requests differing only in an upstream-forwarded field must not share a
+	// cache entry — e.g. a response-healed body must never be replayed to a
+	// request that did not enable the plugin.
+	test("/v1/chat/completions cache key includes plugins and sensitive_word_check", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache-fields",
+			...hashApiKeyForStorage("real-token-cache-fields"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache-fields",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-cache-fields",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const basePayload = {
+			model: "openai/gpt-4o-mini",
+			messages: [{ role: "user", content: `Cache field test ${randomUUID()}` }],
+		};
+
+		const makeRequest = (extra: Record<string, unknown> = {}) =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-cache-fields",
+				},
+				body: JSON.stringify({ ...basePayload, ...extra }),
+			});
+
+		// Prime the cache (setCache is a no-op under NODE_ENV=test).
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const primeRes = await makeRequest();
+			expect(primeRes.status).toBe(200);
+			expect(primeRes.headers.get("x-llmgateway-cache")).toBeNull();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+
+		// Byte-identical replay hits, proving the entry is primed...
+		const replayRes = await makeRequest();
+		expect(replayRes.status).toBe(200);
+		expect(replayRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		// ...so any miss below is caused by the differing field alone.
+		const pluginsRes = await makeRequest({
+			plugins: [{ id: "response-healing" }],
+		});
+		expect(pluginsRes.status).toBe(200);
+		expect(pluginsRes.headers.get("x-llmgateway-cache")).toBeNull();
+
+		const sensitiveRes = await makeRequest({
+			sensitive_word_check: { status: "ENABLE" },
+		});
+		expect(sensitiveRes.status).toBe(200);
+		expect(sensitiveRes.headers.get("x-llmgateway-cache")).toBeNull();
+
+		// Semantically equivalent inputs must still share the primed entry:
+		// plugins: [] behaves like omitted, and reasoning.context "auto" is
+		// documented as equivalent to omitting the field.
+		const emptyPluginsRes = await makeRequest({ plugins: [] });
+		expect(emptyPluginsRes.status).toBe(200);
+		expect(emptyPluginsRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const autoContextRes = await makeRequest({
+			reasoning: { context: "auto" },
+		});
+		expect(autoContextRes.status).toBe(200);
+		expect(autoContextRes.headers.get("x-llmgateway-cache")).toBe("HIT");
 	});
 
 	// GHSA-h9ww-f95j-h54c: cache keys are project-scoped, so a byte-identical

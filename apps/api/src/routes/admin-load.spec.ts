@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const PROVIDER_ID = "load-provider";
@@ -355,6 +355,29 @@ describe("admin — gateway load", () => {
 		vi.useRealTimers();
 		await clearCatalogFixtures();
 		await deleteAll();
+	});
+
+	test("load charts match with dense and sparse idle buckets", async () => {
+		const minuteTimestamp = new Date(closedMinute.getTime() - MINUTE_MS);
+		await db.insert(tables.modelProviderMappingHistory).values({
+			modelId: MODEL_ID,
+			providerId: PROVIDER_ID,
+			modelProviderMappingId: ROOT_MAPPING_ID,
+			minuteTimestamp,
+			usedMode: "credits",
+		});
+		const dense = await fetchLoad(cookie, { axis: "model", window: "1h" });
+		await db
+			.delete(tables.modelProviderMappingHistory)
+			.where(
+				and(
+					eq(tables.modelProviderMappingHistory.modelId, MODEL_ID),
+					eq(tables.modelProviderMappingHistory.logsCount, 0),
+				),
+			);
+		expect(await fetchLoad(cookie, { axis: "model", window: "1h" })).toEqual(
+			dense,
+		);
 	});
 
 	test("rejects a non-admin session", async () => {

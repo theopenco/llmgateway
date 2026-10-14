@@ -1,6 +1,9 @@
 import {
 	buildGoogleReasoningDetails,
+	type AnthropicThinkingBlock,
 	type GoogleThoughtSignatureState,
+	sealAnthropicThinkingBlock,
+	toAnthropicReasoningDetail,
 	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -76,6 +79,51 @@ export type AnthropicToolSearchState = Map<
 	{ id: string; name: string; input: string }
 >;
 
+/**
+ * Per-stream thinking text keyed by content block index. The signature that
+ * completes a block arrives after its text, and the emitted detail must carry
+ * both for a client to replay it.
+ */
+export type AnthropicThinkingTextState = Map<number, string>;
+
+function signedThinkingChunk(
+	provider: Provider,
+	model: string,
+	block: AnthropicThinkingBlock,
+	blockIndex: number,
+) {
+	return {
+		id: `chatcmpl-${Date.now()}`,
+		object: "chat.completion.chunk",
+		created: Math.floor(Date.now() / 1000),
+		model,
+		choices: [
+			{
+				index: 0,
+				delta: {
+					reasoning_details: [
+						toAnthropicReasoningDetail(
+							sealAnthropicThinkingBlock(provider, block),
+							blockIndex,
+						),
+					],
+					role: "assistant",
+				},
+				finish_reason: null,
+			},
+		],
+	};
+}
+
+function takeThinkingText(
+	state: AnthropicThinkingTextState | undefined,
+	index: number,
+): string {
+	const text = state?.get(index) ?? "";
+	state?.delete(index);
+	return text;
+}
+
 export function transformStreamingToOpenai(
 	usedProvider: Provider,
 	usedModel: string,
@@ -89,8 +137,10 @@ export function transformStreamingToOpenai(
 		cacheThoughtSignatures?: boolean;
 		googleThoughtSignatureState?: Map<number, GoogleThoughtSignatureState>;
 		googleToolCallIndices?: Map<number, number>;
+		anthropicThinkingText?: AnthropicThinkingTextState;
 	},
 ): any {
+	const thinkingText = options?.anthropicThinkingText;
 	let transformedData = data;
 
 	const isKnownNonRenderableAwsBedrockDelta = (delta: any): boolean => {
@@ -160,6 +210,10 @@ export function transformStreamingToOpenai(
 				data.delta?.type === "thinking_delta" &&
 				data.delta?.thinking
 			) {
+				thinkingText?.set(
+					data.index,
+					(thinkingText.get(data.index) ?? "") + data.delta.thinking,
+				);
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -177,6 +231,32 @@ export function transformStreamingToOpenai(
 					],
 					usage: normalizeAnthropicUsage(usage),
 				};
+			} else if (
+				data.type === "content_block_delta" &&
+				data.delta?.type === "signature_delta" &&
+				typeof data.delta.signature === "string"
+			) {
+				transformedData = signedThinkingChunk(
+					usedProvider,
+					data.model ?? usedModel,
+					{
+						type: "thinking",
+						thinking: takeThinkingText(thinkingText, data.index),
+						signature: data.delta.signature,
+					},
+					data.index,
+				);
+			} else if (
+				data.type === "content_block_start" &&
+				data.content_block?.type === "redacted_thinking" &&
+				typeof data.content_block.data === "string"
+			) {
+				transformedData = signedThinkingChunk(
+					usedProvider,
+					data.model ?? usedModel,
+					{ type: "redacted_thinking", data: data.content_block.data },
+					data.index,
+				);
 			} else if (
 				data.type === "content_block_start" &&
 				data.content_block?.type === "server_tool_use"
@@ -414,8 +494,16 @@ export function transformStreamingToOpenai(
 				// content_block_delta and message_delta chunks), so drop them
 				// instead of forwarding an empty assistant delta.
 				return null;
-			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
+			} else if (
+				data.type === "message_delta" &&
+				(data.delta?.stop_reason ||
+					(Array.isArray(data.delta?.safeguard_results) &&
+						data.delta.safeguard_results.length > 0))
+			) {
 				const stopReason = data.delta.stop_reason;
+				// Server-side safeguard verdicts (Claude Code auto mode) ride on the
+				// final message_delta; carry them for the /v1/messages layer.
+				const safeguardResults = data.delta.safeguard_results;
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -426,8 +514,14 @@ export function transformStreamingToOpenai(
 							index: 0,
 							delta: {
 								role: "assistant",
+								...(Array.isArray(safeguardResults) &&
+									safeguardResults.length > 0 && {
+										anthropic_safeguard_results: safeguardResults,
+									}),
 							},
-							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
+							finish_reason: stopReason
+								? mapFinishReasonToOpenai(stopReason, usedProvider)
+								: null,
 						},
 					],
 					usage: normalizeAnthropicUsage(usage),
@@ -1404,6 +1498,11 @@ export function transformStreamingToOpenai(
 				eventType === "contentBlockDelta" &&
 				data.delta?.reasoningContent?.text
 			) {
+				const index = data.contentBlockIndex ?? 0;
+				thinkingText?.set(
+					index,
+					(thinkingText.get(index) ?? "") + data.delta.reasoningContent.text,
+				);
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -1481,6 +1580,34 @@ export function transformStreamingToOpenai(
 						},
 					],
 				};
+			} else if (
+				eventType === "contentBlockDelta" &&
+				typeof data.delta?.reasoningContent?.signature === "string"
+			) {
+				const index = data.contentBlockIndex ?? 0;
+				transformedData = signedThinkingChunk(
+					usedProvider,
+					usedModel,
+					{
+						type: "thinking",
+						thinking: takeThinkingText(thinkingText, index),
+						signature: data.delta.reasoningContent.signature,
+					},
+					index,
+				);
+			} else if (
+				eventType === "contentBlockDelta" &&
+				typeof data.delta?.reasoningContent?.redactedContent === "string"
+			) {
+				transformedData = signedThinkingChunk(
+					usedProvider,
+					usedModel,
+					{
+						type: "redacted_thinking",
+						data: data.delta.reasoningContent.redactedContent,
+					},
+					data.contentBlockIndex ?? 0,
+				);
 			} else if (
 				eventType === "contentBlockDelta" &&
 				isKnownNonRenderableAwsBedrockDelta(data.delta)

@@ -17,7 +17,10 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { resolveChatApiOrigin } from "@/lib/api-origin.js";
+import {
+	hasInternalClientCacheMarkers,
+	resolveChatApiOrigin,
+} from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
@@ -78,7 +81,11 @@ import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
-import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
+import {
+	evaluateProviderAccessRestriction,
+	throwIamException,
+	validateRequestModelAccess,
+} from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	errorFinishReasonDetails,
@@ -105,6 +112,9 @@ import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
+	getProviderRateLimitBypassReason,
+	mustEnforceProviderRateLimit,
+	type ProviderRateLimitResult,
 	peekProviderRateLimit,
 	pickNonRateLimitedCandidates,
 	providerRateLimitWindows,
@@ -175,9 +185,11 @@ import {
 	generateStreamingCacheKey,
 	getCache,
 	getStreamingCache,
+	redisClient,
 	setCache,
 	setStreamingCache,
 } from "@llmgateway/cache";
+import { getEffectiveProviders } from "@llmgateway/db";
 import {
 	type InferSelectModel,
 	isCachingEnabled,
@@ -215,6 +227,7 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	expandProviderRegions,
+	getContextTierMinSize,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -250,6 +263,12 @@ import {
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
+import {
+	applyAnthropicSafeguards,
+	extractAnthropicSafeguards,
+	isSafeguardBeta,
+	providerSupportsAnthropicSafeguards,
+} from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
@@ -262,7 +281,6 @@ import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import {
 	isContentFilterClassifierCompliant,
-	evaluateContentFilterWithClassifiers,
 	runContentFilterClassifier,
 	type ContentFilterCheckResult,
 } from "./tools/content-filter-classifier.js";
@@ -365,8 +383,14 @@ import {
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
 import {
+	getContentFilterLogResponse,
+	startTieredContentFilter,
+	type TieredContentFilterOutcome,
+} from "./tools/run-tiered-content-filter.js";
+import {
 	assertServiceTierHonored,
 	getForwardedServiceTier,
+	isFlexUnavailableError,
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
@@ -374,7 +398,6 @@ import {
 	describeSmartRoutingSwitch,
 	selectSmartRoutingModel,
 } from "./tools/smart-routing-selection.js";
-import { resolveSoftLimitExemptProvider } from "./tools/soft-rate-limit.js";
 import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
@@ -389,6 +412,7 @@ import {
 	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
 import {
+	type AnthropicThinkingTextState,
 	type AnthropicToolSearchState,
 	transformStreamingToOpenai,
 } from "./tools/transform-streaming-to-openai.js";
@@ -797,6 +821,8 @@ function filterEligibleModelProviders(
 		reasoningEffort?: string;
 		n?: number;
 		stream?: boolean;
+		/** Unpinned routing only: smallest context window still eligible. */
+		contextTierMinSize?: number;
 	},
 	filteredOut?: FilteredProvider[],
 ): ProviderModelMapping[] {
@@ -829,6 +855,22 @@ function filterEligibleModelProviders(
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),
+				]);
+			}
+			return false;
+		}
+
+		// Deployments far below the model's full context window would fail long
+		// conversations that the model itself supports, so requests that don't
+		// name a provider skip them.
+		if (
+			options.contextTierMinSize !== undefined &&
+			provider.contextSize !== undefined &&
+			provider.contextSize < options.contextTierMinSize
+		) {
+			if (filteredOut) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason("context_size"),
 				]);
 			}
 			return false;
@@ -2004,6 +2046,12 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
+	const anthropicSafeguards = extractAnthropicSafeguards(
+		validationResult.data.anthropic_safeguards?.safeguards,
+		validationResult.data.anthropic_safeguards?.betas
+			.filter(isSafeguardBeta)
+			.join(","),
+	);
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
 	const reasoning_context = validationResult.data.reasoning?.context;
 	const reasoning_mode = validationResult.data.reasoning?.mode;
@@ -2395,6 +2443,8 @@ chat.openapi(completions, async (c) => {
 		? expandedAllModelProviders
 		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
+	const explicitRateLimitProvider = modelInfoResult.requestedProvider;
+	const explicitRateLimitModel = modelInfoResult.modelInfo.id;
 
 	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
 	// filter providers to only those matching the requested region
@@ -2817,6 +2867,8 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (isRequestedServiceTier(service_tier)) {
+		// Captured: closures reassign `service_tier`, which defeats narrowing.
+		const routedServiceTier = service_tier;
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
 		);
@@ -2825,7 +2877,7 @@ chat.openapi(completions, async (c) => {
 				mappingSupportsRequestedServiceTier(
 					modelInfo.id,
 					mapping,
-					service_tier,
+					routedServiceTier,
 					configIndex,
 					envVariant,
 				),
@@ -2870,7 +2922,7 @@ chat.openapi(completions, async (c) => {
 			mappingSupportsRequestedServiceTier(
 				modelInfo.id,
 				mapping,
-				service_tier,
+				routedServiceTier,
 				configIndex,
 				envVariant,
 			);
@@ -2967,23 +3019,90 @@ chat.openapi(completions, async (c) => {
 				routingCfg.session.uptimeThreshold,
 			)
 		: routingCfg.retry.lowUptimeFallbackThreshold;
-	const createSessionStore = (modelId: string) =>
-		sessionStickyEnabled && sessionId
-			? createSessionProviderStore(
-					project.organizationId,
-					modelId,
-					sessionId,
-					routingCfg.session.ttlSeconds,
-				)
-			: undefined;
+	const sessionStores = new Map<
+		string,
+		ReturnType<typeof createSessionProviderStore>
+	>();
+	const pendingSessionPins = new Set<string>();
+	const createSessionStore = (modelId: string) => {
+		if (!sessionStickyEnabled || !sessionId) {
+			return undefined;
+		}
+		let store = sessionStores.get(modelId);
+		if (!store) {
+			const persistent = createSessionProviderStore(
+				project.organizationId,
+				modelId,
+				sessionId,
+				routingCfg.session.ttlSeconds,
+			);
+			let initialPin: ReturnType<typeof persistent.get> | undefined;
+			store = {
+				get: () => {
+					initialPin ??= persistent.get();
+					return initialPin;
+				},
+				// Commit the final pin only after the rate-limit gate accepts it.
+				set: async () => {
+					pendingSessionPins.add(modelId);
+				},
+			};
+			sessionStores.set(modelId, store);
+		}
+		return store;
+	};
 
-	// A session pinned to a provider keeps it past a soft rate limit; set once
-	// routing finds such a pin, and those requests still count toward the cap.
-	let softLimitExemptProvider: string | undefined;
-	const consumeProviderRateLimit = (providerId: string) =>
-		checkProviderRateLimit(project.organizationId, providerId, modelInfo.id, {
-			softExempt: providerId === softLimitExemptProvider,
+	// Snapshot the existing pin before any routing can create or replace it.
+	let initialProviderFallback = false;
+	const providerRateLimitExemption = (
+		providerId: string,
+		fallback = false,
+	) => ({
+		sessionPinned: !fallback && providerId === existingSessionProvider,
+		explicitProvider:
+			!fallback &&
+			providerId === explicitRateLimitProvider &&
+			modelInfo.id === explicitRateLimitModel,
+	});
+	const consumeProviderRateLimit = (providerId: string, fallback: boolean) =>
+		checkProviderRateLimit(
+			project.organizationId,
+			providerId,
+			modelInfo.id,
+			providerRateLimitExemption(
+				providerId,
+				fallback ||
+					initialProviderFallback ||
+					providerId !== initialRateLimitProvider,
+			),
+		);
+	const rejectProviderRateLimit = async (
+		result: ProviderRateLimitResult,
+	): Promise<never> => {
+		if (result.retryAfter) {
+			c.header("Retry-After", result.retryAfter.toString());
+			c.header("RateLimit-Reset", result.retryAfter.toString());
+			c.header(
+				"X-RateLimit-Reset",
+				(Math.floor(Date.now() / 1000) + result.retryAfter).toString(),
+			);
+		}
+		c.header("RateLimit-Remaining", "0");
+		const blockedLimits = result.blockedBy
+			.map(
+				(window) =>
+					`${result.limits[window].limit} ${providerRateLimitWindows[window].label}`,
+			)
+			.join(" and ");
+		const message = `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`;
+		await logGatewayRejection({
+			message,
+			statusCode: 429,
+			statusText: "Too Many Requests",
+			cause: "rate_limit_exceeded",
 		});
+		throw new HTTPException(429, { message });
+	};
 
 	// Keep low-uptime rerouting conservative for encrypted-reasoning mappings.
 	const usedProviderEncryptsReasoning = () =>
@@ -3449,6 +3568,7 @@ chat.openapi(completions, async (c) => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelInfo.id,
 		requestedProvider,
 		customProviderName,
@@ -3501,6 +3621,7 @@ chat.openapi(completions, async (c) => {
 					const customIam = await validateRequestModelAccess({
 						apiKey,
 						organizationId: project.organizationId,
+						providerAccessRestriction: organization.providerAccessRestriction,
 						requestedModel: modelInfo.id,
 						requestedProvider: "custom",
 						customProviderName: providerKey.name,
@@ -3571,7 +3692,11 @@ chat.openapi(completions, async (c) => {
 			message: `Provider '${customProviderName}' not found.`,
 		});
 	}
+	const effectiveProviders = getActiveCompliancePolicy(organization)
+		? await getEffectiveProviders()
+		: undefined;
 	let complianceContext: ComplianceCheckContext = {
+		effectiveProviders,
 		customAttestation: customProviderKey?.complianceAttestation ?? null,
 		customProviderName,
 	};
@@ -3731,6 +3856,47 @@ chat.openapi(completions, async (c) => {
 		}
 	};
 
+	const rejectUnsupportedSafeguards = async (): Promise<never> => {
+		const message =
+			"No compatible provider is available for the requested Anthropic safeguards. Use Anthropic or remove safeguards (in Claude Code, set CLAUDE_CODE_AUTO_MODE_SERVER=0 to use billed client-side classifier requests).";
+		await logGatewayRejection({
+			message,
+			statusCode: 400,
+			statusText: "Bad Request",
+			cause: "unsupported_anthropic_safeguards",
+		});
+		throw new HTTPException(400, {
+			message,
+			cause: "unsupported_anthropic_safeguards",
+		});
+	};
+	const enforceAnthropicSafeguards = async () => {
+		if (!anthropicSafeguards) {
+			return;
+		}
+		const supportsSafeguards = (provider: ProviderModelMapping) =>
+			providerSupportsAnthropicSafeguards(provider.providerId);
+		const eligible = iamFilteredModelProviders.filter(supportsSafeguards);
+		recordPreRoutingDrops(
+			iamFilteredModelProviders,
+			eligible,
+			"Anthropic server-side safeguards not supported",
+			"anthropic_safeguards",
+		);
+		iamFilteredModelProviders = eligible;
+		expandedIamFilteredModelProviders =
+			expandedIamFilteredModelProviders.filter(supportsSafeguards);
+		// Auto/smart reach this check after resolving a real provider. Custom
+		// transports cannot forward safeguards and must not bypass this guard.
+		if (
+			eligible.length === 0 ||
+			(usedProvider !== undefined &&
+				!providerSupportsAnthropicSafeguards(usedProvider))
+		) {
+			await rejectUnsupportedSafeguards();
+		}
+	};
+
 	// For auto/smart routing, modelInfo is still the synthetic "llmgateway"
 	// model here; compliance is enforced after the real model/provider is
 	// resolved (and the candidate set is compliance-filtered during selection
@@ -3738,6 +3904,7 @@ chat.openapi(completions, async (c) => {
 	if (usedInternalModel !== "auto" && usedInternalModel !== "smart") {
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
+		await enforceAnthropicSafeguards();
 	}
 
 	// Pricing override for custom-provider requests that match an enterprise
@@ -3819,6 +3986,7 @@ chat.openapi(completions, async (c) => {
 		customProviderKey = providerKey;
 		customPricingMapping = provider;
 		complianceContext = {
+			effectiveProviders,
 			customAttestation: providerKey?.complianceAttestation ?? null,
 			customProviderName: provider.customProviderName,
 		};
@@ -4076,6 +4244,7 @@ chat.openapi(completions, async (c) => {
 		}> = [];
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
+			anthropicSafeguards: Boolean(anthropicSafeguards),
 			webSearchTool: !!webSearchTool,
 			webSearchForced: !!webSearchTool?.forced,
 			responseFormatType: response_format?.type,
@@ -4107,6 +4276,7 @@ chat.openapi(completions, async (c) => {
 		// instead of the generic errors / hardcoded fallback below.
 		let anyPreComplianceCandidate = false;
 		let anyPostComplianceCandidate = false;
+		let blockedAutoRateLimit: ProviderRateLimitResult | undefined;
 
 		for (const staticModelDef of models) {
 			const modelDef = airsideOwnedModelIds.has(staticModelDef.id)
@@ -4208,6 +4378,7 @@ chat.openapi(completions, async (c) => {
 			const candidateIam = await validateRequestModelAccess({
 				apiKey,
 				organizationId: project.organizationId,
+				providerAccessRestriction: organization.providerAccessRestriction,
 				requestedModel: modelDef.id,
 				activeModelInfo: modelDef,
 				clientIp,
@@ -4294,6 +4465,8 @@ chat.openapi(completions, async (c) => {
 							const customIam = await validateRequestModelAccess({
 								apiKey,
 								organizationId: project.organizationId,
+								providerAccessRestriction:
+									organization.providerAccessRestriction,
 								requestedModel: modelDef.id,
 								requestedProvider: "custom",
 								customProviderName: providerKey.name,
@@ -4430,9 +4603,39 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 					providerDiscountResolver,
 				);
+			// Remove exhausted routes before ranking models or preferring BYOK.
+			let rateLimitEligibleProviders = deduplicatedSuitableProviders;
+			if (rateLimitEligibleProviders.length > 0) {
+				const pin = await createSessionStore(modelDef.id)?.get();
+				const { enforcedLimits, sessionExemptible } =
+					await filterRateLimitedProviders(
+						project.organizationId,
+						rateLimitEligibleProviders.map((provider) => ({
+							providerId: provider.providerId,
+							model: modelDef.id,
+						})),
+					);
+				rateLimitEligibleProviders = rateLimitEligibleProviders.filter(
+					(provider) => {
+						const limit = enforcedLimits.get(provider.providerId);
+						if (
+							!limit ||
+							(provider.providerId === pin?.providerId &&
+								sessionExemptible.has(provider.providerId))
+						) {
+							return true;
+						}
+						blockedAutoRateLimit ??= limit;
+						recordFilteredProvider(filteredOutForModel, provider.providerId, [
+							exclusionReason("rate_limited"),
+						]);
+						return false;
+					},
+				);
+			}
 			const preferredSuitableProviders = preferProvidersWithKeys(
 				project.mode,
-				deduplicatedSuitableProviders,
+				rateLimitEligibleProviders,
 				providersWithKeys,
 			);
 
@@ -4485,6 +4688,10 @@ chat.openapi(completions, async (c) => {
 					});
 				}
 			}
+		}
+
+		if (smartRoutingCandidates.length === 0 && blockedAutoRateLimit) {
+			await rejectProviderRateLimit(blockedAutoRateLimit);
 		}
 
 		// A sticky session keeps its model and effort across turns, and only
@@ -4564,6 +4771,7 @@ chat.openapi(completions, async (c) => {
 			customProviderKey = providerKey;
 			customPricingMapping = provider;
 			complianceContext = {
+				effectiveProviders,
 				customAttestation: providerKey?.complianceAttestation ?? null,
 				customProviderName: provider.customProviderName,
 			};
@@ -4672,6 +4880,9 @@ chat.openapi(completions, async (c) => {
 					message: complianceBlockMessage(modelInfo.id),
 				});
 			}
+			if (anthropicSafeguards) {
+				await rejectUnsupportedSafeguards();
+			}
 			// A dynamic route must never silently fall back to the hardcoded
 			// default model — fail with the route's resolved target instead.
 			if (dynamicRouteSelection) {
@@ -4738,6 +4949,7 @@ chat.openapi(completions, async (c) => {
 		const resolvedIamValidation = await validateRequestModelAccess({
 			apiKey,
 			organizationId: project.organizationId,
+			providerAccessRestriction: organization.providerAccessRestriction,
 			requestedModel: modelInfo.id,
 			requestedProvider: usedProvider === "custom" ? "custom" : undefined,
 			customProviderName:
@@ -4750,6 +4962,19 @@ chat.openapi(completions, async (c) => {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
 		}
 		const allowedProviders = resolvedIamValidation.allowedProviders;
+		// The no-candidate fallback above pins its provider without consulting
+		// the staff-managed restriction. Only an org with a restriction set can
+		// be refused here; every other org keeps the existing behavior.
+		if (organization.providerAccessRestriction && usedProvider !== "custom") {
+			const restricted = evaluateProviderAccessRestriction(
+				organization.providerAccessRestriction,
+				modelInfo,
+				usedProvider,
+			);
+			if (!restricted.allowed) {
+				throwIamException(restricted.reason ?? "Model access denied");
+			}
+		}
 		iamFilteredModelProviders = allowedProviders
 			? modelInfo.providers.filter((p) =>
 					allowedProviders.includes(p.providerId),
@@ -4776,6 +5001,7 @@ chat.openapi(completions, async (c) => {
 		}
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
+		await enforceAnthropicSafeguards();
 	} else if (
 		(usedProvider === "llmgateway" && usedInternalModel === "custom") ||
 		usedInternalModel === "custom"
@@ -4789,6 +5015,10 @@ chat.openapi(completions, async (c) => {
 	// models. Auto routing already filtered to free models above; this rejects an
 	// explicitly-requested (or custom) paid model with a pointer to the auto route.
 	assertTestWalletModelAllowed(endUserWallet, modelInfo);
+
+	const existingSessionProvider = (
+		await createSessionStore(modelInfo.id)?.get()
+	)?.providerId;
 
 	// Peek the requested provider's caps before region selection below, which
 	// pins the session: read afterwards, a brand-new session would look already
@@ -4804,12 +5034,6 @@ chat.openapi(completions, async (c) => {
 					modelInfo.id,
 				)
 			: undefined;
-	if (usedProvider && requestedProviderRateLimitPeek?.softOnly) {
-		softLimitExemptProvider = await resolveSoftLimitExemptProvider(
-			createSessionStore(modelInfo.id),
-			new Set([usedProvider]),
-		);
-	}
 
 	// When a specific provider is requested and it has multiple mappings (for example,
 	// regional variants), pick the best eligible mapping up front so the request and
@@ -5033,23 +5257,15 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 		const rateLimitPeek = requestedProviderRateLimitPeek;
 
-		if (rateLimitPeek.rateLimited && !softLimitExemptProvider) {
+		if (
+			rateLimitPeek.rateLimited &&
+			!getProviderRateLimitBypassReason(
+				rateLimitPeek,
+				providerRateLimitExemption(usedProvider),
+			)
+		) {
 			if (noFallback) {
-				const blockedLimits = rateLimitPeek.blockedBy
-					.map(
-						(window) =>
-							`${rateLimitPeek.limits[window].limit} ${providerRateLimitWindows[window].label}`,
-					)
-					.join(" and ");
-
-				const message = `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`;
-				await logGatewayRejection({
-					message,
-					statusCode: 429,
-					statusText: "Too Many Requests",
-					cause: "rate_limit_exceeded",
-				});
-				throw new HTTPException(429, { message });
+				await rejectProviderRateLimit(rateLimitPeek);
 			}
 
 			// Attempt to re-route to alternative providers (same pattern as low-uptime fallback)
@@ -5074,6 +5290,10 @@ chat.openapi(completions, async (c) => {
 						await findManagedProviderAvailability(envVariant, baseModelId),
 					);
 
+				const rateLimitContextTierMinSize = getContextTierMinSize(
+					baseModelId,
+					modelInfo.providers,
+				);
 				const availableModelProviders = preferConcreteRegionalMappings(
 					applyPinnedDefaultRegions(iamFilteredModelProviders, {
 						explicitLocks: buildProviderLockedRegions(providerKeys),
@@ -5086,6 +5306,13 @@ chat.openapi(completions, async (c) => {
 					if (
 						provider.providerId === usedProvider &&
 						provider.region === usedRegion
+					) {
+						return false;
+					}
+					if (
+						rateLimitContextTierMinSize !== undefined &&
+						provider.contextSize !== undefined &&
+						provider.contextSize < rateLimitContextTierMinSize
 					) {
 						return false;
 					}
@@ -5195,6 +5422,8 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								[exclusionReason("rate_limited")],
 							);
+							initialProviderFallback ||=
+								cheapestResult.provider.providerId !== usedProvider;
 							usedProvider = cheapestResult.provider.providerId;
 							usedInternalModel = modelInfo.id;
 							usedExternalId = cheapestResult.provider.externalId;
@@ -5318,6 +5547,10 @@ chat.openapi(completions, async (c) => {
 						reasoningEffort: reasoning_effort,
 						n,
 						stream,
+						contextTierMinSize: getContextTierMinSize(
+							baseModelId,
+							modelInfo.providers,
+						),
 					},
 					filteredOutProvidersFallback,
 				).filter(
@@ -5446,6 +5679,8 @@ chat.openapi(completions, async (c) => {
 							};
 
 							if (cheapestResult) {
+								initialProviderFallback ||=
+									cheapestResult.provider.providerId !== usedProvider;
 								usedProvider = cheapestResult.provider.providerId;
 								usedInternalModel = modelInfo.id;
 								usedExternalId = cheapestResult.provider.externalId;
@@ -5567,6 +5802,10 @@ chat.openapi(completions, async (c) => {
 				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
+				contextTierMinSize: getContextTierMinSize(
+					routedModelId,
+					modelInfo.providers,
+				),
 			};
 			const filteredOutProvidersDirect: FilteredProvider[] = [];
 			const eligibleModelProviders = filterEligibleModelProviders(
@@ -5638,6 +5877,25 @@ chat.openapi(completions, async (c) => {
 						stream,
 						hasAssistantPrefill: false,
 					}).length > 0;
+				const smallerWindowMappings =
+					eligibilityOptions.contextTierMinSize === undefined
+						? []
+						: filterEligibleModelProviders(preparedModelProviders, {
+								...eligibilityOptions,
+								n,
+								stream,
+								contextTierMinSize: undefined,
+							});
+				if (smallerWindowMappings.length > 0) {
+					const pinnable = Array.from(
+						new Set(smallerWindowMappings.map((p) => p.providerId)),
+					)
+						.map((providerId) => `${providerId}/${usedInternalModel}`)
+						.join(", ");
+					throw new HTTPException(400, {
+						message: `No provider serving the full context window of model ${usedInternalModel} is available. Deployments with a smaller window only serve requests that name them: ${pinnable}.`,
+					});
+				}
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
@@ -5664,28 +5922,40 @@ chat.openapi(completions, async (c) => {
 			// peeked across the full candidate list (not just keyed providers) so
 			// hybrid mode can overflow to credits-backed providers when every keyed
 			// candidate is rate limited.
-			const { rateLimited: rateLimitedProviderIds, softOnly } =
-				await filterRateLimitedProviders(
-					project.organizationId,
-					contentFilterPreferredProviders.map((p) => ({
-						providerId: p.providerId,
-						model: (modelInfo as ModelDefinition).id,
-					})),
-				);
-			softLimitExemptProvider = await resolveSoftLimitExemptProvider(
-				createSessionStore((modelInfo as ModelDefinition).id),
-				softOnly,
+			const {
+				rateLimited: rateLimitedProviderIds,
+				sessionExemptible,
+				enforcedLimits,
+			} = await filterRateLimitedProviders(
+				project.organizationId,
+				contentFilterPreferredProviders.map((p) => ({
+					providerId: p.providerId,
+					model: (modelInfo as ModelDefinition).id,
+				})),
 			);
+			const sessionExemptProvider =
+				existingSessionProvider &&
+				sessionExemptible.has(existingSessionProvider)
+					? existingSessionProvider
+					: undefined;
 			const routingCandidates = getRoutingCandidatesForProjectMode(
 				project.mode,
-				contentFilterPreferredProviders,
+				contentFilterPreferredProviders.filter(
+					(candidate) =>
+						!enforcedLimits.has(candidate.providerId) ||
+						candidate.providerId === sessionExemptProvider,
+				),
 				new Set(
 					[...rateLimitedProviderIds].filter(
-						(providerId) => providerId !== softLimitExemptProvider,
+						(providerId) => providerId !== sessionExemptProvider,
 					),
 				),
 				providersWithKeys,
 			);
+			if (routingCandidates.length === 0 && enforcedLimits.size > 0) {
+				await rejectProviderRateLimit([...enforcedLimits.values()][0]);
+			}
+
 			const routingCandidateProviderIds = new Set(
 				routingCandidates.map((candidate) => candidate.providerId),
 			);
@@ -5872,11 +6142,11 @@ chat.openapi(completions, async (c) => {
 					applySelectedCustomProvider(routingCandidates[0]);
 				}
 			} else {
-				usedProvider = contentFilterPreferredProviders[0].providerId;
+				usedProvider = routingCandidates[0].providerId;
 				usedInternalModel = modelInfo.id;
-				usedExternalId = contentFilterPreferredProviders[0].externalId;
-				usedRegion = contentFilterPreferredProviders[0].region;
-				applySelectedCustomProvider(contentFilterPreferredProviders[0]);
+				usedExternalId = routingCandidates[0].externalId;
+				usedRegion = routingCandidates[0].region;
+				applySelectedCustomProvider(routingCandidates[0]);
 			}
 		}
 	}
@@ -5907,7 +6177,11 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		let routingMetadataProviders = allModelProviders;
+		let routingMetadataProviders = anthropicSafeguards
+			? allModelProviders.filter((provider) =>
+					providerSupportsAnthropicSafeguards(provider.providerId),
+				)
+			: allModelProviders;
 		let directProviderRegionWasExplicit = false;
 
 		if (
@@ -6643,68 +6917,36 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Consume a rate-limit slot for the chosen provider (routing already filtered rate-limited ones)
+	const initialRateLimitProvider = usedProvider;
 	{
-		const providerRateLimitResult =
-			await consumeProviderRateLimit(usedProvider);
+		const providerRateLimitResult = await consumeProviderRateLimit(
+			usedProvider,
+			false,
+		);
 
-		if (providerRateLimitResult.softLimitBypassed) {
+		if (providerRateLimitResult.bypassReason) {
 			const scoreEntry = routingMetadata?.providerScores.find(
 				(score) => score.providerId === usedProvider,
 			);
 			if (scoreEntry) {
 				scoreEntry.rate_limited = true;
 			}
-			logger.info("Soft provider rate limit bypassed for pinned session", {
+			logger.info("Provider rate limit bypassed for pinned request", {
 				organizationId: project.organizationId,
 				provider: usedProvider,
 				model: modelInfo.id,
+				reason: providerRateLimitResult.bypassReason,
 			});
 		}
 
-		// Serving an explicitly requested provider skips provider selection and
-		// its pinning, so pin here: the session's later requests then count as
-		// ongoing under a soft limit and stay on this provider's prompt cache.
-		if (
-			providerRateLimitResult.allowed &&
-			requestedProviderRateLimitPeek &&
-			usedProvider === requestedProvider
-		) {
-			await createSessionStore(modelInfo.id)?.set(usedProvider, usedRegion);
-		}
-
 		// Race condition: between peek and consume, the window may have filled.
-		// Zero global caps always block, including when every routing candidate is capped.
+		// Lax and zero caps require an exemption even when every candidate is capped.
 		if (!providerRateLimitResult.allowed) {
 			if (
 				(noFallback && requestedProvider) ||
-				providerRateLimitResult.blockedBy.some(
-					(window) => providerRateLimitResult.limits[window].limit === 0,
-				)
+				mustEnforceProviderRateLimit(providerRateLimitResult)
 			) {
-				const retryAfter = providerRateLimitResult.retryAfter;
-				if (retryAfter) {
-					c.header("Retry-After", retryAfter.toString());
-					c.header("RateLimit-Reset", retryAfter.toString());
-					const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
-					c.header("X-RateLimit-Reset", resetTime.toString());
-				}
-				c.header("RateLimit-Remaining", "0");
-
-				const blockedLimits = providerRateLimitResult.blockedBy
-					.map(
-						(window) =>
-							`${providerRateLimitResult.limits[window].limit} ${providerRateLimitWindows[window].label}`,
-					)
-					.join(" and ");
-
-				const message = `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`;
-				await logGatewayRejection({
-					message,
-					statusCode: 429,
-					statusText: "Too Many Requests",
-					cause: "rate_limit_exceeded",
-				});
-				throw new HTTPException(429, { message });
+				await rejectProviderRateLimit(providerRateLimitResult);
 			}
 			// Otherwise proceed — the provider was the best available option from routing
 			logger.warn(
@@ -6718,6 +6960,24 @@ chat.openapi(completions, async (c) => {
 					),
 				},
 			);
+		}
+		// Serving an explicitly requested provider skips provider selection and
+		// its pinning, so pin here: the session's later requests then count as
+		// ongoing under a soft limit and stay on this provider's prompt cache.
+		if (
+			sessionStickyEnabled &&
+			sessionId &&
+			(pendingSessionPins.has(modelInfo.id) ||
+				(providerRateLimitResult.allowed &&
+					requestedProviderRateLimitPeek &&
+					usedProvider === requestedProvider))
+		) {
+			await createSessionProviderStore(
+				project.organizationId,
+				modelInfo.id,
+				sessionId,
+				routingCfg.session.ttlSeconds,
+			).set(usedProvider, usedRegion);
 		}
 	}
 
@@ -6788,9 +7048,6 @@ chat.openapi(completions, async (c) => {
 	// classifier so a request never triggers a duplicate moderation call. Only a
 	// verdict that can block is awaited; otherwise the classifier runs in the
 	// background and its evaluation is attached to the log once it settles.
-	type TieredContentFilterOutcome = Awaited<
-		ReturnType<typeof evaluateContentFilterWithClassifiers>
-	>;
 	let tieredContentFilter: TieredContentFilterOutcome = null;
 	let pendingTieredContentFilter: Promise<TieredContentFilterOutcome> | null =
 		null;
@@ -6800,46 +7057,17 @@ chat.openapi(completions, async (c) => {
 		await getContentFilterSettings(),
 	);
 	if (tieredContentFilterPlan) {
-		const plan = tieredContentFilterPlan;
-		const runTieredContentFilter = async (signal: AbortSignal | undefined) => {
-			const outcome = await evaluateContentFilterWithClassifiers({
-				plan,
-				messages: messages as BaseMessage[],
-				context: contentFilterContext,
-				signal,
-				imagesAllowed: openAiContentFilterAllowed,
-				classifierAllowed: contentFilterClassifierAllowed,
-				existing: envContentFilterResult,
-			});
-			if (outcome?.evaluation.violation) {
-				logger.debug("gateway_content_filter_tier", {
-					requestId,
-					organizationId: project.organizationId,
-					provider: usedProvider,
-					tier: plan.tier,
-					level: plan.level,
-					classifier: plan.classifier,
-					action: outcome.evaluation.action,
-					matchedCategories: outcome.evaluation.matchedCategories,
-				});
-			}
-			return outcome;
-		};
-		if (plan.enforce) {
-			tieredContentFilter = await runTieredContentFilter(c.req.raw.signal);
-		} else {
-			// Detached from the client's signal so a hang-up does not cancel the
-			// observation; each classifier's own timeout bounds it.
-			pendingTieredContentFilter = trackPendingWork(
-				runTieredContentFilter(undefined).catch((error: unknown) => {
-					logger.warn("Background gateway content filter failed", {
-						requestId,
-						error: toError(error),
-					});
-					return null;
-				}),
-			);
-		}
+		const started = await startTieredContentFilter({
+			plan: tieredContentFilterPlan,
+			messages: messages as BaseMessage[],
+			context: contentFilterContext,
+			signal: c.req.raw.signal,
+			imagesAllowed: openAiContentFilterAllowed,
+			classifierAllowed: contentFilterClassifierAllowed,
+			existing: envContentFilterResult,
+		});
+		tieredContentFilter = started.outcome;
+		pendingTieredContentFilter = started.pending;
 	}
 	const tierContentFilterBlocked =
 		tieredContentFilter?.evaluation.action === "blocked";
@@ -6861,9 +7089,7 @@ chat.openapi(completions, async (c) => {
 				evaluation?.violation === true,
 			// Stored for every moderated request; the 30-day data retention cleanup
 			// nulls it again, so the extra jsonb per sampled row is bounded.
-			response: results.some((result) => result.responses.length > 0)
-				? results.flatMap((result) => result.responses)
-				: null,
+			response: getContentFilterLogResponse(results),
 			evaluation,
 		};
 	};
@@ -7129,7 +7355,7 @@ chat.openapi(completions, async (c) => {
 		// registered on its approved claim.
 		url = getProviderEndpoint(
 			airsideCustomBaseUrl ? "custom" : usedProvider,
-			airsideCustomBaseUrl ?? credentialBaseUrl,
+			credentialBaseUrl ?? airsideCustomBaseUrl,
 			upstreamModelName,
 			usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
 			stream,
@@ -7192,7 +7418,11 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
+		providerCacheAutoTtl: configuredProviderCacheAutoTtl,
 	} = await isCachingEnabled(project.id);
+	const providerCacheAutoTtl = hasInternalClientCacheMarkers(c)
+		? "5m"
+		: configuredProviderCacheAutoTtl;
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
 		: configuredProviderCacheControlMode;
@@ -7225,11 +7455,23 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
+			// Schema documents omitting reasoning.context as equivalent to "auto"
+			reasoning_context:
+				reasoning_context === "auto" ? undefined : reasoning_context,
+			reasoning_mode,
 			prompt_cache_key,
 			prompt_cache_retention,
 			prompt_cache_options,
 			n,
 			service_tier,
+			// A reply cached without safeguard verdicts must not answer a request
+			// that asked for them, or Claude Code falls back to its billed classifier.
+			anthropic_safeguards: anthropicSafeguards,
+			verbosity,
+			effort,
+			image_config,
+			sensitive_word_check,
+			plugins: plugins?.length ? plugins : undefined,
 		};
 
 		if (stream) {
@@ -7975,7 +8217,6 @@ chat.openapi(completions, async (c) => {
 		isGoogleCompatibleProvider(transportProvider) &&
 		!zeroDataRetentionEnabled
 	) {
-		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
 				message.role === "assistant" &&
@@ -8073,6 +8314,7 @@ chat.openapi(completions, async (c) => {
 			organization.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
+			providerCacheAutoTtl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8284,6 +8526,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlMode,
+				providerCacheAutoTtl,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
@@ -8420,10 +8663,56 @@ chat.openapi(completions, async (c) => {
 				return null;
 			}
 
+			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return null;
+			}
 			return nextContext;
 		} catch {
 			return null;
 		}
+	}
+
+	// The coding-plan flex default is a soft cost preference, so when the
+	// provider has no Flex capacity, retry it at standard instead of failing.
+	// A tier the client asked for itself is never downgraded.
+	async function tryResolveStandardTierRetryContext(
+		errorText: string,
+		streamValue: boolean,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			serviceTierSource !== "coding-plan-default" ||
+			service_tier !== "flex" ||
+			!usedProvider ||
+			!isFlexUnavailableError(errorText)
+		) {
+			return null;
+		}
+
+		service_tier = undefined;
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
+			if (!(await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return nextContext;
+			}
+		} catch (error) {
+			logger.warn(
+				"Failed to resolve standard-tier retry after flex_unavailable",
+				{
+					error: toError(error).message,
+					usedProvider,
+					usedInternalModel,
+				},
+			);
+		}
+		service_tier = "flex";
+		return null;
 	}
 
 	// Handle streaming response if requested
@@ -8876,6 +9165,7 @@ chat.openapi(completions, async (c) => {
 						// requests routed to a provider via fallback, not just the initial pick.
 						const retryRateLimitResult = await consumeProviderRateLimit(
 							nextProvider.providerId,
+							nextProvider.providerId !== usedProvider,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -8968,6 +9258,13 @@ chat.openapi(completions, async (c) => {
 								: "structured-outputs-2025-11-13";
 						}
 
+						applyAnthropicSafeguards(
+							transportProvider,
+							requestBody,
+							headers,
+							anthropicSafeguards,
+						);
+
 						// For the Gemini Developer API the processing tier is a body
 						// field; Vertex uses a header set above in getProviderHeaders.
 						applyGoogleServiceTier(
@@ -8996,7 +9293,7 @@ chat.openapi(completions, async (c) => {
 								body: JSON.stringify(requestBody),
 								signal: fetchSignal,
 							},
-							airsideCustomBaseUrl ?? providerKey?.baseUrl,
+							providerKey?.baseUrl ?? airsideCustomBaseUrl,
 						);
 
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
@@ -9083,7 +9380,8 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider, false))
+									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
@@ -9322,7 +9620,8 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider, false))
+									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
@@ -9590,8 +9889,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								finishReason,
 								res.status,
@@ -9640,7 +9943,8 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider, false))
+								.rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
@@ -9972,8 +10276,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								errorType,
 								inferredStatusCode,
@@ -10021,7 +10329,8 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider, false))
+								.rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider ||
 							willRetryStreamingError ||
@@ -10346,6 +10655,7 @@ chat.openapi(completions, async (c) => {
 					number,
 					GoogleThoughtSignatureState
 				>();
+				const anthropicThinkingText: AnthropicThinkingTextState = new Map();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -11224,6 +11534,7 @@ chat.openapi(completions, async (c) => {
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
 										googleThoughtSignatureState,
 										googleToolCallIndices,
+										anthropicThinkingText,
 									},
 								);
 
@@ -13325,6 +13636,7 @@ chat.openapi(completions, async (c) => {
 			// requests routed to a provider via fallback, not just the initial pick.
 			const retryRateLimitResult = await consumeProviderRateLimit(
 				nextProvider.providerId,
+				nextProvider.providerId !== usedProvider,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
@@ -13417,6 +13729,13 @@ chat.openapi(completions, async (c) => {
 					: "structured-outputs-2025-11-13";
 			}
 
+			applyAnthropicSafeguards(
+				transportProvider,
+				requestBody,
+				headers,
+				anthropicSafeguards,
+			);
+
 			// Create a combined signal for both timeout and cancellation
 			// Non-streaming requests use a shorter timeout (default 80s).
 			// When we're forcing upstream SSE for openai/azure gpt-image-* (to
@@ -13453,7 +13772,7 @@ chat.openapi(completions, async (c) => {
 							: JSON.stringify(requestBody),
 					signal: fetchSignal,
 				},
-				airsideCustomBaseUrl ?? providerKey?.baseUrl,
+				providerKey?.baseUrl ?? airsideCustomBaseUrl,
 			);
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
@@ -13560,7 +13879,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
@@ -13959,8 +14278,12 @@ chat.openapi(completions, async (c) => {
 
 			let sameProviderRetryContext: Awaited<
 				ReturnType<typeof resolveProviderContext>
-			> | null = null;
+			> | null = await tryResolveStandardTierRetryContext(
+				errorResponseText,
+				stream,
+			);
 			if (
+				!sameProviderRetryContext &&
 				shouldRetryAlternateKey(finishReason, res.status, errorResponseText)
 			) {
 				rememberFailedKey(usedProvider, usedRegion, {
@@ -14005,7 +14328,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 
@@ -15295,6 +15618,15 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
 			parsedResponse.anthropicNativeBlocks;
+	}
+	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
+	// /v1/messages layer hands them back as `safeguard_results`.
+	if (
+		parsedResponse.anthropicSafeguardResults !== null &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_safeguard_results =
+			parsedResponse.anthropicSafeguardResults;
 	}
 	// Surface the effective reasoning context the provider applied so the
 	// Responses layer reports the served mode rather than echoing the request.

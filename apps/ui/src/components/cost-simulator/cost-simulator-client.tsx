@@ -212,7 +212,7 @@ const useCases: UseCase[] = [
 		icon: FileText,
 		description:
 			"Structured data extraction from documents, emails, and unstructured text",
-		selectorValue: "openai/gpt-4.1-nano",
+		selectorValue: "openai/gpt-5.4-nano",
 		requestsPerDay: 20000,
 		avgInputTokens: 2000,
 		avgOutputTokens: 300,

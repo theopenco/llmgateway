@@ -23,6 +23,7 @@ import {
 	Newspaper,
 	ScrollText,
 	Server,
+	Terminal,
 	Shield,
 	ShieldCheck,
 	Sparkles,
@@ -348,6 +349,16 @@ export const Navbar = ({
 			icon: Server,
 			gradient:
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
+		},
+		{
+			title: "CLI",
+			href: "https://docs.llmgateway.io/developers/cli",
+			description:
+				"Launch Claude Code, Codex and more pre-wired to LLM Gateway.",
+			icon: Terminal,
+			gradient:
+				"hover:from-slate-500/20 hover:to-zinc-600/30 hover:shadow-slate-500/10 group-hover/product:text-slate-500 dark:group-hover/product:text-slate-300",
+			external: true,
 		},
 		{
 			title: "Agents",

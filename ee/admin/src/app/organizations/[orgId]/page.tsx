@@ -14,6 +14,7 @@ import {
 	ScrollText,
 	Settings,
 	Shield,
+	ShieldBan,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -65,7 +66,9 @@ import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
+import { parseOrganizationTab } from "./organization-tab-values";
 import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
+import { ProviderAccessTab } from "./provider-access-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
@@ -214,7 +217,7 @@ export default async function OrganizationPage({
 	const alPage = parsePage(searchParamsData?.alPage);
 	const alAction = searchParamsData?.alAction ?? "";
 	const alResource = searchParamsData?.alResource ?? "";
-	const activeTab = searchParamsData?.tab ?? "transactions";
+	const activeTab = parseOrganizationTab(searchParamsData?.tab);
 	const txLimit = 25;
 	const txOffset = (txPage - 1) * txLimit;
 	const akLimit = 25;
@@ -388,7 +391,11 @@ export default async function OrganizationPage({
 									apiKeyLimit={org.apiKeyLimit ?? null}
 									projectLimit={org.projectLimit ?? null}
 									trustTierOverride={
-										trustTier?.overridden ? trustTier.tier : null
+										trustTier
+											? trustTier.overridden
+												? trustTier.tier
+												: null
+											: undefined
 									}
 									contentFilterTierOverride={
 										settingsData?.organization.contentFilterTierOverride
@@ -738,6 +745,10 @@ export default async function OrganizationPage({
 						<Shield className="mr-1.5 h-4 w-4" />
 						Guardrails
 					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="provider-access">
+						<ShieldBan className="mr-1.5 h-4 w-4" />
+						Provider Access
+					</OrganizationTabTrigger>
 					<OrganizationTabTrigger value="sso">
 						<Lock className="mr-1.5 h-4 w-4" />
 						SSO
@@ -1049,6 +1060,10 @@ export default async function OrganizationPage({
 							Failed to load guardrails
 						</p>
 					)}
+				</TabsContent>
+
+				<TabsContent value="provider-access">
+					<ProviderAccessTab orgId={orgId} />
 				</TabsContent>
 
 				<TabsContent value="sso">

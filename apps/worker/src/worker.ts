@@ -71,6 +71,7 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import { startHistoryAfterRecovery } from "./services/history-startup.js";
 import {
 	runModelStatsByokErrorsBackfillStep,
 	runSourceModelStatsBackfillStep,
@@ -91,6 +92,8 @@ import {
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
 	calculateMinutelyHistory,
+	getModelHistoryRetentionCutoff,
+	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 import {
@@ -975,7 +978,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // forever and now serve every window beyond 24h (7d/30d/90d public stats), so
 // the only readers of the minute tables are short windows (<=24h). 30 days
 // leaves a comfortable buffer over the largest minute-level reader.
-const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
@@ -1047,9 +1049,7 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 	try {
 		logger.info("Starting model history retention cleanup...");
 
-		const cutoffDate = new Date(
-			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
-		);
+		const cutoffDate = getModelHistoryRetentionCutoff();
 
 		const mapping = await cleanupModelHistoryTable(
 			tables.modelProviderMappingHistory,
@@ -1070,6 +1070,29 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
 			);
 		}
+
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					eq(tables.aggregationProgress.job, "minute-usage"),
+					lt(tables.aggregationProgress.bucketTimestamp, cutoffDate),
+				),
+			);
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					inArray(tables.aggregationProgress.job, [
+						"routing",
+						"content-filter",
+					]),
+					lt(
+						tables.aggregationProgress.bucketTimestamp,
+						getLogRetentionCutoff(),
+					),
+				),
+			);
 
 		logger.info("Model history retention cleanup completed successfully");
 	} catch (error) {
@@ -2653,6 +2676,7 @@ async function runDataRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				await enforceRetentionPlanGating();
 				await cleanupExpiredLogData();
 
 				await interruptibleSleep(interval);
@@ -2680,6 +2704,11 @@ async function runModelHistoryRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				// Retry capped recovery and diagnostics before allowing minute pruning.
+				hourlyBackfillComplete =
+					(await backfillHistoryIfNeeded()) &&
+					(await backfillHourlyHistoryIfNeeded());
+
 				if (hourlyBackfillComplete) {
 					await cleanupExpiredModelHistory();
 				} else {
@@ -3459,6 +3488,19 @@ async function runProviderKeyModelSyncLoop() {
 	}
 }
 
+async function runHistoryStartupLoop() {
+	activeLoops++;
+	try {
+		await startHistoryAfterRecovery(() => {
+			void runMinutelyHistoryLoop();
+			void runCurrentMinuteHistoryLoop();
+			void runModelHistoryRetentionLoop();
+		});
+	} finally {
+		activeLoops--;
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3494,25 +3536,7 @@ export async function startWorker() {
 		);
 	}
 
-	void backfillHistoryIfNeeded()
-		.then(() => {
-			logger.info("History backfill check completed");
-			// Hourly summaries roll up the minute history, so backfill them only
-			// after the minute backfill has had a chance to fill recent gaps.
-			return backfillHourlyHistoryIfNeeded();
-		})
-		.then(() => {
-			logger.info("Hourly history backfill check completed");
-			// Hourly rollups are now populated, so minute-history pruning is safe.
-			hourlyBackfillComplete = true;
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during history backfill",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
-
+	void runHistoryStartupLoop();
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
@@ -3559,8 +3583,6 @@ export async function startWorker() {
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
 
-	void runMinutelyHistoryLoop();
-	void runCurrentMinuteHistoryLoop();
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
 	void runModelVerificationLoop();
@@ -3589,7 +3611,6 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
-	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
 	void runLimitHitFlushLoop();
@@ -3674,4 +3695,54 @@ export async function stopWorker(): Promise<boolean> {
 
 	logger.info("Worker stopped gracefully");
 	return true;
+}
+// Retain All Data moved to Enterprise on 2026-10-09 with a 30-day transition
+// window. Non-Enterprise organizations on the hosted platform that still retain
+// payloads are switched to Metadata Only once the window closes. Self-hosted
+// installs are never downgraded.
+const RETENTION_PLAN_GATING_CUTOFF = new Date("2026-11-08T00:00:00Z");
+const RETENTION_PLAN_GATING_LOCK_KEY = "retention_plan_gating";
+
+export async function enforceRetentionPlanGating(
+	now: Date = new Date(),
+): Promise<number> {
+	if (process.env.HOSTED !== "true" || now < RETENTION_PLAN_GATING_CUTOFF) {
+		return 0;
+	}
+
+	const lockAcquired = await acquireLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	if (!lockAcquired) {
+		return 0;
+	}
+
+	try {
+		const switched = await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none", updatedAt: now })
+			.where(
+				and(
+					eq(tables.organization.retentionLevel, "retain"),
+					eq(tables.organization.kind, "default"),
+					sql`${tables.organization.plan} <> 'enterprise'`,
+				),
+			)
+			.returning({ id: tables.organization.id });
+
+		if (switched.length > 0) {
+			await invalidateOrganizationsCache(switched.map((org) => org.id));
+			logger.info(
+				`Retention plan gating switched ${switched.length} organizations to Metadata Only`,
+			);
+		}
+
+		return switched.length;
+	} catch (error) {
+		logger.error(
+			"Error enforcing retention plan gating",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return 0;
+	} finally {
+		await releaseLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	}
 }

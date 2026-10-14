@@ -311,6 +311,7 @@ export {
 } from "./custom-providers.js";
 
 export {
+	mostRestrictiveApiKeyLimits,
 	validateApiKeyLimitsWithinMemberBudget,
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,
@@ -338,6 +339,8 @@ export {
 	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
+	interpolateRoutingDefaults,
+	MAX_THROUGHPUT_SCORE,
 	type ProviderPriorityOverrides,
 	resolveRoutingConfig,
 	type ResolvedRoutingConfig,

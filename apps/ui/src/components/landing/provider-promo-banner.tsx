@@ -46,10 +46,15 @@ export function ProviderPromoBanner({
 								: "bg-[#a8f399] text-[#0c1a08]",
 						)}
 					>
-						<ProviderPromoContent key={promo.id} promo={promo} />
-						<ArrowRight
-							aria-hidden="true"
-							className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-hover/promo:translate-x-0.5 motion-reduce:transition-none motion-reduce:transform-none"
+						<ProviderPromoContent
+							key={promo.id}
+							promo={promo}
+							trailing={
+								<ArrowRight
+									aria-hidden="true"
+									className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-hover/promo:translate-x-0.5 motion-reduce:transition-none motion-reduce:transform-none"
+								/>
+							}
 						/>
 					</Link>
 				</div>
