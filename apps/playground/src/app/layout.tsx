@@ -124,6 +124,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 			suppressHydrationWarning
 		>
 			<head>
+				{/* Chat, billing and model queries hit the API origin from the
+				    browser right after hydration; warm up the connection early. */}
+				<link rel="preconnect" href={config.apiUrl} />
 				<script
 					type="application/ld+json"
 					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml

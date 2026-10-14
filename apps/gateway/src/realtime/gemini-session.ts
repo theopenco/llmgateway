@@ -23,6 +23,7 @@ import {
 	buildRealtimePriceSnapshot,
 	priceRealtimeUsage,
 } from "./pricing.js";
+import { logRealtimeTurnDenial } from "./turn-denial-log.js";
 
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { RawData } from "ws";
@@ -1154,11 +1155,9 @@ export class GeminiRealtimeProxySession {
 			return;
 		}
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
-			this.sendToClientRaw(
-				buildGeminiError(
-					"session_spend_limit",
-					`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
-				),
+			this.refuseTurn(
+				"session_spend_limit",
+				`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
 			);
 			this.shutdown(1008, "session_spend_limit");
 			return;
@@ -1174,9 +1173,7 @@ export class GeminiRealtimeProxySession {
 			if (authorization.severity === "transient") {
 				return;
 			}
-			this.sendToClientRaw(
-				buildGeminiError(authorization.code, authorization.message),
-			);
+			this.refuseTurn(authorization.code, authorization.message);
 			this.shutdown(1008, authorization.code);
 			return;
 		}
@@ -1187,11 +1184,9 @@ export class GeminiRealtimeProxySession {
 				authorization.organization,
 			);
 			if (available !== null && available.lessThanOrEqualTo(0)) {
-				this.sendToClientRaw(
-					buildGeminiError(
-						"insufficient_credits",
-						"Organization has insufficient credits to continue this session.",
-					),
+				this.refuseTurn(
+					"insufficient_credits",
+					"Organization has insufficient credits to continue this session.",
 				);
 				this.shutdown(1008, "insufficient_credits");
 				return;
@@ -1204,14 +1199,28 @@ export class GeminiRealtimeProxySession {
 			this.preflight.match.modelId,
 		);
 		if (!rateLimit.allowed) {
-			this.sendToClientRaw(
-				buildGeminiError(
-					"rate_limit_exceeded",
-					`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
-				),
+			this.refuseTurn(
+				"rate_limit_exceeded",
+				`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
 			);
 			this.shutdown(1008, "rate_limit_exceeded");
 		}
+	}
+
+	/**
+	 * Refuses further billable work and logs it like a rejected HTTP request.
+	 */
+	private refuseTurn(code: string, message: string): void {
+		this.sendToClientRaw(buildGeminiError(code, message));
+		void logRealtimeTurnDenial({
+			gatewayToken: this.gatewayToken,
+			sessionRecordId: this.sessionRecordId,
+			requestedModel: this.requestedModel,
+			source: this.source,
+			userAgent: this.userAgent,
+			code,
+			message,
+		});
 	}
 
 	/**

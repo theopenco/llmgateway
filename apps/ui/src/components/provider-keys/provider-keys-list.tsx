@@ -34,6 +34,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import { isStealthProvider, providers } from "@llmgateway/models";
 import {
+	formatProviderKeyRateLimits,
 	getProviderIcon,
 	ReorderableItem,
 	ReorderableList,
@@ -99,6 +100,11 @@ export function ProviderKeysList({
 }: ProviderKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const { data: providerFacts } = api.useQuery(
+		"get",
+		"/internal/provider-facts",
+		{},
+	);
 	const { buildOrgUrl } = useDashboardNavigation();
 	const [search, setSearch] = useState("");
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
@@ -135,11 +141,11 @@ export function ProviderKeysList({
 	// platform behind it is undisclosed, so they must not appear as connectable.
 	const availableProviders = useMemo(
 		() =>
-			providers.filter(
+			(providerFacts?.providers ?? providers).filter(
 				(provider) =>
 					provider.id !== "llmgateway" && !isStealthProvider(provider),
 			),
-		[],
+		[providerFacts],
 	);
 
 	const organizationKeys = useMemo(
@@ -487,6 +493,15 @@ export function ProviderKeysList({
 																			{formatUsd(providerKey.usageLimit)}
 																		</Badge>
 																	)}
+																	{formatProviderKeyRateLimits(providerKey) && (
+																		<Badge
+																			variant="outline"
+																			className="text-xs tabular-nums"
+																			title="Rate limits for this key. While it is at any cap, other keys serve the request."
+																		>
+																			{formatProviderKeyRateLimits(providerKey)}
+																		</Badge>
+																	)}
 																	{providerKey.baseUrl && (
 																		<Badge
 																			variant="outline"
@@ -596,13 +611,17 @@ export function ProviderKeysList({
 																				providerKeyId={providerKey.id}
 																				currentLimit={providerKey.usageLimit}
 																				currentUsage={providerKey.usage}
+																				currentRateLimits={providerKey}
 																			>
 																				<DropdownMenuItem
 																					onSelect={(e) => e.preventDefault()}
 																				>
-																					{providerKey.usageLimit !== null
-																						? "Edit spend limit"
-																						: "Set spend limit"}
+																					{providerKey.usageLimit !== null ||
+																					formatProviderKeyRateLimits(
+																						providerKey,
+																					)
+																						? "Edit limits"
+																						: "Set limits"}
 																				</DropdownMenuItem>
 																			</ProviderKeyLimitDialog>
 																		)}

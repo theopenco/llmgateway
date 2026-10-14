@@ -527,7 +527,12 @@ export function transformStreamingToOpenai(
 					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_stop" || data.stop_reason) {
-				const stopReason = data.stop_reason ?? "end_turn";
+				// message_stop carries no stop_reason; the terminal reason was
+				// already emitted from the preceding message_delta. Mapping it to
+				// "stop" sent a second finish_reason that overrode "tool_calls" for
+				// clients that take the last one. When no message_delta carried a
+				// reason, chat.ts synthesizes the finish chunk at stream end.
+				const stopReason = data.stop_reason;
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -539,7 +544,9 @@ export function transformStreamingToOpenai(
 							delta: {
 								role: "assistant",
 							},
-							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
+							finish_reason: stopReason
+								? mapFinishReasonToOpenai(stopReason, usedProvider)
+								: null,
 						},
 					],
 					usage: normalizeAnthropicUsage(usage),

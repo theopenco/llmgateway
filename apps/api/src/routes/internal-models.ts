@@ -6,9 +6,11 @@ import {
 	publicAirsideProfileSchema,
 } from "@/lib/airside-profile.js";
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
+import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 
 import {
+	getEffectiveProviders,
 	and,
 	avgEffectiveTtftSql,
 	db,
@@ -748,6 +750,42 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	});
 });
 
+const getProviderMarksRoute = createRoute({
+	operationId: "internal_get_provider_marks",
+	summary: "Get uploaded provider marks",
+	description:
+		"Returns the mark (icon, else logo) each active Airside carrier uploaded, keyed by provider id",
+	method: "get",
+	path: "/provider-marks",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ marks: z.record(z.string()) }),
+				},
+			},
+			description: "Uploaded provider marks",
+		},
+	},
+});
+
+internalModels.openapi(getProviderMarksRoute, async (c) => {
+	const claims = await db.query.providerClaim.findMany({
+		where: { status: { eq: "active" } },
+		columns: { providerId: true, logoUrl: true, iconUrl: true },
+	});
+	const marks: Record<string, string> = {};
+	for (const claim of claims) {
+		const mark = claim.iconUrl ?? claim.logoUrl;
+		if (mark) {
+			marks[claim.providerId] = mark;
+		}
+	}
+	c.header("Cache-Control", "public, max-age=300");
+	return c.json({ marks });
+});
+
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats
 const providerBenchmarkSchema = z.object({
 	providerId: z.string(),
@@ -1315,5 +1353,73 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		windowMinutes: WINDOW_HOURS * 60,
 		bucketMinutes: 60,
 		providers,
+	});
+});
+
+const getProviderFacts = createRoute({
+	method: "get",
+	path: "/provider-facts",
+	responses: {
+		200: {
+			description: "Effective catalogue or carrier-declared provider facts.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						providers: z.array(
+							z.object({
+								id: z.string(),
+								modelIds: z.array(z.string()),
+								name: z.string(),
+								description: z.string(),
+								forwardsSafetyIdentifier: z.boolean(),
+								env: z.object({ required: z.record(z.string().optional()) }),
+								color: z.string().optional(),
+								website: z.string().nullish(),
+								legalEntity: z.string().nullable(),
+								headquarters: z.string().nullish(),
+								dataPolicy: z
+									.object({
+										apiTraining: z.boolean().nullable(),
+										promptLogging: z.boolean().nullable(),
+										retentionPeriod: z.string().nullish(),
+										soc2: z
+											.union([z.literal(1), z.literal(2)])
+											.nullish()
+											.openapi({ type: "integer", enum: [1, 2, null] }),
+										iso27001: z.boolean().nullish(),
+										gdpr: z.boolean().nullish(),
+									})
+									.nullish(),
+							}),
+						),
+					}),
+				},
+			},
+		},
+	},
+});
+internalModels.openapi(getProviderFacts, async (c) => {
+	const [providers, models] = await Promise.all([
+		getEffectiveProviders(),
+		getDynamicRouteProviderOptions(),
+	]);
+	return c.json({
+		providers: providers.map((provider) => ({
+			id: provider.id,
+			name: provider.name,
+			description: provider.description,
+			forwardsSafetyIdentifier: provider.forwardsSafetyIdentifier,
+			env: { required: provider.env.required },
+			color: provider.color,
+			website: provider.website,
+			legalEntity: provider.legalEntity,
+			headquarters: provider.headquarters,
+			dataPolicy: provider.dataPolicy,
+			modelIds: models
+				.filter((model) =>
+					model.providers.some((entry) => entry.id === provider.id),
+				)
+				.map((model) => model.modelId),
+		})),
 	});
 });

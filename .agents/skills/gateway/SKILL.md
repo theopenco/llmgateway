@@ -11,6 +11,8 @@ The gateway is latency-critical and high-throughput.
 
 - Read no `log` rows on the request path, however narrow the query or short the cache. Credit gates, spend and limit checks, and routing signals come from Redis counters maintained on the write path (incremented at `insertLog`, settled by the billing worker) or small cached rows.
 - Route on the capability field curated for it (`supportedToolChoices`, `serviceTiers`, `supportsAssistantPrefill`, …). `supportedParameters` is a partial list.
+- Provider-bound reasoning (mappings where `usesEncryptedReasoning` holds: `reasoning: true` on an `encryptedReasoning` provider) can only verify on the account that produced it. `chat/tools/reasoning-credential-pin.ts` pins a replaying turn to that credential, including a `pending_deletion` key; new credential selection must honor the pin. A retry that leaves the credential goes through `resolveProviderContextForRetry`, which drops OpenAI-format encrypted reasoning; Gemini signatures cannot be dropped and still block fallback. New bound-reasoning shapes belong in `providerBoundReasoningIds`.
+- Bare model ids route only to deployments in the model's full context-window tier (`getContextTierMinSize` in `packages/models`). Do not add prompt-size estimates to provider selection for a fixed model; chars/4 misjudges per-model tokenizers.
 
 ## User-supplied URLs
 

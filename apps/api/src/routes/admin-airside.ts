@@ -16,16 +16,26 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { referenceContextSizes } from "@/lib/airside-context-size.js";
+import { delistAirsideListing } from "@/lib/airside-delist.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
 	currentMetadataFor,
 } from "@/lib/airside-metadata.js";
+import { effectiveClaimKind } from "@/lib/airside-profile.js";
+import { relistAirsideListing } from "@/lib/airside-relist.js";
+import {
+	buildErrorMessageMatchExpr,
+	buildIgnoredErrorsClause,
+	buildIncidentErrorScopeClause,
+	errorScopeSchema,
+	listIgnoredErrorMatchers,
+} from "@/lib/error-filters.js";
 import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
 	incidentsWindowSchema,
-	incidentErrorsClause,
 	byokClauseFor,
 	notRetriedClause,
 	queryIncidentErrorTypes,
@@ -61,15 +71,20 @@ import {
 	db,
 	eq,
 	excludeRegionalMappingRows,
+	gt,
 	gte,
 	inArray,
 	isNotNull,
 	isNull,
 	ne,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import {
+	getContextSizeDeviation,
+	getContextTierMinSize,
+	getReferenceContextSize,
 	models as catalogueModels,
 	providers as catalogueProviders,
 	PROVIDER_API_FORMATS,
@@ -79,7 +94,9 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+import { cachedInputPriceWarning } from "@llmgateway/shared/prompt-cache";
+
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -143,11 +160,25 @@ const adminFilingSchema = z.object({
 		name: z.string(),
 		website: z.string().nullable(),
 	}),
+	// Set when a new listing or a context-size change files a window more than
+	// 10% away from the model's reference window (the largest catalogue
+	// deployment, or the largest other listing for models outside it).
+	contextSizeWarning: z
+		.object({
+			contextSize: z.number(),
+			referenceContextSize: z.number(),
+			deviation: z.enum(["below", "above"]),
+		})
+		.nullable(),
+	// Cached input prices unusually close to their input price, default and
+	// per region; usually a typo or the wrong unit.
+	cachedPriceWarnings: z.array(z.string()),
 	// The model's currently effective pricing, for diffing update filings.
 	currentPricing: z
 		.object({
 			inputPrice: z.string(),
 			outputPrice: z.string(),
+			cachedInputPrice: z.string().nullable(),
 			// Live regional fares, so a filing that changes or drops a region
 			// shows the reviewer what it replaces.
 			regionPrices: z
@@ -241,7 +272,68 @@ function staticModelNameExists(modelName: string): boolean {
 	);
 }
 
-function serializeAdminFiling(row: FilingWithRelations) {
+/** The context size a filing sets: a new listing's, or a metadata change's. */
+function filedContextSize(row: FilingWithRelations): number | null {
+	if (row.kind === "initial") {
+		return row.draftModel.contextSize;
+	}
+	if (row.kind === "metadata" && row.metadata) {
+		return row.metadata.contextSize ?? null;
+	}
+	return null;
+}
+
+function contextSizeWarningFor(
+	row: FilingWithRelations,
+	listingReference: (
+		modelName: string,
+		providerId: string,
+	) => number | undefined = (modelName) => getReferenceContextSize(modelName),
+) {
+	const contextSize = filedContextSize(row);
+	const referenceContextSize = listingReference(
+		row.draftModel.modelName,
+		row.draftModel.providerId,
+	);
+	const deviation = getContextSizeDeviation(contextSize, referenceContextSize);
+	return deviation && contextSize && referenceContextSize
+		? { contextSize, referenceContextSize, deviation }
+		: null;
+}
+
+function cachedPriceWarnings(
+	row: typeof tables.providerPriceFiling.$inferSelect,
+): string[] {
+	if (row.kind === "metadata") {
+		return [];
+	}
+	const warnings: string[] = [];
+	const fallback = cachedInputPriceWarning(
+		row.inputPrice,
+		row.cachedInputPrice,
+	);
+	if (fallback) {
+		warnings.push(fallback);
+	}
+	for (const entry of row.regionPrices ?? []) {
+		const warning = cachedInputPriceWarning(
+			entry.inputPrice,
+			entry.cachedInputPrice ?? row.cachedInputPrice,
+		);
+		if (warning) {
+			warnings.push(`${entry.region}: ${warning}`);
+		}
+	}
+	return warnings;
+}
+
+function serializeAdminFiling(
+	row: FilingWithRelations,
+	listingReference?: (
+		modelId: string,
+		providerId: string,
+	) => number | undefined,
+) {
 	const approved = [...(row.draftModel.priceFilings ?? [])]
 		.filter((f) => f.status === "approved")
 		.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
@@ -292,10 +384,13 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
 		},
+		contextSizeWarning: contextSizeWarningFor(row, listingReference),
+		cachedPriceWarnings: cachedPriceWarnings(row),
 		currentPricing: approved
 			? {
 					inputPrice: approved.inputPrice,
 					outputPrice: approved.outputPrice,
+					cachedInputPrice: approved.cachedInputPrice,
 					regionPrices: approved.regionPrices
 						? approved.regionPrices.map((entry) => ({
 								region: entry.region,
@@ -360,7 +455,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		return row?.count ?? 0;
 	};
 	const rows = await db.query.providerPriceFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: {
 			draftModel: { with: { priceFilings: true } },
 			providerCompany: true,
@@ -370,7 +465,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		offset: query.offset ?? 0,
 	});
 	const routingRows = await db.query.providerRoutingFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "desc", id: "desc" },
 		limit,
@@ -400,9 +495,14 @@ adminAirside.openapi(listFilings, async (c) => {
 			row,
 		]),
 	);
+	const listingReference = await referenceContextSizes(
+		(rows as FilingWithRelations[]).map((row) => ({
+			modelName: row.draftModel.modelName,
+		})),
+	);
 	return c.json({
 		filings: rows.map((row) =>
-			serializeAdminFiling(row as FilingWithRelations),
+			serializeAdminFiling(row as FilingWithRelations, listingReference),
 		),
 		total,
 		pendingCount,
@@ -511,7 +611,6 @@ adminAirside.openapi(approveFiling, async (c) => {
 						eq(tables.providerClaim.providerId, model.providerId),
 						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
 						eq(tables.providerClaim.status, "active"),
-						eq(tables.providerClaim.kind, "custom"),
 					),
 				)
 				.limit(1)
@@ -685,7 +784,10 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 	const keys =
 		keyIds.length > 0
 			? await db.query.providerKey.findMany({
-					where: { id: { in: keyIds }, status: { ne: "deleted" } },
+					where: {
+						id: { in: keyIds },
+						status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
+					},
 					columns: { id: true, tokenMasked: true, createdAt: true },
 				})
 			: [];
@@ -706,7 +808,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 			catalogueProviders.find((provider) => provider.id === row.providerId)
 				?.name ??
 			row.providerId,
-		kind: row.kind,
+		kind: effectiveClaimKind(row),
 		customName: row.customName,
 		customBaseUrl: row.customBaseUrl,
 		matchedDomain: row.matchedDomain,
@@ -991,7 +1093,7 @@ adminAirside.openapi(approveClaim, async (c) => {
 				message: "This claim has already been reviewed.",
 			});
 		}
-		if (claim.kind === "custom") {
+		if (effectiveClaimKind(claim) === "custom") {
 			// A custom carrier only exists in the DB catalogue: create its
 			// provider row so /providers and /internal/providers list it.
 			await tx
@@ -1178,6 +1280,294 @@ adminAirside.openapi(rejectClaim, async (c) => {
 	});
 });
 
+const adminListingSchema = z.object({
+	id: z.string(),
+	providerId: z.string(),
+	modelName: z.string(),
+	status: z.enum(["draft", "active", "rejected", "delisted"]),
+	contextSize: z.number().nullable(),
+	// The window the listing is held to: the catalogue's largest, or for models
+	// outside it the largest window other carriers list.
+	referenceContextSize: z.number().nullable(),
+	// More than 10% away from the reference: new listings are refused.
+	contextDeviation: z.enum(["below", "above"]).nullable(),
+	// Below the model's full-window tier, so requests without a provider prefix
+	// skip it.
+	autoRouteExcluded: z.boolean(),
+	mappingIds: z.array(z.string()),
+	company: z.object({ id: z.string(), name: z.string() }),
+	delistedAt: z.string().nullable(),
+	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
+	// Set while the carrier's request to relist awaits review.
+	relistRequestedAt: z.string().nullable(),
+});
+
+type AdminListing = z.infer<typeof adminListingSchema>;
+
+async function adminListings(filter: {
+	providerId?: string;
+	listingId?: string;
+	relistRequested?: boolean;
+}): Promise<AdminListing[]> {
+	const rows = await db.query.providerDraftModel.findMany({
+		where: {
+			...(filter.providerId ? { providerId: { eq: filter.providerId } } : {}),
+			...(filter.listingId ? { id: { eq: filter.listingId } } : {}),
+			...(filter.relistRequested
+				? { status: { eq: "delisted" }, relistRequestedAt: { isNotNull: true } }
+				: {}),
+		},
+		with: { providerCompany: true },
+		orderBy: { modelName: "asc" },
+	});
+	if (rows.length === 0) {
+		return [];
+	}
+	const reference = await referenceContextSizes(rows);
+	const modelIds = [...new Set(rows.map((row) => row.modelName))];
+	const mappings = await db
+		.select({
+			id: tables.modelProviderMapping.id,
+			modelId: tables.modelProviderMapping.modelId,
+			providerId: tables.modelProviderMapping.providerId,
+			source: tables.modelProviderMapping.source,
+			contextSize: tables.modelProviderMapping.contextSize,
+			deactivatedAt: tables.modelProviderMapping.deactivatedAt,
+		})
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				inArray(tables.modelProviderMapping.modelId, modelIds),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+	const tierMinSize = new Map(
+		modelIds.map((modelId) => [
+			modelId,
+			getContextTierMinSize(
+				modelId,
+				mappings
+					.filter((mapping) => mapping.modelId === modelId)
+					.map((mapping) => ({
+						providerId: mapping.providerId,
+						contextSize: mapping.contextSize ?? undefined,
+						deactivatedAt: mapping.deactivatedAt ?? undefined,
+					})),
+			),
+		]),
+	);
+	return rows.map((row) => {
+		const own = mappings.filter(
+			(mapping) =>
+				mapping.source === "airside" &&
+				mapping.modelId === row.modelName &&
+				mapping.providerId === row.providerId,
+		);
+		const referenceContextSize =
+			reference(row.modelName, row.providerId) ?? null;
+		const minSize = tierMinSize.get(row.modelName);
+		return {
+			id: row.id,
+			providerId: row.providerId,
+			modelName: row.modelName,
+			status: row.status,
+			contextSize: row.contextSize,
+			referenceContextSize,
+			contextDeviation:
+				getContextSizeDeviation(row.contextSize, referenceContextSize) ?? null,
+			autoRouteExcluded:
+				row.status === "active" &&
+				minSize !== undefined &&
+				own.some(
+					(mapping) =>
+						mapping.contextSize !== null && mapping.contextSize < minSize,
+				),
+			mappingIds: own.map((mapping) => mapping.id),
+			company: {
+				id: row.providerCompanyId,
+				name: row.providerCompany?.name ?? row.providerCompanyId,
+			},
+			delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
+			delistReason: row.delistReason,
+			relistRequestedAt: row.relistRequestedAt
+				? row.relistRequestedAt.toISOString()
+				: null,
+		};
+	});
+}
+
+const listListings = createRoute({
+	method: "get",
+	path: "/airside/listings",
+	request: {
+		query: z.object({
+			providerId: z.string().optional(),
+			// Only delisted listings whose carrier asked to relist them.
+			relistRequested: z.enum(["true", "false"]).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listings: z.array(adminListingSchema) }),
+				},
+			},
+			description: "Airside listings with their context-window standing.",
+		},
+	},
+});
+
+adminAirside.openapi(listListings, async (c) => {
+	const { providerId, relistRequested } = c.req.valid("query");
+	return c.json({
+		listings: await adminListings({
+			providerId,
+			relistRequested: relistRequested === "true",
+		}),
+	});
+});
+
+const delistListing = createRoute({
+	method: "post",
+	path: "/airside/listings/{id}/delist",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listing: adminListingSchema }),
+				},
+			},
+			description:
+				"The delisted listing. It stops routing; the carrier can relist it once it meets the listing rules.",
+		},
+	},
+});
+
+adminAirside.openapi(delistListing, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	// cdb: the gateway caches listing resolution off these tables.
+	await cdb.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			.$withCache(false);
+		if (!locked) {
+			throw new HTTPException(404, { message: "Listing not found" });
+		}
+		if (locked.status !== "active") {
+			throw new HTTPException(409, {
+				message: "Only listings in service can be delisted.",
+			});
+		}
+		await delistAirsideListing(tx, locked, "admin", user?.id ?? null);
+	});
+	const [listing] = await adminListings({ listingId: id });
+	return c.json({ listing });
+});
+
+const approveRelist = createRoute({
+	method: "post",
+	path: "/airside/listings/{id}/relist/approve",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listing: adminListingSchema }),
+				},
+			},
+			description:
+				"Approves a carrier's relist request: the listing returns to service at its last approved fares.",
+		},
+	},
+});
+
+adminAirside.openapi(approveRelist, async (c) => {
+	const { id } = c.req.valid("param");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Listing not found" });
+	}
+	if (!model.relistRequestedAt) {
+		throw new HTTPException(409, {
+			message: "This listing has no relist request under review.",
+		});
+	}
+	// cdb: the gateway caches listing resolution off these tables.
+	await cdb.transaction(async (tx) => {
+		await relistAirsideListing(tx, model);
+	});
+	const [listing] = await adminListings({ listingId: id });
+	return c.json({ listing });
+});
+
+const rejectRelist = createRoute({
+	method: "post",
+	path: "/airside/listings/{id}/relist/reject",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						reviewNote: z.string().max(1000).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listing: adminListingSchema }),
+				},
+			},
+			description:
+				"Rejects a carrier's relist request. The listing stays delisted; the carrier sees the note and can request again.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectRelist, async (c) => {
+	const { id } = c.req.valid("param");
+	const { reviewNote } = c.req.valid("json");
+	const [row] = await db
+		.update(tables.providerDraftModel)
+		.set({
+			relistRequestedAt: null,
+			relistRequestedBy: null,
+			relistReviewedAt: new Date(),
+			relistReviewNote: reviewNote?.trim() || null,
+		})
+		.where(
+			and(
+				eq(tables.providerDraftModel.id, id),
+				eq(tables.providerDraftModel.status, "delisted"),
+				isNotNull(tables.providerDraftModel.relistRequestedAt),
+			),
+		)
+		.returning({ id: tables.providerDraftModel.id });
+	if (!row) {
+		throw new HTTPException(409, {
+			message: "This listing has no relist request under review.",
+		});
+	}
+	const [listing] = await adminListings({ listingId: id });
+	return c.json({ listing });
+});
+
 const revokeClaim = createRoute({
 	method: "post",
 	path: "/airside/claims/{id}/revoke",
@@ -1255,7 +1645,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
-		// A custom carrier's credentials are the carrier's own keys.
+		// Credential ownership follows registration kind, not current transport.
 		if (claim.kind === "custom") {
 			await tx
 				.update(tables.providerKey)
@@ -1285,6 +1675,21 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				and(
 					eq(tables.providerRoutingFiling.providerId, claim.providerId),
 					eq(tables.providerRoutingFiling.status, "pending"),
+				),
+			);
+		// Relist requests on already-delisted listings can no longer be
+		// approved without the claim.
+		await tx
+			.update(tables.providerDraftModel)
+			.set({ relistRequestedAt: null, relistRequestedBy: null })
+			.where(
+				and(
+					eq(
+						tables.providerDraftModel.providerCompanyId,
+						claim.providerCompanyId,
+					),
+					eq(tables.providerDraftModel.providerId, claim.providerId),
+					isNotNull(tables.providerDraftModel.relistRequestedAt),
 				),
 			);
 		// Revocation ends portal control entirely: the company's listings for
@@ -1383,6 +1788,8 @@ const listIncidents = createRoute({
 			window: incidentsWindowSchema.default("24h").optional(),
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
+			/** Upstream + gateway errors (default), plus client errors, or client only. */
+			errorScope: errorScopeSchema.optional(),
 		}),
 	},
 	responses: {
@@ -1412,6 +1819,7 @@ adminAirside.openapi(listIncidents, async (c) => {
 			windowHours,
 			mapping,
 			includeByok: query.includeByok === "true",
+			errorScope: query.errorScope,
 		}),
 	});
 });
@@ -1428,6 +1836,12 @@ const listIncidentErrorTypes = createRoute({
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Upstream + gateway errors (default), plus client errors, or client only. */
+			errorScope: errorScopeSchema.optional(),
+			/** Drop errors matching a stored expected-error matcher. */
+			ignoreExpected: z.enum(["true", "false"]).optional(),
+			/** Only errors whose public or internal details contain this text. */
+			errorMessage: z.string().max(500).optional(),
 		}),
 	},
 	responses: {
@@ -1452,6 +1866,10 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 		interval: windowInterval,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(query.window, "24h");
+	const errorScope = query.errorScope ?? "non_client";
+	const errorMessage = query.errorMessage?.trim() || null;
+	const ignoredMatchers =
+		query.ignoreExpected === "true" ? await listIgnoredErrorMatchers() : [];
 	return c.json({
 		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		...(await queryIncidentErrorTypes({
@@ -1461,12 +1879,17 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 				windowHours,
 				mapping: query.mapping ?? null,
 				includeByok: query.includeByok === "true",
+				errorScope,
 			}),
 			windowInterval,
 			extraClauses: [
-				incidentErrorsClause,
+				buildIncidentErrorScopeClause(errorScope),
 				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
+				buildIgnoredErrorsClause(ignoredMatchers),
+				errorMessage !== null
+					? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
+					: sql``,
 			],
 		})),
 	});
@@ -1668,6 +2091,10 @@ async function getCarrierTrafficSeries(
 			and(
 				inArray(history.providerId, providerIds),
 				gte(history.hourTimestamp, starts[0]),
+				// Most hourly rows are idle mappings that add nothing to the sums;
+				// this lets the planner use the partial active-rows index instead
+				// of reading every row in the window from the heap.
+				gt(history.logsCount, 0),
 				excludeRegionalMappingRows(history),
 			),
 		)
@@ -2114,11 +2541,11 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 	const body = c.req.valid("json");
 	const claim = await getActiveClaim(id);
 	if (
-		claim.kind !== "custom" &&
-		(body.baseUrl !== undefined || body.description !== undefined)
+		effectiveClaimKind(claim) !== "custom" &&
+		body.description !== undefined
 	) {
 		throw new HTTPException(400, {
-			message: "Only custom carriers have a base URL and description.",
+			message: "Only custom carriers have a description.",
 		});
 	}
 	if (body.baseUrl !== undefined) {
@@ -2127,7 +2554,7 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 				message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 			});
 		}
-		await assertSafeProviderUrl(body.baseUrl);
+		await assertProviderBaseUrlAllowed(body.baseUrl);
 	}
 	const changes = {
 		...(body.name !== undefined ? { customName: body.name } : {}),

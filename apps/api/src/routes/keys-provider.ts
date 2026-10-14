@@ -3,6 +3,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { validateAirsideKey } from "@/lib/airside-provider-key.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import {
 	allowedModelsSchema,
@@ -10,6 +11,13 @@ import {
 	pickAllowedValidationModel,
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
+import {
+	pickProviderKeyRateLimits,
+	providerKeyRateLimitChanges,
+	providerKeyRateLimitsInputShape,
+	providerKeyRateLimitsOutputShape,
+	providerKeyRateLimitUpdates,
+} from "@/lib/provider-key-rate-limits.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import {
 	getActiveUserOrganizationIds,
@@ -24,12 +32,16 @@ import {
 } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import {
+	getEffectiveProviders,
 	and,
 	cdb,
 	db,
 	eq,
+	deletedProviderKeyStatus,
 	inArray,
-	ne,
+	isRemovedProviderKeyStatus,
+	notInArray,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	shortid,
 	sql,
 	tables,
@@ -37,7 +49,6 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	isStealthProvider,
-	providers,
 	regionEndpointRequiresWorkspaceId,
 } from "@llmgateway/models";
 import {
@@ -49,7 +60,10 @@ import {
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+import {
+	assertSafeProviderUrl,
+	isTransientHostResolutionError,
+} from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
@@ -166,9 +180,17 @@ export const providerKeyPublicSchema = z.object({
 	 * key serves the provider's full catalogue.
 	 */
 	allowedModels: z.array(z.string()).nullable(),
+	/** Request and token caps for this key; it leaves rotation while at one. */
+	...providerKeyRateLimitsOutputShape,
 });
 
 type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
+
+// A key in its teardown grace period is deleted as far as its owner is
+// concerned.
+function publicProviderKeyStatus(status: ProviderKeyRow["status"]) {
+	return status === "pending_deletion" ? "deleted" : status;
+}
 
 // Every row served by these routes is organization-owned: they all query by
 // organizationId. Platform-managed credentials (organizationId NULL) are
@@ -184,7 +206,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		description: row.description,
 		baseUrl: row.baseUrl,
 		options: row.options,
-		status: row.status,
+		status: publicProviderKeyStatus(row.status),
 		customModelsOnly: row.customModelsOnly,
 		// The organization's own compliance attestation for its custom provider,
 		// shown back in the dashboard. Not secret-bearing.
@@ -194,6 +216,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		usage: row.usage,
 		maskedToken: readProviderKeyMask(row),
 		allowedModels: row.allowedModels,
+		...pickProviderKeyRateLimits(row),
 	};
 }
 
@@ -283,7 +306,10 @@ export async function assertProviderBaseUrlAllowed(baseUrl: string) {
 	try {
 		await assertSafeProviderUrl(baseUrl);
 	} catch (error) {
-		throw new HTTPException(400, {
+		// A resolver outage is ours to retry, not the caller's input to fix:
+		// surface it as 503 so it is logged server-side and the client retries.
+		const status = isTransientHostResolutionError(error) ? 503 : 400;
+		throw new HTTPException(status, {
 			message:
 				error instanceof Error
 					? error.message
@@ -364,12 +390,7 @@ function validateWorkspaceScopedRegion(
 }
 
 const createProviderKeySchema = z.object({
-	provider: z
-		.string()
-		.refine((val) => providers.some((p) => p.id === val) || val === "custom", {
-			message:
-				"Invalid provider. Must be one of the supported providers or 'custom'.",
-		}),
+	provider: z.string().min(1).max(100),
 	token: z.string().min(1, "API key is required").refine(isValidProviderToken, {
 		message:
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
@@ -428,6 +449,7 @@ const createProviderKeySchema = z.object({
 	// Optional allowlist of canonical model ids this key may serve. Empty/null
 	// means the provider's full catalogue.
 	allowedModels: allowedModelsSchema,
+	...providerKeyRateLimitsInputShape,
 });
 
 // Schema for updating a provider key status / settings
@@ -449,9 +471,11 @@ const updateProviderKeyStatusSchema = z
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 		// USD spend cap; `null` clears it.
 		usageLimit: createNullableLimitSchema("Usage limit").optional(),
+		...providerKeyRateLimitsInputShape,
 	})
 	.refine(
 		(v) =>
+			Object.keys(providerKeyRateLimitUpdates(v)).length > 0 ||
 			v.status !== undefined ||
 			v.name !== undefined ||
 			v.description !== undefined ||
@@ -509,6 +533,7 @@ keysProvider.openapi(create, async (c) => {
 		organizationId,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		...rateLimitInput
 	} = c.req.valid("json");
 
 	const allowedModels = normalizeAllowedModels(requestedAllowedModels);
@@ -552,6 +577,12 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	if (
+		provider !== "custom" &&
+		!(await getEffectiveProviders()).some((entry) => entry.id === provider)
+	) {
+		throw new HTTPException(400, { message: "Invalid or inactive provider." });
+	}
 	if (provider === "custom") {
 		assertCustomProviderEnterprise(userOrgs[0]?.organization);
 		if (!name || !baseUrl) {
@@ -580,7 +611,7 @@ keysProvider.openapi(create, async (c) => {
 
 	if (allowedModels) {
 		assertAllowedModelsSupported(provider);
-		validateAllowedModels(provider, allowedModels, options);
+		await validateAllowedModels(provider, allowedModels, options);
 	}
 
 	// A restricted key is probed with one of its own allowed models instead of
@@ -600,13 +631,14 @@ keysProvider.openapi(create, async (c) => {
 	try {
 		const isTestEnv =
 			process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true";
-		// Validate that provider is one of the allowed provider IDs
-		if (!providers.some((p) => p.id === provider) && provider !== "custom") {
-			throw new Error(`Invalid provider: ${provider}`);
-		}
-
 		// Skip validation for custom providers as they don't have predefined models
-		if (provider === "custom" || skipLiveValidation) {
+		const airsideValidation =
+			provider === "custom"
+				? undefined
+				: await validateAirsideKey(provider, userToken, baseUrl, allowedModels);
+		if (airsideValidation) {
+			validationResult = airsideValidation;
+		} else if (provider === "custom" || skipLiveValidation) {
 			validationResult = { valid: true };
 		} else {
 			validationResult = await validateProviderKey(
@@ -704,6 +736,7 @@ keysProvider.openapi(create, async (c) => {
 			options,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
+			...providerKeyRateLimitUpdates(rateLimitInput),
 		})
 		.returning();
 
@@ -839,7 +872,12 @@ keysProvider.openapi(listActive, async (c) => {
 		},
 	});
 
-	return c.json({ providerKeys });
+	return c.json({
+		providerKeys: providerKeys.map((key) => ({
+			provider: key.provider,
+			status: publicProviderKeyStatus(key.status),
+		})),
+	});
 });
 
 // Soft-delete a provider key
@@ -918,10 +956,20 @@ keysProvider.openapi(deleteKey, async (c) => {
 
 	assertOrganizationProviderKey(providerKey);
 
+	if (isRemovedProviderKeyStatus(providerKey.status)) {
+		return c.json({
+			message: "Provider key deleted successfully",
+		});
+	}
+
+	// Conversations whose replayed reasoning only this key can verify keep
+	// using it through the grace period; nothing else routes to it.
+	const status = deletedProviderKeyStatus(providerKey);
 	await cdb
 		.update(tables.providerKey)
 		.set({
-			status: "deleted",
+			status,
+			deletionRequestedAt: status === "pending_deletion" ? new Date() : null,
 		})
 		.where(eq(tables.providerKey.id, id));
 
@@ -1009,7 +1057,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 		complianceAttestation,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		...rateLimitInput
 	} = c.req.valid("json");
+	const rateLimitUpdates = providerKeyRateLimitUpdates(rateLimitInput);
 
 	// Get all active organization IDs the user has access to
 	const organizationIds = await getAdminOrganizationIds(user.id);
@@ -1029,7 +1079,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		},
 	});
 
-	if (!providerKey) {
+	if (!providerKey || isRemovedProviderKeyStatus(providerKey.status)) {
 		throw new HTTPException(404, {
 			message: "Provider key not found",
 		});
@@ -1043,6 +1093,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		customModelsOnly !== undefined ||
 		complianceAttestation !== undefined ||
 		usageLimit !== undefined ||
+		Object.keys(rateLimitUpdates).length > 0 ||
 		requestedAllowedModels !== undefined;
 	if (providerKey.provider === "custom" && editsConfiguration) {
 		assertCustomProviderEnterprise(providerKey.organization);
@@ -1079,7 +1130,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 			: normalizeAllowedModels(requestedAllowedModels);
 	if (allowedModels) {
 		assertAllowedModelsSupported(providerKey.provider);
-		validateAllowedModels(
+		await validateAllowedModels(
 			providerKey.provider,
 			allowedModels,
 			providerKey.options ?? undefined,
@@ -1120,7 +1171,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
-	} = {};
+		maxRpm?: number | null;
+		maxRpd?: number | null;
+		maxTpm?: number | null;
+		maxTpd?: number | null;
+		rateLimitMode?: "strict" | "soft" | "lax";
+	} = { ...rateLimitUpdates };
 	if (status !== undefined) {
 		updates.status = status;
 	}
@@ -1146,14 +1202,30 @@ keysProvider.openapi(updateStatus, async (c) => {
 		);
 	}
 
-	// Update the provider key
+	// Update the provider key. The status predicate keeps a DELETE that lands
+	// between the read above and this write from being undone (e.g. a status
+	// edit flipping a "pending_deletion" key back to "active").
 	const [updatedProviderKey] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
-		.where(eq(tables.providerKey.id, id))
+		.where(
+			and(
+				eq(tables.providerKey.id, id),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
+			),
+		)
 		.returning();
 
-	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (!updatedProviderKey) {
+		throw new HTTPException(404, {
+			message: "Provider key not found",
+		});
+	}
+
+	const changes: Record<string, { old: unknown; new: unknown }> =
+		providerKeyRateLimitChanges(providerKey, rateLimitUpdates);
 	if (status !== undefined && providerKey.status !== status) {
 		changes.status = { old: providerKey.status, new: status };
 	}
@@ -1328,7 +1400,7 @@ keysProvider.openapi(reorder, async (c) => {
 			organizationId: { eq: organizationId },
 			provider: { eq: provider },
 			managed: { eq: false },
-			status: { ne: "deleted" },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 		},
 		columns: { id: true, sortOrder: true, createdAt: true },
 	});
@@ -1367,7 +1439,9 @@ keysProvider.openapi(reorder, async (c) => {
 				eq(tables.providerKey.organizationId, organizationId),
 				eq(tables.providerKey.provider, provider),
 				eq(tables.providerKey.managed, false),
-				ne(tables.providerKey.status, "deleted"),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
 			),
 		)
 		.returning();

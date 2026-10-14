@@ -31,11 +31,25 @@ Scores use the default routing config. They are computed on the router's live
 metrics window and on hourly averages, for each request shape that changes the
 weights: streaming, cached prompts, sessions, and `routing` preferences.
 
+Providers managed entirely through Airside use their active listings for routing
+and pricing, and their declared carrier profile for compliance. Removing a static
+provider definition preserves its provider ID, existing pins, and session
+preferences for models still listed in Airside. Models without an active listing
+stop being available from that provider.
+
 ## Global Provider Rate Limits
 
-Administrators can set global or organization-specific RPM/RPD caps. Global
+Administrators can set global or organization-specific caps on requests per
+minute or day (RPM/RPD) and on tokens per minute or day (TPM/TPD). Global
 limits support **Global** (shared) or **Per-organization** counters. Changes
 propagate through the rate-limit cache (default 60 seconds).
+
+Each window is its own rule, so one provider/model target can carry request
+and token caps with different enforcement and modes.
+
+Token caps count prompt + completion tokens once a request completes, so the
+request that crosses a token cap still finishes and later requests are routed
+away until the window frees up. Cached responses do not count.
 
 Organization-specific limits and more specific global provider/model limits
 can override a provider-wide limit for the same window. No configured limit
@@ -54,7 +68,7 @@ provider (`provider/model`), even without a session or on its first request.
 | Fallback from another provider                            | No exemption | Excluded    |
 
 Exempt requests still count toward the limit. A session id alone does not grant
-an exemption, and every exceeded RPM/RPD window must permit the request: a
+an exemption, and every exceeded RPM/RPD/TPM/TPD window must permit the request: a
 strict window grants no exemption, while a soft window still requires an
 existing session pin.
 
@@ -99,6 +113,8 @@ Choose a specific model ID to route to the **best available provider** for that 
 
 When you use a model ID without a provider prefix, LLMGateway's intelligent routing system analyzes multiple factors to select the best provider.
 
+**Full context window only**: a model ID without a provider prefix only routes to deployments whose context window is within 10% of the largest one the model is served with in the catalogue, so a long conversation never lands on a deployment that cannot hold it. Smaller deployments still serve requests that name their provider (see [Provider-Specific Routing](#provider-specific-routing)). Low-uptime and rate-limit fallbacks stay within the full-window deployments as well. The rule applies once at least one provider serves the full window, so a smaller deployment loses unpinned traffic even when the model has a single full-window provider. When none of them is available to your request (keys, IAM rules, or required capabilities), the request fails with a `400` that lists the provider-prefixed ids of the smaller deployments instead of using one silently.
+
 **Weighted Scoring System**:
 
 Each factor has a **relative weight**. The factors are scored as ratios against the best provider in the candidate set (e.g. a provider that is twice as expensive as the cheapest scores `1.0` on price), and each ratio is multiplied by its weight divided by the sum of all active weights. The provider with the lowest (best) total score wins.
@@ -138,7 +154,7 @@ For estimated prompts of at least **%routing.thresholds.cachePromptTokens% token
 
 These estimates use the project's **last 24 hours of model usage**, once it includes at least **20 successful requests and 20,000 input tokens**:
 
-- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate, counted across all of its regions, once it meets the same sample thresholds; otherwise it uses the project's combined rate for that model.
+- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate, counted across all of its regions, once it meets the same sample thresholds. Other providers assume the best rate observed for that model (from a sampled provider, or from the combined usage of unsampled providers), and never less than the initial workload estimate below, so a provider that does not cache cannot make the alternatives look uncached.
 - **Output:input ratio** uses the project's combined output and input tokens for that model across providers.
 
 Routing caches the usage lookup for 60 seconds. It reads hourly aggregates, which work with payload retention disabled. Hourly buckets containing gateway response-cache hits are excluded because they cannot isolate upstream usage, so projects with response caching enabled may keep using the defaults. During lookup failures, routing uses previously cached observations when available, then falls back to configured estimates. These are workload estimates, not guarantees that a particular prompt will hit a provider's cache.
@@ -378,7 +394,7 @@ The selection reason in routing metadata shows `session-sticky` when a request w
 
 ### Provider-Specific Routing
 
-To use a specific provider without any fallbacks, prefix the model name with the provider name followed by a slash:
+To use a specific provider without any fallbacks, prefix the model name with the provider name followed by a slash. This also reaches deployments with a smaller context window than the model's largest, which routing by model ID skips:
 
 ```bash
 # Use OpenAI specifically
@@ -536,12 +552,42 @@ Automatic retry to a different provider is disabled when:
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
 - The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
-- The request replays [provider-bound reasoning](#smart-routing-algorithm), such as encrypted reasoning or signed thought parts — another provider would reject those payloads. This pin applies regardless of the selected mapping's reasoning capability. A reasoning-capable model alone does not disable retries: requests without replayed payloads can fail over before output starts.
+- The request replays signed Gemini thought parts on a model that returns them — another provider would reject them. Image models and other models without reasoning keep fallback. OpenAI encrypted reasoning does not block fallback: the retry is sent without it (see below).
 - No alternative providers are available for the requested model
 - The maximum retry count (default 2) has been exhausted
 
 Retries can still happen within the same provider when multiple keys are
 configured and the current key fails with a retryable error.
+
+### Provider-bound reasoning stays on its key
+
+[Provider-bound reasoning](#smart-routing-algorithm) can also be tied to the
+account that produced it. OpenAI encrypted reasoning, for example, is rejected
+by another OpenAI organization or Azure resource with
+`The encrypted content for item rs_... could not be verified`. For every model
+with provider-bound reasoning, the gateway remembers which key produced each
+encrypted reasoning item or thought signature, and the turn that replays it is
+routed to that provider and sent with that same key, with or without a session
+id. A conversation without a remembered key (older than 24 hours since its last
+turn) uses normal routing and key selection. Only models that reason on that
+provider are pinned; image models and other models without reasoning use normal
+routing and key selection.
+
+If that key fails with a retryable error (a rate limit, a timeout, a server
+error), the request still fails over to another key or provider. OpenAI
+encrypted reasoning is optional context, so the retry is sent without it: the
+model reasons afresh without the conversation's earlier reasoning on that
+request, instead of the request failing.
+When an upstream rejects replayed encrypted reasoning anyway (for example
+history from another gateway, or older than its pin), the gateway retries once
+on the same provider without it. Either way the log's
+`routingMetadata.encryptedReasoningDropped` is `true`.
+
+Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
+During that time it serves only conversations that replay reasoning it
+produced; it is never selected for any other request, and it is fully deleted
+afterwards, or as soon as it reaches its spend limit. Custom-provider keys and keys
+that are already disabled are deleted immediately.
 
 ### Routing Transparency
 

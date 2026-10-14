@@ -14,6 +14,8 @@ import {
 import { providers } from "@llmgateway/models";
 import { parseUsedModel } from "@llmgateway/shared";
 
+import type { ErrorScope } from "@/lib/error-filters.js";
+
 // Selectable time windows, mapping each value to its SQL interval bound, an
 // hours count surfaced to the UI, and the error timeline bucket size (roughly
 // 50-100 buckets per window).
@@ -346,6 +348,8 @@ export const incidentsResponseSchema = z.object({
 			errorCount: z.number(),
 			upstreamErrorCount: z.number(),
 			gatewayErrorCount: z.number(),
+			/** Only set when `errorScope` counts client errors. */
+			clientErrorCount: z.number().optional(),
 			errorRate: z.number(),
 		}),
 	),
@@ -354,19 +358,24 @@ export const incidentsResponseSchema = z.object({
 const providerNamesById = new Map(providers.map((p) => [p.id, p.name]));
 
 /**
- * Per-mapping upstream + gateway error counts from the hourly rollups.
+ * Per-mapping error counts from the hourly rollups: upstream + gateway errors,
+ * with client errors added (`all`) or alone (`client`) per `errorScope`.
  * Mappings without errors are dropped unless `mapping` narrows to one.
  */
 export async function queryIncidentMappings({
 	providerIds,
 	windowHours,
 	mapping,
+	model,
 	includeByok,
+	errorScope = "non_client",
 }: {
 	providerIds: string[];
 	windowHours: number;
 	mapping: string | null;
+	model?: string;
 	includeByok: boolean;
+	errorScope?: ErrorScope;
 }): Promise<z.infer<typeof incidentsResponseSchema>["mappings"]> {
 	if (providerIds.length === 0) {
 		return [];
@@ -375,6 +384,8 @@ export async function queryIncidentMappings({
 	const windowMs = windowHours * 3_600_000;
 	const since = new Date(Date.now() - windowMs);
 	since.setMinutes(0, 0, 0);
+	const countServer = errorScope !== "client";
+	const countClient = errorScope !== "non_client";
 	// Platform-only counts subtract the BYOK subset each rollup row carries.
 	const requestExpr = includeByok
 		? sql`SUM(${mph.requestCount})`
@@ -385,7 +396,16 @@ export async function queryIncidentMappings({
 	const gatewayExpr = includeByok
 		? sql`SUM(${mph.gatewayErrorCount})`
 		: sql`(SUM(${mph.gatewayErrorCount}) - SUM(${mph.apiKeysGatewayErrorCount}))`;
-	const errorExpr = sql`${upstreamExpr} + ${gatewayExpr}`;
+	// The rollups carry no BYOK subset of client errors; platform-only counts
+	// subtract it from the logs below.
+	const clientExpr = sql`SUM(${mph.clientErrorCount})`;
+	const errorExpr = sql.join(
+		[
+			...(countServer ? [upstreamExpr, gatewayExpr] : []),
+			...(countClient ? [clientExpr] : []),
+		],
+		sql` + `,
+	);
 	const errorRateExpr = sql`(${errorExpr})::float8 / NULLIF(${requestExpr}, 0)`;
 
 	const rows = await db
@@ -396,6 +416,7 @@ export async function queryIncidentMappings({
 			errorCount: sql<number>`(${errorExpr})::int`,
 			upstreamErrorCount: sql<number>`(${upstreamExpr})::int`,
 			gatewayErrorCount: sql<number>`(${gatewayExpr})::int`,
+			clientErrorCount: sql<number>`(${clientExpr})::int`,
 			errorRate: sql<number>`COALESCE(${errorRateExpr}, 0)`,
 		})
 		.from(mph)
@@ -404,18 +425,76 @@ export async function queryIncidentMappings({
 				inArray(mph.usedProvider, providerIds),
 				gte(mph.hourTimestamp, since),
 				mapping !== null ? eq(mph.usedModel, mapping) : undefined,
+				model
+					? sql`split_part(${mph.usedModel}, ':', 1) = ${model}`
+					: undefined,
 			),
 		)
 		.groupBy(mph.usedProvider, mph.usedModel)
-		.having(mapping !== null ? undefined : sql`${errorExpr} > 0`)
+		.having(mapping !== null || model ? undefined : sql`${errorExpr} > 0`)
 		.orderBy(desc(sql`COALESCE(${errorRateExpr}, 0)`), desc(sql`${errorExpr}`))
 		.limit(200);
 
-	return rows.map((row) => ({
+	let result = rows.map(({ clientErrorCount, ...row }) => ({
 		...row,
 		...parseUsedModel(row.usedModel, row.providerId),
 		providerName: providerNamesById.get(row.providerId) ?? row.providerId,
+		...(countClient ? { clientErrorCount } : {}),
 	}));
+	if (countClient && !includeByok && result.length > 0) {
+		const byokClientErrors = await countByokClientErrors(result, since);
+		result = result
+			.map((row) => {
+				const byok = byokClientErrors.get(row.usedModel) ?? 0;
+				const errorCount = row.errorCount - byok;
+				return {
+					...row,
+					clientErrorCount: (row.clientErrorCount ?? 0) - byok,
+					errorCount,
+					errorRate: row.requestCount > 0 ? errorCount / row.requestCount : 0,
+				};
+			})
+			.filter((row) => mapping !== null || model || row.errorCount > 0)
+			.sort((a, b) => b.errorRate - a.errorRate || b.errorCount - a.errorCount);
+	}
+	return result;
+}
+
+/**
+ * BYOK client errors per mapping since `since`, read from `log` because the
+ * hourly rollups only carry the BYOK subset of upstream and gateway errors.
+ * One lookup per mapping keeps each on the partial
+ * `log_error_used_provider_used_model_created_at_idx` index.
+ */
+async function countByokClientErrors(
+	mappings: { providerId: string; usedModel: string }[],
+	since: Date,
+) {
+	const rows = await db.execute<{ used_model: string; count: string }>(sql`
+		WITH mappings (used_provider, used_model) AS (
+			VALUES ${sql.join(
+				mappings.map(
+					(mapping) =>
+						sql`(${mapping.providerId}::text, ${mapping.usedModel}::text)`,
+				),
+				sql`, `,
+			)}
+		)
+		SELECT mappings.used_model, counted.count
+		FROM mappings
+		CROSS JOIN LATERAL (
+			SELECT COUNT(*) AS count
+			FROM ${tables.log}
+			WHERE ${tables.log.hasError} = true
+				AND ${tables.log.usedProvider} = mappings.used_provider
+				AND ${tables.log.usedModel} = mappings.used_model
+				AND ${tables.log.createdAt} >= ${since.toISOString()}::timestamp
+				AND ${tables.log.createdAt} <= now()
+				AND ${tables.log.unifiedFinishReason} = 'client_error'
+				AND ${tables.log.usedMode} = 'api-keys'
+		) counted
+	`);
+	return new Map(rows.rows.map((row) => [row.used_model, Number(row.count)]));
 }
 
 /** Bucket grid of each error's `buckets`, covering the selected window. */

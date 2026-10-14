@@ -1323,7 +1323,7 @@ describe("Log Processing", () => {
 		const insertByokKey = async (overrides?: {
 			usageLimit?: string | null;
 			usage?: string;
-			status?: "active" | "inactive";
+			status?: "active" | "inactive" | "pending_deletion";
 		}) => {
 			const tokenId = randomUUID();
 			const [key] = await db
@@ -1393,6 +1393,24 @@ describe("Log Processing", () => {
 			});
 			expect(Number(updated!.usage)).toBeCloseTo(0.06, 8);
 			expect(updated!.status).toBe("inactive");
+		});
+
+		test("tears down a key pending deletion that crosses its spend limit", async () => {
+			const key = await insertByokKey({
+				usageLimit: "0.05",
+				usage: "0.04",
+				status: "pending_deletion",
+			});
+
+			await insertProviderLog({ providerKeyId: key.id, cost: 0.02 });
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			// Inactive would bring it back into key lists; deleted ends it.
+			expect(updated!.status).toBe("deleted");
 		});
 
 		test("leaves a key active while under its spend limit", async () => {

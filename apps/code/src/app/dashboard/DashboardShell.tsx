@@ -23,7 +23,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import DevPassPaymentRecovery from "@/app/dashboard/components/DevPassPaymentRecovery";
-import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ProductSwitcher } from "@/components/ProductSwitcher";
@@ -59,6 +58,10 @@ import type { Route } from "next";
 
 const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
+);
+
+const SurveyReminderDialog = dynamic(
+	() => import("@/app/dashboard/components/SurveyReminderDialog"),
 );
 
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
@@ -297,10 +300,13 @@ export default function DashboardShell({
 			initialResult: Awaited<ReturnType<typeof finalizeOnce>>,
 		) => {
 			let result = initialResult;
-			for (let attempt = 0; attempt < 60; attempt++) {
-				if (result?.status !== "payment_pending") {
-					return result;
-				}
+			// Bounded: a canceled PaymentIntent also reports payment_pending, so an
+			// unbounded loop would poll for as long as the tab stays open.
+			for (
+				let attempt = 0;
+				attempt < 60 && result?.status === "payment_pending";
+				attempt++
+			) {
 				setSetupActivationStatus("processing");
 				await wait(2000, signal);
 				result = await finalizeOnce();
@@ -551,7 +557,9 @@ export default function DashboardShell({
 				</AlertDialogContent>
 			</AlertDialog>
 
-			<SurveyReminderDialog active={Boolean(hasActivePlan)} />
+			{/* Mounted only for active plans so the chunk is never fetched for
+			    visitors who cannot be surveyed */}
+			{hasActivePlan ? <SurveyReminderDialog /> : null}
 
 			{/* Header */}
 			<header className="border-b border-border/50">

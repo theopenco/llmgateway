@@ -3,8 +3,20 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { and, db, eq, tables } from "@llmgateway/db";
-import { models } from "@llmgateway/models";
+import {
+	and,
+	cdb,
+	db,
+	eq,
+	tables,
+	getEffectiveProviders,
+} from "@llmgateway/db";
+import {
+	getReferenceContextSize,
+	models,
+	providers,
+	type ProviderDefinition,
+} from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -24,6 +36,7 @@ import {
 
 import type {
 	BaseMessage,
+	ModelDefinition,
 	ProviderApiFormat,
 	ToolChoiceMode,
 } from "@llmgateway/models";
@@ -1239,7 +1252,8 @@ describe("airside-listed models", () => {
 			modelId: "ling-3.0-flash",
 			inputPrice: "2e-6",
 			outputPrice: "1e-5",
-			contextSize: 128000,
+			// The full window, or bare-id fallback would skip it.
+			contextSize: getReferenceContextSize("ling-3.0-flash"),
 		});
 
 		const requestId = "airside-fallback-req-1";
@@ -1275,9 +1289,11 @@ describe("airside-listed models", () => {
 			providerId?: string;
 			basePath?: string;
 			externalId?: string;
+			contextSize?: number;
 		} = {},
 	) {
 		const modelId = options.modelId ?? "sky-large";
+		const contextSize = options.contextSize ?? 64000;
 		const providerId = options.providerId ?? "acme-sky";
 		captured = [];
 		await clearCache();
@@ -1316,7 +1332,7 @@ describe("airside-listed models", () => {
 			externalId: modelId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
 			displayName: modelId === "gpt-5.6-luna" ? "GPT 5.6 Luna" : "Sky Large",
-			contextSize: 64000,
+			contextSize,
 			streaming: true,
 			status: "active",
 		});
@@ -1338,7 +1354,7 @@ describe("airside-listed models", () => {
 			outputPrice: "9e-6",
 			providerName: "Acme Sky",
 			modelName: "Sky Large",
-			contextSize: 64000,
+			contextSize,
 		});
 		if (options.managedCredential !== false) {
 			await db.insert(tables.providerKey).values({
@@ -1459,6 +1475,49 @@ describe("airside-listed models", () => {
 		const secondLog = await waitForLogByRequestId("airside-second-request");
 		expect(secondLog?.usedProvider).toBe("acme-sky");
 		expect(secondLog?.routingMetadata?.selectionReason).toBe("session-sticky");
+	});
+
+	test("bare-id routing skips a listing far below the model's context window", async () => {
+		const token = "airside-context-tier";
+		await setupCustomCarrier(token);
+		await setupCustomCarrier("airside-tier-cloud", {
+			providerId: "acme-cloud",
+		});
+		await setupCustomCarrier("airside-tier-third", {
+			providerId: "acme-third",
+		});
+		for (const providerId of ["acme-cloud", "acme-third"]) {
+			await materializeTestMapping({
+				providerId,
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 256000,
+			});
+		}
+		for (const providerId of ["acme-sky", "acme-cloud", "acme-third"]) {
+			await setRoutingUptime("sky-large", providerId, 100);
+		}
+		await clearCache();
+
+		const bare = await carrierRequest(token, "sky-large");
+		expect(bare.status, await bare.text()).toBe(200);
+		const bareLog = await waitForLogByRequestId(`${token}-request`);
+		expect(["acme-cloud", "acme-third"]).toContain(bareLog?.usedProvider);
+		expect(
+			bareLog?.routingMetadata?.filteredProviders?.find(
+				(filtered) => filtered.providerId === "acme-sky",
+			)?.codes,
+		).toContain("context_size");
+
+		const pinned = await carrierRequest(
+			"airside-tier-cloud",
+			"acme-sky/sky-large",
+		);
+		expect(pinned.status, await pinned.text()).toBe(200);
+		const pinnedLog = await waitForLogByRequestId("airside-tier-cloud-request");
+		expect(pinnedLog?.usedProvider).toBe("acme-sky");
 	});
 
 	test.each([false, true])(
@@ -2050,9 +2109,11 @@ describe("airside-listed models", () => {
 		async ({ fromAirside, stream }) => {
 			const token = `airside-catalogue-${fromAirside}-${stream}`;
 			const modelId = "gpt-5.6-luna";
+			// Both serve the full window, or bare-id fallback would skip one.
 			await setupCustomCarrier(token, {
 				modelId,
 				basePath: fromAirside ? "/fail" : "/carrier",
+				contextSize: getReferenceContextSize(modelId),
 			});
 			await materializeTestMapping({
 				providerId: "openai",
@@ -2060,7 +2121,7 @@ describe("airside-listed models", () => {
 				apiFormat: "openai-chat-completions",
 				inputPrice: fromAirside ? "30e-6" : "0.3e-6",
 				outputPrice: fromAirside ? "90e-6" : "0.9e-6",
-				contextSize: 64000,
+				contextSize: getReferenceContextSize(modelId),
 			});
 			await db.insert(tables.providerKey).values({
 				id: `${token}-openai`,
@@ -2530,5 +2591,159 @@ describe("airside-listed models", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(captured).toHaveLength(0);
+	});
+	test("resolves a pinned canonical alias on an Airside-only carrier", async () => {
+		const canonical = (models as readonly ModelDefinition[]).find(
+			(model) => model.aliases?.length,
+		);
+		expect(canonical).toBeDefined();
+		await setupCustomCarrier("airside-alias-token", { modelId: canonical!.id });
+		const resolution = await resolveAirsideModel(
+			`acme-sky/${canonical!.aliases![0]}`,
+		);
+		expect(resolution?.parseResult).toMatchObject({
+			requestedModel: canonical!.id,
+			requestedProvider: "acme-sky",
+		});
+	});
+
+	test("routes BYOK keys for Airside-only carriers to the carrier endpoint unless the key sets one", async () => {
+		const token = "airside-byok-endpoint";
+		await setupCustomCarrier(token, { basePath: "/carrier" });
+		await db
+			.update(tables.project)
+			.set({ mode: "api-keys" })
+			.where(eq(tables.project.id, "project-id"));
+		const id = `${token}-byok-key`;
+		await db.insert(tables.providerKey).values({
+			id,
+			provider: "acme-sky",
+			organizationId: "org-id",
+			...encryptProviderKeyForStorage("byok-carrier-key", id, "org-id"),
+		});
+		const send = async () => {
+			await clearCache();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "acme-sky/sky-large",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+			expect(res.status, await res.text()).toBe(200);
+			return captured.at(-1);
+		};
+		const carrier = await send();
+		expect(carrier?.url).toBe("/carrier/v1/chat/completions");
+		expect(carrier?.headers.authorization).toBe("Bearer byok-carrier-key");
+		await db
+			.update(tables.providerKey)
+			.set({ baseUrl: `${upstreamUrl}/byok` })
+			.where(eq(tables.providerKey.id, id));
+		expect((await send())?.url).toBe("/byok/v1/chat/completions");
+	});
+
+	test("keeps identity, billing and compliance across catalogue removal", async () => {
+		await setupCustomCarrier("transition-token", {
+			providerId: "openai",
+			modelId: "transition-model",
+		});
+		await db
+			.update(tables.providerKey)
+			.set({ config: { baseUrl: upstreamUrl } })
+			.where(eq(tables.providerKey.id, "transition-token-managed-key"));
+		await cdb
+			.update(tables.providerClaim)
+			.set({
+				kind: "catalogue",
+				apiTraining: false,
+				promptLogging: false,
+				retentionPeriod: "0 days",
+				headquarters: "US",
+			})
+			.where(eq(tables.providerClaim.id, "transition-token-claim"));
+		await cdb
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: { enabled: true, blockApiTraining: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+		const catalogue = providers as ProviderDefinition[];
+		const index = catalogue.findIndex((provider) => provider.id === "openai");
+		const definition = catalogue[index];
+		await clearCache();
+		const send = async (suffix: string) =>
+			await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer transition-token",
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+					"x-request-id": `catalogue-removal-${suffix}`,
+				},
+				body: JSON.stringify({
+					model: "openai/transition-model",
+					messages: [{ role: "user", content: `hello ${suffix}` }],
+				}),
+			});
+		try {
+			const before = await send("before");
+			expect(before.status).toBe(200);
+			await before.json();
+			// Keep caches warm: only this process's catalogue changed.
+			catalogue.splice(index, 1);
+			const after = await send("after");
+			expect(after.status).toBe(200);
+			const body = await after.json();
+			expect(body.usage).toMatchObject({
+				prompt_tokens: 1000,
+				completion_tokens: 500,
+			});
+			expect(captured.at(-1)?.url).toBe("/v1/chat/completions");
+			const log = await waitForLogByRequestId("catalogue-removal-after");
+			expect(log?.usedProvider).toBe("openai");
+			expect(Number(log?.cost)).toBeCloseTo(0.0075, 6);
+			expect(
+				(await getEffectiveProviders()).find(
+					(provider) => provider.id === "openai",
+				)?.dataPolicy?.apiTraining,
+			).toBe(false);
+			await cdb
+				.update(tables.providerClaim)
+				.set({ apiTraining: true })
+				.where(eq(tables.providerClaim.id, "transition-token-claim"));
+			expect(
+				(await getEffectiveProviders()).find(
+					(provider) => provider.id === "openai",
+				)?.dataPolicy?.apiTraining,
+			).toBe(true);
+			expect((await send("profile-edited")).status).toBe(403);
+			await cdb
+				.update(tables.providerClaim)
+				.set({ status: "revoked" })
+				.where(eq(tables.providerClaim.id, "transition-token-claim"));
+			expect(
+				(await getEffectiveProviders()).some(
+					(provider) => provider.id === "openai",
+				),
+			).toBe(false);
+			expect(
+				await findAirsideModel("openai", "transition-model"),
+			).toBeUndefined();
+		} finally {
+			if (!catalogue.some((provider) => provider.id === "openai")) {
+				catalogue.splice(index, 0, definition);
+			}
+			// Later files sharing this worker's database enumerate openai's
+			// Airside listings, so this one must not outlive the test.
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, "transition-model"));
+		}
 	});
 });

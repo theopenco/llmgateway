@@ -1,10 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
-import {
-	isContentFilterClassifierCompliant,
-	evaluateContentFilterWithClassifiers,
-} from "@/chat/tools/content-filter-classifier.js";
+import { isContentFilterClassifierCompliant } from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
@@ -17,10 +14,8 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
-import {
-	resolveTieredContentFilterPlan,
-	type TieredContentFilterPlan,
-} from "@/chat/tools/tiered-content-filter.js";
+import { startTieredContentFilter } from "@/chat/tools/run-tiered-content-filter.js";
+import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -4369,58 +4364,6 @@ function buildVideoModerationMessages(
 	];
 }
 
-async function evaluateVideoContentFilter(options: {
-	plan: TieredContentFilterPlan;
-	request: z.infer<typeof createVideoRequestSchema>;
-	requestId: string;
-	apiKey: GatewayApiKey;
-	project: InferSelectModel<typeof tables.project>;
-	organization: InferSelectModel<typeof tables.organization>;
-	providerId: string;
-	compliancePolicy: ReturnType<typeof getActiveCompliancePolicy>;
-	images: Array<ProcessedVideoImageInput | null>;
-	signal: AbortSignal | undefined;
-}): Promise<GatewayContentFilterEvaluation | null> {
-	const { plan } = options;
-	// Prompts must never reach a classifier's provider when the org's compliance
-	// policy excludes it.
-	const classifierAllowed = (classifier: ContentFilterClassifier) =>
-		isContentFilterClassifierCompliant(classifier, options.compliancePolicy);
-	const tiered = await evaluateContentFilterWithClassifiers({
-		plan,
-		messages: buildVideoModerationMessages(
-			options.request.prompt,
-			options.images,
-		),
-		context: {
-			requestId: options.requestId,
-			organizationId: options.organization.id,
-			projectId: options.project.id,
-			apiKeyId: options.apiKey.id,
-		},
-		signal: options.signal,
-		imagesAllowed: classifierAllowed("openai"),
-		classifierAllowed,
-	});
-	if (!tiered) {
-		return null;
-	}
-	const evaluation = tiered.evaluation;
-	if (evaluation.violation) {
-		logger.debug("gateway_content_filter_tier", {
-			requestId: options.requestId,
-			organizationId: options.organization.id,
-			provider: options.providerId,
-			tier: plan.tier,
-			level: plan.level,
-			classifier: plan.classifier,
-			action: evaluation.action,
-			matchedCategories: evaluation.matchedCategories,
-		});
-	}
-	return evaluation;
-}
-
 /**
  * Whose credential a video attempt ran on. `usedMode` on the provider context
  * is already decided by whether the organization's own provider key served the
@@ -4823,44 +4766,33 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		await getContentFilterSettings(),
 	);
 	if (contentFilterPlan) {
-		const runContentFilter = (signal: AbortSignal | undefined) =>
-			evaluateVideoContentFilter({
-				plan: contentFilterPlan,
-				request,
+		// Prompts must never reach a classifier's provider when the org's
+		// compliance policy excludes it.
+		const classifierAllowed = (classifier: ContentFilterClassifier) =>
+			isContentFilterClassifierCompliant(classifier, videoCompliancePolicy);
+		const started = await startTieredContentFilter({
+			plan: contentFilterPlan,
+			messages: buildVideoModerationMessages(request.prompt, [
+				processedFirstFrame,
+				processedLastFrameInput,
+				...processedReferenceImages,
+			]),
+			context: {
 				requestId,
-				apiKey,
-				project,
-				organization,
-				providerId: selectedProviderContext.providerId,
-				compliancePolicy: videoCompliancePolicy,
-				images: [
-					processedFirstFrame,
-					processedLastFrameInput,
-					...processedReferenceImages,
-				],
-				signal,
-			});
-		if (contentFilterPlan.enforce) {
-			contentFilterEvaluation = await runContentFilter(c.req.raw.signal);
-		} else {
-			// Detached from the client's signal so a hang-up does not cancel the
-			// observation; each classifier's own timeout bounds it.
-			pendingContentFilterEvaluation = trackPendingWork(
-				runContentFilter(undefined).then(
-					(evaluation) => {
-						contentFilterEvaluation = evaluation;
-						return evaluation;
-					},
-					(error: unknown) => {
-						logger.warn("Background gateway content filter failed", {
-							requestId,
-							error: toError(error),
-						});
-						return null;
-					},
-				),
-			);
-		}
+				organizationId: organization.id,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+			},
+			signal: c.req.raw.signal,
+			imagesAllowed: classifierAllowed("openai"),
+			classifierAllowed,
+		});
+		contentFilterEvaluation = started.outcome?.evaluation ?? null;
+		pendingContentFilterEvaluation =
+			started.pending?.then((outcome) => {
+				contentFilterEvaluation = outcome?.evaluation ?? null;
+				return contentFilterEvaluation;
+			}) ?? null;
 	}
 	if (contentFilterEvaluation?.action === "blocked") {
 		await insertVideoClientErrorLog({

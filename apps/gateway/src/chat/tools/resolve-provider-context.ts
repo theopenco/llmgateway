@@ -54,6 +54,7 @@ import {
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
+import { assertProviderKeysNotRateLimited } from "./provider-key-rate-limit-error.js";
 import { resolveAirsideProviderBaseUrl } from "./resolve-airside-model.js";
 import { resolvePlatformCredential } from "./resolve-platform-credential.js";
 import {
@@ -62,6 +63,7 @@ import {
 	providerKeySupportsServiceTier,
 } from "./service-tier.js";
 
+import type { ProviderKeyRateLimitExemption } from "@/lib/provider-key-rate-limit.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
@@ -184,6 +186,8 @@ export interface ProviderContextOptions {
 	customProviderName: string | undefined;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	/** Lets soft/lax-capped provider keys serve this request. */
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 	n?: number;
 	providerCacheControlMode: ProviderCacheControlMode;
 	providerCacheAutoTtl?: "5m" | "1h";
@@ -196,6 +200,7 @@ export interface ProviderContextOptions {
 	 */
 	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
+	parallel_tool_calls?: boolean;
 }
 
 interface ProjectInfo {
@@ -692,6 +697,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -700,10 +706,21 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
 		if (!providerKey) {
+			await assertProviderKeysNotRateLimited(
+				project.organizationId,
+				usedProvider,
+				{
+					customProviderName: options.customProviderName,
+					filter: byokKeyFilter,
+					excludedKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
+				},
+			);
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${usedProvider}`,
 			});
@@ -726,6 +743,7 @@ export async function resolveProviderContext(
 				requiresServiceTier: serviceTierKeyFilter !== undefined,
 				excludedEnvIndices: options.excludedEnvKeyIndices,
 				excludedProviderKeyIds: options.excludedProviderKeyIds,
+				rateLimitExemption: options.rateLimitExemption,
 			},
 		);
 		managedKey = platformCredential.managedKey;
@@ -739,6 +757,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -747,12 +766,25 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
+			// Custom providers have no platform credential to fall back to.
+			if (usedProvider === "custom") {
+				await assertProviderKeysNotRateLimited(
+					project.organizationId,
+					usedProvider,
+					{
+						customProviderName: options.customProviderName,
+						excludedKeyIds: options.excludedProviderKeyIds,
+						rateLimitExemption: options.rateLimitExemption,
+					},
+				);
+			}
 			assertOrganizationHasCreditsForEnvFallback(
 				organization,
 				modelInfo,
@@ -768,6 +800,7 @@ export async function resolveProviderContext(
 					requiresServiceTier: serviceTierKeyFilter !== undefined,
 					excludedEnvIndices: options.excludedEnvKeyIndices,
 					excludedProviderKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
 				},
 			);
 			managedKey = platformCredential.managedKey;
@@ -916,7 +949,7 @@ export async function resolveProviderContext(
 		await resolveAirsideProviderBaseUrl(usedProvider);
 	const url = getProviderEndpoint(
 		airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
-		airsideCustomBaseUrl ?? credentialBaseUrl,
+		credentialBaseUrl ?? airsideCustomBaseUrl,
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
@@ -1091,6 +1124,7 @@ export async function resolveProviderContext(
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,
+		options.parallel_tool_calls,
 	);
 
 	// Post-validation of max_tokens in request body

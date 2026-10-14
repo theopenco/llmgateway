@@ -22,6 +22,12 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	pickProviderKeyRateLimits,
+	providerKeyRateLimitsInputShape,
+	providerKeyRateLimitsOutputShape,
+	providerKeyRateLimitUpdates,
+} from "@/lib/provider-key-rate-limits.js";
+import {
 	bucketLabel,
 	hourBucketStarts,
 	utcDayBucketStarts,
@@ -60,9 +66,12 @@ import {
 	desc,
 	eq,
 	gte,
+	deletedProviderKeyStatus,
 	inArray,
+	isRemovedProviderKeyStatus,
 	lt,
-	ne,
+	notInArray,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	shortid,
 	sql,
 	tables,
@@ -81,7 +90,8 @@ import {
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyVariant } from "@llmgateway/db";
@@ -112,7 +122,11 @@ const credentialSchema = z.object({
 	comment: z.string().nullable(),
 	variant: variantSchema,
 	region: z.string().nullable(),
-	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	status: z
+		.enum(["active", "inactive", "pending_deletion", "deleted"])
+		.nullable(),
+	/** Start of the teardown grace period for a "pending_deletion" credential. */
+	deletionRequestedAt: z.date().nullable(),
 	config: z.record(z.string(), z.string()),
 	/** USD spend cap; the credential auto-deactivates when usage reaches it. */
 	usageLimit: z.string().nullable(),
@@ -134,6 +148,8 @@ const credentialSchema = z.object({
 	allowedModels: z.array(z.string()).nullable(),
 	/** Whether the daily model sync may append newly served models. */
 	modelSyncEnabled: z.boolean(),
+	/** Request and token caps; the credential leaves rotation while at one. */
+	...providerKeyRateLimitsOutputShape,
 });
 
 /**
@@ -298,6 +314,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		variant: row.variant,
 		region: row.region,
 		status: row.status,
+		deletionRequestedAt: row.deletionRequestedAt,
 		config: row.config ?? {},
 		usageLimit: row.usageLimit,
 		usage: row.usage,
@@ -306,6 +323,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 		modelSyncEnabled: row.modelSyncEnabled,
+		...pickProviderKeyRateLimits(row),
 	};
 }
 
@@ -350,6 +368,11 @@ async function validateConfig(
 				message: `Unknown provider: ${provider}`,
 			});
 		}
+		if (!carrier.customBaseUrl) {
+			throw new HTTPException(400, {
+				message: "Configure the carrier endpoint before adding credentials.",
+			});
+		}
 		// A custom Airside carrier's endpoint is fixed at registration (the
 		// claim's base URL); its managed credential is only the API key we
 		// hold for it, so it takes no settings.
@@ -387,16 +410,7 @@ async function validateConfig(
 
 	for (const [key, value] of Object.entries(config)) {
 		if (key.toLowerCase().includes("url")) {
-			try {
-				await assertSafeProviderUrl(value);
-			} catch (error) {
-				throw new HTTPException(400, {
-					message:
-						error instanceof Error
-							? error.message
-							: "Provider base URL is not allowed",
-				});
-			}
+			await assertProviderBaseUrlAllowed(value);
 		}
 	}
 }
@@ -445,7 +459,6 @@ async function findActiveCustomCarrier(providerId: string) {
 	return await db.query.providerClaim.findFirst({
 		where: {
 			providerId: { eq: providerId },
-			kind: { eq: "custom" },
 			status: { eq: "active" },
 		},
 	});
@@ -454,7 +467,7 @@ async function findActiveCustomCarrier(providerId: string) {
 /** Credentials currently linked as a custom carrier's provider key. */
 async function linkedCarrierKeyIds(): Promise<Set<string>> {
 	const claims = await db.query.providerClaim.findMany({
-		where: { kind: { eq: "custom" }, providerKeyId: { isNotNull: true } },
+		where: { providerKeyId: { isNotNull: true } },
 		columns: { providerKeyId: true },
 	});
 	return new Set(
@@ -500,7 +513,7 @@ async function validateManagedAllowedModels(
 		return;
 	}
 	if (providers.some((entry) => entry.id === provider)) {
-		validateAllowedModels(provider, allowedModels, validationOptions);
+		await validateAllowedModels(provider, allowedModels, validationOptions);
 		return;
 	}
 	const carrier = await getCustomCarrierTarget(provider);
@@ -701,7 +714,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// vars, no settings (their endpoint lives on the carrier registration),
 	// and their model list comes from their approved listings.
 	const customCarriers = await db.query.providerClaim.findMany({
-		where: { kind: { eq: "custom" }, status: { eq: "active" } },
+		where: { status: { eq: "active" }, customBaseUrl: { isNotNull: true } },
 	});
 	const customListings = customCarriers.length
 		? await db.query.providerDraftModel.findMany({
@@ -712,29 +725,31 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				columns: { providerId: true, modelName: true },
 			})
 		: [];
-	const carrierEntries = customCarriers.map((cl) => {
-		const carrierModels = customListings
-			.filter((m) => m.providerId === cl.providerId)
-			.map((m) => m.modelName);
-		return {
-			id: cl.providerId,
-			name: cl.customName ?? cl.providerId,
-			carrier: true,
-			apiKeyEnvVar: null,
-			apiKeyEnvConfigured: false,
-			regions: [],
-			defaultRegion: null,
-			apiKeyEnvCounts: countEnvCredentialsByVariant([]),
-			envCredentials: [],
-			configKeys: [],
-			exclusiveConfigGroups: [],
-			models: carrierModels,
-			modelsByKind: {
-				...createEmptyProviderModelsByKind(),
-				text: carrierModels,
-			},
-		};
-	});
+	const carrierEntries = customCarriers
+		.filter((claim) => !entries.some((entry) => entry.id === claim.providerId))
+		.map((cl) => {
+			const carrierModels = customListings
+				.filter((m) => m.providerId === cl.providerId)
+				.map((m) => m.modelName);
+			return {
+				id: cl.providerId,
+				name: cl.customName ?? cl.providerId,
+				carrier: true,
+				apiKeyEnvVar: null,
+				apiKeyEnvConfigured: false,
+				regions: [],
+				defaultRegion: null,
+				apiKeyEnvCounts: countEnvCredentialsByVariant([]),
+				envCredentials: [],
+				configKeys: [],
+				exclusiveConfigGroups: [],
+				models: carrierModels,
+				modelsByKind: {
+					...createEmptyProviderModelsByKind(),
+					text: carrierModels,
+				},
+			};
+		});
 
 	return c.json({
 		providers: [...entries, ...carrierEntries],
@@ -779,7 +794,9 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	const rows = await db.query.providerKey.findMany({
 		where: {
 			managed: { eq: true },
-			...(includeDeleted === "true" ? {} : { status: { ne: "deleted" } }),
+			...(includeDeleted === "true"
+				? {}
+				: { status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] } }),
 			...(provider ? { provider: { eq: provider } } : {}),
 		},
 		orderBy: {
@@ -1701,7 +1718,9 @@ const spendOverviewKeySchema = z.object({
 	region: z.string().nullable(),
 	comment: z.string().nullable(),
 	maskedToken: z.string(),
-	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	status: z
+		.enum(["active", "inactive", "pending_deletion", "deleted"])
+		.nullable(),
 	/** Lifetime counter the spend limit is enforced against. */
 	usage: z.string(),
 	usageLimit: z.string().nullable(),
@@ -1845,7 +1864,10 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 		bucket: bucketUnit,
 		buckets: getWindowBucketTimestamps(window),
 		keys: keys
-			.filter((key) => key.status !== "deleted" || totalsByKey.has(key.id))
+			.filter(
+				(key) =>
+					!isRemovedProviderKeyStatus(key.status) || totalsByKey.has(key.id),
+			)
 			.map((key) => {
 				const totals = totalsByKey.get(key.id);
 				return {
@@ -1884,6 +1906,7 @@ const createCredential = createRoute({
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 						/**
 						 * Custom carriers only: serve the carrier with this key,
@@ -1965,6 +1988,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
 				modelSyncEnabled: body.modelSyncEnabled ?? true,
+				...providerKeyRateLimitUpdates(body),
 			})
 			.returning();
 		// A custom carrier is served by the key its claim points at: an admin
@@ -2021,6 +2045,7 @@ const updateCredential = createRoute({
 						 */
 						allowedModelsBase: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -2048,12 +2073,35 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		where: {
 			id: { eq: id },
 			managed: { eq: true },
-			status: { ne: "deleted" },
 		},
 	});
 
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	// Soft-deleted credentials stay editable (e.g. renamed for the history they
+	// are kept for), but never move back into rotation.
+	const wasDeleted = isRemovedProviderKeyStatus(existing.status);
+	if (wasDeleted && body.status !== undefined) {
+		throw new HTTPException(400, {
+			message: "A deleted credential cannot change status.",
+		});
+	}
+	// A credential pending deletion still serves conversations pinned to it by
+	// replayed reasoning, which only verifies on the exact account that
+	// produced it — so what it sends upstream must not change until teardown.
+	if (
+		existing.status === "pending_deletion" &&
+		(body.token !== undefined ||
+			body.config !== undefined ||
+			body.region !== undefined ||
+			body.variant !== undefined ||
+			body.allowedModels !== undefined)
+	) {
+		throw new HTTPException(400, {
+			message:
+				"A credential pending deletion cannot change its token, config, region, variant or allowed models.",
+		});
 	}
 	if (body.token !== undefined && existing.provider !== "custom") {
 		const carrier = await findActiveCustomCarrier(existing.provider);
@@ -2062,7 +2110,8 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		}
 	}
 
-	const updates: Partial<typeof tables.providerKey.$inferInsert> = {};
+	const updates: Partial<typeof tables.providerKey.$inferInsert> =
+		providerKeyRateLimitUpdates(body);
 
 	if (body.config !== undefined) {
 		const config = normalizeConfig(body.config);
@@ -2189,9 +2238,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		});
 	}
 
-	// status <> 'deleted' repeats the read's predicate so a concurrent delete
-	// cannot have this write resurrect (or rotate the token of) a row that was
-	// soft-deleted between the read above and this statement.
+	// The status predicate pins the deleted-or-not state the read saw, so a
+	// concurrent delete cannot have this write resurrect (or rotate the token
+	// of) a row soft-deleted between the read above and this statement.
 	const [updated] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
@@ -2199,7 +2248,13 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			and(
 				eq(tables.providerKey.id, id),
 				eq(tables.providerKey.managed, true),
-				ne(tables.providerKey.status, "deleted"),
+				wasDeleted
+					? inArray(tables.providerKey.status, [
+							...REMOVED_PROVIDER_KEY_STATUSES,
+						])
+					: notInArray(tables.providerKey.status, [
+							...REMOVED_PROVIDER_KEY_STATUSES,
+						]),
 			),
 		)
 		.returning();
@@ -2253,7 +2308,7 @@ async function resolveCredentialUnderTest(
 			where: {
 				id: { eq: body.credentialId },
 				managed: { eq: true },
-				status: { ne: "deleted" },
+				status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 			},
 		});
 		if (!credential) {
@@ -2614,15 +2669,33 @@ adminProviderCredentials.openapi(deleteCredential, async (c) => {
 	// Soft delete: request logs reference provider-key ids for health tracking
 	// and attribution, so the row must survive. The status predicate makes a
 	// repeat delete report 404 instead of succeeding against an already-deleted
-	// row.
+	// row. The credential first enters its teardown grace period, where it
+	// only serves conversations pinned to it by replayed reasoning.
+	const existing = await db.query.providerKey.findFirst({
+		where: {
+			id: { eq: id },
+			managed: { eq: true },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
+		},
+		columns: { provider: true, status: true },
+	});
+	if (!existing) {
+		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	const status = deletedProviderKeyStatus(existing);
 	const [deleted] = await cdb
 		.update(tables.providerKey)
-		.set({ status: "deleted" })
+		.set({
+			status,
+			deletionRequestedAt: status === "pending_deletion" ? new Date() : null,
+		})
 		.where(
 			and(
 				eq(tables.providerKey.id, id),
 				eq(tables.providerKey.managed, true),
-				ne(tables.providerKey.status, "deleted"),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
 			),
 		)
 		.returning({ id: tables.providerKey.id });
@@ -2705,7 +2778,7 @@ adminProviderCredentials.openapi(reorderCredentials, async (c) => {
 		where: {
 			managed: { eq: true },
 			provider: { eq: provider },
-			status: { ne: "deleted" },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 		},
 		columns: { id: true },
 	});
@@ -2737,7 +2810,9 @@ adminProviderCredentials.openapi(reorderCredentials, async (c) => {
 				inArray(tables.providerKey.id, credentialIds),
 				eq(tables.providerKey.managed, true),
 				eq(tables.providerKey.provider, provider),
-				ne(tables.providerKey.status, "deleted"),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
 			),
 		)
 		.returning();
