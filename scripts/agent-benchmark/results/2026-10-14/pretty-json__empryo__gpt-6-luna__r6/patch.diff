@@ -1,0 +1,150 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..5313bd6 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,83 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should remove Content-Length when prettifying JSON', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '20',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.has('Content-Length')).toBe(false)
++    expect(await res.text()).toBe(JSON.stringify({ message: 'Hono!' }, null, 2))
++  })
++
++  it('Should pass through JSON responses that cannot be parsed', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/empty', (c) =>
++      c.newResponse(null, 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Test': 'empty',
++      })
++    )
++    app.get('/invalid', (c) =>
++      c.newResponse('not json', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++        'X-Test': 'invalid',
++      })
++    )
++    app.get('/no-content', (c) =>
++      c.newResponse(null, 204, {
++        'Content-Type': 'application/json',
++        'X-Test': 'no-content',
++      })
++    )
++    app.get('/not-modified', (c) =>
++      c.newResponse(null, 304, {
++        'Content-Type': 'application/json',
++        'X-Test': 'not-modified',
++      })
++    )
++
++    for (const [path, status, body, length, marker] of [
++      ['/empty', 200, '', '0', 'empty'],
++      ['/invalid', 200, 'not json', '8', 'invalid'],
++      ['/no-content', 204, '', null, 'no-content'],
++      ['/not-modified', 304, '', null, 'not-modified'],
++    ] as const) {
++      const res = await app.request('http://localhost' + path)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Length')).toBe(length)
++      expect(res.headers.get('X-Test')).toBe(marker)
++      expect(await res.text()).toBe(body)
++    }
++  })
++
++  it('Should pass through responses whose body was already read', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('*', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/', (c) =>
++      c.newResponse('not json', 200, {
++        'Content-Type': 'application/json',
++        'X-Test': 'read',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('X-Test')).toBe('read')
++    expect(res.bodyUsed).toBe(true)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..01fc828 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -50,10 +50,16 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+   return async function prettyJSON(c, next) {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+-    const contentType = c.res.headers.get('Content-Type')
+-    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++    const response = c.res
++    const contentType = response.headers.get('Content-Type')
++    if (pretty && contentType && jsonContentTypeRegex.test(contentType) && !response.bodyUsed) {
++      try {
++        const obj = await response.clone().json()
++        response.headers.delete('Content-Length')
++        c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), response)
++      } catch {
++        // Invalid or empty JSON responses pass through unchanged.
++      }
+     }
+   }
+ }
+diff --git a/.empryo/genome.db b/.empryo/genome.db
+new file mode 100644
+index 0000000..9595e43
+Binary files /dev/null and b/.empryo/genome.db differ
+diff --git a/.empryo/genome.db-shm b/.empryo/genome.db-shm
+new file mode 100644
+index 0000000..cd9493d
+Binary files /dev/null and b/.empryo/genome.db-shm differ
+diff --git a/.empryo/genome.db-wal b/.empryo/genome.db-wal
+new file mode 100644
+index 0000000..e69de29
+diff --git a/.empryo/memory-config.json b/.empryo/memory-config.json
+new file mode 100644
+index 0000000..58b778b
+--- /dev/null
++++ b/.empryo/memory-config.json
+@@ -0,0 +1,8 @@
++{
++  "writeScope": "project",
++  "readScope": "all",
++  "cleanup": {
++    "lastCleanupAt": null,
++    "sessionsSinceCleanup": 1
++  }
++}
+\ No newline at end of file
+diff --git a/.empryo/memory.db b/.empryo/memory.db
+new file mode 100644
+index 0000000..5ab81b5
+Binary files /dev/null and b/.empryo/memory.db differ
+diff --git a/.empryo/memory.db-shm b/.empryo/memory.db-shm
+new file mode 100644
+index 0000000..c49ad5e
+Binary files /dev/null and b/.empryo/memory.db-shm differ
+diff --git a/.empryo/memory.db-wal b/.empryo/memory.db-wal
+new file mode 100644
+index 0000000..e69de29

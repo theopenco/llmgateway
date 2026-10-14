@@ -1,0 +1,44 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r6/repo[39m
+
+ [31m❯[39m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts [2m([22m[2m12 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 26[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output[32m 16[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output with 4 spaces[32m 1[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output when middleware received custom query[32m 1[2mms[22m[39m
+     [32m✓[39m Should force pretty JSON output when force option is true[32m 1[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output for structured JSON content-types (+json)[32m 1[2mms[22m[39m
+     [32m✓[39m Should not touch responses with non-JSON content-types[32m 0[2mms[22m[39m
+     [32m✓[39m Should not break 204 responses with a JSON content-type[32m 0[2mms[22m[39m
+     [32m✓[39m Should not break 304 responses with a JSON content-type[32m 0[2mms[22m[39m
+     [32m✓[39m Should not break empty responses with a JSON content-type[32m 1[2mms[22m[39m
+     [32m✓[39m Should pass through a response with an invalid JSON body unchanged[32m 1[2mms[22m[39m
+     [32m✓[39m Should pass through a response whose body was already consumed by another middleware[32m 1[2mms[22m[39m
+[31m     [31m×[31m Should remove a stale Content-Length when the body is prettified[39m[32m 3[2mms[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m11 passed[39m[22m[90m (12)[39m
+[2m   Start at [22m 21:41:09
+[2m   Duration [22m 349ms[2m (transform 153ms, setup 0ms, import 182ms, tests 26ms, environment 0ms)[22m
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts[2m > [22mJSON pretty by Middleware[2m > [22mShould remove a stale Content-Length when the body is prettified
+[31m[1mAssertionError[22m: expected '19' to be null[39m
+
+[32m- Expected:[39m
+null
+
+[31m+ Received:[39m
+"19"
+
+[36m [2m❯[22m src/middleware/pretty-json/index.test.ts:[2m216:47[22m[39m
+    [90m214|[39m   "message": "Hono!"
+    [90m215|[39m }`[39m)
+    [90m216|[39m     [34mexpect[39m(res[33m.[39mheaders[33m.[39m[35mget[39m([32m'Content-Length'[39m))[33m.[39m[34mtoBeNull[39m()
+    [90m   |[39m                                               [31m^[39m
+    [90m217|[39m   })
+    [90m218|[39m })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+

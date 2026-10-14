@@ -1,0 +1,82 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..89410eb 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -237,6 +237,45 @@ describe('EventProcessor.createRequest', () => {
+     expect(url.searchParams.get('ampersand')).toBe('a&b&c')
+   })
+ 
++  it('Should keep empty-string query values and skip undefined ones for version 1.0', () => {
++    const event: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters: {
++        empty: '',
++        present: '0',
++        omitted: undefined,
++      },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.url).toEqual(
++      'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++    )
++  })
++
++  it('Should keep empty-string query values and skip undefined ones for ALB', () => {
++    const event = {
++      httpMethod: 'GET',
++      path: '/my/path',
++      headers: { host: 'app.example.com' },
++      body: null,
++      isBase64Encoded: false,
++      queryStringParameters: {
++        empty: '',
++        present: '0',
++        omitted: undefined,
++      },
++      requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++    } as unknown as LambdaEvent
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.url).toEqual('https://app.example.com/my/path?empty=&present=0')
++  })
++
+   it('Should return valid Request object from version 1.0 API Gateway event', () => {
+     const event: LambdaEvent = {
+       ...baseV1Event,
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..ab3d682 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -464,9 +464,11 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         )
+         .join('&')
+     } else {
++      // `undefined` means the parameter is absent, but an empty string is a real value
++      // (e.g. `?empty=`) and must be preserved.
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
++        .filter(([, value]) => value !== undefined)
++        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value ?? '')}`)
+         .join('&')
+     }
+   }
+@@ -554,9 +556,11 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .map(([key, value]) => `${key}=${value.join(`&${key}=`)}`)
+         .join('&')
+     } else {
++      // `undefined` means the parameter is absent, but an empty string is a real value
++      // (e.g. `?empty=`) and must be preserved.
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${key}=${value}`)
++        .filter(([, value]) => value !== undefined)
++        .map(([key, value]) => `${key}=${value ?? ''}`)
+         .join('&')
+     }
+   }
