@@ -1673,6 +1673,21 @@ adminAirside.openapi(revokeClaim, async (c) => {
 					eq(tables.providerRoutingFiling.status, "pending"),
 				),
 			);
+		// Relist requests on already-delisted listings can no longer be
+		// approved without the claim.
+		await tx
+			.update(tables.providerDraftModel)
+			.set({ relistRequestedAt: null, relistRequestedBy: null })
+			.where(
+				and(
+					eq(
+						tables.providerDraftModel.providerCompanyId,
+						claim.providerCompanyId,
+					),
+					eq(tables.providerDraftModel.providerId, claim.providerId),
+					isNotNull(tables.providerDraftModel.relistRequestedAt),
+				),
+			);
 		// Revocation ends portal control entirely: the company's listings for
 		// this provider stop routing and stop accepting edits or filings.
 		const companyModels = await tx

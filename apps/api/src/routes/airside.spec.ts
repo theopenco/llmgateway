@@ -3283,6 +3283,21 @@ describe("airside provider portal", () => {
 		const listed = await createModel(cookie, company.id);
 		expect(listed.status).toBe(201);
 		const listedModel = (await listed.json()).model;
+		// An earlier delisted listing has a relist request under review.
+		const [awaitingRelist] = await db
+			.insert(tables.providerDraftModel)
+			.values({
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-small-4",
+				externalId: "mistral-small-4",
+				family: "mistral",
+				status: "delisted",
+				delistedAt: new Date(),
+				delistReason: "removed",
+				relistRequestedAt: new Date(),
+			})
+			.returning();
 
 		const revoked = await app.request(
 			`/admin/airside/claims/${claim.id}/revoke`,
@@ -3298,6 +3313,11 @@ describe("airside provider portal", () => {
 		});
 		expect(deadModel!.status).toBe("delisted");
 		expect(deadModel!.delistReason).toBe("claim_revoked");
+		// Revocation drops relist requests that could no longer be approved.
+		const droppedRequest = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: awaitingRelist.id } },
+		});
+		expect(droppedRequest!.relistRequestedAt).toBeNull();
 		// Without an active claim the listing stays history.
 		const relist = await app.request(
 			`/airside/models/${listedModel.id}/relist`,

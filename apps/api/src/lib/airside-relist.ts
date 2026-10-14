@@ -103,7 +103,15 @@ export async function relistAirsideListing(
 	tx: CatalogueTransaction,
 	model: { id: string; providerCompanyId: string; providerId: string },
 ): Promise<DraftModelRow> {
-	const { fare } = await lockRelistableListing(tx, model);
+	// Re-checked under the row lock: the carrier may have withdrawn the
+	// request since the caller read it.
+	const { fare } = await lockRelistableListing(tx, model, async (locked) => {
+		if (!locked.relistRequestedAt) {
+			throw new HTTPException(409, {
+				message: "This listing has no relist request under review.",
+			});
+		}
+	});
 	try {
 		const [relisted] = await tx
 			.update(tables.providerDraftModel)
