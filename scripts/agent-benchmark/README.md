@@ -53,7 +53,10 @@ node scripts/agent-benchmark/report.mjs my-run
 generates the local CA under `~/agent-benchmark-work` (override with `BENCH_HOME`).
 `run.mjs` takes `--agents`, `--models`, `--tasks`, `--reps`, `--concurrency` and
 `--timeout-min`, and skips runs that already have a `result.json`, so an interrupted suite
-resumes where it stopped. `report.mjs` writes `summary.json` and `summary.md`.
+resumes where it stopped. Before each run it checks the key and organization balance and stops
+queuing new runs once `--max-spend` USD has been spent in this invocation, or when organization
+credits (or the key's remaining limit) drop below `--min-credits` (default 2). A half-funded run
+would end in a 402 mid-task and skew the token counts, so the guard stops cleanly instead. `report.mjs` writes `summary.json` and `summary.md`.
 
 Each run directory keeps `result.json`, `requests.jsonl` (one line per model call, no
 prompt bodies), the agent's `patch.diff`, the grading log and the tail of the agent's output.
