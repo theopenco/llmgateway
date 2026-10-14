@@ -10,10 +10,10 @@ export const CONTEXT_TIER_TOLERANCE = 0.1;
 
 /**
  * Fewest distinct providers that must serve the full window before smaller
- * deployments are excluded, so the rule never funnels a model onto one
- * provider.
+ * deployments are excluded. One is enough: a model served at its full window
+ * anywhere must not route long conversations to a smaller deployment.
  */
-export const CONTEXT_TIER_MIN_PROVIDERS = 2;
+export const CONTEXT_TIER_MIN_PROVIDERS = 1;
 
 type ContextSizedMapping = Pick<
 	ProviderModelMapping,

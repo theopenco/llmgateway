@@ -66,11 +66,23 @@ describe("getContextTierMinSize", () => {
 		expect(200_000 >= (minSize ?? 0)).toBe(false);
 	});
 
-	it("does not apply when fewer than two providers serve the full window", () => {
+	it("applies when a single provider serves the full window", () => {
 		expect(
 			getContextTierMinSize(UNKNOWN_MODEL, [
 				mapping("a", 1_000_000, { regions: [{ id: "eu" }] }),
 				mapping("b", 200_000),
+			]),
+		).toBeCloseTo(900_000);
+	});
+
+	it("does not apply when no listed provider serves the full window", () => {
+		const catalogueModel = models.find((model) => model.id === "glm-5.3-flash");
+		const largest = Math.max(
+			...(catalogueModel?.providers ?? []).map((p) => p.contextSize ?? 0),
+		);
+		expect(
+			getContextTierMinSize("glm-5.3-flash", [
+				mapping("airside", Math.floor(largest / 2)),
 			]),
 		).toBeUndefined();
 	});
