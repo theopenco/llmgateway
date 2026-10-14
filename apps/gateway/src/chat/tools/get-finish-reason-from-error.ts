@@ -45,6 +45,13 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// 408 means the provider timed out processing the request (e.g. Azure
+	// `{"code":"Timeout","message":"The operation was timeout."}`), not that
+	// the client was slow to send it.
+	if (statusCode === 408) {
+		return "upstream_error";
+	}
+
 	// This restriction belongs to the upstream account, even on a 4xx response.
 	if (
 		errorText &&
