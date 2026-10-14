@@ -129,6 +129,8 @@ function credentialLabel(key: OverviewKey): string {
 	}
 	if (key.status === "deleted") {
 		parts.push("deleted");
+	} else if (key.status === "pending_deletion") {
+		parts.push("pending deletion");
 	}
 	return parts.join(" · ");
 }

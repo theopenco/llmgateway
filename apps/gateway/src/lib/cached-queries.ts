@@ -999,6 +999,32 @@ export async function findProviderKeysByProviders(
 	);
 }
 
+/**
+ * A provider key (BYOK or managed) that a reasoning-credential pin may still
+ * use: active, or deleted but inside its teardown grace period (cacheable).
+ * Callers check ownership and provider themselves.
+ */
+export async function findPinnableProviderKey(
+	id: string,
+): Promise<ProviderKey | undefined> {
+	const rows = await swrWrap(
+		`providerKey:pinnable:${id}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.id, id),
+						inArray(providerKeyTable.status, ["active", "pending_deletion"]),
+					),
+				)
+				.limit(1),
+	);
+	return rows[0];
+}
+
 export interface FindManagedProviderKeyOptions {
 	/**
 	 * Env-var variant the organization maps to. A credential configured for the

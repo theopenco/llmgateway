@@ -1013,6 +1013,42 @@ describe("provider keys route", () => {
 			},
 		});
 		expect(providerKey).not.toBeNull();
+		// Non-custom keys first enter their teardown grace period.
+		expect(providerKey?.status).toBe("pending_deletion");
+		expect(providerKey?.deletionRequestedAt).toBeInstanceOf(Date);
+
+		// Its owner sees it as deleted and can no longer edit it.
+		const list = await app.request("/keys/provider", {
+			headers: { Cookie: token },
+		});
+		const { providerKeys } = await list.json();
+		expect(
+			providerKeys.find(
+				(key: { id: string }) => key.id === "test-provider-key-id",
+			)?.status,
+		).toBe("deleted");
+		const patch = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ status: "active" }),
+		});
+		expect(patch.status).toBe(404);
+	});
+
+	test("DELETE /keys/provider/{id} skips the grace period for a disabled key", async () => {
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, "test-provider-key-id"));
+
+		const res = await app.request("/keys/provider/test-provider-key-id", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
 		expect(providerKey?.status).toBe("deleted");
 	});
 
