@@ -568,7 +568,8 @@ routing and key selection.
 If that key fails with a retryable error (a rate limit, a timeout, a server
 error), the request still fails over to another key or provider. OpenAI
 encrypted reasoning is optional context, so the retry is sent without it: the
-model loses the earlier reasoning for that turn instead of the request failing.
+model reasons afresh without the conversation's earlier reasoning on that
+request, instead of the request failing.
 When an upstream rejects replayed encrypted reasoning anyway (for example
 history from another gateway, or older than its pin), the gateway retries once
 on the same provider without it. Either way the log's

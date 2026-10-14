@@ -60,8 +60,8 @@ function isAccountBoundReasoningDetail(detail: ReasoningDetail): boolean {
 
 /**
  * The messages without OpenAI-format encrypted reasoning, which only verifies
- * on the account that produced it. It is optional context — by default the
- * model drops reasoning from before the last user message anyway — so a turn
+ * on the account that produced it. It is optional context — the upstream
+ * accepts a replay without it and the model reasons afresh — so a turn
  * that must move to another credential, or whose reasoning an account rejects,
  * can still be served without it. Gemini signatures are kept: a signed function
  * call is required, not optional.
