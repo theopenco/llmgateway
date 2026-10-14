@@ -56,6 +56,18 @@ export function resolveUpstreamTarget(
 		};
 	}
 
+	if (providerId === "xai") {
+		// xAI speaks the OpenAI realtime protocol; OpenAI-only headers such as
+		// the safety identifier are not forwarded.
+		const baseUrl = credentialBaseUrl ?? "https://api.x.ai";
+		return {
+			url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?model=${encodeURIComponent(preflight.match.mapping.externalId)}`,
+			headers: {
+				Authorization: `Bearer ${preflight.upstreamToken}`,
+			},
+		};
+	}
+
 	const baseUrl = credentialBaseUrl ?? "https://api.openai.com";
 	// A transcription session has no session model in the URL: the ASR model
 	// is applied by the gateway's control session.update once connected.
