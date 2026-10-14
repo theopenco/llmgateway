@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
-import { rememberReasoningCredential } from "@/chat/tools/reasoning-credential-pin.js";
+import {
+	reasoningPinBindsModel,
+	rememberReasoningCredential,
+} from "@/chat/tools/reasoning-credential-pin.js";
 import { setPreferredProvider } from "@/lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { models } from "@llmgateway/models";
 import {
 	getApiKeyFingerprint,
 	hashApiKeyForStorage,
@@ -377,6 +381,44 @@ describe("reasoning credential pinning", () => {
 		expect(failing.length).toBeGreaterThan(0);
 		expect(failing.every((value) => value === "Bearer sk-managed-a")).toBe(
 			true,
+		);
+	});
+});
+
+describe("reasoningPinBindsModel", () => {
+	const mappings = (id: string) =>
+		models.find((model) => model.id === id)?.providers;
+	const pin = (provider: string) => ({
+		provider,
+		source: "managed" as const,
+		providerKeyId: "key",
+		apiKeyHash: "hash",
+	});
+
+	test.each(["openai", "azure"])(
+		"binds reasoning text models on %s",
+		(provider) => {
+			expect(
+				reasoningPinBindsModel(pin(provider), mappings("gpt-6.1-sol")),
+			).toBe(true);
+		},
+	);
+
+	test.each(["openai", "azure"])(
+		"leaves image models on %s unpinned",
+		(provider) => {
+			expect(
+				reasoningPinBindsModel(pin(provider), mappings("gpt-image-2")),
+			).toBe(false);
+		},
+	);
+
+	test("ignores a pin for a provider the model has no mapping on", () => {
+		expect(
+			reasoningPinBindsModel(pin("google-ai-studio"), mappings("gpt-6.1-sol")),
+		).toBe(false);
+		expect(reasoningPinBindsModel(undefined, mappings("gpt-6.1-sol"))).toBe(
+			false,
 		);
 	});
 });

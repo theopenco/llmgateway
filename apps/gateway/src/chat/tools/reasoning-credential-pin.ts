@@ -14,6 +14,7 @@ import {
 	providerKeyAllowsModel,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { usesEncryptedReasoning } from "@llmgateway/models";
 
 import type { PlatformCredential } from "./resolve-platform-credential.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -228,6 +229,25 @@ function resolveEnvCredential(
 		configIndex,
 		envVarName: pin.envVarName,
 	};
+}
+
+/**
+ * Whether a recorded pin binds this model: only mappings that return
+ * provider-bound reasoning (`usesEncryptedReasoning`) are pinned, so a model
+ * without reasoning on that provider — image models, for example — routes and
+ * selects keys normally even when the conversation replays reasoning.
+ */
+export function reasoningPinBindsModel(
+	pin: ReasoningCredential | undefined,
+	mappings: readonly { providerId: string; reasoning?: boolean }[] | undefined,
+): pin is ReasoningCredential {
+	return (
+		pin !== undefined &&
+		(mappings ?? []).some(
+			(mapping) =>
+				mapping.providerId === pin.provider && usesEncryptedReasoning(mapping),
+		)
+	);
 }
 
 /**

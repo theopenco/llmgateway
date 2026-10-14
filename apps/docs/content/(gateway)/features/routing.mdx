@@ -562,7 +562,8 @@ encrypted reasoning item or thought signature, and the turn that replays it is
 routed to that provider and sent with that same key, with or without a session
 id. Such a turn is never retried on another key. A conversation without a
 remembered key (older than 24 hours since its last turn) uses normal routing
-and key selection.
+and key selection. Only models that reason on that provider are pinned; image models and
+other models without reasoning use normal routing and key selection.
 
 Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
 During that time it serves only conversations that replay reasoning it

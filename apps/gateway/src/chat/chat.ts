@@ -346,6 +346,7 @@ import {
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
 	lookupReasoningPin,
+	reasoningPinBindsModel,
 	type ReasoningCredential,
 	rememberReasoningCredential,
 	resolveReasoningCredentialPin,
@@ -3032,11 +3033,23 @@ chat.openapi(completions, async (c) => {
 		project.organizationId,
 		messages,
 	);
-	const reasoningPinnedProvider = async () =>
-		reasoningPin ? { providerId: reasoningPin.provider } : null;
+	// Only a model whose mapping on the pinned provider returns bound reasoning
+	// is held there; image and other non-reasoning models route normally.
+	const reasoningPinFor = (modelId: string) =>
+		reasoningPinBindsModel(
+			reasoningPin,
+			modelInfo.id === modelId
+				? modelInfo.providers
+				: models.find((model) => model.id === modelId)?.providers,
+		)
+			? reasoningPin
+			: undefined;
 	const createSessionStore = (modelId: string) => {
+		const modelReasoningPin = reasoningPinFor(modelId);
+		const reasoningPinnedProvider = async () =>
+			modelReasoningPin ? { providerId: modelReasoningPin.provider } : null;
 		if (!sessionStickyEnabled || !sessionId) {
-			return reasoningPin
+			return modelReasoningPin
 				? { get: reasoningPinnedProvider, set: async () => {} }
 				: undefined;
 		}
@@ -6057,7 +6070,8 @@ chat.openapi(completions, async (c) => {
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
 					const reasoningPinApplied =
-						reasoningPin?.provider === cheapestResult.provider.providerId;
+						reasoningPinFor(modelWithPricing.id)?.provider ===
+						cheapestResult.provider.providerId;
 
 					if (
 						hysteresisSelectionReason !== "random-exploration" &&
