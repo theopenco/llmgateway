@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	assertTestWalletModelAllowed,
+	loadEndUserWallet,
 	validateEndUserSessionModelAccess,
 } from "./end-user-session.js";
 
@@ -108,11 +109,20 @@ function makeSessionApiKey(models?: string[]): GatewayApiKey {
 			walletStatus: "active",
 			endCustomerStatus: "active",
 			projectStatus: "active",
+			endUserEnabled: true,
 		},
 	};
 }
 
 describe("validateEndUserSessionModelAccess", () => {
+	it("rejects a session whose project disabled end-user access", async () => {
+		const key = makeSessionApiKey();
+		key.endUserSession!.expiresAt = new Date(Date.now() + 60_000);
+		key.endUserSession!.endUserEnabled = false;
+		await expect(loadEndUserWallet(key)).rejects.toThrow(
+			"End-user access is disabled",
+		);
+	});
 	it("returns null when the session has no model scope", () => {
 		expect(
 			validateEndUserSessionModelAccess(

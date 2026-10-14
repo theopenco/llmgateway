@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import {
 	getApiKeyFingerprint,
 	hashApiKeyForStorage,
@@ -72,6 +72,45 @@ describe("platform sessions", () => {
 	afterEach(async () => {
 		await deleteAll();
 	});
+
+	test("rejects existing sessions after end-user access is disabled", async () => {
+		const session = await mintSession("customer-a");
+		await db
+			.update(tables.project)
+			.set({ endUserEnabled: false })
+			.where(eq(tables.project.id, "test-project-id"));
+		const refresh = await app.request("/v1/sessions/refresh", {
+			method: "POST",
+			headers: { Authorization: `Bearer ${session.sessionToken}` },
+		});
+		expect(refresh.status).toBe(403);
+		const sessions = await db.query.endUserSession.findMany({
+			where: { walletId: { eq: session.walletId } },
+		});
+		expect(sessions).toHaveLength(1);
+	});
+
+	test.each(["inactive", "deleted"] as const)(
+		"rejects wallet requests for a %s organization",
+		async (status) => {
+			const session = await mintSession("customer-a");
+			await db
+				.update(tables.organization)
+				.set({ status })
+				.where(eq(tables.organization.id, "test-org-id"));
+			for (const path of ["/v1/sessions/refresh", "/v1/wallet/top-up"]) {
+				const response = await app.request(path, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${session.sessionToken}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ amount: 10 }),
+				});
+				expect(response.status).toBe(403);
+			}
+		},
+	);
 
 	test("reuses one hidden aggregate API key per end customer", async () => {
 		const firstSession = await mintSession("customer-a");

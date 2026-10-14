@@ -198,9 +198,10 @@ export async function assertSpendLimit(
 export async function recordSpend(
 	organizationId: string,
 	cost: number,
+	now = Date.now(),
 ): Promise<void> {
 	await Promise.all([
 		markOrgRequestActivity(organizationId),
-		recordOrgSpend(organizationId, cost),
+		recordOrgSpend(organizationId, cost, now),
 	]);
 }
