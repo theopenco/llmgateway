@@ -4189,6 +4189,20 @@ export const modelProviderMappingHistoryHourly = snakeCase.table(
 				table.totalDuration,
 			)
 			.where(sql`logs_count > 0`),
+		// Covering index for per-provider traffic series (admin carriers page):
+		// provider first so each provider is one contiguous index-only range.
+		index("mpm_history_hourly_provider_ts_active_idx")
+			.on(
+				table.providerId,
+				table.hourTimestamp,
+				table.modelProviderMappingId,
+				table.logsCount,
+				table.totalCost,
+				table.clientErrorsCount,
+				table.gatewayErrorsCount,
+				table.upstreamErrorsCount,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 

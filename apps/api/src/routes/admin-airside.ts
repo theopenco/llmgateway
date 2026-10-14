@@ -63,6 +63,7 @@ import {
 	db,
 	eq,
 	excludeRegionalMappingRows,
+	gt,
 	gte,
 	inArray,
 	isNotNull,
@@ -1756,6 +1757,10 @@ async function getCarrierTrafficSeries(
 			and(
 				inArray(history.providerId, providerIds),
 				gte(history.hourTimestamp, starts[0]),
+				// Most hourly rows are idle mappings that add nothing to the sums;
+				// this lets the planner use the partial active-rows index instead
+				// of reading every row in the window from the heap.
+				gt(history.logsCount, 0),
 				excludeRegionalMappingRows(history),
 			),
 		)
