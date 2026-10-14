@@ -120,6 +120,37 @@ describe("/v1/messages tool_choice", () => {
 		expect((await send({ type: "auto" })).tool_choice).toBeUndefined();
 	});
 
+	test("forwards disable_parallel_tool_use on every mode that accepts it", async () => {
+		await setup();
+
+		for (const type of ["auto", "any"] as const) {
+			const body = await send({ type, disable_parallel_tool_use: true });
+			expect(body.tool_choice).toEqual({
+				type,
+				disable_parallel_tool_use: true,
+			});
+			expect(body).not.toHaveProperty("parallel_tool_calls");
+		}
+		expect(
+			(
+				await send({
+					type: "tool",
+					name: "get_time",
+					disable_parallel_tool_use: true,
+				})
+			).tool_choice,
+		).toEqual({
+			type: "tool",
+			name: "get_time",
+			disable_parallel_tool_use: true,
+		});
+		// false is the default; nothing to forward
+		expect(
+			(await send({ type: "any", disable_parallel_tool_use: false }))
+				.tool_choice,
+		).toEqual({ type: "any" });
+	});
+
 	test("drops OpenAI-style tool_choice values instead of rejecting them", async () => {
 		await setup();
 

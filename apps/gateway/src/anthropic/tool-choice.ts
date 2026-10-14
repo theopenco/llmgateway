@@ -44,3 +44,17 @@ export function mapAnthropicToolChoice(
 			return undefined;
 	}
 }
+/**
+ * Anthropic's `disable_parallel_tool_use` lives on `tool_choice`; chat
+ * completions carries the same switch as `parallel_tool_calls: false`, which
+ * `prepareRequestBody` folds back onto `tool_choice` for Anthropic upstreams.
+ */
+export function anthropicToolChoiceDisablesParallelUse(
+	toolChoice: AnthropicToolChoice | undefined,
+): boolean {
+	return (
+		toolChoice !== undefined &&
+		toolChoice.type !== "none" &&
+		toolChoice.disable_parallel_tool_use === true
+	);
+}
