@@ -1035,7 +1035,16 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			isContentFilterClassifierCompliant(classifier, compliancePolicy);
 		const started = await startTieredContentFilter({
 			plan: tieredContentFilterPlan,
-			messages: normalizedMessages,
+			// `instructions` reaches the provider too (as a directive or inside the
+			// prompt), so it is moderated along with `input`.
+			messages: request.instructions
+				? [
+						{
+							role: "user" as const,
+							content: `${request.instructions}\n\n${request.input}`,
+						},
+					]
+				: normalizedMessages,
 			context: {
 				requestId,
 				organizationId: project.organizationId,
@@ -1158,6 +1167,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const onAbort = () => {
 		controller.abort();
 	};
+	// The client may have hung up while an enforced check was awaited.
+	if (c.req.raw.signal.aborted) {
+		controller.abort();
+	}
 	c.req.raw.signal.addEventListener("abort", onAbort);
 
 	try {

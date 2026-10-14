@@ -17,6 +17,7 @@ describe("speech gateway content filter", () => {
 	let previousContentFilterMode: string | undefined;
 	let moderationCalls = 0;
 	let speechCalls = 0;
+	let moderationBodies: string[] = [];
 
 	beforeEach(async () => {
 		previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
@@ -25,6 +26,7 @@ describe("speech gateway content filter", () => {
 		delete process.env.LLM_CONTENT_FILTER_MODE;
 		moderationCalls = 0;
 		speechCalls = 0;
+		moderationBodies = [];
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -55,6 +57,7 @@ describe("speech gateway content filter", () => {
 						: input.url;
 			if (url === MODERATION_URL) {
 				moderationCalls += 1;
+				moderationBodies.push(String(init?.body ?? ""));
 				return Response.json({
 					id: "modr-speech",
 					model: "omni-moderation-latest",
@@ -84,7 +87,7 @@ describe("speech gateway content filter", () => {
 		}
 	});
 
-	const speak = (requestId: string) =>
+	const speak = (requestId: string, instructions?: string) =>
 		app.request("/v1/audio/speech", {
 			method: "POST",
 			headers: {
@@ -96,6 +99,7 @@ describe("speech gateway content filter", () => {
 				model: "tts-1",
 				input: `Read this aloud ${requestId}`,
 				voice: "alloy",
+				...(instructions ? { instructions } : {}),
 			}),
 		});
 
@@ -135,6 +139,20 @@ describe("speech gateway content filter", () => {
 			matchedCategories: ["violence"],
 		});
 		expect(log.gatewayContentFilterResponse).toHaveLength(1);
+	});
+
+	test("moderates instructions together with input", async () => {
+		await harness.setContentFilterSettings({ providerIds: ["openai"] });
+
+		const res = await speak("speech-tier-instructions", "Whisper menacingly");
+		expect(res.status).toBe(200);
+
+		await waitForLogByRequestId("speech-tier-instructions");
+		expect(moderationCalls).toBe(1);
+		expect(moderationBodies[0]).toContain("Whisper menacingly");
+		expect(moderationBodies[0]).toContain(
+			"Read this aloud speech-tier-instructions",
+		);
 	});
 
 	test("blocks a violation when enforcement is on", async () => {
