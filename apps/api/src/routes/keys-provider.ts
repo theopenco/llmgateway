@@ -11,6 +11,13 @@ import {
 	pickAllowedValidationModel,
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
+import {
+	pickProviderKeyRateLimits,
+	providerKeyRateLimitChanges,
+	providerKeyRateLimitsInputShape,
+	providerKeyRateLimitsOutputShape,
+	providerKeyRateLimitUpdates,
+} from "@/lib/provider-key-rate-limits.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import {
 	getActiveUserOrganizationIds,
@@ -170,6 +177,8 @@ export const providerKeyPublicSchema = z.object({
 	 * key serves the provider's full catalogue.
 	 */
 	allowedModels: z.array(z.string()).nullable(),
+	/** Request and token caps for this key; it leaves rotation while at one. */
+	...providerKeyRateLimitsOutputShape,
 });
 
 type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
@@ -198,6 +207,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		usage: row.usage,
 		maskedToken: readProviderKeyMask(row),
 		allowedModels: row.allowedModels,
+		...pickProviderKeyRateLimits(row),
 	};
 }
 
@@ -430,6 +440,7 @@ const createProviderKeySchema = z.object({
 	// Optional allowlist of canonical model ids this key may serve. Empty/null
 	// means the provider's full catalogue.
 	allowedModels: allowedModelsSchema,
+	...providerKeyRateLimitsInputShape,
 });
 
 // Schema for updating a provider key status / settings
@@ -451,9 +462,11 @@ const updateProviderKeyStatusSchema = z
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 		// USD spend cap; `null` clears it.
 		usageLimit: createNullableLimitSchema("Usage limit").optional(),
+		...providerKeyRateLimitsInputShape,
 	})
 	.refine(
 		(v) =>
+			Object.keys(providerKeyRateLimitUpdates(v)).length > 0 ||
 			v.status !== undefined ||
 			v.name !== undefined ||
 			v.description !== undefined ||
@@ -511,6 +524,7 @@ keysProvider.openapi(create, async (c) => {
 		organizationId,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		...rateLimitInput
 	} = c.req.valid("json");
 
 	const allowedModels = normalizeAllowedModels(requestedAllowedModels);
@@ -713,6 +727,7 @@ keysProvider.openapi(create, async (c) => {
 			options,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
+			...providerKeyRateLimitUpdates(rateLimitInput),
 		})
 		.returning();
 
@@ -1018,7 +1033,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 		complianceAttestation,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		...rateLimitInput
 	} = c.req.valid("json");
+	const rateLimitUpdates = providerKeyRateLimitUpdates(rateLimitInput);
 
 	// Get all active organization IDs the user has access to
 	const organizationIds = await getAdminOrganizationIds(user.id);
@@ -1052,6 +1069,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		customModelsOnly !== undefined ||
 		complianceAttestation !== undefined ||
 		usageLimit !== undefined ||
+		Object.keys(rateLimitUpdates).length > 0 ||
 		requestedAllowedModels !== undefined;
 	if (providerKey.provider === "custom" && editsConfiguration) {
 		assertCustomProviderEnterprise(providerKey.organization);
@@ -1129,7 +1147,11 @@ keysProvider.openapi(updateStatus, async (c) => {
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
-	} = {};
+		maxRpm?: number | null;
+		maxRpd?: number | null;
+		maxTpm?: number | null;
+		maxTpd?: number | null;
+	} = { ...rateLimitUpdates };
 	if (status !== undefined) {
 		updates.status = status;
 	}
@@ -1162,7 +1184,8 @@ keysProvider.openapi(updateStatus, async (c) => {
 		.where(eq(tables.providerKey.id, id))
 		.returning();
 
-	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	const changes: Record<string, { old: unknown; new: unknown }> =
+		providerKeyRateLimitChanges(providerKey, rateLimitUpdates);
 	if (status !== undefined && providerKey.status !== status) {
 		changes.status = { old: providerKey.status, new: status };
 	}

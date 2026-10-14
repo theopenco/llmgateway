@@ -824,6 +824,47 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("rate limits", () => {
+		async function patchKey(body: Record<string, unknown>) {
+			return await app.request("/keys/provider/test-provider-key-id", {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify(body),
+			});
+		}
+
+		test("PATCH sets, keeps and clears request and token caps", async () => {
+			const set = await patchKey({ maxRpm: 60, maxTpd: 1_000_000 });
+			expect(set.status).toBe(200);
+			expect((await set.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				maxRpd: null,
+				maxTpm: null,
+				maxTpd: 1_000_000,
+			});
+
+			const partial = await patchKey({ maxTpm: 50_000 });
+			expect(partial.status).toBe(200);
+			expect((await partial.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				maxTpm: 50_000,
+				maxTpd: 1_000_000,
+			});
+
+			const clear = await patchKey({ maxRpm: null });
+			expect(clear.status).toBe(200);
+			expect((await clear.json()).providerKey.maxRpm).toBeNull();
+		});
+
+		test("PATCH rejects caps below 1", async () => {
+			const res = await patchKey({ maxRpm: 0 });
+			expect(res.status).toBe(400);
+		});
+	});
+
 	describe("allowed models", () => {
 		// Taken from the catalogue rather than hardcoded so the assertions do not
 		// rot when a model is retired.

@@ -39,9 +39,17 @@ stop being available from that provider.
 
 ## Global Provider Rate Limits
 
-Administrators can set global or organization-specific RPM/RPD caps. Global
+Administrators can set global or organization-specific caps on requests per
+minute or day (RPM/RPD) and on tokens per minute or day (TPM/TPD). Global
 limits support **Global** (shared) or **Per-organization** counters. Changes
 propagate through the rate-limit cache (default 60 seconds).
+
+Each window is its own rule, so one provider/model target can carry request
+and token caps with different enforcement and modes.
+
+Token caps count prompt + completion tokens once a request completes, so the
+request that crosses a token cap still finishes and later requests are routed
+away until the window frees up. Cached responses do not count.
 
 Organization-specific limits and more specific global provider/model limits
 can override a provider-wide limit for the same window. No configured limit
@@ -60,7 +68,7 @@ provider (`provider/model`), even without a session or on its first request.
 | Fallback from another provider                            | No exemption | Excluded    |
 
 Exempt requests still count toward the limit. A session id alone does not grant
-an exemption, and every exceeded RPM/RPD window must permit the request: a
+an exemption, and every exceeded RPM/RPD/TPM/TPD window must permit the request: a
 strict window grants no exemption, while a soft window still requires an
 existing session pin.
 
