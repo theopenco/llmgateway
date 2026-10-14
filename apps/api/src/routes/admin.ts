@@ -13,7 +13,9 @@ import { approveHighRiskUser } from "@/lib/account-risk.js";
 import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
+	describeTransaction,
 	executeAdminRefund,
+	loadRefundOriginals,
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
 import { effectiveClaimKind } from "@/lib/airside-profile.js";
@@ -18233,6 +18235,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		orgId,
 		transactions.map((t) => t.id),
 	);
+	const refundOriginalsById = await loadRefundOriginals(transactions);
 
 	const paymentFailures = await db
 		.select({
@@ -18276,7 +18279,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				creditAmount: t.creditAmount ?? null,
 				currency: t.currency,
 				status: t.status,
-				description: t.description ?? null,
+				description: describeTransaction(t, refundOriginalsById),
 				relatedTransactionId: t.relatedTransactionId ?? null,
 				refundable: refundability.refundable,
 				refundIneligibleReason: refundability.reason,
@@ -19984,6 +19987,10 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		createdAt: org.createdAt.toISOString(),
 	};
 
+	const historyRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"history_refund_original",
+	);
 	const transactions = await db
 		.select({
 			id: tables.transaction.id,
@@ -19994,24 +20001,41 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			relatedTransactionId: tables.transaction.relatedTransactionId,
 		})
 		.from(tables.transaction)
+		.leftJoin(
+			historyRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, historyRefundOriginalTx.id),
+		)
 		.where(
 			and(
 				eq(tables.transaction.organizationId, orgId),
-				inArray(tables.transaction.type, [
-					"chat_plan_start",
-					"chat_plan_upgrade",
-					"chat_plan_downgrade",
-					"chat_plan_cancel",
-					"chat_plan_resume",
-					"chat_plan_end",
-					"chat_plan_renewal",
-				]),
+				or(
+					inArray(tables.transaction.type, [
+						"chat_plan_start",
+						"chat_plan_upgrade",
+						"chat_plan_downgrade",
+						"chat_plan_cancel",
+						"chat_plan_resume",
+						"chat_plan_end",
+						"chat_plan_renewal",
+					]),
+					// Money going back out. Without `credit_refund` a refunded plan
+					// payment reads as a charge that was never reversed. Only refunds
+					// of Lounge plan payments — a top-up or DevPass refund in the same
+					// org is not part of this history.
+					and(
+						eq(tables.transaction.type, "credit_refund"),
+						inArray(historyRefundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
+					),
+				),
 			),
 		)
 		.orderBy(desc(tables.transaction.createdAt))
 		.limit(100);
+
+	const refundOriginalsById = await loadRefundOriginals(transactions);
 
 	const paymentFailures = await db
 		.select({
@@ -20038,7 +20062,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 			creditAmount: t.creditAmount ?? null,
 			currency: t.currency,
 			status: t.status,
-			description: t.description ?? null,
+			description: describeTransaction(t, refundOriginalsById),
 		})),
 		paymentFailures: paymentFailures.map((p) => ({
 			id: p.id,

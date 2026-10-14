@@ -22,6 +22,7 @@
 import Stripe from "stripe";
 
 import { and, db, eq, inArray, isNull, tables } from "@llmgateway/db";
+import { buildRefundDescription } from "@llmgateway/shared";
 
 const STRIPE_API_VERSION = "2025-04-30.basil" as const;
 const DEV_PLAN_TX_TYPES = [
@@ -90,7 +91,10 @@ async function main(): Promise<void> {
 	}
 
 	const devpassRows: typeof legacyRows = [];
-	const originalAmountByRefundId = new Map<string, number>();
+	const originalByRefundId = new Map<
+		string,
+		{ amount: string | null; description: string | null }
+	>();
 	let nonDevpassRows = 0;
 	for (const row of legacyRows) {
 		if (!row.relatedTransactionId) {
@@ -128,10 +132,10 @@ async function main(): Promise<void> {
 		}
 
 		devpassRows.push(row);
-		originalAmountByRefundId.set(
-			row.id,
-			Number.parseFloat(original.amount ?? "0"),
-		);
+		originalByRefundId.set(row.id, {
+			amount: original.amount,
+			description: original.description,
+		});
 	}
 
 	if (nonDevpassRows > 0) {
@@ -269,11 +273,28 @@ async function main(): Promise<void> {
 		}
 
 		const sample = rows[0];
-		const originalAmount = originalAmountByRefundId.get(sample.id) ?? 0;
+		const original = originalByRefundId.get(sample.id) ?? null;
 
 		console.log(
 			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${(stripeTotal - legacyTotal).toFixed(2)}`,
 		);
+
+		// Spell out every row that would be written so a dry run can be reviewed
+		// (and diffed against the deleted rows above) before committing.
+		if (toInsert.length > 0) {
+			console.log(`  Rows that would be inserted:`);
+			for (const r of toInsert) {
+				const refundDollars = r.amount / 100;
+				console.log(
+					`    + amount=$${refundDollars.toFixed(2)} refundId=${r.id} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
+				);
+				console.log(
+					`      related=${sample.relatedTransactionId} description=${JSON.stringify(
+						`${buildRefundDescription(refundDollars, original)} [backfilled]`,
+					)}`,
+				);
+			}
+		}
 
 		if (commit) {
 			await db.transaction(async (tx) => {
@@ -288,7 +309,6 @@ async function main(): Promise<void> {
 
 				for (const r of toInsert) {
 					const refundDollars = r.amount / 100;
-					const ratio = originalAmount > 0 ? refundDollars / originalAmount : 0;
 					await tx.insert(tables.transaction).values({
 						createdAt: new Date(r.created * 1000),
 						updatedAt: new Date(r.created * 1000),
@@ -302,7 +322,7 @@ async function main(): Promise<void> {
 						stripeRefundId: r.id,
 						relatedTransactionId: sample.relatedTransactionId,
 						refundReason: r.reason ?? null,
-						description: `Credit refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
+						description: `${buildRefundDescription(refundDollars, original)} [backfilled]`,
 					});
 				}
 			});
