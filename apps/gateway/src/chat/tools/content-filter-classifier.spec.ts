@@ -61,6 +61,7 @@ function result(
 		upstreamRequestId: null,
 		results: [{ category_scores: scores }],
 		responses: [{ model, results: [{ category_scores: scores }] }],
+		errors: [],
 	};
 }
 
@@ -202,6 +203,7 @@ describe("runContentFilterClassifier", () => {
 			upstreamRequestId: null,
 			results: [],
 			responses: [],
+			errors: [],
 		});
 
 		const checked = await runContentFilterClassifier(
@@ -225,6 +227,7 @@ describe("runContentFilterClassifier", () => {
 			upstreamRequestId: null,
 			results: [],
 			responses: [],
+			errors: [],
 		});
 		checkOpenAI.mockResolvedValue(
 			result(false, { violence: 0.1 }, "omni-moderation-latest"),
@@ -372,6 +375,16 @@ describe("evaluateContentFilterWithClassifiers", () => {
 			upstreamRequestId: null,
 			results: [],
 			responses: [],
+			errors: [
+				{
+					source: "openai",
+					kind: "upstream_4xx",
+					inputType: "image",
+					status: 400,
+					code: "invalid_image_format",
+					message: "Unsupported format: image/avif",
+				},
+			],
 		});
 
 		const evaluated = await evaluateContentFilterWithClassifiers({
