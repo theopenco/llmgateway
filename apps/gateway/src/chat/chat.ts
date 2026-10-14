@@ -243,6 +243,7 @@ import {
 	isChatPlanModelAllowed,
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
+	isContentFilterErrorText,
 } from "@llmgateway/shared";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 import {
@@ -1374,17 +1375,14 @@ function inferStreamingErrorStatusCode(
 	if (
 		errorType === "content_filter" ||
 		errorCode === "content_filter" ||
-		errorText.includes("responsibleaipolicyviolation") ||
-		errorText.includes("sensitivecontentdetected") ||
-		errorType === "data_inspection_failed" ||
-		errorCode === "data_inspection_failed" ||
-		errorText.includes("input data may contain inappropriate content") ||
+		isContentFilterErrorText(errorText) ||
 		errorText.includes("content violates usage guidelines")
 	) {
 		return 400;
 	}
 	if (
 		errorType === "invalid_request_error" ||
+		errorType === "invalid_request" ||
 		errorType === "invalid_argument"
 	) {
 		return 400;
