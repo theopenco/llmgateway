@@ -31,6 +31,7 @@ import {
 	isOrgAlertRecipient,
 	processComplianceAlerts,
 } from "./compliance-alerts.js";
+import { processProviderKeyAlerts } from "./provider-key-alerts.js";
 
 import type { ApiKeyScope } from "@llmgateway/actions";
 import type { notificationPreference } from "@llmgateway/db";
@@ -283,6 +284,14 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	} catch (error) {
 		logger.error(
 			"Compliance alert processing failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+	try {
+		await processProviderKeyAlerts(now);
+	} catch (error) {
+		logger.error(
+			"Provider key alert processing failed",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 	}

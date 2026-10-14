@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "provider_key_alert_settings" json;

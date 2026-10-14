@@ -61,7 +61,7 @@ const DEFAULT_SETTINGS = {
 } satisfies ComplianceAlertSettings;
 const orgParams = z.object({ organizationId: z.string() });
 
-async function assertOrgAccess(
+export async function assertOrgAccess(
 	c: Context<ServerTypes>,
 	organizationId: string,
 	options: { manage?: boolean; enterprise?: boolean } = {},

@@ -1,0 +1,86 @@
+import { z } from "zod";
+
+/**
+ * Organization-level alerts for bring-your-own-key provider keys whose error
+ * rate climbs over a threshold, stored in `organization.providerKeyAlertSettings`.
+ */
+export const PROVIDER_KEY_ALERTS_MAX_RULES = 5;
+
+export const providerKeyAlertRuleSchema = z.object({
+	// Stable key for the per-key cooldown; editing a rule keeps its id.
+	id: z
+		.string()
+		.regex(
+			/^[a-z0-9-]{1,32}$/,
+			"Rule ids are 1-32 lowercase letters, digits or dashes",
+		),
+	label: z.string().trim().min(1).max(64),
+	enabled: z.boolean(),
+	// Evaluated on hourly rollups: the window widens to the start of the hour
+	// it begins in, so a 15-minute rule looks at 15 to 75 minutes of traffic.
+	windowMinutes: z.number().int().min(5).max(1440),
+	// Gateway + upstream errors over requests that were not client errors.
+	errorRatePercent: z.number().min(1).max(100),
+	// Non-client-error requests the key needs in the window to be judged.
+	minRequests: z.number().int().min(1).max(100_000),
+	// Minimum time between two alerts for the same rule and provider key.
+	cooldownMinutes: z.number().int().min(5).max(10_080),
+});
+
+export type ProviderKeyAlertRule = z.infer<typeof providerKeyAlertRuleSchema>;
+
+export const DEFAULT_PROVIDER_KEY_ALERT_RULES: ProviderKeyAlertRule[] = [
+	{
+		id: "short",
+		label: "15m critical",
+		enabled: true,
+		windowMinutes: 15,
+		errorRatePercent: 50,
+		minRequests: 10,
+		cooldownMinutes: 60,
+	},
+	{
+		id: "long",
+		label: "4h warning",
+		enabled: true,
+		windowMinutes: 240,
+		errorRatePercent: 30,
+		minRequests: 20,
+		cooldownMinutes: 240,
+	},
+];
+
+export const providerKeyAlertSettingsSchema = z.object({
+	// Master switch; nothing is evaluated while off.
+	enabled: z.boolean(),
+	inApp: z.boolean(),
+	email: z.boolean(),
+	channels: z.array(z.enum(["slack"])),
+	rules: z
+		.array(providerKeyAlertRuleSchema)
+		.max(PROVIDER_KEY_ALERTS_MAX_RULES)
+		.superRefine((rules, ctx) => {
+			const ids = new Set<string>();
+			for (const rule of rules) {
+				if (ids.has(rule.id)) {
+					ctx.addIssue({
+						code: "custom",
+						message: `Duplicate rule id "${rule.id}"`,
+					});
+				}
+				ids.add(rule.id);
+			}
+		}),
+});
+
+export type ProviderKeyAlertSettings = z.infer<
+	typeof providerKeyAlertSettingsSchema
+>;
+
+export const DEFAULT_PROVIDER_KEY_ALERT_SETTINGS: ProviderKeyAlertSettings = {
+	enabled: false,
+	inApp: true,
+	email: true,
+	channels: [],
+	rules: DEFAULT_PROVIDER_KEY_ALERT_RULES,
+};

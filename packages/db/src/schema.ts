@@ -38,6 +38,7 @@ import type {
 	NotificationCategory,
 } from "@llmgateway/shared/email-unsubscribe";
 import type { AlertAudience } from "@llmgateway/shared/organization-roles";
+import type { ProviderKeyAlertSettings } from "@llmgateway/shared/provider-key-alerts";
 import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
@@ -341,6 +342,9 @@ export const organization = snakeCase.table(
 		// Delivery of compliance alerts (watched models becoming available,
 		// providers no longer meeting the policy). Null = alerts not configured.
 		complianceAlertSettings: json().$type<ComplianceAlertSettings>(),
+		// Error-rate alerts for the organization's own (BYOK) provider keys.
+		// Null = never configured; see @llmgateway/shared/provider-key-alerts.
+		providerKeyAlertSettings: json().$type<ProviderKeyAlertSettings>(),
 		// Enterprise Google SSO auto-join. When set, users signing in via Google
 		// with a verified email at this domain are auto-added to the org as
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
@@ -966,6 +970,7 @@ export const notificationTypes = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"provider_key_errors",
 ] as const;
 
 const emailCategories = [
@@ -4719,6 +4724,7 @@ export const auditLogActions = [
 	"compliance_alert.watch_create",
 	"compliance_alert.watch_delete",
 	"compliance_alert.settings_update",
+	"provider_key_alert.settings_update",
 	// Data streams (SIEM forwarding and log export)
 	"data_stream.create",
 	"data_stream.update",
@@ -4820,6 +4826,7 @@ export const auditLogResourceTypes = [
 	"organization_skill",
 	"notification_channel",
 	"compliance_alert",
+	"provider_key_alert",
 	"data_stream",
 	"subscription",
 	"payment_method",
