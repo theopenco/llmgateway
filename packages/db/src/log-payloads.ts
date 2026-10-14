@@ -84,6 +84,9 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	// Input the internal classifier read; set only when it decided. Absent on
 	// older evaluations, which all read the whole conversation.
 	internalScope: z.enum(["full", "latest_turn"]).optional(),
+	// Moderation calls that failed during the check, at most a handful; why
+	// `moderationFailed` is set. Absent on older evaluations and on clean checks.
+	moderationErrors: z.array(contentFilterModerationErrorSchema).optional(),
 	// Legacy: verdict of the removed shadow classifier, present only on older
 	// evaluations. It never changed `action`.
 	shadow: z
