@@ -115,38 +115,41 @@ export function providerBoundReasoningIds(carrier: ReasoningCarrier): string[] {
 }
 
 /**
- * Identifiers to look a replaying request's pin up by: the provider-bound
- * reasoning of the latest assistant message carrying any, plus the ids of
- * every assistant tool call in that message (their signatures may only be in
- * the gateway's cache).
+ * Identifiers to look a replaying request's pin up by, in lookup order:
+ * provider-bound reasoning payloads newest first, then assistant tool-call ids
+ * newest first (their signatures may only be in the gateway's cache). Every
+ * assistant message is searched, since the newest one may carry only unsigned
+ * tool calls while an earlier one holds the replayed reasoning. Capped so a
+ * long conversation costs one bounded MGET.
  */
+const MAX_PIN_LOOKUP_IDS = 64;
+
 function replayedReasoningIds(
 	messages: readonly ({ role: string } & ReasoningCarrier)[],
 ): string[] {
+	const payloadIds: string[] = [];
+	const callIds: string[] = [];
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
 		if (message.role !== "assistant") {
 			continue;
 		}
 		const ids = providerBoundReasoningIds(message);
+		payloadIds.push(...ids.filter((id) => !id.startsWith("call:")).reverse());
 		if (Array.isArray(message.tool_calls)) {
 			for (const call of message.tool_calls as { id?: unknown }[]) {
 				if (typeof call?.id === "string" && call.id.length > 0) {
-					ids.push(`call:${call.id}`);
+					callIds.push(`call:${call.id}`);
 				}
 			}
 		}
-		if (ids.length > 0) {
-			// Payload-derived ids first, latest first; tool-call ids only as a
-			// fallback for signatures the client did not send back.
-			const unique = [...new Set(ids)];
-			return [
-				...unique.filter((id) => !id.startsWith("call:")).reverse(),
-				...unique.filter((id) => id.startsWith("call:")),
-			];
-		}
 	}
-	return [];
+	return [
+		...new Set([
+			...payloadIds.slice(0, MAX_PIN_LOOKUP_IDS),
+			...callIds.slice(0, MAX_PIN_LOOKUP_IDS),
+		]),
+	];
 }
 
 function pinKey(organizationId: string, id: string): string {

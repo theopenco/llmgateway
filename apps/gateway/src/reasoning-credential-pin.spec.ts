@@ -435,6 +435,47 @@ describe("reasoning pin lookup order", () => {
 		]);
 		expect(pin?.provider).toBe("openai");
 	});
+
+	test("searches past a newest turn with only unsigned tool calls", async () => {
+		await rememberReasoningCredential(
+			"older-org",
+			{
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						data: "older-payload",
+						format: "openai-responses-v1",
+					},
+				],
+			},
+			{
+				provider: "azure",
+				source: "managed",
+				providerKeyId: "key-azure",
+				apiKeyHash: "hash",
+			},
+		);
+		const pin = await lookupReasoningPin("older-org", [
+			{ role: "user", content: "Start" },
+			{
+				role: "assistant",
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						data: "older-payload",
+						format: "openai-responses-v1",
+					},
+				],
+			},
+			{ role: "user", content: "Use the tool" },
+			{
+				role: "assistant",
+				tool_calls: [{ id: "call_unsigned" }],
+			},
+			{ role: "tool", content: "42" },
+		]);
+		expect(pin?.providerKeyId).toBe("key-azure");
+	});
 });
 
 describe("reasoningPinBindsModel", () => {
