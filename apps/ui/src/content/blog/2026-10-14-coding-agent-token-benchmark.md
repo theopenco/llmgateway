@@ -3,15 +3,15 @@ id: "blog-coding-agent-token-benchmark"
 slug: "coding-agent-token-benchmark"
 date: "2026-10-14"
 title: "Coding Agent Token Benchmark: Empryo vs Claude Code vs OpenCode"
-summary: "We ran Empryo, Claude Code and OpenCode on the same three real bug fixes with six models, 108 runs in total, and counted every token at the LLM Gateway proxy. OpenCode used the fewest tokens by a wide margin. Empryo used slightly fewer tokens than Claude Code overall but cost the most. Here is the coding agent benchmark, why the numbers come out this way, and how to reproduce it."
+summary: "We ran Empryo, Claude Code and OpenCode on the same three real bug fixes with six models, 594 runs and $114 of inference, and counted every token at the LLM Gateway proxy. OpenCode used about half the tokens of the other two. Empryo solved the most runs and beat Claude Code on DeepSeek and GLM, but used 6% more tokens overall and cost the most. Here is the coding agent benchmark, why the numbers come out this way, and how to reproduce it."
 categories: ["Guides", "Engineering"]
 faqs:
   - question: "Which coding agent uses the fewest tokens?"
-    answer: "In this benchmark, OpenCode. Across 108 runs on three real bug fixes it used 7.82M tokens, against 16.20M for Empryo and 16.60M for Claude Code, and it used the fewest tokens with every one of the six models. All three agents solved 35 or 36 of their 36 runs."
+    answer: "In this benchmark, OpenCode. Across 594 runs on three real bug fixes it used 46.5M tokens, against 90.6M for Claude Code and 96.2M for Empryo, and it used the fewest tokens with every one of the six models. Solve rates were close: Empryo 195 of 198 runs, OpenCode 194, Claude Code 189."
   - question: "Why do coding agents use such different amounts of tokens for the same task?"
-    answer: "Mostly fixed prompt overhead. Every request resends the system prompt and the tool definitions. Before reading any code, Empryo's first request averaged 24.3K tokens, Claude Code's 19.3K and OpenCode's 8.2K. With 13 to 17 requests per run, that overhead dominates the total on small tasks."
+    answer: "Mostly fixed prompt overhead. Every request resends the system prompt and the tool definitions. Before reading any code, Empryo's first request averaged 24.3K tokens, Claude Code's 19.3K and OpenCode's 8.2K. With 14 to 16 requests per run, that overhead dominates the total on small tasks."
   - question: "How were tokens counted?"
-    answer: "All three agents sent their traffic to https://api.llmgateway.io through a local proxy that forwards each request unchanged and records the usage block the gateway returned. The same code counted every agent. The computed cost of the 108 runs was $20.49; the API key was billed $20.54, including about $0.04 of smoke tests."
+    answer: "All three agents sent their traffic to https://api.llmgateway.io through a local proxy that forwards each request unchanged and records the usage block the gateway returned. The same code counted every agent. The computed cost of the 594 runs was $113.70; the API key was billed $114.07 in total, including smoke tests and the OG image."
   - question: "Can I reproduce this coding agent benchmark?"
     answer: "Yes. The harness, task definitions, prices, raw per-request logs, patches and grading logs are in scripts/agent-benchmark in the LLM Gateway repository. You need Node 24, Bun, the three CLIs and an LLM Gateway API key."
 image:
@@ -23,7 +23,7 @@ image:
 
 Give three coding agents the same model and the same bug, and one of them will spend twice the tokens of another. The model sets the price per token. The agent decides how many tokens you buy.
 
-We wanted a number for that, so we ran a **coding agent token benchmark**: Empryo, Claude Code and OpenCode, six models, three real bug fixes, two runs of each, 108 runs in total. Every request went through **LLM Gateway**, and every token was counted by the same code at the same place, between the agent and the gateway.
+We wanted a number for that, so we ran a **coding agent token benchmark**: Empryo, Claude Code and OpenCode, six models, three real bug fixes, eleven runs of each, 594 runs in total and $114 of inference. Every request went through **LLM Gateway**, and every token was counted by the same code at the same place, between the agent and the gateway.
 
 ## How the benchmark worked
 
@@ -53,55 +53,57 @@ Claude Code pointed at `https://api.llmgateway.io` with every model slot, includ
 
 ## Results: OpenCode used half the tokens
 
-| Agent       | Solved | Requests | Input tokens | Output tokens | Total tokens | Cost  |
-| ----------- | ------ | -------- | ------------ | ------------- | ------------ | ----- |
-| OpenCode    | 35/36  | 493      | 7.66M        | 0.17M         | **7.82M**    | $5.49 |
-| Empryo      | 36/36  | 475      | 15.99M       | 0.21M         | 16.20M       | $8.55 |
-| Claude Code | 36/36  | 595      | 16.35M       | 0.26M         | 16.60M       | $6.45 |
+| Agent       | Solved  | Requests | Input tokens | Output tokens | Total tokens | Cost   |
+| ----------- | ------- | -------- | ------------ | ------------- | ------------ | ------ |
+| OpenCode    | 194/198 | 2,820    | 45.54M       | 0.94M         | **46.47M**   | $30.26 |
+| Claude Code | 189/198 | 3,217    | 89.22M       | 1.42M         | 90.64M       | $35.71 |
+| Empryo      | 195/198 | 2,773    | 94.89M       | 1.29M         | 96.18M       | $47.74 |
 
-All three agents fixed the bugs. The one miss was OpenCode with GLM 5.3 Flash on the `prettyJSON()` task, where 2 of 12 upstream tests failed.
+All three agents fixed nearly every bug. Every one of the 16 misses was on the `prettyJSON()` task, the one with the most edge cases. Claude Code missed 9, five of them with GLM 5.3 Flash. Empryo missed 3 and OpenCode 4.
 
-OpenCode used the fewest tokens with every model. Empryo used 2.4% fewer tokens than Claude Code overall and fewer in 21 of 36 head-to-head runs, but it used more than OpenCode in 33 of 36.
+OpenCode used the fewest tokens with every model, about half of what the other two used. Empryo used 6% more tokens than Claude Code overall and fewer in 90 of 198 head-to-head runs. It used more than OpenCode in 177 of 198.
 
 ![Average tokens per run by model for Empryo, Claude Code and OpenCode. OpenCode is lowest for every model.](/blog/coding-agent-token-benchmark/tokens-per-run.png)
 
 | Model               | Empryo | Claude Code | OpenCode | Empryo cost | Claude Code cost | OpenCode cost |
 | ------------------- | ------ | ----------- | -------- | ----------- | ---------------- | ------------- |
-| Claude Fable 5.1    | 280K   | 310K        | 226K     | $5.30       | $3.70            | $3.47         |
-| Claude Opus 5.5     | 229K   | 274K        | 172K     | $2.10       | $1.37            | $1.33         |
-| GPT-6.1 Sol         | 305K   | 244K        | 163K     | $0.81       | $1.00            | $0.51         |
-| GPT-6 Luna          | 792K   | 441K        | 230K     | $0.09       | $0.08            | $0.04         |
-| DeepSeek V4.1 Flash | 630K   | 901K        | 222K     | $0.11       | $0.15            | $0.06         |
-| GLM 5.3 Flash       | 465K   | 597K        | 290K     | $0.14       | $0.15            | $0.09         |
+| Claude Fable 5.1    | 336K   | 319K        | 226K     | $29.83      | $20.77           | $19.53        |
+| Claude Opus 5.5     | 243K   | 243K        | 153K     | $11.74      | $7.25            | $6.78         |
+| GPT-6.1 Sol         | 273K   | 272K        | 174K     | $4.16       | $5.57            | $2.83         |
+| GPT-6 Luna          | 801K   | 457K        | 234K     | $0.52       | $0.46            | $0.25         |
+| DeepSeek V4.1 Flash | 762K   | 864K        | 312K     | $0.63       | $0.78            | $0.36         |
+| GLM 5.3 Flash       | 500K   | 592K        | 309K     | $0.85       | $0.88            | $0.52         |
 
-Token columns are the average per run. Cost columns are the total for six runs: three tasks, two runs each.
+Token columns are the average per run. Cost columns are the total for 33 runs: three tasks, eleven runs each.
 
 ## Why the gap is so wide: fixed prompt overhead
 
-The three agents made a similar number of requests: 13.2 per run for Empryo, 13.7 for OpenCode and 16.5 for Claude Code. Output was small for all of them, under 2% of tokens. The difference is how much each request carries.
+The three agents made a similar number of requests: 14.0 per run for Empryo, 14.2 for OpenCode and 16.2 for Claude Code. Output was small for all of them, 1.3% to 2.0% of tokens. The difference is how much each request carries.
 
 ![Tokens in the first request: Empryo 24.3K, Claude Code 19.3K, OpenCode 8.2K](/blog/coding-agent-token-benchmark/first-request.png)
 
-Before an agent reads a single file, its first request already holds the system prompt and every tool definition. Empryo sends 26 tools and averaged 24.3K tokens. Claude Code sends 20 tools and averaged 19.3K. OpenCode sends 9 or 10 tools and averaged 8.2K. Agentic loops resend that prefix on every turn, so the average request was 33.7K input tokens for Empryo, 27.5K for Claude Code and 15.5K for OpenCode.
+Before an agent reads a single file, its first request already holds the system prompt and every tool definition. Empryo sends 26 tools and averaged 24.3K tokens. Claude Code sends 20 tools and averaged 19.3K. OpenCode sends 9 or 10 tools and averaged 8.2K. Agentic loops resend that prefix on every turn, so the average request was 34.2K input tokens for Empryo, 27.7K for Claude Code and 16.2K for OpenCode.
 
-On a bug that takes 10 to 15 turns, that fixed cost is most of the bill. Prompt caching makes it cheaper, not smaller: 92% of input tokens in this benchmark were cache reads, and you pay for every one of them.
+On a bug that takes 10 to 20 turns, that fixed cost is most of the bill. Prompt caching makes it cheaper, not smaller: 90% to 92% of input tokens in this benchmark were cache reads, and you pay for every one of them.
 
 ## Where Empryo came out ahead
 
-Empryo made the fewest requests per run, and with Anthropic, DeepSeek and GLM models that was enough to beat Claude Code on tokens: 10% fewer with Fable, 16% with Opus, 30% with DeepSeek and 22% with GLM. It was also faster than Claude Code, at 129 seconds per run against 161. OpenCode averaged 81.
+Empryo solved the most runs, 195 of 198. It made fewer requests than Claude Code with four of the six models, and with the two open-weight models that was enough to win on tokens: 12% fewer than Claude Code with DeepSeek V4.1 Flash and 16% fewer with GLM 5.3 Flash. With Opus and Sol the two were level, within 1%.
 
-With the two OpenAI models it went the other way. Empryo used 25% more tokens than Claude Code with Sol and 80% more with Luna, where one task took it 49 requests on the first run and 35 on the second.
+GPT-6 Luna is where Empryo lost the most ground. It averaged 21.8 requests per run against 16.2 for Claude Code and used 75% more tokens. On the AWS Lambda task alone, its Luna runs ranged from 12 to 49 requests. Leave Luna out and Empryo used 8% fewer tokens than Claude Code across the other five models.
 
 ## Fewer tokens did not mean a lower bill
 
-With Fable and Opus, Empryo used fewer tokens than Claude Code and still cost the most. It asks Anthropic for a one-hour prompt cache, and a one-hour cache write costs $20 per million tokens on Fable against $12.50 for the default five-minute cache. On runs that finish in about a minute, the longer cache never pays for itself. Empryo cost $5.30 on Fable against $3.70 for Claude Code and $3.47 for OpenCode.
+With Opus, Empryo and Claude Code used the same number of tokens, and Empryo cost 62% more: $11.74 against $7.25. Empryo asks Anthropic for a one-hour prompt cache. A one-hour cache write costs $8 per million tokens on Opus and $20 on Fable, against $5 and $12.50 for the default five-minute cache. On runs that finish in a minute or two, the longer cache never pays for itself.
+
+It works the other way with Sol: the same token count as Claude Code, 25% cheaper. Claude Code wrote more than twice as many output tokens with Sol, at $10 per million, and sent more of its prompt uncached.
 
 Tokens tell you how much context an agent moves. The bill also depends on cache settings and on the model's price per token. Measure both.
 
 ## What this benchmark does not show
 
 - **Small, well-specified bugs.** Each fix touched one or two files. On long, exploratory tasks, an agent that makes fewer, better-targeted requests could recover its larger prompt. We did not test that here.
-- **Two runs per combination.** Single runs vary. Claude Code with GLM took 29 requests on one `prettyJSON()` run and 51 on the other.
+- **Runs vary.** Eleven runs per combination smooth the noise, but single runs still swing. Claude Code with GLM took between 16 and 62 requests on the same `prettyJSON()` bug.
 - **Defaults only.** Every agent ran with a fresh install and its default settings. Tuned setups will differ.
 - **One day of pricing.** Costs use the pinned providers' list prices from October 14, 2026.
 
@@ -112,11 +114,11 @@ The harness, task definitions, prices, per-request logs, patches and grading log
 ```bash
 export LLM_GATEWAY_API_KEY=your_key
 node scripts/agent-benchmark/setup.mjs
-node scripts/agent-benchmark/run.mjs --suite my-run --reps 2 --concurrency 6
+node scripts/agent-benchmark/run.mjs --suite my-run --reps 11 --concurrency 8 --max-spend 120
 node scripts/agent-benchmark/report.mjs my-run
 ```
 
-`setup.mjs` clones hono, installs each task's starting commit, saves the hidden tests and creates a local certificate authority for the counting proxy. `run.mjs` takes `--agents`, `--models`, `--tasks` and `--reps`, and resumes a suite where it stopped. The computed cost of our 108 runs was $20.49; the API key was billed $20.54, including about $0.04 of smoke tests.
+`setup.mjs` clones hono, installs each task's starting commit, saves the hidden tests and creates a local certificate authority for the counting proxy. `run.mjs` takes `--agents`, `--models`, `--tasks` and `--reps`, resumes a suite where it stopped and stops queuing runs at `--max-spend`. The computed cost of our 594 runs was $113.70; the API key was billed $114.07 in total, including smoke tests and the OG image.
 
 ## Measure your own agent
 
