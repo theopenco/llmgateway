@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	apiKey,
+	contentFilterHourlyApiKeyStats,
 	contentFilterHourlyLatencyStats,
 	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
@@ -128,12 +129,33 @@ async function verdictRows(table: "org" | "model") {
 		);
 }
 
+async function apiKeyStatsRows() {
+	return (await db.select().from(contentFilterHourlyApiKeyStats))
+		.map((row) => ({
+			projectId: row.projectId,
+			apiKeyId: row.apiKeyId,
+			category: row.category,
+			classifier: row.classifier,
+			role: row.role,
+			sampledCount: row.sampledCount,
+			violationCount: row.violationCount,
+			blockedCount: row.blockedCount,
+		}))
+		.sort(
+			(a, b) =>
+				a.apiKeyId.localeCompare(b.apiKeyId) ||
+				a.classifier.localeCompare(b.classifier) ||
+				a.category.localeCompare(b.category),
+		);
+}
+
 const NO_DURATION = { durationSumMs: 0, durationCount: 0, durationMaxMs: null };
 
 describe("content filter stats aggregator", () => {
 	beforeEach(async () => {
 		vi.setSystemTime(new Date("2026-08-08T00:00:00Z"));
 		await db.delete(contentFilterHourlyLatencyStats);
+		await db.delete(contentFilterHourlyApiKeyStats);
 		await db.delete(contentFilterHourlyModelStats);
 		await db.delete(contentFilterHourlyStats);
 		await db.delete(log);
@@ -206,6 +228,7 @@ describe("content filter stats aggregator", () => {
 		expect(await calculateContentFilterStatsForHour(HOUR)).toEqual({
 			rows: 3,
 			modelRows: 3,
+			apiKeyRows: 3,
 		});
 		expect(await statsRows()).toEqual([
 			{
@@ -286,6 +309,134 @@ describe("content filter stats aggregator", () => {
 				usedModel: "openai/gpt-5.6-sol",
 				usedProvider: "openai",
 				category: "violence",
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+		]);
+	});
+
+	it("breaks the rollup down by the API key that sent the request", async () => {
+		await db.insert(log).values([
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "blocked",
+					matchedCategories: ["violence", "hate"],
+				}),
+			}),
+			logRow({ gatewayContentFilterEvaluation: evaluation() }),
+			// Failed moderation: not sampled for its key either.
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({ moderationFailed: true }),
+			}),
+			logRow({
+				projectId: "cf-proj-2",
+				apiKeyId: "cf-key-2",
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "logged",
+					matchedCategories: ["hate"],
+				}),
+			}),
+			// A key whose request was never moderated gets no rows.
+			logRow({ apiKeyId: "cf-key-3" }),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		const deciding = { classifier: "openai", role: "deciding" } as const;
+		expect(await apiKeyStatsRows()).toEqual([
+			{
+				projectId: "cf-proj",
+				apiKeyId: "cf-key",
+				category: "all",
+				...deciding,
+				sampledCount: 2,
+				violationCount: 1,
+				blockedCount: 1,
+			},
+			{
+				projectId: "cf-proj",
+				apiKeyId: "cf-key",
+				category: "hate",
+				...deciding,
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				projectId: "cf-proj",
+				apiKeyId: "cf-key",
+				category: "violence",
+				...deciding,
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				projectId: "cf-proj-2",
+				apiKeyId: "cf-key-2",
+				category: "all",
+				...deciding,
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				projectId: "cf-proj-2",
+				apiKeyId: "cf-key-2",
+				category: "hate",
+				...deciding,
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+		]);
+	});
+
+	it("counts a retried request once per API key, across models", async () => {
+		const retried = evaluation({
+			violation: true,
+			action: "logged",
+			matchedCategories: ["violence"],
+			classifier: "internal",
+		});
+		await db.insert(log).values([
+			logRow({
+				requestId: "cf-req-retried",
+				hasError: true,
+				gatewayContentFilterEvaluation: retried,
+			}),
+			logRow({
+				requestId: "cf-req-retried",
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				gatewayContentFilterEvaluation: retried,
+			}),
+		]);
+
+		expect(await calculateContentFilterStatsForHour(HOUR)).toEqual({
+			rows: 2,
+			modelRows: 4,
+			apiKeyRows: 2,
+		});
+		expect(await apiKeyStatsRows()).toEqual([
+			{
+				projectId: "cf-proj",
+				apiKeyId: "cf-key",
+				category: "all",
+				classifier: "internal",
+				role: "deciding",
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				projectId: "cf-proj",
+				apiKeyId: "cf-key",
+				category: "violence",
+				classifier: "internal",
+				role: "deciding",
 				sampledCount: 0,
 				violationCount: 1,
 				blockedCount: 0,
@@ -626,6 +777,7 @@ describe("content filter stats aggregator", () => {
 		await calculateContentFilterStatsForHour(HOUR);
 
 		expect(await modelStatsRows()).toHaveLength(2);
+		expect(await apiKeyStatsRows()).toHaveLength(2);
 		expect(await statsRows()).toEqual([
 			{
 				organizationId: "cf-org",
@@ -651,6 +803,7 @@ describe("content filter stats aggregator", () => {
 		expect(await calculateContentFilterStatsForHour(HOUR)).toEqual({
 			rows: 0,
 			modelRows: 0,
+			apiKeyRows: 0,
 		});
 	});
 });

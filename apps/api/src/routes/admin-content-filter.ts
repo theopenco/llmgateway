@@ -18,6 +18,7 @@ import {
 	aliasedTable,
 	and,
 	CONTENT_FILTER_STATS_ALL_CATEGORY,
+	contentFilterHourlyApiKeyStats,
 	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
 	db,
@@ -52,6 +53,8 @@ const TOP_MODELS = 5;
 const TOP_PROVIDERS = 5;
 const TOP_ORGANIZATION_CATEGORIES = 10;
 const TOP_ORGANIZATION_MODELS = 10;
+const TOP_API_KEYS = 5;
+const TOP_ORGANIZATION_API_KEYS = 10;
 const TOP_GLOBAL_MODELS = 25;
 const FOCUS_ORGANIZATIONS = 50;
 // Sample floor for the per-slice rate ranking. Organizations under it are still
@@ -75,6 +78,69 @@ const isDeciding = eq(contentFilterHourlyStats.role, "deciding");
 const isDecidingModel = eq(contentFilterHourlyModelStats.role, "deciding");
 
 const modelViolationRate = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.violationCount})::float / nullif(sum(${contentFilterHourlyModelStats.sampledCount}), 0), 0)`;
+
+const apiKeySampled = sql<number>`coalesce(sum(${contentFilterHourlyApiKeyStats.sampledCount}), 0)::int`;
+const apiKeyViolations = sql<number>`coalesce(sum(${contentFilterHourlyApiKeyStats.violationCount}), 0)::int`;
+const apiKeyBlocked = sql<number>`coalesce(sum(${contentFilterHourlyApiKeyStats.blockedCount}), 0)::int`;
+const isDecidingApiKey = eq(contentFilterHourlyApiKeyStats.role, "deciding");
+
+const categoryCountSchema = z.object({
+	category: z.string(),
+	violationCount: z.number(),
+});
+
+const apiKeyBreakdownSchema = z.object({
+	apiKeyId: z.string(),
+	// Null when the key row no longer exists.
+	description: z.string().nullable(),
+	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	projectId: z.string(),
+	sampledCount: z.number(),
+	violationCount: z.number(),
+	blockedCount: z.number(),
+	violationRate: z.number(),
+});
+
+const organizationApiKeySchema = apiKeyBreakdownSchema.extend({
+	projectName: z.string().nullable(),
+	topCategories: z.array(categoryCountSchema),
+});
+
+type ApiKeyBreakdown = z.infer<typeof apiKeyBreakdownSchema>;
+
+// The rollup has no foreign key to api_key, so a removed key keeps its counts.
+const apiKeyColumns = {
+	apiKeyId: contentFilterHourlyApiKeyStats.apiKeyId,
+	projectId: contentFilterHourlyApiKeyStats.projectId,
+	description: tables.apiKey.description,
+	status: tables.apiKey.status,
+	sampledCount: apiKeySampled,
+	violationCount: apiKeyViolations,
+	blockedCount: apiKeyBlocked,
+};
+
+function toApiKeyBreakdown(row: {
+	apiKeyId: string;
+	projectId: string;
+	description: string | null;
+	status: ApiKeyBreakdown["status"];
+	sampledCount: number;
+	violationCount: number;
+	blockedCount: number;
+}): ApiKeyBreakdown {
+	const sampledCount = Number(row.sampledCount);
+	const violationCount = Number(row.violationCount);
+	return {
+		apiKeyId: row.apiKeyId,
+		description: row.description ?? null,
+		status: row.status ?? null,
+		projectId: row.projectId,
+		sampledCount,
+		violationCount,
+		blockedCount: Number(row.blockedCount),
+		violationRate: sampledCount > 0 ? violationCount / sampledCount : 0,
+	};
+}
 
 const modelBreakdownSchema = z.object({
 	usedModel: z.string(),
@@ -289,6 +355,7 @@ const violationsResponseSchema = z
 				),
 				topModels: z.array(modelBreakdownSchema),
 				topProviders: z.array(providerBreakdownSchema),
+				topApiKeys: z.array(apiKeyBreakdownSchema),
 				// All-time PAYG credits bought (top-ups and manual payments) net of
 				// their refunds, in USD.
 				topUpNet: z.number(),
@@ -460,6 +527,48 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		modelsByOrg.set(row.organizationId, list);
 	}
 
+	const apiKeyRows =
+		organizationIds.length > 0
+			? await db
+					.select({
+						organizationId: contentFilterHourlyApiKeyStats.organizationId,
+						...apiKeyColumns,
+					})
+					.from(contentFilterHourlyApiKeyStats)
+					.leftJoin(
+						tables.apiKey,
+						eq(tables.apiKey.id, contentFilterHourlyApiKeyStats.apiKeyId),
+					)
+					.where(
+						and(
+							gte(contentFilterHourlyApiKeyStats.hourTimestamp, windowStart),
+							isDecidingApiKey,
+							eq(
+								contentFilterHourlyApiKeyStats.category,
+								CONTENT_FILTER_STATS_ALL_CATEGORY,
+							),
+							inArray(
+								contentFilterHourlyApiKeyStats.organizationId,
+								organizationIds,
+							),
+						),
+					)
+					.groupBy(
+						contentFilterHourlyApiKeyStats.organizationId,
+						contentFilterHourlyApiKeyStats.apiKeyId,
+						contentFilterHourlyApiKeyStats.projectId,
+						tables.apiKey.description,
+						tables.apiKey.status,
+					)
+			: [];
+
+	const apiKeysByOrg = new Map<string, ApiKeyBreakdown[]>();
+	for (const row of apiKeyRows) {
+		const list = apiKeysByOrg.get(row.organizationId) ?? [];
+		list.push(toApiKeyBreakdown(row));
+		apiKeysByOrg.set(row.organizationId, list);
+	}
+
 	// Cross-tenant model ranking, independent of the org list cap: which models
 	// the filter flags most across the whole platform.
 	const globalModelRows = await db
@@ -569,6 +678,13 @@ adminContentFilter.openapi(getViolations, async (c) => {
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_MODELS),
 			topProviders: toProviderBreakdowns(orgModels).slice(0, TOP_PROVIDERS),
+			topApiKeys: (apiKeysByOrg.get(row.organizationId) ?? [])
+				.sort(
+					(a, b) =>
+						b.violationCount - a.violationCount ||
+						b.sampledCount - a.sampledCount,
+				)
+				.slice(0, TOP_API_KEYS),
 			topUpNet: toDollars(revenue?.topUpNet ?? 0),
 			subscriptionNet: toDollars(revenue?.subscriptionNet ?? 0),
 		};
@@ -749,10 +865,9 @@ const activityResponseSchema = z
 			blockedCount: z.number(),
 			violationRate: z.number(),
 		}),
-		topCategories: z.array(
-			z.object({ category: z.string(), violationCount: z.number() }),
-		),
+		topCategories: z.array(categoryCountSchema),
 		topModels: z.array(modelBreakdownSchema),
+		topApiKeys: z.array(organizationApiKeySchema),
 		data: z.array(
 			z.object({
 				timestamp: z.string(),
@@ -779,7 +894,7 @@ const getOrganizationActivity = createRoute({
 				"application/json": { schema: activityResponseSchema },
 			},
 			description:
-				"One organization's gateway content filter activity over time: sampled, violating and blocked requests per bucket, plus window totals, top categories and top models.",
+				"One organization's gateway content filter activity over time: sampled, violating and blocked requests per bucket, plus window totals, top categories, top models and top API keys.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -816,7 +931,13 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 		isDecidingModel,
 	);
 
-	const [series, categories, models] = await Promise.all([
+	const apiKeyWindow = and(
+		eq(contentFilterHourlyApiKeyStats.organizationId, orgId),
+		gte(contentFilterHourlyApiKeyStats.hourTimestamp, startDate),
+		isDecidingApiKey,
+	);
+
+	const [series, categories, models, apiKeys] = await Promise.all([
 		db
 			.select({
 				bucket: bucketExpr,
@@ -877,7 +998,74 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 			)
 			.orderBy(desc(modelViolations), desc(modelSampled))
 			.limit(TOP_ORGANIZATION_MODELS),
+		db
+			.select({ ...apiKeyColumns, projectName: tables.project.name })
+			.from(contentFilterHourlyApiKeyStats)
+			.leftJoin(
+				tables.apiKey,
+				eq(tables.apiKey.id, contentFilterHourlyApiKeyStats.apiKeyId),
+			)
+			.leftJoin(
+				tables.project,
+				eq(tables.project.id, contentFilterHourlyApiKeyStats.projectId),
+			)
+			.where(
+				and(
+					apiKeyWindow,
+					eq(
+						contentFilterHourlyApiKeyStats.category,
+						CONTENT_FILTER_STATS_ALL_CATEGORY,
+					),
+				),
+			)
+			.groupBy(
+				contentFilterHourlyApiKeyStats.apiKeyId,
+				contentFilterHourlyApiKeyStats.projectId,
+				tables.apiKey.description,
+				tables.apiKey.status,
+				tables.project.name,
+			)
+			.orderBy(desc(apiKeyViolations), desc(apiKeySampled))
+			.limit(TOP_ORGANIZATION_API_KEYS),
 	]);
+
+	const apiKeyIds = apiKeys.map((row) => row.apiKeyId);
+	const apiKeyCategoryRows =
+		apiKeyIds.length > 0
+			? await db
+					.select({
+						apiKeyId: contentFilterHourlyApiKeyStats.apiKeyId,
+						category: contentFilterHourlyApiKeyStats.category,
+						violationCount: apiKeyViolations,
+					})
+					.from(contentFilterHourlyApiKeyStats)
+					.where(
+						and(
+							apiKeyWindow,
+							ne(
+								contentFilterHourlyApiKeyStats.category,
+								CONTENT_FILTER_STATS_ALL_CATEGORY,
+							),
+							inArray(contentFilterHourlyApiKeyStats.apiKeyId, apiKeyIds),
+						),
+					)
+					.groupBy(
+						contentFilterHourlyApiKeyStats.apiKeyId,
+						contentFilterHourlyApiKeyStats.category,
+					)
+			: [];
+	const categoriesByApiKey = new Map<
+		string,
+		z.infer<typeof categoryCountSchema>[]
+	>();
+	for (const row of apiKeyCategoryRows) {
+		const list = categoriesByApiKey.get(row.apiKeyId) ?? [];
+		list.push({
+			category: row.category,
+			violationCount: Number(row.violationCount),
+		});
+		categoriesByApiKey.set(row.apiKeyId, list);
+	}
 
 	const byBucket = new Map(
 		series.map((row) => [new Date(row.bucket).toISOString(), row]),
@@ -912,6 +1100,17 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 			violationCount: Number(row.violationCount),
 		})),
 		topModels: models.map(toModelBreakdown),
+		topApiKeys: apiKeys.map((row) => ({
+			...toApiKeyBreakdown(row),
+			projectName: row.projectName ?? null,
+			topCategories: (categoriesByApiKey.get(row.apiKeyId) ?? [])
+				.sort(
+					(a, b) =>
+						b.violationCount - a.violationCount ||
+						a.category.localeCompare(b.category),
+				)
+				.slice(0, TOP_CATEGORIES),
+		})),
 		data,
 	});
 });
