@@ -220,6 +220,14 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
+	// Filter out realtime models (they are served only by the /v1/realtime
+	// WebSocket and are covered by realtime.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some(
+				(p) => (p as ProviderModelMapping).realtime === true,
+			),
+	)
 	// Filter out typed-decision models (they use the dedicated /v1/decisions
 	// endpoint, not chat completions)
 	.filter(
@@ -877,79 +885,92 @@ export const transcriptionModels = models
 // (transcription sessions), so they get their own list for
 // realtime-transcription.e2e.ts, applying the same TEST_MODELS/TEST_PROVIDERS,
 // deactivation, env-var, and stability filters as transcriptionModels.
-export const realtimeTranscriptionModels = models
-	.filter((model) => !["custom", "auto"].includes(model.id))
-	.filter((model) =>
-		model.providers.some(
-			(provider: ProviderModelMapping) =>
-				provider.realtimeTranscription === true,
-		),
-	)
-	.filter((model) => {
-		if (hasOnlyModels) {
-			return model.providers.some(
-				(provider: ProviderModelMapping) => provider.test === "only",
+export const realtimeTranscriptionModels = realtimeTestCases(
+	(provider) => provider.realtimeTranscription === true,
+);
+
+// Speech-to-speech realtime mappings that speak the OpenAI realtime protocol
+// to the client, for realtime.e2e.ts. Gemini Live sessions use Google's own
+// protocol and are not covered there.
+export const realtimeModels = realtimeTestCases(
+	(provider) =>
+		provider.realtime === true && provider.providerId !== "google-ai-studio",
+);
+
+function realtimeTestCases(
+	selects: (provider: ProviderModelMapping) => boolean,
+) {
+	return models
+		.filter((model) => !["custom", "auto"].includes(model.id))
+		.filter((model) =>
+			(model.providers as ProviderModelMapping[]).some(selects),
+		)
+		.filter((model) => {
+			if (hasOnlyModels) {
+				return model.providers.some(
+					(provider: ProviderModelMapping) => provider.test === "only",
+				);
+			}
+			return true;
+		})
+		.flatMap((model) => {
+			const testCases = [];
+			const expandedProviders = expandAllProviderRegions(
+				model.providers as ProviderModelMapping[],
 			);
-		}
-		return true;
-	})
-	.flatMap((model) => {
-		const testCases = [];
-		const expandedProviders = expandAllProviderRegions(
-			model.providers as ProviderModelMapping[],
-		);
-		for (const provider of expandedProviders) {
-			if (!provider.realtimeTranscription) {
-				continue;
-			}
-			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
-				continue;
-			}
-			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
-				continue;
-			}
-			if (specifiedModels || specifiedProviders) {
-				if (specifiedProviders) {
-					if (!specifiedProviders.includes(provider.providerId)) {
-						continue;
+			for (const provider of expandedProviders) {
+				if (!selects(provider)) {
+					continue;
+				}
+				if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+					continue;
+				}
+				if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+					continue;
+				}
+				if (specifiedModels || specifiedProviders) {
+					if (specifiedProviders) {
+						if (!specifiedProviders.includes(provider.providerId)) {
+							continue;
+						}
+					} else {
+						if (
+							!matchesTestModel(provider.providerId, model.id, provider.region)
+						) {
+							continue;
+						}
 					}
 				} else {
+					if (provider.test === "skip") {
+						continue;
+					}
 					if (
-						!matchesTestModel(provider.providerId, model.id, provider.region)
+						provider.test !== "only" &&
+						!hasAllRequiredProviderEnvVars(provider.providerId)
+					) {
+						continue;
+					}
+					if (
+						(provider.stability === "unstable" ||
+							provider.stability === "experimental") &&
+						!fullMode &&
+						provider.test !== "only"
 					) {
 						continue;
 					}
 				}
-			} else {
-				if (provider.test === "skip") {
+				if (hasOnlyModels && provider.test !== "only") {
 					continue;
 				}
-				if (
-					provider.test !== "only" &&
-					!hasAllRequiredProviderEnvVars(provider.providerId)
-				) {
-					continue;
-				}
-				if (
-					(provider.stability === "unstable" ||
-						provider.stability === "experimental") &&
-					!fullMode &&
-					provider.test !== "only"
-				) {
-					continue;
-				}
+				testCases.push({
+					model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+					provider,
+					originalModel: model.id,
+				});
 			}
-			if (hasOnlyModels && provider.test !== "only") {
-				continue;
-			}
-			testCases.push({
-				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
-				provider,
-				originalModel: model.id,
-			});
-		}
-		return testCases;
-	});
+			return testCases;
+		});
+}
 
 // Rerank models are excluded from filteredModels above (they use the
 // dedicated /v1/rerank endpoint). Build a separate list of rerank

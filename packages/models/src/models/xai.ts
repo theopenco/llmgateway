@@ -1,5 +1,40 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Built-in Grok Voice voices (GET /v1/tts/voices). The first entry ("ara") is
+ * the upstream default when the caller omits a voice.
+ */
+const GROK_VOICE_VOICES = [
+	"ara",
+	"altair",
+	"atlas",
+	"aurora",
+	"carina",
+	"castor",
+	"celeste",
+	"cosmo",
+	"eve",
+	"helios",
+	"helix",
+	"iris",
+	"kepler",
+	"leo",
+	"liora",
+	"lumen",
+	"luna",
+	"lux",
+	"naksh",
+	"orion",
+	"perseus",
+	"rex",
+	"rigel",
+	"sal",
+	"sirius",
+	"ursa",
+	"zagan",
+	"zenith",
+];
+
 const xaiSupportedParamsNoFreqPresence = [
 	"temperature",
 	"max_tokens",
@@ -1346,6 +1381,41 @@ export const xaiModels = [
 				tools: false,
 				jsonOutput: false,
 				transcriptions: true,
+			},
+		],
+	},
+	{
+		id: "grok-voice-3-0",
+		name: "Grok Voice 3.0",
+		description:
+			"xAI's speech-to-speech voice agent model. Served via the gateway's /v1/realtime WebSocket endpoint with text and audio input/output and function calling.",
+		family: "xai",
+		output: ["text", "audio"],
+		releasedAt: new Date("2026-10-14"),
+		stability: "beta",
+		providers: [
+			{
+				providerId: "xai",
+				externalId: "grok-voice-3.0",
+				// xAI bills sessions by input audio duration plus a flat fee per text
+				// input, not by tokens; the token prices are zero so the reported
+				// token counts are recorded without being billed.
+				inputPrice: "0",
+				cachedInputPrice: "0",
+				outputPrice: "0",
+				inputAudioPrice: "0",
+				cachedInputAudioPrice: "0",
+				outputAudioPrice: "0",
+				inputAudioHourPrice: "4.80",
+				inputTextItemPrice: "0.004",
+				requestPrice: "0",
+				streaming: false,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				realtime: true,
+				supportedVoices: GROK_VOICE_VOICES,
+				test: "skip",
 			},
 		],
 	},

@@ -1464,3 +1464,176 @@ describe("RealtimeProxySession pinned instructions", () => {
 		session.shutdown(1000, "test_done");
 	});
 });
+
+describe("RealtimeProxySession duration-billed sessions", () => {
+	const xaiUsage = {
+		input_tokens: 222,
+		input_token_details: { text_tokens: 18, audio_tokens: 204, grok_tokens: 0 },
+		output_tokens: 119,
+		output_token_details: { text_tokens: 7, audio_tokens: 112, grok_tokens: 0 },
+		total_tokens: 341,
+		output_audio_seconds: 2.24,
+		billable_audio_seconds: 90,
+	};
+
+	function createXaiSession() {
+		return createSession({
+			match: {
+				modelId: "grok-voice-3-0",
+				modelDef: { id: "grok-voice-3-0" },
+				mapping: {
+					providerId: "xai",
+					externalId: "grok-voice-3.0",
+					inputPrice: "0",
+					cachedInputPrice: "0",
+					outputPrice: "0",
+					inputAudioPrice: "0",
+					cachedInputAudioPrice: "0",
+					outputAudioPrice: "0",
+					inputAudioHourPrice: "4.80",
+					inputTextItemPrice: "0.004",
+					requestPrice: "0",
+				},
+			},
+		});
+	}
+
+	it("bills event-level audio seconds and user text items", async () => {
+		const { client, upstream, session, clientSends, upstreamSends } =
+			await openSession(createXaiSession());
+
+		clientSends({
+			type: "conversation.item.create",
+			item: {
+				type: "message",
+				role: "user",
+				content: [{ type: "input_text", text: "hi" }],
+			},
+		});
+		clientSends({
+			type: "response.create",
+			response: {
+				input: [
+					{
+						type: "message",
+						role: "user",
+						content: [{ type: "input_text", text: "and you?" }],
+					},
+				],
+			},
+		});
+		await flush();
+		expect(
+			upstream.sent.filter((m) => m.includes("response.create")),
+		).toHaveLength(1);
+
+		upstreamSends({ type: "response.created", response: { id: "resp_1" } });
+		upstreamSends({
+			type: "response.done",
+			response: { id: "resp_1", status: "completed", usage: {} },
+			usage: xaiUsage,
+		});
+		await flush();
+
+		expect(recordRealtimeResponse).toHaveBeenCalledTimes(1);
+		const input = vi.mocked(recordRealtimeResponse).mock.calls[0][0];
+		// 90 s at $4.80/h = $0.12; 2 text items at $0.004 = $0.008.
+		expect(input.costs.audioInputCost.toString()).toBe("0.12");
+		expect(input.costs.inputCost.toString()).toBe("0.008");
+		expect(input.costs.totalCost.toString()).toBe("0.128");
+		expect(input.usage.inputAudioTokens).toBe(204);
+		expect(input.pricingSnapshot.audioInputHour).toBe("4.80");
+		expect(client.sent.some((m) => m.includes("response.done"))).toBe(true);
+
+		// Text items are billed once: the next response carries none.
+		clientSends({ type: "response.create" });
+		await flush();
+		upstreamSends({ type: "response.created", response: { id: "resp_2" } });
+		upstreamSends({
+			type: "response.done",
+			response: { id: "resp_2", status: "completed", usage: {} },
+			usage: { ...xaiUsage, billable_audio_seconds: 0 },
+		});
+		await flush();
+		const second = vi.mocked(recordRealtimeResponse).mock.calls[1][0];
+		expect(second.costs.totalCost.toString()).toBe("0");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("fails closed when the event carries no usage", async () => {
+		const { client, session, clientSends, upstreamSends } =
+			await openSession(createXaiSession());
+
+		clientSends({ type: "response.create" });
+		await flush();
+		upstreamSends({
+			type: "response.done",
+			response: { id: "resp_1", status: "completed", usage: xaiUsage },
+		});
+		await flush();
+
+		expect(recordRealtimeResponse).not.toHaveBeenCalled();
+		expect(client.closed[0]?.code).toBe(1011);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("forwards built-in input transcription without billing it", async () => {
+		const { client, session, upstreamSends } =
+			await openSession(createXaiSession());
+
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_1",
+			content_index: 0,
+			transcript: "hello",
+		});
+		await flush();
+
+		expect(recordRealtimeTranscription).not.toHaveBeenCalled();
+		expect(client.closed).toHaveLength(0);
+		expect(
+			client.sent.some((m) =>
+				m.includes("input_audio_transcription.completed"),
+			),
+		).toBe(true);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects force_message items and idle re-engagement", async () => {
+		const { client, upstream, session, clientSends } =
+			await openSession(createXaiSession());
+
+		clientSends({
+			type: "conversation.item.create",
+			item: {
+				type: "force_message",
+				role: "assistant",
+				content: [{ type: "output_text", text: "This call is recorded." }],
+			},
+		});
+		clientSends({
+			type: "session.update",
+			session: {
+				audio: {
+					input: {
+						turn_detection: { type: "server_vad", idle_timeout_ms: 5000 },
+					},
+				},
+			},
+		});
+		await flush();
+
+		expect(upstream.sent).toHaveLength(0);
+		const codes = client.sent.map(
+			(m) => (JSON.parse(m) as { error: { code: string } }).error.code,
+		);
+		expect(codes).toEqual([
+			"item_type_not_supported",
+			"idle_timeout_not_supported",
+		]);
+
+		session.shutdown(1000, "test_done");
+	});
+});

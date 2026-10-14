@@ -30,6 +30,9 @@ import {
 	buildRealtimePriceSnapshot,
 	normalizeRealtimeUsage,
 	priceRealtimeUsage,
+	isDurationBilledRealtime,
+	normalizeDurationRealtimeUsage,
+	priceDurationRealtimeUsage,
 } from "./pricing.js";
 import {
 	applyTranscriptionDiscount,
@@ -176,6 +179,9 @@ export class RealtimeProxySession {
 	// Whether input transcription is currently enabled, i.e. whether newly
 	// committed audio items will produce a billable transcription event.
 	private transcriptionEnabled = false;
+	// User text input items forwarded since the last billed response. Billed
+	// per item on duration-billed mappings with the next response.done.
+	private pendingTextInputItems = 0;
 	private readonly allowedTranscription: RealtimeMappingMatch | null;
 	private readonly pinnedInstructions: string | null;
 	private readonly pinnedVoice: string | null;
@@ -423,6 +429,20 @@ export class RealtimeProxySession {
 					);
 					return;
 				}
+				if (isForceMessage(message.item)) {
+					// Scripted TTS lines are synthesized outside any response, so no
+					// usage event would ever price them.
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"item_type_not_supported",
+							"force_message items are not supported for realtime sessions on LLMGateway.",
+						),
+					);
+					return;
+				}
+				if (isUserTextItem(message.item)) {
+					this.pendingTextInputItems += 1;
+				}
 				this.forwardToUpstream(JSON.stringify(message));
 				return;
 			case "input_audio_buffer.clear":
@@ -616,6 +636,21 @@ export class RealtimeProxySession {
 			}
 		}
 
+		// xAI's idle re-engagement starts responses on its own, bypassing the
+		// gateway's generation gates.
+		if (
+			this.preflight.match.mapping.providerId === "xai" &&
+			hasIdleTimeout(session)
+		) {
+			this.sendToClientRaw(
+				buildErrorEvent(
+					"idle_timeout_not_supported",
+					"turn_detection.idle_timeout_ms is not supported for this realtime model on LLMGateway.",
+				),
+			);
+			return;
+		}
+
 		// Hosted tools (MCP, web search, etc.) carry separate fees that are not
 		// metered here; only plain function tools are allowed.
 		if (containsUnsupportedTools(session.tools)) {
@@ -770,6 +805,10 @@ export class RealtimeProxySession {
 		}
 		if (this.clientGone()) {
 			return;
+		}
+		if (Array.isArray(response?.input)) {
+			this.pendingTextInputItems +=
+				response.input.filter(isUserTextItem).length;
 		}
 		this.responseInFlight = "pending";
 		this.responseStartedAt = Date.now();
@@ -1315,19 +1354,35 @@ export class RealtimeProxySession {
 			return;
 		}
 
-		const normalized = normalizeRealtimeUsage(response.usage);
+		const durationBilled = isDurationBilledRealtime(
+			this.preflight.match.mapping,
+		);
+		// Duration-billed providers (xAI) report usage on the event itself.
+		const rawUsage = durationBilled ? event.usage : response.usage;
+		const durationUsage = durationBilled
+			? normalizeDurationRealtimeUsage(rawUsage)
+			: null;
+		const normalized = durationUsage ?? normalizeRealtimeUsage(rawUsage);
 		if (!normalized.ok) {
 			logger.error(`Unpriceable realtime usage: ${normalized.reason}`, {
 				sessionId: this.sessionRecordId,
 				responseId,
-				usage: response.usage,
+				usage: rawUsage,
 			});
 			this.shutdown(1011, `unpriceable_usage:${normalized.reason}`);
 			return;
 		}
 
 		const snapshot = buildRealtimePriceSnapshot(this.preflight.match.mapping);
-		const priced = priceRealtimeUsage(normalized.usage, snapshot);
+		const textInputItems = this.pendingTextInputItems;
+		const priced = durationUsage?.ok
+			? priceDurationRealtimeUsage(
+					durationUsage.usage,
+					durationUsage.billableAudioSeconds,
+					textInputItems,
+					snapshot,
+				)
+			: priceRealtimeUsage(normalized.usage, snapshot);
 		if (!priced.ok) {
 			logger.error(`Unpriceable realtime usage: ${priced.reason}`, {
 				sessionId: this.sessionRecordId,
@@ -1386,6 +1441,9 @@ export class RealtimeProxySession {
 			if (inserted) {
 				this.sessionSpend = this.sessionSpend.plus(discountedCosts.totalCost);
 			}
+			if (durationBilled) {
+				this.pendingTextInputItems -= textInputItems;
+			}
 		} catch (error) {
 			logger.error(
 				"Failed to persist realtime billing event; closing session",
@@ -1433,6 +1491,16 @@ export class RealtimeProxySession {
 			event.content_index >= 0
 				? event.content_index
 				: 0;
+
+		// Duration-billed sessions (xAI) transcribe input audio as part of the
+		// session price, without any configured ASR model.
+		if (
+			!this.transcription &&
+			isDurationBilledRealtime(this.preflight.match.mapping)
+		) {
+			this.sendToClientRaw(rawText);
+			return;
+		}
 
 		if (!this.transcription || !itemId) {
 			logger.error(
@@ -1791,5 +1859,49 @@ function containsUnsupportedTools(tools: unknown): boolean {
 			!tool ||
 			typeof tool !== "object" ||
 			(tool as Record<string, unknown>).type !== "function",
+	);
+}
+
+function isForceMessage(item: unknown): boolean {
+	return (
+		!!item &&
+		typeof item === "object" &&
+		(item as Record<string, unknown>).type === "force_message"
+	);
+}
+
+/**
+ * A user message carrying text input — the unit duration-billed providers
+ * charge a flat per-item fee for.
+ */
+function isUserTextItem(item: unknown): boolean {
+	if (!item || typeof item !== "object") {
+		return false;
+	}
+	const record = item as Record<string, unknown>;
+	if (
+		(record.type !== undefined && record.type !== "message") ||
+		record.role !== "user" ||
+		!Array.isArray(record.content)
+	) {
+		return false;
+	}
+	return record.content.some(
+		(part) =>
+			part &&
+			typeof part === "object" &&
+			(part as Record<string, unknown>).type === "input_text",
+	);
+}
+
+function hasIdleTimeout(session: Record<string, unknown>): boolean {
+	const audio = session.audio as Record<string, unknown> | undefined;
+	const input = audio?.input as Record<string, unknown> | undefined;
+	return [input?.turn_detection, session.turn_detection].some(
+		(td) =>
+			!!td &&
+			typeof td === "object" &&
+			(td as Record<string, unknown>).idle_timeout_ms !== undefined &&
+			(td as Record<string, unknown>).idle_timeout_ms !== null,
 	);
 }
