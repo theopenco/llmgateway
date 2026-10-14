@@ -13,6 +13,7 @@ import {
 import { Fragment, useState } from "react";
 import { toast } from "sonner";
 
+import { AirsideListingsTable } from "@/components/airside-listings-table";
 import {
 	ModelVerificationDialog,
 	VerificationStatusBadge,
@@ -879,6 +880,20 @@ export function AirsideFilingsClient() {
 					</CardContent>
 				</Card>
 			) : null}
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Relist requests</CardTitle>
+					<CardDescription>
+						Carriers asking to put a delisted model back in service. Approving
+						relists it at its last approved fares; check its context window
+						first.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<AirsideListingsTable relistRequested />
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>

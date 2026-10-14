@@ -29,6 +29,7 @@ import {
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
 	type ToolChoiceType,
+	usesEncryptedReasoning,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
@@ -2630,7 +2631,10 @@ export async function prepareRequestBody(
 				// full).
 				if (getProviderDefinition(usedProvider)?.encryptedReasoning) {
 					responsesBody.store = false;
-					responsesBody.include = ["reasoning.encrypted_content"];
+					// Only mappings that reason return replayable payloads.
+					if (usesEncryptedReasoning(providerMappingForOptions)) {
+						responsesBody.include = ["reasoning.encrypted_content"];
+					}
 				}
 
 				if (usedProvider === "aws-mantle") {

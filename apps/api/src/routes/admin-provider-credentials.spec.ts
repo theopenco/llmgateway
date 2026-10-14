@@ -461,7 +461,36 @@ describe("admin provider credentials", () => {
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
+		// First the teardown grace period; the worker finishes the deletion.
+		expect(row?.status).toBe("pending_deletion");
+		expect(row?.deletionRequestedAt).toBeInstanceOf(Date);
+
+		const again = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(again.status).toBe(404);
+	});
+
+	test("deletes a disabled credential without a grace period", async () => {
+		await create({ provider: "openai", token: "sk-disabled-one" });
+		const [credential] = await list();
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, credential.id));
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		// A disabled key must never serve pinned conversations again.
 		expect(row?.status).toBe("deleted");
+		expect(row?.deletionRequestedAt).toBeNull();
 	});
 
 	test("lists soft-deleted credentials only when asked", async () => {
@@ -478,7 +507,7 @@ describe("admin provider credentials", () => {
 		expect((await list()).map((c) => c.id)).toEqual([kept.id]);
 		const withDeleted = await list("?includeDeleted=true");
 		expect(withDeleted.map((c) => [c.id, c.status])).toEqual([
-			[deleted.id, "deleted"],
+			[deleted.id, "pending_deletion"],
 			[kept.id, "active"],
 		]);
 	});
@@ -504,14 +533,26 @@ describe("admin provider credentials", () => {
 		expect(renamed.status).toBe(200);
 		const { credential: updated } = await renamed.json();
 		expect(updated.comment).toBe("old prod key");
-		expect(updated.status).toBe("deleted");
+		expect(updated.status).toBe("pending_deletion");
 
 		const revived = await patch({ status: "active" });
 		expect(revived.status).toBe(400);
+
+		// Pinned conversations still use it, so what it sends stays fixed.
+		const rotated = await patch({ token: "sk-rotated", skipValidation: true });
+		expect(rotated.status).toBe(400);
+		const moved = await patch({ region: "eu" });
+		expect(moved.status).toBe(400);
+		const narrowed = await patch({ allowedModels: ["gpt-4o-mini"] });
+		expect(narrowed.status).toBe(400);
+
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
-		expect(row?.status).toBe("deleted");
+		expect(row?.status).toBe("pending_deletion");
+		const [stored] = await list("?includeDeleted=true");
+		expect(stored.maskedToken).toBe(credential.maskedToken);
+		expect(stored.region).toBe(credential.region);
 	});
 
 	test("does not manage organization-owned provider keys", async () => {

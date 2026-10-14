@@ -140,6 +140,7 @@ import {
 	ne,
 	notInArray,
 	or,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	type SQL,
 	type SQLWrapper,
@@ -792,12 +793,10 @@ function toKeyStatusCounts(
 	for (const row of rows) {
 		const count = Number(row.count);
 		counts.all += count;
-		if (
-			row.status === "active" ||
-			row.status === "inactive" ||
-			row.status === "deleted"
-		) {
-			counts[row.status] += count;
+		// A provider key in its teardown grace period counts as deleted.
+		const status = row.status === "pending_deletion" ? "deleted" : row.status;
+		if (status === "active" || status === "inactive" || status === "deleted") {
+			counts[status] += count;
 		}
 	}
 	return counts;
@@ -814,6 +813,9 @@ function keyStatusCondition(column: AnyColumn, status: KeyStatusFilter) {
 	}
 	if (status === "active") {
 		return or(eq(column, "active"), isNull(column));
+	}
+	if (status === "deleted") {
+		return inArray(column, [...REMOVED_PROVIDER_KEY_STATUSES]);
 	}
 	return eq(column, status);
 }

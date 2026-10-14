@@ -14,6 +14,7 @@ export const atriaModels = [
 			{
 				providerId: "atria",
 				externalId: "Atria-Dawn-Preview",
+				deactivatedAt: new Date("2026-10-15"),
 				inputPrice: "0",
 				// Upstream does cache prefixes, but hits land only when a request
 				// reaches the replica that built them, so a repeat prompt reports

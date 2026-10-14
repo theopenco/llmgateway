@@ -84,6 +84,7 @@ import {
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
 import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
+import { tearDownPendingProviderKeys } from "./services/provider-key-teardown.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import {
 	backfillHistoryIfNeeded,
@@ -132,6 +133,8 @@ function getStripe(): Stripe {
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
+// Provider-key statuses that can still spend, so the spend fuse covers them.
+const SPEND_FUSE_STATUSES = ["active", "pending_deletion"] as const;
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
@@ -1840,7 +1843,7 @@ export async function batchProcessLogs(): Promise<number> {
 					.where(
 						and(
 							inArray(tables.providerKey.id, [...providerKeyCosts.keys()]),
-							eq(tables.providerKey.status, "active"),
+							inArray(tables.providerKey.status, [...SPEND_FUSE_STATUSES]),
 							isNotNull(tables.providerKey.usageLimit),
 							sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
 						),
@@ -1879,11 +1882,15 @@ export async function batchProcessLogs(): Promise<number> {
 		if (overLimitProviderKeyIds.length > 0) {
 			const deactivated = await cdb
 				.update(tables.providerKey)
-				.set({ status: "inactive" })
+				// A key pending deletion only serves pinned conversations; past its
+				// cap it is torn down at once rather than parked as inactive.
+				.set({
+					status: sql`CASE WHEN ${tables.providerKey.status} = 'pending_deletion' THEN 'deleted' ELSE 'inactive' END`,
+				})
 				.where(
 					and(
 						inArray(tables.providerKey.id, overLimitProviderKeyIds),
-						eq(tables.providerKey.status, "active"),
+						inArray(tables.providerKey.status, [...SPEND_FUSE_STATUSES]),
 						isNotNull(tables.providerKey.usageLimit),
 						sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
 					),
@@ -2833,17 +2840,28 @@ async function runApiKeyExpirationLoop() {
 
 	try {
 		while (!isStopRequested()) {
+			// Separate so a failing API-key pass can never stall provider-key
+			// teardown: a pinned conversation keeps refreshing its pin.
+			let failed = false;
 			try {
 				await disableExpiredApiKeys();
-
-				await interruptibleSleep(interval);
 			} catch (error) {
+				failed = true;
 				logger.error(
 					"Error in API key expiration loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				await interruptibleSleep(5000);
 			}
+			try {
+				await tearDownPendingProviderKeys();
+			} catch (error) {
+				failed = true;
+				logger.error(
+					"Error tearing down pending-deletion provider keys",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+			await interruptibleSleep(failed ? 5000 : interval);
 		}
 	} finally {
 		activeLoops--;
