@@ -6,11 +6,13 @@ import { findEffectiveRateLimit } from "./cached-queries.js";
 import {
 	addTokenWindowEntry,
 	addWindowEntry,
+	isRateLimitExempt,
 	PROVIDER_RATE_LIMIT_WINDOWS,
 	providerRateLimitWindows,
 	readRequestWindow,
 	readTokenWindow,
 	TOKEN_WINDOWS,
+	type ProviderRateLimitExemption,
 	type ProviderRateLimitWindow,
 	type ProviderRateLimitWindowState,
 } from "./rate-limit-windows.js";
@@ -283,10 +285,7 @@ function isSessionExemptible(
 	);
 }
 
-export interface ProviderRateLimitExemption {
-	sessionPinned?: boolean;
-	explicitProvider?: boolean;
-}
+export type { ProviderRateLimitExemption };
 
 export function getProviderRateLimitBypassReason(
 	result: Pick<ProviderRateLimitResult, "limits" | "blockedBy">,
@@ -295,13 +294,9 @@ export function getProviderRateLimitBypassReason(
 	if (result.blockedBy.length === 0) {
 		return undefined;
 	}
-	const allowed = result.blockedBy.every((window) => {
-		const { mode } = result.limits[window];
-		return (
-			(mode === "soft" || mode === "lax") &&
-			(options.sessionPinned || (mode === "lax" && options.explicitProvider))
-		);
-	});
+	const allowed = result.blockedBy.every((window) =>
+		isRateLimitExempt(result.limits[window].mode, options),
+	);
 	return allowed
 		? options.sessionPinned
 			? "session_pin"

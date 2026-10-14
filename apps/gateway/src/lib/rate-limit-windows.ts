@@ -65,6 +65,28 @@ export interface ProviderRateLimitWindowState {
 	mode: RateLimitMode;
 }
 
+/** Request context that may let a soft or lax cap through. */
+export interface ProviderRateLimitExemption {
+	sessionPinned?: boolean;
+	explicitProvider?: boolean;
+}
+
+/**
+ * Whether a capped window still admits the request: soft lets a session
+ * already pinned to the provider through, lax also an explicitly requested
+ * provider. Strict admits nothing.
+ */
+export function isRateLimitExempt(
+	mode: RateLimitMode,
+	exemption: ProviderRateLimitExemption,
+): boolean {
+	return (
+		(mode === "soft" || mode === "lax") &&
+		(exemption.sessionPinned === true ||
+			(mode === "lax" && exemption.explicitProvider === true))
+	);
+}
+
 function getWindowDurationMs(window: ProviderRateLimitWindow): number {
 	return providerRateLimitWindows[window].seconds * 1000;
 }

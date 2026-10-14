@@ -5,6 +5,7 @@ import {
 import {
 	getRateLimitedProviderKeys,
 	ProviderKeyRateLimitError,
+	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -21,6 +22,7 @@ export async function assertProviderKeysNotRateLimited(
 		customProviderName?: string;
 		filter?: (key: InferSelectModel<typeof tables.providerKey>) => boolean;
 		excludedKeyIds?: ReadonlySet<string>;
+		rateLimitExemption?: ProviderKeyRateLimitExemption;
 	} = {},
 ): Promise<void> {
 	const listed =
@@ -39,7 +41,10 @@ export async function assertProviderKeysNotRateLimited(
 	const candidates = listed.filter(
 		(key) => !options.excludedKeyIds?.has(key.id),
 	);
-	const limited = await getRateLimitedProviderKeys(candidates);
+	const limited = await getRateLimitedProviderKeys(
+		candidates,
+		options.rateLimitExemption,
+	);
 	if (candidates.length > 0 && limited.size === candidates.length) {
 		throw new ProviderKeyRateLimitError(
 			`Every API key for provider ${options.customProviderName ?? provider} is at its configured rate limit. Please try again later.`,

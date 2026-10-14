@@ -112,6 +112,7 @@ import {
 import {
 	excludeRateLimitedProviderKeys,
 	getRateLimitedProviderKeyIds,
+	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
@@ -3089,6 +3090,7 @@ chat.openapi(completions, async (c) => {
 		variant: Parameters<typeof findManagedProviderAvailability>[0],
 		modelId: string,
 		rateLimited?: ReadonlySet<string>,
+		rateLimitExemption?: ProviderKeyRateLimitExemption,
 	) => {
 		const pinnedManagedKeyId =
 			reasoningPinFor(modelId)?.source === "managed"
@@ -3099,10 +3101,11 @@ chat.openapi(completions, async (c) => {
 				variant,
 				modelId,
 				rateLimited,
+				rateLimitExemption,
 			);
 		}
 		const limited = new Set(
-			rateLimited ?? (await findRateLimitedManagedKeyIds()),
+			rateLimited ?? (await findRateLimitedManagedKeyIds(rateLimitExemption)),
 		);
 		limited.delete(pinnedManagedKeyId);
 		return await findManagedProviderAvailability(variant, modelId, limited);
@@ -3154,6 +3157,10 @@ chat.openapi(completions, async (c) => {
 			providerId === explicitRateLimitProvider &&
 			modelInfo.id === explicitRateLimitModel,
 	});
+	// Soft/lax provider key caps grant the same exemptions as provider caps.
+	// Only valid once routing reads the session pin (existingSessionProvider).
+	const providerKeyRateLimitExemption = (providerId: string) =>
+		providerRateLimitExemption(providerId, initialProviderFallback);
 	const consumeProviderRateLimit = (providerId: string, fallback: boolean) =>
 		checkProviderRateLimit(
 			project.organizationId,
@@ -5399,13 +5406,21 @@ chat.openapi(completions, async (c) => {
 					getAvailableProvidersForProjectMode(
 						project.mode,
 						withReasoningPinnedKey(
-							await excludeRateLimitedProviderKeys(providerKeys),
+							await excludeRateLimitedProviderKeys(
+								providerKeys,
+								providerKeyRateLimitExemption,
+							),
 							baseModelId,
 						).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await managedAvailabilityFor(envVariant, baseModelId),
+						await managedAvailabilityFor(
+							envVariant,
+							baseModelId,
+							undefined,
+							providerKeyRateLimitExemption,
+						),
 					);
 
 				const rateLimitContextTierMinSize = getContextTierMinSize(
@@ -5630,13 +5645,21 @@ chat.openapi(completions, async (c) => {
 					getAvailableProvidersForProjectMode(
 						project.mode,
 						withReasoningPinnedKey(
-							await excludeRateLimitedProviderKeys(providerKeys),
+							await excludeRateLimitedProviderKeys(
+								providerKeys,
+								providerKeyRateLimitExemption,
+							),
 							baseModelId,
 						).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await managedAvailabilityFor(envVariant, baseModelId),
+						await managedAvailabilityFor(
+							envVariant,
+							baseModelId,
+							undefined,
+							providerKeyRateLimitExemption,
+						),
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -5891,13 +5914,21 @@ chat.openapi(completions, async (c) => {
 				getAvailableProvidersForProjectMode(
 					project.mode,
 					withReasoningPinnedKey(
-						await excludeRateLimitedProviderKeys(providerKeys),
+						await excludeRateLimitedProviderKeys(
+							providerKeys,
+							providerKeyRateLimitExemption,
+						),
 						routedModelId,
 					).filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, routedModelId),
 					),
 					providerIds,
-					await managedAvailabilityFor(envVariant, routedModelId),
+					await managedAvailabilityFor(
+						envVariant,
+						routedModelId,
+						undefined,
+						providerKeyRateLimitExemption,
+					),
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
@@ -6750,6 +6781,8 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				customProviderName,
 				usedInternalModel,
+				undefined,
+				providerKeyRateLimitExemption,
 			);
 		} else if (pinnedCredential?.kind === "byok") {
 			providerKey = pinnedCredential.providerKey;
@@ -6760,6 +6793,7 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel,
 				undefined,
 				serviceTierKeyFilter,
+				providerKeyRateLimitExemption,
 			);
 		}
 
@@ -6767,7 +6801,11 @@ chat.openapi(completions, async (c) => {
 			await assertProviderKeysNotRateLimited(
 				project.organizationId,
 				usedProvider,
-				{ customProviderName, filter: serviceTierKeyFilter },
+				{
+					customProviderName,
+					filter: serviceTierKeyFilter,
+					rateLimitExemption: providerKeyRateLimitExemption,
+				},
 			);
 			const providerDisplayName =
 				usedProvider === "custom" && customProviderName
@@ -6880,6 +6918,7 @@ chat.openapi(completions, async (c) => {
 				variant: envVariant,
 				region: usedRegion,
 				requiresServiceTier: isRequestedServiceTier(service_tier),
+				rateLimitExemption: providerKeyRateLimitExemption,
 			}));
 		managedKey = platformCredential.managedKey;
 		usedToken = platformCredential.token;
@@ -6914,6 +6953,8 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				customProviderName,
 				usedInternalModel,
+				undefined,
+				providerKeyRateLimitExemption,
 			);
 		} else if (pinnedCredential) {
 			// A platform pin leaves providerKey unset, so the platform branch
@@ -6929,6 +6970,7 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel,
 				undefined,
 				serviceTierKeyFilter,
+				providerKeyRateLimitExemption,
 			);
 		}
 
@@ -6966,7 +7008,10 @@ chat.openapi(completions, async (c) => {
 				await assertProviderKeysNotRateLimited(
 					project.organizationId,
 					usedProvider,
-					{ customProviderName },
+					{
+						customProviderName,
+						rateLimitExemption: providerKeyRateLimitExemption,
+					},
 				);
 			}
 			// No API key available, fall back to credits
@@ -7041,6 +7086,7 @@ chat.openapi(completions, async (c) => {
 					variant: envVariant,
 					region: usedRegion,
 					requiresServiceTier: isRequestedServiceTier(service_tier),
+					rateLimitExemption: providerKeyRateLimitExemption,
 				}));
 			managedKey = platformCredential.managedKey;
 			usedToken = platformCredential.token;
@@ -8715,6 +8761,13 @@ chat.openapi(completions, async (c) => {
 					providerMapping.providerId,
 					providerMapping.region,
 				),
+				// Like consumeProviderRateLimit: only the initial provider keeps
+				// its session/explicit exemption on retry.
+				rateLimitExemption: (providerId: string) =>
+					providerRateLimitExemption(
+						providerId,
+						initialProviderFallback || providerId !== initialRateLimitProvider,
+					),
 				excludedProviderKeyIds: failedKeys.providerKeyIdsFor(
 					providerMapping.providerId,
 					providerMapping.region,

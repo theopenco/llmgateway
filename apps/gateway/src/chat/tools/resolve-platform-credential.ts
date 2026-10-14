@@ -9,6 +9,7 @@ import {
 import {
 	getRateLimitedProviderKeys,
 	ProviderKeyRateLimitError,
+	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 
 import { readProviderKey } from "@llmgateway/actions";
@@ -102,6 +103,8 @@ export interface ResolvePlatformCredentialOptions {
 	 * the output bucket's).
 	 */
 	filter?: (key: ProviderKeyRow) => boolean;
+	/** Lets a soft/lax-capped managed credential serve this request. */
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 }
 
 /**
@@ -142,6 +145,7 @@ export async function resolvePlatformCredential(
 		selectionScope: options.selectionScope,
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter,
+		rateLimitExemption: options.rateLimitExemption,
 	});
 
 	if (managedKey) {
@@ -175,7 +179,10 @@ export async function resolvePlatformCredential(
 				filter,
 			})
 		).filter((key) => !options.excludedProviderKeyIds?.has(key.id));
-		const rateLimited = await getRateLimitedProviderKeys(candidates);
+		const rateLimited = await getRateLimitedProviderKeys(
+			candidates,
+			options.rateLimitExemption,
+		);
 		if (candidates.length > 0 && rateLimited.size === candidates.length) {
 			throw new ProviderKeyRateLimitError(
 				`Provider ${provider} is at its configured rate limit. Please try again later.`,

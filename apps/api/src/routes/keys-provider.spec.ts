@@ -859,6 +859,20 @@ describe("provider keys route", () => {
 			expect((await clear.json()).providerKey.maxRpm).toBeNull();
 		});
 
+		test("PATCH sets the cap mode, defaulting to strict", async () => {
+			const before = await patchKey({ maxRpm: 60 });
+			expect((await before.json()).providerKey.rateLimitMode).toBe("strict");
+
+			const soft = await patchKey({ rateLimitMode: "soft" });
+			expect(soft.status).toBe(200);
+			expect((await soft.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				rateLimitMode: "soft",
+			});
+
+			expect((await patchKey({ rateLimitMode: "loose" })).status).toBe(400);
+		});
+
 		test("PATCH rejects caps below 1", async () => {
 			const res = await patchKey({ maxRpm: 0 });
 			expect(res.status).toBe(400);

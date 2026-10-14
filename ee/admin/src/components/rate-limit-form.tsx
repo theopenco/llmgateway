@@ -28,6 +28,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import { RateLimitModeField } from "@llmgateway/shared/components";
 
 import type {
 	RateLimitEntry,
@@ -343,29 +344,12 @@ export function RateLimitForm({
 						</div>
 					)}
 
-					<div className="space-y-2">
-						<Label htmlFor={`${formId}-mode`}>Mode</Label>
-						<Select
-							value={mode}
-							onValueChange={(value) => setMode(value as RateLimitMode)}
-						>
-							<SelectTrigger id={`${formId}-mode`} className="w-full">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="strict">Strict</SelectItem>
-								<SelectItem value="soft">Soft</SelectItem>
-								<SelectItem value="lax">Lax</SelectItem>
-							</SelectContent>
-						</Select>
-						<p className="text-xs text-muted-foreground">
-							{mode === "strict"
-								? "All traffic is routed away once the limit is reached"
-								: mode === "soft"
-									? "Sessions already pinned to the provider keep using it past the limit; new sessions are routed away"
-									: "Explicit provider requests and existing pinned sessions may exceed the limit; automatic routing and fallback respect it."}
-						</p>
-					</div>
+					<RateLimitModeField
+						id={`${formId}-mode`}
+						subject="provider"
+						value={mode}
+						onChange={setMode}
+					/>
 
 					<div className="space-y-2">
 						<Label htmlFor={`${formId}-provider`}>Provider</Label>
