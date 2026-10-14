@@ -17,6 +17,7 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { referenceContextSizes } from "@/lib/airside-context-size.js";
+import { delistAirsideListing } from "@/lib/airside-delist.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
@@ -74,6 +75,7 @@ import {
 } from "@llmgateway/db";
 import {
 	getContextSizeDeviation,
+	getContextTierMinSize,
 	getReferenceContextSize,
 	models as catalogueModels,
 	providers as catalogueProviders,
@@ -1265,6 +1267,195 @@ adminAirside.openapi(rejectClaim, async (c) => {
 	return c.json({
 		claim: await serializeAdminClaim(updated as ClaimWithRelations),
 	});
+});
+
+const adminListingSchema = z.object({
+	id: z.string(),
+	providerId: z.string(),
+	modelName: z.string(),
+	status: z.enum(["draft", "active", "rejected", "delisted"]),
+	contextSize: z.number().nullable(),
+	// The window the listing is held to: the catalogue's largest, or for models
+	// outside it the largest window other carriers list.
+	referenceContextSize: z.number().nullable(),
+	// More than 10% away from the reference: new listings are refused.
+	contextDeviation: z.enum(["below", "above"]).nullable(),
+	// Below the model's full-window tier, so requests without a provider prefix
+	// skip it.
+	autoRouteExcluded: z.boolean(),
+	mappingIds: z.array(z.string()),
+	company: z.object({ id: z.string(), name: z.string() }),
+	delistedAt: z.string().nullable(),
+	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
+});
+
+type AdminListing = z.infer<typeof adminListingSchema>;
+
+async function adminListings(filter: {
+	providerId?: string;
+	listingId?: string;
+}): Promise<AdminListing[]> {
+	const rows = await db.query.providerDraftModel.findMany({
+		where: {
+			...(filter.providerId ? { providerId: { eq: filter.providerId } } : {}),
+			...(filter.listingId ? { id: { eq: filter.listingId } } : {}),
+		},
+		with: { providerCompany: true },
+		orderBy: { modelName: "asc" },
+	});
+	if (rows.length === 0) {
+		return [];
+	}
+	const reference = await referenceContextSizes(rows);
+	const modelIds = [...new Set(rows.map((row) => row.modelName))];
+	const mappings = await db
+		.select({
+			id: tables.modelProviderMapping.id,
+			modelId: tables.modelProviderMapping.modelId,
+			providerId: tables.modelProviderMapping.providerId,
+			source: tables.modelProviderMapping.source,
+			contextSize: tables.modelProviderMapping.contextSize,
+			deactivatedAt: tables.modelProviderMapping.deactivatedAt,
+		})
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				inArray(tables.modelProviderMapping.modelId, modelIds),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+	const tierMinSize = new Map(
+		modelIds.map((modelId) => [
+			modelId,
+			getContextTierMinSize(
+				modelId,
+				mappings
+					.filter((mapping) => mapping.modelId === modelId)
+					.map((mapping) => ({
+						providerId: mapping.providerId,
+						contextSize: mapping.contextSize ?? undefined,
+						deactivatedAt: mapping.deactivatedAt ?? undefined,
+					})),
+			),
+		]),
+	);
+	return rows.map((row) => {
+		const own = mappings.filter(
+			(mapping) =>
+				mapping.source === "airside" &&
+				mapping.modelId === row.modelName &&
+				mapping.providerId === row.providerId,
+		);
+		const referenceContextSize =
+			reference(row.modelName, row.providerId) ?? null;
+		const minSize = tierMinSize.get(row.modelName);
+		return {
+			id: row.id,
+			providerId: row.providerId,
+			modelName: row.modelName,
+			status: row.status,
+			contextSize: row.contextSize,
+			referenceContextSize,
+			contextDeviation:
+				getContextSizeDeviation(row.contextSize, referenceContextSize) ?? null,
+			autoRouteExcluded:
+				row.status === "active" &&
+				minSize !== undefined &&
+				own.some(
+					(mapping) =>
+						mapping.contextSize !== null && mapping.contextSize < minSize,
+				),
+			mappingIds: own.map((mapping) => mapping.id),
+			company: {
+				id: row.providerCompanyId,
+				name: row.providerCompany?.name ?? row.providerCompanyId,
+			},
+			delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
+			delistReason: row.delistReason,
+		};
+	});
+}
+
+const listListings = createRoute({
+	method: "get",
+	path: "/airside/listings",
+	request: {
+		query: z.object({
+			providerId: z.string().optional(),
+			// Only in-service listings whose context window would be refused
+			// today or that bare-id routing skips.
+			contextIssues: z.enum(["true", "false"]).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listings: z.array(adminListingSchema) }),
+				},
+			},
+			description: "Airside listings with their context-window standing.",
+		},
+	},
+});
+
+adminAirside.openapi(listListings, async (c) => {
+	const { providerId, contextIssues } = c.req.valid("query");
+	const listings = await adminListings({ providerId });
+	return c.json({
+		listings:
+			contextIssues === "true"
+				? listings.filter(
+						(listing) =>
+							listing.status === "active" &&
+							(listing.contextDeviation !== null || listing.autoRouteExcluded),
+					)
+				: listings,
+	});
+});
+
+const delistListing = createRoute({
+	method: "post",
+	path: "/airside/listings/{id}/delist",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ listing: adminListingSchema }),
+				},
+			},
+			description:
+				"The delisted listing. It stops routing; the carrier can relist it once it meets the listing rules.",
+		},
+	},
+});
+
+adminAirside.openapi(delistListing, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	// cdb: the gateway caches listing resolution off these tables.
+	await cdb.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			.$withCache(false);
+		if (!locked) {
+			throw new HTTPException(404, { message: "Listing not found" });
+		}
+		if (locked.status !== "active") {
+			throw new HTTPException(409, {
+				message: "Only listings in service can be delisted.",
+			});
+		}
+		await delistAirsideListing(tx, locked, "admin", user?.id ?? null);
+	});
+	const [listing] = await adminListings({ listingId: id });
+	return c.json({ listing });
 });
 
 const revokeClaim = createRoute({
