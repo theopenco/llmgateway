@@ -43,7 +43,25 @@ function AirsideBadge() {
 	);
 }
 
-type RateLimitType = "rpm" | "rpd";
+type RateLimitType = "rpm" | "rpd" | "tpm" | "tpd";
+
+const LIMIT_TYPE_DETAILS: Record<
+	RateLimitType,
+	{ description: string; placeholder: string }
+> = {
+	rpm: { description: "Maximum requests per minute", placeholder: "e.g., 60" },
+	rpd: { description: "Maximum requests per day", placeholder: "e.g., 5000" },
+	tpm: {
+		description:
+			"Maximum prompt + completion tokens per minute. Counted once a request completes, so the request that crosses the cap still finishes",
+		placeholder: "e.g., 200000",
+	},
+	tpd: {
+		description:
+			"Maximum prompt + completion tokens per day. Counted once a request completes, so the request that crosses the cap still finishes",
+		placeholder: "e.g., 10000000",
+	},
+};
 type RateLimitEnforcement = "per_org" | "global";
 type RateLimitMode = "strict" | "soft" | "lax";
 
@@ -292,6 +310,8 @@ export function RateLimitForm({
 							<SelectContent>
 								<SelectItem value="rpm">RPM</SelectItem>
 								<SelectItem value="rpd">RPD</SelectItem>
+								<SelectItem value="tpm">TPM</SelectItem>
+								<SelectItem value="tpd">TPD</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
@@ -430,16 +450,14 @@ export function RateLimitForm({
 							type="number"
 							min={0}
 							step="1"
-							placeholder={limitType === "rpm" ? "e.g., 60" : "e.g., 5000"}
+							placeholder={LIMIT_TYPE_DETAILS[limitType].placeholder}
 							value={maxRequests}
 							onChange={(e) => setMaxRequests(e.target.value)}
 							required
 						/>
 						<p className="text-xs text-muted-foreground">
-							{limitType === "rpm"
-								? "Maximum requests per minute allowed"
-								: "Maximum requests per day allowed"}
-							. Set 0 to allow only requests exempt under the selected mode
+							{LIMIT_TYPE_DETAILS[limitType].description}. Set 0 to allow only
+							requests exempt under the selected mode
 						</p>
 					</div>
 

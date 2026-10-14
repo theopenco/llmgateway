@@ -22,6 +22,12 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	pickProviderKeyRateLimits,
+	providerKeyRateLimitsInputShape,
+	providerKeyRateLimitsOutputShape,
+	providerKeyRateLimitUpdates,
+} from "@/lib/provider-key-rate-limits.js";
+import {
 	bucketLabel,
 	hourBucketStarts,
 	utcDayBucketStarts,
@@ -135,6 +141,8 @@ const credentialSchema = z.object({
 	allowedModels: z.array(z.string()).nullable(),
 	/** Whether the daily model sync may append newly served models. */
 	modelSyncEnabled: z.boolean(),
+	/** Request and token caps; the credential leaves rotation while at one. */
+	...providerKeyRateLimitsOutputShape,
 });
 
 /**
@@ -307,6 +315,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 		modelSyncEnabled: row.modelSyncEnabled,
+		...pickProviderKeyRateLimits(row),
 	};
 }
 
@@ -1882,6 +1891,7 @@ const createCredential = createRoute({
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 						/**
 						 * Custom carriers only: serve the carrier with this key,
@@ -1963,6 +1973,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
 				modelSyncEnabled: body.modelSyncEnabled ?? true,
+				...providerKeyRateLimitUpdates(body),
 			})
 			.returning();
 		// A custom carrier is served by the key its claim points at: an admin
@@ -2019,6 +2030,7 @@ const updateCredential = createRoute({
 						 */
 						allowedModelsBase: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -2067,7 +2079,8 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		}
 	}
 
-	const updates: Partial<typeof tables.providerKey.$inferInsert> = {};
+	const updates: Partial<typeof tables.providerKey.$inferInsert> =
+		providerKeyRateLimitUpdates(body);
 
 	if (body.config !== undefined) {
 		const config = normalizeConfig(body.config);

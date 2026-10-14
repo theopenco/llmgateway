@@ -68,6 +68,10 @@ import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
+import {
+	getRateLimitedProviderKeyIds,
+	type ProviderKeyRateLimits,
+} from "./provider-key-rate-limit.js";
 
 import type { ApiKey } from "@llmgateway/db";
 import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
@@ -201,6 +205,28 @@ function selectProviderKeyWithFailover<T extends { id: string }>(
 	)[0];
 
 	return selectedItem?.item;
+}
+
+/**
+ * {@link selectProviderKeyWithFailover} over the keys that are not at one of
+ * their own RPM/RPD/TPM/TPD caps. A key at a cap drops out of rotation like an
+ * excluded one; when every key is capped there is nothing to select.
+ */
+async function selectAvailableProviderKey(
+	items: ProviderKey[],
+	selectionScope?: string,
+	excludedKeyIds: ReadonlySet<string> = new Set(),
+): Promise<ProviderKey | undefined> {
+	const rateLimited = await getRateLimitedProviderKeyIds(
+		items.filter((item) => !excludedKeyIds.has(item.id)),
+	);
+	return selectProviderKeyWithFailover(
+		items,
+		selectionScope,
+		rateLimited.size > 0
+			? new Set([...excludedKeyIds, ...rateLimited])
+			: excludedKeyIds,
+	);
 }
 
 /**
@@ -542,7 +568,11 @@ export async function findCustomProviderKey(
 					asc(providerKeyTable.id),
 				),
 	);
-	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
+	return await selectAvailableProviderKey(
+		results,
+		selectionScope,
+		excludedKeyIds,
+	);
 }
 
 /**
@@ -884,7 +914,7 @@ export async function findProviderKey(
 		provider,
 		filter,
 	);
-	return selectProviderKeyWithFailover(
+	return await selectAvailableProviderKey(
 		eligible,
 		selectionScope,
 		excludedKeyIds,
@@ -1097,7 +1127,7 @@ export async function findManagedProviderKey(
 		options.region,
 	);
 
-	return selectProviderKeyWithFailover(
+	return await selectAvailableProviderKey(
 		byRegion,
 		options.selectionScope,
 		options.excludedKeyIds,
@@ -1172,10 +1202,15 @@ export async function findManagedProviderAvailability(
 		async () =>
 			await db
 				.select({
+					id: providerKeyTable.id,
 					provider: providerKeyTable.provider,
 					variant: providerKeyTable.variant,
 					region: providerKeyTable.region,
 					allowedModels: providerKeyTable.allowedModels,
+					maxRpm: providerKeyTable.maxRpm,
+					maxRpd: providerKeyTable.maxRpd,
+					maxTpm: providerKeyTable.maxTpm,
+					maxTpd: providerKeyTable.maxTpd,
 				})
 				.from(providerKeyTable)
 				.where(
@@ -1185,6 +1220,10 @@ export async function findManagedProviderAvailability(
 					),
 				),
 	);
+
+	// A credential at one of its own caps cannot serve this request, so a
+	// provider whose every credential is capped is not advertised as usable.
+	const rateLimited = await getRateLimitedProviderKeyIds(rows);
 
 	const configured = new Set<string>();
 	const pinnedRegions = new Map<string, Set<string>>();
@@ -1200,6 +1239,9 @@ export async function findManagedProviderAvailability(
 			}
 		}
 		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
+			continue;
+		}
+		if (rateLimited.has(row.id)) {
 			continue;
 		}
 		const existing = byProvider.get(row.provider);
@@ -1234,6 +1276,32 @@ export async function findManagedProviderAvailability(
 		}
 	}
 	return { configured, usable, defaultRegionUsable, pinnedRegions };
+}
+
+/**
+ * A provider key's own RPM/RPD/TPM/TPD caps by id (cacheable), for counting a
+ * logged request against them. Undefined when the key no longer exists.
+ */
+export async function findProviderKeyRateLimits(
+	id: string,
+): Promise<ProviderKeyRateLimits | undefined> {
+	const rows = await swrWrap(
+		`providerKey:rateLimits:${id}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select({
+					id: providerKeyTable.id,
+					maxRpm: providerKeyTable.maxRpm,
+					maxRpd: providerKeyTable.maxRpd,
+					maxTpm: providerKeyTable.maxTpm,
+					maxTpd: providerKeyTable.maxTpd,
+				})
+				.from(providerKeyTable)
+				.where(eq(providerKeyTable.id, id))
+				.limit(1),
+	);
+	return rows[0];
 }
 
 /**

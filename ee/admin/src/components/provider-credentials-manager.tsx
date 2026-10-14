@@ -96,10 +96,15 @@ import {
 	PROVIDER_MODEL_KINDS,
 } from "@llmgateway/shared";
 import {
+	formatProviderKeyRateLimits,
 	MultiModelIdSelector,
+	parseProviderKeyRateLimitInputs,
+	ProviderKeyRateLimitFields,
 	ReorderableItem,
 	ReorderableList,
 	SearchableSelect,
+	toProviderKeyRateLimitInputs,
+	type ProviderKeyRateLimits,
 } from "@llmgateway/shared/components";
 
 import type {
@@ -479,6 +484,14 @@ function ManagedCredentialCells({
 			</TableCell>
 			<TableCell className="max-w-[260px] text-sm text-muted-foreground">
 				{credential.comment || "—"}
+				{formatProviderKeyRateLimits(credential) ? (
+					<div
+						className="text-xs tabular-nums"
+						title="Rate limits. While at any cap the credential is skipped."
+					>
+						{formatProviderKeyRateLimits(credential)}
+					</div>
+				) : null}
 			</TableCell>
 			<TableCell className="text-sm">
 				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
@@ -1324,6 +1337,7 @@ export function ProviderCredentialsManager({
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								modelSyncEnabled: values.modelSyncEnabled,
+								...values.rateLimits,
 								skipValidation: values.skipValidation,
 								carrierKey: values.carrierKey,
 							},
@@ -1367,6 +1381,7 @@ export function ProviderCredentialsManager({
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								allowedModelsBase: editing.allowedModels,
 								modelSyncEnabled: values.modelSyncEnabled,
+								...values.rateLimits,
 								skipValidation: values.skipValidation,
 							},
 						})
@@ -1434,6 +1449,7 @@ interface CredentialFormValues {
 	allowedModels: string[];
 	/** Let the daily model sync append models the account starts serving. */
 	modelSyncEnabled: boolean;
+	rateLimits: ProviderKeyRateLimits;
 	skipValidation: boolean;
 	/** Custom carriers, on create: serve the carrier with this key. */
 	carrierKey: boolean;
@@ -1656,6 +1672,9 @@ function CredentialDialog({
 	);
 	const [modelSyncEnabled, setModelSyncEnabled] = useState(
 		credential?.modelSyncEnabled ?? true,
+	);
+	const [rateLimits, setRateLimits] = useState(() =>
+		toProviderKeyRateLimitInputs(credential),
 	);
 	// An edit defaults to skipping the live check: the credential already passed
 	// one when it was stored, so re-probing on every metadata tweak spends an
@@ -1945,6 +1964,11 @@ function CredentialDialog({
 			setError("Max spend must be a non-negative number.");
 			return;
 		}
+		const parsedRateLimits = parseProviderKeyRateLimitInputs(rateLimits);
+		if ("error" in parsedRateLimits) {
+			setError(parsedRateLimits.error);
+			return;
+		}
 		setError(null);
 		onSubmit({
 			provider,
@@ -1957,6 +1981,7 @@ function CredentialDialog({
 			usageLimit: trimmedLimit,
 			allowedModels,
 			modelSyncEnabled,
+			rateLimits: parsedRateLimits.limits,
 			skipValidation,
 			carrierKey,
 		});
@@ -2466,6 +2491,12 @@ function CredentialDialog({
 								: ""}
 						</p>
 					</div>
+
+					<ProviderKeyRateLimitFields
+						idPrefix="credential-rate-limits"
+						values={rateLimits}
+						onChange={setRateLimits}
+					/>
 
 					{credential && isDeletedCredential(credential) ? (
 						<div className="flex flex-col gap-2">

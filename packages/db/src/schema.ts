@@ -2224,6 +2224,13 @@ export const providerKey = snakeCase.table(
 		// When false the daily model sync leaves this key's `allowedModels`
 		// alone, so new models are only ever enabled by hand.
 		modelSyncEnabled: boolean().notNull().default(true),
+		// Optional request and token (prompt + completion) caps for this one
+		// credential, mirroring the upstream account's quota. A key at any cap
+		// drops out of rotation until its window frees up. NULL = uncapped.
+		maxRpm: integer(),
+		maxRpd: integer(),
+		maxTpm: integer(),
+		maxTpd: integer(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -5386,6 +5393,10 @@ export const rateLimit = snakeCase.table(
 		maxRpm: integer(),
 		// Maximum requests per day
 		maxRpd: integer(),
+		// Maximum tokens (prompt + completion) per minute
+		maxTpm: integer(),
+		// Maximum tokens (prompt + completion) per day
+		maxTpd: integer(),
 		// How the counter is bucketed across orgs (only meaningful for global rows):
 		// "per_org" = each org gets its own counter (default), "global" = single shared counter
 		enforcement: text({ enum: ["per_org", "global"] })
@@ -5400,7 +5411,7 @@ export const rateLimit = snakeCase.table(
 		reason: text(),
 	},
 	(table) => [
-		// One row per org/provider/model combo with both RPM and RPD on the same row.
+		// One row per org/provider/model combo with every window on the same row.
 		// Coalesce nulls to sentinels so Postgres treats them as equal.
 		uniqueIndex("rate_limit_org_provider_model_unique").using(
 			"btree",

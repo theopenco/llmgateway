@@ -52,6 +52,7 @@ import {
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
+import { assertProviderKeysNotRateLimited } from "./provider-key-rate-limit-error.js";
 import { resolveAirsideProviderBaseUrl } from "./resolve-airside-model.js";
 import { resolvePlatformCredential } from "./resolve-platform-credential.js";
 import {
@@ -623,6 +624,11 @@ export async function resolveProviderContext(
 		}
 
 		if (!providerKey) {
+			await assertProviderKeysNotRateLimited(
+				project.organizationId,
+				usedProvider,
+				byokKeyFilter,
+			);
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${usedProvider}`,
 			});

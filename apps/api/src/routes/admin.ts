@@ -5536,7 +5536,8 @@ const rateLimitSchema = z.object({
 	organizationId: z.string().nullable(),
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
+	// Requests for rpm/rpd, prompt + completion tokens for tpm/tpd.
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
 	mode: z.enum(["strict", "soft", "lax"]),
@@ -5553,7 +5554,7 @@ const rateLimitsListSchema = z.object({
 const createRateLimitBodySchema = z.object({
 	provider: z.string().nullable().optional(),
 	model: z.string().nullable().optional(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
@@ -5785,6 +5786,18 @@ const deleteOrganizationRateLimit = createRoute({
 	},
 });
 
+type RateLimitType = z.infer<typeof rateLimitSchema>["limitType"];
+
+// Each row carries one window; the others stay null.
+function rateLimitColumns(limitType: RateLimitType, maxRequests: number) {
+	return {
+		maxRpm: limitType === "rpm" ? maxRequests : null,
+		maxRpd: limitType === "rpd" ? maxRequests : null,
+		maxTpm: limitType === "tpm" ? maxRequests : null,
+		maxTpd: limitType === "tpd" ? maxRequests : null,
+	};
+}
+
 // Helper to format rate limit for response
 function formatRateLimit(r: {
 	id: string;
@@ -5793,14 +5806,23 @@ function formatRateLimit(r: {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
 	enforcement: string;
 	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 }) {
-	const limitType: "rpm" | "rpd" = r.maxRpd !== null ? "rpd" : "rpm";
-	const maxRequests = r.maxRpd ?? r.maxRpm ?? 0;
+	const limitType: RateLimitType =
+		r.maxTpd !== null
+			? "tpd"
+			: r.maxTpm !== null
+				? "tpm"
+				: r.maxRpd !== null
+					? "rpd"
+					: "rpm";
+	const maxRequests = r.maxTpd ?? r.maxTpm ?? r.maxRpd ?? r.maxRpm ?? 0;
 
 	return {
 		id: r.id,
@@ -5853,8 +5875,7 @@ async function updateRateLimit(
 				.set({
 					provider,
 					model,
-					maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-					maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+					...rateLimitColumns(body.limitType, body.maxRequests),
 					enforcement: body.enforcement,
 					mode: body.mode,
 					reason: body.reason ?? null,
@@ -5914,8 +5935,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			organizationId: null,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			enforcement: body.enforcement,
 			mode: body.mode,
 			reason: body.reason ?? null,
@@ -6807,8 +6827,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			organizationId: orgId,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			mode: body.mode,
 			reason: body.reason ?? null,
 		})
@@ -6833,6 +6852,8 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: created.maxRpm,
 			maxRpd: created.maxRpd,
+			maxTpm: created.maxTpm,
+			maxTpd: created.maxTpd,
 			mode: created.mode,
 			reason: created.reason,
 			source: "admin",
@@ -6893,6 +6914,8 @@ admin.openapi(deleteOrganizationRateLimit, async (c) => {
 			model: deleted.model,
 			maxRpm: deleted.maxRpm,
 			maxRpd: deleted.maxRpd,
+			maxTpm: deleted.maxTpm,
+			maxTpd: deleted.maxTpd,
 			source: "admin",
 		},
 	});

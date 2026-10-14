@@ -5,6 +5,7 @@ import {
 	hasManagedProviderCredential,
 	listManagedProviderKeys,
 } from "@/lib/cached-queries.js";
+import { getRateLimitedProviderKeyIds } from "@/lib/provider-key-rate-limit.js";
 
 import { readProviderKey } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
@@ -124,18 +125,19 @@ export async function resolvePlatformCredential(
 	}
 
 	const restrictedToModel = options.model;
+	const filter = combineFilters(
+		options.filter,
+		options.requiresServiceTier ? providerKeySupportsServiceTier : undefined,
+		restrictedToModel !== undefined
+			? (key) => providerKeyAllowsModel(key.allowedModels, restrictedToModel)
+			: undefined,
+	);
 	const managedKey = await findManagedProviderKey(provider, {
 		variant: options.variant,
 		region: options.region,
 		selectionScope: options.selectionScope,
 		excludedKeyIds: options.excludedProviderKeyIds,
-		filter: combineFilters(
-			options.filter,
-			options.requiresServiceTier ? providerKeySupportsServiceTier : undefined,
-			restrictedToModel !== undefined
-				? (key) => providerKeyAllowsModel(key.allowedModels, restrictedToModel)
-				: undefined,
-		),
+		filter,
 	});
 
 	if (managedKey) {
@@ -161,6 +163,15 @@ export async function resolvePlatformCredential(
 				? [`excluded: ${options.excludedProviderKeyIds.size}`]
 				: []),
 		].join(", ");
+		const managedKeys = await listManagedProviderKeys(provider);
+		const rateLimited = await getRateLimitedProviderKeyIds(
+			filter ? managedKeys.filter(filter) : managedKeys,
+		);
+		if (rateLimited.size > 0) {
+			throw new HTTPException(429, {
+				message: `Provider ${provider} is at its configured rate limit. Please try again later.`,
+			});
+		}
 		throw new HTTPException(500, {
 			message: `No managed credential available for provider: ${provider} (${scope})`,
 		});
