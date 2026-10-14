@@ -120,6 +120,16 @@ describe("/v1/messages tool_choice", () => {
 		expect((await send({ type: "auto" })).tool_choice).toBeUndefined();
 	});
 
+	test("drops OpenAI-style tool_choice values instead of rejecting them", async () => {
+		await setup();
+
+		expect((await send("required")).tool_choice).toBeUndefined();
+		expect(
+			(await send({ type: "function", function: { name: "get_time" } }))
+				.tool_choice,
+		).toBeUndefined();
+	});
+
 	test("rejects a named tool_choice without a name", async () => {
 		await setup();
 

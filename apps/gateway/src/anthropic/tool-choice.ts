@@ -16,6 +16,18 @@ export type OpenAIToolChoice =
 	| "required"
 	| { type: "function"; function: { name: string } };
 
+const ANTHROPIC_TOOL_CHOICE_TYPES = new Set(["auto", "any", "tool", "none"]);
+
+export function isAnthropicToolChoice(value: unknown): boolean {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		ANTHROPIC_TOOL_CHOICE_TYPES.has(
+			(value as { type?: unknown }).type as string,
+		)
+	);
+}
+
 export function mapAnthropicToolChoice(
 	toolChoice: AnthropicToolChoice | undefined,
 ): OpenAIToolChoice | undefined {
