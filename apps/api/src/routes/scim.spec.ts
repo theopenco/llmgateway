@@ -143,6 +143,25 @@ describe("scim audit logging", () => {
 		expect(response.status).toBe(200);
 	});
 
+	test("Pro orgs need both the SSO and SCIM add-ons to use SCIM", async () => {
+		const setPro = async (proSsoEnabled: boolean, proScimEnabled: boolean) =>
+			await db
+				.update(tables.organization)
+				.set({ plan: "pro", proSeats: 10, proSsoEnabled, proScimEnabled })
+				.where(eq(tables.organization.id, ORG_ID));
+		const listUsers = async () =>
+			(await app.request("/scim/v2/Users", { headers: scimHeaders() })).status;
+
+		await setPro(true, false);
+		expect(await listUsers()).toBe(403);
+
+		await setPro(false, true);
+		expect(await listUsers()).toBe(403);
+
+		await setPro(true, true);
+		expect(await listUsers()).toBe(200);
+	});
+
 	test("POST /Users logs scim.user.provision", async () => {
 		const response = await app.request("/scim/v2/Users", {
 			method: "POST",

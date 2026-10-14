@@ -1,20 +1,35 @@
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 // Default team-member seat cap per plan tier. An explicit `organization.seats`
-// override (set by admins) always takes precedence over these defaults.
+// override (set by admins) always takes precedence, followed by the seat
+// quantity purchased on a self-serve Pro subscription (`proSeats`). Legacy
+// flat-fee Pro subscribers have no `proSeats` and keep the historical default.
 export function resolveSeatLimit(
-	organizationId: string | null | undefined,
-	plan: string | null | undefined,
-	seats: number | null | undefined,
+	org:
+		| {
+				id: string;
+				plan: string | null;
+				seats: number | null;
+				proSeats: number | null;
+		  }
+		| null
+		| undefined,
 ): number {
 	if (
-		plan === "enterprise" &&
-		!hasOrganizationEnterpriseAccess(organizationId, plan)
+		org?.plan === "enterprise" &&
+		!hasOrganizationEnterpriseAccess(org.id, org.plan)
 	) {
 		return 5;
 	}
-	if (seats !== null && seats !== undefined) {
-		return seats;
+	if (org?.seats !== null && org?.seats !== undefined) {
+		return org.seats;
 	}
-	return hasOrganizationEnterpriseAccess(organizationId, plan) ? 100 : 5;
+	if (
+		org?.plan === "pro" &&
+		org.proSeats !== null &&
+		org.proSeats !== undefined
+	) {
+		return org.proSeats;
+	}
+	return hasOrganizationEnterpriseAccess(org?.id, org?.plan) ? 100 : 5;
 }

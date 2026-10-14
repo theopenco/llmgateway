@@ -9,6 +9,7 @@ import {
 	Pencil,
 	Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
@@ -63,6 +64,8 @@ import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { PRO_PLAN_PRICES, PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
 
 import type React from "react";
 
@@ -161,12 +164,27 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 export function SsoClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
-	const { selectedOrganization } = useDashboardNavigation();
+	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const { apiUrl } = useAppConfig();
 
+	// SSO management is available to enterprise orgs and Pro orgs that
+	// purchased the SSO add-on; SCIM is a separate add-on on top (mirrors the
+	// API's hasSsoAccess / hasScimAccess gates).
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
+	const hasSsoAccess =
+		isEnterprise ||
+		(selectedOrganization?.plan === "pro" &&
+			!!selectedOrganization?.proSsoEnabled &&
+			selectedOrganization?.proSeats !== null &&
+			selectedOrganization?.proSeats !== undefined &&
+			selectedOrganization.proSeats <= PRO_PLAN_SSO_MAX_SEATS);
+	const hasScimAccess =
+		isEnterprise ||
+		(hasSsoAccess &&
+			selectedOrganization?.plan === "pro" &&
+			!!selectedOrganization?.proScimEnabled);
 
 	const [providerType, setProviderType] = useState<
 		"" | "okta" | "entra" | "generic" | "google"
@@ -232,21 +250,21 @@ export function SsoClient() {
 		"get",
 		"/sso/providers",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const scimQuery = api.useQuery(
 		"get",
 		"/sso/scim",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasScimAccess },
 	);
 
 	const mappingsQuery = api.useQuery(
 		"get",
 		"/sso/role-mappings",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const teamMappingsQuery = api.useQuery(
@@ -260,7 +278,7 @@ export function SsoClient() {
 		"get",
 		"/sso/default-projects",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const registerMutation = api.useMutation("post", "/sso/providers");
@@ -589,7 +607,12 @@ export function SsoClient() {
 		);
 	}
 
-	if (!isEnterprise) {
+	if (!hasSsoAccess) {
+		// Seat-based Pro orgs just flip the add-on on; everyone else upgrades.
+		const isSeatBasedPro =
+			selectedOrganization.plan === "pro" &&
+			selectedOrganization.proSeats !== null &&
+			selectedOrganization.proSeats !== undefined;
 		return (
 			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
 				<Card>
@@ -600,11 +623,26 @@ export function SsoClient() {
 						</CardTitle>
 						<CardDescription>
 							SAML SSO and SCIM directory provisioning are available on the
-							Enterprise plan.{" "}
-							<ContactSalesLink className="text-primary underline underline-offset-4" />{" "}
-							to enable them.
+							Enterprise plan or as Pro plan add-ons (SSO ${PRO_PLAN_PRICES.sso}
+							/month, SCIM ${PRO_PLAN_PRICES.scim}/month on top, for up to{" "}
+							{PRO_PLAN_SSO_MAX_SEATS} seats).{" "}
+							{isSeatBasedPro
+								? "Enable the SSO add-on on your Pro subscription from the plan page."
+								: "Upgrade to Pro with the SSO add-on from the plan page."}
 						</CardDescription>
 					</CardHeader>
+					<CardContent className="flex flex-wrap gap-2">
+						<Button asChild>
+							<Link href={buildOrgUrl("org/plan")}>
+								{isSeatBasedPro ? "Enable SSO add-on" : "Upgrade to Pro"}
+							</Link>
+						</Button>
+						<Button variant="outline" asChild>
+							<ContactSalesLink>
+								Contact sales about Enterprise
+							</ContactSalesLink>
+						</Button>
+					</CardContent>
 				</Card>
 			</div>
 		);
@@ -1029,16 +1067,30 @@ export function SsoClient() {
 				</CardContent>
 			</Card>
 
-			<Card className={googleOnly ? "opacity-60" : undefined}>
+			<Card className={googleOnly || !hasScimAccess ? "opacity-60" : undefined}>
 				<CardHeader>
 					<CardTitle>Directory sync (SCIM)</CardTitle>
 					<CardDescription>
-						{googleOnly
-							? "Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
-							: "Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."}
+						{!hasScimAccess ? (
+							<>
+								SCIM user provisioning is a separate Pro add-on ($
+								{PRO_PLAN_PRICES.scim}/month, on top of the SSO add-on).{" "}
+								<Link
+									href={buildOrgUrl("org/plan")}
+									className="text-primary underline underline-offset-4"
+								>
+									Enable it on the plan page
+								</Link>{" "}
+								to provision and deprovision members automatically.
+							</>
+						) : googleOnly ? (
+							"Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
+						) : (
+							"Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."
+						)}
 					</CardDescription>
 				</CardHeader>
-				{!googleOnly && (
+				{!googleOnly && hasScimAccess && (
 					<CardContent className="space-y-4">
 						{scim && (
 							<ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />
@@ -1174,93 +1226,97 @@ export function SsoClient() {
 				)}
 			</Card>
 
-			<Card className={googleOnly ? "opacity-60" : undefined}>
-				<CardHeader>
-					<CardTitle>Group team mapping</CardTitle>
-					<CardDescription>
-						{googleOnly
-							? "Not available for the Google Workspace connection — team mappings rely on groups pushed via SCIM. Assign auto-joined members to teams on the Members page."
-							: "Map an IdP group (pushed via SCIM) to an organization team. Developers inherit that team's project, IAM, API-key, and budget policy. Directory sync assigns and removes synced teams automatically; manual team assignments are kept. If several mappings apply, the first group name alphabetically wins. Owners and admins never belong to teams."}
-					</CardDescription>
-				</CardHeader>
-				{!googleOnly && (
-					<CardContent className="space-y-6">
-						{teamMappings.length > 0 && (
-							<div className="divide-y rounded-lg border">
-								{teamMappings.map((mapping) => (
-									<div
-										key={mapping.id}
-										className="flex items-center justify-between gap-4 p-3"
-									>
-										<div className="flex flex-wrap items-center gap-2 text-sm">
-											<span className="font-medium">{mapping.groupName}</span>
-											<span className="text-muted-foreground">→</span>
-											<Badge variant="secondary">{mapping.teamName}</Badge>
-										</div>
-										<Button
-											variant="outline"
-											size="icon"
-											onClick={() => handleDeleteTeamMapping(mapping.id)}
-											disabled={deleteTeamMapping.isPending}
+			{/* Group team mappings target organization teams, which stay an
+			    enterprise-only feature (the Pro SSO add-on does not include them). */}
+			{isEnterprise && (
+				<Card className={googleOnly ? "opacity-60" : undefined}>
+					<CardHeader>
+						<CardTitle>Group team mapping</CardTitle>
+						<CardDescription>
+							{googleOnly
+								? "Not available for the Google Workspace connection — team mappings rely on groups pushed via SCIM. Assign auto-joined members to teams on the Members page."
+								: "Map an IdP group (pushed via SCIM) to an organization team. Developers inherit that team's project, IAM, API-key, and budget policy. Directory sync assigns and removes synced teams automatically; manual team assignments are kept. If several mappings apply, the first group name alphabetically wins. Owners and admins never belong to teams."}
+						</CardDescription>
+					</CardHeader>
+					{!googleOnly && (
+						<CardContent className="space-y-6">
+							{teamMappings.length > 0 && (
+								<div className="divide-y rounded-lg border">
+									{teamMappings.map((mapping) => (
+										<div
+											key={mapping.id}
+											className="flex items-center justify-between gap-4 p-3"
 										>
-											<Trash2 className="h-4 w-4" />
-											<span className="sr-only">Delete team mapping</span>
-										</Button>
-									</div>
-								))}
-							</div>
-						)}
+											<div className="flex flex-wrap items-center gap-2 text-sm">
+												<span className="font-medium">{mapping.groupName}</span>
+												<span className="text-muted-foreground">→</span>
+												<Badge variant="secondary">{mapping.teamName}</Badge>
+											</div>
+											<Button
+												variant="outline"
+												size="icon"
+												onClick={() => handleDeleteTeamMapping(mapping.id)}
+												disabled={deleteTeamMapping.isPending}
+											>
+												<Trash2 className="h-4 w-4" />
+												<span className="sr-only">Delete team mapping</span>
+											</Button>
+										</div>
+									))}
+								</div>
+							)}
 
-						{organizationTeams.length === 0 ? (
-							<p className="text-sm text-muted-foreground">
-								Create an organization team before mapping an IdP group.
-							</p>
-						) : (
-							<form
-								onSubmit={handleSaveTeamMapping}
-								className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
-							>
-								<div className="flex-1 space-y-2">
-									<Label htmlFor="team-mapping-group">IdP group name</Label>
-									<Input
-										id="team-mapping-group"
-										placeholder="Data Science"
-										value={teamMappingGroup}
-										onChange={(event) =>
-											setTeamMappingGroup(event.target.value)
-										}
-										required
-									/>
-								</div>
-								<div className="flex-1 space-y-2">
-									<Label htmlFor="team-mapping-team">Team</Label>
-									<Select
-										value={teamMappingTeamId}
-										onValueChange={setTeamMappingTeamId}
-									>
-										<SelectTrigger id="team-mapping-team">
-											<SelectValue placeholder="Select a team" />
-										</SelectTrigger>
-										<SelectContent>
-											{organizationTeams.map((team) => (
-												<SelectItem key={team.id} value={team.id}>
-													{team.name}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								</div>
-								<Button
-									type="submit"
-									disabled={saveTeamMapping.isPending || !teamMappingTeamId}
+							{organizationTeams.length === 0 ? (
+								<p className="text-sm text-muted-foreground">
+									Create an organization team before mapping an IdP group.
+								</p>
+							) : (
+								<form
+									onSubmit={handleSaveTeamMapping}
+									className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
 								>
-									{saveTeamMapping.isPending ? "Saving..." : "Save mapping"}
-								</Button>
-							</form>
-						)}
-					</CardContent>
-				)}
-			</Card>
+									<div className="flex-1 space-y-2">
+										<Label htmlFor="team-mapping-group">IdP group name</Label>
+										<Input
+											id="team-mapping-group"
+											placeholder="Data Science"
+											value={teamMappingGroup}
+											onChange={(event) =>
+												setTeamMappingGroup(event.target.value)
+											}
+											required
+										/>
+									</div>
+									<div className="flex-1 space-y-2">
+										<Label htmlFor="team-mapping-team">Team</Label>
+										<Select
+											value={teamMappingTeamId}
+											onValueChange={setTeamMappingTeamId}
+										>
+											<SelectTrigger id="team-mapping-team">
+												<SelectValue placeholder="Select a team" />
+											</SelectTrigger>
+											<SelectContent>
+												{organizationTeams.map((team) => (
+													<SelectItem key={team.id} value={team.id}>
+														{team.name}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</div>
+									<Button
+										type="submit"
+										disabled={saveTeamMapping.isPending || !teamMappingTeamId}
+									>
+										{saveTeamMapping.isPending ? "Saving..." : "Save mapping"}
+									</Button>
+								</form>
+							)}
+						</CardContent>
+					)}
+				</Card>
+			)}
 
 			<Card>
 				<CardHeader>

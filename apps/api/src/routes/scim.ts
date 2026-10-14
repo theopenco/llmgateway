@@ -7,6 +7,7 @@ import {
 } from "@/lib/enterprise-seats.js";
 import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
+import { hasScimAccess } from "@/lib/sso-access.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
 import { recomputeUserTeam as applyUserTeam } from "@/lib/sso-teams.js";
@@ -25,7 +26,6 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
-import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { Context } from "hono";
 
@@ -188,14 +188,24 @@ scim.use("/*", async (c, next) => {
 
 	const organization = await db.query.organization.findFirst({
 		where: { id: { eq: row.organizationId } },
-		columns: { plan: true, status: true },
+		columns: {
+			id: true,
+			plan: true,
+			status: true,
+			proSeats: true,
+			proSsoEnabled: true,
+			proScimEnabled: true,
+		},
 	});
 	if (
 		!organization ||
 		organization.status === "deleted" ||
-		!hasOrganizationEnterpriseAccess(row.organizationId, organization.plan)
+		!hasScimAccess(organization)
 	) {
-		return scimError(403, "A valid Enterprise license is required");
+		return scimError(
+			403,
+			"SCIM requires a valid Enterprise license or the Pro SCIM add-on",
+		);
 	}
 
 	c.set("scimOrgId", row.organizationId);
