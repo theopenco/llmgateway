@@ -1397,7 +1397,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				externalId: "grok-voice-3.0",
-				// xAI bills sessions by input audio duration plus a flat fee per text
+				// xAI bills by session time plus a flat fee per text
 				// input, not by tokens; the token prices are zero so the reported
 				// token counts are recorded without being billed.
 				inputPrice: "0",

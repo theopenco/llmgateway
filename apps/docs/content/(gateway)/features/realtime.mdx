@@ -29,7 +29,9 @@ Browse the available realtime models, with up-to-date pricing, on the
 [models page](https://llmgateway.io/models). Realtime sessions are billed the
 way the provider meters them, at the model's listed rates: most models per
 token, with text and audio input, cached input, and output metered separately;
-some per minute of input audio plus a flat fee per user text message. Models
+some per minute of session time (counted from the first audio or response,
+silences included) plus a flat fee per user text message. For those, time
+after the last response is billed when the session closes. Models
 billed per minute transcribe input audio as part of that price, so their
 `conversation.item.input_audio_transcription.completed` events arrive without
 configuring a transcription model.

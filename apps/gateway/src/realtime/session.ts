@@ -19,6 +19,7 @@ import {
 	recordRealtimeTranscription,
 } from "./billing.js";
 import { findRealtimeTranscriptionMapping } from "./catalog.js";
+import { RealtimeDurationMeter } from "./duration-meter.js";
 import {
 	LEASE_HEARTBEAT_INTERVAL_MS,
 	releaseRealtimeLease,
@@ -33,6 +34,7 @@ import {
 	isDurationBilledRealtime,
 	normalizeDurationRealtimeUsage,
 	priceDurationRealtimeUsage,
+	type NormalizedRealtimeUsage,
 } from "./pricing.js";
 import {
 	applyTranscriptionDiscount,
@@ -45,6 +47,21 @@ import { logRealtimeTurnDenial } from "./turn-denial-log.js";
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { RawData } from "ws";
+
+const EMPTY_REALTIME_USAGE: NormalizedRealtimeUsage = {
+	totalTokens: 0,
+	inputTokens: 0,
+	outputTokens: 0,
+	inputTextTokens: 0,
+	inputAudioTokens: 0,
+	inputImageTokens: 0,
+	cachedTokens: 0,
+	cachedTextTokens: 0,
+	cachedAudioTokens: 0,
+	cachedImageTokens: 0,
+	outputTextTokens: 0,
+	outputAudioTokens: 0,
+};
 
 const maxSessionMs = () =>
 	(Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) * 1000;
@@ -182,6 +199,9 @@ export class RealtimeProxySession {
 	// User text input items forwarded since the last billed response. Billed
 	// per item on duration-billed mappings with the next response.done.
 	private pendingTextInputItems = 0;
+	// Duration-billed mappings only: reconciles the provider's running
+	// billable-seconds total and the unreported time billed on close.
+	private readonly durationMeter: RealtimeDurationMeter | null;
 	private readonly allowedTranscription: RealtimeMappingMatch | null;
 	private readonly pinnedInstructions: string | null;
 	private readonly pinnedVoice: string | null;
@@ -251,6 +271,9 @@ export class RealtimeProxySession {
 		this.onClosed = options.onClosed;
 		this.clientQueue = this.upstreamConfigured;
 		this.transcriptionOnly = this.preflight.sessionType === "transcription";
+		this.durationMeter = isDurationBilledRealtime(this.preflight.match.mapping)
+			? new RealtimeDurationMeter()
+			: null;
 		if (this.transcriptionOnly) {
 			this.transcription = {
 				match: this.preflight.match,
@@ -444,6 +467,12 @@ export class RealtimeProxySession {
 					this.pendingTextInputItems += 1;
 				}
 				this.forwardToUpstream(JSON.stringify(message));
+				return;
+			case "input_audio_buffer.append":
+				if (this.durationMeter && typeof message.audio === "string") {
+					this.durationMeter.addInputAudio(message.audio, Date.now());
+				}
+				this.forwardToUpstream(text);
 				return;
 			case "input_audio_buffer.clear":
 				// Clearing audio the provider has already transcribed live would
@@ -739,6 +768,13 @@ export class RealtimeProxySession {
 			}
 		}
 
+		if (this.durationMeter) {
+			this.durationMeter.setInputFormat(
+				audioInput && "format" in audioInput
+					? audioInput.format
+					: session.input_audio_format,
+			);
+		}
 		this.forwardToUpstream(JSON.stringify(forwarded));
 	}
 
@@ -812,6 +848,7 @@ export class RealtimeProxySession {
 		}
 		this.responseInFlight = "pending";
 		this.responseStartedAt = Date.now();
+		this.durationMeter?.start(this.responseStartedAt);
 		this.forwardToUpstream(JSON.stringify(message));
 	}
 
@@ -838,6 +875,7 @@ export class RealtimeProxySession {
 		}
 		this.responseInFlight = "pending";
 		this.responseStartedAt = Date.now();
+		this.durationMeter?.start(this.responseStartedAt);
 		this.forwardToUpstream(JSON.stringify({ type: "response.create" }));
 	}
 
@@ -1354,9 +1392,7 @@ export class RealtimeProxySession {
 			return;
 		}
 
-		const durationBilled = isDurationBilledRealtime(
-			this.preflight.match.mapping,
-		);
+		const durationBilled = this.durationMeter !== null;
 		// Duration-billed providers (xAI) report usage on the event itself.
 		const rawUsage = durationBilled ? event.usage : response.usage;
 		const durationUsage = durationBilled
@@ -1378,7 +1414,7 @@ export class RealtimeProxySession {
 		const priced = durationUsage?.ok
 			? priceDurationRealtimeUsage(
 					durationUsage.usage,
-					durationUsage.billableAudioSeconds,
+					this.durationMeter!.increase(durationUsage.billableAudioSeconds),
 					textInputItems,
 					snapshot,
 				)
@@ -1441,8 +1477,12 @@ export class RealtimeProxySession {
 			if (inserted) {
 				this.sessionSpend = this.sessionSpend.plus(discountedCosts.totalCost);
 			}
-			if (durationBilled) {
+			if (durationUsage?.ok) {
 				this.pendingTextInputItems -= textInputItems;
+				this.durationMeter!.commit(
+					durationUsage.billableAudioSeconds,
+					Date.now(),
+				);
 			}
 		} catch (error) {
 			logger.error(
@@ -1725,6 +1765,12 @@ export class RealtimeProxySession {
 		}
 
 		void releaseRealtimeLease(this.lease);
+		void this.billUnreportedDuration().catch((error: unknown) => {
+			logger.error(
+				"Failed to bill unreported realtime session time",
+				error as Error,
+			);
+		});
 		void closeRealtimeSessionRecord(
 			this.sessionRecordId,
 			reason.startsWith("unpriceable_usage") ||
@@ -1822,6 +1868,57 @@ export class RealtimeProxySession {
 				this.shutdown(1011, "backpressure_timeout");
 			}
 		}, 100);
+	}
+
+	/**
+	 * Bill what a duration-billed provider metered after its last usage report:
+	 * session time and text inputs that no response.done carried. The provider
+	 * reports nothing on close, so the time comes from the gateway's own clock
+	 * and forwarded input audio.
+	 */
+	private async billUnreportedDuration(): Promise<void> {
+		if (!this.durationMeter) {
+			return;
+		}
+		const seconds = this.durationMeter.unreportedSeconds(Date.now());
+		const textInputItems = this.pendingTextInputItems;
+		if (seconds === 0 && textInputItems === 0) {
+			return;
+		}
+		const snapshot = buildRealtimePriceSnapshot(this.preflight.match.mapping);
+		const priced = priceDurationRealtimeUsage(
+			EMPTY_REALTIME_USAGE,
+			seconds,
+			textInputItems,
+			snapshot,
+		);
+		if (!priced.ok) {
+			logger.error(`Unpriceable unreported realtime time: ${priced.reason}`, {
+				sessionId: this.sessionRecordId,
+			});
+			return;
+		}
+		const effectiveDiscount = await getEffectiveDiscount(
+			this.preflight.project.organizationId,
+			this.preflight.match.mapping.providerId,
+			this.preflight.match.modelId,
+		);
+		const discount = new Decimal(effectiveDiscount.discount);
+		await recordRealtimeResponse({
+			preflight: this.preflight,
+			sessionId: this.sessionRecordId,
+			requestedModel: this.requestedModel,
+			responseId: "unreported-duration",
+			responseStatus: "completed",
+			durationMs: seconds * 1000,
+			responseSizeBytes: 0,
+			usage: EMPTY_REALTIME_USAGE,
+			costs: applyRealtimeDiscount(priced.costs, discount),
+			pricingSnapshot: snapshot,
+			discount: discount.toNumber(),
+			source: this.source,
+			userAgent: this.userAgent,
+		});
 	}
 }
 

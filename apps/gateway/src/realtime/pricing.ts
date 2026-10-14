@@ -406,7 +406,7 @@ export function applyRealtimeDiscount(
 }
 
 /**
- * Whether a realtime mapping bills by input audio duration (plus per text
+ * Whether a realtime mapping bills by session time (plus per text
  * input item) rather than per token, e.g. xAI Grok Voice.
  */
 export function isDurationBilledRealtime(
@@ -450,7 +450,7 @@ export function normalizeDurationRealtimeUsage(
 	if (!usage || typeof usage.total_tokens !== "number") {
 		return { ok: false, reason: "missing usage object" };
 	}
-	// Omitted when zero, like other zero-valued fields in xAI's usage blocks.
+	// A running session total (see RealtimeDurationMeter); omitted when zero, like other zero-valued fields in xAI's usage blocks.
 	const seconds = usage.billable_audio_seconds ?? 0;
 	if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) {
 		return { ok: false, reason: "malformed billable_audio_seconds" };

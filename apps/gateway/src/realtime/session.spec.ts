@@ -1545,20 +1545,83 @@ describe("RealtimeProxySession duration-billed sessions", () => {
 		expect(input.pricingSnapshot.audioInputHour).toBe("4.80");
 		expect(client.sent.some((m) => m.includes("response.done"))).toBe(true);
 
-		// Text items are billed once: the next response carries none.
+		// billable_audio_seconds is a running total: the next report bills only
+		// its increase, and text items are billed once.
 		clientSends({ type: "response.create" });
 		await flush();
 		upstreamSends({ type: "response.created", response: { id: "resp_2" } });
 		upstreamSends({
 			type: "response.done",
 			response: { id: "resp_2", status: "completed", usage: {} },
-			usage: { ...xaiUsage, billable_audio_seconds: 0 },
+			usage: { ...xaiUsage, billable_audio_seconds: 135 },
 		});
 		await flush();
 		const second = vi.mocked(recordRealtimeResponse).mock.calls[1][0];
-		expect(second.costs.totalCost.toString()).toBe("0");
+		// 45 s at $4.80/h = $0.06.
+		expect(second.costs.totalCost.toString()).toBe("0.06");
 
 		session.shutdown(1000, "test_done");
+		await flush();
+		// Nothing accrued after the last report, so close bills nothing more.
+		expect(recordRealtimeResponse).toHaveBeenCalledTimes(2);
+	});
+
+	it("bills unreported session time and text inputs on close", async () => {
+		const { session, clientSends } = await openSession(createXaiSession());
+
+		// 3 s of 24 kHz PCM16 sent faster than real time, plus a text item, with
+		// no response to report them.
+		clientSends({
+			type: "input_audio_buffer.append",
+			audio: Buffer.alloc(3 * 48_000).toString("base64"),
+		});
+		clientSends({
+			type: "conversation.item.create",
+			item: {
+				type: "message",
+				role: "user",
+				content: [{ type: "input_text", text: "hi" }],
+			},
+		});
+		await flush();
+		session.shutdown(1000, "client_disconnected");
+		await flush();
+
+		expect(recordRealtimeResponse).toHaveBeenCalledTimes(1);
+		const input = vi.mocked(recordRealtimeResponse).mock.calls[0][0];
+		expect(input.responseId).toBe("unreported-duration");
+		// 3 s at $4.80/h = $0.004; 1 text item at $0.004.
+		expect(input.costs.audioInputCost.toString()).toBe("0.004");
+		expect(input.costs.inputCost.toString()).toBe("0.004");
+	});
+
+	it("bills wall-clock time since the last report on close", async () => {
+		const now = vi.spyOn(Date, "now");
+		try {
+			const { session, clientSends, upstreamSends } =
+				await openSession(createXaiSession());
+			now.mockReturnValue(1_000_000);
+			clientSends({ type: "response.create" });
+			await flush();
+			upstreamSends({ type: "response.created", response: { id: "resp_1" } });
+			upstreamSends({
+				type: "response.done",
+				response: { id: "resp_1", status: "completed", usage: {} },
+				usage: { ...xaiUsage, billable_audio_seconds: 4 },
+			});
+			await flush();
+
+			now.mockReturnValue(1_030_500);
+			session.shutdown(1000, "client_disconnected");
+			await flush();
+
+			expect(recordRealtimeResponse).toHaveBeenCalledTimes(2);
+			const tail = vi.mocked(recordRealtimeResponse).mock.calls[1][0];
+			// 30 whole seconds at $4.80/h = $0.04.
+			expect(tail.costs.totalCost.toString()).toBe("0.04");
+		} finally {
+			now.mockRestore();
+		}
 	});
 
 	it("fails closed when the event carries no usage", async () => {

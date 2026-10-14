@@ -111,8 +111,8 @@ describe("realtime model catalogue validation", () => {
 		const { mapping } = entry!;
 		expect(mapping.providerId).toBe("xai");
 		expect(mapping.externalId).toBe("grok-voice-3.0");
-		// https://docs.x.ai/developers/pricing — $0.08/min ($4.80/h) of input
-		// audio plus $0.004 per text input; tokens are not billed.
+		// https://docs.x.ai/developers/pricing — $0.08/min ($4.80/h) of session
+		// time plus $0.004 per text input; tokens are not billed.
 		expect(mapping.inputAudioHourPrice).toBe("4.80");
 		expect(mapping.inputTextItemPrice).toBe("0.004");
 		for (const price of [
