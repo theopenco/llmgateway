@@ -47,7 +47,7 @@ function requestCost(model, record) {
 	);
 }
 
-const runs = [];
+const allRuns = [];
 for (const name of readdirSync(suiteDir)) {
 	const resultFile = join(suiteDir, name, "result.json");
 	if (!existsSync(resultFile)) {
@@ -63,7 +63,7 @@ for (const name of readdirSync(suiteDir)) {
 	const ok = requests.filter((r) => r.usage);
 	const sum = (pick) => ok.reduce((total, r) => total + pick(r), 0);
 	const modelsUsed = [...new Set(requests.map((r) => r.request.model))];
-	runs.push({
+	allRuns.push({
 		runId: result.runId,
 		task: result.task,
 		agent: result.agent,
@@ -94,6 +94,17 @@ for (const name of readdirSync(suiteDir)) {
 		patchLines: result.patchLines,
 	});
 }
+const cellKey = (r) => `${r.task}|${r.model}|${r.rep}`;
+const agentsPerCell = new Map();
+for (const r of allRuns) {
+	agentsPerCell.set(cellKey(r), (agentsPerCell.get(cellKey(r)) ?? 0) + 1);
+}
+const runs = allRuns.filter(
+	(r) => agentsPerCell.get(cellKey(r)) === agentOrder.length,
+);
+const excludedRuns = allRuns
+	.filter((r) => !runs.includes(r))
+	.map((r) => r.runId);
 runs.sort(
 	(a, b) =>
 		a.task.localeCompare(b.task) ||
@@ -168,6 +179,7 @@ for (const r of runs.filter((r) => r.agent === "empryo")) {
 }
 const summary = {
 	suite,
+	excludedRuns,
 	generatedAt: new Date().toISOString(),
 	byAgent,
 	byModel,

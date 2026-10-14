@@ -1,0 +1,108 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..122128a 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -195,6 +195,35 @@ describe('EventProcessor.createResult with contentTypesAsBinary', () => {
+ })
+ 
+ describe('EventProcessor.createRequest', () => {
++  it('Should preserve empty query parameters from version 1.0 events', () => {
++    const event: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++    }
++
++    const request = getProcessor(event).createRequest(event)
++
++    expect(request.url).toBe(
++      'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++    )
++  })
++
++  it('Should preserve empty query parameters from ALB events', () => {
++    const event = {
++      httpMethod: 'GET',
++      path: '/my/path',
++      headers: { host: 'app.example.com' },
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++      body: null,
++      isBase64Encoded: false,
++      requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++    } as unknown as LambdaEvent
++
++    const request = getProcessor(event).createRequest(event)
++
++    expect(request.url).toBe('https://app.example.com/my/path?empty=&present=0')
++  })
++
+   it('Should preserve percent-encoded values in query string for version 1.0', () => {
+     const event: LambdaEvent = {
+       ...baseV1Event,
+@@ -636,4 +665,4 @@ describe('V2 request context authorizer', () => {
+     // A JWT authorizer reports no scopes as `null`.
+     expectTypeOf<null>().toMatchTypeOf<NonNullable<typeof authorizer.jwt>['scopes']>()
+   })
+-})
++})
+\ No newline at end of file
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..33685c8 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -458,14 +458,14 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+     // API Gateway passes decoded values, so we need to re-encode them to preserve the original URL
+     if (event.multiValueQueryStringParameters) {
+       return Object.entries(event.multiValueQueryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, values]) =>
+           values.map((value) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&')
+         )
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
+         .join('&')
+     }
+@@ -502,6 +502,7 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+   }
+ }
+ 
++
+ const v1Processor: EventV1Processor = new EventV1Processor()
+ 
+ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+@@ -550,12 +551,12 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+     */
+     if (event.multiValueQueryStringParameters) {
+       return Object.entries(event.multiValueQueryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value.join(`&${key}=`)}`)
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }
+@@ -583,6 +584,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+   }
+ }
+ 
++
+ const albProcessor: ALBProcessor = new ALBProcessor()
+ 
+ export class LatticeV2Processor extends EventProcessor<LatticeProxyEventV2> {
