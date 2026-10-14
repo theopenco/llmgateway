@@ -32,6 +32,8 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
 
+import { getSafeRedirectPath } from "@llmgateway/shared/safe-redirect";
+
 const formSchema = z.object({
 	name: z.string().optional(),
 	email: z.string().email({ message: "Please enter a valid email address" }),
@@ -39,16 +41,6 @@ const formSchema = z.object({
 		.string()
 		.min(12, { message: "Password must be at least 12 characters" }),
 });
-
-function getSafeRedirectUrl(url: string | null): string {
-	if (!url) {
-		return "/";
-	}
-	if (url.startsWith("/") && !url.startsWith("//")) {
-		return url;
-	}
-	return "/";
-}
 
 export default function SignupPage() {
 	return (
@@ -65,7 +57,7 @@ function Signup() {
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signUp } = useAuth();
-	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+	const returnUrl = getSafeRedirectPath(searchParams.get("returnUrl"));
 
 	useUser({
 		redirectTo: returnUrl,
