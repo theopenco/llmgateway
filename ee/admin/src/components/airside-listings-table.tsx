@@ -15,6 +15,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
 	Table,
 	TableBody,
@@ -74,19 +75,63 @@ function ContextCell({ listing }: { listing: Listing }) {
 }
 
 /**
- * Airside listings with their context-window standing and an admin delist
- * action.
+ * Airside listings with their context-window standing, an admin delist
+ * action, and review of carrier relist requests.
  */
-export function AirsideListingsTable({ providerId }: { providerId?: string }) {
+export function AirsideListingsTable({
+	providerId,
+	relistRequested,
+}: {
+	providerId?: string;
+	relistRequested?: boolean;
+}) {
 	const $api = useApi();
 	const queryClient = useQueryClient();
 	const editable = canWrite(useAdminRole());
 	const [pending, setPending] = useState<Listing | null>(null);
+	const [rejecting, setRejecting] = useState<Listing | null>(null);
+	const [reviewNote, setReviewNote] = useState("");
 	const query = $api.useQuery("get", "/admin/airside/listings", {
 		params: {
-			query: providerId ? { providerId } : {},
+			query: {
+				...(providerId ? { providerId } : {}),
+				...(relistRequested ? { relistRequested: "true" as const } : {}),
+			},
 		},
 	});
+	const refreshListings = async () => {
+		await queryClient.invalidateQueries({
+			queryKey: ["get", "/admin/airside/listings"],
+		});
+	};
+	const approveRelist = $api.useMutation(
+		"post",
+		"/admin/airside/listings/{id}/relist/approve",
+		{
+			onSuccess: async () => {
+				toast.success("Listing relisted.");
+				await refreshListings();
+			},
+			onError: (error: unknown) => {
+				toast.error(apiErrorMessage(error, "Relisting failed"));
+			},
+		},
+	);
+	const rejectRelist = $api.useMutation(
+		"post",
+		"/admin/airside/listings/{id}/relist/reject",
+		{
+			onSuccess: async () => {
+				toast.success("Relist request rejected.");
+				setRejecting(null);
+				setReviewNote("");
+				await refreshListings();
+			},
+			onError: (error: unknown) => {
+				toast.error(apiErrorMessage(error, "Rejecting failed"));
+			},
+		},
+	);
 	const delist = $api.useMutation(
 		"post",
 		"/admin/airside/listings/{id}/delist",
@@ -94,9 +139,7 @@ export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 			onSuccess: async () => {
 				toast.success("Listing delisted.");
 				setPending(null);
-				await queryClient.invalidateQueries({
-					queryKey: ["get", "/admin/airside/listings"],
-				});
+				await refreshListings();
 			},
 			onError: (error: unknown) => {
 				toast.error(apiErrorMessage(error, "Delisting failed"));
@@ -113,7 +156,11 @@ export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 	}
 	const listings = query.data?.listings ?? [];
 	if (listings.length === 0) {
-		return <p className="p-4 text-sm text-muted-foreground">No listings.</p>;
+		return (
+			<p className="p-4 text-sm text-muted-foreground">
+				{relistRequested ? "No relist requests." : "No listings."}
+			</p>
+		);
 	}
 
 	return (
@@ -136,6 +183,11 @@ export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 						>
 							<TableCell className="font-mono text-sm">
 								{listing.modelName}
+								{providerId ? null : (
+									<div className="font-sans text-xs text-muted-foreground">
+										{listing.providerId} · {listing.company.name}
+									</div>
+								)}
 							</TableCell>
 							<TableCell>
 								<Badge variant={STATUS_VARIANT[listing.status]}>
@@ -144,6 +196,12 @@ export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 								{listing.delistReason ? (
 									<div className="text-xs text-muted-foreground">
 										{listing.delistReason.replace("_", " ")}
+									</div>
+								) : null}
+								{listing.relistRequestedAt ? (
+									<div className="text-xs text-amber-600 dark:text-amber-400">
+										relist requested{" "}
+										{new Date(listing.relistRequestedAt).toLocaleDateString()}
 									</div>
 								) : null}
 							</TableCell>
@@ -157,7 +215,30 @@ export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 								))}
 							</TableCell>
 							<TableCell className="text-right">
-								{listing.status === "active" && editable ? (
+								{listing.relistRequestedAt && editable ? (
+									<div className="flex justify-end gap-1">
+										<Button
+											size="sm"
+											disabled={approveRelist.isPending}
+											data-testid={`approve-relist-${listing.id}`}
+											onClick={() =>
+												approveRelist.mutate({
+													params: { path: { id: listing.id } },
+												})
+											}
+										>
+											Approve relist
+										</Button>
+										<Button
+											variant="destructive"
+											size="sm"
+											data-testid={`reject-relist-${listing.id}`}
+											onClick={() => setRejecting(listing)}
+										>
+											Reject
+										</Button>
+									</div>
+								) : listing.status === "active" && editable ? (
 									<Button
 										variant="destructive"
 										size="sm"
@@ -187,8 +268,7 @@ export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 						<DialogDescription>
 							The listing stops routing immediately, its pending filings are
 							rejected, and its fare override is removed. The carrier sees it as
-							delisted by LLM Gateway and can relist once it meets the listing
-							rules.
+							delisted by LLM Gateway and can request a relist for review.
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
@@ -208,6 +288,57 @@ export function AirsideListingsTable({ providerId }: { providerId?: string }) {
 								<Loader2 className="size-4 animate-spin" />
 							) : null}
 							Delist
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+			<Dialog
+				open={rejecting !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRejecting(null);
+						setReviewNote("");
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>
+							Reject relist of {rejecting?.providerId}/{rejecting?.modelName}?
+						</DialogTitle>
+						<DialogDescription>
+							The listing stays delisted. The carrier sees the note below and
+							can request a relist again.
+						</DialogDescription>
+					</DialogHeader>
+					<Input
+						placeholder="Reason (shown to the carrier)"
+						value={reviewNote}
+						maxLength={1000}
+						onChange={(event) => setReviewNote(event.target.value)}
+					/>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setRejecting(null)}>
+							Cancel
+						</Button>
+						<Button
+							variant="destructive"
+							disabled={rejectRelist.isPending}
+							onClick={() => {
+								if (rejecting) {
+									rejectRelist.mutate({
+										params: { path: { id: rejecting.id } },
+										body: reviewNote.trim()
+											? { reviewNote: reviewNote.trim() }
+											: {},
+									});
+								}
+							}}
+						>
+							{rejectRelist.isPending ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : null}
+							Reject
 						</Button>
 					</DialogFooter>
 				</DialogContent>

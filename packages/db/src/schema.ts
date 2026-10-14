@@ -5849,6 +5849,15 @@ export const providerDraftModel = snakeCase.table(
 		// Why the listing left service: the carrier removed it, or an admin
 		// revoked the claim it was listed under.
 		delistReason: text({ enum: ["removed", "claim_revoked", "admin"] }),
+		// A delisted model's carrier asked to put it back in service. Set until
+		// an admin approves (relisting it) or rejects the request.
+		relistRequestedAt: timestamp(),
+		relistRequestedBy: text().references(() => user.id, {
+			onDelete: "set null",
+		}),
+		// The admin's answer to the last rejected relist request.
+		relistReviewedAt: timestamp(),
+		relistReviewNote: text(),
 		// Mapping fields a catalogue import carries over from the static entry
 		// that the listing form does not manage. Materialized with the listing
 		// so it keeps serving the same way once the static entry is removed.

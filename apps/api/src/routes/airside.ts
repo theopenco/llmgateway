@@ -61,6 +61,7 @@ import {
 	serializeClaimProfile,
 	staticCarrierProfile,
 } from "@/lib/airside-profile.js";
+import { lockRelistableListing } from "@/lib/airside-relist.js";
 import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
@@ -113,6 +114,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	isNotNull,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -422,6 +424,11 @@ const modelSchema = z.object({
 	pausedAt: z.string().nullable(),
 	delistedAt: z.string().nullable(),
 	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
+	// Set while a relist request awaits LLM Gateway review.
+	relistRequestedAt: z.string().nullable(),
+	// The last rejected relist request's review.
+	relistReviewedAt: z.string().nullable(),
+	relistReviewNote: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
@@ -716,6 +723,13 @@ function serializeModel(
 		pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
 		delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
 		delistReason: row.delistReason,
+		relistRequestedAt: row.relistRequestedAt
+			? row.relistRequestedAt.toISOString()
+			: null,
+		relistReviewedAt: row.relistReviewedAt
+			? row.relistReviewedAt.toISOString()
+			: null,
+		relistReviewNote: row.relistReviewNote,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		currentPricing: approved ? serializeFiling(approved) : null,
@@ -3779,7 +3793,7 @@ const relistModel = createRoute({
 				},
 			},
 			description:
-				"The relisted model, back in service immediately at its last approved fares. Requires an active claim on the provider.",
+				"Files a relist request. The model stays delisted until LLM Gateway approves the request, then returns to service at its last approved fares. Requires an active claim on the provider and a preflight that passed since delisting.",
 		},
 	},
 });
@@ -3794,43 +3808,11 @@ airside.openapi(relistModel, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	await assertListingContextSize(
-		model.modelName,
-		model.providerId,
-		model.contextSize,
-	);
-	// cdb: the gateway caches listing resolution off these tables.
-	const row = await cdb
-		.transaction(async (tx) => {
-			// Lock the claim first, in the revoker's claim-then-model order, so a
-			// concurrent revocation cannot commit between this check and the relist.
-			const [claim] = await tx
-				.select({ id: tables.providerClaim.id })
-				.from(tables.providerClaim)
-				.where(
-					and(
-						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
-						eq(tables.providerClaim.providerId, model.providerId),
-						eq(tables.providerClaim.status, "active"),
-					),
-				)
-				.for("update")
-				.$withCache(false);
-			if (!claim) {
-				throw new HTTPException(403, {
-					message:
-						"The company no longer holds an active claim on this provider, so its models cannot be relisted.",
-				});
-			}
-			const [locked] = await tx
-				.select()
-				.from(tables.providerDraftModel)
-				.where(eq(tables.providerDraftModel.id, id))
-				.for("update")
-				.$withCache(false);
-			if (!locked || locked.status !== "delisted") {
+	const row = await cdb.transaction(async (tx) => {
+		await lockRelistableListing(tx, model, async (locked) => {
+			if (locked.relistRequestedAt) {
 				throw new HTTPException(409, {
-					message: "Only delisted models can be relisted.",
+					message: "A relist request for this model is already under review.",
 				});
 			}
 			// The endpoint may have changed while the model was off the board.
@@ -3838,49 +3820,68 @@ airside.openapi(relistModel, async (c) => {
 				locked,
 				draftVerificationTarget(locked),
 				locked.delistedAt,
-				"relist",
+				"request a relist",
 			);
-			const [current] = await tx
-				.select()
-				.from(tables.providerPriceFiling)
-				.where(
-					and(
-						eq(tables.providerPriceFiling.draftModelId, id),
-						eq(tables.providerPriceFiling.status, "approved"),
-					),
-				)
-				.orderBy(desc(tables.providerPriceFiling.createdAt))
-				.limit(1)
-				.$withCache(false);
-			if (!current) {
-				throw new HTTPException(409, {
-					message: "This model has no approved fares to relist at.",
-				});
-			}
-			const [relisted] = await tx
-				.update(tables.providerDraftModel)
-				.set({
-					status: "active",
-					delistedAt: null,
-					delistReason: null,
-					pausedAt: null,
-				})
-				.where(eq(tables.providerDraftModel.id, id))
-				.returning();
-			await materializeAirsideModel(relisted, current, tx);
-			return relisted;
-		})
-		.catch((err: unknown) => {
-			// The partial unique index on live (provider, model) rows rejects a
-			// relist while another listing holds the name.
-			if (isUniqueViolation(err)) {
-				throw new HTTPException(409, {
-					message:
-						"Another model with this name is already listed for the provider.",
-				});
-			}
-			throw err;
 		});
+		const [requested] = await tx
+			.update(tables.providerDraftModel)
+			.set({
+				relistRequestedAt: new Date(),
+				relistRequestedBy: user.id,
+				relistReviewedAt: null,
+				relistReviewNote: null,
+			})
+			.where(eq(tables.providerDraftModel.id, id))
+			.returning();
+		return requested;
+	});
+	return c.json({ model: await serializeModelById(row) });
+});
+
+const withdrawRelist = createRoute({
+	method: "delete",
+	path: "/models/{id}/relist",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ model: modelSchema }),
+				},
+			},
+			description: "Withdraws a pending relist request.",
+		},
+	},
+});
+
+airside.openapi(withdrawRelist, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	const [row] = await cdb
+		.update(tables.providerDraftModel)
+		.set({ relistRequestedAt: null, relistRequestedBy: null })
+		.where(
+			and(
+				eq(tables.providerDraftModel.id, id),
+				eq(tables.providerDraftModel.status, "delisted"),
+				isNotNull(tables.providerDraftModel.relistRequestedAt),
+			),
+		)
+		.returning();
+	if (!row) {
+		throw new HTTPException(409, {
+			message: "This model has no relist request under review.",
+		});
+	}
 	return c.json({ model: await serializeModelById(row) });
 });
 
