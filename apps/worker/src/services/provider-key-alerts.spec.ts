@@ -5,6 +5,7 @@ import { db, tables } from "@llmgateway/db";
 import { DEFAULT_PROVIDER_KEY_ALERT_RULES } from "@llmgateway/shared/provider-key-alerts";
 
 import {
+	alertEventKey,
 	buildAlertMessage,
 	cooldownKey,
 	findKeysOverThreshold,
@@ -79,6 +80,16 @@ describe("windowBucketStart", () => {
 	});
 });
 
+describe("alertEventKey", () => {
+	it("is stable inside a cooldown slot", () => {
+		const a = alertEventKey(shortRule, KEY, new Date("2026-01-01T10:10:00Z"));
+		const b = alertEventKey(shortRule, KEY, new Date("2026-01-01T10:50:00Z"));
+		const c = alertEventKey(shortRule, KEY, new Date("2026-01-01T11:10:00Z"));
+		expect(a).toBe(b);
+		expect(a).not.toBe(c);
+	});
+});
+
 describe("buildAlertMessage", () => {
 	it("lists the worst models first", () => {
 		const message = buildAlertMessage(
@@ -116,6 +127,8 @@ describe("buildAlertMessage", () => {
 
 describe("processProviderKeyAlerts", () => {
 	beforeEach(async () => {
+		await db.delete(tables.organizationAlertDelivery);
+		await db.delete(tables.organizationNotificationChannel);
 		await db.delete(tables.organizationAlert);
 		await db.delete(tables.notification);
 		await db.delete(tables.notificationPreference);
@@ -188,6 +201,32 @@ describe("processProviderKeyAlerts", () => {
 		});
 		expect(notifications.map((n) => n.userId)).toEqual(["pka-owner"]);
 		expect(notifications[0]).toMatchObject({ inApp: true, email: true });
+	});
+
+	it("does not raise a second alert when a pass retries inside the cooldown", async () => {
+		await processProviderKeyAlerts();
+		// A failed fan-out releases the cooldown; the retry must dedupe.
+		await redisClient.del(cooldownKey(ORG, shortRule.id, KEY));
+		await processProviderKeyAlerts();
+		expect(
+			await db.query.organizationAlert.findMany({
+				where: { organizationId: ORG },
+			}),
+		).toHaveLength(1);
+	});
+
+	it("drops Slack delivery without enterprise access", async () => {
+		await db.update(tables.organization).set({
+			providerKeyAlertSettings: { ...settings, channels: ["slack"] },
+		});
+		await db.insert(tables.organizationNotificationChannel).values({
+			id: "pka-slack",
+			organizationId: ORG,
+			kind: "slack",
+			config: "unused",
+		});
+		await processProviderKeyAlerts();
+		expect(await db.query.organizationAlertDelivery.findMany()).toHaveLength(0);
 	});
 
 	it("does nothing while the alerts are off", async () => {

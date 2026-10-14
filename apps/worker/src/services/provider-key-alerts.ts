@@ -13,6 +13,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import { getProviderDefinition } from "@llmgateway/models";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { providerKeyAlertSettingsSchema } from "@llmgateway/shared/provider-key-alerts";
 
 import { emitOrgAlert } from "./compliance-alerts.js";
@@ -86,6 +87,19 @@ export function windowBucketStart(rule: ProviderKeyAlertRule, now: Date): Date {
 
 function formatWindow(minutes: number): string {
 	return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
+}
+
+/**
+ * Event key shared by every retry inside one cooldown slot, so a fan-out that
+ * failed midway completes on the next pass instead of raising a second alert.
+ */
+export function alertEventKey(
+	rule: ProviderKeyAlertRule,
+	providerKeyId: string,
+	now: Date,
+): string {
+	const slot = Math.floor(now.getTime() / (rule.cooldownMinutes * MINUTE_MS));
+	return `provider_key_errors:${providerKeyId}:${rule.id}:${slot}`;
 }
 
 export function cooldownKey(
@@ -246,7 +260,7 @@ async function alertRule(
 				{ ...settings, recipientAudience: "admin" },
 				{
 					type: "provider_key_errors",
-					eventKey: `provider_key_errors:${key.id}:${rule.id}:${now.getTime()}`,
+					eventKey: alertEventKey(rule, key.id, now),
 					title: `${keyLabel(key)} is failing requests`,
 					message: buildAlertMessage(rule, hit, models),
 					href: `/dashboard/${org.id}/org/provider-keys`,
@@ -300,12 +314,21 @@ export async function processProviderKeyAlerts(
 		if (!keys.length) {
 			continue;
 		}
+		// Slack channels are an enterprise feature, as for compliance alerts: a
+		// lapsed plan keeps its channel row but stops receiving posts.
+		const delivery = {
+			inApp: settings.inApp,
+			email: settings.email,
+			channels: hasOrganizationEnterpriseAccess(org.id, org.plan, now)
+				? settings.channels
+				: [],
+		};
 		for (const rule of settings.rules) {
 			if (!rule.enabled) {
 				continue;
 			}
 			try {
-				await alertRule(org, settings, rule, keys, now);
+				await alertRule(org, delivery, rule, keys, now);
 			} catch (error) {
 				logger.error(
 					`Provider key alert rule ${rule.id} failed`,
