@@ -1,5 +1,8 @@
 import { logger } from "@llmgateway/logger";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import {
+	assertSafeUserContentUrl,
+	fetchSafeUserContentUrl,
+} from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
 
@@ -21,7 +24,10 @@ async function fetchImageWithRetry(
 
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		try {
-			const response = await fetch(url, { redirect: "error" });
+			// Re-validated and fetched atomically: the DNS lookup used to check the
+			// host is the one pinned to the connection, so it can't rebind between
+			// the pre-check above and this fetch.
+			const response = await fetchSafeUserContentUrl(url);
 			if (response.ok) {
 				const contentType = response.headers.get("content-type") ?? "image/png";
 				const arrayBuffer = await response.arrayBuffer();
