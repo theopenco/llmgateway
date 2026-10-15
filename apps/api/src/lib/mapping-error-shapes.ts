@@ -18,17 +18,20 @@ import type { ErrorScope } from "@/lib/error-filters.js";
 
 // Request-specific tokens would split one upstream error into a shape per
 // request; mask them so otherwise identical errors group together. Postgres
-// regexes are slow with lookaheads, so the patterns avoid them and each starts
-// at a word boundary.
+// regexes are slow with open-ended lookaheads, so the patterns use only
+// fixed-length ones and each starts at a word boundary.
 const VOLATILE_TOKEN_MASKS: [pattern: string, replacement: string][] = [
 	[
 		"\\m[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\M",
 		"<uuid>",
 	],
 	// Prefixed ids with a digit, e.g. `rs_…`, `req_…`, `chatcmpl-…`.
-	["\\m([A-Za-z]+[_-])[A-Za-z]*[0-9][A-Za-z0-9]{11,}", "\\1<id>"],
+	[
+		"\\m([A-Za-z]+[_-])(?=[A-Za-z0-9]{12})[A-Za-z]*[0-9][A-Za-z0-9]*",
+		"\\1<id>",
+	],
 	// Bare hashes, trace ids, and other long tokens with a digit.
-	["\\m[A-Za-z]*[0-9][A-Za-z0-9]{15,}", "<id>"],
+	["\\m(?=[A-Za-z0-9]{16})[A-Za-z]*[0-9][A-Za-z0-9]*", "<id>"],
 	// Standalone numbers (token counts, timestamps); not dated model ids.
 	["(?<!-)\\m[0-9]{4,}\\M", "<n>"],
 ];
