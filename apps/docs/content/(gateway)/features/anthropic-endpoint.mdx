@@ -193,6 +193,12 @@ A `system` message inside `messages` (as Claude Code sends on recent Claude mode
 
 `tool_choice` (`auto`, `any`, `none`, or `{"type": "tool", "name": …}`) is honoured on every provider: it is translated into the upstream's own forced-tool form (Anthropic `any`/`tool`, OpenAI `required`/named function, Gemini `functionCallingConfig`), and a mapping that cannot force a tool is skipped during routing. `disable_parallel_tool_use: true` is carried as well; on providers without an equivalent it is ignored. An OpenAI-style `tool_choice` value (`"required"`, `{"type": "function", …}`) is dropped rather than rejected.
 
+### Tool definitions and results
+
+A tool's `strict: true` reaches the Anthropic API (with its structured-outputs beta) and OpenAI-compatible providers as `function.strict`; providers without an equivalent receive the tool without it. `allowed_callers` is forwarded to the Anthropic API only, with the advanced-tool-use beta, and stripped elsewhere.
+
+An `image` block inside a `tool_result` (a screenshot returned by a tool, say) is delivered to Anthropic models as an image block; a result that mixes text and images keeps its order. Other providers receive it as the chat-completions image part their tool message format allows, or as text where there is none.
+
 ### Web Search
 
 Anthropic's server-side web search tool works on this endpoint. Pass it as usual and the response carries `server_tool_use` and `web_search_tool_result` blocks before the text that cites them, so Anthropic SDK clients surface sources:

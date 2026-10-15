@@ -251,7 +251,14 @@ export interface OpenAIFunctionToolInput {
 		name: string;
 		description?: string;
 		parameters?: FunctionParameter | Record<string, any>;
+		/** Schema-constrained arguments; Anthropic takes it at the tool level. */
+		strict?: boolean;
 	};
+	/**
+	 * Anthropic-only: callers allowed to invoke the tool (programmatic tool
+	 * calling). Stripped for every other upstream.
+	 */
+	allowed_callers?: string[];
 	/**
 	 * Anthropic-only: keep this tool out of the rendered tools section so it
 	 * never enters the cached prompt prefix, and load it on demand when the
@@ -304,6 +311,8 @@ export interface AnthropicTool {
 	description?: string;
 	input_schema: FunctionParameter;
 	cache_control?: CacheControl;
+	strict?: boolean;
+	allowed_callers?: string[];
 }
 
 export interface GoogleTool {

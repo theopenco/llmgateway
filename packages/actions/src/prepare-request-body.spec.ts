@@ -1066,12 +1066,9 @@ describe("prepareRequestBody - Anthropic", () => {
 		}
 	});
 
-	test("does not fetch images inside a tool message's discarded content", async () => {
-		// The array content of a tool message is rebuilt into a tool_result block,
-		// so fetching its images buys nothing — and a size rejection would fail a
-		// request over bytes that never reach the provider.
-		// The spy rejects rather than calling through, so a regression fails the
-		// assertion below instead of reaching the network.
+	test("degrades an unfetchable image inside a tool message to a placeholder", async () => {
+		// Images inside a tool result are forwarded as image blocks, so the URL
+		// is fetched. A fetch failure must not fail the whole request.
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockRejectedValue(new Error("network access is not allowed here"));
@@ -1114,11 +1111,13 @@ describe("prepareRequestBody - Anthropic", () => {
 				undefined, // response_format
 			)) as AnthropicRequestBody;
 
-			expect(fetchSpy).not.toHaveBeenCalled();
+			expect(fetchSpy).toHaveBeenCalled();
 			const toolMsg = requestBody.messages[2]!;
-			expect(((toolMsg.content as unknown[])[0] as { type: string }).type).toBe(
-				"tool_result",
-			);
+			expect((toolMsg.content as unknown[])[0]).toMatchObject({
+				type: "tool_result",
+				tool_use_id: "call_1",
+				content: [{ type: "text", text: "[Image failed to load]" }],
+			});
 		} finally {
 			fetchSpy.mockRestore();
 		}
@@ -10104,5 +10103,154 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 		});
 		expect(body.tools).toBeDefined();
 		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+});
+
+describe("prepareRequestBody - tool strict and allowed_callers", () => {
+	const strictTool = {
+		type: "function" as const,
+		function: {
+			name: "get_weather",
+			description: "Get the weather",
+			parameters: {
+				type: "object",
+				properties: { city: { type: "string" } },
+				required: ["city"],
+			},
+			strict: true,
+		},
+		allowed_callers: ["code_execution"],
+	};
+
+	async function prepare(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		useResponsesApi = false,
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Weather in Paris?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[strictTool],
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			useResponsesApi,
+		)) as unknown as Record<string, any>;
+	}
+
+	test("Anthropic takes strict and allowed_callers on the tool", async () => {
+		const body = await prepare("anthropic", "claude-sonnet-4-6");
+		expect(body.tools[0]).toMatchObject({
+			name: "get_weather",
+			strict: true,
+			allowed_callers: ["code_execution"],
+		});
+	});
+
+	test("OpenAI chat completions keeps function.strict and drops allowed_callers", async () => {
+		const body = await prepare("openai", "gpt-4o-mini");
+		expect(body.tools[0].function.strict).toBe(true);
+		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+	});
+
+	test("OpenAI Responses API keeps strict on the flat tool", async () => {
+		const body = await prepare("openai", "gpt-5", true);
+		expect(body.tools[0]).toMatchObject({ name: "get_weather", strict: true });
+		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+	});
+
+	test("Google drops both", async () => {
+		const body = await prepare("google-ai-studio", "gemini-2.5-flash");
+		const declaration = body.tools[0].functionDeclarations[0];
+		expect(declaration.name).toBe("get_weather");
+		expect(declaration).not.toHaveProperty("strict");
+		expect(declaration).not.toHaveProperty("allowed_callers");
+	});
+});
+
+describe("prepareRequestBody - images inside tool results", () => {
+	const png =
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+	test("Anthropic receives the image as a tool_result image block", async () => {
+		const body = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[
+				{ role: "user", content: "Take a screenshot." },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "toolu_01SHOT",
+							type: "function",
+							function: { name: "screenshot", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "toolu_01SHOT",
+					content: [
+						{ type: "text", text: "Captured:" },
+						{
+							type: "image_url",
+							image_url: { url: `data:image/png;base64,${png}` },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function",
+					function: {
+						name: "screenshot",
+						parameters: { type: "object", properties: {} },
+					},
+				},
+			],
+		)) as unknown as Record<string, any>;
+
+		const toolResult = body.messages
+			.flatMap((m: { content: unknown }) =>
+				Array.isArray(m.content) ? m.content : [],
+			)
+			.find((block: { type: string }) => block.type === "tool_result");
+		expect(toolResult.content).toEqual([
+			{ type: "text", text: "Captured:" },
+			{
+				type: "image",
+				source: { type: "base64", media_type: "image/png", data: png },
+			},
+		]);
 	});
 });

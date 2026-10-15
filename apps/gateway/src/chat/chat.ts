@@ -270,7 +270,11 @@ import {
 } from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
-import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
+import {
+	anthropicRequestNeedsEffortBeta,
+	anthropicToolBetas,
+	appendAnthropicBeta,
+} from "./tools/anthropic-effort-beta.js";
 import {
 	applyAnthropicSafeguards,
 	extractAnthropicSafeguards,
@@ -9549,10 +9553,13 @@ chat.openapi(completions, async (c) => {
 							transportProvider === "anthropic" &&
 							response_format?.type === "json_schema"
 						) {
-							const currentBeta = headers["anthropic-beta"];
-							headers["anthropic-beta"] = currentBeta
-								? `${currentBeta},structured-outputs-2025-11-13`
-								: "structured-outputs-2025-11-13";
+							appendAnthropicBeta(headers, "structured-outputs-2025-11-13");
+						}
+						for (const beta of anthropicToolBetas(
+							transportProvider,
+							requestBody,
+						)) {
+							appendAnthropicBeta(headers, beta);
 						}
 
 						applyAnthropicSafeguards(
@@ -14038,10 +14045,10 @@ chat.openapi(completions, async (c) => {
 				transportProvider === "anthropic" &&
 				response_format?.type === "json_schema"
 			) {
-				const currentBeta = headers["anthropic-beta"];
-				headers["anthropic-beta"] = currentBeta
-					? `${currentBeta},structured-outputs-2025-11-13`
-					: "structured-outputs-2025-11-13";
+				appendAnthropicBeta(headers, "structured-outputs-2025-11-13");
+			}
+			for (const beta of anthropicToolBetas(transportProvider, requestBody)) {
+				appendAnthropicBeta(headers, beta);
 			}
 
 			applyAnthropicSafeguards(
