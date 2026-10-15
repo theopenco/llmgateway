@@ -16,6 +16,13 @@ interface EventStreamMessage {
 	payload: Uint8Array;
 }
 
+/**
+ * Fixed per-message overhead: 8-byte prelude (total length + headers length) +
+ * 4-byte prelude CRC + 4-byte message CRC. A message with zero headers and an
+ * empty payload is exactly this many bytes, so no valid total length is smaller.
+ */
+const MIN_MESSAGE_LENGTH = 16;
+
 export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 	const messages: EventStreamMessage[] = [];
 	let offset = 0;
@@ -38,6 +45,20 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 			4,
 		).getUint32(0, false);
 
+		// Reject a corrupt or truncated prelude before trusting its length.
+		// A total length below the fixed overhead cannot describe a real frame,
+		// and totalLength === 0 would advance offset by 0 below and loop
+		// forever, pushing empty messages until the process runs out of memory.
+		if (totalLength < MIN_MESSAGE_LENGTH) {
+			break;
+		}
+
+		// Headers must fit within the message alongside the fixed overhead;
+		// an oversized headers length is corrupt and would read past the frame.
+		if (headersLength > totalLength - MIN_MESSAGE_LENGTH) {
+			break;
+		}
+
 		// Check if we have the full message
 		if (offset + totalLength > buffer.length) {
 			break;
@@ -50,10 +71,18 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 		const headers: Record<string, string> = {};
 		const headersEnd = headerOffset + headersLength;
 
+		// Every header field must stay within the declared header section; a
+		// corrupt field length stops header parsing instead of reading into the
+		// payload or past the buffer (the frame itself is still well-delimited).
 		while (headerOffset < headersEnd) {
 			// Read header name length (1 byte)
 			const nameLength = buffer[headerOffset];
 			headerOffset += 1;
+
+			// Name plus the 1-byte value type must fit in the header section
+			if (headerOffset + nameLength + 1 > headersEnd) {
+				break;
+			}
 
 			// Read header name
 			const name = new TextDecoder().decode(
@@ -67,6 +96,10 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 
 			if (valueType === 7) {
 				// String value
+				if (headerOffset + 2 > headersEnd) {
+					break;
+				}
+
 				// Read value length (2 bytes, big-endian)
 				const valueLength = new DataView(
 					buffer.buffer,
@@ -74,6 +107,10 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 					2,
 				).getUint16(0, false);
 				headerOffset += 2;
+
+				if (headerOffset + valueLength > headersEnd) {
+					break;
+				}
 
 				// Read value
 				const value = new TextDecoder().decode(
