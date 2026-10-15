@@ -46,7 +46,7 @@ Run RDS and ElastiCache in private subnets and allow inbound traffic only from t
 
 ### 5. Secrets — AWS Secrets Manager
 
-Store `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Secrets Manager. Sync them into the cluster with the [External Secrets Operator](https://external-secrets.io/) or the AWS Secrets and Configuration Provider (ASCP).
+Store `DATABASE_URL`, `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Secrets Manager. Sync them into the cluster with the [External Secrets Operator](https://external-secrets.io/) or the AWS Secrets and Configuration Provider (ASCP).
 
 ## Deploy the Helm chart
 
@@ -57,21 +57,18 @@ helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
 ```yaml
+existingSecret: "llmgateway-secrets"
 postgresql:
   enabled: false
 externalPostgresql:
   host: "your-rds-endpoint"
-  user: "user"
-  password: "password"
-  database: "llmgateway"
 redis:
   enabled: false
 externalRedis:
   host: "your-elasticache-endpoint"
-auth:
-  authSecret: "from-secrets-manager"
-  gatewayApiKeyHashSecret: "from-secrets-manager"
 ```
+
+`existingSecret` names the Kubernetes Secret synced from Secrets Manager. The chart then skips creating its own Secret, so this one must hold `DATABASE_URL` (`postgres://user:password@host:5432/llmgateway`), `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, your `LLM_*` provider keys, and `REDIS_PASSWORD` if your Redis requires one.
 
 See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.
 

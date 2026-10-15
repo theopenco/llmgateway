@@ -46,7 +46,7 @@ Deploy the database and cache with private endpoints inside your virtual network
 
 ### 5. Secrets — Azure Key Vault
 
-Store `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Key Vault. Sync them into the cluster with the [Azure Key Vault Provider for Secrets Store CSI Driver](https://learn.microsoft.com/en-us/azure/aks/csi-secrets-store-driver).
+Store `DATABASE_URL`, `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Key Vault. Sync them into a Kubernetes Secret with the [Azure Key Vault Provider for Secrets Store CSI Driver](https://learn.microsoft.com/en-us/azure/aks/csi-secrets-store-driver) and its Secret sync option.
 
 ## Deploy the Helm chart
 
@@ -57,22 +57,18 @@ helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
 ```yaml
+existingSecret: "llmgateway-secrets"
 postgresql:
   enabled: false
 externalPostgresql:
   host: "your-postgres-host"
-  user: "user"
-  password: "password"
-  database: "llmgateway"
 redis:
   enabled: false
 externalRedis:
   host: "your-redis-host"
-  password: "your-access-key"
-auth:
-  authSecret: "from-key-vault"
-  gatewayApiKeyHashSecret: "from-key-vault"
 ```
+
+`existingSecret` names the Kubernetes Secret synced from Key Vault. The chart then skips creating its own Secret, so this one must hold `DATABASE_URL` (`postgres://user:password@host:5432/llmgateway`), `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, your `LLM_*` provider keys, and `REDIS_PASSWORD` if your Redis requires one.
 
 See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.
 

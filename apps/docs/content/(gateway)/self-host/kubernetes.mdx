@@ -54,6 +54,32 @@ llmProviders:
 helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
+### Keep credentials in a Secret
+
+For production, keep credentials out of `values.yaml`. Create a Secret yourself (or sync one with the External Secrets Operator) and point `existingSecret` at it:
+
+```bash
+kubectl create secret generic llmgateway-secrets \
+  --from-literal=DATABASE_URL='postgres://user:password@your-managed-host:5432/llmgateway' \
+  --from-literal=AUTH_SECRET='your-secret-key-here' \
+  --from-literal=GATEWAY_API_KEY_HASH_SECRET='your-api-key-hash-secret-here' \
+  --from-literal=LLM_OPENAI_API_KEY='sk-...'
+```
+
+```yaml
+existingSecret: "llmgateway-secrets"
+postgresql:
+  enabled: false
+externalPostgresql:
+  host: "your-managed-host"
+redis:
+  enabled: false
+externalRedis:
+  host: "your-managed-host"
+```
+
+The chart then skips creating its own Secret, so this one must hold every secret key the services read: `DATABASE_URL`, `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, your `LLM_*` provider keys, and `REDIS_PASSWORD` if your Redis requires one. Leave `auth`, `externalPostgresql.password` and `llmProviders` unset.
+
 ## Enterprise license
 
 For the chart-managed Secret, set the signed license in your values:

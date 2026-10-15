@@ -72,7 +72,7 @@ LLM Gateway's routing is data-driven. When you request a model without specifyin
 - **Throughput (weight %routing.weights.throughput%)** — Favors faster generation speed
 - **Latency (weight %routing.weights.latency%)** — Time to first token (streaming only)
 
-Providers below %routing.thresholds.uptimePenalty%% uptime receive an exponential penalty. At 80% uptime, the penalty is ~%routing.uptimePenaltyAt.80%. At 50%, it's ~%routing.uptimePenaltyAt.50%. Unreliable providers are aggressively deprioritized.
+Providers below %routing.thresholds.uptimePenalty%% uptime receive a quadratic penalty. At 80% uptime, the penalty is ~%routing.uptimePenaltyAt.80%. At 50%, it's ~%routing.uptimePenaltyAt.50%. Unreliable providers are aggressively deprioritized.
 
 The system also uses epsilon-greedy exploration (1% of requests) to test underutilized providers and adapt to changing conditions.
 

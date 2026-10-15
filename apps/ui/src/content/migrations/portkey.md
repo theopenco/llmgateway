@@ -10,7 +10,7 @@ fromProvider: Portkey
 
 Portkey was acquired by Palo Alto Networks in May 2026 and is now sold as the Prisma AIRS AI Gateway; the MIT-licensed gateway stays on GitHub, but the hosted product now sits inside a security vendor's platform and sales motion. If that changes your plans, the migration is small.
 
-Portkey wraps your provider calls in virtual keys, config IDs, and `x-portkey-*` headers. LLM Gateway keeps the OpenAI-compatible interface but drops the extra ceremony: standard Bearer auth, provider keys managed in a dashboard, and the option to self-host the platform under AGPLv3. Migration is mostly a base URL change.
+Portkey wraps your provider calls in virtual keys, config IDs, and `x-portkey-*` headers. LLM Gateway keeps the OpenAI-compatible interface but drops the extra ceremony: standard Bearer auth, provider keys managed in a dashboard, and the option to self-host the AGPLv3 core (enterprise features in `ee/` are commercially licensed). Migration is mostly a base URL change.
 
 ## Quick Migration
 
