@@ -712,12 +712,16 @@ function resolveRef(
  * degradation.
  *
  * Deliberately omitted even though Google does accept them: `minLength`,
- * `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`,
- * `minProperties`, `maxProperties` and `not`. The gateway has always stripped
- * those, and forwarding them would change how models fill tool arguments, so
- * restoring them is a separate behavioural change rather than part of this
- * fix. `$ref` / `$defs` / `definitions` are absent because they are consumed
- * by the inline expansion below instead of being forwarded.
+ * `maxLength`, `minimum`, `maximum`, `minItems`, `maxItems`, `minProperties`,
+ * `maxProperties` and `not`. The gateway has always stripped those, and
+ * forwarding them would change how models fill tool arguments, so restoring
+ * them is a separate behavioural change rather than part of this fix.
+ * `pattern` is forwarded on string nodes only (verified live on the Gemini
+ * API), since a pinned value format is what a caller means by it. `const` is
+ * rewritten below. `additionalProperties` has no field in this carrier (the
+ * Gemini API 400s on it); only `parametersJsonSchema` would carry it. `$ref` /
+ * `$defs` / `definitions` are absent because they are consumed by the inline
+ * expansion below instead of being forwarded.
  */
 const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"type",
@@ -735,6 +739,7 @@ const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"allOf",
 	"propertyOrdering",
 	"example",
+	"pattern",
 ]);
 
 /**
@@ -842,9 +847,47 @@ function stripUnsupportedSchemaProperties(
 
 	const cleaned: any = {};
 	let nullableFromType = false;
+	let nullableFromConst = false;
+	let constEnum: string[] | undefined;
+	let constType: string | undefined;
 
 	for (const [key, value] of Object.entries(schema)) {
+		// Google's `parameters` carrier has no `const` vocabulary: pin the value
+		// as a single-member `enum`, which constrains the model identically and
+		// which the carrier accepts. An explicit `enum` always wins. (#4148)
+		if (key === "const") {
+			if ("enum" in schema) {
+				continue;
+			}
+			if (value === null) {
+				// Google's Type enum has no NULL member, so a null-only constraint
+				// cannot survive as an enum: String(null) would demand the literal
+				// string "null". Fold it into `nullable` with the type list below.
+				nullableFromConst = true;
+				continue;
+			}
+			// Deferred to the emit below: whether it may become an `enum`
+			// depends on the node's `type`, which may come later.
+			constEnum = normalizeGoogleSchemaEnum([value]);
+			constType =
+				typeof value === "number"
+					? Number.isInteger(value)
+						? "integer"
+						: "number"
+					: typeof value;
+			continue;
+		}
+
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		// `pattern` only has meaning on strings; Google's proto accepts it on
+		// any node but the model has nothing to match it against elsewhere.
+		if (key === "pattern") {
+			if (typeof value === "string") {
+				cleaned.pattern = value;
+			}
 			continue;
 		}
 
@@ -909,10 +952,47 @@ function stripUnsupportedSchemaProperties(
 		}
 	}
 
-	// Applied after the loop so it wins over an explicit `nullable: false` that
-	// contradicts a `"null"` member in the type list, whichever key came first.
-	if (nullableFromType) {
+	// Applied after the loop so either source wins over an explicit
+	// `nullable: false` that contradicts it, whichever key came first.
+	if (nullableFromType || nullableFromConst) {
 		cleaned.nullable = true;
+		// A bare `const: null` carries no type; Vertex rejects an untyped node.
+		if (nullableFromConst && cleaned.type === undefined) {
+			cleaned.type = "string";
+		}
+	}
+
+	// Vertex rejects an `enum` on any non-STRING schema with a 400, so a
+	// numeric or boolean const is kept as a description hint instead, the
+	// same way convertOpenAISchemaToGoogle treats such an enum. (#4148)
+	if (constEnum !== undefined) {
+		// A bare `const` (no `type`) is common from schema generators. Vertex
+		// rejects an untyped node outright, and the Gemini API ignores an enum
+		// it cannot type, so take the type from the value itself.
+		if (cleaned.type === undefined && constType !== undefined) {
+			cleaned.type = constType;
+		}
+		if (
+			typeof cleaned.type !== "string" ||
+			cleaned.type.toLowerCase() === "string"
+		) {
+			cleaned.enum = constEnum;
+		} else {
+			const hint = `Allowed values: ${constEnum.join(", ")}`;
+			cleaned.description =
+				typeof cleaned.description === "string" && cleaned.description
+					? `${cleaned.description} (${hint})`
+					: hint;
+		}
+	}
+
+	// A `pattern` that survived on a non-string node has nothing to match.
+	if (
+		cleaned.pattern !== undefined &&
+		typeof cleaned.type === "string" &&
+		cleaned.type.toLowerCase() !== "string"
+	) {
+		delete cleaned.pattern;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'

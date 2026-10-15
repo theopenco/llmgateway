@@ -5304,11 +5304,23 @@ describe("prepareRequestBody - Google AI Studio", () => {
 								type: "string",
 								const: "fixed_value",
 							},
+							nickname: {
+								const: null,
+							},
+							fixedNull: {
+								const: null,
+								enum: ["a"],
+							},
+							handle: {
+								type: "string",
+								pattern: "^(alice|bob)$",
+							},
 							metadata: {
 								type: "object",
 								properties: {
 									key: { type: "string" },
 								},
+								additionalProperties: false,
 								propertyNames: { type: "string" },
 								minProperties: 1,
 								maxProperties: 10,
@@ -5356,11 +5368,27 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.count.multipleOf).toBeUndefined();
 		expect(params.properties.count.type).toBe("number");
 
-		// String const: should strip const
+		// String const: pin the value as a single-member enum (#4148)
 		expect(params.properties.name.const).toBeUndefined();
+		expect(params.properties.name.enum).toEqual(["fixed_value"]);
 		expect(params.properties.name.type).toBe("string");
+		// Null const: never emit enum ["null"]; widen to nullable (#4148)
+		expect(params.properties.nickname.const).toBeUndefined();
+		expect(params.properties.nickname.enum).toBeUndefined();
+		expect(params.properties.nickname.nullable).toBe(true);
+		expect(params.properties.nickname.type).toBe("string");
+		// Explicit enum suppresses the null widening (#4148)
+		expect(params.properties.fixedNull.enum).toEqual(["a"]);
+		expect(params.properties.fixedNull.nullable).toBeUndefined();
+		// String pattern survives (#4148)
+		expect(params.properties.handle).toEqual({
+			type: "string",
+			pattern: "^(alice|bob)$",
+		});
 
-		// Object properties: should strip propertyNames, minProperties, maxProperties
+		// Object properties: should strip propertyNames, minProperties,
+		// maxProperties and additionalProperties (no field in the carrier)
+		expect(params.properties.metadata.additionalProperties).toBeUndefined();
 		expect(params.properties.metadata.propertyNames).toBeUndefined();
 		expect(params.properties.metadata.minProperties).toBeUndefined();
 		expect(params.properties.metadata.maxProperties).toBeUndefined();
@@ -5374,6 +5402,90 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.items.prefixItems).toBeUndefined();
 		expect(params.properties.items.type).toBe("array");
 		expect(params.properties.items.items.type).toBe("string");
+	});
+
+	test("should prefer an explicit enum over const in Google tool parameters", async () => {
+		const toolsWithConstAndEnum = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							withBoth: {
+								type: "string",
+								const: "pinned",
+								enum: ["choice_a", "choice_b"],
+							},
+							withObjectConst: {
+								type: "object",
+								const: { pinned: true },
+							},
+							version: {
+								const: 2,
+								type: "integer",
+								description: "Schema version",
+							},
+							confirmed: {
+								type: "boolean",
+								const: true,
+							},
+							currency: {
+								const: "USD",
+							},
+							count: {
+								type: "integer",
+								pattern: "^[0-9]+$",
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithConstAndEnum,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.properties.withBoth.enum).toEqual(["choice_a", "choice_b"]);
+		expect(params.properties.withObjectConst.enum).toBeUndefined();
+		expect(params.properties.withObjectConst.const).toBeUndefined();
+		// Vertex rejects an enum on a non-STRING type: keep it as a hint
+		expect(params.properties.version).toEqual({
+			type: "integer",
+			description: "Schema version (Allowed values: 2)",
+		});
+		expect(params.properties.confirmed).toEqual({
+			type: "boolean",
+			description: "Allowed values: true",
+		});
+		// Untyped const: the type comes from the value (Vertex rejects untyped nodes)
+		expect(params.properties.currency).toEqual({
+			type: "string",
+			enum: ["USD"],
+		});
+		// pattern has nothing to match on a non-string node
+		expect(params.properties.count).toEqual({ type: "integer" });
 	});
 
 	test("should strip $id, examples, enumTitles, prefill from Google tool parameters", async () => {
