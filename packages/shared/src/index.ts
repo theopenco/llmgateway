@@ -239,7 +239,6 @@ export {
 export {
 	getActiveProviderPromo,
 	MARKETING_STATS,
-	RUNWARE_PROMO,
 	SCX_PROMO,
 } from "./marketing.js";
 
