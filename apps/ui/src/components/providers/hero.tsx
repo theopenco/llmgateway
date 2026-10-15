@@ -17,6 +17,7 @@ import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
 import {
+	applyDeclaredCompliance,
 	providers as providerDefinitions,
 	type ProviderId,
 } from "@llmgateway/models";
@@ -39,7 +40,8 @@ interface HeroProps {
 		website?: string | null;
 	};
 	/** The live Airside claim's saved profile. Its links replace the
-	 *  catalogue's; a null dataPolicy keeps the reviewed catalogue policy. */
+	 *  catalogue's; a null dataPolicy keeps the reviewed catalogue policy,
+	 *  with any declared certifications layered on top. */
 	airsideProfile?: ApiAirsideProfile | null;
 }
 
@@ -121,7 +123,10 @@ export function Hero({
 										? null
 										: declaredPolicy.soc2,
 						}
-					: baseProvider.dataPolicy,
+					: applyDeclaredCompliance(
+							baseProvider.dataPolicy,
+							airsideProfile.compliance,
+						),
 			}
 		: baseProvider;
 	const referenceLinks = [
