@@ -478,7 +478,7 @@ describe("admin unstable mappings", () => {
 			hasError: true,
 			statusCode: 400,
 			responseText:
-				"request 3f2504e0-4f89-11d3-9a0c-0305e82c3301: model gpt-4o-2024-08-06 got 135432 tokens",
+				"request 3f2504e0-4f89-11d3-9a0c-0305e82c3301: model gpt-4o-2024-08-06 got 135432 tokens, InvalidParameterValue trace 4bf92f3577b34da6",
 		});
 
 		async function getErrors(extra = "") {
@@ -496,7 +496,8 @@ describe("admin unstable mappings", () => {
 		expect(body.errors).toEqual([
 			expect.objectContaining({ responseText: encrypted("<id>"), count: 2 }),
 			expect.objectContaining({
-				responseText: "request <uuid>: model gpt-4o-2024-08-06 got <n> tokens",
+				responseText:
+					"request <uuid>: model gpt-4o-2024-08-06 got <n> tokens, InvalidParameterValue trace <id>",
 				count: 1,
 			}),
 		]);

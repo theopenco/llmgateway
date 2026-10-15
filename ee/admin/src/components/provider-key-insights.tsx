@@ -248,7 +248,7 @@ export function ProviderKeyInsights({
 		DEFAULT_ERROR_TYPES_WINDOW,
 	);
 	const includeRetried = searchParams.get("retried") !== "0";
-	const groupSimilar = searchParams.get("similar") !== "0";
+	const groupSimilar = searchParams.get("groupSimilar") !== "false";
 	const [chartType, setChartType] = useState<ChartType>("bar");
 	const [sort, setSort] = useState<BreakdownSort>("cost");
 	const $api = useApi();
@@ -768,7 +768,7 @@ export function ProviderKeyInsights({
 				includeRetried={includeRetried}
 				groupSimilar={groupSimilar}
 				onGroupSimilarChange={(next) =>
-					setParams({ similar: next ? null : "0" })
+					setParams({ groupSimilar: next ? null : "false" })
 				}
 				onWindowChange={(next) =>
 					setParams({
