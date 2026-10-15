@@ -76,6 +76,32 @@ describe("routeProjectlessVertexEndpoint", () => {
 		).resolves.toBe(PROJECTLESS);
 	});
 
+	it("ignores a project in a non-404 or non-JSON response", async () => {
+		for (const response of [
+			() =>
+				new Response(
+					JSON.stringify({
+						error: { message: "projects/999/locations/us-central1/x" },
+					}),
+					{ status: 403 },
+				),
+			() =>
+				new Response("projects/999/locations/us-central1/x", {
+					status: 404,
+				}),
+		]) {
+			resetVertexApiKeyProjectCache();
+			await expect(
+				routeProjectlessVertexEndpoint(
+					PROJECTLESS,
+					"k",
+					() => "rebuilt",
+					vi.fn(async () => response()),
+				),
+			).resolves.toBe(PROJECTLESS);
+		}
+	});
+
 	it("keeps the endpoint when the probe throws", async () => {
 		const fetchImpl = vi.fn(async () => {
 			throw new Error("network down");

@@ -43,6 +43,8 @@ export function parseVertexProjectFromError(
 }
 
 function cacheKey(apiKey: string): string {
+	// Keyed HMAC for an in-memory cache key, not password storage.
+	// lgtm[js/insufficient-password-hash]
 	return createHmac("sha256", getApiKeyHashSecret())
 		.update(`vertex-api-key-project:${apiKey}`)
 		.digest("hex");
@@ -65,7 +67,15 @@ async function probeVertexApiKeyProject(
 				signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
 			},
 		);
-		const project = parseVertexProjectFromError(await response.text());
+		const body =
+			response.status === 404
+				? ((await response.json()) as { error?: { message?: unknown } })
+				: undefined;
+		const message = body?.error?.message;
+		const project =
+			typeof message === "string"
+				? parseVertexProjectFromError(message)
+				: undefined;
 		if (!project) {
 			logger.warn("Vertex API key project probe returned no project", {
 				status: response.status,
