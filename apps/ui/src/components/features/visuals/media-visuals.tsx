@@ -3,7 +3,8 @@ import Image from "next/image";
 
 import { cn } from "@/lib/utils";
 
-import { AudioPlayback, BAR_HEIGHTS } from "./audio-playback";
+import { AudioPlayback } from "./audio-playback";
+import { BAR_HEIGHTS } from "./bar-heights";
 import { Chip, VisualFrame, stagger } from "./visual-frame";
 import s from "./visuals.module.css";
 

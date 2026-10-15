@@ -5,15 +5,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
+import { BAR_HEIGHTS } from "./bar-heights";
 import s from "./visuals.module.css";
 
 import type { CSSProperties } from "react";
-
-export const BAR_HEIGHTS = [
-	0.35, 0.6, 0.9, 0.5, 0.75, 1, 0.65, 0.4, 0.8, 0.55, 0.95, 0.7, 0.45, 0.85,
-	0.6, 0.3, 0.7, 1, 0.5, 0.8, 0.4, 0.65, 0.9, 0.55, 0.75, 0.35, 0.6, 0.85, 0.5,
-	0.7, 0.45, 0.9, 0.6, 0.4, 0.8, 0.55,
-];
 
 export function AudioPlayback({
 	mode,
