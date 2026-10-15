@@ -39,6 +39,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { calculateFees, MARKETING_STATS } from "@llmgateway/shared";
 import {
 	formatCompactNumber as formatNumber,
 	formatNumber as formatDisplayNumber,
@@ -314,12 +315,12 @@ function TextSimulator() {
 		const competitorMonthly = baseMonthly * 1.055;
 
 		const gatewayPerRequest = basePerRequest;
-		const gatewayMonthly = gatewayPerRequest * monthlyRequests;
+		const gatewayMonthly = calculateFees({ amount: baseMonthly }).totalAmount;
 
 		const savingsVsCompetitor = competitorMonthly - gatewayMonthly;
 		const savingsPercent =
 			competitorMonthly > 0
-				? ((savingsVsCompetitor / competitorMonthly) * 100).toFixed(0)
+				? ((savingsVsCompetitor / competitorMonthly) * 100).toFixed(1)
 				: "0";
 
 		return {
@@ -522,7 +523,7 @@ function TextSimulator() {
 								{formatCurrency(costs.gatewayMonthly)}
 							</p>
 							<p className="text-xs text-muted-foreground mt-1">
-								/month, no markup
+								/month incl. {MARKETING_STATS.platformFee} credit fee
 							</p>
 						</Card>
 					</div>
@@ -656,6 +657,7 @@ function ImageSimulator() {
 				discountedPrice: 0,
 				dailyCost: 0,
 				monthlyCost: 0,
+				gatewayMonthly: 0,
 				competitorMonthly: 0,
 				savings: 0,
 				yearlySavings: 0,
@@ -671,13 +673,15 @@ function ImageSimulator() {
 		const dailyCost = pricePerImage * imagesPerDay;
 		const monthlyCost = dailyCost * 30;
 		const competitorMonthly = monthlyCost * 1.055;
-		const savings = competitorMonthly - monthlyCost;
+		const gatewayMonthly = calculateFees({ amount: monthlyCost }).totalAmount;
+		const savings = competitorMonthly - gatewayMonthly;
 
 		return {
 			pricePerImage,
 			discountedPrice: pricePerImage,
 			dailyCost,
 			monthlyCost,
+			gatewayMonthly,
 			competitorMonthly,
 			savings,
 			yearlySavings: savings * 12,
@@ -776,9 +780,11 @@ function ImageSimulator() {
 								LLM Gateway
 							</p>
 							<p className="text-2xl font-bold text-green-600 dark:text-green-400">
-								{formatCurrency(costs.monthlyCost)}
+								{formatCurrency(costs.gatewayMonthly)}
 							</p>
-							<p className="text-xs text-muted-foreground mt-1">/month</p>
+							<p className="text-xs text-muted-foreground mt-1">
+								/month incl. {MARKETING_STATS.platformFee} credit fee
+							</p>
 						</Card>
 					</div>
 
