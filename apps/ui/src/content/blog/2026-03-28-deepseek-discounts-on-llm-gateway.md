@@ -63,7 +63,7 @@ LLM Gateway negotiates volume-based pricing with infrastructure providers and pa
 3. **Routes to the cheapest option** that supports your request's features (tool calling, JSON mode, etc.)
 4. **Falls back automatically** if the primary provider is unavailable
 
-You pay the discounted rate. We charge zero platform markup on top.
+You pay the discounted rate. We charge zero per-token markup on top.
 
 <BlogCta variant="gateway" location="mid_article" />
 
@@ -97,16 +97,16 @@ That's over **$1,500 saved per year** on a single model at moderate volume. Scal
 
 ## Why We Offer Discounts
 
-Most API gateways add a markup on top of provider pricing. We don't. LLM Gateway is funded through optional paid plans (Pro and Enterprise) that offer features like extended data retention, provider key management, and priority support.
+Most API gateways add a markup on top of provider pricing. We don't. LLM Gateway is funded through a flat 5% platform fee on credit purchases (0% when you bring your own keys) and an optional Enterprise plan with features like full request and response retention and priority support.
 
-For API routing and model access, you pay exactly what the provider charges — or less, when we've negotiated a discount. It's that simple.
+For API routing and model access, you pay exactly the provider's per-token rate — or less, when we've negotiated a discount. It's that simple.
 
 ## More Discounted Providers on LLM Gateway
 
 DeepSeek isn't the only provider where we've secured discounts. Here's a snapshot of our current partner pricing:
 
 - **Alibaba Cloud**: 20% off all 26 Qwen models — [read the announcement](/blog/alibaba-cloud-qwen-models-20-percent-off)
-- **Canopywave**: 30% off DeepSeek, OpenAI, Anthropic, Moonshot, and MiniMax models
+- **Canopywave**: 30% off DeepSeek, Qwen, GLM, Moonshot, and MiniMax models
 - **Bytedance**: 10% off Doubao and select hosted models
 - **ZAI**: 10-30% off across their model catalog
 

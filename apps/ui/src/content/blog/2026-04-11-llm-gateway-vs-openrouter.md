@@ -34,7 +34,7 @@ This is an honest comparison. We built LLM Gateway, so we're biased — but we'l
 | Video generation      | Yes (Veo 3.1, multiple providers)                     | Limited                             |
 | AI SDK provider       | Yes (`@llmgateway/ai-sdk-provider`)                   | Yes (`@openrouter/ai-sdk-provider`) |
 | Pricing model         | 5% platform fee or BYOK (0% fee)                      | 5.5% credit fee (no token markup)   |
-| Free tier             | Yes (3 free models, 20 req/min)                       | Yes (limited free models)           |
+| Free tier             | Yes (free models, rate-limited)                       | Yes (limited free models)           |
 
 ## Where LLM Gateway Wins
 
@@ -65,14 +65,14 @@ OpenRouter does support BYOK — but it adds a 5% fee on usage above 1M requests
 
 ### Smart Routing Algorithm
 
-LLM Gateway's routing is data-driven. When you request a model without specifying a provider, the gateway scores all available providers using a weighted algorithm based on the last 5 minutes of real metrics:
+LLM Gateway's routing is data-driven. When you request a model without specifying a provider, the gateway scores all available providers using a weighted algorithm based on real metrics from a rolling %routing.history.windowMinutes%-minute window that weights the last few minutes most:
 
-- **Uptime (50%)** — Prioritizes reliable providers
-- **Throughput (20%)** — Favors faster generation speed
-- **Price (20%)** — Considers cost efficiency
-- **Latency (10%)** — Time to first token (streaming only)
+- **Price (weight %routing.weights.price%)** — Considers cost efficiency
+- **Uptime (weight %routing.weights.uptime%)** — Prioritizes reliable providers
+- **Throughput (weight %routing.weights.throughput%)** — Favors faster generation speed
+- **Latency (weight %routing.weights.latency%)** — Time to first token (streaming only)
 
-Providers below 95% uptime receive an exponential penalty. At 80% uptime, the penalty is ~0.62. At 50%, it's ~5.61. Unreliable providers are aggressively deprioritized.
+Providers below %routing.thresholds.uptimePenalty%% uptime receive an exponential penalty. At 80% uptime, the penalty is ~%routing.uptimePenaltyAt.80%. At 50%, it's ~%routing.uptimePenaltyAt.50%. Unreliable providers are aggressively deprioritized.
 
 The system also uses epsilon-greedy exploration (1% of requests) to test underutilized providers and adapt to changing conditions.
 

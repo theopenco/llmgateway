@@ -60,7 +60,7 @@ The rest of this post goes through each one.
 - **AI SDK provider** — first-class Vercel AI SDK integration via `@llmgateway/ai-sdk-provider`
 - **Lounge** — chat, compare independent answers, bring models into a shared council debate, and generate images
 
-**Pricing:** Free tier with credits to start. Pay-as-you-go with no hidden fees. No markup when using your own keys.
+**Pricing:** Free to sign up, with a rate-limited free model to start. Pay-as-you-go with no hidden fees. No markup when using your own keys.
 
 **Best for:** Teams that want full control over their AI infrastructure without building it from scratch.
 
