@@ -13,6 +13,7 @@ import {
 	apiKeyHourlyModelStats,
 	apiKeyHourlySourceStats,
 	providerKeyHourlyStats,
+	globalAggregationState,
 	apiKey,
 	sql,
 	and,
@@ -22,6 +23,7 @@ import {
 	inArray,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
 // Configuration for project stats refresh interval (defaults to 60 seconds)
 export const PROJECT_STATS_REFRESH_INTERVAL_SECONDS =
@@ -86,61 +88,63 @@ export function providerMarginAmountField() {
  * denormalized per-mode pairs. The global stats tables key on `used_mode`
  * directly (see globalModelStats) and so only need these.
  */
-export function getBaseAggregationFields() {
+export function getBaseAggregationFields(requestFilter: SQL = sql`true`) {
 	return {
-		requestCount: sql<number>`count(*)::int`.as("requestCount"),
+		requestCount: sql<number>`count(*) filter (where ${requestFilter})::int`.as(
+			"requestCount",
+		),
 		errorCount:
-			sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.hasError} = true) then 1 else 0 end)::int`.as(
 				"errorCount",
 			),
 		cacheCount:
-			sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.cached} = true) then 1 else 0 end)::int`.as(
 				"cacheCount",
 			),
 		streamedCount:
-			sql<number>`sum(case when ${log.streamed} = true then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.streamed} = true) then 1 else 0 end)::int`.as(
 				"streamedCount",
 			),
 		nonStreamedCount:
-			sql<number>`sum(case when ${log.streamed} = false or ${log.streamed} is null then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.streamed} = false or ${log.streamed} is null) then 1 else 0 end)::int`.as(
 				"nonStreamedCount",
 			),
 		// Unified finish reason counts
 		completedCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'completed') then 1 else 0 end)::int`.as(
 				"completedCount",
 			),
 		lengthLimitCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'length_limit' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'length_limit') then 1 else 0 end)::int`.as(
 				"lengthLimitCount",
 			),
 		contentFilterCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'content_filter' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'content_filter') then 1 else 0 end)::int`.as(
 				"contentFilterCount",
 			),
 		toolCallsCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'tool_calls' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'tool_calls') then 1 else 0 end)::int`.as(
 				"toolCallsCount",
 			),
 		canceledCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'canceled' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'canceled') then 1 else 0 end)::int`.as(
 				"canceledCount",
 			),
 		unknownFinishCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'unknown' or ${log.unifiedFinishReason} is null then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'unknown' or ${log.unifiedFinishReason} is null) then 1 else 0 end)::int`.as(
 				"unknownFinishCount",
 			),
 		// Error type counts
 		clientErrorCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'client_error' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'client_error') then 1 else 0 end)::int`.as(
 				"clientErrorCount",
 			),
 		gatewayErrorCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'gateway_error') then 1 else 0 end)::int`.as(
 				"gatewayErrorCount",
 			),
 		upstreamErrorCount:
-			sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.unifiedFinishReason} = 'upstream_error') then 1 else 0 end)::int`.as(
 				"upstreamErrorCount",
 			),
 		// Token counts
@@ -206,48 +210,53 @@ export function getBaseAggregationFields() {
  * Common aggregation select fields for the project/api-key hourly stats
  * tables, which carry the credits/BYOK split as denormalized column pairs.
  */
-export function getCommonAggregationFields() {
+export function getCommonAggregationFields(requestFilter: SQL = sql`true`) {
 	return {
-		...getBaseAggregationFields(),
+		...getBaseAggregationFields(requestFilter),
 		// Latency. Sums plus their own sample counts, so the `accumulate` upsert
 		// can add slices together — an average cannot be composed that way.
 		// `sum(integer)` accumulates in bigint, so unlike the money columns there
 		// is no float drift to guard against; the result is cast to bigint rather
 		// than int because `::int` raises "integer out of range" once a busy
 		// project-hour passes 2.1e9 ms instead of saturating.
-		totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::bigint`.as(
-			"totalDuration",
-		),
+		totalDuration:
+			sql<number>`coalesce(sum(${log.duration}) filter (where ${requestFilter}), 0)::bigint`.as(
+				"totalDuration",
+			),
 		// `log.duration` is NOT NULL, so this equals requestCount for every row
 		// written from here on. It exists so buckets aggregated before these
 		// columns can be told apart from buckets that genuinely averaged 0 ms.
-		durationCount: sql<number>`count(${log.duration})::int`.as("durationCount"),
+		durationCount:
+			sql<number>`count(${log.duration}) filter (where ${requestFilter})::int`.as(
+				"durationCount",
+			),
 		// `count` skips nulls, and only streamed, non-cached, successful requests
 		// record a first-token time, so each TTFT average divides by its own
 		// samples. The reasoning pair is carried too so `avgEffectiveTtft` can
 		// prefer it, exactly as it does for the model history tables.
 		totalTimeToFirstToken:
-			sql<number>`coalesce(sum(${log.timeToFirstToken}), 0)::bigint`.as(
+			sql<number>`coalesce(sum(${log.timeToFirstToken}) filter (where ${requestFilter}), 0)::bigint`.as(
 				"totalTimeToFirstToken",
 			),
-		timeToFirstTokenCount: sql<number>`count(${log.timeToFirstToken})::int`.as(
-			"timeToFirstTokenCount",
-		),
+		timeToFirstTokenCount:
+			sql<number>`count(${log.timeToFirstToken}) filter (where ${requestFilter})::int`.as(
+				"timeToFirstTokenCount",
+			),
 		totalTimeToFirstReasoningToken:
-			sql<number>`coalesce(sum(${log.timeToFirstReasoningToken}), 0)::bigint`.as(
+			sql<number>`coalesce(sum(${log.timeToFirstReasoningToken}) filter (where ${requestFilter}), 0)::bigint`.as(
 				"totalTimeToFirstReasoningToken",
 			),
 		timeToFirstReasoningTokenCount:
-			sql<number>`count(${log.timeToFirstReasoningToken})::int`.as(
+			sql<number>`count(${log.timeToFirstReasoningToken}) filter (where ${requestFilter})::int`.as(
 				"timeToFirstReasoningTokenCount",
 			),
 		// Per-mode breakdowns
 		creditsRequestCount:
-			sql<number>`sum(case when ${log.usedMode} = 'credits' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.usedMode} = 'credits') then 1 else 0 end)::int`.as(
 				"creditsRequestCount",
 			),
 		apiKeysRequestCount:
-			sql<number>`sum(case when ${log.usedMode} = 'api-keys' then 1 else 0 end)::int`.as(
+			sql<number>`sum(case when (${requestFilter}) and (${log.usedMode} = 'api-keys') then 1 else 0 end)::int`.as(
 				"apiKeysRequestCount",
 			),
 		creditsCost:
@@ -299,6 +308,7 @@ interface LogWindow {
 	since?: string;
 	until?: string;
 	accumulate?: boolean;
+	repairRequestCounters?: boolean;
 }
 
 function hourLogWindow(hourTimestamp: string, window: LogWindow) {
@@ -342,13 +352,15 @@ function statsUpdate(
  * Calculate hourly statistics for a batch of projects.
  * hourTimestamp is a UTC string (YYYY-MM-DD HH:MM:SS) to avoid JS Date timezone issues.
  */
+type StatsDatabase =
+	typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 async function recalculateProjectHourlyStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const database = db;
-
 	const rows = await database
 		.select({ projectId: log.projectId, ...getCommonAggregationFields() })
 		.from(log)
@@ -392,9 +404,8 @@ export async function recalculateProjectHourlyModelStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const database = db;
-
 	const rows = await database
 		.select({
 			projectId: log.projectId,
@@ -447,18 +458,34 @@ export async function recalculateProjectHourlyModelStats(
  * Calculate hourly source statistics for a batch of projects.
  * NULL log.source is bucketed under the literal 'unknown'.
  */
+function sourceUpdateFields(window: LogWindow) {
+	const fields = getCommonAggregationFields(isNull(log.retriedByLogId));
+	return window.repairRequestCounters
+		? Object.fromEntries(
+				Object.entries(fields).filter(
+					([key]) =>
+						key.endsWith("Count") ||
+						[
+							"totalDuration",
+							"totalTimeToFirstToken",
+							"totalTimeToFirstReasoningToken",
+						].includes(key),
+				),
+			)
+		: fields;
+}
+
 async function recalculateProjectHourlySourceStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const database = db;
-
 	const rows = await database
 		.select({
 			projectId: log.projectId,
 			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
-			...getCommonAggregationFields(),
+			...getCommonAggregationFields(isNull(log.retriedByLogId)),
 		})
 		.from(log)
 		.where(
@@ -486,7 +513,7 @@ async function recalculateProjectHourlySourceStats(
 				],
 				...statsUpdate(
 					getTableColumns(projectHourlySourceStats),
-					getCommonAggregationFields(),
+					sourceUpdateFields(window),
 					true,
 					window.accumulate,
 				),
@@ -494,9 +521,11 @@ async function recalculateProjectHourlySourceStats(
 	}
 }
 
+// Retried attempts count once, matching the source and API-key source rows,
+// so per-model rows never sum above their source total.
 function getSourceModelAggregationFields() {
-	const base = getBaseAggregationFields();
-	const common = getCommonAggregationFields();
+	const base = getBaseAggregationFields(isNull(log.retriedByLogId));
+	const common = getCommonAggregationFields(isNull(log.retriedByLogId));
 	return {
 		requestCount: base.requestCount,
 		errorCount: base.errorCount,
@@ -523,8 +552,9 @@ export async function recalculateProjectHourlySourceModelStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const rows = await db
+	const rows = await database
 		.select({
 			projectId: log.projectId,
 			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
@@ -547,7 +577,7 @@ export async function recalculateProjectHourlySourceModelStats(
 		);
 
 	for (let offset = 0; offset < rows.length; offset += STATS_WRITE_BATCH_SIZE) {
-		await db
+		await database
 			.insert(projectHourlySourceModelStats)
 			.values(
 				rows.slice(offset, offset + STATS_WRITE_BATCH_SIZE).map((stat) => ({
@@ -565,7 +595,13 @@ export async function recalculateProjectHourlySourceModelStats(
 				],
 				...statsUpdate(
 					getTableColumns(projectHourlySourceModelStats),
-					getSourceModelAggregationFields(),
+					window.repairRequestCounters
+						? Object.fromEntries(
+								Object.entries(getSourceModelAggregationFields()).filter(
+									([key]) => key.endsWith("Count"),
+								),
+							)
+						: getSourceModelAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -601,8 +637,9 @@ export async function recalculateProjectHourlyRoutingStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const rows = await db
+	const rows = await database
 		.select({
 			projectId: log.projectId,
 			routeKey: log.requestedModel,
@@ -619,7 +656,7 @@ export async function recalculateProjectHourlyRoutingStats(
 		.groupBy(log.projectId, log.requestedModel);
 
 	for (let offset = 0; offset < rows.length; offset += STATS_WRITE_BATCH_SIZE) {
-		await db
+		await database
 			.insert(projectHourlyRoutingStats)
 			.values(
 				rows.slice(offset, offset + STATS_WRITE_BATCH_SIZE).map((stat) => ({
@@ -650,9 +687,8 @@ async function recalculateApiKeyHourlyStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const database = db;
-
 	const rows = await database
 		.select({
 			projectId: log.projectId,
@@ -698,9 +734,8 @@ async function recalculateApiKeyHourlyModelStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const database = db;
-
 	const rows = await database
 		.select({
 			projectId: log.projectId,
@@ -760,15 +795,14 @@ async function recalculateApiKeyHourlySourceStatsForProjects(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const database = db;
-
 	const rows = await database
 		.select({
 			projectId: log.projectId,
 			apiKeyId: log.apiKeyId,
 			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
-			...getCommonAggregationFields(),
+			...getCommonAggregationFields(isNull(log.retriedByLogId)),
 		})
 		.from(log)
 		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
@@ -802,7 +836,7 @@ async function recalculateApiKeyHourlySourceStatsForProjects(
 				],
 				...statsUpdate(
 					getTableColumns(apiKeyHourlySourceStats),
-					getCommonAggregationFields(),
+					sourceUpdateFields(window),
 					true,
 					window.accumulate,
 				),
@@ -865,9 +899,8 @@ async function recalculateProviderKeyHourlyStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
+	database: StatsDatabase = db,
 ) {
-	const database = db;
-
 	const rows = await database
 		.select({
 			projectId: log.projectId,
@@ -924,23 +957,52 @@ async function recalculateBucket(
 	hourTimestamp: string,
 	window: LogWindow = {},
 ) {
-	await recalculateProjectHourlyStats(projectIds, hourTimestamp, window);
-	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp, window);
-	await recalculateProjectHourlySourceStats(projectIds, hourTimestamp, window);
-	await recalculateProjectHourlySourceModelStats(
-		projectIds,
-		hourTimestamp,
-		window,
-	);
-	await recalculateProjectHourlyRoutingStats(projectIds, hourTimestamp, window);
-	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp, window);
-	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp, window);
-	await recalculateApiKeyHourlySourceStatsForProjects(
-		projectIds,
-		hourTimestamp,
-		window,
-	);
-	await recalculateProviderKeyHourlyStats(projectIds, hourTimestamp, window);
+	await db.transaction(async (tx) => {
+		await recalculateProjectHourlyStats(projectIds, hourTimestamp, window, tx);
+		await recalculateProjectHourlyModelStats(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+		await recalculateProjectHourlySourceStats(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+		await recalculateProjectHourlySourceModelStats(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+		await recalculateProjectHourlyRoutingStats(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+		await recalculateApiKeyHourlyStats(projectIds, hourTimestamp, window, tx);
+		await recalculateApiKeyHourlyModelStats(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+		await recalculateApiKeyHourlySourceStatsForProjects(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+		await recalculateProviderKeyHourlyStats(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+	});
 }
 
 /**
@@ -973,24 +1035,20 @@ async function refreshHourStats(hourTimestamp: string, window: LogWindow) {
 // Batch size per run (shared by both phases)
 const STATS_BATCH_SIZE = Number(process.env.STATS_BATCH_SIZE) || 100;
 
-// Phase 1: Backfill — process hours with no stats rows yet
-// STATS_BACKFILL_ENABLED: "true" or "false" (default)
-// STATS_BACKFILL_DAYS: how far back to look (default: 30, 0 = unlimited)
-const STATS_BACKFILL_ENABLED = process.env.STATS_BACKFILL_ENABLED === "true";
-const STATS_BACKFILL_DAYS = Number(process.env.STATS_BACKFILL_DAYS) || 30;
-
-// Phase 2: Stale detection — re-process hours where new logs arrived after aggregation
-// STATS_STALE_ENABLED: "true" (default) or "false"
-// STATS_STALE_DAYS: how far back to check for stale buckets (default: 7, 0 = unlimited)
-const STATS_STALE_ENABLED = process.env.STATS_STALE_ENABLED !== "false";
-const STATS_STALE_DAYS = Number(process.env.STATS_STALE_DAYS) || 7;
-
 /**
  * Re-aggregate stale buckets (where new logs arrived after the last aggregation)
  * and backfill historical buckets that have no stats rows yet.
  */
 export async function aggregateHistoricalStats() {
 	const database = db;
+	const STATS_BACKFILL_ENABLED = process.env.STATS_BACKFILL_ENABLED === "true";
+	const STATS_STALE_ENABLED = process.env.STATS_STALE_ENABLED !== "false";
+	const backfillDays = Number(process.env.STATS_BACKFILL_DAYS?.trim() || 30);
+	const STATS_BACKFILL_DAYS =
+		Number.isFinite(backfillDays) && backfillDays >= 0 ? backfillDays : 30;
+	const staleDays = Number(process.env.STATS_STALE_DAYS?.trim() || 7);
+	const STATS_STALE_DAYS =
+		Number.isFinite(staleDays) && staleDays >= 0 ? staleDays : 7;
 	const currentHourStart = getCurrentHourStart();
 	let totalBucketsProcessed = 0;
 
@@ -1271,6 +1329,87 @@ async function finalizePreviousHour() {
 	);
 }
 
+async function repairSourceRequestCounters() {
+	const stateId = "source-logical-requests-v1";
+	const targetHour = getCurrentHourStartDate();
+	const earliestHour = new Date(
+		Math.ceil(getLogRetentionCutoff().getTime() / ONE_HOUR_MS) * ONE_HOUR_MS,
+	);
+	await db
+		.insert(globalAggregationState)
+		.values({ id: stateId, lastProcessedHour: earliestHour, targetHour })
+		.onConflictDoNothing();
+	await db.transaction(
+		async (tx) => {
+			const [state] = await tx
+				.select()
+				.from(globalAggregationState)
+				.where(eq(globalAggregationState.id, stateId))
+				.for("update");
+			if (
+				!state?.lastProcessedHour ||
+				!state.targetHour ||
+				state.lastProcessedHour >= state.targetHour
+			) {
+				return;
+			}
+			const hour = new Date(
+				Math.max(state.lastProcessedHour.getTime(), earliestHour.getTime()),
+			);
+			if (hour >= state.targetHour) {
+				await tx
+					.update(globalAggregationState)
+					.set({ lastProcessedHour: state.targetHour })
+					.where(eq(globalAggregationState.id, stateId));
+				return;
+			}
+			const hourTimestamp = formatUTCTimestamp(hour);
+			const projects = await tx
+				.select({ projectId: projectHourlyStats.projectId })
+				.from(projectHourlyStats)
+				.where(
+					and(
+						sql`${projectHourlyStats.hourTimestamp} = ${hourTimestamp}::timestamp`,
+						sql`${projectHourlyStats.requestCount} > 0`,
+						sql`${projectHourlyStats.requestCount} = (select count(*) from ${log} where ${log.projectId} = ${projectHourlyStats.projectId} and ${hourLogWindow(hourTimestamp, {})})`,
+					),
+				);
+			for (
+				let offset = 0;
+				offset < projects.length;
+				offset += STATS_READ_BATCH_SIZE
+			) {
+				const projectIds = projects
+					.slice(offset, offset + STATS_READ_BATCH_SIZE)
+					.map((project) => project.projectId);
+				await recalculateProjectHourlySourceStats(
+					projectIds,
+					hourTimestamp,
+					{ repairRequestCounters: true },
+					tx,
+				);
+				await recalculateApiKeyHourlySourceStatsForProjects(
+					projectIds,
+					hourTimestamp,
+					{ repairRequestCounters: true },
+					tx,
+				);
+				await recalculateProjectHourlySourceModelStats(
+					projectIds,
+					hourTimestamp,
+					{ repairRequestCounters: true },
+					tx,
+				);
+			}
+			await tx
+				.update(globalAggregationState)
+				.set({ lastProcessedHour: new Date(hour.getTime() + ONE_HOUR_MS) })
+				.where(eq(globalAggregationState.id, stateId));
+		},
+		{ isolationLevel: "repeatable read" },
+	);
+}
+
 /**
  * Main refresh function called by the worker interval.
  * Order: current hour (live) → previous hour finalization → stale detection →
@@ -1289,6 +1428,7 @@ export async function refreshProjectHourlyStats() {
 
 		// 2. Settle the hour that just closed
 		await finalizePreviousHour();
+		await repairSourceRequestCounters();
 
 		// 3. Stale detection + backfill (stale runs first inside aggregateHistoricalStats)
 		if (Date.now() - lastStaleCheckAt >= STALE_CHECK_INTERVAL_MS) {
