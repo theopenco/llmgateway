@@ -78,7 +78,7 @@ The full head-to-head — catalog, caps, overflow, dashboards — is in our upda
 
 ---
 
-- **[Try DevPass](https://devpass.llmgateway.io/pricing)** — flat plans from $29/mo with ~3× usage across 200+ models, Claude and Gemini included
+- **[Try DevPass](https://devpass.llmgateway.io/pricing)** — flat plans from $29/mo with 2× usage across 100+ models, Claude and Gemini included
 - **[Compare DevPass vs OpenCode Go](https://devpass.llmgateway.io/compare/opencode-go)** — the detailed head-to-head
 - **[Read the full coding-plan ranking](/blog/best-ai-coding-plans)** — eleven plans, compared honestly
 

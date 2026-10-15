@@ -411,7 +411,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek/deepseek-v3.2",
+    "model": "deepseek/deepseek-v4-pro",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -437,12 +437,12 @@ the catalogue regions. A pin to an unlisted, inactive, or expired region is reje
 deactivations apply even while listings are cached.
 
 ```bash
-# Let LLMGateway choose the best Alibaba region for DeepSeek V3.2
+# Let LLMGateway choose the best Alibaba region for DeepSeek V4 Pro
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "alibaba/deepseek-v3.2",
+    "model": "alibaba/deepseek-v4-pro",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -451,7 +451,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "alibaba/deepseek-v3.2:cn-beijing",
+    "model": "alibaba/deepseek-v4-pro:cn-beijing",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```

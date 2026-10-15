@@ -9,7 +9,7 @@ faqs:
   - question: "Why do developers look for Cursor alternatives?"
     answer: "Three recurring reasons: the usage economics (Pro's $20 includes roughly $20 of API-rate usage — break-even — and heavy agent use continues pay-as-you-go), the curated model list of around 40 models someone else picks, and editor lock-in — the value of the subscription doesn't follow you to the terminal or another tool."
   - question: "What is the cheapest Cursor alternative?"
-    answer: "Open-source tools — Cline, Continue, Aider, OpenCode — are free; you pay only tokens. Behind a flat-rate key like DevPass ($29–$179/month for 2× usage at provider rates across 200+ models) the bill stays predictable. OpenCode Go is the cheapest hosted plan at $10/month, capped at $60 of usage."
+    answer: "Open-source tools — Cline, Continue, Aider, OpenCode — are free; you pay only tokens. Behind a flat-rate key like DevPass ($29–$179/month for 2× usage at provider rates across 100+ models) the bill stays predictable. OpenCode Go is the cheapest hosted plan at $10/month, capped at $60 of usage."
   - question: "Can I keep Cursor but use different models?"
     answer: "Partly. Cursor's chat and plan panel accept a custom OpenAI-compatible endpoint and key, so you can run any of LLM Gateway's 200+ models there. Composer, inline edit, and tab autocomplete stay on Cursor's own backend regardless of settings — for a full agent loop on your own models, use Claude Code, Cline, or OpenCode."
   - question: "Is there an open-source alternative to Cursor?"
@@ -151,7 +151,7 @@ Claude Code is Anthropic's terminal-native agent, and for long, multi-file agent
 
 - Best-in-class agentic coding on flat monthly plans
 - Lives in the terminal — works alongside any editor, including Cursor
-- Pointed at [a gateway](/blog/how-configure-claude-code-with-llmgateway), it runs GPT, Gemini, GLM or any of 200+ models, not just Claude
+- Pointed at [a gateway](/blog/how-to-configure-claude-code-with-llmgateway), it runs GPT, Gemini, GLM or any of 200+ models, not just Claude
 
 **Weaknesses:**
 
@@ -275,7 +275,7 @@ Whichever you pick, the full plan-by-plan pricing breakdown is in the [best AI c
 
 ## Try the Top Pick
 
-- **[Get DevPass](https://devpass.llmgateway.io/pricing)** — flat plans from $29/month, 2× usage at provider rates, every model in the tools you already use
+- **[Get DevPass](https://devpass.llmgateway.io/pricing)** — flat plans from $29/month, 2× usage at provider rates, 100+ models in the tools you already use
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key for 200+ models, no credit card required
 - **[DevPass vs Cursor, head to head](https://devpass.llmgateway.io/compare/cursor)** — if you're still deciding
 

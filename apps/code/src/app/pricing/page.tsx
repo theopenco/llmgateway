@@ -36,12 +36,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — Flat-Rate AI Coding Plans",
 	description:
-		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models metered at provider rates.",
+		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 100+ models metered at provider rates.",
 	alternates: { canonical: "/pricing" },
 	openGraph: {
 		title: "DevPass Pricing — Flat-Rate AI Coding Plans",
 		description:
-			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
+			"Flat-rate AI coding plans. Every plan includes 100+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
 		type: "website",
 		url: "https://devpass.llmgateway.io/pricing",
 	},
@@ -104,12 +104,6 @@ const usageRows: UsageRow[] = [
 		max: resetPassCell("max"),
 	},
 	{
-		label: "Priority routing on flagship models",
-		lite: false,
-		pro: true,
-		max: true,
-	},
-	{
 		label: "Support",
 		lite: "Email",
 		pro: "Priority",
@@ -124,7 +118,7 @@ const usageRows: UsageRow[] = [
 ];
 
 const includedInEveryPlan = [
-	"All 200+ models — flagships land day one",
+	"All 100+ models — flagships land day one",
 	"Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro",
 	"Open-weight coders — GLM-4.7, Qwen3, Kimi K2.6",
 	"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge",

@@ -1,6 +1,6 @@
 # DevPass by LLM Gateway — Pricing
 
-Last updated: 2026-09-12
+Last updated: 2026-10-15
 
 > DevPass is a flat-price monthly subscription for AI coding tools. One API key connects the models in the live [DevPass catalogue](https://devpass.llmgateway.io/models) in any OpenAI- or Anthropic-compatible coding agent (DevPass Code, Claude Code, OpenCode, Cursor, Cline, and more). Usage is metered at provider list rates with no token markup.
 
@@ -20,7 +20,6 @@ Last updated: 2026-09-12
 - Daily pacing: up to 9% of the monthly allowance per rolling 24 hours
 - Premium-model fair use: 12% of credits per week
 - Reset Passes: buy anytime for $15 each
-- Priority routing on flagship models
 - Support: priority
 
 ## Max
@@ -30,7 +29,7 @@ Last updated: 2026-09-12
 - Daily pacing: up to 10% of the monthly allowance per rolling 24 hours
 - Premium-model fair use: 15% of credits per week
 - Reset Passes: 2 included per month, extras $45 each
-- Priority routing on flagship models and headroom for all-day agent runs
+- Headroom for all-day agent runs
 - Support: front of queue
 
 ## Every plan includes
@@ -44,7 +43,7 @@ Last updated: 2026-09-12
 
 ## Refunds
 
-- Self-serve from the dashboard within 14 days of your first month while less than 20% of the allowance has been used.
+- Self-serve from the dashboard within 14 days of your first month while less than 10% of the allowance has been used (20% for payments made before October 15, 2026).
 - Reset Passes: within 7 days, while the pass is unused.
 
 ## Notes
