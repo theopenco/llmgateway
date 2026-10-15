@@ -20,7 +20,6 @@ export function VisualFrame({
 	return (
 		<div
 			className={cn(
-				s.frame,
 				"relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm dark:shadow-[0_0_48px_rgba(0,0,0,0.35)]",
 				className,
 			)}

@@ -389,7 +389,8 @@ export function CheckoutVisual({
 								key={charge}
 								className={cn(
 									s.tick,
-									"absolute inset-x-4 top-10 font-mono text-[12px] opacity-0",
+									i === 0 && s.tickLead,
+									"absolute inset-x-4 top-10 font-mono text-[12px]",
 								)}
 								style={stagger(i)}
 							>
