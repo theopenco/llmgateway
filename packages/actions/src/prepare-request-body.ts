@@ -2765,6 +2765,9 @@ export async function prepareRequestBody(
 							name: tool.function.name,
 							description: tool.function.description,
 							parameters: tool.function.parameters as FunctionParameter,
+							...(typeof tool.function.strict === "boolean" && {
+								strict: tool.function.strict,
+							}),
 						}));
 					}
 				}
@@ -3647,6 +3650,10 @@ export async function prepareRequestBody(
 						// section before the cache key is computed, so forwarding this
 						// is what keeps a large tool catalogue out of the cached prefix.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						...(tool.function.strict === true && { strict: true }),
+						...(tool.allowed_callers && {
+							allowed_callers: tool.allowed_callers,
+						}),
 						// Budget and TTL ordering were both settled above, where the
 						// system pass needed the resulting count.
 						...(toolCacheControlKept[index] && {

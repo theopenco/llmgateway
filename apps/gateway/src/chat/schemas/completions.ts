@@ -325,6 +325,14 @@ export const completionsRequestSchema = z.object({
 						name: z.string(),
 						description: z.string().optional(),
 						parameters: z.record(z.any()).optional(),
+						strict: z.boolean().optional().openapi({
+							description:
+								"Ask the provider to constrain tool arguments to the schema. Forwarded to OpenAI-compatible providers and, as Anthropic's tool-level `strict`, to the Anthropic Messages API. Dropped for providers without an equivalent.",
+						}),
+					}),
+					allowed_callers: z.array(z.string()).optional().openapi({
+						description:
+							"Anthropic only. Which callers may invoke the tool (programmatic tool calling). Stripped for every other provider.",
 					}),
 					defer_loading: z.boolean().optional().openapi({
 						description:
