@@ -124,13 +124,19 @@ function Waveform({
 }) {
 	return (
 		<div
-			className={cn("flex h-16 items-center gap-[3px]", className)}
+			className={cn(
+				"flex h-16 min-w-0 flex-1 items-center gap-[3px]",
+				className,
+			)}
 			aria-hidden
 		>
 			{BAR_HEIGHTS.slice(0, bars).map((h, i) => (
 				<span
 					key={i}
-					className={cn(s.wave, "w-full rounded-full bg-[var(--fa)]")}
+					className={cn(
+						s.wave,
+						"min-w-[2px] flex-1 rounded-full bg-[var(--fa)]",
+					)}
 					style={
 						{
 							...stagger(i),
