@@ -12,6 +12,8 @@ image:
   height: 768
 ---
 
+> **Update (October 15, 2026):** The providers, prices and discounts below were current on March 28, 2026 and have since changed. DeepSeek V3.1 and R1 (0528) are retired, and the Canopywave, Alibaba Cloud and direct DeepSeek listings for V3.2 have ended. See [DeepSeek V4 Pro](/models/deepseek-v4-pro), [DeepSeek V4 Flash](/models/deepseek-v4-flash) and [discounted models](/models/discounted) for current pricing.
+
 DeepSeek models are already among the cheapest high-performance LLMs on the market. Now they're even cheaper on LLM Gateway.
 
 Through our provider partnerships, we've secured **exclusive discounts of up to 30%** on DeepSeek V3.2, V3.1, and R1 — applied automatically to every API request. No promo codes. No minimum spend. No catch.
@@ -32,7 +34,7 @@ The latest and most capable DeepSeek model. Unified chat and reasoning in a sing
 
 **Best price**: $0.182/M input via Canopywave — **35% cheaper than the official DeepSeek API**.
 
-[Try DeepSeek V3.2 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.2)
+[Try DeepSeek V3.2 in the Playground](https://lounge.llmgateway.io/?model=novita/deepseek-v3.2)
 
 ### DeepSeek V3.1
 
@@ -42,8 +44,6 @@ The previous generation, still available for workloads that depend on it.
 | --------- | -------- | -------------- | --------------- | ------------ |
 | Bytedance | —        | $0.56          | $1.68           | $0.112       |
 
-[Try DeepSeek V3.1 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.1)
-
 ### DeepSeek R1 (0528)
 
 The May 2025 reasoning model, available through Nebius.
@@ -51,8 +51,6 @@ The May 2025 reasoning model, available through Nebius.
 | Provider | Discount | Input (per 1M) | Output (per 1M) |
 | -------- | -------- | -------------- | --------------- |
 | Nebius   | —        | $0.80          | $2.40           |
-
-[Try DeepSeek R1 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-r1-0528)
 
 ## How the Discounts Work
 
@@ -103,14 +101,14 @@ For API routing and model access, you pay exactly the provider's per-token rate 
 
 ## More Discounted Providers on LLM Gateway
 
-DeepSeek isn't the only provider where we've secured discounts. Here's a snapshot of our current partner pricing:
+DeepSeek isn't the only provider where we've secured discounts. Here's a snapshot of our partner pricing at the time of writing:
 
 - **Alibaba Cloud**: 20% off all 26 Qwen models — [read the announcement](/blog/alibaba-cloud-qwen-models-20-percent-off)
 - **Canopywave**: 30% off DeepSeek, Qwen, GLM, Moonshot, and MiniMax models
 - **Bytedance**: 10% off Doubao and select hosted models
 - **ZAI**: 10-30% off across their model catalog
 
-**[Browse all discounted models](/models?discounted=true)**
+**[Browse all discounted models](/models/discounted)**
 
 ## Get Started
 
@@ -124,7 +122,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek/deepseek-v3.2",
+    "model": "deepseek-v4-pro",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -135,6 +133,6 @@ Smart routing picks the cheapest discounted provider automatically. No configura
 
 ---
 
-**[Browse discounted models](/models?discounted=true)** | **[Try DeepSeek V3.2](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.2)** | **[Token Cost Calculator](https://llmgateway.io/token-cost-calculator)** | **[Get started free](https://llmgateway.io/signup)**
+**[Browse discounted models](/models/discounted)** | **[Try DeepSeek V3.2](https://lounge.llmgateway.io/?model=novita/deepseek-v3.2)** | **[Token Cost Calculator](https://llmgateway.io/token-cost-calculator)** | **[Get started free](https://llmgateway.io/signup)**
 
 <BlogCta variant="gateway" location="bottom" />
