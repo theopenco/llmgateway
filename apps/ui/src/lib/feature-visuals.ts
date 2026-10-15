@@ -28,19 +28,29 @@ export type FeatureVisual =
 				tone?: "accent" | "muted" | "warn";
 			}>;
 	  }
-	| { kind: "media"; output: "image" | "video"; prompt: string; meta: string }
+	| {
+			kind: "media";
+			output: "image" | "video";
+			prompt: string;
+			meta: string;
+			sources: string[];
+			poster?: string;
+	  }
 	| {
 			kind: "audio";
 			mode: "speech" | "transcription" | "realtime";
 			title: string;
 			words: string[];
 			meta: string;
+			src?: string;
+			times?: Array<[number, number]>;
 	  }
 	| {
 			kind: "document";
 			mode: "ocr" | "documents" | "vision";
 			title: string;
 			output: string[];
+			image?: string;
 	  }
 	| {
 			kind: "feed";

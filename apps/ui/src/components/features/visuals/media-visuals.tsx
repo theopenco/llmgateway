@@ -1,7 +1,9 @@
-import { ArrowRight, Mic, Play, Sparkles, Volume2 } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
+import Image from "next/image";
 
 import { cn } from "@/lib/utils";
 
+import { AudioPlayback, BAR_HEIGHTS } from "./audio-playback";
 import { Chip, VisualFrame, stagger } from "./visual-frame";
 import s from "./visuals.module.css";
 
@@ -13,13 +15,6 @@ type Props<K extends FeatureVisual["kind"]> = Extract<
 	{ kind: K }
 >;
 
-const ART = [
-	"radial-gradient(circle at 28% 30%, oklch(0.88 0.13 85) 0, transparent 38%), radial-gradient(circle at 72% 72%, var(--fa) 0, transparent 55%), linear-gradient(140deg, oklch(0.32 0.09 265), oklch(0.2 0.05 300))",
-	"radial-gradient(circle at 50% 58%, oklch(0.9 0.12 80) 0, oklch(0.78 0.17 55) 14%, transparent 15%), linear-gradient(180deg, oklch(0.72 0.14 40), oklch(0.58 0.2 15) 58%, oklch(0.26 0.06 280) 58.5%, oklch(0.18 0.04 270))",
-	"conic-gradient(from 210deg at 50% 62%, var(--fa), oklch(0.72 0.14 185), oklch(0.62 0.2 320), var(--fa))",
-	"radial-gradient(ellipse 80% 45% at 50% 100%, oklch(0.42 0.1 160) 0, transparent 70%), linear-gradient(180deg, oklch(0.83 0.07 230), oklch(0.62 0.12 245) 55%, oklch(0.36 0.08 175) 56%, oklch(0.24 0.05 170))",
-];
-
 function PromptBar({ prompt }: { prompt: string }) {
 	return (
 		<div className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-background/85 px-3 py-2.5 text-[13px]">
@@ -30,7 +25,13 @@ function PromptBar({ prompt }: { prompt: string }) {
 	);
 }
 
-export function MediaVisual({ output, prompt, meta }: Props<"media">) {
+export function MediaVisual({
+	output,
+	prompt,
+	meta,
+	sources,
+	poster,
+}: Props<"media">) {
 	return (
 		<VisualFrame
 			title={
@@ -39,57 +40,47 @@ export function MediaVisual({ output, prompt, meta }: Props<"media">) {
 		>
 			<PromptBar prompt={prompt} />
 			{output === "image" ? (
-				<div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-					{ART.map((art, i) => (
+				<div className="grid grid-cols-2 gap-2.5">
+					{sources.map((source, i) => (
 						<div
-							key={i}
+							key={source}
 							className={cn(
 								s.shimmer,
-								"relative aspect-[3/4] overflow-hidden rounded-xl bg-muted",
+								"relative aspect-video overflow-hidden rounded-xl bg-muted",
 							)}
 						>
-							<div
-								className={cn(s.reveal, "absolute inset-0")}
-								style={{ ...stagger(i), background: art }}
+							<Image
+								src={source}
+								alt={`${prompt}, generated image ${i + 1}`}
+								fill
+								sizes="(min-width: 1024px) 22vw, 45vw"
+								className={cn(s.revealOnce, "object-cover")}
+								style={stagger(i)}
 							/>
 						</div>
 					))}
 				</div>
 			) : (
-				<div>
-					<div
+				<div
+					className={cn(
+						s.shimmer,
+						"relative aspect-video overflow-hidden rounded-xl bg-muted",
+					)}
+				>
+					<video
+						src={sources[0]}
+						poster={poster}
+						autoPlay
+						muted
+						loop
+						playsInline
+						preload="metadata"
+						aria-label={prompt}
 						className={cn(
-							s.shimmer,
-							"relative aspect-video overflow-hidden rounded-xl bg-muted",
+							s.revealOnce,
+							"absolute inset-0 size-full object-cover",
 						)}
-					>
-						<div
-							className={cn(s.reveal, "absolute inset-0")}
-							style={{ background: ART[1] }}
-						>
-							<div className="absolute inset-0 flex items-center justify-center">
-								<span className="flex size-12 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur">
-									<Play className="size-5 translate-x-px fill-current" />
-								</span>
-							</div>
-							<div className="absolute inset-x-3 bottom-3 h-1 overflow-hidden rounded-full bg-white/30">
-								<div className={cn(s.progress, "h-full bg-white")} />
-							</div>
-						</div>
-					</div>
-					<div className="mt-2.5 grid grid-cols-6 gap-1.5">
-						{Array.from({ length: 6 }, (_, i) => (
-							<div
-								key={i}
-								className={cn(s.pop, "aspect-video rounded-md")}
-								style={{
-									...stagger(i),
-									background: ART[(i % 3) + 1],
-									filter: `hue-rotate(${i * 14}deg)`,
-								}}
-							/>
-						))}
-					</div>
+					/>
 				</div>
 			)}
 			<div className="mt-4 flex">
@@ -99,20 +90,9 @@ export function MediaVisual({ output, prompt, meta }: Props<"media">) {
 	);
 }
 
-const BAR_HEIGHTS = [
-	0.35, 0.6, 0.9, 0.5, 0.75, 1, 0.65, 0.4, 0.8, 0.55, 0.95, 0.7, 0.45, 0.85,
-	0.6, 0.3, 0.7, 1, 0.5, 0.8, 0.4, 0.65, 0.9, 0.55, 0.75, 0.35, 0.6, 0.85, 0.5,
-	0.7, 0.45, 0.9, 0.6, 0.4, 0.8, 0.55,
-];
-
 function barOpacity(height: number) {
 	const scaled = height * 0.55;
 	return 0.45 + scaled;
-}
-
-function timestamp(index: number) {
-	const offset = index * 0.42;
-	return (0.24 + offset).toFixed(2);
 }
 
 function Waveform({
@@ -150,56 +130,18 @@ function Waveform({
 	);
 }
 
-export function AudioVisual({ mode, title, words, meta }: Props<"audio">) {
+export function AudioVisual({
+	mode,
+	title,
+	words,
+	meta,
+	src,
+	times,
+}: Props<"audio">) {
 	return (
 		<VisualFrame title={title}>
-			{mode === "speech" && (
-				<div className="space-y-5">
-					<p className="flex flex-wrap gap-x-1 gap-y-1 text-lg font-medium leading-relaxed">
-						{words.map((word, i) => (
-							<span
-								key={i}
-								className={cn(s.word, "rounded px-0.5")}
-								style={stagger(i)}
-							>
-								{word}
-							</span>
-						))}
-					</p>
-					<div className="flex items-center gap-3 rounded-xl border border-border bg-background/85 p-3">
-						<span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--fa)] text-white dark:text-zinc-950">
-							<Volume2 className="size-4" />
-						</span>
-						<Waveform />
-					</div>
-				</div>
-			)}
-			{mode === "transcription" && (
-				<div className="space-y-5">
-					<div className="flex items-center gap-3 rounded-xl border border-border bg-background/85 p-3">
-						<span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
-							<Mic className="size-4 text-[var(--fa)]" />
-						</span>
-						<Waveform />
-					</div>
-					<div className="flex flex-wrap gap-2">
-						{words.map((word, i) => (
-							<span
-								key={i}
-								className={cn(
-									s.pop,
-									"rounded-lg border border-border bg-background/85 px-2.5 py-1.5",
-								)}
-								style={stagger(i * 2)}
-							>
-								<span className="block font-mono text-[10px] text-muted-foreground">
-									{timestamp(i)}s
-								</span>
-								<span className="text-sm font-medium">{word}</span>
-							</span>
-						))}
-					</div>
-				</div>
+			{mode !== "realtime" && src && times && (
+				<AudioPlayback mode={mode} src={src} words={words} times={times} />
 			)}
 			{mode === "realtime" && (
 				<div className="space-y-3">
@@ -238,33 +180,31 @@ export function AudioVisual({ mode, title, words, meta }: Props<"audio">) {
 	);
 }
 
-export function DocumentVisual({ mode, title, output }: Props<"document">) {
+export function DocumentVisual({
+	mode,
+	title,
+	output,
+	image,
+}: Props<"document">) {
 	return (
 		<VisualFrame title={title}>
 			<div className="grid items-center gap-4 sm:grid-cols-[0.8fr_auto_1.2fr]">
-				<div className="relative mx-auto aspect-[3/4] w-full max-w-[11rem] overflow-hidden rounded-lg border border-border bg-background shadow-sm">
-					{mode === "vision" ? (
-						<div className="absolute inset-0" style={{ background: ART[3] }}>
-							{[
-								{ l: "18%", t: "52%", w: "34%", h: "26%" },
-								{ l: "56%", t: "18%", w: "30%", h: "22%" },
-							].map((box, i) => (
-								<span
-									key={i}
-									className={cn(
-										s.pop,
-										"absolute rounded-md border-2 border-[var(--fa)]",
-									)}
-									style={{
-										...stagger(i + i + i + 2),
-										left: box.l,
-										top: box.t,
-										width: box.w,
-										height: box.h,
-									}}
-								/>
-							))}
-						</div>
+				<div
+					className={cn(
+						"relative mx-auto w-full overflow-hidden rounded-lg border border-border bg-background shadow-sm",
+						mode === "vision"
+							? "aspect-[4/3] max-w-[14rem]"
+							: "aspect-[3/4] max-w-[11rem]",
+					)}
+				>
+					{mode === "vision" && image ? (
+						<Image
+							src={image}
+							alt="Image sent to the vision model"
+							fill
+							sizes="12rem"
+							className="object-cover"
+						/>
 					) : (
 						<div className="space-y-2 p-3.5">
 							<div className="h-2.5 w-2/3 rounded bg-foreground/70" />
@@ -292,15 +232,19 @@ export function DocumentVisual({ mode, title, output }: Props<"document">) {
 							))}
 						</div>
 					)}
-					{mode !== "vision" && (
+					{
 						<div
 							className={cn(
 								s.scan,
 								"absolute inset-x-0 top-0 h-0.5 bg-[var(--fa)] shadow-[0_0_16px_2px_var(--fa)]",
 							)}
-							style={{ "--scan-h": "14.5rem" } as CSSProperties}
+							style={
+								{
+									"--scan-h": mode === "vision" ? "10.5rem" : "14.5rem",
+								} as CSSProperties
+							}
 						/>
-					)}
+					}
 				</div>
 				<ArrowRight className="mx-auto size-5 rotate-90 text-muted-foreground sm:rotate-0" />
 				<pre className="overflow-x-auto rounded-xl border border-border bg-background/85 p-4 font-mono text-[12px] leading-6">
