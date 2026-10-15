@@ -30,11 +30,11 @@ This guide covers a production deployment of LLM Gateway on Google Cloud using G
 
 ### 1. PostgreSQL — Cloud SQL
 
-Create a Cloud SQL for PostgreSQL instance with a private IP. Enable automated backups and high availability. Note the connection details for `DATABASE_URL`.
+Create a Cloud SQL for PostgreSQL instance with a private IP. Enable automated backups and high availability. Note the connection details for `externalPostgresql`.
 
 ### 2. Redis — Memorystore
 
-Create a Memorystore for Redis instance in the same VPC and use its endpoint for `REDIS_URL`. Enable a read replica for production.
+Create a Memorystore for Redis instance in the same VPC and use its endpoint for `externalRedis`. Enable a read replica for production.
 
 ### 3. Compute — GKE
 
@@ -57,11 +57,20 @@ helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
 ```yaml
-config:
-  DATABASE_URL: "postgres://user:password@your-cloud-sql-ip:5432/llmgateway"
-  REDIS_URL: "redis://your-memorystore-ip:6379"
-  AUTH_SECRET: "from-secret-manager"
-  GATEWAY_API_KEY_HASH_SECRET: "from-secret-manager"
+postgresql:
+  enabled: false
+externalPostgresql:
+  host: "your-cloud-sql-ip"
+  user: "user"
+  password: "password"
+  database: "llmgateway"
+redis:
+  enabled: false
+externalRedis:
+  host: "your-memorystore-ip"
+auth:
+  authSecret: "from-secret-manager"
+  gatewayApiKeyHashSecret: "from-secret-manager"
 ```
 
 See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.

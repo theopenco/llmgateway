@@ -30,11 +30,11 @@ This guide covers a production deployment of LLM Gateway on Azure using AKS for 
 
 ### 1. PostgreSQL — Azure Database for PostgreSQL
 
-Create an Azure Database for PostgreSQL Flexible Server with private access. Enable automated backups and zone-redundant high availability. Note the connection details for `DATABASE_URL`.
+Create an Azure Database for PostgreSQL Flexible Server with private access. Enable automated backups and zone-redundant high availability. Note the connection details for `externalPostgresql`.
 
 ### 2. Redis — Azure Cache for Redis
 
-Create an Azure Cache for Redis instance in the same virtual network and use its endpoint for `REDIS_URL`. Choose a Standard or Premium tier for replication in production.
+Create an Azure Cache for Redis instance in the same virtual network and use its endpoint for `externalRedis`. Choose a Standard or Premium tier for replication in production.
 
 ### 3. Compute — AKS
 
@@ -57,11 +57,21 @@ helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
 ```yaml
-config:
-  DATABASE_URL: "postgres://user:password@your-postgres-host:5432/llmgateway"
-  REDIS_URL: "redis://your-redis-host:6380"
-  AUTH_SECRET: "from-key-vault"
-  GATEWAY_API_KEY_HASH_SECRET: "from-key-vault"
+postgresql:
+  enabled: false
+externalPostgresql:
+  host: "your-postgres-host"
+  user: "user"
+  password: "password"
+  database: "llmgateway"
+redis:
+  enabled: false
+externalRedis:
+  host: "your-redis-host"
+  password: "your-access-key"
+auth:
+  authSecret: "from-key-vault"
+  gatewayApiKeyHashSecret: "from-key-vault"
 ```
 
 See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.

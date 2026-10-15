@@ -30,11 +30,11 @@ This guide covers a production deployment of LLM Gateway on AWS using EKS for th
 
 ### 1. PostgreSQL — Amazon RDS
 
-Create an RDS for PostgreSQL instance in a private subnet. Enable automated backups and Multi-AZ for high availability. Note the connection string for `DATABASE_URL`.
+Create an RDS for PostgreSQL instance in a private subnet. Enable automated backups and Multi-AZ for high availability. Note the connection details for `externalPostgresql`.
 
 ### 2. Redis — Amazon ElastiCache
 
-Create an ElastiCache for Redis cluster in the same VPC. Use it for `REDIS_URL`. A single-node cluster is fine to start; enable replication for production.
+Create an ElastiCache for Redis cluster in the same VPC. Use its endpoint for `externalRedis`. A single-node cluster is fine to start; enable replication for production.
 
 ### 3. Compute — Amazon EKS
 
@@ -57,11 +57,20 @@ helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
 ```yaml
-config:
-  DATABASE_URL: "postgres://user:password@your-rds-endpoint:5432/llmgateway"
-  REDIS_URL: "redis://your-elasticache-endpoint:6379"
-  AUTH_SECRET: "from-secrets-manager"
-  GATEWAY_API_KEY_HASH_SECRET: "from-secrets-manager"
+postgresql:
+  enabled: false
+externalPostgresql:
+  host: "your-rds-endpoint"
+  user: "user"
+  password: "password"
+  database: "llmgateway"
+redis:
+  enabled: false
+externalRedis:
+  host: "your-elasticache-endpoint"
+auth:
+  authSecret: "from-secrets-manager"
+  gatewayApiKeyHashSecret: "from-secrets-manager"
 ```
 
 See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.

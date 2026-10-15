@@ -29,11 +29,23 @@ This installs the latest published version. To pin to a specific release, append
 Provide a `values.yaml` to point the chart at your managed database and cache and to set your secrets:
 
 ```yaml
-config:
-  AUTH_SECRET: "your-secret-key-here"
-  GATEWAY_API_KEY_HASH_SECRET: "your-api-key-hash-secret-here"
-  DATABASE_URL: "postgres://user:password@your-managed-host:5432/llmgateway"
-  REDIS_URL: "redis://your-managed-host:6379"
+auth:
+  authSecret: "your-secret-key-here"
+  gatewayApiKeyHashSecret: "your-api-key-hash-secret-here"
+postgresql:
+  enabled: false
+externalPostgresql:
+  host: "your-managed-host"
+  port: 5432
+  user: "user"
+  password: "password"
+  database: "llmgateway"
+redis:
+  enabled: false
+externalRedis:
+  host: "your-managed-host"
+  port: 6379
+llmProviders:
   LLM_OPENAI_API_KEY: "sk-..."
   LLM_ANTHROPIC_API_KEY: "sk-ant-..."
 ```
