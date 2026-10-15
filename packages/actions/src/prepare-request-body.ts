@@ -3906,7 +3906,9 @@ export async function prepareRequestBody(
 						...response_format.json_schema.schema,
 						additionalProperties: false,
 					} as Record<string, unknown>;
+					// Keep the effort set above: output_config holds both effort and format.
 					requestBody.output_config = {
+						...requestBody.output_config,
 						format: {
 							type: "json_schema",
 							schema,
