@@ -70,6 +70,7 @@ export interface FeatureDefinition {
 	visual: FeatureVisual;
 	docsPath?: string;
 	enterprise?: boolean;
+	developerSnippet?: boolean;
 	benefits: Array<{
 		title: string;
 		description: string;
@@ -156,25 +157,7 @@ export const features: FeatureDefinition[] = [
 				description: "Avoid vendor lock-in by using a provider-agnostic API",
 			},
 		],
-		codeExample: {
-			title: "Simple Integration",
-			language: "typescript",
-			code: `import OpenAI from "openai";
-
-const client = new OpenAI({
-	baseURL: "https://api.llmgateway.io/v1",
-	apiKey: process.env.LLMGATEWAY_API_KEY,
-});
-
-const completion = await client.chat.completions.create({
-	model: "anthropic/claude-3-5-sonnet-20241022",
-	messages: [
-		{ role: "user", content: "Hello, how are you?" }
-	],
-});
-
-console.log(completion.choices[0].message.content);`,
-		},
+		developerSnippet: true,
 	},
 	{
 		id: "multi-provider",

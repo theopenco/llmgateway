@@ -3,8 +3,10 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { FeatureCode } from "@/components/features/feature-code";
 import { FeatureVisual } from "@/components/features/visuals/feature-visual";
 import s from "@/components/features/visuals/visuals.module.css";
+import { DeveloperSnippet } from "@/components/home/developer-snippet";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -276,7 +278,8 @@ export default async function FeaturePage({ params }: PageProps) {
 					<section
 						className={cn(
 							"grid gap-10 pb-16 md:pb-24",
-							feature.codeExample && "lg:grid-cols-[0.8fr_1.2fr] lg:gap-16",
+							(feature.codeExample ?? feature.developerSnippet) &&
+								"lg:grid-cols-[0.8fr_1.2fr] lg:gap-16",
 						)}
 					>
 						<div className="scroll-reveal">
@@ -286,7 +289,8 @@ export default async function FeaturePage({ params }: PageProps) {
 							<ul
 								className={cn(
 									"mt-8 grid gap-3",
-									!feature.codeExample && "sm:grid-cols-3",
+									!(feature.codeExample ?? feature.developerSnippet) &&
+										"sm:grid-cols-3",
 								)}
 							>
 								{feature.useCases.map((useCase) => (
@@ -305,24 +309,23 @@ export default async function FeaturePage({ params }: PageProps) {
 								))}
 							</ul>
 						</div>
-						{feature.codeExample && (
+						{feature.developerSnippet ? (
 							<div className="scroll-reveal min-w-0">
-								<div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
-									<div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2.5">
-										<span className="text-sm font-medium text-zinc-200">
-											{feature.codeExample.title}
-										</span>
-										<span className="rounded-full bg-zinc-800 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
-											{feature.codeExample.language}
-										</span>
-									</div>
-									<pre className="overflow-x-auto p-5 text-[13px] leading-relaxed">
-										<code className="font-mono text-zinc-100">
-											{feature.codeExample.code}
-										</code>
-									</pre>
-								</div>
+								<DeveloperSnippet />
 							</div>
+						) : (
+							feature.codeExample && (
+								<div className="scroll-reveal min-w-0">
+									<FeatureCode
+										slug={feature.slug}
+										feature={feature.title}
+										title={feature.codeExample.title}
+										language={feature.codeExample.language}
+										code={feature.codeExample.code}
+										docsHref={docsHref ?? config.docsUrl}
+									/>
+								</div>
+							)
 						)}
 					</section>
 
