@@ -7,6 +7,7 @@ import {
 	inArray,
 	log,
 	lt,
+	providerKey,
 	providerKeyHourlyStats,
 	sql,
 } from "@llmgateway/db";
@@ -21,9 +22,11 @@ import { emitOrgAlert } from "./compliance-alerts.js";
 import type {
 	organization,
 	OrganizationNotificationChannelKind,
-	providerKey,
 } from "@llmgateway/db";
-import type { ProviderKeyAlertRule } from "@llmgateway/shared/provider-key-alerts";
+import type {
+	ProviderKeyAlertRule,
+	ProviderKeyAlertSource,
+} from "@llmgateway/shared/provider-key-alerts";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -32,31 +35,55 @@ const MAX_LISTED_MODELS = 5;
 type Organization = typeof organization.$inferSelect;
 type ProviderKey = typeof providerKey.$inferSelect;
 
-export interface KeyErrorCounts {
-	providerKeyId: string;
+export interface ErrorCounts {
 	requestCount: number;
 	clientErrorCount: number;
 	gatewayErrorCount: number;
 	upstreamErrorCount: number;
 }
 
-export interface KeyErrorRateHit extends KeyErrorCounts {
+/**
+ * One thing a rule judges: an organization's own key, or the platform's
+ * credentials for one provider as used by this organization's credit traffic.
+ * Platform credentials are grouped per provider: the organization cannot see
+ * or act on individual managed keys, and rotation would otherwise split one
+ * incident into several alerts.
+ */
+export type AlertTarget =
+	| { kind: "byok"; id: string; key: ProviderKey }
+	| { kind: "platform"; id: string; providerId: string };
+
+export interface TargetErrorCounts extends ErrorCounts {
+	targetId: string;
+}
+
+export interface TargetErrorRateHit extends TargetErrorCounts {
 	/** Requests that were not client errors. */
 	judgedCount: number;
 	errorsCount: number;
 	errorRate: number;
 }
 
-interface ModelErrorCounts extends Omit<KeyErrorCounts, "providerKeyId"> {
+interface ModelErrorCounts extends ErrorCounts {
 	usedModel: string;
 }
 
-/** Keys at or above the rule's error rate with enough traffic to judge. */
-export function findKeysOverThreshold(
+interface Delivery {
+	inApp: boolean;
+	email: boolean;
+	channels: OrganizationNotificationChannelKind[];
+}
+
+export function platformTargetId(providerId: string): string {
+	return `platform:${providerId}`;
+}
+
+/** Targets at or above the rule's error rate with enough traffic to judge. */
+export function findTargetsOverThreshold(
 	rule: ProviderKeyAlertRule,
-	rows: KeyErrorCounts[],
-): KeyErrorRateHit[] {
-	const hits: KeyErrorRateHit[] = [];
+	rows: TargetErrorCounts[],
+): TargetErrorRateHit[] {
+	const hits: TargetErrorRateHit[] = [];
 	for (const row of rows) {
 		const { requestCount, errorsCount, errorRate } = deriveStabilityMetrics({
 			logsCount: row.requestCount,
@@ -95,53 +122,88 @@ function formatWindow(minutes: number): string {
  */
 export function alertEventKey(
 	rule: ProviderKeyAlertRule,
-	providerKeyId: string,
+	targetId: string,
 	now: Date,
 ): string {
 	const slot = Math.floor(now.getTime() / (rule.cooldownMinutes * MINUTE_MS));
-	return `provider_key_errors:${providerKeyId}:${rule.id}:${slot}`;
+	return `provider_key_errors:${targetId}:${rule.id}:${slot}`;
 }
 
 export function cooldownKey(
 	organizationId: string,
 	ruleId: string,
-	providerKeyId: string,
+	targetId: string,
 ): string {
-	return `provider_key_alert:${organizationId}:${ruleId}:${providerKeyId}`;
+	return `provider_key_alert:${organizationId}:${ruleId}:${targetId}`;
 }
 
-async function queryKeyErrorCounts(
-	keyIds: string[],
-	since: Date,
-): Promise<KeyErrorCounts[]> {
-	const s = providerKeyHourlyStats;
-	const rows = await db
-		.select({
-			providerKeyId: s.providerKeyId,
-			requestCount: sql<string>`coalesce(sum(${s.requestCount}), 0)::bigint`,
-			clientErrorCount: sql<string>`coalesce(sum(${s.clientErrorCount}), 0)::bigint`,
-			gatewayErrorCount: sql<string>`coalesce(sum(${s.gatewayErrorCount}), 0)::bigint`,
-			upstreamErrorCount: sql<string>`coalesce(sum(${s.upstreamErrorCount}), 0)::bigint`,
-		})
-		.from(s)
-		.where(and(inArray(s.providerKeyId, keyIds), gte(s.hourTimestamp, since)))
-		.groupBy(s.providerKeyId);
-	return rows.map((row) => ({
-		providerKeyId: row.providerKeyId,
+const errorCountColumns = {
+	requestCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.requestCount}), 0)::bigint`,
+	clientErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.clientErrorCount}), 0)::bigint`,
+	gatewayErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.gatewayErrorCount}), 0)::bigint`,
+	upstreamErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.upstreamErrorCount}), 0)::bigint`,
+};
+
+function toCounts(row: Record<keyof typeof errorCountColumns, string>) {
+	return {
 		requestCount: Number(row.requestCount),
 		clientErrorCount: Number(row.clientErrorCount),
 		gatewayErrorCount: Number(row.gatewayErrorCount),
 		upstreamErrorCount: Number(row.upstreamErrorCount),
+	};
+}
+
+async function queryByokErrorCounts(
+	keyIds: string[],
+	since: Date,
+): Promise<TargetErrorCounts[]> {
+	const s = providerKeyHourlyStats;
+	const rows = await db
+		.select({ targetId: s.providerKeyId, ...errorCountColumns })
+		.from(s)
+		.where(and(inArray(s.providerKeyId, keyIds), gte(s.hourTimestamp, since)))
+		.groupBy(s.providerKeyId);
+	return rows.map((row) => ({ targetId: row.targetId, ...toCounts(row) }));
+}
+
+/**
+ * The organization's credit traffic on platform credentials, per provider.
+ * `provider_key_hourly_stats` keeps `projectId` in its grain for exactly this
+ * per-tenant split of a shared credential.
+ */
+async function queryPlatformErrorCounts(
+	projectIds: string[],
+	since: Date,
+): Promise<(TargetErrorCounts & { providerId: string })[]> {
+	const s = providerKeyHourlyStats;
+	const rows = await db
+		.select({ providerId: providerKey.provider, ...errorCountColumns })
+		.from(s)
+		.innerJoin(providerKey, eq(providerKey.id, s.providerKeyId))
+		.where(
+			and(
+				inArray(s.projectId, projectIds),
+				gte(s.hourTimestamp, since),
+				eq(providerKey.managed, true),
+			),
+		)
+		.groupBy(providerKey.provider);
+	return rows.map((row) => ({
+		targetId: platformTargetId(row.providerId),
+		providerId: row.providerId,
+		...toCounts(row),
 	}));
 }
 
 /**
- * Per-model split for one key that already breached a rule. No rollup holds
- * this per key in near real time, so it reads `log` once per alert, bounded by
- * `log_provider_key_id_created_at_idx` on both ends of the window.
+ * Per-model split for one target that already breached a rule. No rollup
+ * holds this in near real time, so it reads `log` once per alert, bounded by
+ * `log_provider_key_id_created_at_idx` (own keys) or
+ * `log_project_id_created_at_idx` (platform credentials) on both ends.
  */
 async function queryModelBreakdown(
-	providerKeyId: string,
+	target: AlertTarget,
+	projectIds: string[],
 	since: Date,
 	now: Date,
 ): Promise<ModelErrorCounts[]> {
@@ -156,7 +218,13 @@ async function queryModelBreakdown(
 		.from(log)
 		.where(
 			and(
-				eq(log.providerKeyId, providerKeyId),
+				target.kind === "byok"
+					? eq(log.providerKeyId, target.key.id)
+					: and(
+							inArray(log.projectId, projectIds),
+							eq(log.usedProvider, target.providerId),
+							eq(log.usedMode, "credits"),
+						),
 				gte(log.createdAt, since),
 				lt(log.createdAt, now),
 			),
@@ -171,18 +239,27 @@ async function queryModelBreakdown(
 	}));
 }
 
-function keyLabel(key: ProviderKey): string {
+function providerName(providerId: string): string {
+	return getProviderDefinition(providerId)?.name ?? providerId;
+}
+
+export function targetLabel(target: AlertTarget): string {
+	if (target.kind === "platform") {
+		return `LLM Gateway's ${providerName(target.providerId)} credentials`;
+	}
+	const key = target.key;
 	const provider =
 		key.provider === "custom" && key.name
 			? key.name
-			: (getProviderDefinition(key.provider)?.name ?? key.provider);
+			: providerName(key.provider);
 	const detail = key.description ?? key.tokenMasked;
 	return `${provider} key ${detail}`;
 }
 
 export function buildAlertMessage(
 	rule: ProviderKeyAlertRule,
-	hit: KeyErrorRateHit,
+	target: Pick<AlertTarget, "kind">,
+	hit: TargetErrorRateHit,
 	models: ModelErrorCounts[],
 ): string {
 	const failing = models
@@ -207,42 +284,64 @@ export function buildAlertMessage(
 				`${model.model} ${model.errorRate!.toFixed(0)}% (${model.errorsCount}/${model.requestCount})`,
 		);
 	const parts = [
-		`${hit.errorRate.toFixed(1)}% of ${hit.judgedCount} requests failed in the last ${formatWindow(rule.windowMinutes)} (${hit.upstreamErrorCount} rejected by the provider, ${hit.gatewayErrorCount} failed before reaching it); the "${rule.label}" rule alerts at ${rule.errorRatePercent}%.`,
+		`${hit.errorRate.toFixed(1)}% of ${hit.judgedCount} ${target.kind === "platform" ? "credit " : ""}requests failed in the last ${formatWindow(rule.windowMinutes)} (${hit.upstreamErrorCount} rejected by the provider, ${hit.gatewayErrorCount} failed before reaching it); the "${rule.label}" rule alerts at ${rule.errorRatePercent}%.`,
 	];
 	if (failing.length) {
 		parts.push(`Models affected: ${failing.join(", ")}.`);
 	}
 	parts.push(
-		"Check that the key is valid, funded and allowed to use these models. Requests fall back to another provider or your credits where routing allows it.",
+		target.kind === "platform"
+			? "Routing falls back to other providers where the model allows it. Check the provider's status page; no action is needed on your keys."
+			: "Check that the key is valid, funded and allowed to use these models. Requests fall back to another provider or your credits where routing allows it.",
 	);
 	return parts.join(" ");
 }
 
+function targetHref(org: Organization, target: AlertTarget): string {
+	return target.kind === "platform"
+		? `/providers/${target.providerId}`
+		: `/dashboard/${org.id}/org/provider-keys`;
+}
+
 async function alertRule(
 	org: Organization,
-	settings: {
-		inApp: boolean;
-		email: boolean;
-		channels: OrganizationNotificationChannelKind[];
-	},
+	delivery: Delivery,
 	rule: ProviderKeyAlertRule,
+	source: ProviderKeyAlertSource,
 	keys: ProviderKey[],
+	projectIds: string[],
 	now: Date,
 ): Promise<void> {
 	const since = windowBucketStart(rule, now);
-	const hits = findKeysOverThreshold(
-		rule,
-		await queryKeyErrorCounts(
-			keys.map((key) => key.id),
-			since,
-		),
-	);
-	for (const hit of hits) {
-		const key = keys.find((k) => k.id === hit.providerKeyId);
-		if (!key) {
+	const targets = new Map<string, AlertTarget>();
+	const counts: TargetErrorCounts[] = [];
+	if (source !== "platform" && keys.length) {
+		for (const key of keys) {
+			targets.set(key.id, { kind: "byok", id: key.id, key });
+		}
+		counts.push(
+			...(await queryByokErrorCounts(
+				keys.map((key) => key.id),
+				since,
+			)),
+		);
+	}
+	if (source !== "byok" && projectIds.length) {
+		for (const row of await queryPlatformErrorCounts(projectIds, since)) {
+			targets.set(row.targetId, {
+				kind: "platform",
+				id: row.targetId,
+				providerId: row.providerId,
+			});
+			counts.push(row);
+		}
+	}
+	for (const hit of findTargetsOverThreshold(rule, counts)) {
+		const target = targets.get(hit.targetId);
+		if (!target) {
 			continue;
 		}
-		const cooldown = cooldownKey(org.id, rule.id, key.id);
+		const cooldown = cooldownKey(org.id, rule.id, target.id);
 		const reserved = await redisClient.set(
 			cooldown,
 			"1",
@@ -254,16 +353,16 @@ async function alertRule(
 			continue;
 		}
 		try {
-			const models = await queryModelBreakdown(key.id, since, now);
+			const models = await queryModelBreakdown(target, projectIds, since, now);
 			await emitOrgAlert(
 				org,
-				{ ...settings, recipientAudience: "admin" },
+				{ ...delivery, recipientAudience: "admin" },
 				{
 					type: "provider_key_errors",
-					eventKey: alertEventKey(rule, key.id, now),
-					title: `${keyLabel(key)} is failing requests`,
-					message: buildAlertMessage(rule, hit, models),
-					href: `/dashboard/${org.id}/org/provider-keys`,
+					eventKey: alertEventKey(rule, target.id, now),
+					title: `${targetLabel(target)} ${target.kind === "platform" ? "are" : "is"} failing your requests`,
+					message: buildAlertMessage(rule, target, hit, models),
+					href: targetHref(org, target),
 				},
 			);
 		} catch (error) {
@@ -273,7 +372,7 @@ async function alertRule(
 		}
 		logger.info("Sent provider key error-rate alert", {
 			organizationId: org.id,
-			providerKeyId: key.id,
+			targetId: target.id,
 			ruleId: rule.id,
 			errorRate: hit.errorRate,
 		});
@@ -281,9 +380,10 @@ async function alertRule(
 }
 
 /**
- * Alerts organizations whose own provider keys fail at a rate above one of
- * their rules. Only organizations that enabled the alerts are evaluated;
- * platform-managed credentials are never included.
+ * Alerts organizations whose provider keys — their own, the platform's
+ * credentials serving their credit traffic, or both, per `keySource` — fail at
+ * a rate above one of their rules. Only organizations that enabled the alerts
+ * are evaluated.
  */
 export async function processProviderKeyAlerts(
 	now = new Date(),
@@ -308,15 +408,27 @@ export async function processProviderKeyAlerts(
 		if (!settings.enabled) {
 			continue;
 		}
-		const keys = await db.query.providerKey.findMany({
-			where: { organizationId: org.id, status: "active", managed: false },
-		});
-		if (!keys.length) {
+		const keys =
+			settings.keySource === "platform"
+				? []
+				: await db.query.providerKey.findMany({
+						where: { organizationId: org.id, status: "active", managed: false },
+					});
+		const projectIds =
+			settings.keySource === "byok"
+				? []
+				: (
+						await db.query.project.findMany({
+							columns: { id: true },
+							where: { organizationId: org.id },
+						})
+					).map((p) => p.id);
+		if (!keys.length && !projectIds.length) {
 			continue;
 		}
 		// Slack channels are an enterprise feature, as for compliance alerts: a
 		// lapsed plan keeps its channel row but stops receiving posts.
-		const delivery = {
+		const delivery: Delivery = {
 			inApp: settings.inApp,
 			email: settings.email,
 			channels: hasOrganizationEnterpriseAccess(org.id, org.plan, now)
@@ -328,7 +440,15 @@ export async function processProviderKeyAlerts(
 				continue;
 			}
 			try {
-				await alertRule(org, delivery, rule, keys, now);
+				await alertRule(
+					org,
+					delivery,
+					rule,
+					settings.keySource,
+					keys,
+					projectIds,
+					now,
+				);
 			} catch (error) {
 				logger.error(
 					`Provider key alert rule ${rule.id} failed`,

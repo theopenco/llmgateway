@@ -42,9 +42,18 @@ export const PROVIDER_KEY_ALERT_RULE_TEMPLATE: Omit<
 	cooldownMinutes: 120,
 };
 
+/**
+ * Which credentials a rule judges: the organization's own keys, the platform
+ * credentials serving its credit traffic (grouped per provider), or both.
+ */
+export const PROVIDER_KEY_ALERT_SOURCES = ["byok", "platform", "any"] as const;
+export type ProviderKeyAlertSource =
+	(typeof PROVIDER_KEY_ALERT_SOURCES)[number];
+
 export const providerKeyAlertSettingsSchema = z.object({
 	// Master switch; nothing is evaluated while off.
 	enabled: z.boolean(),
+	keySource: z.enum(PROVIDER_KEY_ALERT_SOURCES).default("byok"),
 	inApp: z.boolean(),
 	email: z.boolean(),
 	channels: z.array(z.enum(["slack"])),
@@ -72,6 +81,7 @@ export type ProviderKeyAlertSettings = z.infer<
 /** Unconfigured organizations: off, no rules, so nothing alerts until set up. */
 export const DEFAULT_PROVIDER_KEY_ALERT_SETTINGS: ProviderKeyAlertSettings = {
 	enabled: false,
+	keySource: "byok",
 	inApp: true,
 	email: true,
 	channels: [],

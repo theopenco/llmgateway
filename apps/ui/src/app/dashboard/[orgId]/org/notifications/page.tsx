@@ -57,7 +57,7 @@ const DESCRIPTIONS: Record<
 	provider_key_errors: {
 		title: "Provider key errors",
 		description:
-			"As an owner or admin, hear when one of your organization's own provider keys fails above the error rate set in organization preferences.",
+			"As an owner or admin, hear when a provider key your organization relies on fails above the error rate set in organization preferences.",
 	},
 	marketing: {
 		title: "Product tips and offers",

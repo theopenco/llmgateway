@@ -7,7 +7,8 @@ import {
 	alertEventKey,
 	buildAlertMessage,
 	cooldownKey,
-	findKeysOverThreshold,
+	findTargetsOverThreshold,
+	platformTargetId,
 	processProviderKeyAlerts,
 	windowBucketStart,
 } from "./provider-key-alerts.js";
@@ -19,6 +20,8 @@ import type {
 
 const ORG = "pka-org";
 const KEY = "pka-key";
+const MANAGED_KEY = "pka-managed";
+const PLATFORM = platformTargetId("anthropic");
 const shortRule: ProviderKeyAlertRule = {
 	id: "short",
 	label: "15m critical",
@@ -39,7 +42,7 @@ const longRule: ProviderKeyAlertRule = {
 };
 
 const counts = {
-	providerKeyId: KEY,
+	targetId: KEY,
 	requestCount: 100,
 	clientErrorCount: 0,
 	gatewayErrorCount: 0,
@@ -48,41 +51,42 @@ const counts = {
 
 const settings: ProviderKeyAlertSettings = {
 	enabled: true,
+	keySource: "byok",
 	inApp: true,
 	email: true,
 	channels: [],
 	rules: [shortRule],
 };
 
-describe("findKeysOverThreshold", () => {
+describe("findTargetsOverThreshold", () => {
 	it("flags keys at or above the threshold with enough traffic", () => {
-		const hits = findKeysOverThreshold(shortRule, [
-			{ ...counts, providerKeyId: "at", upstreamErrorCount: 50 },
-			{ ...counts, providerKeyId: "below", upstreamErrorCount: 49 },
-			{ ...counts, providerKeyId: "worse", gatewayErrorCount: 80 },
+		const hits = findTargetsOverThreshold(shortRule, [
+			{ ...counts, targetId: "at", upstreamErrorCount: 50 },
+			{ ...counts, targetId: "below", upstreamErrorCount: 49 },
+			{ ...counts, targetId: "worse", gatewayErrorCount: 80 },
 		]);
-		expect(hits.map((hit) => hit.providerKeyId)).toEqual(["worse", "at"]);
+		expect(hits.map((hit) => hit.targetId)).toEqual(["worse", "at"]);
 		expect(hits[1].errorRate).toBe(50);
 	});
 
 	it("excludes client errors and skips low-traffic keys", () => {
-		const hits = findKeysOverThreshold(shortRule, [
+		const hits = findTargetsOverThreshold(shortRule, [
 			// 20 non-client requests, 12 errors = 60%.
 			{
 				...counts,
-				providerKeyId: "client-heavy",
+				targetId: "client-heavy",
 				clientErrorCount: 80,
 				upstreamErrorCount: 12,
 			},
 			// 9 requests is below minRequests (10).
 			{
 				...counts,
-				providerKeyId: "tiny",
+				targetId: "tiny",
 				requestCount: 9,
 				gatewayErrorCount: 9,
 			},
 		]);
-		expect(hits.map((hit) => hit.providerKeyId)).toEqual(["client-heavy"]);
+		expect(hits.map((hit) => hit.targetId)).toEqual(["client-heavy"]);
 		expect(hits[0].errorRate).toBe(60);
 	});
 });
@@ -113,6 +117,7 @@ describe("buildAlertMessage", () => {
 	it("lists the worst models first", () => {
 		const message = buildAlertMessage(
 			shortRule,
+			{ kind: "byok" },
 			{
 				...counts,
 				upstreamErrorCount: 60,
@@ -158,7 +163,10 @@ describe("processProviderKeyAlerts", () => {
 		await db.delete(tables.userOrganization);
 		await db.delete(tables.organization);
 		await db.delete(tables.user);
-		await redisClient.del(cooldownKey(ORG, shortRule.id, KEY));
+		await redisClient.del(
+			cooldownKey(ORG, shortRule.id, KEY),
+			cooldownKey(ORG, shortRule.id, PLATFORM),
+		);
 
 		await db.insert(tables.user).values([
 			{ id: "pka-owner", email: "owner@example.com", emailVerified: true },
@@ -179,27 +187,56 @@ describe("processProviderKeyAlerts", () => {
 			organizationId: ORG,
 			name: "Test Project",
 		});
-		await db.insert(tables.providerKey).values({
-			id: KEY,
-			organizationId: ORG,
-			provider: "openai",
-			description: "Team key",
-			tokenCiphertext: "x",
-			tokenMasked: "sk-••••",
-			tokenHash: "h",
-		});
+		await db.insert(tables.providerKey).values([
+			{
+				id: KEY,
+				organizationId: ORG,
+				provider: "openai",
+				description: "Team key",
+				tokenCiphertext: "x",
+				tokenMasked: "sk-••••",
+				tokenHash: "h",
+			},
+			{
+				id: MANAGED_KEY,
+				managed: true,
+				provider: "anthropic",
+				tokenCiphertext: "x",
+				tokenMasked: "sk-••••",
+				tokenHash: "h2",
+			},
+		]);
 		const hour = new Date();
 		hour.setUTCMinutes(0, 0, 0);
-		await db.insert(tables.providerKeyHourlyStats).values({
-			providerKeyId: KEY,
-			projectId: "pka-project",
-			hourTimestamp: hour,
-			requestCount: 40,
-			errorCount: 30,
-			clientErrorCount: 10,
-			gatewayErrorCount: 20,
-		});
+		await db.insert(tables.providerKeyHourlyStats).values([
+			{
+				providerKeyId: KEY,
+				projectId: "pka-project",
+				hourTimestamp: hour,
+				requestCount: 40,
+				errorCount: 30,
+				clientErrorCount: 10,
+				gatewayErrorCount: 20,
+			},
+			// The platform credential fails for this org's credit traffic too.
+			{
+				providerKeyId: MANAGED_KEY,
+				projectId: "pka-project",
+				hourTimestamp: hour,
+				requestCount: 20,
+				errorCount: 15,
+				upstreamErrorCount: 15,
+			},
+		]);
 	});
+
+	async function alertTitles() {
+		const alerts = await db.query.organizationAlert.findMany({
+			where: { organizationId: ORG },
+			orderBy: { title: "asc" },
+		});
+		return alerts.map((alert) => alert.title);
+	}
 
 	it("alerts owners and admins once per cooldown", async () => {
 		await processProviderKeyAlerts();
@@ -210,7 +247,9 @@ describe("processProviderKeyAlerts", () => {
 		});
 		expect(alerts).toHaveLength(1);
 		expect(alerts[0].type).toBe("provider_key_errors");
-		expect(alerts[0].title).toBe("OpenAI key Team key is failing requests");
+		expect(alerts[0].title).toBe(
+			"OpenAI key Team key is failing your requests",
+		);
 		// 20 gateway errors over 30 non-client requests.
 		expect(alerts[0].message).toContain("66.7% of 30 requests");
 		expect(alerts[0].href).toBe(`/dashboard/${ORG}/org/provider-keys`);
@@ -248,6 +287,32 @@ describe("processProviderKeyAlerts", () => {
 		expect(await db.query.organizationAlertDelivery.findMany()).toHaveLength(0);
 	});
 
+	it("judges platform credentials per provider when selected", async () => {
+		await db.update(tables.organization).set({
+			providerKeyAlertSettings: { ...settings, keySource: "platform" },
+		});
+		await processProviderKeyAlerts();
+		expect(await alertTitles()).toEqual([
+			"LLM Gateway's Anthropic credentials are failing your requests",
+		]);
+		const [alert] = await db.query.organizationAlert.findMany({
+			where: { organizationId: ORG },
+		});
+		expect(alert.message).toContain("75.0% of 20 credit requests");
+		expect(alert.href).toBe("/providers/anthropic");
+	});
+
+	it("judges both kinds when the source is any", async () => {
+		await db.update(tables.organization).set({
+			providerKeyAlertSettings: { ...settings, keySource: "any" },
+		});
+		await processProviderKeyAlerts();
+		expect(await alertTitles()).toEqual([
+			"LLM Gateway's Anthropic credentials are failing your requests",
+			"OpenAI key Team key is failing your requests",
+		]);
+	});
+
 	it("does nothing while the alerts are off", async () => {
 		await db.update(tables.organization).set({
 			providerKeyAlertSettings: { ...settings, enabled: false },
@@ -260,7 +325,7 @@ describe("processProviderKeyAlerts", () => {
 		).toHaveLength(0);
 	});
 
-	it("ignores platform-managed credentials and inactive keys", async () => {
+	it("ignores platform credentials and inactive keys for the byok source", async () => {
 		await db.update(tables.providerKey).set({ status: "inactive" });
 		await processProviderKeyAlerts();
 		expect(

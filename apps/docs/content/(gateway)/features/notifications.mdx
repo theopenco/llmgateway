@@ -14,7 +14,7 @@ Open the **Notifications** bell in the dashboard header, then select **Notificat
 | Compliance: models available | A model your organization watches becomes routable under its [compliance policy](/features/compliance#compliance-alerts).                                                         |
 | Compliance: downgrades       | A provider, or a watched model, stops meeting your organization's compliance policy.                                                                                              |
 | Organization limits          | A seat or API key limit blocks directory sync (SCIM), an SSO sign-in, an invite, or a new API key. Sent to owners and admins.                                                     |
-| Provider key errors          | One of your organization's own provider keys fails above a rate the organization configured. Sent to owners and admins; see [provider key alerts](#provider-key-alerts).          |
+| Provider key errors          | A provider key your organization relies on fails above a rate the organization configured. Sent to owners and admins; see [provider key alerts](#provider-key-alerts).            |
 
 Organization limit alerts are sent at most once per day for each kind of limit; rejected directory sync pushes are also listed in the [audit log](/features/audit-logs). Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per project, or per accessible key for developers.
 
@@ -26,7 +26,13 @@ Provider alerts require at least 20 non-cached, non-client-error requests and an
 
 ## Provider key alerts
 
-When you bring your own provider keys, a key can stop working without any change on your side: the provider revokes it, its quota runs out, or a model is removed from the account. Owners and admins can turn on error-rate alerts for the organization's own keys under **Organization → Preferences → Provider Key Alerts**. Platform-managed credentials used for credit traffic are never evaluated.
+When you bring your own provider keys, a key can stop working without any change on your side: the provider revokes it, its quota runs out, or a model is removed from the account. Owners and admins can turn on error-rate alerts under **Organization → Preferences → Provider Key Alerts** and choose which keys to monitor:
+
+| Keys to monitor         | What is judged                                                                                                                                                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Your own provider keys  | Each active key you added, individually. The alert links to the provider keys page.                                                                                                                                                    |
+| LLM Gateway credentials | The platform credentials that served your organization's credit traffic, grouped per provider. Only your own requests count, so a provider-wide incident is reported in terms of your traffic. The alert links to the provider's page. |
+| Both                    | Everything above.                                                                                                                                                                                                                      |
 
 Alerts are off and have no rules until an owner or admin adds some (up to 5), for example a 15-minute window at 50% and a 4-hour window at 30%. Each rule fires when a key's gateway and upstream errors over the window reach the error rate, after at least the minimum number of non-client-error requests. Windows are evaluated on hourly statistics and widen to the start of the hour they begin in, so a 15-minute rule looks at 15 to 75 minutes of traffic. A key alerts at most once per rule and cooldown.
 

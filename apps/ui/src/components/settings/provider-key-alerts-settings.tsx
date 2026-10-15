@@ -11,6 +11,13 @@ import { getApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 import { Skeleton } from "@/lib/components/skeleton";
 import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
@@ -20,10 +27,18 @@ import { useApi } from "@/lib/fetch-client";
 import {
 	DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
 	PROVIDER_KEY_ALERT_RULE_TEMPLATE,
+	PROVIDER_KEY_ALERT_SOURCES,
 	PROVIDER_KEY_ALERTS_MAX_RULES,
 	type ProviderKeyAlertRule,
 	type ProviderKeyAlertSettings,
+	type ProviderKeyAlertSource,
 } from "@llmgateway/shared/provider-key-alerts";
+
+const SOURCE_LABELS: Record<ProviderKeyAlertSource, string> = {
+	byok: "Your own provider keys",
+	platform: "LLM Gateway credentials (credit traffic)",
+	any: "Both",
+};
 
 type NumericField = Exclude<
 	keyof ProviderKeyAlertRule,
@@ -167,6 +182,32 @@ export function ProviderKeyAlertsSettings() {
 				<Label htmlFor="provider-key-alerts-enabled">
 					{settings.enabled ? "Alerts on" : "Alerts off"}
 				</Label>
+			</div>
+
+			<div className="space-y-2">
+				<Label htmlFor="provider-key-alerts-source">Keys to monitor</Label>
+				<Select
+					value={settings.keySource}
+					disabled={disabled}
+					onValueChange={(value) =>
+						update({ keySource: value as ProviderKeyAlertSource })
+					}
+				>
+					<SelectTrigger id="provider-key-alerts-source" className="sm:w-80">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{PROVIDER_KEY_ALERT_SOURCES.map((value) => (
+							<SelectItem key={value} value={value}>
+								{SOURCE_LABELS[value]}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<p className="text-sm text-muted-foreground">
+					Your own keys are judged one by one. LLM Gateway credentials are
+					judged per provider, on your organization's credit traffic only.
+				</p>
 			</div>
 
 			<div className="space-y-3">
