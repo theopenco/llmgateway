@@ -2774,6 +2774,10 @@ export const log = snakeCase.table(
 		index("log_error_used_provider_used_model_created_at_idx")
 			.on(table.usedProvider, table.usedModel, table.createdAt)
 			.where(sql`has_error = true`),
+		// Latest logs of one used_model, errors or not (admin unstable-mappings
+		// model and mapping scopes). Build CONCURRENTLY out of band in prod
+		// before deploying.
+		index("log_used_model_created_at_idx").on(table.usedModel, table.createdAt),
 		// Serves error-filtered log lists per project; the trailing model id lets
 		// a model filter run inside the index. Build CONCURRENTLY out of band in
 		// prod before deploying.

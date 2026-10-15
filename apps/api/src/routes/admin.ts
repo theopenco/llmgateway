@@ -13352,17 +13352,18 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const { interval: windowInterval, hours: windowHours } =
 		resolveMappingErrorWindow(query.window);
 	const mapping = query.model && query.provider ? query.model : null;
-	const mappingClause =
+	const providerClause =
 		mapping !== null
-			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
+			? sql`AND ${tables.log.usedProvider} = ${query.provider}`
 			: sql``;
 	const canonicalModelId = query.modelId || null;
-	// An exact `used_model` list keeps the filter an index condition; a
-	// `split_part` expression would fetch every log in the window.
-	const modelIdClause =
-		canonicalModelId !== null
-			? sql`AND ${inArray(tables.log.usedModel, await listUsedModelsForModelId(canonicalModelId))}`
-			: sql``;
+	// The exact `used_model` values the sample is scoped to; null samples all.
+	const scopedUsedModels =
+		mapping !== null
+			? [mapping]
+			: canonicalModelId !== null
+				? await listUsedModelsForModelId(canonicalModelId)
+				: null;
 
 	// With the split off every row carries a constant NULL key, so the extra
 	// GROUP BY column is a no-op and both modes share one query shape.
@@ -13388,6 +13389,41 @@ admin.openapi(getUnstableMappings, async (c) => {
 			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)${errorMessageClause})`
 			: sql`(${tables.log.hasError}${errorMessageClause})`;
 
+	// The latest `logLimit` logs in the window matching `scopeClause`.
+	const sampleLogs = (scopeClause: SQL) => sql`
+		SELECT ${tables.log.usedModel} AS used_model,
+			${tables.log.usedProvider} AS used_provider,
+			${providerKeyExpr} AS provider_key_id,
+			${hasErrorExpr} AS has_error,
+			${tables.log.createdAt} AS created_at
+		FROM ${tables.log}
+		WHERE ${tables.log.createdAt} >= ${windowInterval}
+			${buildUnstableErrorScopeClause(errorScope)}
+			${retriedClause}
+			${byokClause}
+			${scopeClause}
+		ORDER BY ${tables.log.createdAt} DESC
+		LIMIT ${logLimit}`;
+	// No index yields `used_model IN (...)` in created_at order, so a single
+	// scoped query walks every log in the window. One branch per `used_model`
+	// is an ordered (used_model, created_at) index scan each; the planner
+	// merges the branches and stops at the limit.
+	const recentLogs =
+		scopedUsedModels === null
+			? sampleLogs(sql``)
+			: scopedUsedModels.length === 0
+				? sampleLogs(sql`AND false`)
+				: sql`
+					SELECT * FROM (${sql.join(
+						scopedUsedModels.map(
+							(usedModel) =>
+								sql`(${sampleLogs(sql`AND ${tables.log.usedModel} = ${usedModel} ${providerClause}`)})`,
+						),
+						sql` UNION ALL `,
+					)}) AS scoped_logs
+					ORDER BY created_at DESC
+					LIMIT ${logLimit}`;
+
 	const rows = await db.execute<{
 		used_model: string;
 		used_provider: string;
@@ -13397,21 +13433,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		error_rate: string;
 		sampled_logs: string;
 	}>(sql`
-		WITH recent_logs AS (
-			SELECT ${tables.log.usedModel} AS used_model,
-				${tables.log.usedProvider} AS used_provider,
-				${providerKeyExpr} AS provider_key_id,
-				${hasErrorExpr} AS has_error
-			FROM ${tables.log}
-			WHERE ${tables.log.createdAt} >= ${windowInterval}
-				${buildUnstableErrorScopeClause(errorScope)}
-				${retriedClause}
-				${byokClause}
-				${mappingClause}
-				${modelIdClause}
-			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${logLimit}
-		)
+		WITH recent_logs AS (${recentLogs})
 		SELECT used_model,
 			used_provider,
 			provider_key_id,

@@ -584,6 +584,40 @@ describe("admin unstable mappings", () => {
 		expect(unknown.sampledLogs).toBe(0);
 	});
 
+	test("a model scope samples the latest logs across its mappings", async () => {
+		const minuteMs = 60_000;
+		const minutesAgo = (minutes: number) => {
+			const offsetMs = minutes * minuteMs;
+			return new Date(Date.now() - offsetMs);
+		};
+		await seedLog({
+			usedModel: "openai/gpt-5.6-sol",
+			hasError: true,
+			createdAt: minutesAgo(3),
+		});
+		await seedLog({
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
+			createdAt: minutesAgo(2),
+		});
+		await seedLog({
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
+			hasError: true,
+			createdAt: minutesAgo(1),
+		});
+		await seedLog({ usedModel: "openai/gpt-5.6-sol", createdAt: new Date() });
+
+		const body = await getMappings("?modelId=gpt-5.6-sol&logLimit=2");
+		expect(body.sampledLogs).toBe(2);
+		expect(body.mappings).toHaveLength(1);
+		expect(body.mappings[0]).toMatchObject({
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			logsCount: 1,
+			errorsCount: 1,
+		});
+	});
+
 	test("scope options cover airside listings and the catalogue", async () => {
 		const providerId = "um-airside-carrier";
 		const modelId = "um-airside-model";
