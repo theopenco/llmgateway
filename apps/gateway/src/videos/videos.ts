@@ -51,7 +51,7 @@ import {
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
-import { fetchProvider } from "@/lib/fetch-provider.js";
+import { fetchProvider, fetchProviderIssuedUrl } from "@/lib/fetch-provider.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
@@ -76,7 +76,6 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
 	managedCredentialOptions,
-	fetchNoRedirect,
 	processImageUrl,
 	providerKeyLabel,
 	readProviderKey,
@@ -2796,17 +2795,35 @@ async function getVideoSourceUrlFromCacheOrJob(
 	return sourceUrl;
 }
 
+/**
+ * Map a failed content fetch (unreachable host, refused SSRF target, redirect)
+ * to a 502 instead of an unhandled 500.
+ */
+async function fetchVideoContent(
+	fetchContent: () => Promise<Response>,
+): Promise<Response> {
+	try {
+		return await fetchContent();
+	} catch (error) {
+		logger.warn("Failed to fetch video content", {
+			error: toError(error).message,
+		});
+		throw new HTTPException(502, {
+			message: "Failed to fetch video content",
+		});
+	}
+}
+
 async function streamVideoFromUrl(
 	contentUrl: string,
 	requestHeaders: Headers,
 	contentType?: string | null,
 ): Promise<Response> {
-	// SSRF: refuse redirects so a tenant-controlled content URL cannot 3xx the
-	// gateway onward to an internal host whose body would then be streamed back.
-	const upstreamResponse = await fetchNoRedirect(contentUrl, {
-		redirect: "error",
-		headers: videoRangeHeaders(requestHeaders),
-	});
+	const upstreamResponse = await fetchVideoContent(() =>
+		fetchProviderIssuedUrl(contentUrl, {
+			headers: videoRangeHeaders(requestHeaders),
+		}),
+	);
 	return videoProxyResponse(upstreamResponse, contentType);
 }
 
@@ -2823,6 +2840,8 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 	baseUrl: string;
 	token: string;
 	requestId: string;
+	/** Set when the base URL may be tenant-supplied (BYOK). */
+	tenantBaseUrl: string | null;
 }> {
 	const providerId = job.usedProvider as Provider;
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
@@ -2856,6 +2875,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			baseUrl,
 			token: readProviderKey(providerKey),
 			requestId: job.requestId,
+			tenantBaseUrl: baseUrl,
 		};
 	}
 
@@ -2884,6 +2904,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			baseUrl,
 			token: readProviderKey(managedKey),
 			requestId: job.requestId,
+			tenantBaseUrl: null,
 		};
 	}
 
@@ -2913,6 +2934,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		baseUrl,
 		token: env.token,
 		requestId: job.requestId,
+		tenantBaseUrl: null,
 	};
 }
 
@@ -2921,8 +2943,13 @@ async function streamDirectUpstreamVideoContent(
 	requestHeaders: Headers,
 ): Promise<Response> {
 	const providerContext = await resolveVideoJobProviderContext(job);
+	const headers = {
+		...getProviderHeaders(providerContext.providerId, providerContext.token, {
+			requestId: providerContext.requestId,
+		}),
+		...videoRangeHeaders(requestHeaders),
+	};
 
-	let contentUrl: string;
 	if (providerContext.providerId === "minimax") {
 		const statusResponse =
 			job.upstreamStatusResponse &&
@@ -2945,15 +2972,19 @@ async function streamDirectUpstreamVideoContent(
 			providerContext.baseUrl,
 			`/v1/files/retrieve?file_id=${fileId}`,
 		);
-		const retrieveResponse = await fetchNoRedirect(retrieveUrl, {
-			// SSRF: never follow redirects on a tenant-baseUrl provider request.
-			redirect: "error",
-			headers: getProviderHeaders(
-				providerContext.providerId,
-				providerContext.token,
-				{ requestId: providerContext.requestId },
+		const retrieveResponse = await fetchVideoContent(() =>
+			fetchProvider(
+				retrieveUrl,
+				{
+					headers: getProviderHeaders(
+						providerContext.providerId,
+						providerContext.token,
+						{ requestId: providerContext.requestId },
+					),
+				},
+				providerContext.tenantBaseUrl,
 			),
-		});
+		);
 		if (!retrieveResponse.ok) {
 			throw new HTTPException(502, {
 				message: "Failed to retrieve MiniMax video download URL",
@@ -2962,31 +2993,26 @@ async function streamDirectUpstreamVideoContent(
 		const retrieveBody = (await retrieveResponse.json()) as {
 			file?: { download_url?: string };
 		};
-		contentUrl = retrieveBody.file?.download_url ?? "";
-		if (!contentUrl) {
+		const downloadUrl = retrieveBody.file?.download_url;
+		if (!downloadUrl) {
 			throw new HTTPException(502, {
 				message:
 					"MiniMax file retrieve response did not include a download_url",
 			});
 		}
-	} else {
-		contentUrl = joinUrl(
-			providerContext.baseUrl,
-			`/v1/videos/${job.upstreamId}/content`,
+		const downloadResponse = await fetchVideoContent(() =>
+			fetchProviderIssuedUrl(downloadUrl, { headers }),
 		);
+		return videoProxyResponse(downloadResponse, job.contentType);
 	}
 
-	const upstreamResponse = await fetchNoRedirect(contentUrl, {
-		// SSRF: never follow redirects on a tenant-controlled content/baseUrl
-		// request; the followed body would be streamed back to the caller.
-		redirect: "error",
-		headers: {
-			...getProviderHeaders(providerContext.providerId, providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
-			...videoRangeHeaders(requestHeaders),
-		},
-	});
+	const contentUrl = joinUrl(
+		providerContext.baseUrl,
+		`/v1/videos/${job.upstreamId}/content`,
+	);
+	const upstreamResponse = await fetchVideoContent(() =>
+		fetchProvider(contentUrl, { headers }, providerContext.tenantBaseUrl),
+	);
 	return videoProxyResponse(upstreamResponse, job.contentType);
 }
 

@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { processPendingVideoJobs } from "worker";
 
@@ -10,6 +12,7 @@ import {
 	setMockVideoAsset,
 	setMockVideoStatusResponse,
 } from "@/test-utils/mock-openai-server.js";
+import { clearCache } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -18,6 +21,8 @@ import {
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+
+import type { AddressInfo } from "node:net";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
@@ -2648,6 +2653,87 @@ describe("videos", () => {
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL;
 			}
+		}
+	});
+
+	test("/v1/videos/{id}/content refuses provider content URLs on internal hosts", async () => {
+		vi.stubEnv("LLM_GOOGLE_CLOUD_PROJECT", "provider-project");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_REGION", "us-central1");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET", undefined);
+		vi.stubEnv("LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL", undefined);
+		let internalHits = 0;
+		const internal = createServer((_req, res) => {
+			internalHits++;
+			res.end("internal");
+		});
+		await new Promise<void>((resolve) => {
+			internal.listen(0, "127.0.0.1", resolve);
+		});
+		const internalPort = (internal.address() as AddressInfo).port;
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "provider-project" },
+			});
+
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A cinematic waterfall in the mountains",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+			await processPendingVideoJobs();
+
+			// A tenant-controlled provider can report any URL as the video.
+			await db
+				.update(tables.videoJob)
+				.set({
+					contentUrl: `http://127.0.0.1:${internalPort}/metrics`,
+					storageUri: null,
+				})
+				.where(eq(tables.videoJob.id, created.id));
+			await clearCache();
+
+			vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+			const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(contentRes.status).toBe(502);
+			expect(internalHits).toBe(0);
+		} finally {
+			vi.unstubAllEnvs();
+			await new Promise<void>((resolve) => {
+				internal.close(() => resolve());
+			});
 		}
 	});
 
