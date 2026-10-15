@@ -42,8 +42,25 @@ const SOURCE_LABELS: Record<ProviderKeyAlertSource, string> = {
 
 type NumericField = Exclude<
 	keyof ProviderKeyAlertRule,
-	"id" | "label" | "enabled"
+	"id" | "label" | "enabled" | "includeRetriedErrors" | "includeClientErrors"
 >;
+
+const ruleSwitches: Array<{
+	key: "includeRetriedErrors" | "includeClientErrors";
+	label: string;
+	hint: string;
+}> = [
+	{
+		key: "includeRetriedErrors",
+		label: "Count errors the gateway retried elsewhere",
+		hint: "Off by default: a key that fails but falls back cleanly stays quiet.",
+	},
+	{
+		key: "includeClientErrors",
+		label: "Count client errors (invalid requests)",
+		hint: "On by default: every error counts over every request. Off: only gateway and provider errors over the remaining requests.",
+	},
+];
 
 const numericFields: Array<{ key: NumericField; label: string; min: number }> =
 	[
@@ -332,13 +349,34 @@ export function ProviderKeyAlertsSettings() {
 								</div>
 							))}
 						</div>
+						{ruleSwitches.map((option) => (
+							<div key={option.key} className="flex items-start gap-3">
+								<Switch
+									id={`${rule.id}-${option.key}`}
+									checked={rule[option.key]}
+									disabled={disabled}
+									onCheckedChange={(checked) =>
+										updateRule(rule.id, { [option.key]: checked })
+									}
+								/>
+								<Label
+									htmlFor={`${rule.id}-${option.key}`}
+									className="flex flex-col gap-0.5 text-xs"
+								>
+									<span>{option.label}</span>
+									<span className="text-muted-foreground font-normal">
+										{option.hint}
+									</span>
+								</Label>
+							</div>
+						))}
 					</div>
 				))}
 				<p className="text-sm text-muted-foreground">
-					A rule fires when a key's gateway and upstream errors over the window
-					reach the error rate, after at least the minimum number of
-					non-client-error requests. Windows are evaluated on hourly statistics
-					and widen to the start of the hour they begin in.
+					A rule fires when a key's error rate over the window reaches the
+					threshold, after at least the minimum number of counted requests.
+					Windows are evaluated on hourly statistics and widen to the start of
+					the hour they begin in.
 				</p>
 			</div>
 

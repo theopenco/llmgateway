@@ -6718,6 +6718,10 @@ export const providerKeyHourlyStats = snakeCase.table(
 		clientErrorCount: integer().notNull().default(0),
 		gatewayErrorCount: integer().notNull().default(0),
 		upstreamErrorCount: integer().notNull().default(0),
+		// Subsets of gateway/upstream errors on attempts the gateway retried
+		// elsewhere, so provider key alerts can ignore failures callers never saw.
+		retriedGatewayErrorCount: integer().notNull().default(0),
+		retriedUpstreamErrorCount: integer().notNull().default(0),
 		cacheCount: integer().notNull().default(0),
 		inputTokens: decimal().notNull().default("0"),
 		outputTokens: decimal().notNull().default("0"),

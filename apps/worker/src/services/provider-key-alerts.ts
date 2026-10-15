@@ -40,6 +40,8 @@ export interface ErrorCounts {
 	clientErrorCount: number;
 	gatewayErrorCount: number;
 	upstreamErrorCount: number;
+	retriedGatewayErrorCount: number;
+	retriedUpstreamErrorCount: number;
 }
 
 /**
@@ -58,7 +60,7 @@ export interface TargetErrorCounts extends ErrorCounts {
 }
 
 export interface TargetErrorRateHit extends TargetErrorCounts {
-	/** Requests that were not client errors. */
+	/** Requests the rule counted after its switches were applied. */
 	judgedCount: number;
 	errorsCount: number;
 	errorRate: number;
@@ -78,19 +80,72 @@ export function platformTargetId(providerId: string): string {
 	return `platform:${providerId}`;
 }
 
+/**
+ * Drops attempts the gateway retried elsewhere from both sides of the ratio
+ * when the rule ignores them: a key that fails but falls back cleanly stays
+ * quiet.
+ */
+export function countsForRule<T extends ErrorCounts>(
+	rule: ProviderKeyAlertRule,
+	row: T,
+): T {
+	if (rule.includeRetriedErrors) {
+		return row;
+	}
+	return {
+		...row,
+		requestCount:
+			row.requestCount -
+			row.retriedGatewayErrorCount -
+			row.retriedUpstreamErrorCount,
+		gatewayErrorCount: row.gatewayErrorCount - row.retriedGatewayErrorCount,
+		upstreamErrorCount: row.upstreamErrorCount - row.retriedUpstreamErrorCount,
+		retriedGatewayErrorCount: 0,
+		retriedUpstreamErrorCount: 0,
+	};
+}
+
+/**
+ * Error rate under the rule's switches. With client errors included, every
+ * error counts over every request; without, it is the stability ratio
+ * (gateway + upstream errors over non-client requests) used elsewhere.
+ */
+export function metricsForRule(
+	rule: ProviderKeyAlertRule,
+	raw: ErrorCounts,
+): { requestCount: number; errorsCount: number; errorRate: number | null } {
+	const row = countsForRule(rule, raw);
+	if (!rule.includeClientErrors) {
+		return deriveStabilityMetrics({
+			logsCount: row.requestCount,
+			clientErrorsCount: row.clientErrorCount,
+			gatewayErrorsCount: row.gatewayErrorCount,
+			upstreamErrorsCount: row.upstreamErrorCount,
+		});
+	}
+	const requestCount = Math.max(row.requestCount, 0);
+	const errorsCount = Math.min(
+		Math.max(row.clientErrorCount, 0) +
+			Math.max(row.gatewayErrorCount, 0) +
+			Math.max(row.upstreamErrorCount, 0),
+		requestCount,
+	);
+	return {
+		requestCount,
+		errorsCount,
+		errorRate: requestCount === 0 ? null : (errorsCount / requestCount) * 100,
+	};
+}
+
 /** Targets at or above the rule's error rate with enough traffic to judge. */
 export function findTargetsOverThreshold(
 	rule: ProviderKeyAlertRule,
 	rows: TargetErrorCounts[],
 ): TargetErrorRateHit[] {
 	const hits: TargetErrorRateHit[] = [];
-	for (const row of rows) {
-		const { requestCount, errorsCount, errorRate } = deriveStabilityMetrics({
-			logsCount: row.requestCount,
-			clientErrorsCount: row.clientErrorCount,
-			gatewayErrorsCount: row.gatewayErrorCount,
-			upstreamErrorsCount: row.upstreamErrorCount,
-		});
+	for (const raw of rows) {
+		const row = countsForRule(rule, raw);
+		const { requestCount, errorsCount, errorRate } = metricsForRule(rule, row);
 		if (
 			errorRate !== null &&
 			requestCount >= rule.minRequests &&
@@ -142,6 +197,8 @@ const errorCountColumns = {
 	clientErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.clientErrorCount}), 0)::bigint`,
 	gatewayErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.gatewayErrorCount}), 0)::bigint`,
 	upstreamErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.upstreamErrorCount}), 0)::bigint`,
+	retriedGatewayErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.retriedGatewayErrorCount}), 0)::bigint`,
+	retriedUpstreamErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.retriedUpstreamErrorCount}), 0)::bigint`,
 };
 
 function toCounts(row: Record<keyof typeof errorCountColumns, string>) {
@@ -150,6 +207,8 @@ function toCounts(row: Record<keyof typeof errorCountColumns, string>) {
 		clientErrorCount: Number(row.clientErrorCount),
 		gatewayErrorCount: Number(row.gatewayErrorCount),
 		upstreamErrorCount: Number(row.upstreamErrorCount),
+		retriedGatewayErrorCount: Number(row.retriedGatewayErrorCount),
+		retriedUpstreamErrorCount: Number(row.retriedUpstreamErrorCount),
 	};
 }
 
@@ -214,6 +273,8 @@ async function queryModelBreakdown(
 			clientErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'client_error')::bigint`,
 			gatewayErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'gateway_error')::bigint`,
 			upstreamErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'upstream_error')::bigint`,
+			retriedGatewayErrorCount: sql<string>`count(*) filter (where ${log.retried} = true and ${log.unifiedFinishReason} = 'gateway_error')::bigint`,
+			retriedUpstreamErrorCount: sql<string>`count(*) filter (where ${log.retried} = true and ${log.unifiedFinishReason} = 'upstream_error')::bigint`,
 		})
 		.from(log)
 		.where(
@@ -230,13 +291,7 @@ async function queryModelBreakdown(
 			),
 		)
 		.groupBy(log.usedModel);
-	return rows.map((row) => ({
-		usedModel: row.usedModel,
-		requestCount: Number(row.requestCount),
-		clientErrorCount: Number(row.clientErrorCount),
-		gatewayErrorCount: Number(row.gatewayErrorCount),
-		upstreamErrorCount: Number(row.upstreamErrorCount),
-	}));
+	return rows.map((row) => ({ usedModel: row.usedModel, ...toCounts(row) }));
 }
 
 function providerName(providerId: string): string {
@@ -265,12 +320,7 @@ export function buildAlertMessage(
 	const failing = models
 		.map((model) => ({
 			model: model.usedModel,
-			...deriveStabilityMetrics({
-				logsCount: model.requestCount,
-				clientErrorsCount: model.clientErrorCount,
-				gatewayErrorsCount: model.gatewayErrorCount,
-				upstreamErrorsCount: model.upstreamErrorCount,
-			}),
+			...metricsForRule(rule, model),
 		}))
 		.filter((model) => model.errorRate !== null && model.errorsCount > 0)
 		.sort(
@@ -283,8 +333,14 @@ export function buildAlertMessage(
 			(model) =>
 				`${model.model} ${model.errorRate!.toFixed(0)}% (${model.errorsCount}/${model.requestCount})`,
 		);
+	const scope = [
+		rule.includeRetriedErrors ? "" : "retried attempts excluded",
+		rule.includeClientErrors ? "" : "client errors excluded",
+	]
+		.filter(Boolean)
+		.join(", ");
 	const parts = [
-		`${hit.errorRate.toFixed(1)}% of ${hit.judgedCount} ${target.kind === "platform" ? "credit " : ""}requests failed in the last ${formatWindow(rule.windowMinutes)} (${hit.upstreamErrorCount} rejected by the provider, ${hit.gatewayErrorCount} failed before reaching it); the "${rule.label}" rule alerts at ${rule.errorRatePercent}%.`,
+		`${hit.errorRate.toFixed(1)}% of ${hit.judgedCount} ${target.kind === "platform" ? "credit " : ""}requests failed in the last ${formatWindow(rule.windowMinutes)} (${hit.upstreamErrorCount} rejected by the provider, ${hit.gatewayErrorCount} failed before reaching it${rule.includeClientErrors ? `, ${hit.clientErrorCount} rejected as invalid requests` : ""}${scope ? `; ${scope}` : ""}); the "${rule.label}" rule alerts at ${rule.errorRatePercent}%.`,
 	];
 	if (failing.length) {
 		parts.push(`Models affected: ${failing.join(", ")}.`);

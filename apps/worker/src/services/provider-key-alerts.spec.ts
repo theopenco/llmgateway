@@ -8,6 +8,7 @@ import {
 	buildAlertMessage,
 	cooldownKey,
 	findTargetsOverThreshold,
+	metricsForRule,
 	platformTargetId,
 	processProviderKeyAlerts,
 	windowBucketStart,
@@ -30,6 +31,8 @@ const shortRule: ProviderKeyAlertRule = {
 	errorRatePercent: 50,
 	minRequests: 10,
 	cooldownMinutes: 60,
+	includeRetriedErrors: false,
+	includeClientErrors: true,
 };
 const longRule: ProviderKeyAlertRule = {
 	id: "long",
@@ -39,6 +42,8 @@ const longRule: ProviderKeyAlertRule = {
 	errorRatePercent: 30,
 	minRequests: 20,
 	cooldownMinutes: 240,
+	includeRetriedErrors: false,
+	includeClientErrors: true,
 };
 
 const counts = {
@@ -47,6 +52,8 @@ const counts = {
 	clientErrorCount: 0,
 	gatewayErrorCount: 0,
 	upstreamErrorCount: 0,
+	retriedGatewayErrorCount: 0,
+	retriedUpstreamErrorCount: 0,
 };
 
 const settings: ProviderKeyAlertSettings = {
@@ -69,9 +76,9 @@ describe("findTargetsOverThreshold", () => {
 		expect(hits[1].errorRate).toBe(50);
 	});
 
-	it("excludes client errors and skips low-traffic keys", () => {
+	it("counts client errors as errors by default and skips low-traffic keys", () => {
 		const hits = findTargetsOverThreshold(shortRule, [
-			// 20 non-client requests, 12 errors = 60%.
+			// 80 client + 12 upstream errors over 100 requests = 92%.
 			{
 				...counts,
 				targetId: "client-heavy",
@@ -87,7 +94,38 @@ describe("findTargetsOverThreshold", () => {
 			},
 		]);
 		expect(hits.map((hit) => hit.targetId)).toEqual(["client-heavy"]);
-		expect(hits[0].errorRate).toBe(60);
+		expect(hits[0].errorRate).toBe(92);
+	});
+
+	it("drops client errors from both sides when the rule excludes them", () => {
+		const row = { ...counts, clientErrorCount: 80, upstreamErrorCount: 12 };
+		// 12 errors over the 20 remaining requests = 60%.
+		expect(
+			metricsForRule({ ...shortRule, includeClientErrors: false }, row),
+		).toMatchObject({ requestCount: 20, errorsCount: 12, errorRate: 60 });
+	});
+
+	it("drops retried attempts unless the rule includes them", () => {
+		// 60 errors over 100 attempts, 50 of them retried elsewhere.
+		const row = {
+			...counts,
+			upstreamErrorCount: 40,
+			gatewayErrorCount: 20,
+			retriedUpstreamErrorCount: 35,
+			retriedGatewayErrorCount: 15,
+		};
+		// 10 unretried errors over 50 remaining attempts = 20%: below 50%.
+		expect(findTargetsOverThreshold(shortRule, [row])).toEqual([]);
+		expect(metricsForRule(shortRule, row)).toEqual({
+			requestCount: 50,
+			errorsCount: 10,
+			errorRate: 20,
+		});
+		const [hit] = findTargetsOverThreshold(
+			{ ...shortRule, includeRetriedErrors: true },
+			[row],
+		);
+		expect(hit).toMatchObject({ judgedCount: 100, errorsCount: 60 });
 	});
 });
 
@@ -127,22 +165,21 @@ describe("buildAlertMessage", () => {
 			},
 			[
 				{
+					...counts,
 					usedModel: "openai/gpt-fine",
 					requestCount: 50,
-					clientErrorCount: 0,
-					gatewayErrorCount: 0,
 					upstreamErrorCount: 10,
 				},
 				{
+					...counts,
 					usedModel: "openai/gpt-broken",
 					requestCount: 50,
-					clientErrorCount: 0,
-					gatewayErrorCount: 0,
 					upstreamErrorCount: 50,
 				},
 			],
 		);
 		expect(message).toContain("60.0% of 100 requests failed in the last 15m");
+		expect(message).toContain("retried attempts excluded");
 		expect(message).toContain(
 			"Models affected: openai/gpt-broken 100% (50/50), openai/gpt-fine 20% (10/50).",
 		);
@@ -250,8 +287,8 @@ describe("processProviderKeyAlerts", () => {
 		expect(alerts[0].title).toBe(
 			"OpenAI key Team key is failing your requests",
 		);
-		// 20 gateway errors over 30 non-client requests.
-		expect(alerts[0].message).toContain("66.7% of 30 requests");
+		// 10 client + 20 gateway errors over 40 requests.
+		expect(alerts[0].message).toContain("75.0% of 40 requests");
 		expect(alerts[0].href).toBe(`/dashboard/${ORG}/org/provider-keys`);
 
 		const notifications = await db.query.notification.findMany({
@@ -335,10 +372,22 @@ describe("processProviderKeyAlerts", () => {
 		).toHaveLength(0);
 	});
 
+	it("stays quiet when the failures were retried elsewhere", async () => {
+		await db
+			.update(tables.providerKeyHourlyStats)
+			.set({ clientErrorCount: 0, retriedGatewayErrorCount: 20 });
+		await processProviderKeyAlerts();
+		expect(
+			await db.query.organizationAlert.findMany({
+				where: { organizationId: ORG },
+			}),
+		).toHaveLength(0);
+	});
+
 	it("skips keys below the threshold", async () => {
 		await db
 			.update(tables.providerKeyHourlyStats)
-			.set({ gatewayErrorCount: 10 });
+			.set({ clientErrorCount: 0, gatewayErrorCount: 10 });
 		await processProviderKeyAlerts();
 		expect(
 			await db.query.organizationAlert.findMany({

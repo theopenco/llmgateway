@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2dcfb01c-a12d-45fa-b087-c22095529796",
+  "id": "4e593d0b-fd9e-4767-a10b-cdc37685cb8d",
   "prevIds": [
-    "1ad0c059-56f6-4b96-b712-b91e9fb9da9f"
+    "4645e6cc-a569-4250-aff2-7a9c260d2c8d"
   ],
   "ddl": [
     {
@@ -5985,6 +5985,19 @@
       "table": "content_filter_hourly_model_stats"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "internal_scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_model_stats"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -6175,6 +6188,19 @@
       "generated": null,
       "identity": null,
       "name": "role",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "internal_scope",
       "entityType": "columns",
       "schema": "public",
       "table": "content_filter_hourly_stats"
@@ -19232,6 +19258,32 @@
       "table": "organization"
     },
     {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_daily_credits_used",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_day_start",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -26343,6 +26395,58 @@
       "table": "provider_draft_model"
     },
     {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_requested_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_requested_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_reviewed_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_review_note",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": false,
@@ -26551,6 +26655,19 @@
       "table": "provider_key"
     },
     {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "deletion_requested_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
       "type": "boolean",
       "typeSchema": null,
       "notNull": true,
@@ -26689,6 +26806,71 @@
       "generated": null,
       "identity": null,
       "name": "model_sync_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_rpm",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_rpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpm",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'strict'",
+      "generated": null,
+      "identity": null,
+      "name": "rate_limit_mode",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
@@ -26858,6 +27040,32 @@
       "generated": null,
       "identity": null,
       "name": "upstream_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "retried_gateway_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "retried_upstream_error_count",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key_hourly_stats"
@@ -28288,6 +28496,32 @@
       "generated": null,
       "identity": null,
       "name": "max_rpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "rate_limit"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpm",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "rate_limit"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpd",
       "entityType": "columns",
       "schema": "public",
       "table": "rate_limit"
@@ -35564,6 +35798,34 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "used_model",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_used_model_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "project_id",
           "isExpression": false,
           "asc": true,
@@ -39023,6 +39285,13 @@
         },
         {
           "value": "coalesce(\"model\", '__all_models__')",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "(case when \"max_rpm\" is not null then 'rpm' when \"max_rpd\" is not null then 'rpd' when \"max_tpm\" is not null then 'tpm' when \"max_tpd\" is not null then 'tpd' end)",
           "isExpression": true,
           "asc": true,
           "nullsFirst": false,
@@ -42742,6 +43011,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "relist_requested_by"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "provider_draft_model_relist_requested_by_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -45397,7 +45683,8 @@
         "used_provider",
         "category",
         "classifier",
-        "role"
+        "role",
+        "internal_scope"
       ],
       "nullsNotDistinct": false,
       "name": "content_filter_hourly_model_stats_bucket_unique",
@@ -45413,7 +45700,8 @@
         "project_id",
         "category",
         "classifier",
-        "role"
+        "role",
+        "internal_scope"
       ],
       "nullsNotDistinct": false,
       "name": "content_filter_hourly_stats_bucket_unique",

@@ -25,6 +25,12 @@ export const providerKeyAlertRuleSchema = z.object({
 	minRequests: z.number().int().min(1).max(100_000),
 	// Minimum time between two alerts for the same rule and provider key.
 	cooldownMinutes: z.number().int().min(5).max(10_080),
+	// When false, attempts the gateway retried elsewhere count neither as
+	// requests nor as errors: a key that fails but falls back cleanly is quiet.
+	includeRetriedErrors: z.boolean().default(false),
+	// When false, requests the caller got wrong (4xx client errors) count
+	// neither as requests nor as errors.
+	includeClientErrors: z.boolean().default(true),
 });
 
 export type ProviderKeyAlertRule = z.infer<typeof providerKeyAlertRuleSchema>;
@@ -40,6 +46,8 @@ export const PROVIDER_KEY_ALERT_RULE_TEMPLATE: Omit<
 	errorRatePercent: 30,
 	minRequests: 20,
 	cooldownMinutes: 120,
+	includeRetriedErrors: false,
+	includeClientErrors: true,
 };
 
 /**
