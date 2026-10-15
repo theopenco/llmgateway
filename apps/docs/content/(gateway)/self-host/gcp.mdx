@@ -30,11 +30,11 @@ This guide covers a production deployment of LLM Gateway on Google Cloud using G
 
 ### 1. PostgreSQL — Cloud SQL
 
-Create a Cloud SQL for PostgreSQL instance with a private IP. Enable automated backups and high availability. Note the connection details for `DATABASE_URL`.
+Create a Cloud SQL for PostgreSQL instance with a private IP. Enable automated backups and high availability. Note the connection details for `externalPostgresql`.
 
 ### 2. Redis — Memorystore
 
-Create a Memorystore for Redis instance in the same VPC and use its endpoint for `REDIS_URL`. Enable a read replica for production.
+Create a Memorystore for Redis instance in the same VPC and use its endpoint for `externalRedis`. Enable a read replica for production.
 
 ### 3. Compute — GKE
 
@@ -46,7 +46,7 @@ Use a private VPC and connect Cloud SQL via Private Service Access and Memorysto
 
 ### 5. Secrets — Secret Manager
 
-Store `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Secret Manager. Sync them into the cluster with the [External Secrets Operator](https://external-secrets.io/) or the Secret Manager CSI driver.
+Store `DATABASE_URL`, `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Secret Manager. Sync them into the cluster with the [External Secrets Operator](https://external-secrets.io/) or the Secret Manager CSI driver.
 
 ## Deploy the Helm chart
 
@@ -57,12 +57,18 @@ helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
 ```yaml
-config:
-  DATABASE_URL: "postgres://user:password@your-cloud-sql-ip:5432/llmgateway"
-  REDIS_URL: "redis://your-memorystore-ip:6379"
-  AUTH_SECRET: "from-secret-manager"
-  GATEWAY_API_KEY_HASH_SECRET: "from-secret-manager"
+existingSecret: "llmgateway-secrets"
+postgresql:
+  enabled: false
+externalPostgresql:
+  host: "your-cloud-sql-ip"
+redis:
+  enabled: false
+externalRedis:
+  host: "your-memorystore-ip"
 ```
+
+`existingSecret` names the Kubernetes Secret synced from Secret Manager. The chart then skips creating its own Secret, so this one must hold `DATABASE_URL` (`postgres://user:password@host:5432/llmgateway`), `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, your `LLM_*` provider keys, and `REDIS_PASSWORD` if your Redis requires one.
 
 See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.
 

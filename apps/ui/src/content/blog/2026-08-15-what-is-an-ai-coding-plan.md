@@ -60,7 +60,7 @@ So plans separate models into two categories:
 - **Standard models** — the open-weight and mid-tier options. These draw only on the monthly allowance, with no weekly limit.
 - **Premium models** — the frontier flagships. These draw on the monthly allowance _and_ a weekly ceiling, so a single heavy week cannot consume the month.
 
-The weekly ceiling is a fraction of your monthly allowance, and the fraction gets more generous as the tier goes up: 12% on Lite, 15% on Pro, 18% on Max. Higher tiers are not just a bigger pool — they let you spend a larger share of it on the expensive models in any given week.
+The weekly ceiling is a fraction of your monthly allowance, and the fraction gets more generous as the tier goes up: 10% on Lite, 12% on Pro, 15% on Max. Higher tiers are not just a bigger pool — they let you spend a larger share of it on the expensive models in any given week.
 
 ## What happens when you hit a limit
 

@@ -13,13 +13,13 @@ image:
   height: 1024
 faqs:
   - question: "What is the best AI coding plan in 2026?"
-    answer: "For most developers, DevPass is the best value because it's the only plan that combines a flat monthly price with access to every frontier model — Claude Opus 5, GPT-5.6, Gemini 3.1 Pro and 200+ others — and works with the coding tools you already use. Single-vendor plans like Claude Code or Cursor are excellent if you're certain you'll only ever want that one company's models."
+    answer: "For most developers, DevPass is the best value because it's the only plan that combines a flat monthly price with access to every frontier model — Claude Opus 5, GPT-5.6, Gemini 3.1 Pro and 100+ others — and works with the coding tools you already use. Single-vendor plans like Claude Code or Cursor are excellent if you're certain you'll only ever want that one company's models."
   - question: "Can I use DevPass with Claude Code and Cursor?"
     answer: "Yes. DevPass is OpenAI- and Anthropic-compatible, so it works with Claude Code, OpenCode, Cursor, Cline, Zed, Aider and any tool that accepts a custom base URL and key. You keep your workflow and swap in one key for every model."
   - question: "Is a flat-rate plan cheaper than paying per token?"
     answer: "For daily, agent-heavy work, almost always. DevPass turns every $1 into $2 of model usage at provider rates, and the flat ceiling means a runaway agent loop can't produce a surprise invoice. For light or spiky use, raw pay-as-you-go (Cline or Aider on your own key) can still win."
   - question: "How many models do I get with DevPass?"
-    answer: "Every plan includes all 200+ models on LLM Gateway, from frontier flagships to open-weight coders like GLM-5.1, Qwen3 and Kimi K3. There's no per-model gating between tiers — the tiers differ only in monthly usage allowance."
+    answer: "Every plan includes 100+ coding models on LLM Gateway, from frontier flagships to open-weight coders like GLM-5.1, Qwen3 and Kimi K3. There's no per-model gating between tiers — the tiers differ only in monthly usage allowance."
 ---
 
 AI coding agents have gone from novelty to daily driver. The problem is paying for them. Every tool wants its own subscription, every subscription locks you to one vendor's models, and the ones that meter by token leave you watching a runaway agent loop burn through your budget at 2am.
@@ -32,7 +32,7 @@ The short version: most plans give you one company's models inside one company's
 
 **Best overall. Flat rate. Every model. No token math.**
 
-[DevPass](https://devpass.llmgateway.io) by LLM Gateway isn't an editor and it isn't a single-vendor plan — it's the **model layer** underneath whatever coding tool you already use. One API key unlocks **200+ models** — Claude Opus 5, GPT-5.6, Gemini 3.1 Pro, plus the open-weight coders like GLM-5.1, Qwen3 and [Kimi K3](/blog/kimi-k3) — for a flat monthly price.
+[DevPass](https://devpass.llmgateway.io) by LLM Gateway isn't an editor and it isn't a single-vendor plan — it's the **model layer** underneath whatever coding tool you already use. One API key unlocks **100+ models** — Claude Opus 5, GPT-5.6, Gemini 3.1 Pro, plus the open-weight coders like GLM-5.1, Qwen3 and [Kimi K3](/blog/kimi-k3) — for a flat monthly price.
 
 **What sets it apart:**
 
@@ -53,11 +53,11 @@ The short version: most plans give you one company's models inside one company's
 
 ```bash
 # Point any OpenAI- or Anthropic-compatible coding tool at your DevPass key
-export ANTHROPIC_BASE_URL="https://api.llmgateway.io/v1"
+export ANTHROPIC_BASE_URL="https://api.llmgateway.io"
 export ANTHROPIC_API_KEY="$LLM_GATEWAY_API_KEY"
 
 # Then run Claude Code, OpenCode, Cline, or Cursor as usual —
-# every one of the 200+ models is now a single switch away
+# every one of the 100+ models is now a single switch away
 ```
 
 <BlogCta variant="devpass" location="after_ranking" />
@@ -84,7 +84,7 @@ Anthropic's Claude Code is a terminal-native agent that many developers consider
 
 **Pricing:** Claude Pro around $20/mo (limited); Max tiers roughly $100–$200/mo.
 
-**Best for:** Developers who are happy living entirely inside Claude. (You can also run Claude Code on DevPass to keep Claude _and_ add every other model — see [our Claude Code setup guide](/blog/how-configure-claude-code-with-llmgateway).)
+**Best for:** Developers who are happy living entirely inside Claude. (You can also run Claude Code on DevPass to keep Claude _and_ add every other model — see [our Claude Code setup guide](/blog/how-to-configure-claude-code-with-llmgateway).)
 
 ---
 
@@ -341,11 +341,11 @@ Aider is a beloved terminal-based coding assistant that works with any model API
 Switch to one flat rate for every model in under two minutes:
 
 1. **[Pick a DevPass plan](https://devpass.llmgateway.io/pricing)** — Lite, Pro, or Max
-2. Copy your key and point Claude Code, Cursor, Cline or OpenCode at `https://api.llmgateway.io/v1`
+2. Copy your key and point Cursor, Cline or OpenCode at `https://api.llmgateway.io/v1` (Claude Code at `https://api.llmgateway.io`)
 3. Switch models freely — every request shows its real cost in your dashboard
 
 No per-token math. No vendor lock-in. Just every model under one key.
 
 <BlogCta variant="devpass" location="bottom" />
 
-**[Compare DevPass vs Cursor](https://devpass.llmgateway.io/compare/cursor)** | **[Read the 7 best AI gateways](/blog/best-ai-gateways)** | **[GitHub Copilot alternatives](/blog/github-copilot-alternatives)**
+**[Compare DevPass vs Cursor](https://devpass.llmgateway.io/compare/cursor)** | **[Read the 8 best AI gateways](/blog/best-ai-gateways)** | **[GitHub Copilot alternatives](/blog/github-copilot-alternatives)**

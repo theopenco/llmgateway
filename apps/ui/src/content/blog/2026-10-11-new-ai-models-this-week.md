@@ -32,7 +32,7 @@ Ten new AI models landed in the **LLM Gateway** catalog in the last two weeks, f
 | Oct 6    | [Mistral Large 4](https://llmgateway.io/models/mistral-large-4)                         | Mistral     | $1.36 / $4.18                                               | 1M      | Open-weight MoE, 49B active / 1.05T total, vision       |
 | Oct 6    | [Gemini Nano Banana 2.1](https://llmgateway.io/models/gemini-nano-banana-2.1)           | Google      | $1.50 / $7.50, $30 per 1M image output tokens               | 131K    | Image generation and editing, 1K–4K output              |
 | Oct 5    | [Hy Image 3.5 Preview](https://llmgateway.io/models/hy-image-v3.5-preview)              | Tencent     | $1.60 per 1M image output tokens                            | 100K    | Image generation and editing, up to 20 reference images |
-| Oct 2    | [Ling 3.1 Flash](https://llmgateway.io/models/ling-3.1-flash)                           | InclusionAI | Free (Novita); $0.06 / $0.18 on DeepInfra                   | 262K    | Hybrid reasoning MoE, 560B total / 25B active, tools    |
+| Oct 2    | [Ling 3.1 Flash](https://llmgateway.io/models/ling-3.1-flash)                           | InclusionAI | Free (Novita)                                               | 262K    | Hybrid reasoning MoE, 560B total / 25B active, tools    |
 | Sep 29   | [GPT-6.1 Sol](https://llmgateway.io/models/gpt-6.1-sol)                                 | OpenAI      | $2.00 / $10.00                                              | 1.05M   | Coding, computer use, reasoning                         |
 | Sep 28   | [Claude Sonnet 5.5](https://llmgateway.io/models/claude-sonnet-5-5)                     | Anthropic   | $2.00 / $10.00                                              | 1M      | Adaptive thinking, vision, tools                        |
 
@@ -74,7 +74,7 @@ Not every new model comes from a hyperscaler. **GLM 5.3 Fast** is a faster varia
 
 ## Free this week: Ling 3.1 Flash
 
-InclusionAI's Ling 3.1 Flash is a hybrid-reasoning MoE (560B total, 25B active) with tool calling and a 262K context, and it is free on LLM Gateway via Novita (DeepInfra also serves it at $0.06 / $0.18 if you want a paid fallback). It is a good default for evals and CI jobs where you want a capable model at no cost. Model ID: `ling-3.1-flash`.
+InclusionAI's Ling 3.1 Flash is a hybrid-reasoning MoE (560B total, 25B active) with tool calling and a 262K context, and it is free on LLM Gateway via Novita. It is a good default for evals and CI jobs where you want a capable model at no cost. Model ID: `ling-3.1-flash`.
 
 ## Video: Grok Imagine Video 1.5 Lite
 

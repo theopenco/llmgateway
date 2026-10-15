@@ -76,12 +76,12 @@ If "run the whole platform ourselves, no proprietary control plane" is a hard re
 
 Portkey's routing is config-driven: you define conditional routes, fallback chains, and load-balancing weights. It's flexible, but the weights are yours to set and maintain.
 
-LLM Gateway's router scores every available provider for a model using the last 5 minutes of real metrics, then picks the winner automatically:
+LLM Gateway's router scores every available provider for a model using real metrics from a rolling %routing.history.windowMinutes%-minute window that weights the last few minutes most, then picks the winner automatically:
 
-- **Uptime (50%)** — exponential penalty below 95%
-- **Throughput (20%)** — tokens per second
-- **Price (20%)** — weighted toward cheaper providers
-- **Latency (10%)** — time to first token on streaming
+- **Price (weight %routing.weights.price%)** — weighted toward cheaper providers
+- **Uptime (weight %routing.weights.uptime%)** — exponential penalty below %routing.thresholds.uptimePenalty%%
+- **Throughput (weight %routing.weights.throughput%)** — tokens per second
+- **Latency (weight %routing.weights.latency%)** — time to first token on streaming
 
 Epsilon-greedy exploration (1% of requests) keeps the scores honest as conditions change, and every decision is logged with the scores and the winner — so routing adapts on its own instead of waiting for you to update a config.
 
