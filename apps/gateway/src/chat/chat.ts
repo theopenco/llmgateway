@@ -360,10 +360,12 @@ import {
 	isInvalidEncryptedContentError,
 	lookupReasoningPin,
 	reasoningPinBindsModel,
+	rememberRejectedReasoning,
 	type ReasoningCredential,
 	rememberReasoningCredential,
 	resolveReasoningCredentialPin,
 	stripAccountBoundReasoning,
+	stripForeignReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
 	flushTaggedStreamingRemainder,
@@ -8519,6 +8521,20 @@ chat.openapi(completions, async (c) => {
 		region: usedRegion,
 	});
 
+	// Encrypted reasoning another credential produced, or that an account
+	// already rejected, cannot verify here, so it is left out up front rather
+	// than cost a rejected attempt on every turn of the conversation.
+	const initialReplay = usedProviderEncryptsReasoning()
+		? await stripForeignReasoning(
+				project.organizationId,
+				messages,
+				currentReasoningCredential(),
+			)
+		: { messages, stripped: false };
+	if (initialReplay.stripped && routingMetadata) {
+		routingMetadata.encryptedReasoningDropped = true;
+	}
+
 	let requestBody: ProviderRequestBody | FormData;
 	try {
 		requestBody = await prepareRequestBody(
@@ -8526,7 +8542,7 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel,
 			usedRegion ?? null,
 			upstreamModelName,
-			messages as BaseMessage[],
+			initialReplay.messages as BaseMessage[],
 			effectiveStream,
 			temperature,
 			max_tokens,
@@ -8955,6 +8971,12 @@ chat.openapi(completions, async (c) => {
 			return null;
 		}
 		retriedWithoutEncryptedReasoning = true;
+		await rememberRejectedReasoning(
+			retryProjectContext.organizationId,
+			initialReplay.messages,
+			currentReasoningCredential(),
+			errorText,
+		);
 		try {
 			const nextContext = await resolveProviderContextForRetry(
 				{
