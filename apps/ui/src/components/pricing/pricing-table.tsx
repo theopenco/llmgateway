@@ -78,7 +78,7 @@ const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Auto-routing & Vendor Selection",
 		description: "Automatic provider routing",
-		learnMoreLink: "/features/auto-routing",
+		learnMoreLink: "/features/routing",
 		free: true,
 		enterprise: true,
 	},
