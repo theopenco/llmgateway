@@ -11,11 +11,7 @@ import { CodeCTATracker } from "@/components/LandingTracker";
 import { SwitchIn60 } from "@/components/SwitchIn60";
 import { Button } from "@/components/ui/button";
 
-import {
-	DEV_PLAN_PRICES,
-	getDevPlanCreditsLimit,
-	MARKETING_STATS,
-} from "@llmgateway/shared";
+import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
@@ -197,11 +193,10 @@ export default function ClaudeCodeAlternativePage() {
 						</h1>
 						<p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-pretty text-muted-foreground">
 							You don&apos;t have to give up the CLI to give up the $100–$200/mo
-							Max subscription. DevPass is one key that runs{" "}
-							{MARKETING_STATS.models} models — Claude included — through Claude
-							Code or another compatible agent, metered at provider rates from $
-							{DEV_PLAN_PRICES.lite}/mo. Monthly and premium weekly limits
-							apply.
+							Max subscription. DevPass is one key that runs 100+ models —
+							Claude included — through Claude Code or another compatible agent,
+							metered at provider rates from ${DEV_PLAN_PRICES.lite}/mo. Monthly
+							and premium weekly limits apply.
 						</p>
 
 						<div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">

@@ -72,7 +72,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
-			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 200+ models.",
+			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 100+ models.",
 		creator: "@llmgateway",
 	},
 };

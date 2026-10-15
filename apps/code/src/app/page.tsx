@@ -281,9 +281,9 @@ export default function LandingPage() {
 								What you pay vs. what you get
 							</h2>
 							<p className="text-muted-foreground">
-								Every plan includes the full {MARKETING_STATS.models} model
-								catalog. The only things that change are your monthly usage
-								allowance and the weekly fair-use cap on premium models.
+								Every plan includes the full 100+ model catalog. The only things
+								that change are your monthly usage allowance, its daily pacing,
+								and the weekly fair-use cap on premium models.
 							</p>
 						</div>
 						<PricingPlans credits={credits} paygoUrl={config.uiUrl} />

@@ -274,7 +274,7 @@ export function PassportBook() {
 										</div>
 										<div>
 											<dt className="text-stone-400">Access</dt>
-											<dd>200+ models · all tiers</dd>
+											<dd>100+ models · all tiers</dd>
 										</div>
 									</dl>
 								</div>
