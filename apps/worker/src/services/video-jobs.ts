@@ -2212,8 +2212,11 @@ export async function processPendingVideoJobs(): Promise<void> {
 		if (isStopRequested()) {
 			break;
 		}
+		// Upstream status failures are expected; they back off and fail the job.
+		let isUpstreamPollFailure = true;
 		try {
 			const upstreamStatus = await fetchUpstreamStatus(job);
+			isUpstreamPollFailure = false;
 			let enrichedUpstreamStatus = upstreamStatus;
 			let status = normalizeVideoStatus(enrichedUpstreamStatus.status);
 			let progress = extractProgress(enrichedUpstreamStatus);
@@ -2320,16 +2323,26 @@ export async function processPendingVideoJobs(): Promise<void> {
 			}
 
 			const message = error instanceof Error ? error.message : String(error);
-			logger.error(
-				"Error polling video job",
-				error instanceof Error ? error : new Error(message),
-				{
+			const nextErrorCount = getVideoJobPollErrorCount(job) + 1;
+			if (isUpstreamPollFailure) {
+				logger.warn("Video job upstream status poll failed", {
 					videoJobId: job.id,
 					upstreamId: job.upstreamId,
-				},
-			);
+					provider: job.usedProvider,
+					errorCount: nextErrorCount,
+					error: message,
+				});
+			} else {
+				logger.error(
+					"Error polling video job",
+					error instanceof Error ? error : new Error(message),
+					{
+						videoJobId: job.id,
+						upstreamId: job.upstreamId,
+					},
+				);
+			}
 
-			const nextErrorCount = getVideoJobPollErrorCount(job) + 1;
 			const currentStatusResponse =
 				job.upstreamStatusResponse &&
 				typeof job.upstreamStatusResponse === "object" &&
