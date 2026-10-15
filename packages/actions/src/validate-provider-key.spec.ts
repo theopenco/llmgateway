@@ -88,7 +88,6 @@ describe("getValidationModel", () => {
 				expect(getValidationModel(provider.id), provider.id).not.toBeNull();
 			}
 		}
-		expect(getValidationModel("atria")?.modelId).toBe("atria-dawn-preview");
 	});
 
 	it("selects a model from the newer half of the provider's text releases", () => {

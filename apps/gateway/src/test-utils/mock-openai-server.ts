@@ -622,6 +622,14 @@ mockOpenAIServer.post(
 	},
 );
 
+// Providers whose base URL already ends in the API version (Novita, among
+// others) call `/chat/completions` on it directly.
+mockOpenAIServer.post("/chat/completions", (c) => {
+	const url = new URL(c.req.url);
+	url.pathname = "/v1/chat/completions";
+	return mockOpenAIServer.fetch(new Request(url, c.req.raw));
+});
+
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
