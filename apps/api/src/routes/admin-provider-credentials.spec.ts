@@ -52,6 +52,11 @@ interface Credential {
 	usage: string;
 	maskedToken: string;
 	tokenHash: string | null;
+	maxRpm: number | null;
+	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
+	rateLimitMode: string;
 }
 
 describe("admin provider credentials", () => {
@@ -350,6 +355,43 @@ describe("admin provider credentials", () => {
 		expect((await list())[0].usageLimit).toBeNull();
 	});
 
+	test("stores and updates rate limits", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-rate-limited",
+			maxRpm: 60,
+			maxTpd: 1_000_000,
+		});
+		expect(res.status).toBe(201);
+		const [credential] = await list();
+		expect(credential).toMatchObject({
+			maxRpm: 60,
+			maxRpd: null,
+			maxTpm: null,
+			maxTpd: 1_000_000,
+		});
+
+		const update = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					maxRpm: null,
+					maxTpm: 50_000,
+					rateLimitMode: "lax",
+				}),
+			},
+		);
+		expect(update.status).toBe(200);
+		expect((await list())[0]).toMatchObject({
+			maxRpm: null,
+			maxTpm: 50_000,
+			maxTpd: 1_000_000,
+			rateLimitMode: "lax",
+		});
+	});
+
 	test("refuses to reactivate a credential still at its spend limit", async () => {
 		await create({ provider: "openai", token: "sk-limited" });
 		const [credential] = await list();
@@ -419,7 +461,36 @@ describe("admin provider credentials", () => {
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
+		// First the teardown grace period; the worker finishes the deletion.
+		expect(row?.status).toBe("pending_deletion");
+		expect(row?.deletionRequestedAt).toBeInstanceOf(Date);
+
+		const again = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(again.status).toBe(404);
+	});
+
+	test("deletes a disabled credential without a grace period", async () => {
+		await create({ provider: "openai", token: "sk-disabled-one" });
+		const [credential] = await list();
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, credential.id));
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		// A disabled key must never serve pinned conversations again.
 		expect(row?.status).toBe("deleted");
+		expect(row?.deletionRequestedAt).toBeNull();
 	});
 
 	test("lists soft-deleted credentials only when asked", async () => {
@@ -436,7 +507,7 @@ describe("admin provider credentials", () => {
 		expect((await list()).map((c) => c.id)).toEqual([kept.id]);
 		const withDeleted = await list("?includeDeleted=true");
 		expect(withDeleted.map((c) => [c.id, c.status])).toEqual([
-			[deleted.id, "deleted"],
+			[deleted.id, "pending_deletion"],
 			[kept.id, "active"],
 		]);
 	});
@@ -462,14 +533,26 @@ describe("admin provider credentials", () => {
 		expect(renamed.status).toBe(200);
 		const { credential: updated } = await renamed.json();
 		expect(updated.comment).toBe("old prod key");
-		expect(updated.status).toBe("deleted");
+		expect(updated.status).toBe("pending_deletion");
 
 		const revived = await patch({ status: "active" });
 		expect(revived.status).toBe(400);
+
+		// Pinned conversations still use it, so what it sends stays fixed.
+		const rotated = await patch({ token: "sk-rotated", skipValidation: true });
+		expect(rotated.status).toBe(400);
+		const moved = await patch({ region: "eu" });
+		expect(moved.status).toBe(400);
+		const narrowed = await patch({ allowedModels: ["gpt-4o-mini"] });
+		expect(narrowed.status).toBe(400);
+
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
-		expect(row?.status).toBe("deleted");
+		expect(row?.status).toBe("pending_deletion");
+		const [stored] = await list("?includeDeleted=true");
+		expect(stored.maskedToken).toBe(credential.maskedToken);
+		expect(stored.region).toBe(credential.region);
 	});
 
 	test("does not manage organization-owned provider keys", async () => {

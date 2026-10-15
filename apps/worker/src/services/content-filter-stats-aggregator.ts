@@ -29,6 +29,9 @@ interface ContentFilterStatsRow extends Record<string, unknown> {
 	category: string;
 	classifier: string;
 	role: NonNullable<ContentFilterStatsInsert["role"]>;
+	// The internal classifier's scope; empty for other classifiers, null on the
+	// per-API-key rows, which are not split by scope.
+	internal_scope: string | null;
 	sampled_count: number;
 	violation_count: number;
 	blocked_count: number;
@@ -89,8 +92,10 @@ function hourWindow(targetHour: Date) {
  * whose moderation call failed never scored anything, so they are left out of
  * sampledCount to keep the violation rate honest during an outage.
  *
- * Every row is keyed by classifier and role; role is always "deciding" since
- * the shadow classifier was removed, and a legacy shadow verdict is ignored.
+ * Every row is keyed by classifier, role and, for the internal classifier, the
+ * scope it read, so flag rates compare across scopes; role is always "deciding"
+ * since the shadow classifier was removed, and a legacy shadow verdict is
+ * ignored.
  * The "all" rows also carry classifier durations, failed checks included.
  *
  * The same scan feeds contentFilterHourlyLatencyStats: the classifier's own
@@ -190,6 +195,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
 			classifier,
 			role,
+			internal_scope,
 			count(distinct request_id) filter (where not moderation_failed)::int as sampled_count,
 			count(distinct request_id) filter (where violation)::int as violation_count,
 			count(distinct request_id) filter (where blocked)::int as blocked_count,
@@ -207,8 +213,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			null::jsonb as latency
 		from verdicts
 		group by grouping sets (
-			(organization_id, project_id, classifier, role),
-			(organization_id, project_id, used_model, used_provider, classifier, role),
+			(organization_id, project_id, classifier, role, internal_scope),
+			(organization_id, project_id, used_model, used_provider, classifier, role, internal_scope),
 			(organization_id, project_id, api_key_id, classifier, role)
 		)
 		union all
@@ -221,6 +227,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			category,
 			classifier,
 			role,
+			internal_scope,
 			0 as sampled_count,
 			count(distinct request_id)::int as violation_count,
 			0 as blocked_count,
@@ -236,8 +243,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 		) as category
 		where violation
 		group by grouping sets (
-			(organization_id, project_id, classifier, role, category),
-			(organization_id, project_id, used_model, used_provider, classifier, role, category),
+			(organization_id, project_id, classifier, role, internal_scope, category),
+			(organization_id, project_id, used_model, used_provider, classifier, role, internal_scope, category),
 			(organization_id, project_id, api_key_id, classifier, role, category)
 		)
 		union all
@@ -250,6 +257,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
 			classifier,
 			role,
+			internal_scope,
 			0 as sampled_count,
 			0 as violation_count,
 			0 as blocked_count,
@@ -316,6 +324,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			category: row.category,
 			classifier: row.classifier,
 			role: row.role,
+			internalScope: row.internal_scope ?? "",
 			sampledCount: Number(row.sampled_count),
 			violationCount: Number(row.violation_count),
 			blockedCount: Number(row.blocked_count),
@@ -371,6 +380,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 						contentFilterHourlyStats.category,
 						contentFilterHourlyStats.classifier,
 						contentFilterHourlyStats.role,
+						contentFilterHourlyStats.internalScope,
 					],
 					set: {
 						sampledCount: sql`excluded.sampled_count`,
@@ -398,6 +408,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 						contentFilterHourlyModelStats.category,
 						contentFilterHourlyModelStats.classifier,
 						contentFilterHourlyModelStats.role,
+						contentFilterHourlyModelStats.internalScope,
 					],
 					set: {
 						sampledCount: sql`excluded.sampled_count`,

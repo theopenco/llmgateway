@@ -105,6 +105,31 @@ describe("realtime model catalogue validation", () => {
 		expect(mapping.tools).toBe(true);
 	});
 
+	it("declares the Grok Voice 3.0 mapping exactly", () => {
+		const entry = realtimeEntries.find((e) => e.model.id === "grok-voice-3-0");
+		expect(entry).toBeDefined();
+		const { mapping } = entry!;
+		expect(mapping.providerId).toBe("xai");
+		expect(mapping.externalId).toBe("grok-voice-3.0");
+		// https://docs.x.ai/developers/pricing — $0.08/min ($4.80/h) of session
+		// time plus $0.004 per text input; tokens are not billed.
+		expect(mapping.inputAudioHourPrice).toBe("4.80");
+		expect(mapping.inputTextItemPrice).toBe("0.004");
+		for (const price of [
+			mapping.inputPrice,
+			mapping.cachedInputPrice,
+			mapping.outputPrice,
+			mapping.inputAudioPrice,
+			mapping.cachedInputAudioPrice,
+			mapping.outputAudioPrice,
+			mapping.requestPrice,
+		]) {
+			expect(price).toBe("0");
+		}
+		expect(mapping.imageInputPrice).toBeUndefined();
+		expect(mapping.supportedVoices?.[0]).toBe("ara");
+	});
+
 	const transcriptionEntries = (models as readonly ModelDefinition[]).flatMap(
 		(model) =>
 			model.providers

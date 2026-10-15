@@ -29,6 +29,7 @@ import {
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
 	type ToolChoiceType,
+	usesEncryptedReasoning,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
@@ -1560,6 +1561,7 @@ export async function prepareRequestBody(
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
 	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
+	parallel_tool_calls?: boolean,
 ): Promise<ProviderRequestBody | FormData> {
 	// Check before provider transforms can strip a caller's markers.
 	const hasCacheMarker = (part: object) =>
@@ -2451,6 +2453,24 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// `parallel_tool_calls` is only valid next to tools (OpenAI rejects it
+	// otherwise). OpenAI and Azure document it; other OpenAI-compatible mappings
+	// opt in through supportedParameters. Anthropic maps it onto tool_choice in
+	// its case below; provider-native formats delete it from the base body.
+	const acceptsParallelToolCalls =
+		usedProvider === "openai" ||
+		usedProvider === "azure" ||
+		providerMappingForOptions?.supportedParameters?.includes(
+			"parallel_tool_calls",
+		) === true;
+	if (
+		parallel_tool_calls !== undefined &&
+		requestBody.tools !== undefined &&
+		acceptsParallelToolCalls
+	) {
+		requestBody.parallel_tool_calls = parallel_tool_calls;
+	}
+
 	// Resolve tool_choice against what the mapping declares it accepts. Fall
 	// back to "auto" when the mapping omits "tool_choice" from
 	// supportedParameters, or when the requested tool_choice mode isn't listed
@@ -2630,7 +2650,10 @@ export async function prepareRequestBody(
 				// full).
 				if (getProviderDefinition(usedProvider)?.encryptedReasoning) {
 					responsesBody.store = false;
-					responsesBody.include = ["reasoning.encrypted_content"];
+					// Only mappings that reason return replayable payloads.
+					if (usesEncryptedReasoning(providerMappingForOptions)) {
+						responsesBody.include = ["reasoning.encrypted_content"];
+					}
 				}
 
 				if (usedProvider === "aws-mantle") {
@@ -2799,6 +2822,13 @@ export async function prepareRequestBody(
 				}
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
+				}
+				if (
+					acceptsParallelToolCalls &&
+					parallel_tool_calls !== undefined &&
+					responsesBody.tools?.length
+				) {
+					responsesBody.parallel_tool_calls = parallel_tool_calls;
 				}
 
 				// Add optional parameters if they are provided
@@ -3321,6 +3351,7 @@ export async function prepareRequestBody(
 		case "azure-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
+			delete requestBody.parallel_tool_calls;
 
 			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
 			// both the direct API and Vertex `rawPredict` (verified live). AWS
@@ -3680,6 +3711,18 @@ export async function prepareRequestBody(
 					requestBody.tool_choice = { type: "none" };
 				}
 			}
+			// Anthropic has no parallel_tool_calls; the same switch lives on
+			// tool_choice, which rejects it alongside type "none".
+			if (
+				parallel_tool_calls === false &&
+				requestBody.tools?.length &&
+				requestBody.tool_choice?.type !== "none"
+			) {
+				requestBody.tool_choice = {
+					...(requestBody.tool_choice ?? { type: "auto" }),
+					disable_parallel_tool_use: true,
+				};
+			}
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
@@ -3832,6 +3875,7 @@ export async function prepareRequestBody(
 			delete requestBody.messages; // Will be transformed to Bedrock format
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
+			delete requestBody.parallel_tool_calls; // No Converse equivalent
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
@@ -4469,6 +4513,7 @@ export async function prepareRequestBody(
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
+			delete requestBody.parallel_tool_calls; // No Gemini equivalent
 			// Map OpenAI tool_choice to Google's toolConfig format
 			if (
 				resolvedToolChoice &&

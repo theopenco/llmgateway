@@ -824,6 +824,61 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("rate limits", () => {
+		async function patchKey(body: Record<string, unknown>) {
+			return await app.request("/keys/provider/test-provider-key-id", {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify(body),
+			});
+		}
+
+		test("PATCH sets, keeps and clears request and token caps", async () => {
+			const set = await patchKey({ maxRpm: 60, maxTpd: 1_000_000 });
+			expect(set.status).toBe(200);
+			expect((await set.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				maxRpd: null,
+				maxTpm: null,
+				maxTpd: 1_000_000,
+			});
+
+			const partial = await patchKey({ maxTpm: 50_000 });
+			expect(partial.status).toBe(200);
+			expect((await partial.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				maxTpm: 50_000,
+				maxTpd: 1_000_000,
+			});
+
+			const clear = await patchKey({ maxRpm: null });
+			expect(clear.status).toBe(200);
+			expect((await clear.json()).providerKey.maxRpm).toBeNull();
+		});
+
+		test("PATCH sets the cap mode, defaulting to strict", async () => {
+			const before = await patchKey({ maxRpm: 60 });
+			expect((await before.json()).providerKey.rateLimitMode).toBe("strict");
+
+			const soft = await patchKey({ rateLimitMode: "soft" });
+			expect(soft.status).toBe(200);
+			expect((await soft.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				rateLimitMode: "soft",
+			});
+
+			expect((await patchKey({ rateLimitMode: "loose" })).status).toBe(400);
+		});
+
+		test("PATCH rejects caps below 1", async () => {
+			const res = await patchKey({ maxRpm: 0 });
+			expect(res.status).toBe(400);
+		});
+	});
+
 	describe("allowed models", () => {
 		// Taken from the catalogue rather than hardcoded so the assertions do not
 		// rot when a model is retired.
@@ -972,6 +1027,42 @@ describe("provider keys route", () => {
 			},
 		});
 		expect(providerKey).not.toBeNull();
+		// Non-custom keys first enter their teardown grace period.
+		expect(providerKey?.status).toBe("pending_deletion");
+		expect(providerKey?.deletionRequestedAt).toBeInstanceOf(Date);
+
+		// Its owner sees it as deleted and can no longer edit it.
+		const list = await app.request("/keys/provider", {
+			headers: { Cookie: token },
+		});
+		const { providerKeys } = await list.json();
+		expect(
+			providerKeys.find(
+				(key: { id: string }) => key.id === "test-provider-key-id",
+			)?.status,
+		).toBe("deleted");
+		const patch = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ status: "active" }),
+		});
+		expect(patch.status).toBe(404);
+	});
+
+	test("DELETE /keys/provider/{id} skips the grace period for a disabled key", async () => {
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, "test-provider-key-id"));
+
+		const res = await app.request("/keys/provider/test-provider-key-id", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
 		expect(providerKey?.status).toBe("deleted");
 	});
 

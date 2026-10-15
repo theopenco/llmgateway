@@ -45,13 +45,16 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import {
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	getRemainingDailyAllowance,
 	type DevPlanTier,
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumModel,
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
+import { assertProviderKeysNotRateLimited } from "./provider-key-rate-limit-error.js";
 import { resolveAirsideProviderBaseUrl } from "./resolve-airside-model.js";
 import { resolvePlatformCredential } from "./resolve-platform-credential.js";
 import {
@@ -60,6 +63,7 @@ import {
 	providerKeySupportsServiceTier,
 } from "./service-tier.js";
 
+import type { ProviderKeyRateLimitExemption } from "@/lib/provider-key-rate-limit.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
@@ -182,6 +186,8 @@ export interface ProviderContextOptions {
 	customProviderName: string | undefined;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	/** Lets soft/lax-capped provider keys serve this request. */
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 	n?: number;
 	providerCacheControlMode: ProviderCacheControlMode;
 	providerCacheAutoTtl?: "5m" | "1h";
@@ -194,6 +200,7 @@ export interface ProviderContextOptions {
 	 */
 	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
+	parallel_tool_calls?: boolean;
 }
 
 interface ProjectInfo {
@@ -214,6 +221,8 @@ interface OrgInfo {
 	devPlanCreditsUsed: string | null;
 	devPlanPremiumCreditsUsed: string | null;
 	devPlanPremiumWeekStart: Date | null;
+	devPlanDailyCreditsUsed: string | null;
+	devPlanDayStart: Date | null;
 	devPlanExpiresAt: Date | null;
 	chatPlan: string;
 	chatPlanCreditsLimit: string | null;
@@ -408,6 +417,82 @@ export function assertDevPlanPremiumCapNotExceeded(
 }
 
 /**
+ * Throws when a DevPass subscriber has spent the daily pacing allowance for
+ * the current rolling 24-hour window. Applies to every model; no-op for
+ * non-DevPass orgs. Same trackRejection discipline as the premium gate.
+ */
+export function assertDevPlanDailyCapNotExceeded(
+	organization: Pick<
+		OrgInfo,
+		| "id"
+		| "credits"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "devPlanDailyCreditsUsed"
+		| "devPlanDayStart"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
+	>,
+	trackRejection = false,
+): void {
+	if (organization.devPlan === "none") {
+		return;
+	}
+	const tier = organization.devPlan as DevPlanTier;
+	const remaining = getRemainingDailyAllowance(
+		tier,
+		organization.devPlanDailyCreditsUsed,
+		organization.devPlanDayStart,
+	);
+	if (remaining > 0) {
+		return;
+	}
+	// Same rule as the premium cap: the daily allowance paces the plan pool,
+	// not the org's own money. With overflow opted in, over-cap spend is held
+	// out of the pool by the worker and billed to the credits balance.
+	if (organization.devPlanPaygEnabled) {
+		const { regularCredits, devPlanCreditsRemaining } =
+			getAvailableCredits(organization);
+		if (devPlanCreditsRemaining <= 0 || regularCredits > 0) {
+			return;
+		}
+	}
+	const dayStart = organization.devPlanDayStart
+		? new Date(organization.devPlanDayStart)
+		: new Date();
+	const msUntilReset = Math.max(
+		0,
+		dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS - Date.now(),
+	);
+	if (trackRejection) {
+		try {
+			posthog.capture({
+				distinctId: organization.id,
+				event: "devpass_daily_cap_rejected",
+				groups: { organization: organization.id },
+				properties: {
+					devPlan: tier,
+					msUntilReset,
+					organization: organization.id,
+					$process_person_profile: false,
+				},
+			});
+		} catch {
+			// Telemetry must never turn this billing gate into a 500.
+		}
+	}
+	const paygHint = organization.devPlanPaygEnabled
+		? " Pay-as-you-go overflow is enabled but your credits balance is empty — top up from your DevPass dashboard to keep going."
+		: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily pace.";
+	throw new HTTPException(402, {
+		message: `You've reached the daily pacing allowance on the ${tier} plan. Upgrade for a higher daily allowance, or wait for the window to roll over — resets in ${formatTimeUntilReset(msUntilReset)}.${paygHint}`,
+	});
+}
+
+/**
  * Formats a duration as "N days and M hours", dropping zero components and
  * rounding up to the next hour so the wait is never understated.
  */
@@ -441,6 +526,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 		return;
 	}
 	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
+	assertDevPlanDailyCapNotExceeded(organization);
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -611,6 +697,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -619,10 +706,21 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
 		if (!providerKey) {
+			await assertProviderKeysNotRateLimited(
+				project.organizationId,
+				usedProvider,
+				{
+					customProviderName: options.customProviderName,
+					filter: byokKeyFilter,
+					excludedKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
+				},
+			);
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${usedProvider}`,
 			});
@@ -645,6 +743,7 @@ export async function resolveProviderContext(
 				requiresServiceTier: serviceTierKeyFilter !== undefined,
 				excludedEnvIndices: options.excludedEnvKeyIndices,
 				excludedProviderKeyIds: options.excludedProviderKeyIds,
+				rateLimitExemption: options.rateLimitExemption,
 			},
 		);
 		managedKey = platformCredential.managedKey;
@@ -658,6 +757,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -666,12 +766,25 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
+			// Custom providers have no platform credential to fall back to.
+			if (usedProvider === "custom") {
+				await assertProviderKeysNotRateLimited(
+					project.organizationId,
+					usedProvider,
+					{
+						customProviderName: options.customProviderName,
+						excludedKeyIds: options.excludedProviderKeyIds,
+						rateLimitExemption: options.rateLimitExemption,
+					},
+				);
+			}
 			assertOrganizationHasCreditsForEnvFallback(
 				organization,
 				modelInfo,
@@ -687,6 +800,7 @@ export async function resolveProviderContext(
 					requiresServiceTier: serviceTierKeyFilter !== undefined,
 					excludedEnvIndices: options.excludedEnvKeyIndices,
 					excludedProviderKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
 				},
 			);
 			managedKey = platformCredential.managedKey;
@@ -1010,6 +1124,7 @@ export async function resolveProviderContext(
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,
+		options.parallel_tool_calls,
 	);
 
 	// Post-validation of max_tokens in request body

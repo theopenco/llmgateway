@@ -24,6 +24,7 @@ import {
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
+	findRateLimitedManagedKeyIds,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -35,6 +36,7 @@ import {
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	findPinnableProviderKey,
 	getContentFilterSettings,
 	listAirsidePairs,
 	type AirsideListedModel,
@@ -107,6 +109,11 @@ import {
 	applyPromptReference,
 	promptResponseHeaders,
 } from "@/lib/prompt-template.js";
+import {
+	excludeRateLimitedProviderKeys,
+	getRateLimitedProviderKeyIds,
+	type ProviderKeyRateLimitExemption,
+} from "@/lib/provider-key-rate-limit.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
@@ -117,8 +124,8 @@ import {
 	type ProviderRateLimitResult,
 	peekProviderRateLimit,
 	pickNonRateLimitedCandidates,
-	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
+import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
@@ -243,6 +250,7 @@ import {
 	isChatPlanModelAllowed,
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
+	isContentFilterErrorText,
 } from "@llmgateway/shared";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 import {
@@ -342,7 +350,17 @@ import {
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
+import { assertProviderKeysNotRateLimited } from "./tools/provider-key-rate-limit-error.js";
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
+import {
+	isInvalidEncryptedContentError,
+	lookupReasoningPin,
+	reasoningPinBindsModel,
+	type ReasoningCredential,
+	rememberReasoningCredential,
+	resolveReasoningCredentialPin,
+	stripAccountBoundReasoning,
+} from "./tools/reasoning-credential-pin.js";
 import {
 	flushTaggedStreamingRemainder,
 	hasProviderBoundReasoning,
@@ -362,6 +380,7 @@ import {
 	resolvePlatformCredential,
 } from "./tools/resolve-platform-credential.js";
 import {
+	assertDevPlanDailyCapNotExceeded,
 	assertDevPlanPremiumCapNotExceeded,
 	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
@@ -1374,17 +1393,14 @@ function inferStreamingErrorStatusCode(
 	if (
 		errorType === "content_filter" ||
 		errorCode === "content_filter" ||
-		errorText.includes("responsibleaipolicyviolation") ||
-		errorText.includes("sensitivecontentdetected") ||
-		errorType === "data_inspection_failed" ||
-		errorCode === "data_inspection_failed" ||
-		errorText.includes("input data may contain inappropriate content") ||
+		isContentFilterErrorText(errorText) ||
 		errorText.includes("content violates usage guidelines")
 	) {
 		return 400;
 	}
 	if (
 		errorType === "invalid_request_error" ||
+		errorType === "invalid_request" ||
 		errorType === "invalid_argument"
 	) {
 		return 400;
@@ -1903,6 +1919,7 @@ chat.openapi(completions, async (c) => {
 		plugins,
 		n,
 		user,
+		parallel_tool_calls,
 	} = validationResult.data;
 
 	// Mutable: dev-plan (DevPass) orgs can configure a default service tier in
@@ -3024,9 +3041,84 @@ chat.openapi(completions, async (c) => {
 		ReturnType<typeof createSessionProviderStore>
 	>();
 	const pendingSessionPins = new Set<string>();
+	// Replayed provider-bound reasoning only verifies where it was produced, so
+	// the provider recorded for it outranks the session pin, and pins requests
+	// without a session id too. The key is pinned at credential selection.
+	// Looked up whenever the last assistant turn carries bound reasoning or
+	// tool calls: a Gemini signature may only exist in the cache, keyed by call.
+	const reasoningPin = await lookupReasoningPin(
+		project.organizationId,
+		messages,
+	);
+	// Only a model whose mapping on the pinned provider returns bound reasoning
+	// is held there; image and other non-reasoning models route normally.
+	const reasoningPinFor = (modelId: string) =>
+		reasoningPinBindsModel(
+			reasoningPin,
+			modelInfo.id === modelId
+				? modelInfo.providers
+				: models.find((model) => model.id === modelId)?.providers,
+		)
+			? reasoningPin
+			: undefined;
+	// The organization's own key a pin names may be pending deletion, so no
+	// active-key list contains it. Routing counts it as a key for its provider
+	// for the models it binds; credential selection then uses exactly it.
+	const pinnedByokKey =
+		reasoningPin?.source === "byok" && reasoningPin.providerKeyId
+			? await findPinnableProviderKey(reasoningPin.providerKeyId)
+			: undefined;
+	const reasoningPinnedKey =
+		pinnedByokKey &&
+		!pinnedByokKey.managed &&
+		pinnedByokKey.organizationId === project.organizationId &&
+		pinnedByokKey.provider === reasoningPin?.provider
+			? pinnedByokKey
+			: undefined;
+	const withReasoningPinnedKey = (
+		keys: InferSelectModel<typeof tables.providerKey>[],
+		modelId: string,
+	) =>
+		reasoningPinnedKey &&
+		reasoningPinFor(modelId) &&
+		!keys.some((key) => key.id === reasoningPinnedKey.id)
+			? [...keys, reasoningPinnedKey]
+			: keys;
+	// A managed credential the conversation is pinned to keeps its provider
+	// routable even at its own rate limit: it is the only credential that can
+	// verify the replay, and pinned traffic is exempt from key caps.
+	const managedAvailabilityFor = async (
+		variant: Parameters<typeof findManagedProviderAvailability>[0],
+		modelId: string,
+		rateLimited?: ReadonlySet<string>,
+		rateLimitExemption?: ProviderKeyRateLimitExemption,
+	) => {
+		const pinnedManagedKeyId =
+			reasoningPinFor(modelId)?.source === "managed"
+				? reasoningPin?.providerKeyId
+				: undefined;
+		if (!pinnedManagedKeyId) {
+			return await findManagedProviderAvailability(
+				variant,
+				modelId,
+				rateLimited,
+				rateLimitExemption,
+			);
+		}
+		const limited = new Set(
+			rateLimited ?? (await findRateLimitedManagedKeyIds(rateLimitExemption)),
+		);
+		limited.delete(pinnedManagedKeyId);
+		return await findManagedProviderAvailability(variant, modelId, limited);
+	};
 	const createSessionStore = (modelId: string) => {
+		const modelReasoningPin = reasoningPinFor(modelId);
+		const reasoningPinnedProvider = async () =>
+			modelReasoningPin ? { providerId: modelReasoningPin.provider } : null;
 		if (!sessionStickyEnabled || !sessionId) {
-			return undefined;
+			return modelReasoningPin
+				? { get: reasoningPinnedProvider, set: async () => {} }
+				: undefined;
 		}
 		let store = sessionStores.get(modelId);
 		if (!store) {
@@ -3039,7 +3131,9 @@ chat.openapi(completions, async (c) => {
 			let initialPin: ReturnType<typeof persistent.get> | undefined;
 			store = {
 				get: () => {
-					initialPin ??= persistent.get();
+					initialPin ??= reasoningPinnedProvider().then(
+						async (pinned) => pinned ?? (await persistent.get()),
+					);
 					return initialPin;
 				},
 				// Commit the final pin only after the rate-limit gate accepts it.
@@ -3064,6 +3158,10 @@ chat.openapi(completions, async (c) => {
 			providerId === explicitRateLimitProvider &&
 			modelInfo.id === explicitRateLimitModel,
 	});
+	// Soft/lax provider key caps grant the same exemptions as provider caps.
+	// Only valid once routing reads the session pin (existingSessionProvider).
+	const providerKeyRateLimitExemption = (providerId: string) =>
+		providerRateLimitExemption(providerId, initialProviderFallback);
 	const consumeProviderRateLimit = (providerId: string, fallback: boolean) =>
 		checkProviderRateLimit(
 			project.organizationId,
@@ -3111,8 +3209,16 @@ chat.openapi(completions, async (c) => {
 		);
 	// Check replayed data at retry time, after cached Google signatures are
 	// restored. Reasoning capability alone does not bind a fresh request.
+	// Only a mapping that returns provider-bound reasoning can use the replayed
+	// payloads, so only such a mapping holds the request to its provider; image
+	// and other non-reasoning mappings keep cross-provider fallback.
+	// OpenAI-format encrypted reasoning is dropped on a retry that leaves its
+	// credential (see resolveProviderContextForRetry), so only reasoning that
+	// cannot be dropped — Gemini signatures — still blocks fallback.
 	const isProviderPinned = () =>
-		sessionStickyEnabled || hasProviderBoundReasoning(messages);
+		sessionStickyEnabled ||
+		(hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
+			usedProviderEncryptsReasoning());
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -3130,6 +3236,8 @@ chat.openapi(completions, async (c) => {
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
 		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
 		devPlanPremiumWeekStart: organization.devPlanPremiumWeekStart,
+		devPlanDailyCreditsUsed: organization.devPlanDailyCreditsUsed,
+		devPlanDayStart: organization.devPlanDayStart,
 		devPlanExpiresAt: organization.devPlanExpiresAt,
 		chatPlan: organization.chatPlan,
 		chatPlanCreditsLimit: organization.chatPlanCreditsLimit,
@@ -4164,6 +4272,14 @@ chat.openapi(completions, async (c) => {
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
 		const autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
+		// Keys at one of their own caps cannot serve any candidate this request,
+		// so read the caps once instead of per candidate model.
+		const rateLimitedProviderKeyIds =
+			await getRateLimitedProviderKeyIds(providerKeys);
+		const rateLimitedManagedKeyIds =
+			project.mode === "api-keys"
+				? new Set<string>()
+				: await findRateLimitedManagedKeyIds();
 		const customProviderKeysById = new Map(
 			providerKeys
 				.filter((key) => key.provider === "custom" && key.name !== null)
@@ -4389,11 +4505,20 @@ chat.openapi(completions, async (c) => {
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
-					providerKeys.filter((key) =>
+					withReasoningPinnedKey(
+						providerKeys.filter(
+							(key) => !rateLimitedProviderKeyIds.has(key.id),
+						),
+						modelDef.id,
+					).filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, modelDef.id),
 					),
 					activeMappings.map((mapping) => mapping.providerId),
-					await findManagedProviderAvailability(envVariant, modelDef.id),
+					await managedAvailabilityFor(
+						envVariant,
+						modelDef.id,
+						rateLimitedManagedKeyIds,
+					),
 				);
 
 			const candidateProviders = preferConcreteRegionalMappings(
@@ -5283,11 +5408,22 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						providerKeys.filter((key) =>
+						withReasoningPinnedKey(
+							await excludeRateLimitedProviderKeys(
+								providerKeys,
+								providerKeyRateLimitExemption,
+							),
+							baseModelId,
+						).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await findManagedProviderAvailability(envVariant, baseModelId),
+						await managedAvailabilityFor(
+							envVariant,
+							baseModelId,
+							undefined,
+							providerKeyRateLimitExemption,
+						),
 					);
 
 				const rateLimitContextTierMinSize = getContextTierMinSize(
@@ -5511,11 +5647,22 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						providerKeys.filter((key) =>
+						withReasoningPinnedKey(
+							await excludeRateLimitedProviderKeys(
+								providerKeys,
+								providerKeyRateLimitExemption,
+							),
+							baseModelId,
+						).filter((key) =>
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await findManagedProviderAvailability(envVariant, baseModelId),
+						await managedAvailabilityFor(
+							envVariant,
+							baseModelId,
+							undefined,
+							providerKeyRateLimitExemption,
+						),
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -5769,11 +5916,22 @@ chat.openapi(completions, async (c) => {
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
-					providerKeys.filter((key) =>
+					withReasoningPinnedKey(
+						await excludeRateLimitedProviderKeys(
+							providerKeys,
+							providerKeyRateLimitExemption,
+						),
+						routedModelId,
+					).filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, routedModelId),
 					),
 					providerIds,
-					await findManagedProviderAvailability(envVariant, routedModelId),
+					await managedAvailabilityFor(
+						envVariant,
+						routedModelId,
+						undefined,
+						providerKeyRateLimitExemption,
+					),
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
@@ -6038,14 +6196,19 @@ chat.openapi(completions, async (c) => {
 					// Skip for exploration requests — they exist to refresh per-provider
 					// metrics — and for sticky sessions, which already pin the provider
 					// per-session via the session store inside provider selection.
+					// Replayed provider-bound reasoning pins the provider the same way.
 					let selectedProvider = cheapestResult.provider;
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
+					const reasoningPinApplied =
+						reasoningPinFor(modelWithPricing.id)?.provider ===
+						cheapestResult.provider.providerId;
 
 					if (
 						hysteresisSelectionReason !== "random-exploration" &&
 						routingCfg.sticky.enabled &&
-						!sessionStickyEnabled
+						!sessionStickyEnabled &&
+						!reasoningPinApplied
 					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
@@ -6566,6 +6729,24 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
+	// The credential the current attempt sends, as recorded against the
+	// account-bound reasoning it produces.
+	function currentReasoningCredential(): ReasoningCredential | undefined {
+		if (!usedApiKeyHash || !usedProvider) {
+			return undefined;
+		}
+		const base = { provider: usedProvider, apiKeyHash: usedApiKeyHash };
+		if (providerKey) {
+			return { ...base, source: "byok", providerKeyId: providerKey.id };
+		}
+		if (managedKey) {
+			return { ...base, source: "managed", providerKeyId: managedKey.id };
+		}
+		if (envVarName) {
+			return { ...base, source: "env", envVarName };
+		}
+		return undefined;
+	}
 	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
@@ -6580,6 +6761,22 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Replayed account-bound reasoning only verifies on the credential that
+	// produced it, so that credential replaces normal key selection.
+	const pinnedCredential = usedProviderEncryptsReasoning()
+		? await resolveReasoningCredentialPin({
+				organizationId: project.organizationId,
+				projectMode: project.mode,
+				provider: usedProvider,
+				model: usedInternalModel,
+				pin: reasoningPin,
+			})
+		: undefined;
+	const pinnedPlatformCredential =
+		pinnedCredential?.kind === "platform"
+			? pinnedCredential.credential
+			: undefined;
+
 	if (project.mode === "api-keys") {
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
@@ -6587,7 +6784,11 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				customProviderName,
 				usedInternalModel,
+				undefined,
+				providerKeyRateLimitExemption,
 			);
+		} else if (pinnedCredential?.kind === "byok") {
+			providerKey = pinnedCredential.providerKey;
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
@@ -6595,10 +6796,20 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel,
 				undefined,
 				serviceTierKeyFilter,
+				providerKeyRateLimitExemption,
 			);
 		}
 
 		if (!providerKey) {
+			await assertProviderKeysNotRateLimited(
+				project.organizationId,
+				usedProvider,
+				{
+					customProviderName,
+					filter: serviceTierKeyFilter,
+					rateLimitExemption: providerKeyRateLimitExemption,
+				},
+			);
 			const providerDisplayName =
 				usedProvider === "custom" && customProviderName
 					? customProviderName
@@ -6642,6 +6853,7 @@ chat.openapi(completions, async (c) => {
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
 		);
+		assertDevPlanDailyCapNotExceeded(organization, true);
 		const {
 			devPlanCreditsRemaining,
 			chatPlanCreditsRemaining,
@@ -6702,13 +6914,16 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		const platformCredential = await resolvePlatformCredential(usedProvider, {
-			selectionScope: usedInternalModel,
-			model: usedInternalModel,
-			variant: envVariant,
-			region: usedRegion,
-			requiresServiceTier: isRequestedServiceTier(service_tier),
-		});
+		const platformCredential =
+			pinnedPlatformCredential ??
+			(await resolvePlatformCredential(usedProvider, {
+				selectionScope: usedInternalModel,
+				model: usedInternalModel,
+				variant: envVariant,
+				region: usedRegion,
+				requiresServiceTier: isRequestedServiceTier(service_tier),
+				rateLimitExemption: providerKeyRateLimitExemption,
+			}));
 		managedKey = platformCredential.managedKey;
 		usedToken = platformCredential.token;
 		configIndex = platformCredential.configIndex;
@@ -6718,8 +6933,9 @@ chat.openapi(completions, async (c) => {
 		// Override with region-specific env var if a non-default region is selected.
 		// Managed credentials are already selected per region, so this only
 		// applies to the env-var path. Health attribution must follow the
-		// credential we actually send.
-		if (usedRegion && !managedKey) {
+		// credential we actually send. A pinned env credential already names
+		// the exact var that produced the replayed reasoning.
+		if (usedRegion && !managedKey && !pinnedPlatformCredential) {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
 				usedRegion,
@@ -6741,7 +6957,16 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				customProviderName,
 				usedInternalModel,
+				undefined,
+				providerKeyRateLimitExemption,
 			);
+		} else if (pinnedCredential) {
+			// A platform pin leaves providerKey unset, so the platform branch
+			// below serves it.
+			providerKey =
+				pinnedCredential.kind === "byok"
+					? pinnedCredential.providerKey
+					: undefined;
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
@@ -6749,6 +6974,7 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel,
 				undefined,
 				serviceTierKeyFilter,
+				providerKeyRateLimitExemption,
 			);
 		}
 
@@ -6781,6 +7007,17 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 		} else {
+			// Custom providers have no platform credential to fall back to.
+			if (usedProvider === "custom") {
+				await assertProviderKeysNotRateLimited(
+					project.organizationId,
+					usedProvider,
+					{
+						customProviderName,
+						rateLimitExemption: providerKeyRateLimitExemption,
+					},
+				);
+			}
 			// No API key available, fall back to credits
 			// This path bills org credits with a platform credential exactly like
 			// the `credits` branch above, so it needs the same spend-cap gate —
@@ -6800,6 +7037,7 @@ chat.openapi(completions, async (c) => {
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
 			);
+			assertDevPlanDailyCapNotExceeded(organization, true);
 			const {
 				devPlanCreditsRemaining,
 				chatPlanCreditsRemaining,
@@ -6845,13 +7083,16 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const platformCredential = await resolvePlatformCredential(usedProvider, {
-				selectionScope: usedInternalModel,
-				model: usedInternalModel,
-				variant: envVariant,
-				region: usedRegion,
-				requiresServiceTier: isRequestedServiceTier(service_tier),
-			});
+			const platformCredential =
+				pinnedPlatformCredential ??
+				(await resolvePlatformCredential(usedProvider, {
+					selectionScope: usedInternalModel,
+					model: usedInternalModel,
+					variant: envVariant,
+					region: usedRegion,
+					requiresServiceTier: isRequestedServiceTier(service_tier),
+					rateLimitExemption: providerKeyRateLimitExemption,
+				}));
 			managedKey = platformCredential.managedKey;
 			usedToken = platformCredential.token;
 			configIndex = platformCredential.configIndex;
@@ -6862,7 +7103,7 @@ chat.openapi(completions, async (c) => {
 			// Managed credentials are already selected per region, so this only
 			// applies to the env-var path. Health attribution must follow the
 			// credential we actually send.
-			if (usedRegion && !managedKey) {
+			if (usedRegion && !managedKey && !pinnedPlatformCredential) {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
 					usedRegion,
@@ -7452,6 +7693,7 @@ chat.openapi(completions, async (c) => {
 			response_format,
 			tools: tools?.length ? tools : undefined,
 			tool_choice,
+			parallel_tool_calls,
 			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
@@ -8315,6 +8557,7 @@ chat.openapi(completions, async (c) => {
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
+			parallel_tool_calls,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8484,7 +8727,10 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		return await resolveProviderContext(
+		// A retry moves to another credential or provider, which cannot verify
+		// the encrypted reasoning another account produced, so it goes without.
+		const replay = stripAccountBoundReasoning(messages);
+		const ctx = await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
 			retryOrganizationContext,
@@ -8498,7 +8744,7 @@ chat.openapi(completions, async (c) => {
 				sponsoredOnboarding,
 				stream: streamValue,
 				effectiveStream,
-				messages: messages as BaseMessage[],
+				messages: replay.messages as BaseMessage[],
 				response_format,
 				tools,
 				tool_choice,
@@ -8520,6 +8766,13 @@ chat.openapi(completions, async (c) => {
 					providerMapping.providerId,
 					providerMapping.region,
 				),
+				// Like consumeProviderRateLimit: only the initial provider keeps
+				// its session/explicit exemption on retry.
+				rateLimitExemption: (providerId: string) =>
+					providerRateLimitExemption(
+						providerId,
+						initialProviderFallback || providerId !== initialRateLimitProvider,
+					),
 				excludedProviderKeyIds: failedKeys.providerKeyIdsFor(
 					providerMapping.providerId,
 					providerMapping.region,
@@ -8530,13 +8783,22 @@ chat.openapi(completions, async (c) => {
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
+				parallel_tool_calls,
 			},
 		);
+		if (replay.stripped) {
+			contextsWithoutEncryptedReasoning.add(ctx);
+		}
+		return ctx;
 	}
+	const contextsWithoutEncryptedReasoning = new WeakSet();
 
 	async function applyResolvedProviderContext(
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
+		if (contextsWithoutEncryptedReasoning.has(ctx) && routingMetadata) {
+			routingMetadata.encryptedReasoningDropped = true;
+		}
 		usedProvider = ctx.usedProvider;
 		airsideCustomBaseUrl = ctx.airsideCustomBaseUrl;
 		transportProvider = ctx.transportProvider;
@@ -8663,6 +8925,41 @@ chat.openapi(completions, async (c) => {
 				return null;
 			}
 
+			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return null;
+			}
+			return nextContext;
+		} catch {
+			return null;
+		}
+	}
+
+	// Self-heal: an account rejected the replayed encrypted reasoning (no pin,
+	// an expired one, a key already torn down, history from elsewhere). Retry
+	// once on the same provider without it; the retry context drops it.
+	let retriedWithoutEncryptedReasoning = false;
+	async function tryResolveRetryWithoutEncryptedReasoning(
+		streamValue: boolean,
+		errorText: string | undefined,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			retriedWithoutEncryptedReasoning ||
+			!usedProvider ||
+			!isInvalidEncryptedContentError(errorText) ||
+			!stripAccountBoundReasoning(messages).stripped
+		) {
+			return null;
+		}
+		retriedWithoutEncryptedReasoning = true;
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
 			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
 				return null;
 			}
@@ -9909,6 +10206,11 @@ chat.openapi(completions, async (c) => {
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
 						}
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutEncryptedReasoning(
+								true,
+								errorResponseText,
+							);
 
 						// Check if we should retry before logging so we can mark the log as retried
 						const willRetryHttpError = shouldRetryRequest({
@@ -10296,6 +10598,11 @@ chat.openapi(completions, async (c) => {
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
 						}
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutEncryptedReasoning(
+								true,
+								errorResponseText,
+							);
 
 						const willRetryStreamingError = shouldRetryRequest({
 							requestedProvider,
@@ -11543,6 +11850,14 @@ chat.openapi(completions, async (c) => {
 									processedLength = eventEnd;
 									searchStart = eventEnd;
 									continue;
+								}
+
+								if (usedProviderEncryptsReasoning()) {
+									await rememberReasoningCredential(
+										project.organizationId,
+										transformedData.choices?.[0]?.delta,
+										currentReasoningCredential(),
+									);
 								}
 
 								// A chunk whose finish_reason signals an upstream failure (e.g.
@@ -14294,6 +14609,11 @@ chat.openapi(completions, async (c) => {
 				sameProviderRetryContext =
 					await tryResolveAlternateKeyForCurrentProvider(stream);
 			}
+			sameProviderRetryContext ??=
+				await tryResolveRetryWithoutEncryptedReasoning(
+					stream,
+					errorResponseText,
+				);
 
 			// Check if we should retry before logging so we can mark the log as retried
 			const willRetryHttpNonStreaming = shouldRetryRequest({
@@ -15580,6 +15900,13 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.reasoning_details =
 			parsedResponse.reasoningDetails;
+	}
+	if (usedProviderEncryptsReasoning()) {
+		await rememberReasoningCredential(
+			project.organizationId,
+			transformedResponse.choices?.[0]?.message,
+			currentReasoningCredential(),
+		);
 	}
 	// Surface the OpenAI Responses assistant-message phase so stateless clients
 	// can replay it as part of complete conversation history.

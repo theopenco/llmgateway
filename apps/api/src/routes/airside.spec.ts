@@ -1115,7 +1115,9 @@ describe("airside provider portal", () => {
 			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
 		const blocked = await relist();
 		expect(blocked.status).toBe(409);
-		expect((await blocked.json()).message).toContain("before you relist");
+		expect((await blocked.json()).message).toContain(
+			"before you request a relist",
+		);
 	});
 
 	it("lists a listing's preflight history without naming our reviewers", async () => {
@@ -1605,14 +1607,84 @@ describe("airside provider portal", () => {
 			.delete(tables.providerDraftModel)
 			.where(eq(tables.providerDraftModel.id, holder.id));
 
-		// Relisting restores service at the last approved fare, not the
-		// rejected update.
-		const relisted = await app.request(
-			`/airside/models/${model.id}/relist`,
+		// Relisting is a request: the model stays delisted until an admin
+		// approves it.
+		const requestRelist = async () =>
+			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
+		const requested = await requestRelist();
+		expect(requested.status).toBe(200);
+		expect((await requested.json()).model).toMatchObject({
+			status: "delisted",
+			relistRequestedAt: expect.any(String),
+		});
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { modelId: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+		expect((await requestRelist()).status).toBe(409);
+		const relistQueue = await app.request(
+			"/admin/airside/listings?relistRequested=true",
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await relistQueue.json()).listings).toEqual([
+			expect.objectContaining({
+				id: model.id,
+				relistRequestedAt: expect.any(String),
+			}),
+		]);
+
+		// A rejection leaves it delisted with the admin's note.
+		const relistRejected = await app.request(
+			`/admin/airside/listings/${model.id}/relist/reject`,
+			json(cookie, { reviewNote: "Context window too small" }),
+		);
+		expect(relistRejected.status).toBe(200);
+		const afterRelistReject = await app.request(
+			`/airside/models?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await afterRelistReject.json()).models[0]).toMatchObject({
+			status: "delisted",
+			relistRequestedAt: null,
+			relistReviewedAt: expect.any(String),
+			relistReviewNote: "Context window too small",
+		});
+
+		// The carrier can request again, and withdraw a pending request.
+		expect((await requestRelist()).status).toBe(200);
+		const withdrawn = await app.request(`/airside/models/${model.id}/relist`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(withdrawn.status).toBe(200);
+		expect((await withdrawn.json()).model.relistRequestedAt).toBeNull();
+		expect(
+			(
+				await app.request(
+					`/admin/airside/listings/${model.id}/relist/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(409);
+		expect((await requestRelist()).status).toBe(200);
+
+		// Approval restores service at the last approved fare, not the
+		// relistRejected update.
+		const relistApproved = await app.request(
+			`/admin/airside/listings/${model.id}/relist/approve`,
 			json(cookie),
 		);
-		expect(relisted.status).toBe(200);
-		expect((await relisted.json()).model).toMatchObject({
+		expect(relistApproved.status).toBe(200);
+		expect((await relistApproved.json()).listing).toMatchObject({
+			status: "active",
+			relistRequestedAt: null,
+		});
+		const relisted = await app.request(
+			`/airside/models?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await relisted.json()).models[0]).toMatchObject({
 			status: "active",
 			delistedAt: null,
 			delistReason: null,
@@ -2227,6 +2299,98 @@ describe("airside provider portal", () => {
 			{ headers: { Cookie: cookie } },
 		);
 		expect((await adminTypes.json()).sampledErrors).toBe(3);
+	});
+
+	it("counts client errors on admin incidents when asked", async () => {
+		await setUserEmail("ops@mistral.ai");
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			requestCount: 10,
+			apiKeysRequestCount: 6,
+			errorCount: 4,
+			upstreamErrorCount: 1,
+			clientErrorCount: 3,
+		});
+		await db.insert(tables.log).values(
+			(
+				[
+					["credits", "upstream_error", "upstream down"],
+					["credits", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+				] as const
+			).map(([usedMode, unifiedFinishReason, responseText], i) => ({
+				id: `client-incident-log-${i}`,
+				requestId: `client-incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				unifiedFinishReason,
+				errorDetails: { statusCode: 400, statusText: "err", responseText },
+				duration: 100,
+				usedMode,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: usedMode,
+			})),
+		);
+
+		const get = async (path: string) =>
+			await (await app.request(path, { headers: { Cookie: cookie } })).json();
+		const base = "/admin/airside/incidents?providerId=mistral";
+		const defaults = (await get(base)).mappings;
+		expect(defaults).toEqual([
+			expect.objectContaining({ requestCount: 4, errorCount: 1 }),
+		]);
+		expect(defaults[0]).not.toHaveProperty("clientErrorCount");
+		expect((await get(`${base}&errorScope=all`)).mappings).toEqual([
+			expect.objectContaining({
+				requestCount: 4,
+				errorCount: 2,
+				clientErrorCount: 1,
+				errorRate: 0.5,
+			}),
+		]);
+		expect(
+			(await get(`${base}&errorScope=all&includeByok=true`)).mappings,
+		).toEqual([
+			expect.objectContaining({
+				requestCount: 10,
+				errorCount: 4,
+				clientErrorCount: 3,
+			}),
+		]);
+		expect((await get(`${base}&errorScope=client`)).mappings).toEqual([
+			expect.objectContaining({ errorCount: 1, clientErrorCount: 1 }),
+		]);
+
+		const types = "/admin/airside/incidents/error-types?providerId=mistral";
+		expect((await get(types)).sampledErrors).toBe(1);
+		expect((await get(`${types}&errorScope=all`)).sampledErrors).toBe(2);
+		expect(
+			(await get(`${types}&errorScope=all&includeByok=true`)).sampledErrors,
+		).toBe(4);
+		expect(
+			(await get(`${types}&errorScope=all&errorMessage=bad%20request`))
+				.sampledErrors,
+		).toBe(1);
+
+		const errors =
+			"/admin/unstable-mappings/errors?provider=mistral&model=mistral/mistral-large-3&incidentsOnly=true";
+		expect((await get(errors)).sampledErrors).toBe(1);
+		expect((await get(`${errors}&errorScope=all`)).sampledErrors).toBe(2);
+		expect((await get(`${errors}&errorScope=client`)).sampledErrors).toBe(1);
 	});
 
 	it("gates claims on the listing fee when configured", async () => {
@@ -3119,6 +3283,21 @@ describe("airside provider portal", () => {
 		const listed = await createModel(cookie, company.id);
 		expect(listed.status).toBe(201);
 		const listedModel = (await listed.json()).model;
+		// An earlier delisted listing has a relist request under review.
+		const [awaitingRelist] = await db
+			.insert(tables.providerDraftModel)
+			.values({
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-small-4",
+				externalId: "mistral-small-4",
+				family: "mistral",
+				status: "delisted",
+				delistedAt: new Date(),
+				delistReason: "removed",
+				relistRequestedAt: new Date(),
+			})
+			.returning();
 
 		const revoked = await app.request(
 			`/admin/airside/claims/${claim.id}/revoke`,
@@ -3134,6 +3313,11 @@ describe("airside provider portal", () => {
 		});
 		expect(deadModel!.status).toBe("delisted");
 		expect(deadModel!.delistReason).toBe("claim_revoked");
+		// Revocation drops relist requests that could no longer be approved.
+		const droppedRequest = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: awaitingRelist.id } },
+		});
+		expect(droppedRequest!.relistRequestedAt).toBeNull();
 		// Without an active claim the listing stays history.
 		const relist = await app.request(
 			`/airside/models/${listedModel.id}/relist`,
@@ -4363,8 +4547,17 @@ describe("airside provider portal", () => {
 		});
 
 		await passPreflight(listing!.id);
-		const relisted = await app.request(
+		const requested = await app.request(
 			`/airside/models/${listing!.id}/relist`,
+			json(cookie),
+		);
+		expect(requested.status).toBe(200);
+		expect(await canonicalMapping()).toMatchObject({
+			source: "airside",
+			status: "inactive",
+		});
+		const relisted = await app.request(
+			`/admin/airside/listings/${listing!.id}/relist/approve`,
 			json(cookie),
 		);
 		expect(relisted.status).toBe(200);

@@ -630,6 +630,91 @@ describe("content filter stats aggregator", () => {
 		]);
 	});
 
+	it("keys verdict rows by the internal classifier's scope", async () => {
+		const violation = {
+			violation: true,
+			matchedCategories: ["violence"],
+		};
+		await db.insert(log).values([
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "internal",
+					internalScope: "full",
+					...violation,
+				}),
+			}),
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "internal",
+					internalScope: "latest_turn",
+				}),
+			}),
+			// Predates the scope field: the whole conversation was read.
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "internal",
+					...violation,
+				}),
+			}),
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({ classifier: "openai" }),
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+
+		const scoped = async (
+			table:
+				typeof contentFilterHourlyStats | typeof contentFilterHourlyModelStats,
+		) =>
+			(await db.select().from(table))
+				.map((row) => ({
+					classifier: row.classifier,
+					internalScope: row.internalScope,
+					category: row.category,
+					sampledCount: row.sampledCount,
+					violationCount: row.violationCount,
+				}))
+				.sort(
+					(a, b) =>
+						a.classifier.localeCompare(b.classifier) ||
+						a.internalScope.localeCompare(b.internalScope) ||
+						a.category.localeCompare(b.category),
+				);
+		const expected = [
+			{
+				classifier: "internal",
+				internalScope: "full",
+				category: "all",
+				sampledCount: 2,
+				violationCount: 2,
+			},
+			{
+				classifier: "internal",
+				internalScope: "full",
+				category: "violence",
+				sampledCount: 0,
+				violationCount: 2,
+			},
+			{
+				classifier: "internal",
+				internalScope: "latest_turn",
+				category: "all",
+				sampledCount: 1,
+				violationCount: 0,
+			},
+			{
+				classifier: "openai",
+				internalScope: "",
+				category: "all",
+				sampledCount: 1,
+				violationCount: 0,
+			},
+		];
+		expect(await scoped(contentFilterHourlyStats)).toEqual(expected);
+		expect(await scoped(contentFilterHourlyModelStats)).toEqual(expected);
+	});
+
 	it("ignores a legacy shadow verdict on older logs", async () => {
 		await db.insert(log).values(
 			logRow({

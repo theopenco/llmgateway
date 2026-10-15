@@ -417,10 +417,16 @@ export const organization = snakeCase.table(
 		devPlanPaygEnabled: boolean().notNull().default(false),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
+		// Rolling 24-hour pacing window on the monthly allowance, the same
+		// shape as the premium weekly pair above. The limit derives from the
+		// tier (DEV_PLAN_DAILY_PERCENT), so only usage and window start are
+		// stored.
+		devPlanDailyCreditsUsed: decimal().notNull().default("0"),
+		devPlanDayStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
 		// Redeeming one instantly restores the full weekly premium-model
 		// allowance, but a pass is only redeemable while the org is on the
-		// tier it was purchased for — a $9 Lite pass can't reset the larger
+		// tier it was purchased for — a Lite pass can't reset the larger
 		// Pro/Max allowance. Purchases survive plan changes and even a plan
 		// ending (they apply again on resubscribing to that tier).
 		devPlanResetPassesLite: integer().notNull().default(0),
@@ -756,12 +762,16 @@ export const devPlanCancellationFeedback = snakeCase.table(
 		previousDevPlan: text({
 			enum: ["lite", "pro", "max"],
 		}),
+		// Mirrors DEV_PLAN_CANCELLATION_REASONS in @llmgateway/shared.
 		reason: text({
 			enum: [
 				"too_expensive",
-				"missing_features",
 				"not_using_enough",
+				"allowance_too_small",
+				"tool_not_supported",
+				"missing_features",
 				"switched_alternative",
+				"just_testing",
 				"other",
 			],
 		}).notNull(),
@@ -2178,9 +2188,15 @@ export const providerKey = snakeCase.table(
 		customModelsOnly: boolean().notNull().default(false),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
+		// "pending_deletion" is a deleted key inside its teardown grace period:
+		// out of every list and routing decision, but still eligible to serve a
+		// conversation pinned to it by provider-bound reasoning. The worker
+		// flips it to "deleted" once the grace period has passed.
 		status: text({
-			enum: ["active", "inactive", "deleted"],
+			enum: ["active", "inactive", "pending_deletion", "deleted"],
 		}).default("active"),
+		// When the key was moved to "pending_deletion"; starts the grace period.
+		deletionRequestedAt: timestamp(),
 		// When true this is a platform-managed credential used to serve
 		// credits-mode traffic (the DB-backed replacement for the `LLM_*` env
 		// vars) instead of an organization-owned BYOK key. Managed rows have a
@@ -2229,6 +2245,19 @@ export const providerKey = snakeCase.table(
 		// When false the daily model sync leaves this key's `allowedModels`
 		// alone, so new models are only ever enabled by hand.
 		modelSyncEnabled: boolean().notNull().default(true),
+		// Optional request and token (prompt + completion) caps for this one
+		// credential, mirroring the upstream account's quota. A key at any cap
+		// drops out of rotation until its window frees up. NULL = uncapped.
+		maxRpm: integer(),
+		maxRpd: integer(),
+		maxTpm: integer(),
+		maxTpd: integer(),
+		// How the caps above treat a key at its cap, with `rate_limit.mode`
+		// semantics: "soft" keeps a session already pinned to the provider on
+		// the key, "lax" also serves explicitly requested providers.
+		rateLimitMode: text({ enum: ["strict", "soft", "lax"] })
+			.notNull()
+			.default("strict"),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -2585,6 +2614,9 @@ export const log = snakeCase.table(
 			// premium tier was in play.
 			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
+			// A retry dropped the conversation's OpenAI-format encrypted
+			// reasoning to move to a credential that could not verify it.
+			encryptedReasoningDropped?: boolean;
 			// Set when the request was resolved through a named dynamic route.
 			dynamicRoute?: {
 				name: string;
@@ -2747,6 +2779,10 @@ export const log = snakeCase.table(
 		index("log_error_used_provider_used_model_created_at_idx")
 			.on(table.usedProvider, table.usedModel, table.createdAt)
 			.where(sql`has_error = true`),
+		// Latest logs of one used_model, errors or not (admin unstable-mappings
+		// model and mapping scopes). Build CONCURRENTLY out of band in prod
+		// before deploying.
+		index("log_used_model_created_at_idx").on(table.usedModel, table.createdAt),
 		// Serves error-filtered log lists per project; the trailing model id lets
 		// a model filter run inside the index. Build CONCURRENTLY out of band in
 		// prod before deploying.
@@ -4429,6 +4465,9 @@ export const contentFilterHourlyStats = snakeCase.table(
 		// Rows written before classifiers were selectable all ran on OpenAI.
 		classifier: text().notNull().default("openai"),
 		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		// Input the internal classifier read ("full" or "latest_turn"); empty for
+		// other classifiers and for rows written before the scope was recorded.
+		internalScope: text().notNull().default(""),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
@@ -4445,6 +4484,7 @@ export const contentFilterHourlyStats = snakeCase.table(
 			table.category,
 			table.classifier,
 			table.role,
+			table.internalScope,
 		),
 		index("content_filter_hourly_stats_org_ts_idx").on(
 			table.organizationId,
@@ -4479,6 +4519,8 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 		// Rows written before classifiers were selectable all ran on OpenAI.
 		classifier: text().notNull().default("openai"),
 		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		// Same as contentFilterHourlyStats.internalScope.
+		internalScope: text().notNull().default(""),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
@@ -4497,6 +4539,7 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 			table.category,
 			table.classifier,
 			table.role,
+			table.internalScope,
 		),
 		index("content_filter_hourly_model_stats_org_ts_idx").on(
 			table.organizationId,
@@ -5393,6 +5436,10 @@ export const rateLimit = snakeCase.table(
 		maxRpm: integer(),
 		// Maximum requests per day
 		maxRpd: integer(),
+		// Maximum tokens (prompt + completion) per minute
+		maxTpm: integer(),
+		// Maximum tokens (prompt + completion) per day
+		maxTpd: integer(),
 		// How the counter is bucketed across orgs (only meaningful for global rows):
 		// "per_org" = each org gets its own counter (default), "global" = single shared counter
 		enforcement: text({ enum: ["per_org", "global"] })
@@ -5407,13 +5454,15 @@ export const rateLimit = snakeCase.table(
 		reason: text(),
 	},
 	(table) => [
-		// One row per org/provider/model combo with both RPM and RPD on the same row.
-		// Coalesce nulls to sentinels so Postgres treats them as equal.
+		// One row per org/provider/model/window, so a target can carry request
+		// and token caps with their own enforcement and mode. Coalesce nulls to
+		// sentinels so Postgres treats them as equal.
 		uniqueIndex("rate_limit_org_provider_model_unique").using(
 			"btree",
 			sql`coalesce(${table.organizationId}, '__global__')`,
 			sql`coalesce(${table.provider}, '__all_providers__')`,
 			sql`coalesce(${table.model}, '__all_models__')`,
+			sql`(case when ${table.maxRpm} is not null then 'rpm' when ${table.maxRpd} is not null then 'rpd' when ${table.maxTpm} is not null then 'tpm' when ${table.maxTpd} is not null then 'tpd' end)`,
 		),
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),
@@ -5849,6 +5898,15 @@ export const providerDraftModel = snakeCase.table(
 		// Why the listing left service: the carrier removed it, or an admin
 		// revoked the claim it was listed under.
 		delistReason: text({ enum: ["removed", "claim_revoked", "admin"] }),
+		// A delisted model's carrier asked to put it back in service. Set until
+		// an admin approves (relisting it) or rejects the request.
+		relistRequestedAt: timestamp(),
+		relistRequestedBy: text().references(() => user.id, {
+			onDelete: "set null",
+		}),
+		// The admin's answer to the last rejected relist request.
+		relistReviewedAt: timestamp(),
+		relistReviewNote: text(),
 		// Mapping fields a catalogue import carries over from the static entry
 		// that the listing form does not manage. Materialized with the listing
 		// so it keeps serving the same way once the static entry is removed.

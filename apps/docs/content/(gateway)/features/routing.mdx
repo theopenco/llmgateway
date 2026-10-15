@@ -39,9 +39,17 @@ stop being available from that provider.
 
 ## Global Provider Rate Limits
 
-Administrators can set global or organization-specific RPM/RPD caps. Global
+Administrators can set global or organization-specific caps on requests per
+minute or day (RPM/RPD) and on tokens per minute or day (TPM/TPD). Global
 limits support **Global** (shared) or **Per-organization** counters. Changes
 propagate through the rate-limit cache (default 60 seconds).
+
+Each window is its own rule, so one provider/model target can carry request
+and token caps with different enforcement and modes.
+
+Token caps count prompt + completion tokens once a request completes, so the
+request that crosses a token cap still finishes and later requests are routed
+away until the window frees up. Cached responses do not count.
 
 Organization-specific limits and more specific global provider/model limits
 can override a provider-wide limit for the same window. No configured limit
@@ -60,7 +68,7 @@ provider (`provider/model`), even without a session or on its first request.
 | Fallback from another provider                            | No exemption | Excluded    |
 
 Exempt requests still count toward the limit. A session id alone does not grant
-an exemption, and every exceeded RPM/RPD window must permit the request: a
+an exemption, and every exceeded RPM/RPD/TPM/TPD window must permit the request: a
 strict window grants no exemption, while a soft window still requires an
 existing session pin.
 
@@ -544,12 +552,42 @@ Automatic retry to a different provider is disabled when:
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
 - The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
-- The request replays [provider-bound reasoning](#smart-routing-algorithm), such as encrypted reasoning or signed thought parts — another provider would reject those payloads. This pin applies regardless of the selected mapping's reasoning capability. A reasoning-capable model alone does not disable retries: requests without replayed payloads can fail over before output starts.
+- The request replays signed Gemini thought parts on a model that returns them — another provider would reject them. Image models and other models without reasoning keep fallback. OpenAI encrypted reasoning does not block fallback: the retry is sent without it (see below).
 - No alternative providers are available for the requested model
 - The maximum retry count (default 2) has been exhausted
 
 Retries can still happen within the same provider when multiple keys are
 configured and the current key fails with a retryable error.
+
+### Provider-bound reasoning stays on its key
+
+[Provider-bound reasoning](#smart-routing-algorithm) can also be tied to the
+account that produced it. OpenAI encrypted reasoning, for example, is rejected
+by another OpenAI organization or Azure resource with
+`The encrypted content for item rs_... could not be verified`. For every model
+with provider-bound reasoning, the gateway remembers which key produced each
+encrypted reasoning item or thought signature, and the turn that replays it is
+routed to that provider and sent with that same key, with or without a session
+id. A conversation without a remembered key (older than 24 hours since its last
+turn) uses normal routing and key selection. Only models that reason on that
+provider are pinned; image models and other models without reasoning use normal
+routing and key selection.
+
+If that key fails with a retryable error (a rate limit, a timeout, a server
+error), the request still fails over to another key or provider. OpenAI
+encrypted reasoning is optional context, so the retry is sent without it: the
+model reasons afresh without the conversation's earlier reasoning on that
+request, instead of the request failing.
+When an upstream rejects replayed encrypted reasoning anyway (for example
+history from another gateway, or older than its pin), the gateway retries once
+on the same provider without it. Either way the log's
+`routingMetadata.encryptedReasoningDropped` is `true`.
+
+Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
+During that time it serves only conversations that replay reasoning it
+produced; it is never selected for any other request, and it is fully deleted
+afterwards, or as soon as it reaches its spend limit. Custom-provider keys and keys
+that are already disabled are deleted immediately.
 
 ### Routing Transparency
 

@@ -324,6 +324,12 @@ export interface ProviderModelMapping {
 	 */
 	inputAudioHourPrice?: Price;
 	/**
+	 * Price per user text input item in USD. Used by realtime speech-to-speech
+	 * models that bill session time plus a flat fee for each text
+	 * message the caller adds to the conversation (e.g. xAI Grok Voice).
+	 */
+	inputTextItemPrice?: Price;
+	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
 	imageOutputPrice?: Price;

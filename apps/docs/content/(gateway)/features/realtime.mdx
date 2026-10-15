@@ -26,9 +26,15 @@ key, and keep your existing event handling.
 ## Available Models
 
 Browse the available realtime models, with up-to-date pricing, on the
-[models page](https://llmgateway.io/models). Realtime sessions are billed per
-token — text and audio input, cached input, and output are metered separately
-at the model's listed rates, matching the provider's own pricing.
+[models page](https://llmgateway.io/models). Realtime sessions are billed the
+way the provider meters them, at the model's listed rates: most models per
+token, with text and audio input, cached input, and output metered separately;
+some per minute of session time (counted from the first audio or response,
+silences included) plus a flat fee per user text message. For those, time
+after the last response is billed when the session closes. Models
+billed per minute transcribe input audio as part of that price, so their
+`conversation.item.input_audio_transcription.completed` events arrive without
+configuring a transcription model.
 
 Model names work like everywhere else on LLMGateway: use the plain model id
 (e.g. `gpt-realtime`), a dated alias, or the `provider/model` pinned form
@@ -389,6 +395,9 @@ like any other request, including separate line items for input transcription.
 - **Hosted tools** (MCP, web search, etc.) and **stored prompt references**
   (`session.prompt`) are not supported; inline your instructions and function
   tools instead.
+- Provider-specific extensions that generate audio outside the gateway's
+  turn gates — scripted `force_message` items and
+  `turn_detection.idle_timeout_ms` re-engagement — are rejected.
 - Realtime requires a regular developer API key on a pay-as-you-go
   organization. End-user session tokens, platform keys, and DevPass/chat plan
   organizations are not supported yet.
