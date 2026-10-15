@@ -5,10 +5,11 @@ import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
 /**
  * A Vertex API key without a project ID hits the project-less endpoint
- * (`/v1/publishers/google/models/...`), which Google pins to us-central1, so
- * global-only models return "Publisher Model ... was not found". Google names
- * the key's project in that 404, so probing a model that does not exist
- * reveals the project and lets requests use `locations/global` instead.
+ * (`/v1/publishers/google/models/...`), which does not serve every model the
+ * project-scoped endpoint does: newer models return "Publisher Model ... was
+ * not found" there. Google names the key's project in that 404, so probing a
+ * model that does not exist reveals the project and lets requests use
+ * `projects/<n>/locations/global` instead.
  */
 const VERTEX_PROJECTLESS_PREFIX =
 	"https://aiplatform.googleapis.com/v1/publishers/google/models/";
