@@ -1645,22 +1645,32 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
-		// Credential ownership follows registration kind, not current transport.
-		if (claim.kind === "custom") {
-			await tx
-				.update(tables.providerKey)
-				.set({ status: "deleted" })
-				.where(
-					and(
-						eq(tables.providerKey.provider, claim.providerId),
-						eq(tables.providerKey.managed, true),
-					),
-				);
-			await tx
-				.update(tables.providerClaim)
-				.set({ providerKeyId: null, pendingProviderKeyId: null })
-				.where(eq(tables.providerClaim.id, id));
-		}
+		// Credential ownership follows registration kind, not current transport:
+		// a custom registration owns every managed key for its provider, a
+		// catalogue claim only the keys its carrier submitted.
+		const deletedKeys = await tx
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(
+				and(
+					eq(tables.providerKey.provider, claim.providerId),
+					eq(tables.providerKey.managed, true),
+					claim.kind === "custom"
+						? undefined
+						: eq(tables.providerKey.carrierSubmitted, true),
+				),
+			)
+			.returning({ id: tables.providerKey.id });
+		const deletedKeyIds = new Set(deletedKeys.map((key) => key.id));
+		await tx
+			.update(tables.providerClaim)
+			.set({
+				...(claim.providerKeyId && deletedKeyIds.has(claim.providerKeyId)
+					? { providerKeyId: null }
+					: {}),
+				pendingProviderKeyId: null,
+			})
+			.where(eq(tables.providerClaim.id, id));
 		// A pending fare change would otherwise survive as a zombie and block
 		// the provider's next owner (one pending filing per provider).
 		await tx

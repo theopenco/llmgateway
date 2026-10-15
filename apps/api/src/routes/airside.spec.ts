@@ -3374,11 +3374,12 @@ describe("airside provider portal", () => {
 			.insert(tables.provider)
 			.values({ id: providerId, name: "Test Carrier", description: "" });
 		await db.insert(tables.providerKey).values(
-			["retired-linked", "retired-platform"].map((id) => ({
+			["retired-linked", "retired-platform", "retired-carrier"].map((id) => ({
 				id,
 				provider: providerId,
 				managed: true,
 				status: "active" as const,
+				carrierSubmitted: id === "retired-carrier",
 				...encryptProviderKeyForStorage("managed-provider-test-key", id, null),
 			})),
 		);
@@ -3392,6 +3393,7 @@ describe("airside provider portal", () => {
 				matchedDomain: "example.com",
 				customBaseUrl: "https://carrier.example.com",
 				providerKeyId: "retired-linked",
+				pendingProviderKeyId: "retired-carrier",
 			})
 			.returning();
 		await db.insert(tables.providerDraftModel).values({
@@ -3408,12 +3410,24 @@ describe("airside provider portal", () => {
 		);
 		expect(res.status).toBe(200);
 		expect((await res.json()).claim.status).toBe("revoked");
+		// Admin-added platform keys stay; the carrier's own submission goes.
 		expect(
 			await db.query.providerKey.findMany({
 				where: { provider: { eq: providerId } },
-				columns: { status: true },
+				columns: { id: true, status: true },
+				orderBy: { id: "asc" },
 			}),
-		).toEqual([{ status: "active" }, { status: "active" }]);
+		).toEqual([
+			{ id: "retired-carrier", status: "deleted" },
+			{ id: "retired-linked", status: "active" },
+			{ id: "retired-platform", status: "active" },
+		]);
+		expect(
+			await db.query.providerClaim.findFirst({
+				where: { id: { eq: claim.id } },
+				columns: { providerKeyId: true, pendingProviderKeyId: true },
+			}),
+		).toEqual({ providerKeyId: "retired-linked", pendingProviderKeyId: null });
 		expect(
 			await db.query.provider.findFirst({ where: { id: { eq: providerId } } }),
 		).toBeDefined();
