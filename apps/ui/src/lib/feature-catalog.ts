@@ -603,7 +603,7 @@ claude`,
 			output: "video",
 			prompt: "A paper boat drifting at sunset",
 			meta: "veo-3.1-fast-generate-preview · 6s · 1280×720",
-			sources: ["/features/paper-boat-sunset.mp4"],
+			sources: ["/features/paper-boat-sunset.webm"],
 			poster: "/features/paper-boat-sunset-poster.webp",
 		},
 		benefits: [
