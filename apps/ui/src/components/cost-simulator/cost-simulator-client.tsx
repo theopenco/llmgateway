@@ -613,7 +613,7 @@ function TextSimulator() {
 							<div>
 								<p className="text-sm font-medium">No Hidden Fees</p>
 								<p className="text-xs text-muted-foreground mt-0.5">
-									Zero platform fees or markup on any request you make
+									No token markup — 5% fee on credits, 0% with your own keys
 								</p>
 							</div>
 						</div>
@@ -881,7 +881,7 @@ export function CostSimulatorClient() {
 								<p className="text-lg font-semibold">Processing high volume?</p>
 								<p className="text-sm text-muted-foreground mt-1">
 									Enterprise plans include volume discounts, dedicated support,
-									custom SLAs, and extended data retention.
+									custom SLAs, and full payload retention.
 								</p>
 							</div>
 							<Button
@@ -903,7 +903,7 @@ export function CostSimulatorClient() {
 							Ready to cut your LLM costs?
 						</h2>
 						<p className="text-muted-foreground mb-6 text-balance leading-relaxed">
-							Start for free with no platform fees. No credit card required.
+							Start for free with no token markup. No credit card required.
 						</p>
 						<div className="flex flex-col sm:flex-row gap-3 justify-center">
 							<Button size="lg" asChild>

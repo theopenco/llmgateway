@@ -159,7 +159,7 @@ export function TokenCostCalculatorClient() {
 									</p>
 									<p className="text-sm text-muted-foreground mt-1">
 										Enterprise plans include volume discounts, dedicated
-										support, custom SLAs, and extended data retention.
+										support, custom SLAs, and full payload retention.
 									</p>
 								</div>
 								<Button
@@ -181,7 +181,7 @@ export function TokenCostCalculatorClient() {
 								Ready to cut your LLM costs?
 							</h2>
 							<p className="text-muted-foreground mb-6 text-balance leading-relaxed">
-								Start for free with no platform fees. No credit card required.
+								Start for free with no token markup. No credit card required.
 							</p>
 							<div className="flex flex-col sm:flex-row gap-3 justify-center">
 								<Button size="lg" asChild>
@@ -840,7 +840,8 @@ function ResultsPanel({
 					<div>
 						<p className="text-sm font-medium">No Markup</p>
 						<p className="text-xs text-muted-foreground mt-0.5">
-							Zero platform fees — you pay exactly what the provider charges
+							Provider rates with no token markup — 5% fee on credits, 0% with
+							your own keys
 						</p>
 					</div>
 				</div>
