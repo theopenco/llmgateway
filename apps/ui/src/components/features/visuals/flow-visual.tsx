@@ -14,11 +14,15 @@ const STATUS_COLOR: Record<FlowStatus, string> = {
 	idle: "var(--muted-foreground)",
 };
 
-const HUB_X = 214;
-const HUB_W = 132;
+const HUB_CENTER = 280;
 const MID_Y = 140;
 const TARGET_X = 420;
-const BLOCK_X = (HUB_X + HUB_W + TARGET_X + 12) / 2;
+
+function hubWidth(label: string) {
+	const text = label.length * 7.6;
+	const padded = text + 46;
+	return Math.min(170, Math.max(132, padded));
+}
 
 function targetY(index: number, count: number) {
 	if (count === 1) {
@@ -31,19 +35,22 @@ function targetY(index: number, count: number) {
 	return top + offset;
 }
 
-function branchPath(y: number) {
-	const startX = HUB_X + HUB_W;
+function branchPath(startX: number, y: number) {
 	const midX = (startX + TARGET_X) / 2;
 	return `M${startX} ${MID_Y} C${midX} ${MID_Y} ${midX} ${y} ${TARGET_X} ${y}`;
 }
 
-function packetPath(y: number) {
-	const startX = HUB_X + HUB_W;
+function packetPath(startX: number, y: number) {
 	const midX = (startX + TARGET_X) / 2;
 	return `M140 ${MID_Y} L${startX} ${MID_Y} C${midX} ${MID_Y} ${midX} ${y} ${TARGET_X} ${y}`;
 }
 
 export function FlowVisual({ source, hub, targets, caption }: FlowProps) {
+	const hubW = hubWidth(hub);
+	const halfHub = hubW / 2;
+	const hubX = HUB_CENTER - halfHub;
+	const hubEnd = hubX + hubW;
+	const blockX = (hubEnd + TARGET_X + 12) / 2;
 	const firstActive = targets.findIndex((t) => t.status === "active");
 	return (
 		<VisualFrame title={`${source} → ${hub}`}>
@@ -56,7 +63,7 @@ export function FlowVisual({ source, hub, targets, caption }: FlowProps) {
 					.join(", ")}`}
 			>
 				<path
-					d={`M140 ${MID_Y} L${HUB_X} ${MID_Y}`}
+					d={`M140 ${MID_Y} L${hubX} ${MID_Y}`}
 					pathLength={1}
 					className={s.draw}
 					stroke="var(--fa)"
@@ -68,7 +75,7 @@ export function FlowVisual({ source, hub, targets, caption }: FlowProps) {
 					return (
 						<path
 							key={target.label}
-							d={branchPath(y)}
+							d={branchPath(hubEnd, y)}
 							stroke={STATUS_COLOR[target.status]}
 							strokeOpacity={target.status === "idle" ? 0.35 : 0.8}
 							strokeWidth={1.5}
@@ -104,7 +111,7 @@ export function FlowVisual({ source, hub, targets, caption }: FlowProps) {
 									dur="2.8s"
 									begin={begin}
 									repeatCount="indefinite"
-									path={packetPath(y)}
+									path={packetPath(hubEnd, y)}
 									keyPoints={blocked ? "0;0.66;0.66" : "0;1;1"}
 									keyTimes="0;0.7;1"
 									calcMode="linear"
@@ -146,9 +153,9 @@ export function FlowVisual({ source, hub, targets, caption }: FlowProps) {
 
 				<g className={s.enter} style={stagger(1)}>
 					<rect
-						x={HUB_X - 4}
+						x={hubX - 4}
 						y={MID_Y - 32}
-						width={HUB_W + 8}
+						width={hubW + 8}
 						height={64}
 						rx={18}
 						fill="none"
@@ -156,19 +163,19 @@ export function FlowVisual({ source, hub, targets, caption }: FlowProps) {
 						className={s.pulse}
 					/>
 					<rect
-						x={HUB_X}
+						x={hubX}
 						y={MID_Y - 28}
-						width={HUB_W}
+						width={hubW}
 						height={56}
 						rx={14}
 						fill="var(--card)"
 						stroke="var(--fa)"
 						strokeWidth={1.5}
 					/>
-					<circle cx={HUB_X + 22} cy={MID_Y} r={7} fill="var(--fa)" />
-					<circle cx={HUB_X + 22} cy={MID_Y} r={3} fill="var(--background)" />
+					<circle cx={hubX + 22} cy={MID_Y} r={7} fill="var(--fa)" />
+					<circle cx={hubX + 22} cy={MID_Y} r={3} fill="var(--background)" />
 					<text
-						x={HUB_X + 36}
+						x={hubX + 36}
 						y={MID_Y + 4}
 						className="fill-foreground text-[12.5px] font-semibold"
 					>
@@ -214,7 +221,7 @@ export function FlowVisual({ source, hub, targets, caption }: FlowProps) {
 								</text>
 							)}
 							{target.status === "blocked" && (
-								<g transform={`translate(${BLOCK_X} ${(MID_Y + y) / 2})`}>
+								<g transform={`translate(${blockX} ${(MID_Y + y) / 2})`}>
 									<circle r={8} fill="var(--background)" stroke={color} />
 									<path
 										d="M-3 -3 L3 3 M3 -3 L-3 3"
