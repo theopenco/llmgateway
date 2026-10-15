@@ -365,24 +365,27 @@
 	}
 }
 
+.lift {
+	transition:
+		translate 200ms cubic-bezier(0.23, 1, 0.32, 1),
+		scale 160ms cubic-bezier(0.23, 1, 0.32, 1),
+		box-shadow 200ms ease;
+}
+
 @media (hover: hover) and (pointer: fine) {
-	.lift {
-		transition:
-			transform 200ms cubic-bezier(0.23, 1, 0.32, 1),
-			box-shadow 200ms ease;
-	}
 	.lift:hover {
-		transform: translateY(-2px);
+		translate: 0 -2px;
 	}
 }
 
 .lift:active {
-	transform: scale(0.98);
+	scale: 0.98;
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.lift:hover,
 	.lift:active {
-		transform: none;
+		translate: none;
+		scale: none;
 	}
 }
