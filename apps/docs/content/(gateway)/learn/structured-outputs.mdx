@@ -45,8 +45,8 @@ The snake_case names are what the OpenAI-compatible [`/v1/models`](/learn/models
 the camelCase names are used in the model catalogue and the directory UI.
 
 The two tiers are **independent per provider mapping**: a provider may support
-strict `json_schema` without soft `json_object` (for example Runware or
-Perplexity declare `structured_outputs` without `json_output`), or soft
+strict `json_schema` without soft `json_object` (for example Perplexity
+declares `structured_outputs` without `json_output`), or soft
 `json_object` without strict schema. The gateway routes each mode by its own
 flag — `json_schema` requests only require `structured_outputs`, they are never
 emulated or silently downgraded.
