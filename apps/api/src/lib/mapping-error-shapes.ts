@@ -16,6 +16,30 @@ import { parseUsedModel } from "@llmgateway/shared";
 
 import type { ErrorScope } from "@/lib/error-filters.js";
 
+// Request-specific tokens would split one upstream error into a shape per
+// request; mask them so otherwise identical errors group together.
+const VOLATILE_TOKEN_MASKS: [pattern: string, replacement: string][] = [
+	[
+		"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+		"<uuid>",
+	],
+	// Prefixed ids with a digit, e.g. `rs_…`, `req_…`, `chatcmpl-…`.
+	["([A-Za-z]+[_-])(?=[A-Za-z]*[0-9])[A-Za-z0-9]{12,}", "\\1<id>"],
+	// Bare hashes and tokens mixing letters and digits.
+	["(?=[A-Za-z]*[0-9])(?=[0-9]*[A-Za-z])[A-Za-z0-9]{20,}", "<id>"],
+	// Standalone numbers (token counts, timestamps); not dated model ids.
+	["(?<!-)\\m[0-9]{4,}\\M", "<n>"],
+];
+
+/** An error's response text, truncated and with volatile tokens masked. */
+function normalizedResponseText(column: SQL): SQL {
+	return VOLATILE_TOKEN_MASKS.reduce(
+		(expr, [pattern, replacement]) =>
+			sql`regexp_replace(${expr}, ${pattern}, ${replacement}, 'g')`,
+		sql`LEFT(${column}, 2000)`,
+	);
+}
+
 // Selectable time windows, mapping each value to its SQL interval bound, an
 // hours count surfaced to the UI, and the error timeline bucket size (roughly
 // 50-100 buckets per window).
@@ -248,7 +272,7 @@ export async function queryMappingErrorShapes({
 		shape_buckets AS (
 			SELECT error_details->>'statusCode' AS status_code,
 				${statusTextExpr} AS status_text,
-				LEFT(error_details->>'responseText', 2000) AS response_text,
+				${normalizedResponseText(sql`error_details->>'responseText'`)} AS response_text,
 				error_details->>'cause' AS cause,
 				classification,
 				${streamGroupExpr} AS streamed,
@@ -607,7 +631,7 @@ export async function queryIncidentErrorTypes({
 				mappings.used_model,
 				sampled.error_details->>'statusCode' AS status_code,
 				COALESCE(sampled.error_details->>'statusText', NULLIF(sampled.finish_reason, sampled.classification)) AS status_text,
-				LEFT(sampled.error_details->>'responseText', 2000) AS response_text,
+				${normalizedResponseText(sql`sampled.error_details->>'responseText'`)} AS response_text,
 				sampled.error_details->>'cause' AS cause,
 				sampled.classification,
 				sampled.streamed,
