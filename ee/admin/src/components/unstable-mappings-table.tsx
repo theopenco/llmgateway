@@ -264,6 +264,7 @@ export function ErrorDetails({
 	provider,
 	providerKeyId,
 	includeRetried,
+	groupSimilar,
 	window,
 	logLimit,
 	ignoreExpected,
@@ -278,6 +279,7 @@ export function ErrorDetails({
 	provider: string;
 	providerKeyId: string | undefined;
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	window: UnstableWindow;
 	logLimit: number;
 	ignoreExpected: boolean;
@@ -309,6 +311,7 @@ export function ErrorDetails({
 					provider,
 					providerKeyId,
 					includeRetried: includeRetried ? "true" : "false",
+					groupSimilar: groupSimilar ? "true" : "false",
 					window,
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
@@ -488,6 +491,7 @@ export function ErrorDetails({
 export function UnstableMappingsTable({
 	mappings,
 	includeRetried,
+	groupSimilar,
 	window,
 	logLimit,
 	ignoreExpected,
@@ -498,6 +502,7 @@ export function UnstableMappingsTable({
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	window: UnstableWindow;
 	logLimit: number;
 	ignoreExpected: boolean;
@@ -655,6 +660,7 @@ export function UnstableMappingsTable({
 													: undefined
 											}
 											includeRetried={includeRetried}
+											groupSimilar={groupSimilar}
 											window={window}
 											logLimit={logLimit}
 											ignoreExpected={ignoreExpected}

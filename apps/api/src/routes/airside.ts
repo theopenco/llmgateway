@@ -4494,6 +4494,8 @@ const incidentErrorsRoute = createRoute({
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -4529,6 +4531,7 @@ airside.openapi(incidentErrorsRoute, async (c) => {
 				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
+			groupSimilar: query.groupSimilar !== "false",
 		}),
 	);
 });
@@ -4546,6 +4549,8 @@ const incidentErrorTypesRoute = createRoute({
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -4585,6 +4590,7 @@ airside.openapi(incidentErrorTypesRoute, async (c) => {
 				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
+			groupSimilar: query.groupSimilar !== "false",
 		}),
 	);
 });

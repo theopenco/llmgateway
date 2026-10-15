@@ -13532,6 +13532,8 @@ const getUnstableMappingErrors = createRoute({
 			 * instead of one shape carrying both counts.
 			 */
 			groupByStream: z.enum(["true", "false"]).optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -13562,6 +13564,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		groupByKey: groupByKeyParam,
 		errorMessage: errorMessageParam,
 		groupByStream: groupByStreamParam,
+		groupSimilar,
 	} = c.req.valid("query");
 	const errorMessage = errorMessageParam?.trim() || null;
 	const groupByKey = groupByKeyParam === "true" && providerKeyId === undefined;
@@ -13594,6 +13597,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		groupByKey,
 		bucketSeconds,
 		splitByStream: groupByStream,
+		groupSimilar: groupSimilar !== "false",
 		extraClauses: [
 			providerKeyClause,
 			retriedClause,

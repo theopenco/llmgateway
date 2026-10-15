@@ -248,6 +248,7 @@ export function ProviderKeyInsights({
 		DEFAULT_ERROR_TYPES_WINDOW,
 	);
 	const includeRetried = searchParams.get("retried") !== "0";
+	const groupSimilar = searchParams.get("similar") !== "0";
 	const [chartType, setChartType] = useState<ChartType>("bar");
 	const [sort, setSort] = useState<BreakdownSort>("cost");
 	const $api = useApi();
@@ -295,6 +296,7 @@ export function ProviderKeyInsights({
 				query: {
 					window: errorTypesWindow,
 					includeRetried: includeRetried ? "true" : "false",
+					groupSimilar: groupSimilar ? "true" : "false",
 				},
 			},
 		},
@@ -763,6 +765,10 @@ export function ProviderKeyInsights({
 				query={errorTypes}
 				window={errorTypesWindow}
 				includeRetried={includeRetried}
+				groupSimilar={groupSimilar}
+				onGroupSimilarChange={(next) =>
+					setParams({ similar: next ? null : "0" })
+				}
 				onWindowChange={(next) =>
 					setParams({
 						errors: next === DEFAULT_ERROR_TYPES_WINDOW ? null : next,
@@ -905,8 +911,10 @@ function ProviderKeyErrorTypes({
 	query,
 	window,
 	includeRetried,
+	groupSimilar,
 	onWindowChange,
 	onIncludeRetriedChange,
+	onGroupSimilarChange,
 }: {
 	query: {
 		data?: ErrorTypesData;
@@ -917,6 +925,8 @@ function ProviderKeyErrorTypes({
 	includeRetried: boolean;
 	onWindowChange: (window: ErrorTypesWindow) => void;
 	onIncludeRetriedChange: (includeRetried: boolean) => void;
+	groupSimilar: boolean;
+	onGroupSimilarChange: (groupSimilar: boolean) => void;
 }) {
 	const { data, isError, isPlaceholderData } = query;
 
@@ -992,6 +1002,15 @@ function ProviderKeyErrorTypes({
 							onClick={() => onIncludeRetriedChange(!includeRetried)}
 						>
 							Include retried
+						</Button>
+						<Button
+							variant={groupSimilar ? "secondary" : "ghost"}
+							size="sm"
+							aria-pressed={groupSimilar}
+							title="Group errors that differ only by ids, hashes or numbers."
+							onClick={() => onGroupSimilarChange(!groupSimilar)}
+						>
+							Group similar
 						</Button>
 						<div
 							className="flex items-center gap-1"

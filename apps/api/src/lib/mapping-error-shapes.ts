@@ -31,13 +31,19 @@ const VOLATILE_TOKEN_MASKS: [pattern: string, replacement: string][] = [
 	["(?<!-)\\m[0-9]{4,}\\M", "<n>"],
 ];
 
-/** An error's response text, truncated and with volatile tokens masked. */
-function normalizedResponseText(column: SQL): SQL {
-	return VOLATILE_TOKEN_MASKS.reduce(
-		(expr, [pattern, replacement]) =>
-			sql`regexp_replace(${expr}, ${pattern}, ${replacement}, 'g')`,
-		sql`LEFT(${column}, 2000)`,
-	);
+/**
+ * An error's truncated response text. With `groupSimilar`, volatile tokens are
+ * masked so errors differing only by ids share one shape.
+ */
+function responseTextExpr(column: SQL, groupSimilar: boolean): SQL {
+	const truncated = sql`LEFT(${column}, 2000)`;
+	return groupSimilar
+		? VOLATILE_TOKEN_MASKS.reduce(
+				(expr, [pattern, replacement]) =>
+					sql`regexp_replace(${expr}, ${pattern}, ${replacement}, 'g')`,
+				truncated,
+			)
+		: truncated;
 }
 
 // Selectable time windows, mapping each value to its SQL interval bound, an
@@ -217,6 +223,7 @@ export async function queryMappingErrorShapes({
 	groupByKey = false,
 	bucketSeconds,
 	splitByStream = true,
+	groupSimilar = true,
 }: {
 	usedModel: string;
 	provider: string;
@@ -226,6 +233,7 @@ export async function queryMappingErrorShapes({
 	groupByKey?: boolean;
 	bucketSeconds?: number;
 	splitByStream?: boolean;
+	groupSimilar?: boolean;
 }): Promise<z.infer<typeof mappingErrorShapesSchema>> {
 	// Ungrouped, every row shares a constant NULL key, so the partition is one
 	// bucket and both modes share one query shape.
@@ -272,7 +280,7 @@ export async function queryMappingErrorShapes({
 		shape_buckets AS (
 			SELECT error_details->>'statusCode' AS status_code,
 				${statusTextExpr} AS status_text,
-				${normalizedResponseText(sql`error_details->>'responseText'`)} AS response_text,
+				${responseTextExpr(sql`error_details->>'responseText'`, groupSimilar)} AS response_text,
 				error_details->>'cause' AS cause,
 				classification,
 				${streamGroupExpr} AS streamed,
@@ -589,11 +597,13 @@ export async function queryIncidentErrorTypes({
 	windowInterval,
 	extraClauses,
 	bucketSeconds,
+	groupSimilar = true,
 }: {
 	mappings: { providerId: string; usedModel: string }[];
 	windowInterval: SQL;
 	extraClauses: SQL[];
 	bucketSeconds?: number;
+	groupSimilar?: boolean;
 }): Promise<z.infer<typeof incidentErrorTypesSchema>> {
 	const sampleLimit = INCIDENT_ERRORS_LOG_LIMIT;
 	// Unbucketed, every row falls into one constant bucket.
@@ -631,7 +641,7 @@ export async function queryIncidentErrorTypes({
 				mappings.used_model,
 				sampled.error_details->>'statusCode' AS status_code,
 				COALESCE(sampled.error_details->>'statusText', NULLIF(sampled.finish_reason, sampled.classification)) AS status_text,
-				${normalizedResponseText(sql`sampled.error_details->>'responseText'`)} AS response_text,
+				${responseTextExpr(sql`sampled.error_details->>'responseText'`, groupSimilar)} AS response_text,
 				sampled.error_details->>'cause' AS cause,
 				sampled.classification,
 				sampled.streamed,

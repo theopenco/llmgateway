@@ -481,14 +481,18 @@ describe("admin unstable mappings", () => {
 				"request 3f2504e0-4f89-11d3-9a0c-0305e82c3301: model gpt-4o-2024-08-06 got 135432 tokens",
 		});
 
-		const res = await app.request(
-			"/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai",
-			{ headers: { Cookie: cookie } },
-		);
-		expect(res.status).toBe(200);
-		const body = (await res.json()) as {
-			errors: { responseText: string | null; count: number }[];
-		};
+		async function getErrors(extra = "") {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai${extra}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as {
+				errors: { responseText: string | null; count: number }[];
+			};
+		}
+
+		const body = await getErrors();
 		expect(body.errors).toEqual([
 			expect.objectContaining({ responseText: encrypted("<id>"), count: 2 }),
 			expect.objectContaining({
@@ -496,6 +500,12 @@ describe("admin unstable mappings", () => {
 				count: 1,
 			}),
 		]);
+
+		const exact = await getErrors("&groupSimilar=false");
+		expect(exact.errors).toHaveLength(3);
+		expect(exact.errors.map((e) => e.responseText)).toContain(
+			encrypted("097d957eae04d288016acf8432ed4881"),
+		);
 	});
 
 	test("drilldown buckets each error shape across the window", async () => {
