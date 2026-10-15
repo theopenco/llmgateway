@@ -168,6 +168,7 @@ import {
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
+	routeProjectlessVertexEndpoint,
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
@@ -7598,23 +7599,36 @@ chat.openapi(completions, async (c) => {
 		// A custom Airside carrier has no catalogue endpoint definition: route
 		// it like a BYOK custom provider, to the OpenAI-compatible base URL
 		// registered on its approved claim.
-		url = getProviderEndpoint(
-			airsideCustomBaseUrl ? "custom" : usedProvider,
-			credentialBaseUrl ?? airsideCustomBaseUrl,
-			upstreamModelName,
-			usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
-			stream,
-			supportsReasoning,
-			hasExistingToolCalls,
-			credentialOptions,
-			configIndex,
-			isImageGeneration,
-			usedRegion,
-			usesDatabaseCredential,
-			usedInternalModel,
-			resolveActiveVertexTokenType(),
-			envVariant,
-			getUsedProviderMapping()?.apiFormat,
+		const activeVertexTokenType = resolveActiveVertexTokenType();
+		const endpointProvider = airsideCustomBaseUrl ? "custom" : usedProvider;
+		const buildUrl = (endpointOptions: typeof credentialOptions) =>
+			getProviderEndpoint(
+				endpointProvider,
+				credentialBaseUrl ?? airsideCustomBaseUrl,
+				upstreamModelName,
+				usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
+				stream,
+				supportsReasoning,
+				hasExistingToolCalls,
+				endpointOptions,
+				configIndex,
+				isImageGeneration,
+				usedRegion,
+				usesDatabaseCredential,
+				usedInternalModel,
+				activeVertexTokenType,
+				envVariant,
+				getUsedProviderMapping()?.apiFormat,
+			);
+		url = await routeProjectlessVertexEndpoint(
+			buildUrl(credentialOptions),
+			usedProvider === "google-vertex" &&
+				!airsideCustomBaseUrl &&
+				activeVertexTokenType === "api-key"
+				? usedToken
+				: undefined,
+			(project) =>
+				buildUrl({ ...credentialOptions, google_vertex_project_id: project }),
 		);
 
 		// If region is still unset but the provider supports regions, resolve the

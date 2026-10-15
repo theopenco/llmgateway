@@ -720,9 +720,9 @@ export function CreateProviderKeyDialog({
 										onChange={(e) => setGoogleVertexProjectId(e.target.value)}
 									/>
 									<p className="text-sm text-muted-foreground">
-										Required for OAuth and video generation. Recommended for API
-										keys: without it, Google routes requests to us-central1,
-										where global-only models are not found.
+										Required for OAuth and video generation. Optional for
+										API-key chat requests: the gateway detects the key&apos;s
+										project and uses the global location.
 									</p>
 								</div>
 							)}
