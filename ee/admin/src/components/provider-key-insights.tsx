@@ -428,6 +428,7 @@ export function ProviderKeyInsights({
 						? {
 								window: errorTypesWindow,
 								includeRetried,
+								groupSimilar,
 								sampledErrors: errorTypes.data.sampledErrors,
 								errors: errorTypes.data.errors,
 							}

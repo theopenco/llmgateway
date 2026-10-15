@@ -27,6 +27,8 @@ const VOLATILE_TOKEN_MASKS: [pattern: string, replacement: string][] = [
 	["([A-Za-z]+[_-])(?=[A-Za-z]*[0-9])[A-Za-z0-9]{12,}", "\\1<id>"],
 	// Bare hashes and tokens mixing letters and digits.
 	["(?=[A-Za-z]*[0-9])(?=[0-9]*[A-Za-z])[A-Za-z0-9]{20,}", "<id>"],
+	// Bare hex ids, e.g. trace ids.
+	["\\m(?=[a-fA-F]*[0-9])(?=[0-9]*[a-fA-F])[0-9a-fA-F]{16,}\\M", "<id>"],
 	// Standalone numbers (token counts, timestamps); not dated model ids.
 	["(?<!-)\\m[0-9]{4,}\\M", "<n>"],
 ];
