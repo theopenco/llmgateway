@@ -9,10 +9,13 @@ import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
  * project-scoped endpoint does: newer models return "Publisher Model ... was
  * not found" there. Google names the key's project in that 404, so probing a
  * model that does not exist reveals the project and lets requests use
- * `projects/<n>/locations/global` instead.
+ * `projects/<n>/locations/global` instead. The probe goes to the same base URL
+ * as the request, so pass-through proxies in front of Vertex work too.
  */
-const VERTEX_PROJECTLESS_PREFIX =
-	"https://aiplatform.googleapis.com/v1/publishers/google/models/";
+const VERTEX_DEFAULT_BASE_URL = "https://aiplatform.googleapis.com";
+const VERTEX_PROJECTLESS_PATH = "/v1/publishers/google/models/";
+// Regional hosts only serve their own location, not `locations/global`.
+const VERTEX_REGIONAL_HOST = /^[a-z0-9-]+-aiplatform\.googleapis\.com$/i;
 const PROBE_MODEL = "llmgateway-project-probe";
 const PROBE_TIMEOUT_MS = 5000;
 const HIT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -32,8 +35,22 @@ export function resetVertexApiKeyProjectCache(): void {
 	inFlight.clear();
 }
 
-export function isProjectlessVertexEndpoint(url: string): boolean {
-	return url.startsWith(VERTEX_PROJECTLESS_PREFIX);
+/**
+ * Base URL of a project-less Vertex endpoint, or undefined when the endpoint
+ * is project-scoped or on a regional Google host.
+ */
+export function getProjectlessVertexBaseUrl(url: string): string | undefined {
+	const index = url.indexOf(VERTEX_PROJECTLESS_PATH);
+	if (index <= 0) {
+		return undefined;
+	}
+	const baseUrl = url.slice(0, index);
+	if (!URL.canParse(baseUrl)) {
+		return undefined;
+	}
+	return VERTEX_REGIONAL_HOST.test(new URL(baseUrl).hostname)
+		? undefined
+		: baseUrl;
 }
 
 export function parseVertexProjectFromError(
@@ -42,21 +59,23 @@ export function parseVertexProjectFromError(
 	return /projects\/([a-z0-9-]+)\/locations\//i.exec(message)?.[1];
 }
 
-function cacheKey(apiKey: string): string {
+function cacheKey(baseUrl: string, apiKey: string): string {
 	// Keyed HMAC for an in-memory cache key, not password storage.
 	// lgtm[js/insufficient-password-hash]
 	return createHmac("sha256", getApiKeyHashSecret())
-		.update(`vertex-api-key-project:${apiKey}`)
+		.update(`vertex-api-key-project:${baseUrl}\n${apiKey}`)
 		.digest("hex");
 }
 
 async function probeVertexApiKeyProject(
+	baseUrl: string,
 	apiKey: string,
 	fetchImpl: typeof fetch,
 ): Promise<string | undefined> {
+	const host = new URL(baseUrl).host;
 	try {
 		const response = await fetchImpl(
-			`${VERTEX_PROJECTLESS_PREFIX}${PROBE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+			`${baseUrl}${VERTEX_PROJECTLESS_PATH}${PROBE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -79,11 +98,13 @@ async function probeVertexApiKeyProject(
 		if (!project) {
 			logger.warn("Vertex API key project probe returned no project", {
 				status: response.status,
+				host,
 			});
 		}
 		return project;
 	} catch (error) {
 		logger.warn("Vertex API key project probe failed", {
+			host,
 			error: error instanceof Error ? error.message : String(error),
 		});
 		return undefined;
@@ -91,15 +112,16 @@ async function probeVertexApiKeyProject(
 }
 
 /**
- * Resolve the Google Cloud project an API key belongs to, cached per process.
- * Returns undefined when it cannot be determined; callers then keep the
- * project-less endpoint.
+ * Resolve the Google Cloud project an API key belongs to, cached per process
+ * and base URL. Returns undefined when it cannot be determined; callers then
+ * keep the project-less endpoint.
  */
 export async function resolveVertexApiKeyProject(
 	apiKey: string,
 	fetchImpl: typeof fetch = fetch,
+	baseUrl: string = VERTEX_DEFAULT_BASE_URL,
 ): Promise<string | undefined> {
-	const key = cacheKey(apiKey);
+	const key = cacheKey(baseUrl, apiKey);
 	const cached = cache.get(key);
 	if (cached && cached.expiresAt > Date.now()) {
 		return cached.project;
@@ -108,7 +130,7 @@ export async function resolveVertexApiKeyProject(
 	if (pending) {
 		return await pending;
 	}
-	const probe = probeVertexApiKeyProject(apiKey, fetchImpl)
+	const probe = probeVertexApiKeyProject(baseUrl, apiKey, fetchImpl)
 		.then((project) => {
 			if (cache.size >= MAX_ENTRIES) {
 				cache.clear();
@@ -134,9 +156,10 @@ export async function routeProjectlessVertexEndpoint(
 	rebuild: (project: string) => string,
 	fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-	if (!apiKey || !isProjectlessVertexEndpoint(url)) {
+	const baseUrl = apiKey ? getProjectlessVertexBaseUrl(url) : undefined;
+	if (!apiKey || !baseUrl) {
 		return url;
 	}
-	const project = await resolveVertexApiKeyProject(apiKey, fetchImpl);
+	const project = await resolveVertexApiKeyProject(apiKey, fetchImpl, baseUrl);
 	return project ? rebuild(project) : url;
 }
