@@ -194,6 +194,7 @@ export function ProviderIncidentErrorTypes({
 	mapping,
 	window,
 	includeRetried,
+	groupSimilar,
 	includeByok,
 	errorScope,
 	ignoreExpected,
@@ -203,6 +204,7 @@ export function ProviderIncidentErrorTypes({
 	mapping: string | null;
 	window: NonNullable<ErrorTypesQuery["parameters"]["query"]["window"]>;
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	includeByok: boolean;
 	errorScope: UnstableErrorScope;
 	ignoreExpected: boolean;
@@ -219,6 +221,7 @@ export function ProviderIncidentErrorTypes({
 						providerId,
 						window,
 						includeRetried: includeRetried ? "true" : "false",
+						groupSimilar: groupSimilar ? "true" : "false",
 						includeByok: includeByok ? "true" : "false",
 						errorScope,
 						ignoreExpected: ignoreExpected ? "true" : "false",

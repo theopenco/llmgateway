@@ -1842,6 +1842,8 @@ const listIncidentErrorTypes = createRoute({
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			/** Only errors whose public or internal details contain this text. */
 			errorMessage: z.string().max(500).optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -1874,6 +1876,7 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		...(await queryIncidentErrorTypes({
 			bucketSeconds,
+			groupSimilar: query.groupSimilar !== "false",
 			mappings: await queryIncidentMappings({
 				providerIds: [query.providerId],
 				windowHours,

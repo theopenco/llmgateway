@@ -461,6 +461,53 @@ describe("admin unstable mappings", () => {
 		});
 	});
 
+	test("drilldown groups errors that differ only by ids", async () => {
+		const encrypted = (id: string) =>
+			`{"error":{"message":"The encrypted content for item rs_${id} could not be verified.","code":"invalid_encrypted_content"}}`;
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			responseText: encrypted("097d957eae04d288016acf8432ed4881"),
+		});
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			responseText: encrypted("0a11bb22cc33dd44ee55ff6677889900"),
+		});
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			responseText:
+				"request 3f2504e0-4f89-11d3-9a0c-0305e82c3301: model gpt-4o-2024-08-06 got 135432 tokens",
+		});
+
+		async function getErrors(extra = "") {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai${extra}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as {
+				errors: { responseText: string | null; count: number }[];
+			};
+		}
+
+		const body = await getErrors();
+		expect(body.errors).toEqual([
+			expect.objectContaining({ responseText: encrypted("<id>"), count: 2 }),
+			expect.objectContaining({
+				responseText: "request <uuid>: model gpt-4o-2024-08-06 got <n> tokens",
+				count: 1,
+			}),
+		]);
+
+		const exact = await getErrors("&groupSimilar=false");
+		expect(exact.errors).toHaveLength(3);
+		expect(exact.errors.map((e) => e.responseText)).toContain(
+			encrypted("097d957eae04d288016acf8432ed4881"),
+		);
+	});
+
 	test("drilldown buckets each error shape across the window", async () => {
 		const bucketMs = 60_000;
 		const tenBucketsMs = 10 * bucketMs;

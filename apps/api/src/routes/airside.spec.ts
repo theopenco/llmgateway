@@ -1939,7 +1939,7 @@ describe("airside provider portal", () => {
 				errorDetails: {
 					statusCode: entry.statusCode,
 					statusText: "err",
-					responseText: `failed ${entry.statusCode}`,
+					responseText: `failed ${entry.statusCode} for request req_${i}a1b2c3d4e5f6a7b8`,
 				},
 				duration: 100,
 				usedMode: "credits" as const,
@@ -2078,7 +2078,7 @@ describe("airside provider portal", () => {
 			errorDetails: {
 				statusCode: 503,
 				statusText: "err",
-				responseText: "failed 503",
+				responseText: "failed 503 for request req_9a1b2c3d4e5f6a7b8",
 			},
 			duration: 100,
 			usedMode: "credits" as const,
@@ -2150,6 +2150,22 @@ describe("airside provider portal", () => {
 		const typesNotRetriedBody = await typesNotRetried.json();
 		expect(typesNotRetriedBody.sampledErrors).toBe(3);
 		expect(typesNotRetriedBody.errors).toHaveLength(2);
+
+		// Request ids are masked by default; without grouping each 503 is its
+		// own shape.
+		expect(typesBody.errors[0].responseText).toBe(
+			"failed 503 for request req_<id>",
+		);
+		const exactTypes = await app.request(`${typesBase}&groupSimilar=false`, {
+			headers: { Cookie: cookie },
+		});
+		const exactTypesBody = await exactTypes.json();
+		expect(exactTypesBody.sampledErrors).toBe(5);
+		expect(exactTypesBody.errors).toHaveLength(5);
+		const exactErrors = await app.request(`${errorsBase}&groupSimilar=false`, {
+			headers: { Cookie: cookie },
+		});
+		expect((await exactErrors.json()).errors).toHaveLength(4);
 
 		const foreignTypes = await app.request(`${typesBase}&providerId=openai`, {
 			headers: { Cookie: cookie },

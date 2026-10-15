@@ -55,6 +55,7 @@ function IncidentsContent() {
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [providerId, setProviderId] = useState<string | undefined>(undefined);
 	const [includeRetried, setIncludeRetried] = useState(true);
+	const [groupSimilar, setGroupSimilar] = useState(true);
 
 	const companyId = company?.id;
 	useEffect(() => {
@@ -309,6 +310,16 @@ function IncidentsContent() {
 						</div>
 						<div className="flex items-center gap-2">
 							<Switch
+								id="group-similar"
+								checked={groupSimilar}
+								onCheckedChange={setGroupSimilar}
+							/>
+							<Label htmlFor="group-similar" className="text-xs">
+								Group similar errors
+							</Label>
+						</div>
+						<div className="flex items-center gap-2">
+							<Switch
 								id="include-byok"
 								checked={includeByok}
 								onCheckedChange={(checked) =>
@@ -329,6 +340,7 @@ function IncidentsContent() {
 							mapping={mapping}
 							window={timeWindow}
 							includeRetried={includeRetried}
+							groupSimilar={groupSimilar}
 							includeByok={includeByok}
 							showCarrier={company.claims.length > 1}
 						/>
@@ -361,6 +373,7 @@ function IncidentsContent() {
 										mappings={data.mappings}
 										window={timeWindow}
 										includeRetried={includeRetried}
+										groupSimilar={groupSimilar}
 										includeByok={includeByok}
 									/>
 								</div>

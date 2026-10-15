@@ -1447,6 +1447,8 @@ const getProviderKeyErrorTypes = createRoute({
 		query: z.object({
 			window: providerKeyErrorWindowSchema.default("24h").optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -1544,6 +1546,7 @@ adminProviderCredentials.openapi(getProviderKeyErrorTypes, async (c) => {
 		),
 		windowInterval,
 		bucketSeconds,
+		groupSimilar: query.groupSimilar !== "false",
 		extraClauses: [
 			sql`AND ${tables.log.providerKeyId} = ${providerKeyId}`,
 			incidentErrorsClause,

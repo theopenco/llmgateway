@@ -96,6 +96,7 @@ export function ProviderIncidentsClient({
 	const timeWindow =
 		WINDOWS.find((value) => value === windowParam) ?? DEFAULT_WINDOW;
 	const includeRetried = searchParams.get("includeRetried") !== "false";
+	const groupSimilar = searchParams.get("groupSimilar") !== "false";
 	const detailsGroupBy = parseErrorGroupBy(searchParams.get("detailsGroup"));
 	const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -283,6 +284,18 @@ export function ProviderIncidentsClient({
 				</div>
 				<div className="flex items-center gap-2">
 					<Switch
+						id="group-similar"
+						checked={groupSimilar}
+						onCheckedChange={(checked) =>
+							setParam("groupSimilar", checked ? null : "false", false)
+						}
+					/>
+					<Label htmlFor="group-similar" className="text-xs">
+						Group similar errors
+					</Label>
+				</div>
+				<div className="flex items-center gap-2">
+					<Switch
 						id="include-byok"
 						checked={includeByok}
 						onCheckedChange={(checked) =>
@@ -373,6 +386,7 @@ export function ProviderIncidentsClient({
 						mapping={mapping}
 						window={timeWindow}
 						includeRetried={includeRetried}
+						groupSimilar={groupSimilar}
 						includeByok={includeByok}
 						errorScope={errorScope}
 						ignoreExpected={ignoreExpected}
@@ -483,6 +497,7 @@ export function ProviderIncidentsClient({
 														provider={row.providerId}
 														providerKeyId={undefined}
 														includeRetried={includeRetried}
+														groupSimilar={groupSimilar}
 														window={timeWindow}
 														logLimit={DRILLDOWN_LOG_LIMIT}
 														ignoreExpected={ignoreExpected}
