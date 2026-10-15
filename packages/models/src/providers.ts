@@ -1995,7 +1995,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#a8f399",
 		website: "https://runware.ai",
 		statusPageUrl: "https://status.runware.ai/",
-		announcement: "Launch offer: 30% off all Runware models until September 9",
+		announcement: null,
 		termsUrl: "https://runware.ai/terms",
 		privacyPolicyUrl: "https://runware.ai/privacy",
 		usagePolicyUrl: "https://runware.ai/terms",
