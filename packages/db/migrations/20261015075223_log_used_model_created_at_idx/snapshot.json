@@ -1,11 +1,12 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "82868834-875f-4dee-a535-26e9748dba13",
+  "id": "4645e6cc-a569-4250-aff2-7a9c260d2c8d",
   "prevIds": [
     "b19fcbe9-5f18-4062-9685-1a4d60229209",
-    "b726be47-6c50-4a26-832d-a48ad0ba4ea1",
-    "c7c953c4-9cb7-4337-994e-f7d11d076dc8"
+    "c7c59c6e-dd61-4ccd-88f1-d1bd9e7100e3",
+    "c7c953c4-9cb7-4337-994e-f7d11d076dc8",
+    "ce68f830-36b8-49c9-b373-efb1bd8c331c"
   ],
   "ddl": [
     {
@@ -19247,6 +19248,32 @@
       "table": "organization"
     },
     {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_daily_credits_used",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_day_start",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -26821,6 +26848,19 @@
       "generated": null,
       "identity": null,
       "name": "max_tpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'strict'",
+      "generated": null,
+      "identity": null,
+      "name": "rate_limit_mode",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
