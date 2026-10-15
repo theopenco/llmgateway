@@ -19,11 +19,8 @@ something else.
 	height={900}
 />
 
-Agents are recognised from the `x-source` header their requests send. Supported
-tools include DevPass Code, Claude Code, OpenCode, Cursor, Autohand Code,
-Anvil, Empryo, SoulForge, Cline, Codex CLI, GitHub Copilot, n8n and OpenClaw —
-each
-one has a setup guide under [Guides](/guides).
+Agents are recognised from the `x-source` header their requests send. See
+[Guides](/guides) for supported tools and setup instructions.
 
 <Callout type="info">
 	The overview lists the **last 7 days**. Open an agent to pick a wider window.
@@ -41,6 +38,8 @@ one has a setup guide under [Guides](/guides).
 | **Tokens**      | Prompt and completion tokens combined            |
 | **Last active** | When the agent last sent a request               |
 
+Cards use hourly aggregates for the entire window, regardless of how many individual requests are loaded. A request that falls back counts once; billed costs and tokens include every attempt. Last active identifies the latest hourly bucket containing usage.
+
 Click a card to open the agent's detail page.
 
 ## Agent Detail
@@ -53,7 +52,11 @@ Click a card to open the agent's detail page.
 />
 
 The header repeats the agent's totals for the selected period and holds the
-two controls for the page:
+two controls for the page. Totals include the first and current hours; the beginning of each window is rounded down to the hour.
+
+Historical source counts are repaired where complete request history is still retained. Counts from expired or partly pruned history stay unchanged because they cannot be reconstructed reliably.
+
+The controls are:
 
 - **Time range** — 1h, 4h, 24h, 7d or 30d (7d by default), stored in the URL so
   the view can be shared.

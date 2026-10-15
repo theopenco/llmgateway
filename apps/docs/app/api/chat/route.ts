@@ -206,15 +206,6 @@ export async function POST(req: Request) {
 			{ status: 429 },
 		);
 	}
-	if (!isGlobalAllowed(GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
-		return Response.json(
-			{
-				error:
-					"Ask AI is experiencing unusually high volume. Please try again later.",
-			},
-			{ status: 429 },
-		);
-	}
 
 	// Start building the search index now so a cold instance indexes while the
 	// body is parsed and the model takes its first step, instead of adding the
@@ -240,6 +231,16 @@ export async function POST(req: Request) {
 		return Response.json(
 			{ error: "Too many messages in conversation" },
 			{ status: 400 },
+		);
+	}
+
+	if (!isGlobalAllowed(GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{
+				error:
+					"Ask AI is experiencing unusually high volume. Please try again later.",
+			},
+			{ status: 429 },
 		);
 	}
 
