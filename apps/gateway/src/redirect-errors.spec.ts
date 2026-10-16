@@ -113,7 +113,7 @@ describe("blocked redirects", () => {
 					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
-					model: "google-ai-studio/gemini-2.5-flash",
+					model: "google-ai-studio/gemini-3.5-flash",
 					stream,
 					messages: [
 						{

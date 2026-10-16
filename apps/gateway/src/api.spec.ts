@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -8379,10 +8388,10 @@ describe("api", () => {
 		});
 	});
 
-	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-2.5-flash-lite", async () => {
+	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-3.1-flash-lite", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 90,
@@ -8390,7 +8399,7 @@ describe("api", () => {
 				throughput: 5,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 10,
 			throughput: 500,
@@ -8434,7 +8443,7 @@ describe("api", () => {
 					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
-					model: "gemini-2.5-flash-lite",
+					model: "gemini-3.1-flash-lite",
 					messages: [
 						{
 							role: "user",
@@ -8477,7 +8486,7 @@ describe("api", () => {
 	test("/v1/chat/completions hybrid escapes to credits provider when keyed provider fails", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 100,
@@ -8485,7 +8494,7 @@ describe("api", () => {
 				throughput: 100,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 100,
 			throughput: 100,
@@ -8538,7 +8547,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "gemini-2.5-flash-lite",
+					model: "gemini-3.1-flash-lite",
 					messages: [
 						{ role: "user", content: "Hybrid dead key escape request" },
 					],
@@ -8580,7 +8589,7 @@ describe("api", () => {
 	test("/v1/chat/completions hybrid overflows to credits provider when keyed provider is rate limited", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 100,
@@ -8588,7 +8597,7 @@ describe("api", () => {
 				throughput: 100,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 100,
 			throughput: 100,
@@ -8620,7 +8629,7 @@ describe("api", () => {
 			id: "rate-limit-studio",
 			organizationId: "org-id",
 			provider: "google-ai-studio",
-			model: "gemini-2.5-flash-lite",
+			model: "gemini-3.1-flash-lite",
 			maxRpm: 1,
 		});
 
@@ -8633,7 +8642,7 @@ describe("api", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
 
-			const makeRequest = (content: string, model = "gemini-2.5-flash-lite") =>
+			const makeRequest = (content: string, model = "gemini-3.1-flash-lite") =>
 				app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -8658,7 +8667,7 @@ describe("api", () => {
 
 			const directRes = await makeRequest(
 				"Direct provider rate limit request",
-				"google-ai-studio/gemini-2.5-flash-lite",
+				"google-ai-studio/gemini-3.1-flash-lite",
 			);
 			expect(directRes.status).toBe(200);
 			const directJson = await directRes.json();
@@ -10187,6 +10196,17 @@ describe("api", () => {
 	});
 
 	describe("n parameter (multiple completions)", () => {
+		// Only the Gemini 2.5 mappings support n (candidateCount); pin the clock
+		// before their 2026-10-16 deactivation.
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
 		test("forwards n to OpenAI and returns multiple choices", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n",
