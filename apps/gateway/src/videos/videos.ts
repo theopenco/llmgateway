@@ -3001,7 +3001,10 @@ async function streamDirectUpstreamVideoContent(
 			});
 		}
 		const downloadResponse = await fetchVideoContent(() =>
-			fetchProviderIssuedUrl(downloadUrl, { headers }),
+			// Presigned URL on another host: never forward the provider credential.
+			fetchProviderIssuedUrl(downloadUrl, {
+				headers: videoRangeHeaders(requestHeaders),
+			}),
 		);
 		return videoProxyResponse(downloadResponse, job.contentType);
 	}
