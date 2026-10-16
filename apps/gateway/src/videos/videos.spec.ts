@@ -2737,6 +2737,65 @@ describe("videos", () => {
 		}
 	});
 
+	test("worker refuses to poll a BYOK base URL on an internal host", async () => {
+		vi.stubEnv("LLM_GOOGLE_CLOUD_PROJECT", "provider-project");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_REGION", "us-central1");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET", undefined);
+		vi.stubEnv("LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL", undefined);
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "google-vertex",
+				organizationId: "org-id",
+				// Local mock server: a private address once the guard is on.
+				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "provider-project" },
+			});
+
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A cinematic waterfall in the mountains",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+
+			vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+			await processPendingVideoJobs();
+			const guarded = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(guarded?.status).not.toBe("completed");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	test("/v1/videos rejects inline vertex output when retention is off", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;

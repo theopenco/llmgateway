@@ -26,7 +26,9 @@ link-local, metadata, and IPv4-mapped IPv6 addresses, and refuses redirects.
 When the guard rejects a URL, fail the request; forwarding it upstream lets the
 provider fetch what we refused. Download URLs in a provider response (video,
 audio) are tenant-controlled under BYOK: fetch them with
-`fetchProviderIssuedUrl` from `apps/gateway/src/lib/fetch-provider.ts`. Route every non-`data:` URL through the guard
+`fetchProviderIssuedUrl` from `apps/gateway/src/lib/fetch-provider.ts`.
+Worker requests to a BYOK base URL or webhook target pass `tenantControlled`
+to `fetchWithSignals` in `apps/worker/src/services/video-jobs.ts`. Route every non-`data:` URL through the guard
 wherever remote content is inlined (e.g. `requiresBase64Images` mappings).
 
 ## Errors
