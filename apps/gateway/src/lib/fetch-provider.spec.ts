@@ -10,7 +10,7 @@ import {
 	vi,
 } from "vitest";
 
-import { fetchProvider } from "./fetch-provider.js";
+import { fetchProvider, fetchProviderIssuedUrl } from "./fetch-provider.js";
 import { closeUpstreamDispatcher } from "./upstream-dispatcher.js";
 
 import type { Server } from "node:http";
@@ -74,6 +74,31 @@ describe("fetchProvider tenant base URLs", () => {
 			{ method: "POST" },
 			"http://localhost",
 		);
+
+		expect(res.status).toBe(200);
+		expect(hits).toBe(1);
+	});
+
+	it("refuses provider-issued download URLs pointing at internal hosts", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+
+		const port = new URL(url).port;
+		for (const target of [
+			url,
+			`http://127.0.0.1:${port}/`,
+			"https://127.0.0.1/",
+			"https://169.254.169.254/",
+			"https://metadata.google.internal/",
+		]) {
+			await expect(fetchProviderIssuedUrl(target)).rejects.toThrow();
+		}
+		expect(hits).toBe(0);
+	});
+
+	it("fetches provider-issued URLs when the guard is disabled", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+
+		const res = await fetchProviderIssuedUrl(url);
 
 		expect(res.status).toBe(200);
 		expect(hits).toBe(1);
