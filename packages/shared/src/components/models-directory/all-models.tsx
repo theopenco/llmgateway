@@ -773,9 +773,7 @@ const ModelTableRow = React.memo(
 									</p>
 								</TooltipContent>
 							</Tooltip>
-						) : audioHourPrice !== null &&
-						  audioHourPrice > 0 &&
-						  !inputTokenPrice ? (
+						) : audioHourPrice !== null && !inputTokenPrice ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-sky-500 cursor-help">
