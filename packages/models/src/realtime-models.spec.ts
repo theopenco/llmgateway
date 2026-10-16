@@ -170,7 +170,7 @@ describe("realtime model catalogue validation", () => {
 		);
 		expect(entry).toBeDefined();
 		const { model, mapping } = entry!;
-		expect(model.output).toEqual(["text"]);
+		expect(model.output).toEqual(["transcription"]);
 		expect(mapping.providerId).toBe("openai");
 		expect(mapping.externalId).toBe("gpt-live-transcribe");
 		// $0.017 per minute of audio, expressed per hour.
@@ -193,7 +193,7 @@ describe("realtime model catalogue validation", () => {
 		);
 		expect(entry).toBeDefined();
 		const { model, mapping } = entry!;
-		expect(model.output).toEqual(["text"]);
+		expect(model.output).toEqual(["transcription"]);
 		expect(mapping.providerId).toBe("openai");
 		expect(mapping.externalId).toBe("gpt-transcribe");
 		// $0.0045 per minute of audio, expressed per hour.
