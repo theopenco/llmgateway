@@ -108,3 +108,67 @@ billing log, then store the verified `cost` and `storageCost` under that request
 ID in the private `reconciled-errors.json` object. Resume only after checking
 those charges. The original error remains a failed trial and is never retried.
 Both `length` and `incomplete` finish reasons count as truncation.
+
+## Optional Saina routing arm
+
+The open-weights [Saina Helm 2 Routing](https://huggingface.co/run-saina/saina-helm-2-routing-0.8b)
+arm selects a fixed-arm model from the request, capability descriptions and
+estimated request prices. It does not see candidate model identifiers or fixture
+answers. This adds a fifth arm; use a **fresh** benchmark directory and rerun all
+arms. Existing fixtures, scoring, output caps, failure rules and bootstrap strata
+remain unchanged. Arm execution order is reshuffled with the additional arm.
+
+Create a private JSON config and set `SAINA_CONFIG` to its path. It has:
+
+- `model`: `saina-helm-2-routing-0.8b`.
+- `revision`: `6c99c8cdd87d0cfd2ecfb05650bb25b803b863fd` (merged weights).
+- `classifierReserveUsd`: a positive decimal string reserving classifier cost per
+  call in the spending guard. It must cover your expected routing charge.
+- `candidates`: at least two distinct fixed-arm models, each with `model`,
+  `description`, and `estimatedRequestCostUsd` (a nonnegative decimal string).
+
+Write descriptions and prices before the run using independent information;
+do not derive them from this pilot's answers. Candidate order, descriptions,
+prices, question, revision and adapter hash are frozen in `protocol.json`.
+Record how the pool compares with the project's configured Smart Routing pool;
+a different pool is a different treatment, not an isolated classifier comparison.
+The downstream call keeps the fixed model's defaults, without Smart Routing's
+reasoning adjustments.
+
+Set `SAINA_API_KEY` and optionally `SAINA_BASE_URL` (default
+`https://api.saina.run`), then use the same prepare/run commands above. For local
+open-weights inference, install `saina[local,server]>=0.4.0`, set `SAINA_MODELS` to
+`run-saina/saina-helm-2-routing-0.8b@6c99c8cdd87d0cfd2ecfb05650bb25b803b863fd:32768`,
+set the server's `SAINA_API_KEY`, and start `uvicorn saina.server:create_app --factory`.
+Point `SAINA_BASE_URL` at its loopback origin. Endpoint URLs and credentials are
+not written into the protocol. The runner verifies the served revision before
+and after execution. Keep the server pinned for the entire run.
+
+Routing is serial and uncached. Its wall time is included in total latency and
+time to first content, and subtracted from the downstream timeout. Setup checks
+are outside request timing. Router failures count as failed trials with no
+fallback or downstream call. Private `saina-routing.jsonl` records each decision
+before generation and is reused on resume. If `saina-pending.json` remains after
+an interruption, reconcile that request before clearing the marker; do not
+silently pay for another routing attempt.
+
+Before analysis, save private `saina-billing.json`: an array with one entry per
+Saina trial, including failed routes. Each entry has `caseId`, `cost` (total router
+charge as a nonnegative decimal string), and `basis` (`billed` or `estimated`).
+Use actual API billing where available. For self-hosting, include a documented
+compute-cost estimate, including failed routing attempts; estimates are labeled
+in the summaries. Never substitute zero for an unknown charge. The reserve is a
+spending precaution, not measured billing. Analysis refuses missing charges.
+
+Collect the downstream gateway logs in `billing.json` as usual. A failed router
+has an empty `logs` array because no generation was requested. Analysis adds the
+external router charge to downstream inference and storage costs and reports
+paired comparisons for both routers. The same strict and 79-prompt sensitivity
+rules apply. Raw routing records and billing files stay private. This integration
+does not ship benchmark results or make a quality/cost claim.
+
+Adapter and analysis regression tests (mocked requests; no paid API calls):
+
+```bash
+pnpm exec tsx --test scripts/benchmarks/saina-*.test.ts
+```
