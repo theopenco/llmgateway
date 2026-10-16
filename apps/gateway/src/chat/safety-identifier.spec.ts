@@ -2,10 +2,11 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, inArray, tables } from "@llmgateway/db";
+import { db, inArray, tables, eq } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("chat safety identifier", () => {
@@ -81,5 +82,58 @@ describe("chat safety identifier", () => {
 				safety_identifier: identifiers.get(key.id),
 			});
 		}
+	});
+
+	test("keeps the API key's identifier on a retried attempt", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-safety-retry",
+			...hashApiKeyForStorage("real-token-safety-retry"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		// Two keys for one provider: the first 500 rotates to the second key
+		// through resolveProviderContextForRetry, which rebuilds the body.
+		await db.insert(tables.providerKey).values(
+			["a", "b"].map((suffix) => ({
+				id: `provider-key-id-safety-retry-${suffix}`,
+				...encryptProviderKeyForStorage(
+					`sk-test-key-${suffix}`,
+					`provider-key-id-safety-retry-${suffix}`,
+					"org-id",
+				),
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: harness.mockServerUrl,
+			})),
+		);
+		resetFailOnceCounter();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-safety-retry",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE safety" }],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.routing?.[0]).toMatchObject({ succeeded: false });
+
+		const [apiKey] = await db
+			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
+			.from(tables.apiKey)
+			.where(eq(tables.apiKey.id, "token-id-safety-retry"));
+		const logs = await waitForLogs(1);
+		const succeeded = logs.find(
+			(entry) => entry.apiKeyId === "token-id-safety-retry" && !entry.hasError,
+		);
+		expect(succeeded?.upstreamRequest).toMatchObject({
+			safety_identifier: apiKey?.safetyIdentifier,
+		});
 	});
 });

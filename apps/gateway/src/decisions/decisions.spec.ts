@@ -5,7 +5,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const QUESTIONS = [
@@ -91,6 +91,7 @@ describe("decisions", () => {
 				},
 			],
 			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
 		});
 
 		const json = await res.json();
@@ -118,6 +119,15 @@ describe("decisions", () => {
 		// Image data never lands in the stored request summary.
 		expect(JSON.stringify(log?.messages)).toContain("[image]");
 		expect(JSON.stringify(log?.messages)).not.toContain("iVBORw0KGgo");
+		// The client's safety_identifier is replaced by the API key's.
+		const [apiKey] = await db
+			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
+			.from(tables.apiKey)
+			.where(eq(tables.apiKey.id, "token-id-decisions-openai"));
+		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
+		expect(log?.upstreamRequest).toMatchObject({
+			safety_identifier: apiKey?.safetyIdentifier,
+		});
 	});
 
 	test("/v1/decisions serves Jev by translating to TypeSafe System One", async () => {
