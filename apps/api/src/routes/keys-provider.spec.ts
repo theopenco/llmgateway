@@ -1386,6 +1386,29 @@ describe("provider keys route", () => {
 			},
 		);
 
+		test.each(["free", "pro"] as const)(
+			"rejects a base URL on a built-in provider on the %s plan",
+			async (plan) => {
+				await setPlan(plan);
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({
+						provider: "xai",
+						token: "new-xai-token",
+						baseUrl: "https://example-2.com",
+						organizationId: "test-org-id",
+					}),
+				});
+				expect(res.status).toBe(403);
+				expect((await res.json()).message).toContain("enterprise plan");
+				const stored = await db.query.providerKey.findFirst({
+					where: { provider: { eq: "xai" } },
+				});
+				expect(stored).toBeUndefined();
+			},
+		);
+
 		test.each([
 			{ name: "renamed" },
 			{ description: "label" },
