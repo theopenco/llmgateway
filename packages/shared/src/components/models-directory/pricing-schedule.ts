@@ -11,6 +11,7 @@ export interface PerUnitPricing {
 	perImagePrice?: PriceRecord | null;
 	perSecondPrice?: PriceRecord | null;
 	inputCharacterPrice?: string | number | null;
+	inputAudioHourPrice?: string | number | null;
 	discount?: string | null;
 }
 
@@ -18,6 +19,7 @@ export const PRICE_UNIT_FIELDS = [
 	"perImagePrice",
 	"perSecondPrice",
 	"inputCharacterPrice",
+	"inputAudioHourPrice",
 ] as const;
 export type PriceUnitField = (typeof PRICE_UNIT_FIELDS)[number];
 
@@ -159,6 +161,12 @@ export function getInputCharacterPricePer1K(
 	return eff === null ? null : roundPerUnit(eff * 1000);
 }
 
+/** Discounted audio price in $/hour; null when the mapping has none. */
+export function getInputAudioHourPrice(mapping: PerUnitPricing): number | null {
+	const eff = effectiveUnitPrice(mapping.inputAudioHourPrice, mapping.discount);
+	return eff === null ? null : roundPerUnit(eff);
+}
+
 /** Cheapest price of a mapping in the given unit; null when it has none. */
 export function minUnitPrice(
 	mapping: PerUnitPricing,
@@ -171,6 +179,8 @@ export function minUnitPrice(
 			return getMinPerSecondPrice(mapping);
 		case "inputCharacterPrice":
 			return getInputCharacterPricePer1K(mapping);
+		case "inputAudioHourPrice":
+			return getInputAudioHourPrice(mapping);
 	}
 }
 
@@ -186,6 +196,8 @@ export function maxUnitPrice(
 			return getMaxPerSecondPrice(mapping);
 		case "inputCharacterPrice":
 			return getInputCharacterPricePer1K(mapping);
+		case "inputAudioHourPrice":
+			return getInputAudioHourPrice(mapping);
 	}
 }
 
