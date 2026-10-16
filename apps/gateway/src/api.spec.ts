@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -8379,10 +8388,10 @@ describe("api", () => {
 		});
 	});
 
-	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-2.5-flash-lite", async () => {
+	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-3.1-flash-lite", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 90,
@@ -8390,7 +8399,7 @@ describe("api", () => {
 				throughput: 5,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 10,
 			throughput: 500,
@@ -8434,7 +8443,7 @@ describe("api", () => {
 					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
-					model: "gemini-2.5-flash-lite",
+					model: "gemini-3.1-flash-lite",
 					messages: [
 						{
 							role: "user",
@@ -8477,7 +8486,7 @@ describe("api", () => {
 	test("/v1/chat/completions hybrid escapes to credits provider when keyed provider fails", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 100,
@@ -8485,7 +8494,7 @@ describe("api", () => {
 				throughput: 100,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 100,
 			throughput: 100,
@@ -8538,7 +8547,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "gemini-2.5-flash-lite",
+					model: "gemini-3.1-flash-lite",
 					messages: [
 						{ role: "user", content: "Hybrid dead key escape request" },
 					],
@@ -8580,7 +8589,7 @@ describe("api", () => {
 	test("/v1/chat/completions hybrid overflows to credits provider when keyed provider is rate limited", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 100,
@@ -8588,7 +8597,7 @@ describe("api", () => {
 				throughput: 100,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 100,
 			throughput: 100,
@@ -8620,7 +8629,7 @@ describe("api", () => {
 			id: "rate-limit-studio",
 			organizationId: "org-id",
 			provider: "google-ai-studio",
-			model: "gemini-2.5-flash-lite",
+			model: "gemini-3.1-flash-lite",
 			maxRpm: 1,
 		});
 
@@ -8633,7 +8642,7 @@ describe("api", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
 
-			const makeRequest = (content: string, model = "gemini-2.5-flash-lite") =>
+			const makeRequest = (content: string, model = "gemini-3.1-flash-lite") =>
 				app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -8658,7 +8667,7 @@ describe("api", () => {
 
 			const directRes = await makeRequest(
 				"Direct provider rate limit request",
-				"google-ai-studio/gemini-2.5-flash-lite",
+				"google-ai-studio/gemini-3.1-flash-lite",
 			);
 			expect(directRes.status).toBe(200);
 			const directJson = await directRes.json();
@@ -10691,165 +10700,181 @@ describe("api", () => {
 			).toBe(true);
 		});
 
-		test("forwards n to Google as candidateCount and de-dupes candidate 0", async () => {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-n-google",
-				...hashApiKeyForStorage("real-token-n-google"),
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
+		// No active Google mapping declares supportsN; pin the clock before the
+		// gemini-2.5 deactivation so the candidateCount path stays covered.
+		describe("Google candidateCount", () => {
+			beforeEach(() => {
+				vi.useFakeTimers({ toFake: ["Date"] });
+				vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
+			});
+			afterEach(() => {
+				vi.useRealTimers();
 			});
 
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-n-google",
-				...encryptProviderKeyForStorage(
-					"google-test-key",
-					"provider-key-id-n-google",
-					"org-id",
-				),
-				provider: "google-ai-studio",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+			test("forwards n to Google as candidateCount and de-dupes candidate 0", async () => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id-n-google",
+					...hashApiKeyForStorage("real-token-n-google"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id-n-google",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-id-n-google",
+						"org-id",
+					),
+					provider: "google-ai-studio",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token-n-google",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash",
+						n: 3,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
+
+				// The mock Google server echoes candidateCount back as that many
+				// candidates — and replicates the real AI Studio quirk where
+				// candidate 0's parts also contain a copy of every other candidate's
+				// parts. Receiving 3 distinct choices proves both the forwarding and
+				// the gateway-side de-duplication.
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(Array.isArray(json.choices)).toBe(true);
+				expect(json.choices).toHaveLength(3);
+				expect(json.choices[0].index).toBe(0);
+				expect(json.choices[1].index).toBe(1);
+				expect(json.choices[2].index).toBe(2);
+				expect(json.choices[0].message.content).toContain("Google variant 1");
+				expect(json.choices[0].message.content).not.toContain(
+					"Google variant 2",
+				);
+				expect(json.choices[0].message.content).not.toContain(
+					"Google variant 3",
+				);
+				expect(json.choices[1].message.content).toContain("Google variant 2");
+				expect(json.choices[2].message.content).toContain("Google variant 3");
+				for (const choice of json.choices) {
+					expect(choice.finish_reason).toBe("stop");
+				}
+
+				// Input tokens counted once; output across all candidates — mirrors
+				// Google's multi-candidate billing.
+				expect(json.usage.prompt_tokens).toBe(10);
+				expect(json.usage.completion_tokens).toBe(60);
+				expect(json.usage.total_tokens).toBe(70);
+
+				// Log row content column should aggregate every candidate's content
+				// (after de-duplication), not just candidate 0.
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+				expect(logs[0].streamed).toBe(false);
+				expect(logs[0].content).toContain("Google variant 1");
+				expect(logs[0].content).toContain("Google variant 2");
+				expect(logs[0].content).toContain("Google variant 3");
+				// De-duplication: candidate 0's duplicated copies must not double
+				// the variants in the aggregated log content.
+				expect((logs[0].content?.match(/Google variant 2/g) ?? []).length).toBe(
+					1,
+				);
 			});
 
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-n-google",
-				},
-				body: JSON.stringify({
-					model: "gemini-2.5-flash",
-					n: 3,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
+			test("rejects n > 1 with streaming on Google models", async () => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id-n-google-stream",
+					...hashApiKeyForStorage("real-token-n-google-stream"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id-n-google-stream",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-id-n-google-stream",
+						"org-id",
+					),
+					provider: "google-ai-studio",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				// Google rejects candidateCount > 1 on streamGenerateContent, so the
+				// gateway must 400 with a precise message before calling upstream.
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token-n-google-stream",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash",
+						n: 3,
+						stream: true,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
+
+				expect(res.status).toBe(400);
+				const text = await res.text();
+				expect(text).toContain(
+					"does not support the n parameter for multiple choices with streaming",
+				);
 			});
 
-			// The mock Google server echoes candidateCount back as that many
-			// candidates — and replicates the real AI Studio quirk where
-			// candidate 0's parts also contain a copy of every other candidate's
-			// parts. Receiving 3 distinct choices proves both the forwarding and
-			// the gateway-side de-duplication.
-			expect(res.status).toBe(200);
-			const json = await res.json();
-			expect(Array.isArray(json.choices)).toBe(true);
-			expect(json.choices).toHaveLength(3);
-			expect(json.choices[0].index).toBe(0);
-			expect(json.choices[1].index).toBe(1);
-			expect(json.choices[2].index).toBe(2);
-			expect(json.choices[0].message.content).toContain("Google variant 1");
-			expect(json.choices[0].message.content).not.toContain("Google variant 2");
-			expect(json.choices[0].message.content).not.toContain("Google variant 3");
-			expect(json.choices[1].message.content).toContain("Google variant 2");
-			expect(json.choices[2].message.content).toContain("Google variant 3");
-			for (const choice of json.choices) {
-				expect(choice.finish_reason).toBe("stop");
-			}
+			test("rejects n above Google's candidateCount cap", async () => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id-n-google-cap",
+					...hashApiKeyForStorage("real-token-n-google-cap"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
 
-			// Input tokens counted once; output across all candidates — mirrors
-			// Google's multi-candidate billing.
-			expect(json.usage.prompt_tokens).toBe(10);
-			expect(json.usage.completion_tokens).toBe(60);
-			expect(json.usage.total_tokens).toBe(70);
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id-n-google-cap",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-id-n-google-cap",
+						"org-id",
+					),
+					provider: "google-ai-studio",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
 
-			// Log row content column should aggregate every candidate's content
-			// (after de-duplication), not just candidate 0.
-			const logs = await waitForLogs(1);
-			expect(logs.length).toBe(1);
-			expect(logs[0].streamed).toBe(false);
-			expect(logs[0].content).toContain("Google variant 1");
-			expect(logs[0].content).toContain("Google variant 2");
-			expect(logs[0].content).toContain("Google variant 3");
-			// De-duplication: candidate 0's duplicated copies must not double
-			// the variants in the aggregated log content.
-			expect((logs[0].content?.match(/Google variant 2/g) ?? []).length).toBe(
-				1,
-			);
-		});
+				// Google caps candidateCount at 8; the gateway surfaces a clear 400
+				// instead of forwarding and bubbling Google's INVALID_ARGUMENT.
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token-n-google-cap",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash",
+						n: 9,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
 
-		test("rejects n > 1 with streaming on Google models", async () => {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-n-google-stream",
-				...hashApiKeyForStorage("real-token-n-google-stream"),
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
+				expect(res.status).toBe(400);
+				const text = await res.text();
+				expect(text).toContain("supports at most 8 choices per request");
 			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-n-google-stream",
-				...encryptProviderKeyForStorage(
-					"google-test-key",
-					"provider-key-id-n-google-stream",
-					"org-id",
-				),
-				provider: "google-ai-studio",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			// Google rejects candidateCount > 1 on streamGenerateContent, so the
-			// gateway must 400 with a precise message before calling upstream.
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-n-google-stream",
-				},
-				body: JSON.stringify({
-					model: "gemini-2.5-flash",
-					n: 3,
-					stream: true,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
-			});
-
-			expect(res.status).toBe(400);
-			const text = await res.text();
-			expect(text).toContain(
-				"does not support the n parameter for multiple choices with streaming",
-			);
-		});
-
-		test("rejects n above Google's candidateCount cap", async () => {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-n-google-cap",
-				...hashApiKeyForStorage("real-token-n-google-cap"),
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-n-google-cap",
-				...encryptProviderKeyForStorage(
-					"google-test-key",
-					"provider-key-id-n-google-cap",
-					"org-id",
-				),
-				provider: "google-ai-studio",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			// Google caps candidateCount at 8; the gateway surfaces a clear 400
-			// instead of forwarding and bubbling Google's INVALID_ARGUMENT.
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-n-google-cap",
-				},
-				body: JSON.stringify({
-					model: "gemini-2.5-flash",
-					n: 9,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
-			});
-
-			expect(res.status).toBe(400);
-			const text = await res.text();
-			expect(text).toContain("supports at most 8 choices per request");
 		});
 	});
 

@@ -436,7 +436,7 @@ describe("reasoning credential pinning", () => {
 					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({
-					model: "google-ai-studio/gemini-3.5-flash",
+					model: "google-ai-studio/gemini-3.8-flash",
 					messages,
 					tools,
 				}),
