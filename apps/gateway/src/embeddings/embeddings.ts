@@ -618,6 +618,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		organizationId: project.organizationId,
 	};
 	const retryOrganization = organization;
+	const safetyIdentifier = apiKey.safetyIdentifier;
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
@@ -907,7 +908,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				requestBody.dimensions = dimensions;
 			}
 			if (providerId === "openai" || providerId === "azure") {
-				requestBody.user = retryOrganization.safetyIdentifier;
+				requestBody.user = safetyIdentifier;
 			}
 		}
 

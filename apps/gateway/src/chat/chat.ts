@@ -3229,9 +3229,9 @@ chat.openapi(completions, async (c) => {
 		mode: project.mode,
 		organizationId: project.organizationId,
 	};
+	const retrySafetyIdentifier = apiKey.safetyIdentifier;
 	const retryOrganizationContext = {
 		id: organization.id,
-		safetyIdentifier: organization.safetyIdentifier,
 		credits: organization.credits,
 		plan: organization.plan,
 		kind: organization.kind,
@@ -8571,7 +8571,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			organization.safetyIdentifier,
+			apiKey.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
@@ -8772,6 +8772,7 @@ chat.openapi(completions, async (c) => {
 				prompt_cache_retention,
 				prompt_cache_options,
 				session_id: sessionId,
+				safetyIdentifier: retrySafetyIdentifier,
 				effort,
 				webSearchTool,
 				image_config,

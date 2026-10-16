@@ -303,6 +303,8 @@ export type SerializedApiKey = Omit<
 	// LLM SDK internals — hidden aggregate keys aren't surfaced here.
 	| "keyType"
 	| "endCustomerWalletId"
+	// Only ever travels gateway -> provider; surfaced in the admin dashboard.
+	| "safetyIdentifier"
 > & {
 	createdAt: string;
 	updatedAt: string;

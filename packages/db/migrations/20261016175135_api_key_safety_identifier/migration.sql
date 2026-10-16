@@ -1,0 +1,2 @@
+ALTER TABLE "api_key" ADD COLUMN "safety_identifier" text DEFAULT 'key_' || replace(gen_random_uuid()::text, '-', '') NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "api_key_safety_identifier_uidx" ON "api_key" ("safety_identifier");
