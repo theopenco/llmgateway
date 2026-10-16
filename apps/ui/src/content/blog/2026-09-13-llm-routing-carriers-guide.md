@@ -64,7 +64,7 @@ Fare changes are filed for review like price changes and only reach routing once
 
 Uptime is measured over a rolling %routing.history.windowMinutes%-minute window with time decay: the last %routing.history.tier1Minutes% minute counts %routing.history.tier1Weight%×, the last %routing.history.tier2Minutes% minutes %routing.history.tier2Weight%×, and the rest %routing.history.tier3Weight%×. A bad five minutes shows up in routing immediately and fades out within the hour.
 
-Above %routing.thresholds.uptimePenalty%% uptime there is no extra penalty beyond the weighted factor. Below it, an exponential penalty is added to the score:
+Above %routing.thresholds.uptimePenalty%% uptime there is no extra penalty beyond the weighted factor. Below it, a quadratic penalty is added to the score:
 
 | Uptime                              | Added penalty                 |
 | ----------------------------------- | ----------------------------- |

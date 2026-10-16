@@ -21,6 +21,7 @@ import {
 	prepareRequestBody,
 	providerKeyLabel,
 	readProviderKey,
+	routeProjectlessVertexEndpoint,
 	selectProviderMapping,
 } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
@@ -947,30 +948,41 @@ export async function resolveProviderContext(
 				: undefined;
 	const airsideCustomBaseUrl =
 		await resolveAirsideProviderBaseUrl(usedProvider);
-	const url = getProviderEndpoint(
-		airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
-		credentialBaseUrl ?? airsideCustomBaseUrl,
-		upstreamModelName,
-		usedProvider === "google-ai-studio" ||
-			usedProvider === "glacier" ||
-			usedProvider === "google-vertex" ||
-			usedProvider === "quartz" ||
-			usedProvider === "vertex-anthropic" ||
-			transportProvider === "google-vertex"
+	const buildUrl = (endpointOptions: typeof credentialOptions) =>
+		getProviderEndpoint(
+			airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
+			credentialBaseUrl ?? airsideCustomBaseUrl,
+			upstreamModelName,
+			usedProvider === "google-ai-studio" ||
+				usedProvider === "glacier" ||
+				usedProvider === "google-vertex" ||
+				usedProvider === "quartz" ||
+				usedProvider === "vertex-anthropic" ||
+				transportProvider === "google-vertex"
+				? usedToken
+				: undefined,
+			options.stream,
+			supportsReasoning,
+			options.hasExistingToolCalls,
+			endpointOptions,
+			configIndex,
+			isImageGeneration,
+			usedRegion,
+			usesDatabaseCredential,
+			usedInternalModel,
+			vertexTokenType,
+			envVariant,
+			apiFormat,
+		);
+	const url = await routeProjectlessVertexEndpoint(
+		buildUrl(credentialOptions),
+		usedProvider === "google-vertex" &&
+			!airsideCustomBaseUrl &&
+			vertexTokenType === "api-key"
 			? usedToken
 			: undefined,
-		options.stream,
-		supportsReasoning,
-		options.hasExistingToolCalls,
-		credentialOptions,
-		configIndex,
-		isImageGeneration,
-		usedRegion,
-		usesDatabaseCredential,
-		usedInternalModel,
-		vertexTokenType,
-		envVariant,
-		apiFormat,
+		(project) =>
+			buildUrl({ ...credentialOptions, google_vertex_project_id: project }),
 	);
 
 	if (!url) {

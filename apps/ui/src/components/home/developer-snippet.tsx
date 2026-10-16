@@ -1,16 +1,15 @@
 "use client";
 
-import { ArrowUpRight, Check, Copy, Sparkles } from "lucide-react";
-import { useTheme } from "next-themes";
+import { ArrowUpRight } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
+import { CodePanel, type CopyKind } from "@/components/home/code-panel";
 import { ProviderLogo } from "@/components/landing/provider-logo";
 import { cn } from "@/lib/utils";
 
 import type dimensions from "@/lib/provider-logo-dimensions.json";
-import type { CSSProperties } from "react";
-import type { BundledLanguage, Highlighter, ThemedToken } from "shiki";
+import type { BundledLanguage } from "shiki";
 
 const DOCS = "https://docs.llmgateway.io";
 const API = "https://api.llmgateway.io/v1";
@@ -531,46 +530,6 @@ empryo --headless --model llmgateway/${m} \\
 	},
 ];
 
-const LANGS: Lang[] = [
-	"typescript",
-	"python",
-	"bash",
-	"go",
-	"ruby",
-	"php",
-	"java",
-	"rust",
-	"toml",
-	"json",
-];
-
-let highlighterPromise: Promise<Highlighter> | null = null;
-
-function getHighlighter() {
-	// The JS regex engine handles all ten grammars used here, so the default
-	// Oniguruma engine (~450KB of WASM) never has to be downloaded.
-	highlighterPromise ??= Promise.all([
-		import("shiki"),
-		import("shiki/engine/javascript"),
-	]).then(([{ createHighlighter }, { createJavaScriptRegexEngine }]) =>
-		createHighlighter({
-			langs: LANGS,
-			themes: ["github-light", "vitesse-dark"],
-			engine: createJavaScriptRegexEngine(),
-		}),
-	);
-	return highlighterPromise;
-}
-
-function tokenStyle(token: ThemedToken): CSSProperties {
-	const fontStyle = token.fontStyle ?? 0;
-	return {
-		color: token.color,
-		fontStyle: fontStyle & 1 ? "italic" : undefined,
-		fontWeight: fontStyle & 2 ? 600 : undefined,
-	};
-}
-
 function agentPrompt(
 	section: Section,
 	variant: Variant,
@@ -669,98 +628,28 @@ function Tab({
 
 export function DeveloperSnippet() {
 	const posthog = usePostHog();
-	const { resolvedTheme } = useTheme();
 	const [sectionIdx, setSectionIdx] = useState(0);
 	const [variantIdx, setVariantIdx] = useState(0);
 	const [snippetIdx, setSnippetIdx] = useState(0);
 	const [model, setModel] = useState(MODELS[1].id);
-	const [copied, setCopied] = useState<"code" | "agent" | null>(null);
-	const [highlighted, setHighlighted] = useState<{
-		key: string;
-		tokens: ThemedToken[][];
-	} | null>(null);
-	// Shiki is only fetched once this below-the-fold section nears the
-	// viewport; the server-rendered plain code stays in place until then.
-	const rootRef = useRef<HTMLDivElement>(null);
-	const [nearView, setNearView] = useState(false);
-
-	useEffect(() => {
-		const node = rootRef.current;
-		if (!node) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			([entry]) => {
-				if (entry.isIntersecting) {
-					setNearView(true);
-					observer.disconnect();
-				}
-			},
-			{ rootMargin: "600px" },
-		);
-		observer.observe(node);
-		return () => observer.disconnect();
-	}, []);
-
 	const section = SECTIONS[sectionIdx];
 	const variant = section.variants[variantIdx] ?? section.variants[0];
 	const snippet = variant.snippets[snippetIdx] ?? variant.snippets[0];
 	const code = snippet.code(model);
-	const theme = resolvedTheme === "dark" ? "vitesse-dark" : "github-light";
-	const key = `${theme}\u0000${snippet.lang}\u0000${code}`;
-	const tokens = highlighted?.key === key ? highlighted.tokens : null;
-
-	useEffect(() => {
-		if (!nearView) {
-			return;
-		}
-		let cancelled = false;
-		void getHighlighter()
-			.then((highlighter) => {
-				if (cancelled) {
-					return;
-				}
-				const result = highlighter.codeToTokens(code, {
-					lang: snippet.lang,
-					theme,
-				});
-				setHighlighted({ key, tokens: result.tokens });
-			})
-			.catch(() => {
-				if (!cancelled) {
-					setHighlighted(null);
-				}
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [code, snippet.lang, theme, key, nearView]);
-
-	const lines = code.split("\n");
 	const docsExternal = !variant.docs.startsWith("/");
-
-	const copy = async (kind: "code" | "agent") => {
-		const text =
-			kind === "code" ? code : agentPrompt(section, variant, snippet, code);
-		try {
-			await navigator.clipboard.writeText(text);
-			setCopied(kind);
-			posthog.capture("snippet_copied", {
-				location: "home_developers",
-				kind,
-				section: section.label,
-				variant: variant.label,
-				snippet: snippet.label,
-				model,
-			});
-			setTimeout(() => setCopied(null), 1600);
-		} catch {
-			setCopied(null);
-		}
+	const onCopy = (kind: CopyKind) => {
+		posthog.capture("snippet_copied", {
+			location: "home_developers",
+			kind,
+			section: section.label,
+			variant: variant.label,
+			snippet: snippet.label,
+			model,
+		});
 	};
 
 	return (
-		<div ref={rootRef}>
+		<div>
 			<div className="overflow-hidden rounded-2xl border border-black/10 bg-white text-[#1f1f24] shadow-[0_30px_80px_-40px_rgba(17,17,19,0.35)] dark:border-white/10 dark:bg-[#0b0b0e] dark:text-[#e8e6df] dark:shadow-2xl">
 				<div
 					role="tablist"
@@ -782,116 +671,58 @@ export function DeveloperSnippet() {
 					))}
 				</div>
 
-				<div className="mx-2 mb-2 overflow-hidden rounded-xl border border-black/[0.08] bg-[#fafaf9] dark:border-white/[0.08] dark:bg-[#111114]">
-					<div
-						role="tablist"
-						aria-label={`${section.label} options`}
-						className="flex gap-0.5 overflow-x-auto border-b border-black/[0.08] p-1.5 [scrollbar-width:none] dark:border-white/[0.08]"
-					>
-						{section.variants.map((v, i) => (
-							<Tab
-								key={v.label}
-								size="sm"
-								active={v === variant}
-								onClick={() => {
-									setVariantIdx(i);
-									setSnippetIdx(0);
-								}}
+				<div className="mx-2 mb-2">
+					<CodePanel
+						header={
+							<div
+								role="tablist"
+								aria-label={`${section.label} options`}
+								className="flex gap-0.5 overflow-x-auto border-b border-black/[0.08] p-1.5 [scrollbar-width:none] dark:border-white/[0.08]"
 							>
-								{v.label}
-							</Tab>
-						))}
-					</div>
-
-					<div>
-						<div className="flex min-h-11 items-center gap-3 px-3 pt-2 font-mono text-[11px] text-black/45 dark:text-white/45">
-							<span className="shrink-0 pl-2">
-								{fileName(variant, snippet)}
-							</span>
-							{snippet.endpoint && (
-								<span className="truncate rounded-md border border-black/10 bg-white px-2 py-0.5 text-black/65 dark:border-white/10 dark:bg-white/5 dark:text-white/65">
-									{snippet.endpoint}
-								</span>
-							)}
-							<div className="ml-auto flex shrink-0 items-center gap-1">
-								{variant.snippets.length > 1 && (
-									<div
-										role="tablist"
-										aria-label="Variant"
-										className="flex gap-0.5 overflow-x-auto font-sans [scrollbar-width:none]"
+								{section.variants.map((v, i) => (
+									<Tab
+										key={v.label}
+										size="sm"
+										active={v === variant}
+										onClick={() => {
+											setVariantIdx(i);
+											setSnippetIdx(0);
+										}}
 									>
-										{variant.snippets.map((sn, i) => (
-											<Tab
-												key={sn.label}
-												size="xs"
-												active={sn === snippet}
-												onClick={() => setSnippetIdx(i)}
-											>
-												{sn.label}
-											</Tab>
-										))}
-									</div>
-								)}
-								<button
-									type="button"
-									onClick={() => void copy("code")}
-									aria-label="Copy code"
-									className="ml-1 rounded-md border border-black/10 bg-white/80 p-1.5 text-black/50 transition-colors hover:text-black dark:border-white/10 dark:bg-white/5 dark:text-white/50 dark:hover:text-white"
-								>
-									{copied === "code" ? (
-										<Check className="size-3.5" />
-									) : (
-										<Copy className="size-3.5" />
-									)}
-								</button>
-							</div>
-						</div>
-						<pre className="h-[300px] overflow-auto px-5 pb-5 pt-2 font-mono text-[13px] leading-6">
-							<code className="grid grid-cols-[auto_1fr] gap-x-5">
-								{lines.map((line, i) => (
-									<Fragment key={i}>
-										<span className="select-none text-right text-black/25 dark:text-white/25">
-											{i + 1}
-										</span>
-										<span className="whitespace-pre">
-											{tokens?.[i]
-												? tokens[i].map((t, j) => (
-														<span key={j} style={tokenStyle(t)}>
-															{t.content}
-														</span>
-													))
-												: line}
-											{line === "" ? " " : null}
-										</span>
-									</Fragment>
+										{v.label}
+									</Tab>
 								))}
-							</code>
-						</pre>
-					</div>
-
-					<div className="flex items-center justify-between gap-4 border-t border-black/[0.08] px-4 py-3 text-sm dark:border-white/[0.08]">
-						<button
-							type="button"
-							onClick={() => void copy("agent")}
-							className="inline-flex items-center gap-2 font-medium text-black/70 transition-colors hover:text-black dark:text-white/70 dark:hover:text-white"
-						>
-							{copied === "agent" ? (
-								<Check className="size-4" />
-							) : (
-								<Sparkles className="size-4" />
-							)}
-							{copied === "agent" ? "Prompt copied" : "Copy for agent"}
-						</button>
-						<a
-							href={variant.docs}
-							target={docsExternal ? "_blank" : undefined}
-							rel={docsExternal ? "noopener noreferrer" : undefined}
-							className="inline-flex items-center gap-1 text-black/50 transition-colors hover:text-black dark:text-white/50 dark:hover:text-white"
-						>
-							{docsExternal ? "Read docs" : "Read guide"}
-							<ArrowUpRight className="size-4" />
-						</a>
-					</div>
+							</div>
+						}
+						file={fileName(variant, snippet)}
+						endpoint={snippet.endpoint}
+						controls={
+							variant.snippets.length > 1 && (
+								<div
+									role="tablist"
+									aria-label="Variant"
+									className="flex gap-0.5 overflow-x-auto font-sans [scrollbar-width:none]"
+								>
+									{variant.snippets.map((sn, i) => (
+										<Tab
+											key={sn.label}
+											size="xs"
+											active={sn === snippet}
+											onClick={() => setSnippetIdx(i)}
+										>
+											{sn.label}
+										</Tab>
+									))}
+								</div>
+							)
+						}
+						lang={snippet.lang}
+						code={code}
+						agentPrompt={agentPrompt(section, variant, snippet, code)}
+						docsHref={variant.docs}
+						docsLabel={docsExternal ? "Read docs" : "Read guide"}
+						onCopy={onCopy}
+					/>
 				</div>
 			</div>
 

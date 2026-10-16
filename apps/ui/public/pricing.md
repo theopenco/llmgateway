@@ -22,7 +22,7 @@ Last updated: 2026-09-12
 
 ## Enterprise
 
-- Price: custom — volume discounts, custom routing, unlimited data retention, 99.9% uptime SLA.
+- Price: custom — volume discounts, custom routing, full request and response retention (30 days), 99.9% uptime SLA.
 - Details: https://llmgateway.io/enterprise — contact contact@llmgateway.io
 
 ## Refunds

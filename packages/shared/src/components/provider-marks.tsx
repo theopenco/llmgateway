@@ -38,10 +38,11 @@ export function ProviderMarksProvider({
 				const data = (await res.json()) as { marks: ProviderMarks };
 				setMarks(data.marks);
 			} catch (error) {
-				// Icons fall back to the LLM Gateway logo until the next load.
+				// Non-fatal: icons fall back to the bundled logos, so warn instead
+				// of raising the dev error overlay when the API is unreachable.
 				if (!controller.signal.aborted) {
 					// eslint-disable-next-line no-console
-					console.error("Failed to load provider marks:", error);
+					console.warn("Provider marks unavailable:", error);
 				}
 			}
 		})();

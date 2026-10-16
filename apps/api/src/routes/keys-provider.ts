@@ -28,6 +28,7 @@ import {
 	encryptProviderKey,
 	readProviderKeyMask,
 	redactToken,
+	resolveVertexApiKeyProject,
 	validateProviderKey,
 } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -710,6 +711,20 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// A Vertex API key without a project ID would use the project-less
+	// endpoint, which does not serve every model. Store the key's own project
+	// so requests use `projects/<n>/locations/global` from the start.
+	const vertexApiKeyProject =
+		provider === "google-vertex" &&
+		!baseUrl &&
+		!options?.google_vertex_project_id &&
+		!(process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true")
+			? await resolveVertexApiKeyProject(userToken)
+			: undefined;
+	const storedOptions = vertexApiKeyProject
+		? { ...options, google_vertex_project_id: vertexApiKeyProject }
+		: options;
+
 	// Encrypt the user-provided token at rest. Generate the id in application
 	// code so the AAD (which binds ciphertext to the row id + organization id)
 	// can be computed before the INSERT, keeping the write a single statement.
@@ -733,7 +748,7 @@ keysProvider.openapi(create, async (c) => {
 			name,
 			description: description || null,
 			baseUrl,
-			options,
+			options: storedOptions,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
 			...providerKeyRateLimitUpdates(rateLimitInput),
