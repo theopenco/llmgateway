@@ -237,17 +237,26 @@ function assertAllowedModelsSupported(provider: string) {
 }
 
 /**
- * Creating or editing custom providers is an enterprise feature. Existing keys
- * on other plans keep serving and can still be toggled or deleted.
+ * Custom providers and base URL overrides on built-in providers point upstream
+ * traffic at a host the organization controls, so creating or editing them is
+ * an enterprise feature. Existing keys on other plans keep serving and can
+ * still be toggled or deleted.
  */
-function assertCustomProviderEnterprise(
+function assertEnterpriseFeature(
 	organization: { id: string; plan: string } | null | undefined,
+	feature: string,
 ) {
 	if (!hasOrganizationEnterpriseAccess(organization?.id, organization?.plan)) {
 		throw new HTTPException(403, {
-			message: "Custom providers require an enterprise plan",
+			message: `${feature} require an enterprise plan`,
 		});
 	}
+}
+
+function assertCustomProviderEnterprise(
+	organization: { id: string; plan: string } | null | undefined,
+) {
+	assertEnterpriseFeature(organization, "Custom providers");
 }
 
 // The custom provider name is the routing segment used in `custom/<name>/<model>`
@@ -603,6 +612,9 @@ keysProvider.openapi(create, async (c) => {
 	}
 
 	if (baseUrl) {
+		if (provider !== "custom") {
+			assertEnterpriseFeature(userOrgs[0]?.organization, "Custom base URLs");
+		}
 		await assertProviderBaseUrlAllowed(baseUrl);
 	}
 
