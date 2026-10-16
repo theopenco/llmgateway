@@ -166,6 +166,7 @@ export const endUserWalletTypes = [
 	"end_user_refund",
 	"end_user_margin_payout",
 	"end_user_bonus",
+	"provider_margin_share",
 ] as const;
 
 export const notEndUserWalletFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
@@ -184,6 +185,7 @@ export const endUserNonRevenueTypes = [
 	"end_user_refund",
 	"end_user_margin_payout",
 	"end_user_bonus",
+	"provider_margin_share",
 ] as const;
 
 export const notEndUserNonRevenueFilter = sql`${tables.transaction.type} NOT IN (${sql.join(

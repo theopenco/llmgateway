@@ -110,12 +110,15 @@ interface InvoiceOrganization {
 // positive amount: a charge (top-ups, subscription/plan starts, renewals and
 // upgrades) yields an invoice, a refund (positive `amount`, see stripe.ts)
 // yields a credit note. Cancels, ends and zero/no-amount gifts are excluded —
-// there is nothing to document for those.
+// there is nothing to document for those. A provider margin share is income
+// paid to the org, not a purchase, so it never gets an invoice either.
 export function isInvoiceableTransaction(transaction: {
 	status: string;
 	amount: string | null;
+	type?: string;
 }): boolean {
 	return (
+		transaction.type !== "provider_margin_share" &&
 		transaction.status === "completed" &&
 		transaction.amount !== null &&
 		parseFloat(transaction.amount) > 0

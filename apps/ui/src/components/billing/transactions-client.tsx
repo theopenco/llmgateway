@@ -74,7 +74,8 @@ interface Transaction {
 		| "dev_plan_reset_pass"
 		| "chat_plan_start"
 		| "chat_plan_renewal"
-		| "chat_plan_upgrade";
+		| "chat_plan_upgrade"
+		| "provider_margin_share";
 	creditAmount: string | null;
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
@@ -265,9 +266,11 @@ interface TransactionsData {
 
 // A transaction has a downloadable document when it is a completed, positive
 // amount — a charge (invoice) or a refund (credit note). Mirrors
-// isInvoiceableTransaction on the API.
+// isInvoiceableTransaction on the API. A provider margin share is income paid
+// to the org, not a purchase, so it has no invoice.
 function isInvoiceable(transaction: Transaction): boolean {
 	return (
+		transaction.type !== "provider_margin_share" &&
 		transaction.status === "completed" &&
 		transaction.amount !== null &&
 		Number(transaction.amount) > 0
@@ -382,6 +385,8 @@ function TransactionCard({
 				return "Subscription Cancelled";
 			case "subscription_end":
 				return "Subscription Ended";
+			case "provider_margin_share":
+				return "Provider Margin Share";
 			default:
 				return type;
 		}
@@ -548,6 +553,8 @@ export function TransactionsClient({
 														"Subscription Cancelled"}
 													{transaction.type === "subscription_end" &&
 														"Subscription Ended"}
+													{transaction.type === "provider_margin_share" &&
+														"Provider Margin Share"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
 													{transaction.creditAmount ?? "—"}

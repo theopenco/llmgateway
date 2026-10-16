@@ -593,6 +593,9 @@ const organizationSchema = z.object({
 	referralBonusPercent: z.number().optional(),
 	dataStreamsEnabled: z.boolean().optional(),
 	requestLogExportEnabled: z.boolean().optional(),
+	// Admin-only share of the Airside carrier margin passed to the org.
+	providerMarginSharePercent: z.number().optional(),
+	providerMarginShareAccrued: z.string().optional(),
 	ownerUserId: z.string().nullable().optional(),
 	ownerName: z.string().nullable().optional(),
 	ownerEmail: z.string().nullable().optional(),
@@ -3497,6 +3500,11 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 					transactions.map((t) => t.id),
 				)
 			: null;
+	const marginShare = await db.query.organizationProviderMarginShare.findFirst({
+		where: {
+			organizationId: { eq: orgId },
+		},
+	});
 
 	return c.json({
 		organization: {
@@ -3522,6 +3530,10 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
 			dataStreamsEnabled: org.dataStreamsEnabled,
 			requestLogExportEnabled: org.requestLogExportEnabled,
+			providerMarginSharePercent: marginShare
+				? new Decimal(marginShare.sharePercent).times(100).toNumber()
+				: 0,
+			providerMarginShareAccrued: String(marginShare?.totalAccrued ?? "0"),
 		},
 		transactions: transactions.map((t) => ({
 			id: t.id,

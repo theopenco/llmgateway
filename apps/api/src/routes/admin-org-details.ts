@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
@@ -1408,5 +1409,91 @@ adminOrgDetails.openapi(getOrganizationSso, async (c) => {
 			memberCount: Number(group.memberCount ?? 0),
 			createdAt: group.createdAt.toISOString(),
 		})),
+	});
+});
+
+// ==================== Provider margin share ====================
+
+const updateProviderMarginShare = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/margin-share",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Whole percent of the carrier margin passed to the org.
+						percent: z.number().min(0).max(100),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						percent: z.number(),
+					}),
+				},
+			},
+			description: "Provider margin share updated.",
+		},
+		400: {
+			description: "Organization is not a regular (default) organization.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+adminOrgDetails.openapi(updateProviderMarginShare, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { percent } = c.req.valid("json");
+
+	const org = await requireOrganization(orgId);
+	if (org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+	// The share lands in endUserMarginBalance, the payout rail for regular
+	// PAYG orgs; DevPass and Chat orgs must not accrue it.
+	if (org.kind !== "default") {
+		throw new HTTPException(400, {
+			message:
+				"Provider margin share is only available for regular organizations",
+		});
+	}
+
+	const sharePercent = new Decimal(percent).div(100).toString();
+
+	await db
+		.insert(tables.organizationProviderMarginShare)
+		.values({ organizationId: orgId, sharePercent })
+		.onConflictDoUpdate({
+			target: tables.organizationProviderMarginShare.organizationId,
+			set: { sharePercent, updatedAt: new Date() },
+		});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "provider_margin_share.update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: { percent },
+	});
+
+	return c.json({
+		message: "Provider margin share updated",
+		percent,
 	});
 });

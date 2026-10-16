@@ -70,6 +70,7 @@ import { parseOrganizationTab } from "./organization-tab-values";
 import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
 import { ProviderAccessTab } from "./provider-access-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
+import { ProviderMarginShareDialog } from "./provider-margin-share-dialog";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
 
@@ -607,6 +608,14 @@ export default async function OrganizationPage({
 												org.requestLogExportEnabled ?? false
 											}
 										/>
+										{org.kind === "default" ? (
+											<ProviderMarginShareDialog
+												orgId={orgId}
+												orgName={org.name}
+												percent={org.providerMarginSharePercent ?? 0}
+												accrued={org.providerMarginShareAccrued ?? "0"}
+											/>
+										) : null}
 									</div>
 								</div>
 							) : null}
