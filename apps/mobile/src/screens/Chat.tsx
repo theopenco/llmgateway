@@ -31,7 +31,12 @@ import { generateLoungeReply, loungeMessage } from "@/api/lounge-completion";
 import { rememberProjectExchange } from "@/api/project-memory";
 import { saveReply } from "@/api/reply";
 import { messageReply, withReply } from "@/api/reply-messages";
-import { answerToolCall, pendingTool, readToolParts } from "@/api/tool-parts";
+import {
+	answerToolCall,
+	pendingTool,
+	readToolParts,
+	ToolAlreadyAnsweredError,
+} from "@/api/tool-parts";
 import { ChatSettings } from "@/components/ChatSettings";
 import { ChatSharing } from "@/components/ChatSharing";
 import { DictationSheet } from "@/components/DictationSheet";
@@ -418,37 +423,52 @@ export function Chat({
 							"Reload this conversation before answering the request.",
 						);
 					}
-					await answerToolCall({
-						parts: message.toolParts ?? readToolParts(message.tools),
-						toolCallId: action.toolCallId,
-						approved: action.approved === true,
-						signal: controller.signal,
-						persist: async (parts) => {
-							const reply = {
-								...messageReply(message, model),
-								tools: parts,
-								toolContinuation: true,
-							};
-							if (!temporary) {
-								if (!id) {
-									throw new Error("The conversation has not been saved.");
+					try {
+						await answerToolCall({
+							messageId: temporary ? undefined : message.id,
+							parts: message.toolParts ?? readToolParts(message.tools),
+							toolCallId: action.toolCallId,
+							approved: action.approved === true,
+							signal: controller.signal,
+							persist: async (parts, serverSaved) => {
+								const reply = {
+									...messageReply(message, model),
+									tools: parts,
+									toolContinuation: true,
+								};
+								if (!temporary) {
+									if (!id) {
+										throw new Error("The conversation has not been saved.");
+									}
+									if (!serverSaved) {
+										await saveReply(id, reply, message.id);
+									}
+									setToolMessages((current) => ({
+										...current,
+										[message.id]: withReply(message, reply),
+									}));
 								}
-								await saveReply(id, reply, message.id);
-								setToolMessages((current) => ({
-									...current,
-									[message.id]: withReply(message, reply),
-								}));
-							}
-							snapshot = snapshot.map((item) =>
-								item.id === message.id ? withReply(item, reply) : item,
+								snapshot = snapshot.map((item) =>
+									item.id === message.id ? withReply(item, reply) : item,
+								);
+								if (temporary) {
+									setTemporaryMessages(snapshot);
+								} else {
+									await refresh();
+								}
+							},
+						});
+					} catch (error) {
+						if (error instanceof ToolAlreadyAnsweredError && !temporary) {
+							setToolMessages((current) =>
+								Object.fromEntries(
+									Object.entries(current).filter(([key]) => key !== message.id),
+								),
 							);
-							if (temporary) {
-								setTemporaryMessages(snapshot);
-							} else {
-								await refresh();
-							}
-						},
-					});
+							await refresh();
+						}
+						throw error;
+					}
 				}
 				if (
 					snapshot.some((message) =>

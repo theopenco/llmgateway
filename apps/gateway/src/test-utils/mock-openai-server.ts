@@ -3423,6 +3423,7 @@ export function startMockServer(
 	handleRequest: (request: Request) => Response | Promise<Response> = (
 		request,
 	) => mockOpenAIServer.fetch(request),
+	hostname?: string,
 ): Promise<string> {
 	return new Promise((resolve) => {
 		if (server) {
@@ -3434,9 +3435,13 @@ export function startMockServer(
 			{
 				fetch: handleRequest,
 				port,
+				hostname,
 			},
 			(info) => {
-				currentMockServerUrl = `http://localhost:${info.port}`;
+				const serverUrl = new URL("http://localhost");
+				serverUrl.hostname = hostname ?? "localhost";
+				serverUrl.port = String(info.port);
+				currentMockServerUrl = serverUrl.origin;
 				console.log(`Mock OpenAI server started on port ${info.port}`);
 				resolve(currentMockServerUrl);
 			},

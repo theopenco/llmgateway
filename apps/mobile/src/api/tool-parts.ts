@@ -136,33 +136,40 @@ export function toolOutcome(
 export const uncertainToolOutcome =
 	"The result could not be confirmed. Check the connected app before asking to run this action again.";
 
+export class ToolAlreadyAnsweredError extends Error {
+	constructor() {
+		super("This request has already been answered. Reload the conversation.");
+		this.name = "ToolAlreadyAnsweredError";
+	}
+}
+
 export async function answerToolCall({
 	parts,
 	toolCallId,
+	messageId,
 	approved,
 	persist,
 	signal,
 }: {
 	parts: ToolPart[];
 	toolCallId: string;
+	messageId?: string;
 	approved: boolean;
-	persist: (parts: ToolPart[]) => Promise<void>;
+	persist: (parts: ToolPart[], serverSaved?: boolean) => Promise<void>;
 	signal: AbortSignal;
 }): Promise<ToolPart[]> {
 	const part = parts.find((item) => item.toolCallId === toolCallId);
 	if (!part || !pendingTool(part)) {
-		throw new Error(
-			"This request has already been answered. Reload the conversation.",
-		);
+		throw new ToolAlreadyAnsweredError();
 	}
 	const replace = (value: ToolPart) =>
 		parts.map((item) => (item.toolCallId === toolCallId ? value : item));
-	if (!approved) {
+	if (!approved && !messageId) {
 		const denied = replace(toolOutcome(part, false));
 		await persist(denied);
 		return denied;
 	}
-	if (!part.approval?.signature) {
+	if (approved && !part.approval?.signature) {
 		throw new Error(
 			"This request is no longer valid. Decline it and ask again.",
 		);
@@ -170,24 +177,60 @@ export async function answerToolCall({
 	const target = toolTarget(part);
 	const input = z.record(z.unknown()).parse(part.input);
 	signal.throwIfAborted();
-	// A crash must not leave an executable approval behind in shared history.
-	await persist(
-		replace(toolOutcome(part, true, undefined, uncertainToolOutcome)),
+	const provisional = replace(
+		toolOutcome(
+			part,
+			approved,
+			undefined,
+			approved ? uncertainToolOutcome : undefined,
+		),
 	);
+	if (messageId) {
+		await persist(provisional, true);
+	} else {
+		await persist(provisional);
+	}
 	signal.throwIfAborted();
 	try {
 		const result = await client.POST(
 			"/connectors/{connectorId}/tools/{toolName}",
-			{ params: { path: target }, body: { input }, signal },
+			{
+				params: { path: target },
+				body: { input },
+				signal,
+				...(messageId
+					? {
+							headers: {
+								"x-tool-message-id": messageId,
+								"x-tool-call-id": toolCallId,
+								"x-tool-approved": String(approved),
+							},
+						}
+					: {}),
+			},
 		);
 		if (!result.data) {
+			if (messageId && result.response?.status === 409) {
+				throw new ToolAlreadyAnsweredError();
+			}
 			throw new Error("The connector did not return a result.");
+		}
+		if (messageId) {
+			if (!("tools" in result.data) || typeof result.data.tools !== "string") {
+				throw new Error("The saved tool outcome was not returned.");
+			}
+			const completed = readToolParts(result.data.tools);
+			await persist(completed, true);
+			return completed;
 		}
 		const output: unknown = JSON.parse(result.data.result);
 		const completed = replace(toolOutcome(part, true, output));
 		await persist(completed);
 		return completed;
 	} catch (cause) {
+		if (cause instanceof ToolAlreadyAnsweredError) {
+			throw cause;
+		}
 		throw new Error(uncertainToolOutcome, { cause });
 	}
 }
