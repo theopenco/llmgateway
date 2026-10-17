@@ -79,9 +79,12 @@ function peakLabel(
 	return `${utcDate.format(new Date(timestamp))}${minute ? ` ${timestamp.slice(11, 16)}` : ""} UTC`;
 }
 
-function count(value: number | undefined) {
-	return value === undefined
-		? "—"
+function count(value: number | undefined, compact: boolean) {
+	if (value === undefined) {
+		return "—";
+	}
+	return compact
+		? formatCompactNumber(value)
 		: formatNumber(Math.round(value * 100) / 100);
 }
 
@@ -104,6 +107,8 @@ export function TokenCapacity() {
 		params.get("tokenGroupBy") === "provider" ? "provider" : "model";
 	const modelView =
 		params.get("tokenModelView") === "mapping" ? "mapping" : "canonical";
+	const compact = params.get("tokenNumbers") !== "full";
+	const show = (value: number | undefined) => count(value, compact);
 	const mode = useUsageMode();
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -151,30 +156,30 @@ export function TokenCapacity() {
 	const bucketLabel = (timestamp: string) =>
 		hourly ? timestamp.slice(11, 16) : utcDate.format(new Date(timestamp));
 	const metricColumns: [string, (row: BreakdownRow) => ReactNode][] = [
-		[TOKEN_TYPE_LABELS[tokenType], (row) => count(row.totalTokens)],
+		[TOKEN_TYPE_LABELS[tokenType], (row) => show(row.totalTokens)],
 		...(split
 			? ([
-					["Input", (row) => count(row.inputTokens)],
+					["Input", (row) => show(row.inputTokens)],
 					[
 						"Cached input",
 						(row) => (
 							<>
-								{count(row.cachedTokens)}
+								{show(row.cachedTokens)}
 								<span className="block whitespace-nowrap text-xs text-muted-foreground">
 									{cacheShare(row.cachedTokens, row.inputTokens)}
 								</span>
 							</>
 						),
 					],
-					["Output", (row) => count(row.outputTokens)],
+					["Output", (row) => show(row.outputTokens)],
 				] satisfies [string, (row: BreakdownRow) => ReactNode][])
 			: []),
-		["Avg TPM", (row) => count(row.avgTpm)],
+		["Avg TPM", (row) => show(row.avgTpm)],
 		[
 			"Peak TPM",
 			(row) => (
 				<>
-					{count(row.peakTpm)}
+					{show(row.peakTpm)}
 					<span className="block whitespace-nowrap text-xs text-muted-foreground">
 						{peakLabel(row.peakMinuteAt, true)}
 					</span>
@@ -184,12 +189,12 @@ export function TokenCapacity() {
 		...(hourly
 			? []
 			: ([
-					["Avg tokens/day", (row) => count(row.avgTokensPerDay)],
+					["Avg tokens/day", (row) => show(row.avgTokensPerDay)],
 					[
 						"Peak tokens/day",
 						(row) => (
 							<>
-								{count(row.peakTokensPerDay)}
+								{show(row.peakTokensPerDay)}
 								<span className="block whitespace-nowrap text-xs text-muted-foreground">
 									{peakLabel(row.peakDayAt)}
 								</span>
@@ -308,6 +313,16 @@ export function TokenCapacity() {
 					/>
 				) : null}
 				<UsageModeSelector compact />
+				<SegmentedUrlSelector
+					param="tokenNumbers"
+					value={compact ? "compact" : "full"}
+					defaultValue="compact"
+					options={[
+						{ value: "compact", label: "1.2M" },
+						{ value: "full", label: "1,234,567" },
+					]}
+					compact
+				/>
 				<Button
 					variant="outline"
 					size="sm"
@@ -329,13 +344,13 @@ export function TokenCapacity() {
 			>
 				<StatCard
 					label="Average TPM"
-					value={count(summary?.avgTpm)}
+					value={show(summary?.avgTpm)}
 					hint={`Tokens/min across ${window}, including quiet minutes`}
 					loading={isLoading}
 				/>
 				<StatCard
 					label="Peak TPM"
-					value={count(summary?.peakTpm)}
+					value={show(summary?.peakTpm)}
 					hint={peakLabel(summary?.peakMinuteAt, true)}
 					loading={isLoading}
 				/>
@@ -343,13 +358,13 @@ export function TokenCapacity() {
 					<>
 						<StatCard
 							label="Total tokens"
-							value={count(summary?.totalTokens)}
+							value={show(summary?.totalTokens)}
 							hint="Last 24 hours"
 							loading={isLoading}
 						/>
 						<StatCard
 							label="Peak tokens/hour"
-							value={count(data ? (peakHour?.tokens ?? 0) : undefined)}
+							value={show(data ? (peakHour?.tokens ?? 0) : undefined)}
 							hint={peakLabel(
 								peakHour && peakHour.tokens > 0 ? peakHour.timestamp : null,
 								true,
@@ -361,13 +376,13 @@ export function TokenCapacity() {
 					<>
 						<StatCard
 							label="Average tokens/day"
-							value={count(summary?.avgTokensPerDay)}
+							value={show(summary?.avgTokensPerDay)}
 							hint="Window average normalized to 24 hours"
 							loading={isLoading}
 						/>
 						<StatCard
 							label="Peak tokens/day"
-							value={count(summary?.peakTokensPerDay)}
+							value={show(summary?.peakTokensPerDay)}
 							hint={peakLabel(summary?.peakDayAt)}
 							loading={isLoading}
 						/>
@@ -377,19 +392,19 @@ export function TokenCapacity() {
 			<section className="grid gap-4 sm:grid-cols-3" aria-label="Token split">
 				<StatCard
 					label="Input tokens"
-					value={count(summary?.inputTokens)}
+					value={show(summary?.inputTokens)}
 					hint="Includes cached input"
 					loading={isLoading}
 				/>
 				<StatCard
 					label="Cached input tokens"
-					value={count(summary?.cachedTokens)}
+					value={show(summary?.cachedTokens)}
 					hint={cacheShare(summary?.cachedTokens, summary?.inputTokens)}
 					loading={isLoading}
 				/>
 				<StatCard
 					label="Output tokens"
-					value={count(summary?.outputTokens)}
+					value={show(summary?.outputTokens)}
 					hint="Includes reasoning tokens"
 					loading={isLoading}
 				/>
