@@ -109,7 +109,8 @@ const decisionRequestSchema = z.object({
 			"Questions to evaluate against the input. Answers come back in the same order, echoing each question's `name`.",
 	}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
-		description: "Opaque identifier for the end user making the request.",
+		description:
+			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
 	}),
 });
 
@@ -308,16 +309,15 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 					`${question.name ?? `#${index + 1}`} (${question.type})`,
 			)
 			.join(", ")}`,
-		buildUpstreamRequest: (providerId, upstreamModel) => ({
+		buildUpstreamRequest: (providerId, upstreamModel, safetyIdentifier) => ({
 			path: getDecisionsUpstreamPath(providerId as ProviderId),
 			body: speaksOpenAIDecisions(providerId)
 				? {
 						model: upstreamModel,
 						input: request.input,
 						questions: request.questions,
-						...(request.safety_identifier !== undefined
-							? { safety_identifier: request.safety_identifier }
-							: {}),
+						// The client's value is replaced so abuse reports map to a key.
+						safety_identifier: safetyIdentifier,
 					}
 				: toTypeSafeRequest(upstreamModel, request),
 		}),

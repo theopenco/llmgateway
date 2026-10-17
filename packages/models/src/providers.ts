@@ -203,7 +203,7 @@ export interface ProviderDefinition {
 	name: string;
 	description: string;
 	/**
-	 * Whether LLM Gateway forwards its opaque per-organization safety identifier
+	 * Whether LLM Gateway forwards its opaque per-API-key safety identifier
 	 * to this provider. Informational only; request preparation does not use it.
 	 */
 	forwardsSafetyIdentifier: boolean;

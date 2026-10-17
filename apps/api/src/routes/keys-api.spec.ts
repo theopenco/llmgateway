@@ -167,6 +167,7 @@ describe("keys route", () => {
 		expect(json.apiKeys[0].description).toBe("Test API Key");
 		expect(json.apiKeys[0].token).toBeUndefined();
 		expect(json.apiKeys[0].tokenHash).toBeUndefined();
+		expect(json.apiKeys[0].safetyIdentifier).toBeUndefined();
 	});
 
 	test("GET /keys/api returns the managed playground row", async () => {
@@ -469,6 +470,7 @@ describe("keys route", () => {
 		expect(json).toHaveProperty("apiKey");
 		expect(json.apiKey.status).toBe("inactive");
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		// Verify the key was updated in the database
 		const apiKey = await db.query.apiKey.findFirst({
@@ -511,6 +513,7 @@ describe("keys route", () => {
 		expect(json.apiKey.token).not.toBe("test-token");
 		expect(json.apiKey.id).toBe("test-api-key-id");
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		// Verify the DB was updated and metadata/stats are intact.
 		const apiKey = await db.query.apiKey.findFirst({
@@ -814,6 +817,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {
@@ -1123,6 +1127,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {
