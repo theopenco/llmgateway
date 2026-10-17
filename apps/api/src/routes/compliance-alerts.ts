@@ -61,7 +61,7 @@ const DEFAULT_SETTINGS = {
 } satisfies ComplianceAlertSettings;
 const orgParams = z.object({ organizationId: z.string() });
 
-async function assertOrgAccess(
+export async function assertOrgAccess(
 	c: Context<ServerTypes>,
 	organizationId: string,
 	options: { manage?: boolean; enterprise?: boolean } = {},
@@ -261,6 +261,25 @@ complianceAlerts.openapi(
 				.set({ complianceAlertSettings: next })
 				.where(eq(tables.organization.id, organizationId));
 			await logSettingsChange(organizationId, user.id, settings, next);
+		}
+		const keyAlerts = organization.providerKeyAlertSettings;
+		if (keyAlerts?.channels.includes("slack")) {
+			const next = {
+				...keyAlerts,
+				channels: keyAlerts.channels.filter((k) => k !== "slack"),
+			};
+			await db
+				.update(tables.organization)
+				.set({ providerKeyAlertSettings: next })
+				.where(eq(tables.organization.id, organizationId));
+			await logAuditEvent({
+				organizationId,
+				userId: user.id,
+				action: "provider_key_alert.settings_update",
+				resourceType: "provider_key_alert",
+				resourceId: organizationId,
+				metadata: { changes: { settings: { old: keyAlerts, new: next } } },
+			});
 		}
 		if (removed) {
 			await logAuditEvent({

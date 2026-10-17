@@ -36,6 +36,11 @@
 			"import": "./dist/video-access.js",
 			"default": "./dist/video-access.js"
 		},
+		"./provider-key-alerts": {
+			"types": "./dist/provider-key-alerts.d.ts",
+			"import": "./dist/provider-key-alerts.js",
+			"default": "./dist/provider-key-alerts.js"
+		},
 		"./organization-roles": {
 			"types": "./dist/organization-roles.d.ts",
 			"import": "./dist/organization-roles.js",

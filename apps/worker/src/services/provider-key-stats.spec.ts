@@ -36,6 +36,7 @@ describe("provider key hourly stats aggregation", () => {
 		cached?: boolean;
 		hasError?: boolean;
 		unifiedFinishReason?: string;
+		retried?: boolean;
 	}) =>
 		db.insert(log).values({
 			requestId: `pk-stats-request-${randomUUID()}`,
@@ -47,6 +48,7 @@ describe("provider key hourly stats aggregation", () => {
 			cached: values.cached ?? false,
 			hasError: values.hasError ?? false,
 			unifiedFinishReason: values.unifiedFinishReason ?? "completed",
+			retried: values.retried ?? false,
 			promptTokens: "10",
 			completionTokens: "20",
 			totalTokens: "30",
@@ -186,14 +188,23 @@ describe("provider key hourly stats aggregation", () => {
 			hasError: true,
 			unifiedFinishReason: "gateway_error",
 		});
+		await insertLog({
+			providerKeyId: ids.providerKeyId,
+			cost: 0,
+			hasError: true,
+			unifiedFinishReason: "upstream_error",
+			retried: true,
+		});
 
 		await refreshCurrentHourStats();
 
 		const stats = await readStats();
-		expect(stats!.errorCount).toBe(3);
+		expect(stats!.errorCount).toBe(4);
 		expect(stats!.clientErrorCount).toBe(1);
 		expect(stats!.gatewayErrorCount).toBe(1);
-		expect(stats!.upstreamErrorCount).toBe(1);
+		expect(stats!.upstreamErrorCount).toBe(2);
+		expect(stats!.retriedGatewayErrorCount).toBe(0);
+		expect(stats!.retriedUpstreamErrorCount).toBe(1);
 	});
 
 	test("re-aggregating a bucket replaces rather than accumulates", async () => {

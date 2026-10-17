@@ -59,12 +59,14 @@ const orgAlertTypes = new Set<string>([
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"provider_key_errors",
 ]);
 
 // Org alert types whose audience is always owners and admins.
 const adminAlertTypes: (typeof notificationTypes)[number][] = [
 	"org_limit",
 	"data_stream",
+	"provider_key_errors",
 ];
 
 /**
