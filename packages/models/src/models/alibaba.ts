@@ -154,6 +154,7 @@ export const alibabaModels = [
 					},
 					{
 						id: "cn-beijing",
+						contextSize: 1000000,
 						inputPrice: "0.115e-6",
 						outputPrice: "0.287e-6",
 						cachedInputPrice: "0.023e-6",
