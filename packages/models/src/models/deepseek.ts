@@ -1360,6 +1360,28 @@ export const deepseekModels = [
 					"reasoning_effort",
 				],
 			},
+			{
+				providerId: "inference.net",
+				externalId: "deepseek-v4.1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 131072,
+				// Accepts up to 2, but above ~1.5 the output degenerates into
+				// tens of thousands of gibberish tokens.
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
 		],
 	},
 ] as const satisfies ModelDefinition[];
