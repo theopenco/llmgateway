@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/card";
 import {
 	ChartContainer,
+	ChartLegend,
+	ChartLegendContent,
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
@@ -42,7 +44,13 @@ import {
 
 const PAGE_SIZE = 10;
 const STALE_TIME = 5 * 60 * 1000;
+const TOKEN_TYPES = ["total", "input", "cached", "output"] as const;
 const chartConfig = { tokens: { label: "Tokens", color: "var(--chart-1)" } };
+const splitChartConfig = {
+	uncachedInput: { label: "Uncached input", color: "var(--chart-1)" },
+	cachedInput: { label: "Cached input", color: "var(--chart-2)" },
+	output: { label: "Output", color: "var(--chart-3)" },
+};
 const utcDate = new Intl.DateTimeFormat("en-US", {
 	timeZone: "UTC",
 	month: "short",
@@ -65,6 +73,12 @@ function count(value: number | undefined) {
 		: formatNumber(Math.round(value * 100) / 100);
 }
 
+function cacheShare(cached: number | undefined, input: number | undefined) {
+	return cached === undefined || !input
+		? "No input tokens"
+		: `${formatNumber(Math.round((cached / input) * 1000) / 10)}% of input`;
+}
+
 export function TokenCapacity() {
 	const params = useSearchParams();
 	const windowParam = params.get("tokenWindow");
@@ -72,11 +86,7 @@ export function TokenCapacity() {
 		windowParam === "7d" || windowParam === "30d" ? windowParam : "24h";
 	const hourly = window === "24h";
 	const tokenType =
-		params.get("tokenType") === "input"
-			? "input"
-			: params.get("tokenType") === "output"
-				? "output"
-				: "total";
+		TOKEN_TYPES.find((type) => type === params.get("tokenType")) ?? "total";
 	const groupBy =
 		params.get("tokenGroupBy") === "provider" ? "provider" : "model";
 	const modelView =
@@ -102,7 +112,18 @@ export function TokenCapacity() {
 	if (pagination.filters !== filters) {
 		setPagination({ filters, page: 1 });
 	}
-	const chartData = (hourly ? data?.hours : data?.days) ?? [];
+	const split = tokenType === "total";
+	const chartData = ((hourly ? data?.hours : data?.days) ?? []).map(
+		(bucket) => ({
+			...bucket,
+			uncachedInput: Math.max(0, bucket.inputTokens - bucket.cachedTokens),
+			cachedInput: bucket.cachedTokens,
+			output: bucket.outputTokens,
+		}),
+	);
+	const bars = split
+		? (["uncachedInput", "cachedInput", "output"] as const)
+		: (["tokens"] as const);
 	const peakHour = data?.hours
 		.filter((hour) => !hour.partial)
 		.reduce<(typeof data.hours)[number] | null>(
@@ -112,7 +133,29 @@ export function TokenCapacity() {
 	const bucketLabel = (timestamp: string) =>
 		hourly ? timestamp.slice(11, 16) : utcDate.format(new Date(timestamp));
 	const metricColumns: [string, (row: BreakdownRow) => ReactNode][] = [
-		["Total tokens", (row) => count(row.totalTokens)],
+		[
+			tokenType === "total"
+				? "Total tokens"
+				: `${tokenType === "cached" ? "Cached input" : tokenType === "input" ? "Input" : "Output"} tokens`,
+			(row) => count(row.totalTokens),
+		],
+		...(split
+			? ([
+					["Input", (row) => count(row.inputTokens)],
+					[
+						"Cached input",
+						(row) => (
+							<>
+								{count(row.cachedTokens)}
+								<span className="block whitespace-nowrap text-xs text-muted-foreground">
+									{cacheShare(row.cachedTokens, row.inputTokens)}
+								</span>
+							</>
+						),
+					],
+					["Output", (row) => count(row.outputTokens)],
+				] satisfies [string, (row: BreakdownRow) => ReactNode][])
+			: []),
 		["Avg TPM", (row) => count(row.avgTpm)],
 		[
 			"Peak TPM",
@@ -162,6 +205,9 @@ export function TokenCapacity() {
 				"start_utc",
 				"end_utc",
 				"total_tokens",
+				"input_tokens",
+				"cached_input_tokens",
+				"output_tokens",
 				"avg_tpm",
 				"peak_tpm",
 				"peak_minute_utc",
@@ -177,6 +223,9 @@ export function TokenCapacity() {
 				data.start,
 				data.end,
 				row.totalTokens,
+				row.inputTokens,
+				row.cachedTokens,
+				row.outputTokens,
 				row.avgTpm,
 				row.peakTpm,
 				row.peakMinuteAt ?? "",
@@ -220,6 +269,7 @@ export function TokenCapacity() {
 					options={[
 						{ value: "total", label: "Total tokens" },
 						{ value: "input", label: "Input tokens" },
+						{ value: "cached", label: "Cached input" },
 						{ value: "output", label: "Output tokens" },
 					]}
 					compact
@@ -313,6 +363,26 @@ export function TokenCapacity() {
 					</>
 				)}
 			</section>
+			<section className="grid gap-4 sm:grid-cols-3" aria-label="Token split">
+				<StatCard
+					label="Input tokens"
+					value={count(summary?.inputTokens)}
+					hint="Includes cached input"
+					loading={isLoading}
+				/>
+				<StatCard
+					label="Cached input tokens"
+					value={count(summary?.cachedTokens)}
+					hint={cacheShare(summary?.cachedTokens, summary?.inputTokens)}
+					loading={isLoading}
+				/>
+				<StatCard
+					label="Output tokens"
+					value={count(summary?.outputTokens)}
+					hint="Includes reasoning tokens"
+					loading={isLoading}
+				/>
+			</section>
 			<Card>
 				<CardHeader>
 					<CardTitle>{hourly ? "Hourly tokens" : "Daily tokens"}</CardTitle>
@@ -320,6 +390,9 @@ export function TokenCapacity() {
 						{hourly
 							? "UTC hours. Faded bars are partial hours and excluded from the hourly peak."
 							: "UTC calendar days. Faded bars are partial days and excluded from daily peaks."}
+						{split
+							? " Stacked by uncached input, cached input, and output."
+							: ""}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -329,7 +402,7 @@ export function TokenCapacity() {
 						</p>
 					) : data ? (
 						<ChartContainer
-							config={chartConfig}
+							config={split ? splitChartConfig : chartConfig}
 							className="aspect-auto h-[280px] w-full"
 						>
 							<BarChart
@@ -365,19 +438,26 @@ export function TokenCapacity() {
 										/>
 									}
 								/>
-								<Bar
-									dataKey="tokens"
-									isAnimationActive={false}
-									fill="var(--color-tokens)"
-									radius={[3, 3, 0, 0]}
-								>
-									{chartData.map((bucket) => (
-										<Cell
-											key={bucket.timestamp}
-											fillOpacity={bucket.partial ? 0.4 : 1}
-										/>
-									))}
-								</Bar>
+								{split ? (
+									<ChartLegend content={<ChartLegendContent />} />
+								) : null}
+								{bars.map((key, index) => (
+									<Bar
+										key={key}
+										dataKey={key}
+										stackId="tokens"
+										isAnimationActive={false}
+										fill={`var(--color-${key})`}
+										radius={index === bars.length - 1 ? [3, 3, 0, 0] : 0}
+									>
+										{chartData.map((bucket) => (
+											<Cell
+												key={bucket.timestamp}
+												fillOpacity={bucket.partial ? 0.4 : 1}
+											/>
+										))}
+									</Bar>
+								))}
 							</BarChart>
 						</ChartContainer>
 					) : null}
@@ -389,7 +469,12 @@ export function TokenCapacity() {
 						Top {groupBy === "provider" ? "providers" : "models"} by tokens
 					</CardTitle>
 					<CardDescription>
-						Ranked by total {tokenType === "total" ? "" : `${tokenType} `}
+						Ranked by total{" "}
+						{tokenType === "total"
+							? ""
+							: tokenType === "cached"
+								? "cached input "
+								: `${tokenType} `}
 						tokens. Each row has its own observed peaks.
 					</CardDescription>
 				</CardHeader>
