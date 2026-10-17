@@ -207,6 +207,228 @@ function pinKey(organizationId: string, id: string): string {
 }
 
 /**
+ * A payload an account already refused (`invalid_encrypted_content`). It is
+ * left out of every later turn instead of costing a rejected attempt each.
+ */
+interface RejectedReasoning {
+	rejected: true;
+}
+
+type StoredPin = ReasoningCredential | RejectedReasoning;
+
+function isRejectedPin(pin: StoredPin): pin is RejectedReasoning {
+	return "rejected" in pin && pin.rejected === true;
+}
+
+function parsePin(raw: string): StoredPin | undefined {
+	try {
+		return JSON.parse(raw) as StoredPin;
+	} catch {
+		return undefined;
+	}
+}
+
+async function readPins(
+	organizationId: string,
+	ids: readonly string[],
+): Promise<Map<string, StoredPin>> {
+	const pins = new Map<string, StoredPin>();
+	if (ids.length === 0) {
+		return pins;
+	}
+	const raws = await redisClient.mget(
+		ids.map((id) => pinKey(organizationId, id)),
+	);
+	raws.forEach((raw, index) => {
+		const pin = raw ? parsePin(raw) : undefined;
+		if (pin) {
+			pins.set(ids[index], pin);
+		}
+	});
+	return pins;
+}
+
+function accountBoundIds<
+	T extends { role: string; reasoning_details?: unknown },
+>(messages: readonly T[]): string[] {
+	const ids = new Set<string>();
+	for (const message of messages) {
+		if (
+			message.role !== "assistant" ||
+			!Array.isArray(message.reasoning_details)
+		) {
+			continue;
+		}
+		for (const detail of message.reasoning_details as ReasoningDetail[]) {
+			if (isAccountBoundReasoningDetail(detail)) {
+				ids.add(`data:${detail.data as string}`);
+			}
+		}
+	}
+	return [...ids];
+}
+
+/**
+ * The messages without the OpenAI-format encrypted reasoning that `credential`
+ * cannot verify: payloads recorded for another credential, and payloads an
+ * account already rejected. A conversation that failed over, retried on
+ * another key, or moved between OpenAI and Azure carries reasoning from more
+ * than one account; the pin only names one of them, and the upstream rejects
+ * the whole request over a single foreign item. Payloads without a pin are
+ * kept. Pins of the payloads that are sent are refreshed, so a conversation
+ * that outlives the pin TTL keeps its credential.
+ */
+export async function stripForeignReasoning<
+	T extends { role: string; reasoning_details?: unknown },
+>(
+	organizationId: string,
+	messages: readonly T[],
+	credential: ReasoningCredential | undefined,
+): Promise<{ messages: T[]; stripped: boolean }> {
+	const ids = accountBoundIds(messages);
+	if (ids.length === 0 || !credential) {
+		return { messages: [...messages], stripped: false };
+	}
+	let pins: Map<string, StoredPin>;
+	try {
+		pins = await readPins(organizationId, ids);
+	} catch (error) {
+		logger.warn("Failed to read reasoning credential pins", {
+			organizationId,
+			error,
+		});
+		return { messages: [...messages], stripped: false };
+	}
+	const foreign = (detail: ReasoningDetail): boolean => {
+		if (!isAccountBoundReasoningDetail(detail)) {
+			return false;
+		}
+		const pin = pins.get(`data:${detail.data as string}`);
+		if (!pin) {
+			return false;
+		}
+		return (
+			isRejectedPin(pin) ||
+			pin.provider !== credential.provider ||
+			pin.apiKeyHash !== credential.apiKeyHash
+		);
+	};
+	let stripped = false;
+	const result = messages.map((message) => {
+		if (
+			message.role !== "assistant" ||
+			!Array.isArray(message.reasoning_details)
+		) {
+			return message;
+		}
+		const details = message.reasoning_details as ReasoningDetail[];
+		const kept = details.filter((detail) => !foreign(detail));
+		if (kept.length === details.length) {
+			return message;
+		}
+		stripped = true;
+		const { reasoning_details: _dropped, ...rest } = message;
+		return (kept.length > 0 ? { ...rest, reasoning_details: kept } : rest) as T;
+	});
+	const own = ids.filter((id) => {
+		const pin = pins.get(id);
+		return (
+			pin !== undefined &&
+			!isRejectedPin(pin) &&
+			pin.apiKeyHash === credential.apiKeyHash
+		);
+	});
+	if (own.length > 0) {
+		const pipeline = redisClient.pipeline();
+		for (const id of own) {
+			pipeline.expire(
+				pinKey(organizationId, id),
+				REASONING_CREDENTIAL_PIN_TTL_SECONDS,
+			);
+		}
+		try {
+			await pipeline.exec();
+		} catch (error) {
+			logger.warn("Failed to refresh reasoning credential pins", {
+				organizationId,
+				error,
+			});
+		}
+	}
+	return { messages: result, stripped };
+}
+
+/**
+ * Record the encrypted reasoning an account refused, so later turns leave it
+ * out up front. The upstream names one item; that one and every payload the
+ * request carried without a pin (unknown origin) are marked. Payloads pinned
+ * to `credential` and not named are kept: they were not the cause.
+ */
+export async function rememberRejectedReasoning<
+	T extends { role: string; reasoning_details?: unknown },
+>(
+	organizationId: string,
+	messages: readonly T[],
+	credential: ReasoningCredential | undefined,
+	errorText: string | undefined,
+): Promise<void> {
+	const ids = accountBoundIds(messages);
+	if (ids.length === 0) {
+		return;
+	}
+	const namedItem = errorText?.match(/\brs_[0-9a-f]+/)?.[0];
+	const namedIds = new Set<string>();
+	if (namedItem) {
+		for (const message of messages) {
+			if (
+				message.role !== "assistant" ||
+				!Array.isArray(message.reasoning_details)
+			) {
+				continue;
+			}
+			for (const detail of message.reasoning_details as ReasoningDetail[]) {
+				if (isAccountBoundReasoningDetail(detail) && detail.id === namedItem) {
+					namedIds.add(`data:${detail.data as string}`);
+				}
+			}
+		}
+	}
+	try {
+		const pins = await readPins(organizationId, ids);
+		const rejected = ids.filter((id) => {
+			const pin = pins.get(id);
+			return (
+				namedIds.has(id) ||
+				!pin ||
+				isRejectedPin(pin) ||
+				pin.apiKeyHash !== credential?.apiKeyHash
+			);
+		});
+		if (rejected.length === 0) {
+			return;
+		}
+		const value = JSON.stringify({
+			rejected: true,
+		} satisfies RejectedReasoning);
+		const pipeline = redisClient.pipeline();
+		for (const id of rejected) {
+			pipeline.set(
+				pinKey(organizationId, id),
+				value,
+				"EX",
+				REASONING_CREDENTIAL_PIN_TTL_SECONDS,
+			);
+		}
+		await pipeline.exec();
+	} catch (error) {
+		logger.warn("Failed to record rejected reasoning", {
+			organizationId,
+			error,
+		});
+	}
+}
+
+/**
  * Record which credential produced the provider-bound reasoning in a response
  * (or streamed delta). Callers only pass carriers from providers flagged
  * `encryptedReasoning`. A failed write only costs the pin, so it is logged
@@ -253,8 +475,13 @@ async function readPin(
 		const raws = await redisClient.mget(
 			ids.map((id) => pinKey(organizationId, id)),
 		);
-		const raw = raws.find((value) => value !== null);
-		return raw ? (JSON.parse(raw) as ReasoningCredential) : undefined;
+		for (const raw of raws) {
+			const pin = raw ? parsePin(raw) : undefined;
+			if (pin && !isRejectedPin(pin)) {
+				return pin;
+			}
+		}
+		return undefined;
 	} catch (error) {
 		logger.warn("Failed to read reasoning credential pin", {
 			organizationId,

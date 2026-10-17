@@ -8,7 +8,10 @@ import {
 } from "@/chat/tools/reasoning-credential-pin.js";
 import { setPreferredProvider } from "@/lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "@/test-utils/test-helpers.js";
+import {
+	waitForLogByRequestId,
+	waitForLogs,
+} from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -85,12 +88,15 @@ describe("reasoning credential pinning", () => {
 	/** Upstream that answers every request with reasoning tied to its token. */
 	/** Each upstream call's credential and whether it replayed reasoning. */
 	const replayedReasoning: boolean[] = [];
+	/** The encrypted payloads each upstream call replayed. */
+	const replayedPayloads: string[][] = [];
 
 	function mockUpstream(
 		status: number | ((authorization: string, body: string) => number) = 200,
 	): string[] {
 		const authorizations: string[] = [];
 		replayedReasoning.length = 0;
+		replayedPayloads.length = 0;
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
 			const headers = new Headers(init?.headers);
 			const authorization =
@@ -99,6 +105,9 @@ describe("reasoning credential pinning", () => {
 			authorizations.push(authorization);
 			const body = typeof init?.body === "string" ? init.body : "";
 			replayedReasoning.push(body.includes('"encrypted_content"'));
+			replayedPayloads.push(
+				[...body.matchAll(/"encrypted_content":"([^"]+)"/g)].map((m) => m[1]),
+			);
 			const code =
 				typeof status === "function" ? status(authorization, body) : status;
 			if (code === 400) {
@@ -131,7 +140,7 @@ describe("reasoning credential pinning", () => {
 							type: "reasoning",
 							id: `rs_${authorizations.length}`,
 							summary: [],
-							encrypted_content: `enc:${authorization}`,
+							encrypted_content: `enc:${authorization}:${authorizations.length}`,
 						},
 						{
 							type: "message",
@@ -148,9 +157,18 @@ describe("reasoning credential pinning", () => {
 		return authorizations;
 	}
 
-	async function turn(reasoningData?: string, model = MODEL) {
+	/** One assistant turn per payload, oldest first. */
+	async function turn(
+		reasoningData?: string | { data: string; id?: string }[],
+		model = MODEL,
+		requestId?: string,
+	) {
 		const messages: unknown[] = [{ role: "user", content: "Start" }];
-		if (reasoningData) {
+		const payloads =
+			typeof reasoningData === "string"
+				? [{ data: reasoningData }]
+				: (reasoningData ?? []);
+		for (const payload of payloads) {
 			messages.push(
 				{
 					role: "assistant",
@@ -158,7 +176,8 @@ describe("reasoning credential pinning", () => {
 					reasoning_details: [
 						{
 							type: "reasoning.encrypted",
-							data: reasoningData,
+							data: payload.data,
+							...(payload.id && { id: payload.id }),
 							format: "openai-responses-v1",
 							index: 0,
 						},
@@ -172,6 +191,7 @@ describe("reasoning credential pinning", () => {
 			headers: {
 				Authorization: "Bearer real-token",
 				"Content-Type": "application/json",
+				...(requestId && { "x-request-id": requestId }),
 			},
 			body: JSON.stringify({ model, messages }),
 		});
@@ -542,6 +562,80 @@ describe("reasoning credential pinning", () => {
 
 		expect((await turn("enc:from-another-account")).status).toBe(400);
 		expect(attempts).toHaveLength(2);
+	});
+
+	test("leaves out reasoning another credential produced", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		const first = mockUpstream();
+		const fromA = await firstTurnReasoning();
+		expect(first).toEqual(["Bearer sk-managed-a"]);
+
+		// The next turn fails over to the other key, which answers with its own
+		// reasoning; the conversation now carries payloads from both accounts.
+		await seedKey({ id: "managed-b", token: "sk-managed-b", managed: true });
+		vi.restoreAllMocks();
+		mockUpstream((authorization) =>
+			authorization === "Bearer sk-managed-a" ? 429 : 200,
+		);
+		const failedOver = await turn(fromA);
+		expect(failedOver.status).toBe(200);
+		const fromB = (await failedOver.json()).choices[0].message
+			.reasoning_details[0].data as string;
+		expect(fromB).toMatch(/^enc:Bearer sk-managed-b:/);
+
+		// Pinned to the newest payload's key, which cannot verify the older one:
+		// that one is left out up front instead of costing a rejected attempt.
+		vi.restoreAllMocks();
+		const attempts = mockUpstream((_authorization, body) =>
+			body.includes(fromA) ? 400 : 200,
+		);
+		expect(
+			(await turn([{ data: fromA }, { data: fromB }], MODEL, "mixed-replay"))
+				.status,
+		).toBe(200);
+		expect(replayedPayloads).toEqual([[fromB]]);
+		expect(attempts).toEqual(["Bearer sk-managed-b"]);
+		const log = await waitForLogByRequestId("mixed-replay");
+		expect(log.hasError).toBe(false);
+		expect(log.routingMetadata?.encryptedReasoningDropped).toBe(true);
+	});
+
+	test("leaves out reasoning an account already rejected", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		const attempts = mockUpstream((_authorization, body) =>
+			body.includes("enc:from-another-account") ? 400 : 200,
+		);
+
+		expect((await turn("enc:from-another-account")).status).toBe(200);
+		expect(attempts).toEqual(["Bearer sk-managed-a", "Bearer sk-managed-a"]);
+
+		// The client replays the same history; the rejected payload is not
+		// sent again.
+		expect((await turn("enc:from-another-account")).status).toBe(200);
+		expect(attempts).toHaveLength(3);
+		expect(replayedReasoning).toEqual([true, false, false]);
+	});
+
+	test("leaves out the item an account names even when pinned to it", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		mockUpstream();
+		// The upstream mock ids its first reasoning item rs_1 and names rs_1
+		// when it rejects.
+		const own = await firstTurnReasoning();
+
+		vi.restoreAllMocks();
+		const attempts = mockUpstream((_authorization, body) =>
+			body.includes('"encrypted_content"') ? 400 : 200,
+		);
+		const history = [{ data: own, id: "rs_1" }];
+		expect((await turn(history)).status).toBe(200);
+		expect(attempts).toEqual(["Bearer sk-managed-a", "Bearer sk-managed-a"]);
+		expect((await turn(history)).status).toBe(200);
+		expect(attempts).toHaveLength(3);
+		expect(replayedReasoning).toEqual([true, false, false]);
 	});
 });
 
