@@ -1,0 +1,192 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo[39m
+
+ [31m❯[39m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts [2m([22m[2m12 tests[22m[2m | [22m[31m6 failed[39m[2m)[22m[32m 27[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output[32m 14[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output with 4 spaces[32m 1[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output when middleware received custom query[32m 1[2mms[22m[39m
+     [32m✓[39m Should force pretty JSON output when force option is true[32m 1[2mms[22m[39m
+     [32m✓[39m Should return pretty JSON output for structured JSON content-types (+json)[32m 0[2mms[22m[39m
+     [32m✓[39m Should not touch responses with non-JSON content-types[32m 0[2mms[22m[39m
+[31m     [31m×[31m Should not break 204 responses with a JSON content-type[39m[32m 6[2mms[22m[39m
+[31m     [31m×[31m Should not break 304 responses with a JSON content-type[39m[32m 1[2mms[22m[39m
+[31m     [31m×[31m Should not break empty responses with a JSON content-type[39m[32m 1[2mms[22m[39m
+[31m     [31m×[31m Should pass through a response with an invalid JSON body unchanged[39m[32m 1[2mms[22m[39m
+[31m     [31m×[31m Should pass through a response whose body was already consumed by another middleware[39m[32m 1[2mms[22m[39m
+[31m     [31m×[31m Should remove a stale Content-Length when the body is prettified[39m[32m 0[2mms[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m6 failed[39m[22m[2m | [22m[1m[32m6 passed[39m[22m[90m (12)[39m
+[2m   Start at [22m 22:00:27
+[2m   Duration [22m 298ms[2m (transform 126ms, setup 0ms, import 148ms, tests 27ms, environment 0ms)[22m
+
+[90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould not break 204 responses with a JSON content-type
+[22m[39mSyntaxError: Unexpected end of JSON input
+    at JSON.parse (<anonymous>)
+[90m    at parseJSONFromBytes (node:internal/deps/undici/undici:4319:19)[39m
+[90m    at successSteps (node:internal/deps/undici/undici:6967:27)[39m
+[90m    at consumeBody (node:internal/deps/undici/undici:6973:9)[39m
+[90m    at _Response.json (node:internal/deps/undici/undici:6912:18)[39m
+    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/hono-base.ts:456:25
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/middleware/pretty-json/index.test.ts:131:17
+
+[90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould not break 304 responses with a JSON content-type
+[22m[39mSyntaxError: Unexpected end of JSON input
+    at JSON.parse (<anonymous>)
+[90m    at parseJSONFromBytes (node:internal/deps/undici/undici:4319:19)[39m
+[90m    at successSteps (node:internal/deps/undici/undici:6967:27)[39m
+[90m    at consumeBody (node:internal/deps/undici/undici:6973:9)[39m
+[90m    at _Response.json (node:internal/deps/undici/undici:6912:18)[39m
+    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/hono-base.ts:456:25
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/middleware/pretty-json/index.test.ts:144:17
+
+[90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould not break empty responses with a JSON content-type
+[22m[39mSyntaxError: Unexpected end of JSON input
+    at JSON.parse (<anonymous>)
+[90m    at parseJSONFromBytes (node:internal/deps/undici/undici:4319:19)[39m
+[90m    at successSteps (node:internal/deps/undici/undici:6967:27)[39m
+[90m    at readAllBytes (node:internal/deps/undici/undici:5890:13)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+
+[90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould pass through a response with an invalid JSON body unchanged
+[22m[39mSyntaxError: Unexpected token 'o', "not json" is not valid JSON
+    at JSON.parse (<anonymous>)
+[90m    at parseJSONFromBytes (node:internal/deps/undici/undici:4319:19)[39m
+[90m    at successSteps (node:internal/deps/undici/undici:6967:27)[39m
+[90m    at readAllBytes (node:internal/deps/undici/undici:5890:13)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+
+[90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould pass through a response whose body was already consumed by another middleware
+[22m[39mTypeError: Body is unusable: Body has already been read
+[90m    at consumeBody (node:internal/deps/undici/undici:6961:31)[39m
+[90m    at _Response.json (node:internal/deps/undici/undici:6912:18)[39m
+    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/hono-base.ts:456:25
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39msrc/middleware/pretty-json/index.test.ts:195:17
+    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__empryo__gpt-6.1-sol__r8/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 6 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts[2m > [22mJSON pretty by Middleware[2m > [22mShould not break 204 responses with a JSON content-type
+[31m[1mAssertionError[22m: expected 500 to be 204 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 204[39m
+[31m+ 500[39m
+
+[36m [2m❯[22m src/middleware/pretty-json/index.test.ts:[2m132:24[22m[39m
+    [90m130|[39m
+    [90m131|[39m     const res = await app.request('http://localhost/x', { method: 'DEL…
+    [90m132|[39m     [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m204[39m)
+    [90m   |[39m                        [31m^[39m
+    [90m133|[39m     [34mexpect[39m(res[33m.[39mbody)[33m.[39m[34mtoBeNull[39m()
+    [90m134|[39m   })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts[2m > [22mJSON pretty by Middleware[2m > [22mShould not break 304 responses with a JSON content-type
+[31m[1mAssertionError[22m: expected 500 to be 304 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 304[39m
+[31m+ 500[39m
+
+[36m [2m❯[22m src/middleware/pretty-json/index.test.ts:[2m145:24[22m[39m
+    [90m143|[39m
+    [90m144|[39m     [35mconst[39m res [33m=[39m [35mawait[39m app[33m.[39m[34mrequest[39m([32m'http://localhost/x'[39m)
+    [90m145|[39m     [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m304[39m)
+    [90m   |[39m                        [31m^[39m
+    [90m146|[39m     [34mexpect[39m(res[33m.[39mbody)[33m.[39m[34mtoBeNull[39m()
+    [90m147|[39m   })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts[2m > [22mJSON pretty by Middleware[2m > [22mShould not break empty responses with a JSON content-type
+[31m[1mAssertionError[22m: expected 500 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 500[39m
+
+[36m [2m❯[22m src/middleware/pretty-json/index.test.ts:[2m155:24[22m[39m
+    [90m153|[39m
+    [90m154|[39m     [35mconst[39m res [33m=[39m [35mawait[39m app[33m.[39m[34mrequest[39m([32m'http://localhost/x?pretty'[39m)
+    [90m155|[39m     [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)
+    [90m   |[39m                        [31m^[39m
+    [90m156|[39m     [34mexpect[39m([35mawait[39m res[33m.[39m[34mtext[39m())[33m.[39m[34mtoBe[39m([32m''[39m)
+    [90m157|[39m   })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts[2m > [22mJSON pretty by Middleware[2m > [22mShould pass through a response with an invalid JSON body unchanged
+[31m[1mAssertionError[22m: expected 500 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 500[39m
+
+[36m [2m❯[22m src/middleware/pretty-json/index.test.ts:[2m177:24[22m[39m
+    [90m175|[39m
+    [90m176|[39m     [35mconst[39m res [33m=[39m [35mawait[39m app[33m.[39m[34mrequest[39m([32m'http://localhost/x'[39m)
+    [90m177|[39m     [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)
+    [90m   |[39m                        [31m^[39m
+    [90m178|[39m     [34mexpect[39m(res[33m.[39mheaders[33m.[39m[35mget[39m([32m'X-Custom'[39m))[33m.[39m[34mtoBe[39m([32m'custom'[39m)
+    [90m179|[39m     [34mexpect[39m(res[33m.[39mheaders[33m.[39m[35mget[39m([32m'ETag'[39m))[33m.[39m[34mtoBe[39m([32m'"abc"'[39m)
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts[2m > [22mJSON pretty by Middleware[2m > [22mShould pass through a response whose body was already consumed by another middleware
+[31m[1mAssertionError[22m: expected 500 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 500[39m
+
+[36m [2m❯[22m src/middleware/pretty-json/index.test.ts:[2m196:24[22m[39m
+    [90m194|[39m     // pretty JSON must not turn this into a 500 and must leave the re…
+    [90m195|[39m     [35mconst[39m res [33m=[39m [35mawait[39m app[33m.[39m[34mrequest[39m([32m'http://localhost/x'[39m)
+    [90m196|[39m     [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)
+    [90m   |[39m                        [31m^[39m
+    [90m197|[39m     [34mexpect[39m(res[33m.[39mbodyUsed)[33m.[39m[34mtoBe[39m([35mtrue[39m)
+    [90m198|[39m     [35mawait[39m [34mexpect[39m(res[33m.[39m[34mtext[39m())[33m.[39mrejects[33m.[39m[34mtoThrow[39m()
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts[2m > [22mJSON pretty by Middleware[2m > [22mShould remove a stale Content-Length when the body is prettified
+[31m[1mAssertionError[22m: expected '19' to be null[39m
+
+[32m- Expected:[39m
+null
+
+[31m+ Received:[39m
+"19"
+
+[36m [2m❯[22m src/middleware/pretty-json/index.test.ts:[2m216:47[22m[39m
+    [90m214|[39m   "message": "Hono!"
+    [90m215|[39m }`[39m)
+    [90m216|[39m     [34mexpect[39m(res[33m.[39mheaders[33m.[39m[35mget[39m([32m'Content-Length'[39m))[33m.[39m[34mtoBeNull[39m()
+    [90m   |[39m                                               [31m^[39m
+    [90m217|[39m   })
+    [90m218|[39m })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯[22m[39m
+

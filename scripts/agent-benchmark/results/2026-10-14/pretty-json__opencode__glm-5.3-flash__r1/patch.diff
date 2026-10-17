@@ -1,0 +1,110 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..b73951c 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,79 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should pass through a 204 response with an empty body untouched', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => {
++      c.header('Content-Type', 'application/json')
++      return c.body(null, 204)
++    })
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(204)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++    expect(await res.text()).toBe('')
++  })
++
++  it('Should pass through a 304 response with an empty body untouched', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => {
++      c.header('Content-Type', 'application/json')
++      return c.body(null, 304)
++    })
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(304)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++    expect(await res.text()).toBe('')
++  })
++
++  it('Should pass through a response with a non-parseable JSON body untouched', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/proxy', (c) => {
++      return c.body('not valid json', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '14',
++      })
++    })
++
++    const res = await app.request('http://localhost/proxy')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++    expect(res.headers.get('Content-Length')).toBe('14')
++    expect(await res.text()).toBe('not valid json')
++  })
++
++  it('Should pass through a response whose body was already read untouched', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('*', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/', (c) => c.json({ message: 'Hono!' }))
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++  })
++
++  it('Should remove the original Content-Length header when prettifying', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => {
++      return c.body('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '19',
++      })
++    })
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..ef52701 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,19 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      const text = await c.res.text().catch(() => undefined)
++      if (text === undefined) {
++        // The body cannot be read (e.g. already consumed by another middleware); leave it as-is
++        return
++      }
++      try {
++        const obj = JSON.parse(text)
++        c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++        c.res.headers.delete('Content-Length')
++      } catch {
++        // Not valid JSON; restore the original body so it remains readable downstream
++        c.res = new Response(text, c.res)
++      }
+     }
+   }
+ }
