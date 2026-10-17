@@ -7,8 +7,8 @@ import { getUser } from "@/lib/getUser";
 import { models as modelDefinitions } from "@llmgateway/models";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import {
-	getGatewayApiBaseUrl,
 	getGatewayPublicBaseUrl,
+	getRealtimeApiBaseUrl,
 } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
@@ -238,7 +238,7 @@ export async function POST(req: Request) {
 	let response: Response;
 	try {
 		response = await fetch(
-			`${getGatewayApiBaseUrl()}/realtime/client_secrets`,
+			`${getRealtimeApiBaseUrl()}/realtime/client_secrets`,
 			{
 				method: "POST",
 				headers: {
