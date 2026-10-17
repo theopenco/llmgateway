@@ -8,7 +8,12 @@ import { db, inArray, tables } from "@llmgateway/db";
 const MODELS = ["capacity-a", "capacity-b"];
 const NOW = new Date("2026-10-08T12:34:30Z");
 
-interface Metrics {
+interface Split {
+	inputTokens: number;
+	cachedTokens: number;
+	outputTokens: number;
+}
+interface Metrics extends Split {
 	totalTokens: number;
 	avgTpm: number;
 	peakTpm: number;
@@ -22,8 +27,8 @@ interface Capacity {
 	end: string;
 	summary: Metrics;
 	window: string;
-	days: { timestamp: string; tokens: number; partial: boolean }[];
-	hours: { timestamp: string; tokens: number; partial: boolean }[];
+	days: (Split & { timestamp: string; tokens: number; partial: boolean })[];
+	hours: (Split & { timestamp: string; tokens: number; partial: boolean })[];
 	breakdown: (Metrics & { key: string; label: string })[];
 }
 
@@ -55,6 +60,7 @@ async function insertHour(
 	output: number,
 	model = MODELS[0],
 	mode: "credits" | "api-keys" = "credits",
+	cached = 0,
 ) {
 	await db.insert(tables.modelProviderMappingHistoryHourly).values({
 		modelId: model,
@@ -66,6 +72,7 @@ async function insertHour(
 		totalInputTokens: input,
 		totalOutputTokens: output,
 		totalTokens: input + output,
+		totalCachedTokens: cached,
 	});
 }
 
@@ -151,6 +158,38 @@ describe("admin token capacity", () => {
 		expect(input.summary.totalTokens + output.summary.totalTokens).toBe(
 			models.summary.totalTokens,
 		);
+	});
+
+	test("splits input, cached, and output tokens regardless of token type", async () => {
+		await insertMinute("2026-10-02T05:00:00Z", 100, 20); // Minute row feeds peaks only; cached = input
+		await insertHour(
+			"2026-10-02T05:00:00Z",
+			100,
+			20,
+			MODELS[0],
+			"credits",
+			100,
+		);
+		await insertHour("2026-10-03T05:00:00Z", 0, 50, MODELS[1], "credits");
+		const total = await fetchCapacity();
+		expect(total.summary).toMatchObject({
+			totalTokens: 170,
+			inputTokens: 100,
+			cachedTokens: 100,
+			outputTokens: 70,
+		});
+		expect(total.days[1]).toMatchObject({
+			tokens: 120,
+			inputTokens: 100,
+			cachedTokens: 100,
+			outputTokens: 20,
+		});
+		const cached = await fetchCapacity({ tokenType: "cached" });
+		expect(cached.summary.totalTokens).toBe(100);
+		expect(cached.summary.peakTpm).toBe(100);
+		expect(cached.summary.outputTokens).toBe(70);
+		// Output-only rows still count toward the split, not the ranking.
+		expect(cached.breakdown.map((row) => row.key)).toEqual([MODELS[0]]);
 	});
 
 	test("excludes partial calendar days even when they are busiest", async () => {
@@ -289,17 +328,18 @@ describe("admin token capacity", () => {
 		expect(result.summary.avgTpm).toBeCloseTo(850 / 1439);
 		expect(result.summary.peakTpm).toBe(100);
 		expect(result.hours).toHaveLength(25);
-		expect(result.hours[0]).toEqual({
+		expect(result.hours[0]).toMatchObject({
 			timestamp: "2026-10-07T12:00:00Z",
 			tokens: 100,
 			partial: true,
 		});
-		expect(result.hours[1]).toEqual({
+		expect(result.hours[1]).toMatchObject({
 			timestamp: "2026-10-07T13:00:00Z",
 			tokens: 500,
+			inputTokens: 500,
 			partial: false,
 		});
-		expect(result.hours.at(-1)).toEqual({
+		expect(result.hours.at(-1)).toMatchObject({
 			timestamp: "2026-10-08T12:00:00Z",
 			tokens: 50,
 			partial: true,
@@ -312,6 +352,9 @@ describe("admin token capacity", () => {
 		const result = await fetchCapacity();
 		expect(result.summary).toEqual({
 			totalTokens: 0,
+			inputTokens: 0,
+			cachedTokens: 0,
+			outputTokens: 0,
 			avgTpm: 0,
 			peakTpm: 0,
 			peakMinuteAt: null,
