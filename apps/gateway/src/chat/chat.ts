@@ -2488,20 +2488,11 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Models whose sole output capability isn’t text or image are served by
-	// dedicated endpoints (/v1/audio/speech, /v1/videos, /v1/ocr,
-	// /v1/embeddings). validateModelCapabilities() rejects them later, but only
-	// after the dev/chat-plan restriction checks below, which would surface a
-	// misleading "not available for coding plans" error first. Reject them here
-	// with the correct endpoint pointer. Image-only models (e.g. reve,
-	// grok-image) are intentionally allowed — they are served by the
-	// chat-completions image flow.
-	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
-
-	// Realtime models and the ASR models that transcribe their input audio
-	// declare text output but are only served over the dedicated WebSocket
-	// endpoint, so the output-based gate above doesn't catch them. Reject them
-	// here with the correct endpoint pointer.
+	// Realtime models and the ASR models that transcribe their input audio are
+	// only served over the dedicated WebSocket endpoint. Check them before the
+	// output-based gate below: transcription-only ASR models declare
+	// "transcription" output, whose dedicated endpoint is /v1/audio/transcriptions
+	// — the wrong pointer for models served over /v1/realtime.
 	if (
 		modelInfo.providers.length > 0 &&
 		modelInfo.providers.every(
@@ -2512,6 +2503,16 @@ chat.openapi(completions, async (c) => {
 			message: `Model ${requestedModel} is a realtime model and cannot be used with /v1/chat/completions. Connect to the /v1/realtime WebSocket endpoint instead.`,
 		});
 	}
+
+	// Models whose sole output capability isn't text or image are served by
+	// dedicated endpoints (/v1/audio/speech, /v1/videos, /v1/ocr,
+	// /v1/embeddings). validateModelCapabilities() rejects them later, but only
+	// after the dev/chat-plan restriction checks below, which would surface a
+	// misleading "not available for coding plans" error first. Reject them here
+	// with the correct endpoint pointer. Image-only models (e.g. reve,
+	// grok-image) are intentionally allowed — they are served by the
+	// chat-completions image flow.
+	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
 
 	// Validate that models requiring image input have at least one image in the request
 	if (
