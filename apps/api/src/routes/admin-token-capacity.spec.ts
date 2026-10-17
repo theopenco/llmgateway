@@ -161,7 +161,7 @@ describe("admin token capacity", () => {
 	});
 
 	test("splits input, cached, and output tokens regardless of token type", async () => {
-		await insertMinute("2026-10-02T05:00:00Z", 100, 20); // Cached = input
+		await insertMinute("2026-10-02T05:00:00Z", 100, 20); // Minute row feeds peaks only; cached = input
 		await insertHour(
 			"2026-10-02T05:00:00Z",
 			100,

@@ -79,7 +79,7 @@ function expressions(table: TokenColumns, query: CapacityQuery) {
 						? table.totalOutputTokens
 						: table.totalTokens,
 		split: sql`${table.totalInputTokens} AS input, ${table.totalCachedTokens} AS cached, ${table.totalOutputTokens} AS output`,
-		hasTokens: sql`GREATEST(${table.totalTokens}, ${table.totalInputTokens}, ${table.totalOutputTokens}) > 0`,
+		hasTokens: sql`GREATEST(${table.totalTokens}, ${table.totalInputTokens}, ${table.totalCachedTokens}, ${table.totalOutputTokens}) > 0`,
 	};
 }
 

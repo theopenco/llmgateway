@@ -7,6 +7,7 @@ import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 import { StatCard } from "@/components/detail-stat-cards";
 import { SegmentedUrlSelector } from "@/components/segmented-url-selector";
+import { TOKEN_COLORS } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -36,6 +37,10 @@ import {
 } from "@/components/usage-mode-selector";
 import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
+import {
+	formatProviderCacheRate,
+	providerCacheRate,
+} from "@/lib/provider-cache-rate";
 
 import {
 	formatCompactNumber,
@@ -44,12 +49,19 @@ import {
 
 const PAGE_SIZE = 10;
 const STALE_TIME = 5 * 60 * 1000;
+const TOKEN_TYPE_LABELS = {
+	total: "Total tokens",
+	input: "Input tokens",
+	cached: "Cached input",
+	output: "Output tokens",
+};
 const TOKEN_TYPES = ["total", "input", "cached", "output"] as const;
 const chartConfig = { tokens: { label: "Tokens", color: "var(--chart-1)" } };
 const splitChartConfig = {
-	uncachedInput: { label: "Uncached input", color: "var(--chart-1)" },
-	cachedInput: { label: "Cached input", color: "var(--chart-2)" },
-	output: { label: "Output", color: "var(--chart-3)" },
+	uncachedInput: { label: "Uncached input", color: TOKEN_COLORS.input },
+	cachedInput: { label: "Cached input", color: TOKEN_COLORS.cached },
+	output: { label: "Output", color: TOKEN_COLORS.output },
+	other: { label: "Other", color: "var(--muted-foreground)" },
 };
 const utcDate = new Intl.DateTimeFormat("en-US", {
 	timeZone: "UTC",
@@ -73,10 +85,11 @@ function count(value: number | undefined) {
 		: formatNumber(Math.round(value * 100) / 100);
 }
 
-function cacheShare(cached: number | undefined, input: number | undefined) {
-	return cached === undefined || !input
+function cacheShare(cachedTokens = 0, inputTokens = 0) {
+	const rate = providerCacheRate({ inputTokens, cachedTokens });
+	return rate === null
 		? "No input tokens"
-		: `${formatNumber(Math.round((cached / input) * 1000) / 10)}% of input`;
+		: `${formatProviderCacheRate(rate)} of input`;
 }
 
 export function TokenCapacity() {
@@ -119,10 +132,15 @@ export function TokenCapacity() {
 			uncachedInput: Math.max(0, bucket.inputTokens - bucket.cachedTokens),
 			cachedInput: bucket.cachedTokens,
 			output: bucket.outputTokens,
+			// Totals some providers report beyond input + output.
+			other: Math.max(
+				0,
+				bucket.tokens - bucket.inputTokens - bucket.outputTokens,
+			),
 		}),
 	);
 	const bars = split
-		? (["uncachedInput", "cachedInput", "output"] as const)
+		? (["uncachedInput", "cachedInput", "output", "other"] as const)
 		: (["tokens"] as const);
 	const peakHour = data?.hours
 		.filter((hour) => !hour.partial)
@@ -133,12 +151,7 @@ export function TokenCapacity() {
 	const bucketLabel = (timestamp: string) =>
 		hourly ? timestamp.slice(11, 16) : utcDate.format(new Date(timestamp));
 	const metricColumns: [string, (row: BreakdownRow) => ReactNode][] = [
-		[
-			tokenType === "total"
-				? "Total tokens"
-				: `${tokenType === "cached" ? "Cached input" : tokenType === "input" ? "Input" : "Output"} tokens`,
-			(row) => count(row.totalTokens),
-		],
+		[TOKEN_TYPE_LABELS[tokenType], (row) => count(row.totalTokens)],
 		...(split
 			? ([
 					["Input", (row) => count(row.inputTokens)],
@@ -266,12 +279,10 @@ export function TokenCapacity() {
 					param="tokenType"
 					value={tokenType}
 					defaultValue="total"
-					options={[
-						{ value: "total", label: "Total tokens" },
-						{ value: "input", label: "Input tokens" },
-						{ value: "cached", label: "Cached input" },
-						{ value: "output", label: "Output tokens" },
-					]}
+					options={TOKEN_TYPES.map((value) => ({
+						value,
+						label: TOKEN_TYPE_LABELS[value],
+					}))}
 					compact
 				/>
 				<SegmentedUrlSelector
@@ -391,7 +402,7 @@ export function TokenCapacity() {
 							? "UTC hours. Faded bars are partial hours and excluded from the hourly peak."
 							: "UTC calendar days. Faded bars are partial days and excluded from daily peaks."}
 						{split
-							? " Stacked by uncached input, cached input, and output."
+							? " Stacked by uncached input, cached input, output, and other tokens counted only in totals."
 							: ""}
 					</CardDescription>
 				</CardHeader>
@@ -432,23 +443,27 @@ export function TokenCapacity() {
 													? formatNumber(value)
 													: String(value)
 											}
-											labelFormatter={(value) =>
-												`${peakLabel(String(value), hourly)}${chartData.find((bucket) => bucket.timestamp === value)?.partial ? ` · partial ${hourly ? "hour" : "day"}` : ""}`
-											}
+											labelFormatter={(value) => {
+												const bucket = chartData.find(
+													(item) => item.timestamp === value,
+												);
+												return `${peakLabel(String(value), hourly)}${split && bucket ? ` · ${formatNumber(bucket.tokens)} total` : ""}${bucket?.partial ? ` · partial ${hourly ? "hour" : "day"}` : ""}`;
+											}}
 										/>
 									}
 								/>
 								{split ? (
 									<ChartLegend content={<ChartLegendContent />} />
 								) : null}
-								{bars.map((key, index) => (
+								{bars.map((key) => (
 									<Bar
 										key={key}
 										dataKey={key}
 										stackId="tokens"
 										isAnimationActive={false}
 										fill={`var(--color-${key})`}
-										radius={index === bars.length - 1 ? [3, 3, 0, 0] : 0}
+										// The top segment varies per stack, so stacks stay square.
+										radius={split ? 0 : [3, 3, 0, 0]}
 									>
 										{chartData.map((bucket) => (
 											<Cell
@@ -469,13 +484,11 @@ export function TokenCapacity() {
 						Top {groupBy === "provider" ? "providers" : "models"} by tokens
 					</CardTitle>
 					<CardDescription>
-						Ranked by total{" "}
+						Ranked by{" "}
 						{tokenType === "total"
-							? ""
-							: tokenType === "cached"
-								? "cached input "
-								: `${tokenType} `}
-						tokens. Each row has its own observed peaks.
+							? "total tokens"
+							: TOKEN_TYPE_LABELS[tokenType].toLowerCase()}
+						. Each row has its own observed peaks.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
