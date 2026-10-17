@@ -6905,6 +6905,64 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			],
 		});
 	});
+	test("sends text parts of an assistant message with tool calls as text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"anthropic.claude-sonnet-4-6",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Let me check." },
+						{ type: "text", text: "   " },
+						{ type: "text", text: "One moment." },
+					],
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17 }),
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const assistant = requestBody.messages[1];
+		expect(assistant.role).toBe("assistant");
+		expect(assistant.content[0]).toEqual({ text: "Let me check." });
+		expect(assistant.content[1]).toEqual({ text: "One moment." });
+		expect(assistant.content[2]).toEqual({
+			toolUse: {
+				toolUseId: "tool_1",
+				name: "get_weather",
+				input: { city: "Berlin" },
+			},
+		});
+	});
 	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
