@@ -40,24 +40,40 @@ export async function invalidateOrganizationsCache(
 	if (organizationIds.length === 0) {
 		return;
 	}
-	try {
-		await drizzleCache.onMutate({
+	const swrKeys = organizationIds.flatMap((id) => [
+		organizationCacheTag(id),
+		`org:fresh:${id}`,
+	]);
+	// Each step runs regardless of the other failing: a dropped fallback must
+	// not survive because tag eviction threw first, and vice versa.
+	const results = await Promise.allSettled([
+		drizzleCache.onMutate({
 			tags: organizationIds.flatMap((id) => [
 				organizationCacheTag(id),
 				`org-fresh:${id}`,
 			]),
+		}),
+		dropFallback ? invalidateSwrKeys(swrKeys) : refreshSwrKeys(swrKeys),
+	]);
+	const failures = results.flatMap((result) =>
+		result.status === "rejected"
+			? [
+					result.reason instanceof Error
+						? result.reason
+						: new Error(String(result.reason)),
+				]
+			: [],
+	);
+	for (const error of failures) {
+		logger.error("Error invalidating organization cache tags", error, {
+			organizationIds,
+			dropFallback,
 		});
-		const swrKeys = organizationIds.flatMap((id) => [
-			organizationCacheTag(id),
-			`org:fresh:${id}`,
-		]);
-		await (dropFallback ? invalidateSwrKeys(swrKeys) : refreshSwrKeys(swrKeys));
-	} catch (error) {
-		logger.error(
-			"Error invalidating organization cache tags",
-			error instanceof Error ? error : new Error(String(error)),
-			{ organizationIds },
-		);
+	}
+	// Dropping the fallback is a correctness requirement (the old row must never
+	// be served again), so its caller must not see success when it failed.
+	if (dropFallback && failures.length > 0) {
+		throw failures[0];
 	}
 }
 

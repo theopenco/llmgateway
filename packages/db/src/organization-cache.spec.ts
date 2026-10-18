@@ -1,6 +1,10 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
-import { swrWrap, waitForSwrMirrorWrites } from "@llmgateway/cache";
+import {
+	redisClient,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
 
 import { invalidateOrganizationsCache } from "./cache-helpers.js";
 
@@ -15,6 +19,10 @@ async function prime(id: string, credits: string) {
 	await waitForSwrMirrorWrites();
 }
 
+afterEach(() => {
+	vi.restoreAllMocks();
+});
+
 it("never serves a dropped org row during a database outage", async () => {
 	const id = `credits-${crypto.randomUUID()}`;
 	await prime(id, "100");
@@ -24,6 +32,17 @@ it("never serves a dropped org row during a database outage", async () => {
 			"database offline",
 		);
 	}
+});
+
+it("surfaces a failed fallback drop to the blocking caller", async () => {
+	const id = `credits-${crypto.randomUUID()}`;
+	await prime(id, "100");
+	vi.spyOn(redisClient, "multi").mockImplementation(() => {
+		throw new Error("redis unavailable");
+	});
+	await expect(
+		invalidateOrganizationsCache([id], { dropFallback: true }),
+	).rejects.toThrow("redis unavailable");
 });
 
 it("keeps the outage fallback and refreshes it on the next read", async () => {

@@ -72,7 +72,9 @@ export async function adjustOrgSpend(
 	const now = Date.now();
 	const reservedAt = reservation?.createdAt.getTime() ?? now;
 	try {
-		const pipeline = redisClient.pipeline();
+		// MULTI: the rollover decrement and the current-bucket increment land
+		// together, so a mid-batch failure cannot leave the month understated.
+		const pipeline = redisClient.multi();
 		for (const [keyFor, ttl] of [
 			[spendDailyKey, DAILY_TTL_SECONDS],
 			[spendMonthlyKey, MONTHLY_TTL_SECONDS],

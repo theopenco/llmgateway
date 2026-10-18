@@ -9655,9 +9655,6 @@ async function blockOrganizationById(
 		}
 	});
 
-	// A blocked org must not be served its pre-block row during an outage.
-	await invalidateOrganizationsCache([orgId], { dropFallback: true });
-
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
 			where: { id: { in: memberUserIds } },
@@ -9685,6 +9682,11 @@ async function blockOrganizationById(
 			source: "admin",
 		},
 	});
+
+	// A blocked org must not be served its pre-block row during an outage. This
+	// throws when the fallback could not be dropped, so it runs after the audit
+	// entry: the block itself has already been applied and must stay recorded.
+	await invalidateOrganizationsCache([orgId], { dropFallback: true });
 
 	return {
 		cancelledSubscriptionIds,

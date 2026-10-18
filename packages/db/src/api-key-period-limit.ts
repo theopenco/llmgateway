@@ -99,6 +99,24 @@ export function addApiKeyPeriodDuration(
 	}
 }
 
+/**
+ * Start of the hourly-bucket window covering exactly one period that ends at
+ * the current (floored) hour. UTC arithmetic throughout: local-time setters
+ * resolve to a different instant across a DST transition and would skip or
+ * double-count a bucket.
+ */
+export function getMemberPeriodSpendWindowStart(
+	value: number,
+	unit: ApiKeyPeriodDurationUnit,
+	now: Date = new Date(),
+): { flooredHour: Date; windowStart: Date } {
+	const flooredHour = new Date(now);
+	flooredHour.setUTCMinutes(0, 0, 0);
+	const windowStart = addApiKeyPeriodDuration(flooredHour, -value, unit);
+	windowStart.setUTCHours(windowStart.getUTCHours() + 1);
+	return { flooredHour, windowStart };
+}
+
 export function getApiKeyCurrentPeriodState(
 	fields: ApiKeyPeriodLimitFields,
 	now: Date = new Date(),

@@ -30,7 +30,7 @@ import {
 	endUserSession as endUserSessionTable,
 	getEffectiveDiscount,
 	getEffectiveRateLimit,
-	addApiKeyPeriodDuration,
+	getMemberPeriodSpendWindowStart,
 	organizationCacheTag,
 	organizationTeam as organizationTeamTable,
 	organizationTeamIamRule as organizationTeamIamRuleTable,
@@ -1749,10 +1749,11 @@ export async function getMemberPeriodSpend(
 		return 0;
 	}
 
-	const flooredHour = new Date(now);
-	flooredHour.setMinutes(0, 0, 0);
-	const windowStart = addApiKeyPeriodDuration(flooredHour, -value, unit);
-	windowStart.setHours(windowStart.getHours() + 1);
+	const { flooredHour, windowStart } = getMemberPeriodSpendWindowStart(
+		value,
+		unit,
+		now,
+	);
 	const flooredHourEpoch = flooredHour.getTime();
 
 	// Fold the member's key set into the cache key: the SUM depends on which keys
