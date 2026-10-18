@@ -8,12 +8,13 @@ import { Tabs, TabsTrigger } from "@/components/ui/tabs";
 
 import { buildOrganizationTabUrl } from "./organization-tab-url";
 
+import type { OrganizationTabValue } from "./organization-tab-values";
 import type { ComponentProps } from "react";
 
 export function OrganizationTabTrigger({
 	value,
 	...props
-}: ComponentProps<typeof TabsTrigger>) {
+}: ComponentProps<typeof TabsTrigger> & { value: OrganizationTabValue }) {
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();

@@ -48,6 +48,7 @@ import {
 	buildVideoUsage,
 	getVideoProxyRedisKey,
 	isContentFilterErrorText,
+	isProviderUrlGuardEnabled,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
 import {
@@ -55,6 +56,7 @@ import {
 	getVideoStorageExpiryDate,
 	parseGcsUri,
 } from "@llmgateway/shared/gcs";
+import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
 import { isMinimaxV2VideoModel } from "@llmgateway/shared/video-generation-config";
 
@@ -68,17 +70,26 @@ const VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE = 502;
 const VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT = "Bad Gateway";
 const VIDEO_JOB_PUBLIC_ERROR_TEXT = `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`;
 
+/**
+ * `tenantControlled` marks a URL a customer can point anywhere (BYOK base URL,
+ * webhook target): it then gets the SSRF guard — https, public addresses
+ * checked at connect time, no redirects.
+ */
 function fetchWithSignals(
 	url: string,
 	init: RequestInit,
 	timeoutMs: number,
+	tenantControlled = false,
 ): Promise<Response> {
 	const stopSignal = getStopSignal();
 	const timeoutSignal = AbortSignal.timeout(timeoutMs);
-	return fetch(url, {
+	const requestInit = {
 		...init,
 		signal: AbortSignal.any([stopSignal, timeoutSignal]),
-	});
+	};
+	return tenantControlled && isProviderUrlGuardEnabled()
+		? fetchSafeUserUrl(url, requestInit)
+		: fetch(url, requestInit);
 }
 
 function isShutdownAbort(error: unknown): boolean {
@@ -129,6 +140,8 @@ type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
 type WebhookDeliveryRecord = InferSelectModel<typeof tables.webhookDeliveryLog>;
 interface ResolvedVideoProviderContext {
 	baseUrl: string;
+	/** The base URL came from the customer's own provider key. */
+	tenantControlled: boolean;
 	token: string;
 	vertexTokenType?: VertexTokenType;
 }
@@ -305,6 +318,7 @@ async function resolveVideoProviderContext(
 
 		return {
 			baseUrl,
+			tenantControlled: Boolean(providerKey.baseUrl),
 			token: readProviderKey(providerKey),
 			vertexTokenType: isGoogleVertexVideoProvider(providerId)
 				? resolveVertexTokenType(
@@ -335,6 +349,7 @@ async function resolveVideoProviderContext(
 		}
 		return {
 			baseUrl,
+			tenantControlled: false,
 			token: readProviderKey(managedKey),
 			vertexTokenType: isGoogleVertexVideoProvider(providerId)
 				? resolveVertexTokenType(
@@ -375,6 +390,7 @@ async function resolveVideoProviderContext(
 
 	return {
 		baseUrl,
+		tenantControlled: false,
 		token,
 		vertexTokenType: isGoogleVertexVideoProvider(providerId)
 			? resolveVertexTokenType(
@@ -1029,12 +1045,18 @@ function addRequestedVideoMetadata(
 async function fetchJsonResponse(
 	url: string,
 	init: RequestInit,
+	tenantControlled: boolean,
 ): Promise<{
 	body: Record<string, unknown>;
 	response: Response;
 	responseText: string;
 }> {
-	const response = await fetchWithSignals(url, init, UPSTREAM_FETCH_TIMEOUT_MS);
+	const response = await fetchWithSignals(
+		url,
+		init,
+		UPSTREAM_FETCH_TIMEOUT_MS,
+		tenantControlled,
+	);
 	const responseText = await response.text();
 
 	let body: Record<string, unknown> = {};
@@ -1159,16 +1181,20 @@ async function fetchGoogleVertexStatus(
 		providerContext.vertexTokenType === "oauth"
 			? url
 			: appendQueryParam(url, "key", providerContext.token);
-	const { body, response } = await fetchJsonResponse(authenticatedUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getVideoProviderHeaders(job, providerContext),
+	const { body, response } = await fetchJsonResponse(
+		authenticatedUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getVideoProviderHeaders(job, providerContext),
+			},
+			body: JSON.stringify({
+				operationName: job.upstreamId,
+			}),
 		},
-		body: JSON.stringify({
-			operationName: job.upstreamId,
-		}),
-	});
+		providerContext.tenantControlled,
+	);
 
 	if (!response.ok) {
 		throw new Error(
@@ -1720,10 +1746,14 @@ async function fetchAtlasCloudStatus(
 		providerContext.baseUrl,
 		`/api/v1/model/prediction/${job.upstreamId}`,
 	);
-	const { body, response } = await fetchJsonResponse(url, {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
+	const { body, response } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
 
 	if (!response.ok) {
 		throw new Error(
@@ -1798,10 +1828,14 @@ async function fetchAlibabaStatus(
 		providerContext.baseUrl,
 		`/api/v1/tasks/${job.upstreamId}`,
 	);
-	const { body, response } = await fetchJsonResponse(url, {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
+	const { body, response } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
 
 	if (!response.ok) {
 		throw new Error(
@@ -1866,10 +1900,14 @@ async function fetchMinimaxV2Status(
 		providerContext.baseUrl,
 		`/v2/query/video_generation/${job.upstreamId}`,
 	);
-	const { body, response } = await fetchJsonResponse(url, {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
+	const { body, response } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
 
 	if (!response.ok) {
 		throw new Error(
@@ -1929,10 +1967,14 @@ async function fetchMinimaxStatus(
 		providerContext.baseUrl,
 		`/v1/query/video_generation?task_id=${job.upstreamId}`,
 	);
-	const { body, response } = await fetchJsonResponse(url, {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
+	const { body, response } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
 
 	if (!response.ok) {
 		throw new Error(
@@ -1994,10 +2036,14 @@ async function fetchBytedanceStatus(
 		providerContext.baseUrl,
 		`/contents/generations/tasks/${job.upstreamId}`,
 	);
-	const { body, response } = await fetchJsonResponse(url, {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
+	const { body, response } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
 
 	if (!response.ok) {
 		throw new Error(
@@ -2081,10 +2127,14 @@ async function fetchGenericVideoStatus(
 	providerContext: ResolvedVideoProviderContext,
 ): Promise<Record<string, unknown>> {
 	const url = joinUrl(providerContext.baseUrl, `/v1/videos/${job.upstreamId}`);
-	const { body, response, responseText } = await fetchJsonResponse(url, {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
+	const { body, response, responseText } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
 
 	if (!response.ok) {
 		const upstreamContents = responseText
@@ -2144,6 +2194,7 @@ async function fetchUpstreamContentMetadata(
 			redirect: "manual",
 		},
 		UPSTREAM_FETCH_TIMEOUT_MS,
+		providerContext.tenantControlled,
 	);
 	const contentType = response.headers.get("Content-Type") ?? "";
 	if (!contentType.toLowerCase().includes("application/json")) {
@@ -2213,8 +2264,11 @@ export async function processPendingVideoJobs(): Promise<void> {
 		if (isStopRequested()) {
 			break;
 		}
+		// Upstream status failures are expected; they back off and fail the job.
+		let isUpstreamPollFailure = true;
 		try {
 			const upstreamStatus = await fetchUpstreamStatus(job);
+			isUpstreamPollFailure = false;
 			let enrichedUpstreamStatus = upstreamStatus;
 			let status = normalizeVideoStatus(enrichedUpstreamStatus.status);
 			let progress = extractProgress(enrichedUpstreamStatus);
@@ -2321,16 +2375,26 @@ export async function processPendingVideoJobs(): Promise<void> {
 			}
 
 			const message = error instanceof Error ? error.message : String(error);
-			logger.error(
-				"Error polling video job",
-				error instanceof Error ? error : new Error(message),
-				{
+			const nextErrorCount = getVideoJobPollErrorCount(job) + 1;
+			if (isUpstreamPollFailure) {
+				logger.warn("Video job upstream status poll failed", {
 					videoJobId: job.id,
 					upstreamId: job.upstreamId,
-				},
-			);
+					provider: job.usedProvider,
+					errorCount: nextErrorCount,
+					error: message,
+				});
+			} else {
+				logger.error(
+					"Error polling video job",
+					error instanceof Error ? error : new Error(message),
+					{
+						videoJobId: job.id,
+						upstreamId: job.upstreamId,
+					},
+				);
+			}
 
-			const nextErrorCount = getVideoJobPollErrorCount(job) + 1;
 			const currentStatusResponse =
 				job.upstreamStatusResponse &&
 				typeof job.upstreamStatusResponse === "object" &&
@@ -2497,6 +2561,7 @@ async function deliverWebhook(
 				redirect: "manual",
 			},
 			WEBHOOK_DELIVERY_TIMEOUT_MS,
+			true,
 		);
 		const responseText = (await response.text()).slice(0, 4000);
 

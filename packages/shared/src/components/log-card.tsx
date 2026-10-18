@@ -263,7 +263,9 @@ export const API_ORIGIN_LABELS: Record<string, string> = {
 	transcriptions: "Transcriptions",
 	rerank: "Rerank",
 	systemone: "System One",
+	decisions: "Decisions",
 	search: "Search",
+	realtime: "Realtime",
 };
 
 function formatDuration(ms: number) {

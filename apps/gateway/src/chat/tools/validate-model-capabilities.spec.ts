@@ -5,7 +5,14 @@ import { models } from "@llmgateway/models";
 
 import { validateModelCapabilities } from "./validate-model-capabilities.js";
 
-import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type {
+	ModelDefinition,
+	ProviderId,
+	ProviderModelMapping,
+} from "@llmgateway/models";
+
+// Runware is an Airside-only carrier, not a catalogue provider.
+const runware = "runware" as string as ProviderId;
 
 function getModel(id: string): ModelDefinition {
 	const m = models.find((model) => model.id === id);
@@ -71,7 +78,7 @@ const mixedPrefillModel: ModelDefinition = {
 	providers: [
 		...staticGemma.providers,
 		{
-			providerId: "runware",
+			providerId: runware,
 			externalId: "google:gemma@4-31b-it",
 			inputPrice: "0.13e-6",
 			outputPrice: "0.38e-6",
@@ -122,12 +129,9 @@ function getModelByJsonCapability(
 describe("validateModelCapabilities - assistant prefill", () => {
 	it("rejects when the explicit provider rejects a trailing assistant message", () => {
 		expect(() =>
-			validateModelCapabilities(
-				mixedPrefillModel,
-				"gemma-4-31b-it",
-				"runware",
-				{ hasAssistantPrefill: true },
-			),
+			validateModelCapabilities(mixedPrefillModel, "gemma-4-31b-it", runware, {
+				hasAssistantPrefill: true,
+			}),
 		).toThrow(HTTPException);
 	});
 
@@ -146,14 +150,9 @@ describe("validateModelCapabilities - assistant prefill", () => {
 
 	it("allows the same provider when the conversation does not end on an assistant turn", () => {
 		expect(() =>
-			validateModelCapabilities(
-				mixedPrefillModel,
-				"gemma-4-31b-it",
-				"runware",
-				{
-					hasAssistantPrefill: false,
-				},
-			),
+			validateModelCapabilities(mixedPrefillModel, "gemma-4-31b-it", runware, {
+				hasAssistantPrefill: false,
+			}),
 		).not.toThrow();
 	});
 });
