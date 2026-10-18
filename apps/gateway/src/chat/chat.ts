@@ -8905,9 +8905,10 @@ chat.openapi(completions, async (c) => {
 		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
 		// An auto-routed effort is re-picked per fallback mapping, so the logged
 		// effort has to follow what the new body carries. The header only lands
-		// on non-streaming responses; a stream has already sent its headers.
+		// on non-streaming responses: a stream has already sent its headers, and
+		// setting one then rebuilds a response whose body is already being read.
 		reasoning_effort = ctx.reasoning_effort;
-		if (smartRoutingDecision) {
+		if (smartRoutingDecision && !stream && reasoning_effort !== undefined) {
 			c.header("x-llmgateway-smart-effort", reasoning_effort);
 		}
 		temperature = ctx.temperature;
