@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	cachedInputPriceWarning,
 	cacheRateStatus,
 	promptCacheRate,
 	resolveUsageBucket,
@@ -50,5 +51,29 @@ describe("prompt cache rate", () => {
 		expect(resolveUsageBucket("auto", "cost", 7)).toBe("day");
 		expect(resolveUsageBucket("day", "cacheRate", 7)).toBe("day");
 		expect(resolveUsageBucket("hour", "cacheRate", 31)).toBe("day");
+	});
+});
+
+describe("cached input price warning", () => {
+	it.each([
+		["2", "0.2"],
+		["2e-6", "1e-6"],
+		["2", ""],
+		["", "0.5"],
+		["2", "not a price"],
+	])("accepts input %s with cached %s", (input, cached) => {
+		expect(cachedInputPriceWarning(input, cached)).toBeNull();
+	});
+
+	it("warns when cached input is over half the input price", () => {
+		expect(cachedInputPriceWarning("2e-6", "1.8e-6")).toMatch(
+			/^Cached input costs 90% of the input price\. It is usually much cheaper/,
+		);
+	});
+
+	it("warns when cached input costs as much as input or more", () => {
+		expect(cachedInputPriceWarning("0.15", "0.3")).toMatch(
+			/^Cached input costs 200% of the input price\. Cached input is usually much cheaper/,
+		);
 	});
 });

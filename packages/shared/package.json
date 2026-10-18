@@ -225,6 +225,11 @@
 			"import": "./dist/lounge-points.js",
 			"default": "./dist/lounge-points.js"
 		},
+		"./chart-tooltip": {
+			"types": "./dist/chart-tooltip.d.ts",
+			"import": "./dist/chart-tooltip.js",
+			"default": "./dist/chart-tooltip.js"
+		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
 			"import": "./dist/number-format.js",

@@ -25,7 +25,7 @@
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
-		"drizzle-orm": "1.0.0-rc.4",
+		"drizzle-orm": "1.0.0-rc.5-5935859",
 		"re2js": "2.8.6"
 	},
 	"devDependencies": {}
