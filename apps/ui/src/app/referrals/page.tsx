@@ -110,7 +110,7 @@ const sellingPoints = [
 		icon: Code2,
 		title: "Dev plans for AI coding",
 		description:
-			"Fixed plans from $29/mo for Claude Code, Cursor and Windsurf, with 3x the price in usage.",
+			"Fixed-price plans from $29/mo for Claude Code, Cursor, and Windsurf. Get 2× your subscription in monthly usage with all models included.",
 		href: "/code",
 		external: true,
 	},

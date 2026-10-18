@@ -409,7 +409,7 @@ async function seedDemo() {
 		await upsertById(tables.account, {
 			id: `${u.id}-account`,
 			providerId: "credential",
-			accountId: `${u.id}-account`,
+			accountId: u.id,
 			password: await hashPassword(u.email),
 			userId: u.id,
 		});

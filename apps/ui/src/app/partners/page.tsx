@@ -202,14 +202,16 @@ type PublicModelStats =
 	paths["/public/models/stats"]["get"]["responses"][200]["content"]["application/json"];
 
 export default async function PartnersPage() {
-	const { scxModels, scxEndpoints } = getScxCatalog(await fetchModels());
-	// Server-side snapshot used to order the partner's models by real traffic;
-	// the page degrades to release order when stats are unavailable.
-	const stats = await fetchServerData<PublicModelStats>(
-		"GET",
-		"/public/models/stats",
-		{ params: { query: { window: "30d" } } },
-	);
+	// Server-side stats snapshot used to order the partner's models by real
+	// traffic; the page degrades to release order when stats are unavailable.
+	// Independent of the model catalogue, so both are fetched in parallel.
+	const [apiModels, stats] = await Promise.all([
+		fetchModels(),
+		fetchServerData<PublicModelStats>("GET", "/public/models/stats", {
+			params: { query: { window: "30d" } },
+		}),
+	]);
+	const { scxModels, scxEndpoints } = getScxCatalog(apiModels);
 	const tokensByModelId = new Map<string, number>(
 		(stats?.models ?? []).map((m) => [m.modelId, m.totalTokens]),
 	);

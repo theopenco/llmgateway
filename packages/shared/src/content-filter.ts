@@ -93,6 +93,8 @@ export const GATEWAY_CONTENT_FILTER_MESSAGE =
  * - xAI video generation: `imagine:content-moderated`
  * - Z.AI / Zhipu (GLM, code 1301): `System detected potentially unsafe or
  *   sensitive content in input or generation`
+ * - OpenAI cybersecurity policy: `cyber_policy`, `flagged for possible
+ *   cybersecurity risk`
  */
 const CONTENT_FILTER_ERROR_SIGNALS = [
 	"ResponsibleAIPolicyViolation",
@@ -105,6 +107,8 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"Your request was rejected by the safety system",
 	"imagine:content-moderated",
 	"System detected potentially unsafe or sensitive content in input or generation",
+	"cyber_policy",
+	"flagged for possible cybersecurity risk",
 ];
 
 /**

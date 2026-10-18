@@ -10,7 +10,7 @@ fromProvider: GitHub Copilot
 
 On June 1, 2026, GitHub Copilot replaced premium-request billing (a monthly allowance of Premium Request Units per seat) with usage-based AI Credits: seat prices didn't change — individual plans run $10 (Pro), $39 (Pro+), and $100 (Max), while organizations pay $19 (Business) or $39 (Enterprise) per user per month — but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed. On Business and Enterprise, paid additional usage is enabled by default and stays uncapped unless an administrator disables the AI credit paid-usage policy or a budget has "Stop usage when budget limit is reached" turned on (off by default); user-level budgets always hard-stop. On Pro, Pro+, and Max, usage stops at the included credits until the user sets a budget. On September 1, 2026 the promotional AI Credit allowances that existing Business ($30 of credits per user) and Enterprise ($70 of credits per user) customers had received since June reverted to the standard 1,900 ($19) and 3,900 ($39) AI Credits per user per month, pooled across the organization or enterprise at the billing entity rather than held per user.
 
-LLM Gateway gives you the same workflows — chat, agents, code review — through any coding tool you choose, with provider token rates passed through at zero markup, prompt caching, and hard budget caps per organization, project, and API key.
+LLM Gateway gives you the same workflows — chat, agents, code review — through any coding tool you choose, with provider token rates passed through at zero markup, prompt caching, and spend budgets per API key, team, and member.
 
 ## What Changed in Copilot Billing
 
@@ -79,7 +79,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 ### 4. Set Budgets Before You Roll Out
 
-This is where the gateway goes further than Copilot, where Business and Enterprise enable paid additional usage by default and an organization budget only alerts unless its hard stop is switched on. In the dashboard, set spend limits per organization, per project, and per API key — hard caps, not alerts. Give each team its own project so a runaway agent burns through one budget, not the company's.
+This is where the gateway goes further than Copilot, where Business and Enterprise enable paid additional usage by default and an organization budget only alerts unless its hard stop is switched on. In the dashboard, set spend limits per API key, per team, and per member. Requests are rejected once a budget is used up, not just flagged; usage is tallied with a short delay, so a small overspend is possible. Give each team its own budget so a runaway agent burns through one budget, not the company's.
 
 ### 5. Watch Caching Cut Your Bill
 
@@ -91,7 +91,7 @@ Many teams don't drop Copilot entirely — completions are still the best part o
 
 1. Keep Copilot Free (2,000 completions/month) or a $10 Pro seat for inline completions.
 2. Route all chat and agentic work through LLM Gateway with the agent of your choice.
-3. Cap total spend with project budgets, or put developers on a flat DevPass plan.
+3. Limit spend with team or API key budgets, or put developers on a flat DevPass plan.
 
 You keep the autocomplete experience and swap the unbounded metered part for pass-through token prices with a ceiling you set.
 
