@@ -17,6 +17,7 @@ import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 import type { ServerTypes } from "@/vars.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 
 describe("getGatewayUrl", () => {
 	const previousGatewayUrl = process.env.GATEWAY_URL;
@@ -69,10 +70,19 @@ describe("resolvePlaygroundToken", () => {
 	test("keeps independent device credentials valid across missing and stale cookies", async () => {
 		const firstResponse = await resolver.request("/");
 		const first = await firstResponse.json();
+		const firstCookie = firstResponse.headers.get("set-cookie");
+		expect(firstCookie).toContain(
+			`${PLAYGROUND_KEY_COOKIE_NAME}=${first.token}`,
+		);
+		expect(firstCookie).toContain("HttpOnly");
 		const firstKey = await db.query.apiKey.findFirst({
 			where: { kind: { eq: "playground" } },
 		});
 		expect(firstKey?.description).toBe("Lounge");
+		expect(firstKey?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
+		expect(firstKey?.expiresAt?.getTime()).toBeLessThanOrEqual(
+			Date.now() + NINETY_DAYS_MS,
+		);
 		const secondResponse = await resolver.request("/");
 		const second = await secondResponse.json();
 		expect(second.token).not.toBe(first.token);

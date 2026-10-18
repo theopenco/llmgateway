@@ -79,7 +79,10 @@ export async function getOrCreatePlaygroundApiKey(
 		let key: typeof presented | undefined = presented;
 		if (!key) {
 			// No usable key for this device: reuse an expired row, or the stalest
-			// one once the member is at the cap, so rows stay bounded.
+			// one once the member is at the cap, so rows stay bounded. updatedAt
+			// tracks last use because the worker's usage write goes through
+			// drizzle and fires the column's $onUpdate; a raw SQL update there
+			// would turn this into least-recently-rotated.
 			const existing = await tx
 				.select()
 				.from(tables.apiKey)

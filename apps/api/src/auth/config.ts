@@ -177,6 +177,23 @@ end
 return {count, redis.call('ttl', KEYS[1])}
 `;
 
+// Signup backoff: read, compare and record in one script so concurrent
+// attempts from one IP cannot all observe the pre-attempt state and pass.
+// Delay doubles per attempt from one minute and caps at a day.
+const RESERVE_SIGNUP_ATTEMPT = `
+local last = tonumber(redis.call('GET', KEYS[1]))
+local attempts = tonumber(redis.call('GET', KEYS[2])) or 0
+local now = tonumber(ARGV[1])
+if last and attempts > 0 then
+  local reset = last + math.min(60000 * 2 ^ (attempts - 1), 86400000)
+  if now < reset then return {0, reset} end
+end
+attempts = attempts + 1
+redis.call('SET', KEYS[1], now, 'EX', 86400)
+redis.call('SET', KEYS[2], attempts, 'EX', 86400)
+return {1, now + math.min(60000 * 2 ^ (attempts - 1), 86400000)}
+`;
+
 export interface RateLimitConfig {
 	keyPrefix: string;
 	windowSizeMs: number;
@@ -202,19 +219,7 @@ export async function checkAndRecordSignupAttempt(
 
 	try {
 		const [allowed, resetTime] = (await redisClient.eval(
-			`
-local last = tonumber(redis.call('GET', KEYS[1]))
-local attempts = tonumber(redis.call('GET', KEYS[2])) or 0
-local now = tonumber(ARGV[1])
-if last and attempts > 0 then
-  local reset = last + math.min(60000 * 2 ^ (attempts - 1), 86400000)
-  if now < reset then return {0, reset} end
-end
-attempts = attempts + 1
-redis.call('SET', KEYS[1], now, 'EX', 86400)
-redis.call('SET', KEYS[2], attempts, 'EX', 86400)
-return {1, now + math.min(60000 * 2 ^ (attempts - 1), 86400000)}
-`,
+			RESERVE_SIGNUP_ATTEMPT,
 			2,
 			key,
 			attemptsKey,

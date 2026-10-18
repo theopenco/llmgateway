@@ -828,10 +828,18 @@ describe("atomic signup reservations", () => {
 		];
 		await redisClient.del(...keys);
 		try {
+			const before = Date.now();
 			const attempts = await Promise.all(
 				Array.from({ length: 12 }, () => checkAndRecordSignupAttempt(ip)),
 			);
-			expect(attempts.filter((attempt) => attempt.allowed)).toHaveLength(1);
+			const admitted = attempts.filter((attempt) => attempt.allowed);
+			expect(admitted).toHaveLength(1);
+			for (const attempt of attempts) {
+				expect(attempt.resetTime).toBeGreaterThanOrEqual(before + 60_000);
+				expect(attempt.resetTime).toBeLessThanOrEqual(Date.now() + 60_000);
+			}
+			await redisClient.del(...keys);
+			expect((await checkAndRecordSignupAttempt(ip)).allowed).toBe(true);
 		} finally {
 			await redisClient.del(...keys);
 		}
