@@ -1134,6 +1134,63 @@ describe("prepareRequestBody - Anthropic", () => {
 		}
 	});
 
+	test("degrades an unfetchable image inside a tool message to a placeholder", async () => {
+		// Images inside a tool result are forwarded as image blocks, so the URL
+		// is fetched. A fetch failure must not fail the whole request.
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockRejectedValue(new Error("network access is not allowed here"));
+		try {
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				"claude-3-5-sonnet-20241022",
+				null,
+				"claude-3-5-sonnet-20241022",
+				[
+					{ role: "user", content: "Screenshot the page." },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "screenshot", arguments: "{}" },
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_1",
+						content: [
+							{
+								type: "image_url",
+								image_url: { url: "https://example.com/huge.png" },
+							},
+						],
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+			)) as AnthropicRequestBody;
+
+			expect(fetchSpy).toHaveBeenCalled();
+			const toolMsg = requestBody.messages[2]!;
+			expect((toolMsg.content as unknown[])[0]).toMatchObject({
+				type: "tool_result",
+				tool_use_id: "call_1",
+				content: [{ type: "text", text: "[Image failed to load]" }],
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test.each(["claude-fable-5", "claude-opus-5"])(
 		"strips cache_control for %s when provider cache writes are disabled",
 		async (model) => {
@@ -1914,10 +1971,6 @@ describe("prepareRequestBody - Anthropic", () => {
 				source === "field"
 					? "Lookup complete."
 					: JSON.stringify([{ type: "text", text: "Lookup complete." }]);
-			const anthropicResultContent =
-				source === "field"
-					? resultText
-					: [{ type: "text", text: "Lookup complete." }];
 			const messages: BaseMessage[] = [
 				...Array.from({ length: 4 }, () => ({
 					role: "system" as const,
@@ -1982,7 +2035,7 @@ describe("prepareRequestBody - Anthropic", () => {
 							{
 								type: "tool_result",
 								tool_use_id: "call_lookup",
-								content: anthropicResultContent,
+								content: resultText,
 								cache_control: { type: "ephemeral" },
 							},
 						]
@@ -2030,7 +2083,7 @@ describe("prepareRequestBody - Anthropic", () => {
 				provider === "anthropic"
 					? "messages.2.content.0.content"
 					: "messages.2.content.0.toolResult.content.0.text",
-				provider === "anthropic" ? anthropicResultContent : resultText,
+				resultText,
 			);
 		},
 	);
@@ -4212,7 +4265,7 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 	test("converts json_schema with array type (nullable) to Google schema", async () => {
 		const requestBody = (await prepareRequestBody(
-			"google-ai-studio",
+			"quartz",
 			"gemini-2.5-flash",
 			null,
 			"gemini-2.5-flash",
@@ -4258,9 +4311,359 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
-	test("normalizes primitive enums in response schemas", async () => {
+	test("keeps unions and $ref definitions in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							nickname: { anyOf: [{ type: "string" }, { type: "null" }] },
+							id: { anyOf: [{ type: "string" }, { type: "integer" }] },
+							address: { $ref: "#/$defs/Address" },
+							previous: { type: "array", items: { $ref: "#/$defs/Address" } },
+						},
+						required: ["nickname", "id", "address"],
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+								required: ["city"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		const address = {
+			type: "OBJECT",
+			properties: { city: { type: "STRING" } },
+			required: ["city"],
+		};
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				nickname: { type: "STRING", nullable: true },
+				id: { anyOf: [{ type: "STRING" }, { type: "INTEGER" }] },
+				address,
+				previous: { type: "ARRAY", items: address },
+			},
+			required: ["nickname", "id", "address"],
+		});
+	});
+
+	test("folds Optional[Model] and collapses recursive $ref in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the tree" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "tree",
+					schema: {
+						type: "object",
+						properties: {
+							root: {
+								anyOf: [{ $ref: "#/definitions/Node" }, { type: "null" }],
+								description: "Tree root",
+								default: null,
+							},
+						},
+						required: ["root"],
+						definitions: {
+							Node: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									child: { $ref: "#/definitions/Node", description: "Next" },
+								},
+								required: ["value"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				root: {
+					type: "OBJECT",
+					description: "Tree root",
+					nullable: true,
+					properties: {
+						value: { type: "STRING" },
+						child: { type: "OBJECT", description: "Next" },
+					},
+					required: ["value"],
+				},
+			},
+			required: ["root"],
+		});
+	});
+
+	test("sends AI Studio response schemas as raw JSON Schema", async () => {
+		const schema = {
+			type: "object",
+			properties: {
+				name: { type: ["string", "null"] },
+				reports: { type: "array", items: { $ref: "#" } },
+				address: { $ref: "#/$defs/Address" },
+			},
+			required: ["name"],
+			additionalProperties: false,
+			$defs: {
+				Address: { type: "object", properties: { city: { type: "string" } } },
+			},
+		};
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ type: "json_schema", json_schema: { name: "org", schema: schema } },
+		)) as any;
+
+		expect(requestBody.generationConfig.responseMimeType).toBe(
+			"application/json",
+		);
+		expect(requestBody.generationConfig.responseJsonSchema).toEqual(schema);
+		expect(requestBody.generationConfig.responseSchema).toBeUndefined();
+	});
+
+	test("folds single-member allOf in AI Studio raw JSON Schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user",
+					schema: {
+						type: "object",
+						properties: {
+							shipping: {
+								allOf: [{ $ref: "#/$defs/Address" }],
+								description: "Shipping address",
+							},
+							tags: { allOf: [{ type: "string" }, { minLength: 1 }] },
+						},
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseJsonSchema).toEqual({
+			type: "object",
+			properties: {
+				shipping: {
+					$ref: "#/$defs/Address",
+					description: "Shipping address",
+				},
+				tags: { allOf: [{ type: "string" }, { minLength: 1 }] },
+			},
+			$defs: {
+				Address: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		});
+	});
+
+	test("resolves #/definitions refs when the schema also has $defs", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "mixed",
+					schema: {
+						type: "object",
+						properties: {
+							a: { $ref: "#/$defs/Item" },
+							b: { $ref: "#/definitions/Item" },
+						},
+						$defs: { Item: { type: "string" } },
+						definitions: { Item: { type: "integer" } },
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema.properties).toEqual({
+			a: { type: "STRING" },
+			b: { type: "INTEGER" },
+		});
+	});
+
+	test("resolves root and nested JSON pointer refs in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "org",
+					schema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							reports: { type: "array", items: { $ref: "#" } },
+							city: { $ref: "#/$defs/Address/properties/city" },
+						},
+						required: ["name"],
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string", description: "City" } },
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				name: { type: "STRING" },
+				reports: {
+					type: "ARRAY",
+					items: {
+						type: "OBJECT",
+						properties: {
+							name: { type: "STRING" },
+							reports: { type: "ARRAY", items: { type: "OBJECT" } },
+							city: { type: "STRING", description: "City" },
+						},
+						required: ["name"],
+					},
+				},
+				city: { type: "STRING", description: "City" },
+			},
+			required: ["name"],
+		});
+	});
+
+	test("folds a single-member allOf in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user",
+					schema: {
+						type: "object",
+						properties: {
+							address: {
+								allOf: [{ $ref: "#/definitions/Address" }],
+								description: "Home address",
+							},
+						},
+						definitions: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+								required: ["city"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				address: {
+					type: "OBJECT",
+					description: "Home address",
+					properties: { city: { type: "STRING" } },
+					required: ["city"],
+				},
+			},
+		});
+	});
+
+	test("normalizes primitive enums in response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
 			"gemini-3.7-flash",
 			null,
 			"gemini-3.7-flash",
@@ -4290,7 +4693,91 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			requestBody.generationConfig.responseSchema.properties.value,
 		).toEqual({
 			type: "INTEGER",
-			enum: ["3", "5"],
+			description: "Allowed values: 3, 5",
+		});
+	});
+
+	test("keeps string enums in converted Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.1-pro-preview",
+			null,
+			"gemini-3.1-pro-preview",
+			[{ role: "user", content: "Choose a value" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "choice",
+					schema: {
+						type: "object",
+						properties: {
+							status: { type: "string", enum: ["open", "closed"] },
+							flag: { type: "boolean", enum: [true], description: "Set" },
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema.properties).toEqual({
+			status: { type: "STRING", enum: ["open", "closed"] },
+			flag: { type: "BOOLEAN", description: "Set (Allowed values: true)" },
+		});
+	});
+
+	test("sends Vertex response schemas as raw JSON Schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Choose a value" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "choice",
+					schema: {
+						type: "object",
+						properties: {
+							value: { type: "integer", enum: [3, 5] },
+							address: { allOf: [{ $ref: "#/$defs/Address" }] },
+						},
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toBeUndefined();
+		expect(requestBody.generationConfig.responseJsonSchema).toEqual({
+			type: "object",
+			properties: {
+				value: { type: "integer", enum: [3, 5] },
+				address: { $ref: "#/$defs/Address" },
+			},
+			$defs: {
+				Address: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
 		});
 	});
 
@@ -4887,11 +5374,23 @@ describe("prepareRequestBody - Google AI Studio", () => {
 								type: "string",
 								const: "fixed_value",
 							},
+							nickname: {
+								const: null,
+							},
+							fixedNull: {
+								const: null,
+								enum: ["a"],
+							},
+							handle: {
+								type: "string",
+								pattern: "^(alice|bob)$",
+							},
 							metadata: {
 								type: "object",
 								properties: {
 									key: { type: "string" },
 								},
+								additionalProperties: false,
 								propertyNames: { type: "string" },
 								minProperties: 1,
 								maxProperties: 10,
@@ -4939,11 +5438,27 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.count.multipleOf).toBeUndefined();
 		expect(params.properties.count.type).toBe("number");
 
-		// String const: should strip const
+		// String const: pin the value as a single-member enum (#4148)
 		expect(params.properties.name.const).toBeUndefined();
+		expect(params.properties.name.enum).toEqual(["fixed_value"]);
 		expect(params.properties.name.type).toBe("string");
+		// Null const: never emit enum ["null"]; widen to nullable (#4148)
+		expect(params.properties.nickname.const).toBeUndefined();
+		expect(params.properties.nickname.enum).toBeUndefined();
+		expect(params.properties.nickname.nullable).toBe(true);
+		expect(params.properties.nickname.type).toBe("string");
+		// Explicit enum suppresses the null widening (#4148)
+		expect(params.properties.fixedNull.enum).toEqual(["a"]);
+		expect(params.properties.fixedNull.nullable).toBeUndefined();
+		// String pattern survives (#4148)
+		expect(params.properties.handle).toEqual({
+			type: "string",
+			pattern: "^(alice|bob)$",
+		});
 
-		// Object properties: should strip propertyNames, minProperties, maxProperties
+		// Object properties: should strip propertyNames, minProperties,
+		// maxProperties and additionalProperties (no field in the carrier)
+		expect(params.properties.metadata.additionalProperties).toBeUndefined();
 		expect(params.properties.metadata.propertyNames).toBeUndefined();
 		expect(params.properties.metadata.minProperties).toBeUndefined();
 		expect(params.properties.metadata.maxProperties).toBeUndefined();
@@ -4957,6 +5472,90 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.items.prefixItems).toBeUndefined();
 		expect(params.properties.items.type).toBe("array");
 		expect(params.properties.items.items.type).toBe("string");
+	});
+
+	test("should prefer an explicit enum over const in Google tool parameters", async () => {
+		const toolsWithConstAndEnum = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							withBoth: {
+								type: "string",
+								const: "pinned",
+								enum: ["choice_a", "choice_b"],
+							},
+							withObjectConst: {
+								type: "object",
+								const: { pinned: true },
+							},
+							version: {
+								const: 2,
+								type: "integer",
+								description: "Schema version",
+							},
+							confirmed: {
+								type: "boolean",
+								const: true,
+							},
+							currency: {
+								const: "USD",
+							},
+							count: {
+								type: "integer",
+								pattern: "^[0-9]+$",
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithConstAndEnum,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.properties.withBoth.enum).toEqual(["choice_a", "choice_b"]);
+		expect(params.properties.withObjectConst.enum).toBeUndefined();
+		expect(params.properties.withObjectConst.const).toBeUndefined();
+		// Vertex rejects an enum on a non-STRING type: keep it as a hint
+		expect(params.properties.version).toEqual({
+			type: "integer",
+			description: "Schema version (Allowed values: 2)",
+		});
+		expect(params.properties.confirmed).toEqual({
+			type: "boolean",
+			description: "Allowed values: true",
+		});
+		// Untyped const: the type comes from the value (Vertex rejects untyped nodes)
+		expect(params.properties.currency).toEqual({
+			type: "string",
+			enum: ["USD"],
+		});
+		// pattern has nothing to match on a non-string node
+		expect(params.properties.count).toEqual({ type: "integer" });
 	});
 
 	test("should strip $id, examples, enumTitles, prefill from Google tool parameters", async () => {
@@ -9533,5 +10132,323 @@ describe("prepareRequestBody - bytedance prompt caching", () => {
 	test("leaves other providers untouched", async () => {
 		const requestBody = await prepare("deepinfra", "granite-4.2-8b");
 		expect(requestBody.caching).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - parallel_tool_calls", () => {
+	const weatherTool = {
+		type: "function" as const,
+		function: {
+			name: "get_weather",
+			description: "Get the weather",
+			parameters: {
+				type: "object",
+				properties: { city: { type: "string" } },
+				required: ["city"],
+			},
+		},
+	};
+
+	async function prepare(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		opts: {
+			parallel_tool_calls?: boolean;
+			tools?: (typeof weatherTool)[];
+			tool_choice?: Parameters<typeof prepareRequestBody>[13];
+			useResponsesApi?: boolean;
+		},
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Weather in Paris and Rome?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			opts.tools ?? [weatherTool],
+			opts.tool_choice,
+			undefined, // reasoning_effort
+			false, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			false, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			opts.useResponsesApi ?? false,
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			undefined, // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			opts.parallel_tool_calls,
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("forwards parallel_tool_calls to OpenAI chat completions", async () => {
+		const body = await prepare("openai", "gpt-4o-mini", {
+			parallel_tool_calls: false,
+		});
+		expect(body.parallel_tool_calls).toBe(false);
+	});
+
+	test("forwards parallel_tool_calls to the OpenAI Responses API", async () => {
+		const body = await prepare("openai", "gpt-5", {
+			parallel_tool_calls: false,
+			useResponsesApi: true,
+		});
+		expect(body.parallel_tool_calls).toBe(false);
+	});
+
+	test("omits parallel_tool_calls when no tools are sent", async () => {
+		const body = await prepare("openai", "gpt-4o-mini", {
+			parallel_tool_calls: false,
+			tools: [],
+		});
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
+	test("maps false to disable_parallel_tool_use on Anthropic", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+		});
+		expect(body.tool_choice).toEqual({
+			type: "auto",
+			disable_parallel_tool_use: true,
+		});
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
+	test("keeps a forced Anthropic tool choice when disabling parallel use", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+			tool_choice: "required",
+		});
+		expect(body.tool_choice).toEqual({
+			type: "any",
+			disable_parallel_tool_use: true,
+		});
+	});
+
+	test("leaves Anthropic tool_choice alone for tool_choice none", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+			tool_choice: "none",
+		});
+		expect(body.tool_choice).toEqual({ type: "none" });
+	});
+
+	test("keeps a forced Anthropic tool when disabling parallel use", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+			tool_choice: { type: "function", function: { name: "get_weather" } },
+		});
+		expect(body.tool_choice).toEqual({
+			type: "tool",
+			name: "get_weather",
+			disable_parallel_tool_use: true,
+		});
+	});
+
+	test("leaves Anthropic untouched for parallel_tool_calls true", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: true,
+		});
+		expect(body).not.toHaveProperty("tool_choice");
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
+	test("does not send parallel_tool_calls to Google", async () => {
+		const body = await prepare("google-ai-studio", "gemini-2.5-flash", {
+			parallel_tool_calls: false,
+		});
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
+	test("forwards to an OpenAI-compatible mapping that declares it", async () => {
+		const mapping = models
+			.find((m) => m.id === "kimi-k2.5")
+			?.providers.find((p) => p.providerId === "embercloud");
+		expect(mapping?.supportedParameters).toContain("parallel_tool_calls");
+
+		const body = await prepare("embercloud", "kimi-k2.5", {
+			parallel_tool_calls: false,
+		});
+		expect(body.parallel_tool_calls).toBe(false);
+	});
+
+	test("drops it for an OpenAI-compatible mapping that does not declare it", async () => {
+		const body = await prepare("xai", "grok-4", {
+			parallel_tool_calls: false,
+		});
+		expect(body.tools).toBeDefined();
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+});
+
+describe("prepareRequestBody - tool strict and allowed_callers", () => {
+	const strictTool = {
+		type: "function" as const,
+		function: {
+			name: "get_weather",
+			description: "Get the weather",
+			parameters: {
+				type: "object",
+				properties: { city: { type: "string" } },
+				required: ["city"],
+			},
+			strict: true,
+		},
+		allowed_callers: ["code_execution"],
+	};
+
+	async function prepare(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		useResponsesApi = false,
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Weather in Paris?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[strictTool],
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			useResponsesApi,
+		)) as unknown as Record<string, any>;
+	}
+
+	test("Anthropic takes strict and allowed_callers on the tool", async () => {
+		const body = await prepare("anthropic", "claude-sonnet-4-6");
+		expect(body.tools[0]).toMatchObject({
+			name: "get_weather",
+			strict: true,
+			allowed_callers: ["code_execution"],
+		});
+	});
+
+	test("OpenAI chat completions keeps function.strict and drops allowed_callers", async () => {
+		const body = await prepare("openai", "gpt-4o-mini");
+		expect(body.tools[0].function.strict).toBe(true);
+		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+	});
+
+	test("OpenAI Responses API keeps strict on the flat tool", async () => {
+		const body = await prepare("openai", "gpt-5", true);
+		expect(body.tools[0]).toMatchObject({ name: "get_weather", strict: true });
+		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+	});
+
+	test("Google drops both", async () => {
+		const body = await prepare("google-ai-studio", "gemini-2.5-flash");
+		const declaration = body.tools[0].functionDeclarations[0];
+		expect(declaration.name).toBe("get_weather");
+		expect(declaration).not.toHaveProperty("strict");
+		expect(declaration).not.toHaveProperty("allowed_callers");
+	});
+});
+
+describe("prepareRequestBody - images inside tool results", () => {
+	const png =
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+	test("Anthropic receives the image as a tool_result image block", async () => {
+		const body = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[
+				{ role: "user", content: "Take a screenshot." },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "toolu_01SHOT",
+							type: "function",
+							function: { name: "screenshot", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "toolu_01SHOT",
+					content: [
+						{ type: "text", text: "Captured:" },
+						{
+							type: "image_url",
+							image_url: { url: `data:image/png;base64,${png}` },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function",
+					function: {
+						name: "screenshot",
+						parameters: { type: "object", properties: {} },
+					},
+				},
+			],
+		)) as unknown as Record<string, any>;
+
+		const toolResult = body.messages
+			.flatMap((m: { content: unknown }) =>
+				Array.isArray(m.content) ? m.content : [],
+			)
+			.find((block: { type: string }) => block.type === "tool_result");
+		expect(toolResult.content).toEqual([
+			{ type: "text", text: "Captured:" },
+			{
+				type: "image",
+				source: { type: "base64", media_type: "image/png", data: png },
+			},
+		]);
 	});
 });

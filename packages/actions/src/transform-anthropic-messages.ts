@@ -1,6 +1,7 @@
 import { logger } from "@llmgateway/logger";
 import {
 	type AnthropicMessage,
+	type AnthropicNativeBlock,
 	type BaseMessage,
 	type CacheControl,
 	isImageUrlContent,
@@ -78,6 +79,47 @@ export function getToolResultText(message: BaseMessage): string {
 			return content;
 		}),
 	);
+}
+
+async function toolResultBlocksWithImages(
+	parts: MessageContent[],
+	isProd: boolean,
+	maxImageSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
+): Promise<AnthropicNativeBlock[]> {
+	const blocks = await Promise.all(
+		parts.map(async (part): Promise<AnthropicNativeBlock | null> => {
+			if (isImageUrlContent(part)) {
+				try {
+					const { data, mimeType } = await processImageUrl(
+						part.image_url.url,
+						isProd,
+						maxImageSizeMB,
+						userPlan,
+					);
+					return {
+						type: "image",
+						source: { type: "base64", media_type: mimeType, data },
+					};
+				} catch (error) {
+					// Same contract as the user-turn path: a client rejection is the
+					// caller's to fix, a fetch failure degrades to a placeholder.
+					if (error instanceof RequestError) {
+						throw error;
+					}
+					logger.error("Failed to process tool result image for Anthropic", {
+						err: error instanceof Error ? error : new Error(String(error)),
+					});
+					return { type: "text", text: "[Image failed to load]" };
+				}
+			}
+			if (isTextContent(part)) {
+				return part.text?.trim() ? { type: "text", text: part.text } : null;
+			}
+			return { type: "text", text: JSON.stringify(part) };
+		}),
+	);
+	return blocks.filter((block): block is AnthropicNativeBlock => !!block);
 }
 
 /**
@@ -221,7 +263,7 @@ export async function transformAnthropicMessages(
 			: undefined;
 
 		// Handle existing content
-		if (isDiscardedToolResult && !Array.isArray(m.content)) {
+		if (isDiscardedToolResult) {
 			content = [];
 		} else if (Array.isArray(m.content)) {
 			// Process all images in parallel for better performance
@@ -261,9 +303,6 @@ export async function transformAnthropicMessages(
 								text: "[Image failed to load]",
 							} as TextContent;
 						}
-					}
-					if (isDiscardedToolResult && isTextContent(part)) {
-						return { type: "text", text: part.text } as TextContent;
 					}
 					if (isTextContent(part) && part.text?.trim()) {
 						if (part.cache_control) {
@@ -408,28 +447,22 @@ export async function transformAnthropicMessages(
 			// A client-side tool search returns `tool_reference` blocks in the
 			// tool_result content array. Stringifying that array would leave
 			// Anthropic nothing to expand, so replay the original blocks verbatim.
-			// Nested blocks bypass the top-level empty-text filter below, and
-			// Anthropic rejects empty text blocks, so drop them here.
-			const resultBlocks = Array.isArray(m.content)
-				? [
-						...content
-							.filter(
-								(part) =>
-									!(
-										isTextContent(part) &&
-										(!part.text || part.text.trim() === "")
-									),
-							)
-							.map((part) => ({ ...part })),
-						...(m.anthropic_native_blocks ?? []),
-					]
-				: (m.anthropic_native_blocks ?? []);
+			// An image part (a screenshot returned by a tool) has to stay a block:
+			// stringified, the model would read base64 as text. Text parts ride
+			// along as text blocks so the result keeps its order.
+			const imageResultBlocks =
+				Array.isArray(m.content) && m.content.some(isImageUrlContent)
+					? await toolResultBlocksWithImages(
+							m.content,
+							isProd,
+							maxImageSizeMB,
+							userPlan,
+						)
+					: undefined;
 			const resultContent: ToolResultContent["content"] =
-				resultBlocks.length > 0
-					? resultBlocks
-					: Array.isArray(m.content)
-						? "No output"
-						: toolResultContent;
+				m.anthropic_native_blocks && m.anthropic_native_blocks.length > 0
+					? m.anthropic_native_blocks
+					: (imageResultBlocks ?? toolResultContent);
 
 			// If there are multiple mapped IDs, create tool_result blocks for each one
 			// This handles the case where we have duplicate tool_use but only one tool_result

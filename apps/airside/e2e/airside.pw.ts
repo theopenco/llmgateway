@@ -225,12 +225,12 @@ test("a delisted model needs a fresh preflight to relist", async ({ page }) => {
 	await page.getByTestId("delete-codestral-3").click();
 	await page.getByTestId("confirm-delete-codestral-3").click();
 	await expect(status).toContainText("Delisted by your crew");
-	// Relisting needs a preflight that passed since delisting, so the
-	// delisted row offers Verify next to Relist.
+	// A relist request needs a preflight that passed since delisting, so the
+	// delisted row offers Verify next to Request relist.
 	await expect(page.getByTestId("verify-codestral-3")).toBeVisible();
 
 	await page.getByTestId("relist-codestral-3").click();
-	await expect(page.getByText(/before you relist/)).toBeVisible({
+	await expect(page.getByText(/before you request a relist/)).toBeVisible({
 		timeout: 15_000,
 	});
 	await expect(status).toContainText("Delisted by your crew");

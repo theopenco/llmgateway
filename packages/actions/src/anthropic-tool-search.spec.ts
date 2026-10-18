@@ -352,7 +352,10 @@ describe("anthropic tool search", () => {
 		]);
 	});
 
-	test("drops empty text parts from an array tool_result", async () => {
+	// Text-only tool_result arrays keep the stringified form the cached prefix of
+	// existing conversations was built on, so an empty text part never reaches
+	// Anthropic as an (rejected) empty text block.
+	test("keeps text-only array tool_results stringified, empty parts included", async () => {
 		const toolResult = async (content: BaseMessage["content"]) => {
 			const body = (await prepare(
 				"anthropic",
@@ -381,7 +384,7 @@ describe("anthropic tool search", () => {
 			{
 				type: "tool_result",
 				tool_use_id: "toolu_1",
-				content: "No output",
+				content: JSON.stringify([{ type: "text", text: "" }]),
 				cache_control: { type: "ephemeral" },
 			},
 		]);
@@ -394,7 +397,10 @@ describe("anthropic tool search", () => {
 			{
 				type: "tool_result",
 				tool_use_id: "toolu_1",
-				content: [{ type: "text", text: "sunny" }],
+				content: JSON.stringify([
+					{ type: "text", text: " " },
+					{ type: "text", text: "sunny" },
+				]),
 				cache_control: { type: "ephemeral" },
 			},
 		]);

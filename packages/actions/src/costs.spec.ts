@@ -2000,6 +2000,27 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills Qwen Image 2.1 Turbo at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"qwen-image-2.1-turbo",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			2,
+			"2048x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.032);
+		expect(result.outputCost).toBeCloseTo(0.032);
+		expect(result.totalCost).toBeCloseTo(0.032);
+	});
+
 	it("bills Muse at its flat per-image price", async () => {
 		const result = await calculateCosts(
 			"muse-image-1.0",

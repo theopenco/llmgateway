@@ -13,7 +13,7 @@ faqs:
   - question: "What does it cost to sell inference through Airside?"
     answer: "A one-time, non-refundable $2,500 listing fee per provider company, paid through Stripe before your claim is approved. Providers LLM Gateway already works with receive an invite code that waives it. There is no subscription, no minimum volume, and no charge on traffic you do not serve. Self-hosted deployments with no fee configured list for free."
   - question: "Is a lower price the only way to win routed traffic?"
-    answer: "No. Price carries the heaviest routing weight, but uptime is nearly as heavy, and a deployment below 95% uptime is penalized exponentially. Verified capabilities, a cached-input price, throughput, and time to first token all change which provider wins a request."
+    answer: "No. Price carries the heaviest routing weight, but uptime is nearly as heavy, and a deployment below 95% uptime is penalized quadratically. Verified capabilities, a cached-input price, throughput, and time to first token all change which provider wins a request."
 image:
   src: "/blog/make-money-llm-inference.png"
   alt: "A glowing coin stack mounted on a central chip with light traces flowing toward it from a runway, surrounded by a paper plane, a price tag, and a bar chart on a circuit board"
@@ -100,7 +100,7 @@ The [Airside docs](https://docs.llmgateway.io/features/airside) cover each step,
 
 Price carries the heaviest weight in the routing election, but it is not the only factor. Every candidate is also scored on uptime and throughput, streaming requests add time to first token, and the lowest total wins. A few decisions move your share of traffic without touching your fares:
 
-- **Stay above 95% uptime.** Below that threshold the gateway applies an exponential penalty: about 0.07 at 90%, 0.62 at 80%, and 1.73 at 70%. A cheap deployment that errors loses to a slightly pricier one that does not.
+- **Stay above 95% uptime.** Below that threshold the gateway applies a quadratic penalty: about 0.07 at 90%, 0.62 at 80%, and 1.73 at 70%. A cheap deployment that errors loses to a slightly pricier one that does not.
 - **File a cached-input price.** For long prompts and coding sessions, routing blends your cached and uncached input prices by the cache-hit rate it has learned for that workload. A provider with no cached price competes at its full input price.
 - **Declare only what you serve.** A request that needs tool calls only considers providers with tools enabled. Over-declaring wins you candidacy and then a failed request; under-declaring removes you from elections you would have won.
 - **Set rate limits you can sustain.** Requests per minute and per day can be capped globally or per organization. A limit you hit is traffic you did not serve.

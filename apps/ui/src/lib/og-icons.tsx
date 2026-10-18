@@ -1,12 +1,13 @@
 import {
 	AWSBedrockIconStatic,
 	FireworksIconStatic,
+	getBundledProviderIcon,
 	getModelFamilyIcon,
-	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
 	XAIIconStatic,
 } from "@llmgateway/shared/components";
+import { Logo } from "@llmgateway/shared/logo";
 
 type OgIcon = React.FC<React.SVGProps<SVGSVGElement>>;
 
@@ -28,7 +29,12 @@ const familyIconOverrides: Record<string, OgIcon | undefined> = {
 };
 
 export function getOgProviderIcon(providerId: string): OgIcon {
-	return providerIconOverrides[providerId] ?? getProviderIcon(providerId);
+	// Uploaded marks need a client context, which Satori cannot render.
+	return (
+		providerIconOverrides[providerId] ??
+		getBundledProviderIcon(providerId) ??
+		Logo
+	);
 }
 
 /**

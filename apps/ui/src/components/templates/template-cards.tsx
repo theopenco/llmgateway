@@ -17,6 +17,9 @@ import {
 	Play,
 	Wallet,
 	LayoutGrid,
+	MessagesSquare,
+	Presentation,
+	Swords,
 } from "lucide-react";
 import Image from "next/image";
 import { useState, useCallback } from "react";
@@ -57,7 +60,7 @@ const templates: Template[] = [
 		demoUrl: "https://llmgateway-templates-image-generation-124.meetploy.app",
 		image: "/templates/image-gen.png",
 		icon: ImageIcon,
-		tags: ["TypeScript", "Next.js", "AI SDK"],
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
 		gradient: "from-violet-500/20 via-fuchsia-500/20 to-pink-500/20",
 		featured: true,
 	},
@@ -69,9 +72,29 @@ const templates: Template[] = [
 		demoUrl: "https://llmgateway-templates-ai-chatbot-108.meetploy.app",
 		image: "/templates/chatbot.png",
 		icon: MessageSquare,
-		tags: ["TypeScript", "Next.js", "AI SDK"],
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
 		gradient: "from-sky-500/20 via-blue-500/20 to-indigo-500/20",
 		featured: true,
+	},
+	{
+		name: "Model Arena",
+		description:
+			"Send one prompt to up to four models and compare the answers side by side, with live time to first token, tokens per second, and the exact cost of every response. Badges call out the fastest and cheapest model.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/model-arena",
+		image: "/templates/model-arena.png",
+		icon: Swords,
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
+		gradient: "from-lime-500/20 via-emerald-500/20 to-cyan-500/20",
+		featured: true,
+	},
+	{
+		name: "AI Slides",
+		description:
+			"AI presentation builder. Generate a deck from a topic, research facts with web search, add AI images and data-backed charts, then export to PowerPoint.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/ai-slides",
+		icon: Presentation,
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
+		gradient: "from-indigo-500/20 via-violet-500/20 to-purple-500/20",
 	},
 	{
 		name: "OG Image Generator",
@@ -81,7 +104,7 @@ const templates: Template[] = [
 		demoUrl: "https://llmgateway-templates-og-image-generator-926.meetploy.app",
 		image: "/templates/og-image.png",
 		icon: PanelTop,
-		tags: ["TypeScript", "Next.js", "AI SDK"],
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
 		gradient: "from-orange-500/20 via-amber-500/20 to-yellow-500/20",
 	},
 	{
@@ -92,7 +115,7 @@ const templates: Template[] = [
 		demoUrl: "https://llmgateway-templates-feedback-dashboard-189.meetploy.app",
 		image: "/templates/feedback.png",
 		icon: BarChart3,
-		tags: ["TypeScript", "Next.js", "AI SDK"],
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
 		gradient: "from-emerald-500/20 via-green-500/20 to-teal-500/20",
 	},
 	{
@@ -103,20 +126,29 @@ const templates: Template[] = [
 		demoUrl: "https://llmgateway-templates-writing-assistant-229.meetploy.app",
 		image: "/templates/writing-assistant.png",
 		icon: PenLine,
-		tags: ["TypeScript", "Next.js", "AI SDK"],
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
 		gradient: "from-rose-500/20 via-pink-500/20 to-fuchsia-500/20",
 	},
 	{
 		name: "QA Agent",
 		description:
-			"AI-powered QA testing agent that uses browser automation to interact with your running web app. Describe tests in plain English and watch it execute step-by-step with a real-time action timeline.",
+			"AI-powered QA testing agent that drives a real headless browser through Playwright. Describe tests in plain English and watch it navigate, click, and type step-by-step with a live preview and action timeline.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/qa-agent",
 		demoUrl: "https://youtu.be/-ai9eVvXvZE",
 		demoLabel: "Watch Demo",
 		image: "/templates/qa-agent.png",
 		icon: ShieldCheck,
-		tags: ["TypeScript", "Next.js", "AI SDK"],
+		tags: ["TypeScript", "Next.js", "AI SDK 7"],
 		gradient: "from-cyan-500/20 via-teal-500/20 to-blue-500/20",
+	},
+	{
+		name: "Slack Q&A Bot",
+		description:
+			"Slack bot that streams AI answers into threads, keeps the conversation context, and searches the live web for time-sensitive questions. Built on Chat SDK and Hono.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/slack-qa-bot",
+		icon: MessagesSquare,
+		tags: ["TypeScript", "Chat SDK", "Hono"],
+		gradient: "from-fuchsia-500/20 via-purple-500/20 to-indigo-500/20",
 	},
 	{
 		name: "Showcase",

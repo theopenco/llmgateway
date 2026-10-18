@@ -126,6 +126,6 @@ A provider-defined tool the gateway cannot map is reported as an `unsupported-to
 
 ## What is not covered
 
-This surface implements language models. Embeddings, images, video, speech, transcription, reranking and realtime are served by the [OpenAI-compatible endpoints](/api-reference) — use [`@llmgateway/ai-sdk-provider`](/developers/ai-sdk) for those.
+This surface implements language models. Embeddings, images, video, speech, transcription, reranking and realtime are served by the [OpenAI-compatible endpoints](/api-reference) — use [`@llmgateway/ai-sdk-provider`](/developers/ai-sdk) for images and video, and call the REST endpoints directly for the rest.
 
 These call options have no chat completions equivalent and are reported as `unsupported` warnings: `stopSequences`, `seed`, `topK`.

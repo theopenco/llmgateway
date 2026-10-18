@@ -158,7 +158,7 @@ describe("/v1/messages tool_result content markers", () => {
 		const first = await send(0, content);
 		const second = await send(1, content);
 
-		expect(first[0]!.content).toEqual(JSON.stringify(content));
+		expect(first[0]!.content).toEqual(JSON.stringify([content]));
 		expect(second[0]!.content).toEqual(first[0]!.content);
 		expect(first[0]!.cache_control).toEqual({ type: "ephemeral" });
 		expect(second[0]!.cache_control).toBeUndefined();
