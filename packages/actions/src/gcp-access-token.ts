@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
 interface ServiceAccountKey {
 	client_email: string;
@@ -127,13 +128,20 @@ async function exchangeJwtForAccessToken(
 	return data.access_token;
 }
 
+/**
+ * Keyed on the whole credential, not just client_email: the JSON is
+ * user-supplied, so a key reusing another tenant's client_email with any
+ * private_key must not hit that tenant's cached token.
+ */
 function cacheKey(sa: ServiceAccountKey): string {
-	const hash = crypto
-		.createHash("sha256")
+	const fingerprint = crypto
+		.createHmac("sha256", getApiKeyHashSecret())
+		.update("gcp-service-account-token:v2\0")
 		.update(sa.client_email)
-		.digest("hex")
-		.slice(0, 16);
-	return `${REDIS_KEY_PREFIX}:${hash}`;
+		.update("\0")
+		.update(sa.private_key)
+		.digest("hex");
+	return `${REDIS_KEY_PREFIX}:v2:${fingerprint}`;
 }
 
 export async function getGcpServiceAccountAccessToken(

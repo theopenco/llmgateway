@@ -7,7 +7,7 @@ summary: "The best LiteLLM alternatives in 2026, compared honestly — open-sour
 categories: ["Guides"]
 faqs:
   - question: "What is the best open-source LiteLLM alternative?"
-    answer: "LLM Gateway (AGPLv3) is the most complete open-source alternative — the self-hosted version includes the dashboard, caching, guardrails, and analytics, not just the proxy. Bifrost is the best minimal option: a fast Go proxy you operate yourself."
+    answer: "LLM Gateway (AGPLv3) is the most complete open-source alternative — the self-hosted version includes the dashboard, caching, and analytics, not just the proxy. Bifrost is the best minimal option: a fast Go proxy you operate yourself."
   - question: "Why do teams switch away from LiteLLM?"
     answer: "Operations and gating. LiteLLM makes you run, scale, and monitor a Python proxy plus its Redis and Postgres dependencies, and features like SSO and audit logs require its paid enterprise tier. Teams switch when the proxy starts consuming real engineering time."
   - question: "How hard is it to migrate from LiteLLM?"

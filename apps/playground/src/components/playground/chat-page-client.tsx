@@ -1,13 +1,13 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
-import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
@@ -64,6 +64,17 @@ import type {
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { UIMessage } from "ai";
+
+// Opened on demand only; lazy loading keeps the Stripe top-up dialog and
+// @stripe/react-stripe-js out of the page's initial bundle. It renders
+// nothing until opened, so there is no SSR output to lose.
+const TopUpCreditsDialog = dynamic(
+	() =>
+		import("@/components/credits/top-up-credits-dialog").then(
+			(m) => m.TopUpCreditsDialog,
+		),
+	{ ssr: false },
+);
 
 /**
  * Minimal interface for tool parts from AI SDK v6 (tool-{toolName} pattern)

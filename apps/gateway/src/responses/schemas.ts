@@ -434,6 +434,16 @@ export const responsesRequestSchema = z
 				}),
 			])
 			.optional(),
+		parallel_tool_calls: z
+			.boolean()
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val))
+			.openapi({
+				description:
+					"Whether the model may call several tools in one turn. Translated per provider the same way as on Chat Completions.",
+				example: false,
+			}),
 		reasoning: z
 			.object({
 				effort: z
