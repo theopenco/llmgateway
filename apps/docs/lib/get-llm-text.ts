@@ -27,6 +27,7 @@ const VERBATIM_NODE_TYPES = new Set(["code", "mdxFlowExpression", "mdxjsEsm"]);
 interface MdxNode {
 	type: string;
 	name?: string | null;
+	attributes?: { type: string; name?: string; value?: unknown }[];
 	children?: MdxNode[];
 	position?: {
 		start: { offset?: number; column: number };
@@ -81,6 +82,35 @@ function dropEdit(text: string, node: MdxNode): Edit {
 		: { start, end, text: "" };
 }
 
+// Readable labels such as FAQ questions and callout headings live in the
+// `title` attribute, so an unwrapped block component keeps it as a bold line
+// above its content, at the indentation the content ends up with.
+function titleHeading(
+	text: string,
+	node: MdxNode,
+	blockContent: boolean,
+	dedents: Map<number, number>,
+): string {
+	const title = node.attributes?.find(
+		(attribute) =>
+			attribute.type === "mdxJsxAttribute" && attribute.name === "title",
+	)?.value;
+	if (
+		node.type !== "mdxJsxFlowElement" ||
+		typeof title !== "string" ||
+		!title.trim()
+	) {
+		return "";
+	}
+	const [start] = span(node);
+	const line = lineStart(text, start);
+	const prefix = text.slice(line, start);
+	if (!blockContent || prefix.trim()) {
+		return `**${title.trim()}** `;
+	}
+	return `**${title.trim()}**\n\n${prefix.slice(dedents.get(line) ?? 0)}`;
+}
+
 // Raw MDX component tags mean nothing to LLM readers; swap known navigation
 // components for text pointers, unwrap the rest and drop the ones with no
 // readable content. Tags are located on the parsed MDX tree, so code, inline
@@ -118,17 +148,20 @@ function replaceMdxComponents(text: string): string {
 			}
 			const [contentStart] = span(first);
 			const [, contentEnd] = span(last);
+			const firstLine = lineStart(text, contentStart);
+			const blockContent =
+				node.type === "mdxJsxFlowElement" &&
+				!text.slice(firstLine, contentStart).trim();
 			edits.push(
-				{ start, end: contentStart, text: "" },
+				{
+					start,
+					end: contentStart,
+					text: titleHeading(text, node, blockContent, dedents),
+				},
 				{ start: contentEnd, end, text: "" },
 			);
-			const firstLine = lineStart(text, contentStart);
 			const shift = first.position!.start.column - node.position!.start.column;
-			if (
-				node.type === "mdxJsxFlowElement" &&
-				shift > 0 &&
-				!text.slice(firstLine, contentStart).trim()
-			) {
+			if (blockContent && shift > 0) {
 				const lastLine = lineStart(text, contentEnd);
 				for (let line = firstLine; ; line = text.indexOf("\n", line) + 1) {
 					dedents.set(line, (dedents.get(line) ?? 0) + shift);
@@ -142,7 +175,14 @@ function replaceMdxComponents(text: string): string {
 			);
 		}
 	};
-	collect((mdxParser.parse(text) as MdxNode).children ?? []);
+	let tree: MdxNode;
+	try {
+		tree = mdxParser.parse(text) as MdxNode;
+	} catch {
+		// Not valid MDX: export the page as-is rather than failing the whole file.
+		return text;
+	}
+	collect(tree.children ?? []);
 
 	const indentation = /[ \t]*/y;
 	for (const [line, shift] of dedents) {

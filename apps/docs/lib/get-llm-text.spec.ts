@@ -97,4 +97,32 @@ describe("LLM markdown export", () => {
 			"## Quick start\n\n### Sign up\n\nCreate an account.\n\n### Install\n\n```bash\nnpm i\n\n\nnpx init\n```\n\n- Item\n\n  Note.\n\n## Next",
 		);
 	});
+
+	test("keeps component titles such as FAQ questions above their content", async () => {
+		const page = {
+			url: "/quick-start",
+			data: {
+				title: "Quickstart",
+				getText: async () =>
+					'## FAQ\n\n<Accordions type="single">\n  <Accordion title="Which models are supported?">\n    See the [Models page](https://llmgateway.io/models).\n  </Accordion>\n\n  <Accordion title="Is it open source?">\n    Yes.\n  </Accordion>\n</Accordions>\n\n- Item\n\n  <Callout title="Heads up">\n    Note.\n  </Callout>',
+			},
+		} as Parameters<typeof getLLMText>[0];
+		const text = await getLLMText(page);
+		expect(text).toContain(
+			"## FAQ\n\n**Which models are supported?**\n\nSee the [Models page](https://llmgateway.io/models).\n\n**Is it open source?**\n\nYes.\n\n- Item\n\n  **Heads up**\n\n  Note.",
+		);
+	});
+
+	test("exports a page that is not valid MDX unchanged instead of failing", async () => {
+		const page = {
+			url: "/broken",
+			data: {
+				title: "Broken",
+				getText: async () => "Set {unclosed to <Callout>x</Callout>",
+			},
+		} as Parameters<typeof getLLMText>[0];
+		await expect(getLLMText(page)).resolves.toContain(
+			"Set {unclosed to <Callout>x</Callout>",
+		);
+	});
 });
