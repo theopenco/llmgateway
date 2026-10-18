@@ -43,7 +43,7 @@ const termsCards: SummaryCard[] = [
 				and don&rsquo;t roll over, except when you upgrade mid-cycle. Fees are
 				generally non-refundable once usage begins; an eligible payment may be
 				refunded within 14 days as goodwill while usage remains below 10% of the
-				monthly allowance.
+				monthly allowance (20% for payments made before October 15, 2026).
 			</>
 		),
 	},

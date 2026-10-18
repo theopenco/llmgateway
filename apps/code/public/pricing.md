@@ -43,7 +43,7 @@ Last updated: 2026-10-18
 
 ## Refunds
 
-- Self-serve from the dashboard within 14 days of your first month while less than 10% of the allowance has been used.
+- Self-serve from the dashboard within 14 days of your first month while less than 10% of the allowance has been used (20% for payments made before October 15, 2026).
 - Reset Passes: within 7 days, while the pass is unused.
 
 ## Notes

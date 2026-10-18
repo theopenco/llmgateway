@@ -11,7 +11,7 @@ Last updated: 2026-10-15
 - Max: $179/month — includes $358 of model usage.
 - Every plan includes model access and cost tracking; check the live catalogue for availability.
 - Allowances are paced: a daily pacing allowance (a share of the monthly allowance per rolling 24 hours) and a weekly fair-use allowance for premium models; see the pricing page for the per-plan shares.
-- First-month guarantee: refund yourself from the dashboard within 14 days if you've used less than 10% of your monthly allowance.
+- First-month guarantee: refund yourself from the dashboard within 14 days if you've used less than 10% of your monthly allowance (20% for payments made before October 15, 2026).
 
 ## Key pages
 
