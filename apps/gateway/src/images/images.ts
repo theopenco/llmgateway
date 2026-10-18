@@ -454,7 +454,9 @@ function forwardHeaders(c: Context): Record<string, string> {
 }
 
 function resolveImageRequestModel(model: string | undefined): string {
-	return !model || model === "auto" ? "gemini-3-pro-image" : model;
+	return !model || model === "auto" || model === "llmgateway/auto"
+		? "gemini-3-pro-image"
+		: model;
 }
 
 function getStringProperty(
@@ -861,8 +863,7 @@ images.openapi(generations, async (c): Promise<any> => {
 
 	await assertNotDevPlan(getLogContext);
 
-	// Resolve "auto" model to a default image generation model
-	const model = request.model === "auto" ? "gemini-3-pro-image" : request.model;
+	const model = resolveImageRequestModel(request.model);
 
 	assertImageModel(model);
 
@@ -1238,10 +1239,7 @@ async function processImageEdit(
 	// Validate the model before fetching any source images so a request that is
 	// guaranteed to be rejected (dynamic route, custom provider, text model)
 	// does not trigger outbound image fetches first.
-	const model =
-		request.model === "auto" || !request.model
-			? "gemini-3-pro-image"
-			: request.model;
+	const model = resolveImageRequestModel(request.model);
 
 	assertImageModel(model);
 

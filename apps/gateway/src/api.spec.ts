@@ -372,6 +372,80 @@ describe("api", () => {
 		expect(JSON.stringify(json)).not.toContain("image_url is invalid");
 	});
 
+	test("/v1/images/generations resolves llmgateway/auto to the default image model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const originalRequest: typeof app.request = app.request.bind(app);
+		let forwardedModel: unknown;
+
+		const requestSpy = vi
+			.spyOn(app, "request")
+			.mockImplementation(
+				async (...args: Parameters<typeof app.request>): Promise<Response> => {
+					const [input, init] = args;
+					if (input === "/v1/chat/completions") {
+						forwardedModel = JSON.parse(String(init?.body)).model;
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-image-llmgateway-auto",
+								object: "chat.completion",
+								created: 1774549411,
+								model: "gemini-3-pro-image",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: null,
+											images: [
+												{
+													image_url: {
+														url: "data:image/png;base64,aGVsbG8=",
+													},
+												},
+											],
+										},
+										finish_reason: "stop",
+									},
+								],
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalRequest(...args);
+				},
+			);
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/auto",
+					prompt: "A watercolor of a city skyline",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(forwardedModel).toBe("gemini-3-pro-image");
+		} finally {
+			requestSpy.mockRestore();
+		}
+	});
+
 	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
