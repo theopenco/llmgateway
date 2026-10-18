@@ -2,10 +2,7 @@ import { client } from "@/api/client";
 import { continueComparison } from "@/api/comparison-tools";
 import * as loungeCompletion from "@/api/lounge-completion";
 import { saveReply } from "@/api/reply";
-import {
-	ToolAlreadyAnsweredError,
-	uncertainToolOutcome,
-} from "@/api/tool-parts";
+import { ToolClaimRejectedError, uncertainToolOutcome } from "@/api/tool-parts";
 
 jest.mock("@/api/client", () => ({
 	client: { GET: jest.fn(), POST: jest.fn() },
@@ -174,7 +171,7 @@ test("reports an already answered claim instead of an uncertain outcome", async 
 		response: new Response(null, { status: 409 }),
 	});
 	await expect(continueComparison(options())).rejects.toThrow(
-		ToolAlreadyAnsweredError,
+		ToolClaimRejectedError,
 	);
 	expect(saveReply).not.toHaveBeenCalled();
 	expect(loungeCompletion.generateLoungeReply).not.toHaveBeenCalled();

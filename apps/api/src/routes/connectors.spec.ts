@@ -292,6 +292,16 @@ describe("Lounge connector routes", () => {
 			).toBe("output-available");
 			expect((await approve()).status).toBe(409);
 		}
+		const malformedSave = await app.request(`/chats/${chat.id}/messages`, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				id: "race-message",
+				role: "assistant",
+				tools: "not json",
+			}),
+		});
+		expect(malformedSave.status).toBe(400);
 		expect(fetchSafeUserUrl).toHaveBeenCalledTimes(1);
 	});
 	it("keeps a failed persisted approval uncertain and claimed", async () => {

@@ -284,7 +284,10 @@ test("consumes an uncertain approval when its server claim response is lost", as
 test("an approval answered on another device reloads instead of showing an uncertain result", async () => {
 	const generate = withProposal();
 	post.mockResolvedValue({
-		error: { message: "Already answered" },
+		error: {
+			message:
+				"This tool request has already been answered. Reload the conversation.",
+		},
 		response: new Response(null, { status: 409 }),
 	});
 	await showChat("chat");
@@ -295,8 +298,30 @@ test("an approval answered on another device reloads instead of showing an uncer
 		);
 	expect(
 		await screen.findByText(
-			"This request has already been answered. Reload the conversation.",
+			"This tool request has already been answered. Reload the conversation.",
 		),
+	).toBeTruthy();
+	expect(screen.queryByText(uncertainToolOutcome)).toBeNull();
+	expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+		queryKey: ["get", "/chats/{id}"],
+	});
+	expect(generate).not.toHaveBeenCalled();
+});
+
+test("an approval for a paused connector shows the server reason and reloads", async () => {
+	const generate = withProposal();
+	post.mockResolvedValue({
+		error: { message: "This connector is disconnected or paused" },
+		response: new Response(null, { status: 409 }),
+	});
+	await showChat("chat");
+	await userEvent
+		.setup()
+		.press(
+			screen.getByRole("button", { name: "Approve Gmail: search messages" }),
+		);
+	expect(
+		await screen.findByText("This connector is disconnected or paused"),
 	).toBeTruthy();
 	expect(screen.queryByText(uncertainToolOutcome)).toBeNull();
 	expect(queryClient.invalidateQueries).toHaveBeenCalledWith({

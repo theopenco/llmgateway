@@ -39,6 +39,7 @@ import {
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { CanvasSidebar } from "@/components/playground/canvas-sidebar";
+import { NewProjectDialog } from "@/components/playground/new-project-dialog";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -357,6 +358,19 @@ export default function CanvasPageClient({
 			);
 		},
 		[router, searchParams],
+	);
+	const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
+	const handleProjectCreated = useCallback(
+		(project: Project) => {
+			if (!selectedOrganization) {
+				return;
+			}
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			params.set("orgId", selectedOrganization.id);
+			params.set("projectId", project.id);
+			router.push(`/canvas?${params.toString()}`);
+		},
+		[router, searchParams, selectedOrganization],
 	);
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
@@ -890,7 +904,8 @@ export default function CanvasPageClient({
 												? "Could not load the projects for this organization."
 												: "This organization has no project to generate with."}
 										</span>
-										{projectsLoadFailed ? (
+										{projectsLoadFailed ||
+										selectedOrganization?.kind === "chat" ? (
 											<Button
 												variant="outline"
 												size="sm"
@@ -898,16 +913,33 @@ export default function CanvasPageClient({
 											>
 												Reload
 											</Button>
-										) : selectedOrganization?.kind === "chat" ? null : (
-											<Button
-												variant="outline"
-												size="sm"
-												onClick={() => handleSelectOrganization(null)}
-											>
-												Use Chat plan
-											</Button>
+										) : (
+											<div className="flex shrink-0 gap-2">
+												<Button
+													variant="outline"
+													size="sm"
+													onClick={() => setIsNewProjectOpen(true)}
+												>
+													Create project
+												</Button>
+												<Button
+													variant="ghost"
+													size="sm"
+													onClick={() => handleSelectOrganization(null)}
+												>
+													Use Chat plan
+												</Button>
+											</div>
 										)}
 									</div>
+								)}
+								{selectedOrganization?.kind !== "chat" && (
+									<NewProjectDialog
+										isOpen={isNewProjectOpen}
+										setIsOpen={setIsNewProjectOpen}
+										selectedOrganization={selectedOrganization}
+										onProjectCreated={handleProjectCreated}
+									/>
 								)}
 								{keyQuery.isError && (
 									<div

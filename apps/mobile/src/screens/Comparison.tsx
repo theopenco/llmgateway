@@ -19,7 +19,7 @@ import {
 } from "@/api/comparison";
 import { continueComparison } from "@/api/comparison-tools";
 import { saveReply } from "@/api/reply";
-import { pendingTool, ToolAlreadyAnsweredError } from "@/api/tool-parts";
+import { pendingTool, ToolClaimRejectedError } from "@/api/tool-parts";
 import { ChatSettings } from "@/components/ChatSettings";
 import { Markdown } from "@/components/Markdown";
 import { MessageBubble } from "@/components/MessageBubble";
@@ -214,7 +214,7 @@ export function Comparison({
 					},
 				});
 			} catch (error) {
-				if (error instanceof ToolAlreadyAnsweredError && answer?.messageId) {
+				if (error instanceof ToolClaimRejectedError && answer?.messageId) {
 					setToolMessages((current) =>
 						Object.fromEntries(
 							Object.entries(current).filter(

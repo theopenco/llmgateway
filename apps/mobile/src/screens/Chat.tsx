@@ -35,7 +35,7 @@ import {
 	answerToolCall,
 	pendingTool,
 	readToolParts,
-	ToolAlreadyAnsweredError,
+	ToolClaimRejectedError,
 } from "@/api/tool-parts";
 import { ChatSettings } from "@/components/ChatSettings";
 import { ChatSharing } from "@/components/ChatSharing";
@@ -459,7 +459,7 @@ export function Chat({
 							},
 						});
 					} catch (error) {
-						if (error instanceof ToolAlreadyAnsweredError && !temporary) {
+						if (error instanceof ToolClaimRejectedError && !temporary) {
 							setToolMessages((current) =>
 								Object.fromEntries(
 									Object.entries(current).filter(([key]) => key !== message.id),

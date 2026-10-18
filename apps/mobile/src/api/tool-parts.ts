@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { client } from "@/api/client";
+import { errorMessage } from "@/api/errors";
 
 import {
 	loungeConnectorIds,
@@ -136,10 +137,13 @@ export function toolOutcome(
 export const uncertainToolOutcome =
 	"The result could not be confirmed. Check the connected app before asking to run this action again.";
 
-export class ToolAlreadyAnsweredError extends Error {
-	constructor() {
-		super("This request has already been answered. Reload the conversation.");
-		this.name = "ToolAlreadyAnsweredError";
+const toolAlreadyAnswered =
+	"This request has already been answered. Reload the conversation.";
+
+export class ToolClaimRejectedError extends Error {
+	public constructor(message = toolAlreadyAnswered) {
+		super(message);
+		this.name = "ToolClaimRejectedError";
 	}
 }
 
@@ -160,7 +164,7 @@ export async function answerToolCall({
 }): Promise<ToolPart[]> {
 	const part = parts.find((item) => item.toolCallId === toolCallId);
 	if (!part || !pendingTool(part)) {
-		throw new ToolAlreadyAnsweredError();
+		throw new ToolClaimRejectedError();
 	}
 	const replace = (value: ToolPart) =>
 		parts.map((item) => (item.toolCallId === toolCallId ? value : item));
@@ -211,7 +215,9 @@ export async function answerToolCall({
 		);
 		if (!result.data) {
 			if (messageId && result.response?.status === 409) {
-				throw new ToolAlreadyAnsweredError();
+				throw new ToolClaimRejectedError(
+					errorMessage(result.error, toolAlreadyAnswered),
+				);
 			}
 			throw new Error("The connector did not return a result.");
 		}
@@ -228,7 +234,7 @@ export async function answerToolCall({
 		await persist(completed);
 		return completed;
 	} catch (cause) {
-		if (cause instanceof ToolAlreadyAnsweredError) {
+		if (cause instanceof ToolClaimRejectedError) {
 			throw cause;
 		}
 		throw new Error(uncertainToolOutcome, { cause });

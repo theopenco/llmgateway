@@ -22,6 +22,15 @@ const approvalPartSchema = z
 const uncertainOutcome =
 	"The result could not be confirmed. Check the connected app before asking to run this action again.";
 
+function readParts(value: string) {
+	try {
+		const parsed = partsSchema.safeParse(JSON.parse(value));
+		return parsed.success ? parsed.data : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export async function executePersistedToolApproval({
 	userId,
 	messageId,
@@ -55,10 +64,10 @@ export async function executePersistedToolApproval({
 				eq(tables.chat.status, "active"),
 			),
 		);
-	if (!message?.tools) {
+	const parts = message?.tools ? readParts(message.tools) : undefined;
+	if (!message?.tools || !parts) {
 		throw new HTTPException(404, { message: "Tool request not found" });
 	}
-	const parts = partsSchema.parse(JSON.parse(message.tools));
 	const parsedPart = approvalPartSchema.safeParse(
 		parts.find((candidate) => candidate.toolCallId === toolCallId),
 	);
@@ -126,25 +135,24 @@ export async function executePersistedToolApproval({
 			.from(tables.message)
 			.where(eq(tables.message.id, messageId))
 			.for("update");
-		if (!current?.tools) {
+		const currentParts = current?.tools ? readParts(current.tools) : undefined;
+		if (!current || !currentParts) {
 			throw new HTTPException(410, {
 				message: "The conversation changed while the tool was running",
 			});
 		}
-		const completed = partsSchema
-			.parse(JSON.parse(current.tools))
-			.map((candidate) => {
-				if (candidate.toolCallId !== toolCallId) {
-					return candidate;
-				}
-				const next: Record<string, unknown> = {
-					...candidate,
-					state: approved ? "output-available" : "output-denied",
-					...(approved ? { output } : {}),
-				};
-				delete next.errorText;
-				return next;
-			});
+		const completed = currentParts.map((candidate) => {
+			if (candidate.toolCallId !== toolCallId) {
+				return candidate;
+			}
+			const next: Record<string, unknown> = {
+				...candidate,
+				state: approved ? "output-available" : "output-denied",
+				...(approved ? { output } : {}),
+			};
+			delete next.errorText;
+			return next;
+		});
 		const tools = JSON.stringify(completed);
 		await tx
 			.update(tables.message)
@@ -165,8 +173,16 @@ export function preserveAnsweredToolCalls(
 		["output-available", "output-error", "output-denied"].includes(
 			String(state),
 		);
-	const previous = partsSchema.parse(JSON.parse(existing));
-	const next = incoming ? partsSchema.parse(JSON.parse(incoming)) : [];
+	const previous = readParts(existing);
+	if (!previous) {
+		return incoming;
+	}
+	const next = incoming ? readParts(incoming) : [];
+	if (!next) {
+		throw new HTTPException(400, {
+			message: "Tool parts must be a JSON array of objects",
+		});
+	}
 	for (const part of previous) {
 		if (typeof part.toolCallId !== "string" || !answered(part.state)) {
 			continue;
