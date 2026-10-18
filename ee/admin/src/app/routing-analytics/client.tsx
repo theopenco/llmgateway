@@ -1183,7 +1183,6 @@ export function RoutingAnalyticsClient() {
 										content={
 											<ChartTooltipContent
 												className="w-[220px]"
-												sortByValue
 												labelFormatter={formatTooltipHour}
 											/>
 										}

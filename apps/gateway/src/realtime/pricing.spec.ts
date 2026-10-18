@@ -1,8 +1,12 @@
+import { Decimal } from "decimal.js";
 import { describe, expect, it } from "vitest";
 
 import {
 	buildRealtimePriceSnapshot,
+	isDurationBilledRealtime,
+	normalizeDurationRealtimeUsage,
 	normalizeRealtimeUsage,
+	priceDurationRealtimeUsage,
 	priceRealtimeUsage,
 	type NormalizedRealtimeUsage,
 } from "./pricing.js";
@@ -260,5 +264,112 @@ describe("priceRealtimeUsage", () => {
 		// 1M text * $4/M + 1M audio * $32/M + 0.5M text out * $16/M + 0.5M audio
 		// out * $64/M = 4 + 32 + 8 + 32 = 76 exactly.
 		expect(priced.costs.totalCost.toString()).toBe("76");
+	});
+});
+
+describe("duration-billed realtime usage", () => {
+	const snapshot = {
+		textInput: "0",
+		cachedTextInput: "0",
+		audioInput: "0",
+		cachedAudioInput: "0",
+		textOutput: "0",
+		audioOutput: "0",
+		requestPrice: "0",
+		audioInputHour: "4.80",
+		textInputItem: "0.004",
+	};
+	const xaiUsage = {
+		input_tokens: 25,
+		input_token_details: { text_tokens: 3, audio_tokens: 20, grok_tokens: 2 },
+		output_tokens: 10,
+		output_token_details: { text_tokens: 4, audio_tokens: 6, grok_tokens: 0 },
+		total_tokens: 35,
+		billable_audio_seconds: 14,
+	};
+
+	it("folds grok_tokens into text and reads billable seconds", () => {
+		const result = normalizeDurationRealtimeUsage(xaiUsage);
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.billableAudioSeconds).toBe(14);
+		expect(result.usage.inputTextTokens).toBe(5);
+		expect(result.usage.inputAudioTokens).toBe(20);
+	});
+
+	it("treats omitted billable seconds as zero", () => {
+		const { billable_audio_seconds: _omit, ...rest } = xaiUsage;
+		const result = normalizeDurationRealtimeUsage(rest);
+		expect(result.ok && result.billableAudioSeconds).toBe(0);
+	});
+
+	it("rejects malformed seconds and missing usage", () => {
+		expect(
+			normalizeDurationRealtimeUsage({
+				...xaiUsage,
+				billable_audio_seconds: "14",
+			}).ok,
+		).toBe(false);
+		expect(
+			normalizeDurationRealtimeUsage({
+				...xaiUsage,
+				billable_audio_seconds: -1,
+			}).ok,
+		).toBe(false);
+		expect(normalizeDurationRealtimeUsage({}).ok).toBe(false);
+		expect(normalizeDurationRealtimeUsage(undefined).ok).toBe(false);
+	});
+
+	it("prices seconds per hour and text items flat", () => {
+		const normalized = normalizeDurationRealtimeUsage(xaiUsage);
+		if (!normalized.ok) {
+			throw new Error(normalized.reason);
+		}
+		const priced = priceDurationRealtimeUsage(
+			normalized.usage,
+			normalized.billableAudioSeconds,
+			3,
+			snapshot,
+		);
+		expect(priced.ok).toBe(true);
+		if (!priced.ok) {
+			return;
+		}
+		// 14 s at $4.80/h = $0.01866…; 3 items at $0.004 = $0.012.
+		expect(priced.costs.audioInputCost.toString()).toBe(
+			new Decimal("4.80").times(14).dividedBy(3600).toString(),
+		);
+		expect(priced.costs.inputCost.toString()).toBe("0.012");
+		expect(priced.costs.totalCost.toString()).toBe(
+			priced.costs.audioInputCost.plus("0.012").toString(),
+		);
+	});
+
+	it("fails closed on billable quantities without a price", () => {
+		const normalized = normalizeDurationRealtimeUsage(xaiUsage);
+		if (!normalized.ok) {
+			throw new Error(normalized.reason);
+		}
+		expect(
+			priceDurationRealtimeUsage(normalized.usage, 14, 0, {
+				...snapshot,
+				audioInputHour: undefined,
+			}).ok,
+		).toBe(false);
+		expect(
+			priceDurationRealtimeUsage(normalized.usage, 0, 1, {
+				...snapshot,
+				textInputItem: undefined,
+			}).ok,
+		).toBe(false);
+	});
+
+	it("detects duration-billed mappings", () => {
+		expect(isDurationBilledRealtime({ inputAudioHourPrice: "4.80" })).toBe(
+			true,
+		);
+		expect(isDurationBilledRealtime({})).toBe(false);
 	});
 });

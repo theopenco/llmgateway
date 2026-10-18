@@ -29,6 +29,7 @@ import {
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
 	type ToolChoiceType,
+	usesEncryptedReasoning,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
@@ -711,12 +712,16 @@ function resolveRef(
  * degradation.
  *
  * Deliberately omitted even though Google does accept them: `minLength`,
- * `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`,
- * `minProperties`, `maxProperties` and `not`. The gateway has always stripped
- * those, and forwarding them would change how models fill tool arguments, so
- * restoring them is a separate behavioural change rather than part of this
- * fix. `$ref` / `$defs` / `definitions` are absent because they are consumed
- * by the inline expansion below instead of being forwarded.
+ * `maxLength`, `minimum`, `maximum`, `minItems`, `maxItems`, `minProperties`,
+ * `maxProperties` and `not`. The gateway has always stripped those, and
+ * forwarding them would change how models fill tool arguments, so restoring
+ * them is a separate behavioural change rather than part of this fix.
+ * `pattern` is forwarded on string nodes only (verified live on the Gemini
+ * API), since a pinned value format is what a caller means by it. `const` is
+ * rewritten below. `additionalProperties` has no field in this carrier (the
+ * Gemini API 400s on it); only `parametersJsonSchema` would carry it. `$ref` /
+ * `$defs` / `definitions` are absent because they are consumed by the inline
+ * expansion below instead of being forwarded.
  */
 const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"type",
@@ -734,6 +739,7 @@ const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"allOf",
 	"propertyOrdering",
 	"example",
+	"pattern",
 ]);
 
 /**
@@ -841,9 +847,47 @@ function stripUnsupportedSchemaProperties(
 
 	const cleaned: any = {};
 	let nullableFromType = false;
+	let nullableFromConst = false;
+	let constEnum: string[] | undefined;
+	let constType: string | undefined;
 
 	for (const [key, value] of Object.entries(schema)) {
+		// Google's `parameters` carrier has no `const` vocabulary: pin the value
+		// as a single-member `enum`, which constrains the model identically and
+		// which the carrier accepts. An explicit `enum` always wins. (#4148)
+		if (key === "const") {
+			if ("enum" in schema) {
+				continue;
+			}
+			if (value === null) {
+				// Google's Type enum has no NULL member, so a null-only constraint
+				// cannot survive as an enum: String(null) would demand the literal
+				// string "null". Fold it into `nullable` with the type list below.
+				nullableFromConst = true;
+				continue;
+			}
+			// Deferred to the emit below: whether it may become an `enum`
+			// depends on the node's `type`, which may come later.
+			constEnum = normalizeGoogleSchemaEnum([value]);
+			constType =
+				typeof value === "number"
+					? Number.isInteger(value)
+						? "integer"
+						: "number"
+					: typeof value;
+			continue;
+		}
+
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		// `pattern` only has meaning on strings; Google's proto accepts it on
+		// any node but the model has nothing to match it against elsewhere.
+		if (key === "pattern") {
+			if (typeof value === "string") {
+				cleaned.pattern = value;
+			}
 			continue;
 		}
 
@@ -908,10 +952,47 @@ function stripUnsupportedSchemaProperties(
 		}
 	}
 
-	// Applied after the loop so it wins over an explicit `nullable: false` that
-	// contradicts a `"null"` member in the type list, whichever key came first.
-	if (nullableFromType) {
+	// Applied after the loop so either source wins over an explicit
+	// `nullable: false` that contradicts it, whichever key came first.
+	if (nullableFromType || nullableFromConst) {
 		cleaned.nullable = true;
+		// A bare `const: null` carries no type; Vertex rejects an untyped node.
+		if (nullableFromConst && cleaned.type === undefined) {
+			cleaned.type = "string";
+		}
+	}
+
+	// Vertex rejects an `enum` on any non-STRING schema with a 400, so a
+	// numeric or boolean const is kept as a description hint instead, the
+	// same way convertOpenAISchemaToGoogle treats such an enum. (#4148)
+	if (constEnum !== undefined) {
+		// A bare `const` (no `type`) is common from schema generators. Vertex
+		// rejects an untyped node outright, and the Gemini API ignores an enum
+		// it cannot type, so take the type from the value itself.
+		if (cleaned.type === undefined && constType !== undefined) {
+			cleaned.type = constType;
+		}
+		if (
+			typeof cleaned.type !== "string" ||
+			cleaned.type.toLowerCase() === "string"
+		) {
+			cleaned.enum = constEnum;
+		} else {
+			const hint = `Allowed values: ${constEnum.join(", ")}`;
+			cleaned.description =
+				typeof cleaned.description === "string" && cleaned.description
+					? `${cleaned.description} (${hint})`
+					: hint;
+		}
+	}
+
+	// A `pattern` that survived on a non-string node has nothing to match.
+	if (
+		cleaned.pattern !== undefined &&
+		typeof cleaned.type === "string" &&
+		cleaned.type.toLowerCase() !== "string"
+	) {
+		delete cleaned.pattern;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'
@@ -1560,6 +1641,7 @@ export async function prepareRequestBody(
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
 	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
+	parallel_tool_calls?: boolean,
 ): Promise<ProviderRequestBody | FormData> {
 	// Check before provider transforms can strip a caller's markers.
 	const hasCacheMarker = (part: object) =>
@@ -2451,6 +2533,24 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// `parallel_tool_calls` is only valid next to tools (OpenAI rejects it
+	// otherwise). OpenAI and Azure document it; other OpenAI-compatible mappings
+	// opt in through supportedParameters. Anthropic maps it onto tool_choice in
+	// its case below; provider-native formats delete it from the base body.
+	const acceptsParallelToolCalls =
+		usedProvider === "openai" ||
+		usedProvider === "azure" ||
+		providerMappingForOptions?.supportedParameters?.includes(
+			"parallel_tool_calls",
+		) === true;
+	if (
+		parallel_tool_calls !== undefined &&
+		requestBody.tools !== undefined &&
+		acceptsParallelToolCalls
+	) {
+		requestBody.parallel_tool_calls = parallel_tool_calls;
+	}
+
 	// Resolve tool_choice against what the mapping declares it accepts. Fall
 	// back to "auto" when the mapping omits "tool_choice" from
 	// supportedParameters, or when the requested tool_choice mode isn't listed
@@ -2630,7 +2730,10 @@ export async function prepareRequestBody(
 				// full).
 				if (getProviderDefinition(usedProvider)?.encryptedReasoning) {
 					responsesBody.store = false;
-					responsesBody.include = ["reasoning.encrypted_content"];
+					// Only mappings that reason return replayable payloads.
+					if (usesEncryptedReasoning(providerMappingForOptions)) {
+						responsesBody.include = ["reasoning.encrypted_content"];
+					}
 				}
 
 				if (usedProvider === "aws-mantle") {
@@ -2712,13 +2815,16 @@ export async function prepareRequestBody(
 					}
 				}
 
-				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
-				// surface is what the Responses API path always uses) document
-				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
-				// neither documents it and an unknown field risks a 400.
+				// Abuse-attribution identifier. OpenAI, Azure (whose v1 surface is
+				// what the Responses API path always uses) and Meta document
+				// `safety_identifier`; Bedrock Mantle does not, and an unknown field
+				// risks a 400.
 				if (
 					safety_identifier !== undefined &&
-					(usedProvider === "openai" || usedProvider === "azure")
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					responsesBody.safety_identifier = safety_identifier;
 				}
@@ -2739,6 +2845,9 @@ export async function prepareRequestBody(
 							name: tool.function.name,
 							description: tool.function.description,
 							parameters: tool.function.parameters as FunctionParameter,
+							...(typeof tool.function.strict === "boolean" && {
+								strict: tool.function.strict,
+							}),
 						}));
 					}
 				}
@@ -2797,6 +2906,13 @@ export async function prepareRequestBody(
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
+				if (
+					acceptsParallelToolCalls &&
+					parallel_tool_calls !== undefined &&
+					responsesBody.tools?.length
+				) {
+					responsesBody.parallel_tool_calls = parallel_tool_calls;
+				}
 
 				// Add optional parameters if they are provided
 				if (temperature !== undefined) {
@@ -2840,9 +2956,14 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
-				if (usedProvider === "openai" || usedProvider === "azure") {
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta" ||
+					usedProvider === "meta-contributor"
+				) {
 					if (safety_identifier !== undefined) {
-						if (usedProvider === "openai") {
+						if (usedProvider !== "azure") {
 							requestBody.safety_identifier = safety_identifier;
 						} else {
 							// Azure's deployment-based APIs predate safety_identifier but
@@ -3313,6 +3434,7 @@ export async function prepareRequestBody(
 		case "azure-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
+			delete requestBody.parallel_tool_calls;
 
 			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
 			// both the direct API and Vertex `rawPredict` (verified live). AWS
@@ -3608,6 +3730,10 @@ export async function prepareRequestBody(
 						// section before the cache key is computed, so forwarding this
 						// is what keeps a large tool catalogue out of the cached prefix.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						...(tool.function.strict === true && { strict: true }),
+						...(tool.allowed_callers && {
+							allowed_callers: tool.allowed_callers,
+						}),
 						// Budget and TTL ordering were both settled above, where the
 						// system pass needed the resulting count.
 						...(toolCacheControlKept[index] && {
@@ -3671,6 +3797,18 @@ export async function prepareRequestBody(
 				} else if (resolvedToolChoice === "none") {
 					requestBody.tool_choice = { type: "none" };
 				}
+			}
+			// Anthropic has no parallel_tool_calls; the same switch lives on
+			// tool_choice, which rejects it alongside type "none".
+			if (
+				parallel_tool_calls === false &&
+				requestBody.tools?.length &&
+				requestBody.tool_choice?.type !== "none"
+			) {
+				requestBody.tool_choice = {
+					...(requestBody.tool_choice ?? { type: "auto" }),
+					disable_parallel_tool_use: true,
+				};
 			}
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
@@ -3824,6 +3962,7 @@ export async function prepareRequestBody(
 			delete requestBody.messages; // Will be transformed to Bedrock format
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
+			delete requestBody.parallel_tool_calls; // No Converse equivalent
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
@@ -4461,6 +4600,7 @@ export async function prepareRequestBody(
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
+			delete requestBody.parallel_tool_calls; // No Gemini equivalent
 			// Map OpenAI tool_choice to Google's toolConfig format
 			if (
 				resolvedToolChoice &&

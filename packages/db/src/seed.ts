@@ -1572,7 +1572,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "test-account-id",
 		providerId: "credential",
-		accountId: "test-account-id",
+		accountId: "test-user-id",
 		password: await hashPassword("admin@example.com"),
 		userId: "test-user-id",
 	});
@@ -2276,7 +2276,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "flagged-account-id",
 		providerId: "credential",
-		accountId: "flagged-account-id",
+		accountId: "flagged-user-id",
 		password: await hashPassword("flagged@example.com"),
 		userId: "flagged-user-id",
 	});
@@ -2315,7 +2315,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "enterprise-account-id",
 		providerId: "credential",
-		accountId: "enterprise-account-id",
+		accountId: "enterprise-user-id",
 		password: await hashPassword("enterprise@example.com"),
 		userId: "enterprise-user-id",
 	});
@@ -2385,7 +2385,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "enterprise-dev-account-id",
 		providerId: "credential",
-		accountId: "enterprise-dev-account-id",
+		accountId: "enterprise-dev-user-id",
 		password: await hashPassword("developer@example.com"),
 		userId: "enterprise-dev-user-id",
 	});
@@ -2421,7 +2421,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "enterprise-project-admin-account-id",
 		providerId: "credential",
-		accountId: "enterprise-project-admin-account-id",
+		accountId: "enterprise-project-admin-user-id",
 		password: await hashPassword("project-admin@example.com"),
 		userId: "enterprise-project-admin-user-id",
 	});
@@ -2692,7 +2692,7 @@ async function seed() {
 		await upsert(tables.account, {
 			id: `account-${u.id}`,
 			providerId: "credential",
-			accountId: `account-${u.id}`,
+			accountId: u.id,
 			// Password == email, e.g. alice.chen@techcorp.io logs in with that string.
 			password: await hashPassword(u.email),
 			userId: u.id,
@@ -3323,7 +3323,7 @@ async function seedAirside() {
 	await upsert(tables.account, {
 		id: "airside-account-mistral",
 		providerId: "credential",
-		accountId: "airside-account-mistral",
+		accountId: "airside-user-mistral",
 		password: await hashPassword("ops@mistral.ai"),
 		userId: "airside-user-mistral",
 	});
@@ -3369,7 +3369,7 @@ async function seedAirside() {
 	await upsert(tables.account, {
 		id: "airside-account-moonshot",
 		providerId: "credential",
-		accountId: "airside-account-moonshot",
+		accountId: "airside-user-moonshot",
 		password: await hashPassword("ops@moonshot.ai"),
 		userId: "airside-user-moonshot",
 	});
@@ -3498,7 +3498,7 @@ async function seedAirside() {
 				label: "Context size",
 				status: "failed",
 				feedback:
-					'Your endpoint refused a test prompt filling about 70% of the declared 128,000-token context size. It answered: "This model\'s maximum context length is 65536 tokens. However, your messages resulted in 68211 tokens."',
+					'Your endpoint refused a test prompt filling about 90% of the declared 128,000-token context size. It answered: "This model\'s maximum context length is 65536 tokens. However, your messages resulted in 68211 tokens."',
 			},
 			{ id: "max_output", label: "Max output", status: "passed" },
 		],
@@ -3681,7 +3681,8 @@ async function seedAirside() {
 		displayName: "Mistral Large 4",
 		description: "Next-generation flagship, pending listing approval.",
 		family: "mistral",
-		contextSize: 256000,
+		// Matches the catalogue window: listings outside it cannot be edited.
+		contextSize: 1_000_000,
 		maxOutput: 32768,
 		streaming: true,
 		tools: true,

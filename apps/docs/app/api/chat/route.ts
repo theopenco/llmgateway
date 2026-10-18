@@ -216,6 +216,16 @@ export async function POST(req: Request) {
 		);
 	}
 
+	// Start building the search index now so a cold instance indexes while the
+	// body is parsed and the model takes its first step, instead of adding the
+	// whole build to the first `search` tool call's latency. The tool call
+	// re-awaits the memoized promise; a failed build resets the memo, is
+	// logged here, and surfaces again on the tool call's own attempt.
+	void getSearchServer().catch((error: unknown) => {
+		// eslint-disable-next-line no-console -- the docs app has no logger
+		console.error("Docs search index prewarm failed:", error);
+	});
+
 	const llmgateway = createLLMGateway({
 		apiKey,
 		baseURL: getGatewayApiBaseUrl(),

@@ -156,19 +156,22 @@ describe("admin rate limit updates", () => {
 			expect(list.rateLimits).toContainEqual(created);
 		});
 
-		it(`rejects conflicting ${scope} targets, including a different window`, async () => {
+		it(`rejects conflicting ${scope} targets in the same window`, async () => {
 			const first = await (await request(base, "POST", original)).json();
 			const secondBody = { ...original, model: null };
 			const second = await (await request(base, "POST", secondBody)).json();
-			const response = await request(`${base}/${first.id}`, "PUT", {
-				...secondBody,
-				limitType: "rpd",
-			});
+			const response = await request(`${base}/${first.id}`, "PUT", secondBody);
 			expect(response.status).toBe(409);
 			const list = await (await request(base, "GET")).json();
 			expect(list.rateLimits).toEqual(expect.arrayContaining([first, second]));
+			// Another window on the same target is a separate rule.
 			expect(
-				(await request(`${base}/${first.id}`, "PUT", original)).status,
+				(
+					await request(`${base}/${first.id}`, "PUT", {
+						...secondBody,
+						limitType: "rpd",
+					})
+				).status,
 			).toBe(200);
 		});
 
@@ -190,6 +193,36 @@ describe("admin rate limit updates", () => {
 			).toBe(403);
 		});
 	}
+
+	it("keeps request and token caps on the same target as separate rules", async () => {
+		const base = `/admin/organizations/${ORG_ID}/rate-limits`;
+		const rpm = await request(base, "POST", original);
+		expect(rpm.status).toBe(201);
+		const tpm = await request(base, "POST", {
+			...original,
+			limitType: "tpm",
+			maxRequests: 100_000,
+		});
+		expect(tpm.status).toBe(201);
+		expect(await tpm.json()).toMatchObject({
+			limitType: "tpm",
+			maxRequests: 100_000,
+		});
+		expect((await request(base, "POST", original)).status).toBe(409);
+
+		// Switching a rule onto a window the target already has conflicts too.
+		const { id } = await rpm.json();
+		const clash = await request(`${base}/${id}`, "PUT", {
+			...original,
+			limitType: "tpm",
+			maxRequests: 5,
+		});
+		expect(clash.status).toBe(409);
+		expect(
+			(await request(base, "POST", { ...original, maxRequests: 2 ** 31 }))
+				.status,
+		).toBe(400);
+	});
 
 	it("returns 404 for missing and incorrectly scoped rules", async () => {
 		const global = await (

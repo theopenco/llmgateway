@@ -27,7 +27,7 @@ tariff filing still awaiting review.
 | **In service**                      | Approved and routable as `<provider>/<model>`; billed at the filed prices |
 | **Paused**                          | In service but taken out of routing by you until resumed                  |
 | **Rejected**                        | The initial filing was rejected; fix the price and file again             |
-| **Delisted**                        | Out of service — kept in history; relist it to route traffic again        |
+| **Delisted**                        | Out of service — kept in history; request a relist to route traffic again |
 | **Awaiting clearance / Fare filed** | A filing (initial or price update) is pending review                      |
 
 ## Registering an aircraft
@@ -36,8 +36,8 @@ Click **Register aircraft**, pick the carrier (when your company holds more
 than one), and fill in the model id, display name, family, context size, capabilities,
 accepted `tool_choice` modes, optional quantization, and the initial tariff.
 For a model already in the catalogue, **Use catalog price** copies another
-provider's flat prices as a starting point. Prices are per token and accept exponent notation —
-`2e-6` reads as $2 per million tokens.
+provider's flat prices as a starting point. Token prices are entered in dollars
+per million tokens — `2` means $2 per million tokens.
 
 <ThemedImage
 	alt="Register an aircraft"
@@ -94,9 +94,15 @@ its catalogue entry.
 ## Relisting a model
 
 A delisted row shows who took it out of service and when: **Delisted by your
-crew** or **Delisted · claim revoked**. Run **Verify** first: **Relist** needs a
-preflight that passed after the model was delisted, then puts it back in service
-immediately at its last approved fare, without review. Relisting also needs an
+crew**, **Delisted · claim revoked**, or **Delisted by LLM Gateway** when a
+listing no longer meets the listing rules, such as a context size more than 10%
+below the model's window.
+Run **Verify** first, then **Request relist**: the request needs a preflight
+that passed after the model was delisted and is reviewed by LLM Gateway. The
+row shows **Relist requested** while it waits, and **Withdraw request** cancels
+it. Once approved, the model is back in service at its last approved fare. A
+rejected request shows **Relist declined** with the reviewer's note; fix the
+issue and request again. Relisting also needs an
 active claim on the carrier, and fails while another listing uses the same
 model id. Filings that were pending at delisting stay rejected, and
 model-level dispatch settings restart from the carrier default.

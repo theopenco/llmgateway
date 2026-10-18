@@ -1005,7 +1005,7 @@ const VirtualUserMessageItem = memo(
 		isLastMessage,
 		status,
 		canEdit,
-		editingMessageId,
+		isEditing,
 		setEditingMessageId,
 		onEditUserMessage,
 		isOcr,
@@ -1014,7 +1014,9 @@ const VirtualUserMessageItem = memo(
 		isLastMessage: boolean;
 		status: string;
 		canEdit: boolean;
-		editingMessageId: string | null;
+		// A boolean rather than the editing id: the id would re-render every
+		// memoized row whenever any one row enters or leaves edit mode.
+		isEditing: boolean;
 		setEditingMessageId: (id: string | null) => void;
 		onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
 		isOcr?: boolean;
@@ -1048,7 +1050,7 @@ const VirtualUserMessageItem = memo(
 				isLastMessage={isLastMessage}
 				status={status}
 				canEdit={canEdit}
-				isEditing={editingMessageId === message.id}
+				isEditing={isEditing}
 				onEditStart={handleEditStart}
 				onEditCancel={handleEditCancel}
 				onEditConfirm={handleEditConfirm}
@@ -1741,9 +1743,9 @@ export const ChatUI = ({
 								<VirtualUserMessageItem
 									message={m}
 									isLastMessage={isLastMessage}
-									status={status}
+									status={isLastMessage ? status : "ready"}
 									canEdit={canEditUserMessages}
-									editingMessageId={editingMessageId}
+									isEditing={editingMessageId === m.id}
 									setEditingMessageId={setEditingMessageId}
 									onEditUserMessage={onEditUserMessage}
 									isOcr={isOcr}

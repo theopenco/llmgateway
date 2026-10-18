@@ -11,13 +11,18 @@ import {
 
 import type { ComponentProps, ReactNode } from "react";
 
-/** Opens the enterprise page, where users can see the features and book a call. */
+/** Opens the enterprise contact form; calls are booked only after submitting it. */
 export function ContactSalesLink({
 	children = "Contact sales",
 	...props
 }: Omit<ComponentProps<"a">, "href" | "target" | "rel">) {
 	return (
-		<a href="/enterprise" target="_blank" rel="noopener noreferrer" {...props}>
+		<a
+			href="/enterprise#contact"
+			target="_blank"
+			rel="noopener noreferrer"
+			{...props}
+		>
 			{children}
 		</a>
 	);

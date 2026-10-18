@@ -148,7 +148,7 @@ for await (const text of textStream) {
 ```typescript
 // app/api/chat/route.ts
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { streamText } from "ai";
+import { convertToModelMessages, streamText } from "ai";
 
 const llmgateway = createLLMGateway({
 	apiKey: process.env.LLM_GATEWAY_API_KEY,
@@ -157,9 +157,9 @@ const llmgateway = createLLMGateway({
 export async function POST(req: Request) {
 	const { messages } = await req.json();
 
-	const result = await streamText({
+	const result = streamText({
 		model: llmgateway("openai/gpt-6-astra"),
-		messages,
+		messages: await convertToModelMessages(messages),
 	});
 
 	return result.toUIMessageStreamResponse();
