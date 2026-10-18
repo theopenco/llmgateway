@@ -54,9 +54,9 @@ const termsCards: SummaryCard[] = [
 			<>
 				Your key works from whitelisted tools like Claude Code, Codex, Cursor
 				and Cline — not from your own apps, backends or scripts. Embeddings,
-				image and video generation aren&rsquo;t included, and non-coding use
-				such as role play, companion chat or content generation is out of scope
-				too.
+				image and video generation aren&rsquo;t included. For billing periods
+				starting on or after October 15, 2026, non-coding use such as role play,
+				companion chat or content generation is out of scope too.
 			</>
 		),
 	},
@@ -89,7 +89,8 @@ const termsCards: SummaryCard[] = [
 			<>
 				Abuse, fraud, key sharing or bad-faith payment disputes can get every
 				related account banned immediately, with no refund for the cycle in
-				progress. API, automation or non-coding use counts too.
+				progress. For billing periods starting on or after October 15, 2026,
+				API, automation or non-coding use counts too.
 			</>
 		),
 	},
