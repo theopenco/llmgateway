@@ -127,7 +127,7 @@ Gateway features that have no field in the AI SDK's call options — reasoning e
 
 ```ts
 const result = streamText({
-  model: gateway("openai/gpt-5.6-terra"),
+  model: gateway("gpt-5.6-terra"),
   prompt: "Hello!",
   providerOptions: {
     llmgateway: { reasoning_effort: "high", routing: "price" },

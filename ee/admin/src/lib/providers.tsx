@@ -13,6 +13,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { apiErrorMessage } from "@/lib/api-error";
 import { AppConfigProvider } from "@/lib/config";
 
+import { ProviderMarksProvider } from "@llmgateway/shared/components";
+
 import type { AppConfig } from "@/lib/config-server";
 import type { ReactNode } from "react";
 
@@ -61,7 +63,9 @@ export function Providers({ children, config }: ProvidersProps) {
 				storageKey="theme"
 			>
 				<QueryClientProvider client={queryClient}>
-					{children}
+					<ProviderMarksProvider apiUrl={config.apiUrl}>
+						{children}
+					</ProviderMarksProvider>
 					{/* {process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="bottom-right" />
 					)} */}

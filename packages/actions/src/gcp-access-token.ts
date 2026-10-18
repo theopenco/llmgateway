@@ -130,14 +130,20 @@ async function exchangeJwtForAccessToken(
 	return data.access_token;
 }
 
-// Keyed by the private key, not just the account name, so a token is only
-// served to a caller holding the credential that minted it.
+/**
+ * Keyed on the whole credential, not just client_email: the JSON is
+ * user-supplied, so a key reusing another tenant's client_email with any
+ * private_key must not hit that tenant's cached token.
+ */
 function cacheKey(sa: ServiceAccountKey): string {
-	const hash = crypto
+	const fingerprint = crypto
 		.createHmac("sha256", getApiKeyHashSecret())
-		.update(`gcp-sa-token\0${sa.client_email}\0${sa.private_key}`)
+		.update("gcp-service-account-token:v2\0")
+		.update(sa.client_email)
+		.update("\0")
+		.update(sa.private_key)
 		.digest("hex");
-	return `${REDIS_KEY_PREFIX}:${hash}`;
+	return `${REDIS_KEY_PREFIX}:${fingerprint}`;
 }
 
 export async function getGcpServiceAccountAccessToken(

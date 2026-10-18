@@ -149,25 +149,6 @@ describe("getGcpServiceAccountAccessToken", () => {
 		await expect(result).rejects.toBe(reason);
 	});
 
-	it("does not share a cached token between different keys for one account", async () => {
-		redisGetMock.mockResolvedValue(null);
-		redisSetMock.mockResolvedValue("OK");
-		vi.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(Response.json({ access_token: "token-key-a" }))
-			.mockResolvedValueOnce(Response.json({ access_token: "token-key-b" }));
-
-		const email = "shared-account@example.com";
-		await expect(
-			getGcpServiceAccountAccessToken(serviceAccount(email)),
-		).resolves.toBe("token-key-a");
-		await expect(
-			getGcpServiceAccountAccessToken(serviceAccount(email)),
-		).resolves.toBe("token-key-b");
-
-		const [keyA, keyB] = redisGetMock.mock.calls.map((call) => call[0]);
-		expect(keyA).not.toBe(keyB);
-	});
-
 	it("re-reads a Redis-cached token after a minute", async () => {
 		redisGetMock.mockResolvedValue("shared-token");
 		const now = Date.now();
@@ -182,6 +163,46 @@ describe("getGcpServiceAccountAccessToken", () => {
 		clock.mockReturnValue(now + 61_000);
 		await getGcpServiceAccountAccessToken(credentials);
 		expect(redisGetMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not serve a cached token to another key with the same client_email", async () => {
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () =>
+				Response.json({
+					access_token: `token-${fetchMock.mock.calls.length}`,
+				}),
+			);
+
+		const victim = await getGcpServiceAccountAccessToken(
+			serviceAccount("shared@example.com"),
+		);
+		const other = await getGcpServiceAccountAccessToken(
+			serviceAccount("shared@example.com"),
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(other).not.toBe(victim);
+		const [victimKey, otherKey] = redisSetMock.mock.calls.map(
+			([key]) => key as string,
+		);
+		expect(otherKey).not.toBe(victimKey);
+		expect(victimKey).not.toContain("shared@example.com");
+	});
+
+	it("reuses the cached token for the same key", async () => {
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json({ access_token: "cached-token" }));
+		const key = serviceAccount("reuse@example.com");
+
+		await getGcpServiceAccountAccessToken(key);
+		expect(await getGcpServiceAccountAccessToken(key)).toBe("cached-token");
+		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 
 	it("ignores a user-supplied token_uri", async () => {
