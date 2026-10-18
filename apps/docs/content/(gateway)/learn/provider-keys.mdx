@@ -24,15 +24,16 @@ Click **Add Provider Key** to configure a new key:
 - **Provider** — Select which provider this key belongs to
 - **Custom name** — An optional label to identify the key
 - **API key** — Your provider's API key
-- **Base URL** — Optional custom endpoint (useful for Azure OpenAI or custom deployments)
+- **Base URL** — Optional custom endpoint for custom deployments (Enterprise plan)
 - **Allowed models** — Optional allowlist restricting which models the key serves
 - **Max spend** — Optional USD cap; the key is disabled once the spend attributed to it reaches the limit
 
 <Callout type="info">
-	The **Custom** provider requires the [**Enterprise
-	plan**](https://llmgateway.io/enterprise). On other plans, existing [custom
-	providers](/features/custom-providers) keep working and can be deactivated or
-	deleted, but not added or edited.
+	The **Custom** provider and a custom base URL on a built-in provider require
+	the [**Enterprise plan**](https://llmgateway.io/enterprise). On other plans,
+	existing [custom providers](/features/custom-providers) and keys with a custom
+	base URL keep working and can be deactivated or deleted, but not added or
+	edited.
 </Callout>
 
 ## Provider Keys List
@@ -61,11 +62,25 @@ For each provider key:
 - **Edit description** — Change the key's display label
 - **Rename** — Custom providers only: change the provider name, and with it the `<name>/<model>` prefix clients use
 - **Restrict models** — Choose which models the key may serve
-- **Set spend limit** — Cap the spend attributed to the key
+- **Set limits** — Cap the spend attributed to the key and its [rate limits](#rate-limits)
 - **Deactivate** — Temporarily disable the key without deleting it
 - **Delete** — Permanently remove the key
 
 A key's secret and base URL cannot be edited — delete the key and add it again to change them. Custom provider tokens and base URLs can also be rotated through the [master API](/features/master-keys#update-a-custom-provider).
+
+## Rate Limits
+
+Each key can cap its own requests per minute or day (RPM/RPD) and prompt + completion tokens per minute or day (TPM/TPD), for example to match the quota of the upstream account. While a key is at any of its caps it is skipped: the next key for the provider serves the request, routing prefers other providers, and in hybrid mode the request falls back to LLM Gateway credits. If every key for the requested provider is capped and nothing else can serve the request, the gateway returns `429` with a `Retry-After` header.
+
+Requests and tokens are counted once a request completes, so requests already in flight and the request that crosses a cap still finish. Leave a field empty for no limit.
+
+The **limit mode** decides which requests a capped key still serves, with the same meaning as [provider rate limits](/features/routing#global-provider-rate-limits):
+
+- **Strict** (default) — the key is skipped for every request.
+- **Soft** — a [session](/features/sessions) already pinned to the key's provider keeps using the key, so multi-turn conversations, including encrypted reasoning on OpenAI and Azure, keep working. New sessions and requests without a session use other keys or providers.
+- **Lax** — like soft, and requests that name the provider explicitly (`provider/model`) may also use the key. Automatic routing and fallback from another provider still skip it.
+
+Exempt requests still count toward the key's caps. A conversation that replays encrypted reasoning issued by a key always keeps that key, whatever its mode, because no other key can verify the replay.
 
 ## Restricting a Key to Specific Models
 

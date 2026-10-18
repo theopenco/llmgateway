@@ -511,6 +511,7 @@ export const deepseekModels = [
 				// the original preview build, at its own rate card, even after the
 				// 0813 GA release; the GA build only serves under this dedicated slug.
 				externalId: "accounts/fireworks/models/deepseek-v4-pro-0813",
+				deactivatedAt: new Date("2026-10-13"),
 				inputPrice: "1.32e-6",
 				cachedInputPrice: "0.044e-6",
 				outputPrice: "3.96e-6",
@@ -1017,6 +1018,7 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-flash",
+				deactivatedAt: new Date("2026-10-24"),
 				// DeepSeek fetches remote image URLs itself and fails on hosts it
 				// cannot reach, while the same bytes inline as a data URL work.
 				requiresBase64Images: true,
@@ -1291,6 +1293,94 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4.1-flash-1017",
+		name: "DeepSeek V4.1 Flash 1017",
+		description:
+			"DeepSeek's October 2026 update of V4.1 Flash, with native vision, 1M context, and reasoning.",
+		family: "deepseek",
+		releasedAt: new Date("2026-10-17"),
+		providers: [
+			{
+				providerId: "deepseek",
+				externalId: "deepseek-flash",
+				// DeepSeek fetches remote image URLs itself and fails on hosts it
+				// cannot reach, while the same bytes inline as a data URL work.
+				requiresBase64Images: true,
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
+				// at the peak rates below. All other hours and UTC weekends bill at
+				// the off-peak rates.
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				cachedInputPrice: "0.003e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "inference.net",
+				externalId: "deepseek-v4.1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 131072,
+				// Accepts up to 2, but above ~1.5 the output degenerates into
+				// tens of thousands of gibberish tokens.
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
 			},
 		],
 	},

@@ -101,9 +101,9 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 						<CardDescription>
 							Requests the gateway content filter sampled for this organization
 							over the selected window, and how many crossed their tier&apos;s
-							thresholds, broken down by category and by the model that served
-							the request. Sampled counts checks with a result; blocked is the
-							subset actually rejected.
+							thresholds, broken down by category, by the model that served the
+							request and by the API key that sent it. Sampled counts checks
+							with a result; blocked is the subset actually rejected.
 						</CardDescription>
 					</div>
 					<Link
@@ -258,6 +258,66 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
 													{formatNumber(model.blockedCount)}
+												</TableCell>
+											</TableRow>
+										))}
+									</TableBody>
+								</Table>
+							</div>
+						) : null}
+						{data.topApiKeys.length > 0 ? (
+							<div className="mt-4">
+								<p className="mb-2 text-sm font-medium">API keys</p>
+								<Table>
+									<TableHeader>
+										<TableRow>
+											<TableHead>API key</TableHead>
+											<TableHead>Project</TableHead>
+											<TableHead className="text-right">Sampled</TableHead>
+											<TableHead className="text-right">Violations</TableHead>
+											<TableHead className="text-right">Rate</TableHead>
+											<TableHead className="text-right">Blocked</TableHead>
+											<TableHead>Top categories</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{data.topApiKeys.map((key) => (
+											<TableRow key={key.apiKeyId}>
+												<TableCell>
+													<div className="flex items-center gap-2">
+														<span className="font-medium">
+															{key.description ?? "Unknown key"}
+														</span>
+														{key.status && key.status !== "active" ? (
+															<Badge variant="outline">{key.status}</Badge>
+														) : null}
+													</div>
+													<span className="font-mono text-xs text-muted-foreground">
+														{key.apiKeyId}
+													</span>
+												</TableCell>
+												<TableCell className="text-sm">
+													{key.projectName ?? key.projectId}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatNumber(key.sampledCount)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatNumber(key.violationCount)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{percentFormatter.format(key.violationRate)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatNumber(key.blockedCount)}
+												</TableCell>
+												<TableCell className="text-xs text-muted-foreground">
+													{key.topCategories
+														.map(
+															(c) =>
+																`${c.category} (${formatNumber(c.violationCount)})`,
+														)
+														.join(", ") || "—"}
 												</TableCell>
 											</TableRow>
 										))}

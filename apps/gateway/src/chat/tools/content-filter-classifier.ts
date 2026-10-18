@@ -206,12 +206,14 @@ async function runClassifierChecks(
 	const textFailed =
 		textResult.results.length === 0 ||
 		textResult.partialModerationFailed === true;
+	const errors = [...textResult.errors, ...imageResult.errors];
 	if (imageResult.results.length === 0) {
 		return {
 			...textResult,
 			...timings,
 			imageDurationMs,
 			classifier,
+			errors,
 			partialModerationFailed: true,
 		};
 	}
@@ -233,6 +235,7 @@ async function runClassifierChecks(
 			textResult.upstreamRequestId ?? imageResult.upstreamRequestId,
 		results: [...textResult.results, ...imageResult.results],
 		responses: [...textResult.responses, ...imageResult.responses],
+		errors,
 		// The image results would otherwise make a merged check that never
 		// scored the request's text look complete.
 		...(textFailed ? { partialModerationFailed: true } : {}),
@@ -297,6 +300,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 				classifierDurationMs: result.classifierDurationMs,
 				classifierRequests: result.classifierRequests,
 				imageDurationMs: result.imageDurationMs,
+				moderationErrors: result.errors,
 			},
 		),
 		results: [result],

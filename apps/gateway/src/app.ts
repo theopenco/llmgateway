@@ -31,12 +31,14 @@ import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
 import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
 import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
+import { decisionsRoute } from "./decisions/route.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
+import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
@@ -185,6 +187,12 @@ app.onError((error, c) => {
 			statusCode: error.statusCode,
 		});
 		return renderGatewayError(c, error.statusCode, error.message);
+	}
+
+	if (error instanceof ProviderKeyRateLimitError && error.retryAfter) {
+		c.header("Retry-After", error.retryAfter.toString());
+		c.header("RateLimit-Reset", error.retryAfter.toString());
+		c.header("RateLimit-Remaining", "0");
 	}
 
 	if (error instanceof HTTPException) {
@@ -385,6 +393,7 @@ v1.route("/moderations", moderationsRoute);
 v1.route("/ocr", ocrRoute);
 v1.route("/rerank", rerankRoute);
 v1.route("/search", searchRoute);
+v1.route("/decisions", decisionsRoute);
 v1.route("/systemone", systemoneRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);

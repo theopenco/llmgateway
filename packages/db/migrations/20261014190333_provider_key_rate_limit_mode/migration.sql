@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD COLUMN "rate_limit_mode" text DEFAULT 'strict' NOT NULL;

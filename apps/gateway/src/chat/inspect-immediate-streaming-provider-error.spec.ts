@@ -39,6 +39,36 @@ describe("inspectImmediateStreamingProviderError", () => {
 		});
 	});
 
+	it("classifies an OpenAI cyber_policy error as content_filter", async () => {
+		const result = await inspectImmediateStreamingProviderError(
+			sseResponse(
+				{
+					type: "response.created",
+					response: { id: "resp_1", status: "in_progress" },
+					sequence_number: 0,
+				},
+				{
+					type: "error",
+					error: {
+						type: "invalid_request",
+						code: "cyber_policy",
+						message:
+							"This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request.",
+						param: null,
+					},
+					sequence_number: 1,
+				},
+			),
+			"openai",
+		);
+
+		expect(result.immediateError).toMatchObject({
+			errorCode: "cyber_policy",
+			errorType: "content_filter",
+			inferredStatusCode: 400,
+		});
+	});
+
 	it("catches an Anthropic error after message_start and ping", async () => {
 		const result = await inspectImmediateStreamingProviderError(
 			sseResponse(

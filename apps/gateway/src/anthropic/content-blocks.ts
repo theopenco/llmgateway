@@ -16,6 +16,8 @@ export const anthropicCustomToolSchema = z.object({
 		})
 		.nullish(),
 	defer_loading: z.boolean().optional(),
+	strict: z.boolean().optional(),
+	allowed_callers: z.array(z.string()).optional(),
 });
 
 const anthropicKnownContentBlockSchema = z.union([

@@ -758,7 +758,7 @@ export const alibabaModels = [
 		id: "qwen3.5-9b",
 		name: "Qwen3.5 9B",
 		description:
-			"Compact Qwen3.5 hybrid-reasoning model with tool calling and a 262K context window.",
+			"Compact natively multimodal Qwen3.5 hybrid-reasoning model with vision, tool calling and a 262K context window.",
 		family: "alibaba",
 		releasedAt: new Date("2026-06-01"),
 		providers: [
@@ -776,9 +776,10 @@ export const alibabaModels = [
 				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
-				vision: false,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
@@ -2672,6 +2673,34 @@ export const alibabaModels = [
 				outputPrice: "0",
 				perImagePrice: {
 					default: "0.04",
+				},
+				contextSize: 4500,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "qwen-image-2.1-turbo",
+		name: "Qwen Image 2.1 Turbo",
+		description:
+			"Alibaba's cost-effective Qwen Image 2.1 Turbo model for fast text-to-image generation and multi-image editing with native transparent output.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-10-09"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-2.1-turbo",
+				inputPrice: "0",
+				outputPrice: "0",
+				perImagePrice: {
+					default: "0.016",
 				},
 				contextSize: 4500,
 				maxOutput: 4096,

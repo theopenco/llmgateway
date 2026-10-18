@@ -8,9 +8,15 @@ import {
 	resolveContentFilterCredential,
 	type ContentFilterCredential,
 } from "./content-filter-credential.js";
-import { extractErrorCause } from "./extract-error-cause.js";
+import {
+	classifyContentFilterError,
+	logContentFilterError,
+} from "./content-filter-error.js";
 
-import type { ModerationApiPayload } from "@llmgateway/db";
+import type {
+	ModerationApiPayload,
+	ContentFilterModerationError,
+} from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
 export interface GatewayContentFilterContext {
@@ -18,11 +24,6 @@ export interface GatewayContentFilterContext {
 	organizationId: string;
 	projectId: string;
 	apiKeyId: string;
-}
-
-interface ErrorWithCode extends Error {
-	code?: string;
-	cause?: unknown;
 }
 
 interface OpenAIModerationImagePart {
@@ -60,6 +61,8 @@ export interface OpenAIContentFilterCheckResult {
 	upstreamRequestId: string | null;
 	results: OpenAIModerationResult[];
 	responses: ModerationApiPayload[];
+	/** Moderation calls that failed, in call order. */
+	errors: ContentFilterModerationError[];
 }
 
 interface OpenAIContentFilterRequestResult {
@@ -270,85 +273,16 @@ function logModerationResult(
 
 function logModerationError(
 	context: GatewayContentFilterContext,
+	error: ContentFilterModerationError,
 	payload: Record<string, unknown>,
-	error?: unknown,
+	thrown?: unknown,
 ) {
-	const logPayload = {
-		provider: "openai",
-		mode: "openai",
-		requestId: context.requestId,
-		organizationId: context.organizationId,
-		projectId: context.projectId,
-		apiKeyId: context.apiKeyId,
-		...payload,
-		...buildModerationErrorDetails(error),
-	};
-
-	if (error instanceof Error) {
-		logger.error("gateway_content_filter_error", logPayload, error);
-		return;
-	}
-
-	logger.error("gateway_content_filter_error", logPayload);
-}
-
-function getErrorCode(error: unknown): string | undefined {
-	if (!(error instanceof Error)) {
-		return undefined;
-	}
-
-	const directCode =
-		typeof (error as ErrorWithCode).code === "string"
-			? (error as ErrorWithCode).code
-			: undefined;
-	if (directCode) {
-		return directCode;
-	}
-
-	const visited = new Set<Error>([error]);
-	let current = (error as ErrorWithCode).cause;
-	for (let depth = 0; depth < 5; depth++) {
-		if (!(current instanceof Error) || visited.has(current)) {
-			return undefined;
-		}
-		visited.add(current);
-
-		if (typeof (current as ErrorWithCode).code === "string") {
-			return (current as ErrorWithCode).code;
-		}
-
-		current = (current as ErrorWithCode).cause;
-	}
-
-	return undefined;
-}
-
-function buildModerationErrorDetails(error: unknown): Record<string, string> {
-	if (!(error instanceof Error)) {
-		return {
-			error: String(error),
-			errorName:
-				error === null
-					? "NullThrownValue"
-					: typeof error === "undefined"
-						? "UndefinedThrownValue"
-						: typeof error,
-		};
-	}
-
-	const errorCause = extractErrorCause(error);
-	const errorCode = getErrorCode(error);
-
-	return {
-		error: error.message,
-		errorName: error.name,
-		...(errorCause ? { errorCause } : {}),
-		...(errorCode ? { errorCode } : {}),
-	};
+	logContentFilterError("openai", "openai", context, error, payload, thrown);
 }
 
 function createFailedOpenAIContentFilterResult(
 	upstreamRequestId: string | null = null,
+	errors: ContentFilterModerationError[] = [],
 ): OpenAIContentFilterCheckResult {
 	return {
 		flagged: false,
@@ -356,6 +290,7 @@ function createFailedOpenAIContentFilterResult(
 		upstreamRequestId,
 		results: [],
 		responses: [],
+		errors,
 	};
 }
 
@@ -399,8 +334,14 @@ async function runOpenAIContentFilterRequest(
 			throw error;
 		}
 
+		const moderationError = classifyContentFilterError({
+			source: "openai",
+			inputType: request.kind,
+			error,
+		});
 		logModerationError(
 			context,
+			moderationError,
 			{
 				durationMs: Date.now() - startTime,
 				inputType: request.kind,
@@ -411,7 +352,7 @@ async function runOpenAIContentFilterRequest(
 
 		return {
 			success: false,
-			response: createFailedOpenAIContentFilterResult(),
+			response: createFailedOpenAIContentFilterResult(null, [moderationError]),
 		};
 	}
 
@@ -425,25 +366,18 @@ async function runOpenAIContentFilterRequest(
 	}
 
 	const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
-	if (!upstreamResponse.ok) {
-		logModerationError(context, {
-			durationMs: Date.now() - startTime,
-			inputType: request.kind,
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			upstreamRequestId,
-			response: responseJson,
-		});
-
-		return {
-			success: false,
-			response: createFailedOpenAIContentFilterResult(upstreamRequestId),
-		};
-	}
-
-	const moderationResponse = parseModerationResponse(responseJson);
+	const moderationResponse = upstreamResponse.ok
+		? parseModerationResponse(responseJson)
+		: null;
 	if (!moderationResponse) {
-		logModerationError(context, {
+		const moderationError = classifyContentFilterError({
+			source: "openai",
+			inputType: request.kind,
+			status: upstreamResponse.status,
+			response: responseJson,
+			badResponse: upstreamResponse.ok,
+		});
+		logModerationError(context, moderationError, {
 			durationMs: Date.now() - startTime,
 			inputType: request.kind,
 			status: upstreamResponse.status,
@@ -454,7 +388,9 @@ async function runOpenAIContentFilterRequest(
 
 		return {
 			success: false,
-			response: createFailedOpenAIContentFilterResult(upstreamRequestId),
+			response: createFailedOpenAIContentFilterResult(upstreamRequestId, [
+				moderationError,
+			]),
 		};
 	}
 
@@ -468,6 +404,7 @@ async function runOpenAIContentFilterRequest(
 			upstreamRequestId,
 			results: moderationResponse.results ?? [],
 			responses: [moderationResponse],
+			errors: [],
 		},
 	};
 }
@@ -533,6 +470,9 @@ export async function checkOpenAIContentFilter(
 			),
 		);
 
+		const errors = moderationResults.flatMap(
+			(result) => result.response.errors,
+		);
 		const successfulResults = moderationResults
 			.filter((result) => result.success)
 			.map((result) => result.response);
@@ -566,6 +506,7 @@ export async function checkOpenAIContentFilter(
 			upstreamRequestId,
 			results,
 			responses,
+			errors,
 		};
 	} catch (error) {
 		if (requestSignal?.aborted || isCancellationError(error)) {
@@ -574,8 +515,13 @@ export async function checkOpenAIContentFilter(
 
 		// Fail open for moderation outages so upstream OpenAI moderation issues do
 		// not fail customer requests at the gateway layer.
+		const moderationError = classifyContentFilterError({
+			source: "openai",
+			error,
+		});
 		logModerationError(
 			context,
+			moderationError,
 			{
 				durationMs: Date.now() - startTime,
 				timeout: isTimeoutError(error),
@@ -583,6 +529,6 @@ export async function checkOpenAIContentFilter(
 			error,
 		);
 
-		return createFailedOpenAIContentFilterResult();
+		return createFailedOpenAIContentFilterResult(null, [moderationError]);
 	}
 }
