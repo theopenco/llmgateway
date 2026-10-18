@@ -4,6 +4,7 @@ import {
 	buildGatewayVideoLogContentUrl,
 	getGatewayApiBaseUrl,
 	getGatewayPublicBaseUrl,
+	getRealtimeApiBaseUrl,
 } from "./gateway-url.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -25,6 +26,21 @@ describe("gateway origins", () => {
 			vi.stubEnv("GATEWAY_BACKEND_URL", backend);
 			vi.stubEnv("GATEWAY_URL", "https://gateway.example.com/");
 			expect(getGatewayApiBaseUrl()).toBe("https://gateway.example.com/v1");
+		},
+	);
+
+	test("routes realtime to its own backend when configured", () => {
+		vi.stubEnv("GATEWAY_BACKEND_URL", "http://gateway");
+		vi.stubEnv("REALTIME_BACKEND_URL", " http://realtime/ ");
+		expect(getRealtimeApiBaseUrl()).toBe("http://realtime/v1");
+	});
+
+	test.each([undefined, "", "  "])(
+		"falls back to the gateway backend for realtime when %s",
+		(realtime) => {
+			vi.stubEnv("GATEWAY_BACKEND_URL", "http://gateway");
+			vi.stubEnv("REALTIME_BACKEND_URL", realtime);
+			expect(getRealtimeApiBaseUrl()).toBe("http://gateway/v1");
 		},
 	);
 

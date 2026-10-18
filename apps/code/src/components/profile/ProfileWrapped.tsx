@@ -36,7 +36,13 @@ function WrappedStat({ value, label }: { value: string; label: string }) {
 	);
 }
 
-export function ProfileWrapped({ profile }: { profile: ProfileData }) {
+export function ProfileWrapped({
+	profile,
+	shareEnabled = true,
+}: {
+	profile: ProfileData;
+	shareEnabled?: boolean;
+}) {
 	const { user } = useUser();
 
 	const handle = profile.username ?? "";
@@ -92,7 +98,7 @@ export function ProfileWrapped({ profile }: { profile: ProfileData }) {
 
 					<div className="mt-6 flex items-center gap-1.5 border-t border-white/10 pt-4 text-xs text-white/50">
 						<Flame className="h-3.5 w-3.5 text-emerald-400" />
-						{handle
+						{shareEnabled && handle
 							? `${PROFILE_SITE_URL.replace("https://", "")}/profiles/${handle}`
 							: PROFILE_SITE_URL.replace("https://", "")}
 					</div>
@@ -100,36 +106,41 @@ export function ProfileWrapped({ profile }: { profile: ProfileData }) {
 			</div>
 
 			{/* Share toolkit */}
-			<div className="rounded-2xl border bg-card p-4 sm:p-5">
-				{handle ? (
-					<div className="flex flex-wrap items-center justify-between gap-3">
-						<div className="space-y-0.5">
-							<p className="text-sm font-semibold">
-								{isOwner ? "Share your stats" : "Share this profile"}
-							</p>
-							<p className="text-xs text-muted-foreground">
-								{isOwner
-									? "Post your wrapped to X or LinkedIn, or copy your link."
-									: "Post these stats to X or LinkedIn, or copy the link."}
-							</p>
+			{shareEnabled && (
+				<div className="rounded-2xl border bg-card p-4 sm:p-5">
+					{handle ? (
+						<div className="flex flex-wrap items-center justify-between gap-3">
+							<div className="space-y-0.5">
+								<p className="text-sm font-semibold">
+									{isOwner ? "Share your stats" : "Share this profile"}
+								</p>
+								<p className="text-xs text-muted-foreground">
+									{isOwner
+										? "Post your wrapped to X or LinkedIn, or copy your link."
+										: "Post these stats to X or LinkedIn, or copy the link."}
+								</p>
+							</div>
+							<ProfileShareActions
+								profile={profile}
+								location="profile_wrapped"
+							/>
 						</div>
-						<ProfileShareActions profile={profile} location="profile_wrapped" />
-					</div>
-				) : (
-					<div className="flex flex-wrap items-center justify-between gap-3">
-						<div className="space-y-0.5">
-							<p className="text-sm font-semibold">Share your stats</p>
-							<p className="text-xs text-muted-foreground">
-								Claim your handle to get a public link you can share on X and
-								LinkedIn.
-							</p>
+					) : (
+						<div className="flex flex-wrap items-center justify-between gap-3">
+							<div className="space-y-0.5">
+								<p className="text-sm font-semibold">Share your stats</p>
+								<p className="text-xs text-muted-foreground">
+									Claim your handle to get a public link you can share on X and
+									LinkedIn.
+								</p>
+							</div>
+							<Button variant="outline" asChild>
+								<a href="#username">Choose a username</a>
+							</Button>
 						</div>
-						<Button variant="outline" asChild>
-							<a href="#username">Choose a username</a>
-						</Button>
-					</div>
-				)}
-			</div>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }

@@ -12,7 +12,6 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod/v3";
 
-import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import {
@@ -254,7 +253,6 @@ function SignupForm() {
 					</div>
 
 					<div className="mt-8 space-y-4">
-						<DevPassPlanChangeNotice />
 						<Form {...form}>
 							<form
 								onSubmit={form.handleSubmit(onSubmit)}

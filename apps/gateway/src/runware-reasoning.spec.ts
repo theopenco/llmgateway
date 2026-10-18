@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -21,18 +21,37 @@ describe("Runware GLM-5.2 reasoning", () => {
 			description: "Test API Key",
 			createdBy: "user-id",
 		});
+		// Runware is an Airside carrier: served in credits mode by the
+		// platform's managed credential at the claim's base URL.
+		await db
+			.update(tables.project)
+			.set({ mode: "credits" })
+			.where(eq(tables.project.id, "project-id"));
+		await db.insert(tables.providerCompany).values({
+			id: "runware-company",
+			name: "Runware",
+		});
+		await db.insert(tables.providerClaim).values({
+			id: "runware-claim",
+			providerCompanyId: "runware-company",
+			providerId: "runware",
+			kind: "catalogue",
+			matchedDomain: "runware.ai",
+			customName: "Runware",
+			customBaseUrl: harness.mockServerUrl,
+			status: "active",
+		});
 		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
+			id: "runware-managed-key",
+			managed: true,
+			organizationId: null,
+			provider: "runware",
 			...encryptProviderKeyForStorage(
 				"sk-test-key",
-				"provider-key-id",
-				"org-id",
+				"runware-managed-key",
+				null,
 			),
-			provider: "runware",
-			organizationId: "org-id",
-			baseUrl: harness.mockServerUrl,
 		});
-		// Runware serves GLM-5.2 as an Airside listing only.
 		await db
 			.insert(tables.provider)
 			.values({ id: "runware", name: "Runware", description: "" })
