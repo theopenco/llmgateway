@@ -1,6 +1,7 @@
 import {
 	convertToModelMessages,
 	isStepCount,
+	safeValidateUIMessages,
 	streamText,
 	tool,
 	type UIMessage,
@@ -226,12 +227,22 @@ export async function POST(req: Request) {
 		},
 	});
 
-	const reqJson = (await req.json()) as { messages?: ChatUIMessage[] };
-	if ((reqJson.messages ?? []).length > MAX_MESSAGES) {
+	// The whole conversation is validated before the global bucket so malformed
+	// requests from rotating addresses cannot drain the shared allowance.
+	const body = (await req.json().catch(() => null)) as {
+		messages?: unknown;
+	} | null;
+	if (Array.isArray(body?.messages) && body.messages.length > MAX_MESSAGES) {
 		return Response.json(
 			{ error: "Too many messages in conversation" },
 			{ status: 400 },
 		);
+	}
+	const validated = await safeValidateUIMessages<ChatUIMessage>({
+		messages: body?.messages,
+	});
+	if (!validated.success) {
+		return Response.json({ error: "Invalid conversation" }, { status: 400 });
 	}
 
 	if (!isGlobalAllowed(GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
@@ -251,20 +262,17 @@ export async function POST(req: Request) {
 			search: searchTool,
 		},
 		instructions: systemPrompt,
-		messages: await convertToModelMessages<ChatUIMessage>(
-			reqJson.messages ?? [],
-			{
-				convertDataPart(part) {
-					if (part.type === "data-client") {
-						return {
-							type: "text",
-							text: `[Client Context: ${JSON.stringify(part.data)}]`,
-						};
-					}
-					return undefined;
-				},
+		messages: await convertToModelMessages<ChatUIMessage>(validated.data, {
+			convertDataPart(part) {
+				if (part.type === "data-client") {
+					return {
+						type: "text",
+						text: `[Client Context: ${JSON.stringify(part.data)}]`,
+					};
+				}
+				return undefined;
 			},
-		),
+		}),
 		toolChoice: "auto",
 	});
 

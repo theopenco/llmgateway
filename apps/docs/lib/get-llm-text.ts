@@ -1,3 +1,6 @@
+import { remark } from "remark";
+import remarkMdx from "remark-mdx";
+
 import { docsBaseUrl } from "@/lib/base-url";
 import { marketingGuideCanonical } from "@/lib/guide-canonical";
 
@@ -15,28 +18,160 @@ const MDX_COMPONENT_REPLACEMENTS: Record<string, string> = {
 	SelfHostCards: `Self-hosting guides are documented under ${DOCS_URL}/self-host and included in full in this file.`,
 };
 
+const mdxParser = remark().use(remarkMdx);
+
+// Source reproduced verbatim (code, raw JS), where blank-line runs are content
+// rather than layout.
+const VERBATIM_NODE_TYPES = new Set(["code", "mdxFlowExpression", "mdxjsEsm"]);
+
+interface MdxNode {
+	type: string;
+	name?: string | null;
+	children?: MdxNode[];
+	position?: {
+		start: { offset?: number; column: number };
+		end: { offset?: number };
+	};
+}
+
+interface Edit {
+	start: number;
+	end: number;
+	text: string;
+}
+
+function isComponent(node: MdxNode): boolean {
+	return (
+		(node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") &&
+		/^[A-Z]/.test(node.name ?? "")
+	);
+}
+
+function replacementFor(node: MdxNode): string | undefined {
+	return MDX_COMPONENT_REPLACEMENTS[node.name ?? ""];
+}
+
+// A component vanishes when no readable text is left once its tags go.
+function vanishes(node: MdxNode): boolean {
+	return (
+		isComponent(node) &&
+		replacementFor(node) === undefined &&
+		(node.children ?? []).every(vanishes)
+	);
+}
+
+function span(node: MdxNode): [number, number] {
+	return [node.position!.start.offset!, node.position!.end.offset!];
+}
+
+function lineStart(text: string, offset: number): number {
+	return text.lastIndexOf("\n", offset - 1) + 1;
+}
+
+// A vanishing block component on its own line takes that line and the blank
+// lines after it, so dropping it leaves no gap in the surrounding prose.
+function dropEdit(text: string, node: MdxNode): Edit {
+	const [start, end] = span(node);
+	const line = lineStart(text, start);
+	const rest = /^[ \t]*(?:\n|$)(?:[ \t]*\n)*/.exec(text.slice(end));
+	return node.type === "mdxJsxFlowElement" &&
+		rest &&
+		!text.slice(line, start).trim()
+		? { start: line, end: end + rest[0].length, text: "" }
+		: { start, end, text: "" };
+}
+
 // Raw MDX component tags mean nothing to LLM readers; swap known navigation
-// components for text pointers and drop the rest instead of leaking JSX.
-// Fenced code blocks and inline code spans are left untouched so JSX code
-// samples and component names survive.
+// components for text pointers, unwrap the rest and drop the ones with no
+// readable content. Tags are located on the parsed MDX tree, so code, inline
+// code and quoted attribute values are never mistaken for markup. Unwrapped
+// block content loses the indentation the stringifier nests it under, and the
+// untouched text keeps its original formatting.
 function replaceMdxComponents(text: string): string {
-	return text
-		.split(/(```[\s\S]*?```)/)
-		.map((segment) =>
-			segment.startsWith("```")
-				? segment
-				: segment
-						.replace(
-							/^[ \t]*<([A-Z][A-Za-z0-9]*)(?:\s[^>]*)?\/>[ \t]*$/gm,
-							(_match, name: string) => MDX_COMPONENT_REPLACEMENTS[name] ?? "",
-						)
-						.replace(
-							/(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)|<\/?[A-Z][A-Za-z0-9]*(?:\s[^>]*)?>/g,
-							(match) => (match.startsWith("`") ? match : ""),
-						)
-						.replace(/\n{3,}/g, "\n\n"),
-		)
-		.join("");
+	const edits: Edit[] = [];
+	const dedents = new Map<number, number>();
+	const verbatim: [number, number][] = [];
+
+	const collect = (nodes: MdxNode[]): void => {
+		for (const node of nodes) {
+			const [start, end] = span(node);
+			if (VERBATIM_NODE_TYPES.has(node.type)) {
+				verbatim.push([start, end]);
+				continue;
+			}
+			if (!isComponent(node)) {
+				collect(node.children ?? []);
+				continue;
+			}
+			const replacement = replacementFor(node);
+			if (replacement !== undefined) {
+				edits.push({ start, end, text: replacement });
+				continue;
+			}
+			const children = node.children ?? [];
+			const kept = children.filter((child) => !vanishes(child));
+			const first = kept[0];
+			const last = kept.at(-1);
+			if (!first || !last) {
+				edits.push(dropEdit(text, node));
+				continue;
+			}
+			const [contentStart] = span(first);
+			const [, contentEnd] = span(last);
+			edits.push(
+				{ start, end: contentStart, text: "" },
+				{ start: contentEnd, end, text: "" },
+			);
+			const firstLine = lineStart(text, contentStart);
+			const shift = first.position!.start.column - node.position!.start.column;
+			if (
+				node.type === "mdxJsxFlowElement" &&
+				shift > 0 &&
+				!text.slice(firstLine, contentStart).trim()
+			) {
+				const lastLine = lineStart(text, contentEnd);
+				for (let line = firstLine; ; line = text.indexOf("\n", line) + 1) {
+					dedents.set(line, (dedents.get(line) ?? 0) + shift);
+					if (line >= lastLine) {
+						break;
+					}
+				}
+			}
+			collect(
+				children.slice(children.indexOf(first), children.indexOf(last) + 1),
+			);
+		}
+	};
+	collect((mdxParser.parse(text) as MdxNode).children ?? []);
+
+	const indentation = /[ \t]*/y;
+	for (const [line, shift] of dedents) {
+		indentation.lastIndex = line;
+		const width = Math.min(shift, indentation.exec(text)?.[0].length ?? 0);
+		if (width > 0) {
+			edits.push({ start: line, end: line + width, text: "" });
+		}
+	}
+	for (const run of text.matchAll(/\n(?:[ \t]*\n){2,}/g)) {
+		const start = run.index;
+		const end = start + run[0].length;
+		if (!verbatim.some(([from, to]) => start < to && end > from)) {
+			edits.push({ start, end, text: "\n\n" });
+		}
+	}
+
+	// Edits nest (a tag line inside an outer dedent, a blank run inside a
+	// dropped line); the outermost one at each position wins.
+	let out = "";
+	let cursor = 0;
+	for (const edit of edits.sort((a, b) => a.start - b.start || b.end - a.end)) {
+		if (edit.end <= cursor) {
+			continue;
+		}
+		out += text.slice(cursor, edit.start) + edit.text;
+		cursor = edit.end;
+	}
+	return out + text.slice(cursor);
 }
 
 export async function getLLMText(page: InferPageType<typeof source>) {
