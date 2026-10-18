@@ -8907,8 +8907,9 @@ chat.openapi(completions, async (c) => {
 		// effort has to follow what the new body carries. The header only lands
 		// on non-streaming responses: a stream has already sent its headers, and
 		// setting one then rebuilds a response whose body is already being read.
+		// An undefined effort clears the header the first attempt set.
 		reasoning_effort = ctx.reasoning_effort;
-		if (smartRoutingDecision && !stream && reasoning_effort !== undefined) {
+		if (smartRoutingDecision && !stream) {
 			c.header("x-llmgateway-smart-effort", reasoning_effort);
 		}
 		temperature = ctx.temperature;
