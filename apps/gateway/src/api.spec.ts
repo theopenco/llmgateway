@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -111,7 +120,7 @@ describe("api", () => {
 		expect(JSON.stringify(json)).toContain("/v1/audio/speech");
 	});
 
-	test("/v1/images/generations is blocked for dev-plan orgs via the chat-completions guard", async () => {
+	test("/v1/images/generations is blocked for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -139,6 +148,311 @@ describe("api", () => {
 		expect(JSON.stringify(json)).toContain(
 			"Image generation is not available for coding plans",
 		);
+	});
+
+	test("/v1/images/edits is blocked for dev-plan orgs", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setDevPlan({ devPlan: "pro" });
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Image generation is not available for coding plans",
+		);
+	});
+
+	test("/v1/images/generations rejects dynamic route models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "dynamic/my-route",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Dynamic routes are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects custom provider model strings", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects catalogue model ids behind custom provider prefixes", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/gemini-3-pro-image",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects region-suffixed text models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini:us-east",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("is a chat model");
+	});
+
+	test("/v1/images/edits rejects custom provider model strings", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/edits rejects dynamic route models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "dynamic/my-route",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Dynamic routes are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/edits rejects unsupported models before fetching source images", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "https://example.invalid/source.png" }],
+			}),
+		});
+
+		// If the source image were fetched first, the unresolvable host would
+		// surface as an image_url error instead of the routing error.
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+		expect(JSON.stringify(json)).not.toContain("image_url is invalid");
+	});
+
+	test("/v1/images/generations resolves llmgateway/auto to the default image model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const originalRequest: typeof app.request = app.request.bind(app);
+		let forwardedModel: unknown;
+
+		const requestSpy = vi
+			.spyOn(app, "request")
+			.mockImplementation(
+				async (...args: Parameters<typeof app.request>): Promise<Response> => {
+					const [input, init] = args;
+					if (input === "/v1/chat/completions") {
+						forwardedModel = JSON.parse(String(init?.body)).model;
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-image-llmgateway-auto",
+								object: "chat.completion",
+								created: 1774549411,
+								model: "gemini-3-pro-image",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: null,
+											images: [
+												{
+													image_url: {
+														url: "data:image/png;base64,aGVsbG8=",
+													},
+												},
+											],
+										},
+										finish_reason: "stop",
+									},
+								],
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalRequest(...args);
+				},
+			);
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/auto",
+					prompt: "A watercolor of a city skyline",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(forwardedModel).toBe("gemini-3-pro-image");
+		} finally {
+			requestSpy.mockRestore();
+		}
 	});
 
 	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
@@ -8379,10 +8693,10 @@ describe("api", () => {
 		});
 	});
 
-	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-2.5-flash-lite", async () => {
+	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-3.1-flash-lite", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 90,
@@ -8390,7 +8704,7 @@ describe("api", () => {
 				throughput: 5,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 10,
 			throughput: 500,
@@ -8434,7 +8748,7 @@ describe("api", () => {
 					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
-					model: "gemini-2.5-flash-lite",
+					model: "gemini-3.1-flash-lite",
 					messages: [
 						{
 							role: "user",
@@ -8477,7 +8791,7 @@ describe("api", () => {
 	test("/v1/chat/completions hybrid escapes to credits provider when keyed provider fails", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 100,
@@ -8485,7 +8799,7 @@ describe("api", () => {
 				throughput: 100,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 100,
 			throughput: 100,
@@ -8538,7 +8852,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "gemini-2.5-flash-lite",
+					model: "gemini-3.1-flash-lite",
 					messages: [
 						{ role: "user", content: "Hybrid dead key escape request" },
 					],
@@ -8580,7 +8894,7 @@ describe("api", () => {
 	test("/v1/chat/completions hybrid overflows to credits provider when keyed provider is rate limited", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
-			"gemini-2.5-flash-lite",
+			"gemini-3.1-flash-lite",
 			"google-ai-studio",
 			{
 				uptime: 100,
@@ -8588,7 +8902,7 @@ describe("api", () => {
 				throughput: 100,
 			},
 		);
-		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+		await harness.setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", {
 			uptime: 100,
 			latency: 100,
 			throughput: 100,
@@ -8620,7 +8934,7 @@ describe("api", () => {
 			id: "rate-limit-studio",
 			organizationId: "org-id",
 			provider: "google-ai-studio",
-			model: "gemini-2.5-flash-lite",
+			model: "gemini-3.1-flash-lite",
 			maxRpm: 1,
 		});
 
@@ -8633,7 +8947,7 @@ describe("api", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
 
-			const makeRequest = (content: string, model = "gemini-2.5-flash-lite") =>
+			const makeRequest = (content: string, model = "gemini-3.1-flash-lite") =>
 				app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -8658,7 +8972,7 @@ describe("api", () => {
 
 			const directRes = await makeRequest(
 				"Direct provider rate limit request",
-				"google-ai-studio/gemini-2.5-flash-lite",
+				"google-ai-studio/gemini-3.1-flash-lite",
 			);
 			expect(directRes.status).toBe(200);
 			const directJson = await directRes.json();
@@ -10691,165 +11005,181 @@ describe("api", () => {
 			).toBe(true);
 		});
 
-		test("forwards n to Google as candidateCount and de-dupes candidate 0", async () => {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-n-google",
-				...hashApiKeyForStorage("real-token-n-google"),
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
+		// No active Google mapping declares supportsN; pin the clock before the
+		// gemini-2.5 deactivation so the candidateCount path stays covered.
+		describe("Google candidateCount", () => {
+			beforeEach(() => {
+				vi.useFakeTimers({ toFake: ["Date"] });
+				vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
+			});
+			afterEach(() => {
+				vi.useRealTimers();
 			});
 
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-n-google",
-				...encryptProviderKeyForStorage(
-					"google-test-key",
-					"provider-key-id-n-google",
-					"org-id",
-				),
-				provider: "google-ai-studio",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+			test("forwards n to Google as candidateCount and de-dupes candidate 0", async () => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id-n-google",
+					...hashApiKeyForStorage("real-token-n-google"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id-n-google",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-id-n-google",
+						"org-id",
+					),
+					provider: "google-ai-studio",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token-n-google",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash",
+						n: 3,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
+
+				// The mock Google server echoes candidateCount back as that many
+				// candidates — and replicates the real AI Studio quirk where
+				// candidate 0's parts also contain a copy of every other candidate's
+				// parts. Receiving 3 distinct choices proves both the forwarding and
+				// the gateway-side de-duplication.
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(Array.isArray(json.choices)).toBe(true);
+				expect(json.choices).toHaveLength(3);
+				expect(json.choices[0].index).toBe(0);
+				expect(json.choices[1].index).toBe(1);
+				expect(json.choices[2].index).toBe(2);
+				expect(json.choices[0].message.content).toContain("Google variant 1");
+				expect(json.choices[0].message.content).not.toContain(
+					"Google variant 2",
+				);
+				expect(json.choices[0].message.content).not.toContain(
+					"Google variant 3",
+				);
+				expect(json.choices[1].message.content).toContain("Google variant 2");
+				expect(json.choices[2].message.content).toContain("Google variant 3");
+				for (const choice of json.choices) {
+					expect(choice.finish_reason).toBe("stop");
+				}
+
+				// Input tokens counted once; output across all candidates — mirrors
+				// Google's multi-candidate billing.
+				expect(json.usage.prompt_tokens).toBe(10);
+				expect(json.usage.completion_tokens).toBe(60);
+				expect(json.usage.total_tokens).toBe(70);
+
+				// Log row content column should aggregate every candidate's content
+				// (after de-duplication), not just candidate 0.
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+				expect(logs[0].streamed).toBe(false);
+				expect(logs[0].content).toContain("Google variant 1");
+				expect(logs[0].content).toContain("Google variant 2");
+				expect(logs[0].content).toContain("Google variant 3");
+				// De-duplication: candidate 0's duplicated copies must not double
+				// the variants in the aggregated log content.
+				expect((logs[0].content?.match(/Google variant 2/g) ?? []).length).toBe(
+					1,
+				);
 			});
 
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-n-google",
-				},
-				body: JSON.stringify({
-					model: "gemini-2.5-flash",
-					n: 3,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
+			test("rejects n > 1 with streaming on Google models", async () => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id-n-google-stream",
+					...hashApiKeyForStorage("real-token-n-google-stream"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id-n-google-stream",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-id-n-google-stream",
+						"org-id",
+					),
+					provider: "google-ai-studio",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				// Google rejects candidateCount > 1 on streamGenerateContent, so the
+				// gateway must 400 with a precise message before calling upstream.
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token-n-google-stream",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash",
+						n: 3,
+						stream: true,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
+
+				expect(res.status).toBe(400);
+				const text = await res.text();
+				expect(text).toContain(
+					"does not support the n parameter for multiple choices with streaming",
+				);
 			});
 
-			// The mock Google server echoes candidateCount back as that many
-			// candidates — and replicates the real AI Studio quirk where
-			// candidate 0's parts also contain a copy of every other candidate's
-			// parts. Receiving 3 distinct choices proves both the forwarding and
-			// the gateway-side de-duplication.
-			expect(res.status).toBe(200);
-			const json = await res.json();
-			expect(Array.isArray(json.choices)).toBe(true);
-			expect(json.choices).toHaveLength(3);
-			expect(json.choices[0].index).toBe(0);
-			expect(json.choices[1].index).toBe(1);
-			expect(json.choices[2].index).toBe(2);
-			expect(json.choices[0].message.content).toContain("Google variant 1");
-			expect(json.choices[0].message.content).not.toContain("Google variant 2");
-			expect(json.choices[0].message.content).not.toContain("Google variant 3");
-			expect(json.choices[1].message.content).toContain("Google variant 2");
-			expect(json.choices[2].message.content).toContain("Google variant 3");
-			for (const choice of json.choices) {
-				expect(choice.finish_reason).toBe("stop");
-			}
+			test("rejects n above Google's candidateCount cap", async () => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id-n-google-cap",
+					...hashApiKeyForStorage("real-token-n-google-cap"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
 
-			// Input tokens counted once; output across all candidates — mirrors
-			// Google's multi-candidate billing.
-			expect(json.usage.prompt_tokens).toBe(10);
-			expect(json.usage.completion_tokens).toBe(60);
-			expect(json.usage.total_tokens).toBe(70);
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id-n-google-cap",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-id-n-google-cap",
+						"org-id",
+					),
+					provider: "google-ai-studio",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
 
-			// Log row content column should aggregate every candidate's content
-			// (after de-duplication), not just candidate 0.
-			const logs = await waitForLogs(1);
-			expect(logs.length).toBe(1);
-			expect(logs[0].streamed).toBe(false);
-			expect(logs[0].content).toContain("Google variant 1");
-			expect(logs[0].content).toContain("Google variant 2");
-			expect(logs[0].content).toContain("Google variant 3");
-			// De-duplication: candidate 0's duplicated copies must not double
-			// the variants in the aggregated log content.
-			expect((logs[0].content?.match(/Google variant 2/g) ?? []).length).toBe(
-				1,
-			);
-		});
+				// Google caps candidateCount at 8; the gateway surfaces a clear 400
+				// instead of forwarding and bubbling Google's INVALID_ARGUMENT.
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token-n-google-cap",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash",
+						n: 9,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
 
-		test("rejects n > 1 with streaming on Google models", async () => {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-n-google-stream",
-				...hashApiKeyForStorage("real-token-n-google-stream"),
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
+				expect(res.status).toBe(400);
+				const text = await res.text();
+				expect(text).toContain("supports at most 8 choices per request");
 			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-n-google-stream",
-				...encryptProviderKeyForStorage(
-					"google-test-key",
-					"provider-key-id-n-google-stream",
-					"org-id",
-				),
-				provider: "google-ai-studio",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			// Google rejects candidateCount > 1 on streamGenerateContent, so the
-			// gateway must 400 with a precise message before calling upstream.
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-n-google-stream",
-				},
-				body: JSON.stringify({
-					model: "gemini-2.5-flash",
-					n: 3,
-					stream: true,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
-			});
-
-			expect(res.status).toBe(400);
-			const text = await res.text();
-			expect(text).toContain(
-				"does not support the n parameter for multiple choices with streaming",
-			);
-		});
-
-		test("rejects n above Google's candidateCount cap", async () => {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-n-google-cap",
-				...hashApiKeyForStorage("real-token-n-google-cap"),
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-n-google-cap",
-				...encryptProviderKeyForStorage(
-					"google-test-key",
-					"provider-key-id-n-google-cap",
-					"org-id",
-				),
-				provider: "google-ai-studio",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			// Google caps candidateCount at 8; the gateway surfaces a clear 400
-			// instead of forwarding and bubbling Google's INVALID_ARGUMENT.
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-n-google-cap",
-				},
-				body: JSON.stringify({
-					model: "gemini-2.5-flash",
-					n: 9,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
-			});
-
-			expect(res.status).toBe(400);
-			const text = await res.text();
-			expect(text).toContain("supports at most 8 choices per request");
 		});
 	});
 
@@ -12099,6 +12429,163 @@ describe("api", () => {
 			expect(res.status).toBe(400);
 			const json = await res.json();
 			expect(JSON.stringify(json)).toContain("input_schema");
+		});
+	});
+
+	describe("web_search domain filter validation", () => {
+		// allowed_domains and blocked_domains are mutually exclusive. Without
+		// request-time validation the gateway silently keeps allowed_domains
+		// and drops blocked_domains when preparing the provider request.
+		test("rejects web_search tool with both allowed_domains and blocked_domains", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains",
+				...hashApiKeyForStorage("real-token-ws-domains"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+
+		test("rejects a conflicting duplicate web_search tool entry", async () => {
+			// Only the first web_search entry is extracted; a later conflicting
+			// duplicate must still be rejected, not silently discarded.
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-dup",
+				...hashApiKeyForStorage("real-token-ws-domains-dup"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-dup",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+						},
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+		});
+
+		test("rejects /v1/responses web_search tool with both domain filters", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-resp",
+				...hashApiKeyForStorage("real-token-ws-domains-resp"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-resp",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					input: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+
+		test("rejects /v1/messages web_search server tool with both domain filters", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-msgs",
+				...hashApiKeyForStorage("real-token-ws-domains-msgs"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-msgs",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-4-6",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search_20250305",
+							name: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			// The messages route wraps the inner chat error in Anthropic's
+			// envelope, which carries only type + message (no code/param).
+			const json = await res.json();
+			expect(json.type).toBe("error");
+			expect(json.error?.type).toBe("invalid_request_error");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
 		});
 	});
 

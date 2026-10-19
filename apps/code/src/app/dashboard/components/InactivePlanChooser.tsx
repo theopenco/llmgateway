@@ -3,7 +3,6 @@
 import { Check, Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -32,9 +31,6 @@ export default function InactivePlanChooser({
 
 	return (
 		<div className="space-y-8">
-			<div className="mx-auto max-w-4xl">
-				<DevPassPlanChangeNotice />
-			</div>
 			<div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
 				{plans.map((plan) => {
 					const ratioLabel = formatUsageRatio(plan.usage, plan.price);
@@ -74,7 +70,7 @@ export default function InactivePlanChooser({
 							<ul className="mb-6 flex-1 space-y-2.5">
 								{[
 									`${ratioLabel} your payment in model usage`,
-									"All 200+ models",
+									"All 100+ models",
 									"Resets monthly",
 								].map((feature) => (
 									<li key={feature} className="flex items-start gap-2">

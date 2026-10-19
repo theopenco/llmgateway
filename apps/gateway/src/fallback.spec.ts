@@ -1400,8 +1400,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("does not reroute away from a low-uptime provider", async () => {
-			await setRoutingMetrics("gemini-2.5-flash", "google-ai-studio", 0);
-			await setRoutingMetrics("gemini-2.5-flash", "google-vertex", 100);
+			await setRoutingMetrics("gemini-3.1-flash-lite", "google-ai-studio", 0);
+			await setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", 100);
 
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -1410,7 +1410,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "google-ai-studio/gemini-2.5-flash",
+					model: "google-ai-studio/gemini-3.1-flash-lite",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1442,7 +1442,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "gemini-2.5-flash",
+						model: "gemini-3.1-flash-lite",
 						messages: [
 							{
 								role: "assistant",
@@ -3205,7 +3205,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "google-ai-studio/gemini-2.5-flash",
+						model: "google-ai-studio/gemini-3.1-flash-lite",
 						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 					}),
 				});
@@ -3651,7 +3651,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "google-ai-studio/gemini-2.5-flash",
+						model: "google-ai-studio/gemini-3.1-flash-lite",
 						messages: [{ role: "user", content: "TRIGGER_ERROR" }],
 					}),
 				});

@@ -197,10 +197,14 @@ export interface DecisionEndpoint {
 	supportsProvider?: (providerId: string) => boolean;
 	/** Hint appended when the model exists but this endpoint can't serve it. */
 	unsupportedModelHint?: string;
-	/** Throw an HTTPException(400) for input the provider can't take. */
+	/**
+	 * Throw an HTTPException(400) for input the provider can't take.
+	 * `safetyIdentifier` is the authenticating API key's abuse-attribution id.
+	 */
 	buildUpstreamRequest: (
 		providerId: string,
 		upstreamModel: string,
+		safetyIdentifier: string,
 	) => DecisionUpstreamRequest;
 	normalizeResponse: (
 		providerId: string,
@@ -354,6 +358,7 @@ export async function handleDecisionRequest(
 	const upstreamRequest = endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
+		apiKey.safetyIdentifier,
 	);
 
 	const failedKeys = createFailedKeyTracker();

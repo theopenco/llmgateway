@@ -13,14 +13,20 @@ const DAY_MS = 24 * HOUR_MS;
 
 const querySchema = z.object({
 	window: z.enum(["24h", "7d", "30d"]).default("24h"),
-	tokenType: z.enum(["total", "input", "output"]).default("total"),
+	tokenType: z.enum(["total", "input", "cached", "output"]).default("total"),
 	groupBy: z.enum(["model", "provider"]).default("model"),
 	modelView: z.enum(["canonical", "mapping"]).default("canonical"),
 	mode: z.enum(["total", "credits", "api-keys"]).default("total"),
 });
 type CapacityQuery = z.infer<typeof querySchema>;
 
-const metricsSchema = z.object({
+// Input includes cached (cache-read) input; totals ignore the tokenType filter.
+const splitSchema = z.object({
+	inputTokens: z.number(),
+	cachedTokens: z.number(),
+	outputTokens: z.number(),
+});
+const metricsSchema = splitSchema.extend({
 	totalTokens: z.number(),
 	avgTpm: z.number(),
 	peakTpm: z.number(),
@@ -29,7 +35,7 @@ const metricsSchema = z.object({
 	peakTokensPerDay: z.number(),
 	peakDayAt: z.string().nullable(),
 });
-const daySchema = z.object({
+const daySchema = splitSchema.extend({
 	timestamp: z.string(),
 	tokens: z.number(),
 	partial: z.boolean(),
@@ -53,6 +59,7 @@ interface TokenColumns {
 	totalTokens: AnyColumn;
 	totalInputTokens: AnyColumn;
 	totalOutputTokens: AnyColumn;
+	totalCachedTokens: AnyColumn;
 }
 
 function expressions(table: TokenColumns, query: CapacityQuery) {
@@ -66,9 +73,13 @@ function expressions(table: TokenColumns, query: CapacityQuery) {
 		tokens:
 			query.tokenType === "input"
 				? table.totalInputTokens
-				: query.tokenType === "output"
-					? table.totalOutputTokens
-					: table.totalTokens,
+				: query.tokenType === "cached"
+					? table.totalCachedTokens
+					: query.tokenType === "output"
+						? table.totalOutputTokens
+						: table.totalTokens,
+		split: sql`${table.totalInputTokens} AS input, ${table.totalCachedTokens} AS cached, ${table.totalOutputTokens} AS output`,
+		hasTokens: sql`GREATEST(${table.totalTokens}, ${table.totalInputTokens}, ${table.totalCachedTokens}, ${table.totalOutputTokens}) > 0`,
 	};
 }
 
@@ -76,6 +87,11 @@ interface UsageRow extends Record<string, unknown> {
 	key: string | null;
 	timestamp: string;
 	tokens: number;
+}
+interface SplitUsageRow extends UsageRow {
+	input: number;
+	cached: number;
+	output: number;
 }
 
 /** Hourly totals plus minute edges cover exactly the completed-minute window. */
@@ -98,28 +114,31 @@ export function tokenCapacityUsageQuery(
 	).toISOString();
 	return sql`
 		WITH usage AS (
-			SELECT ${h.key} AS key, ${hourly.hourTimestamp} AS ts, ${h.tokens} AS tokens
+			SELECT ${h.key} AS key, ${hourly.hourTimestamp} AS ts, ${h.tokens} AS tokens, ${h.split}
 			FROM ${hourly}
 			WHERE ${hourly.hourTimestamp} >= ${firstHour}::timestamp
 				AND ${hourly.hourTimestamp} < ${lastHour}::timestamp
-				AND ${h.tokens} > 0
+				AND ${h.hasTokens}
 				AND ${excludeRegionalMappingRows(hourly)}
 				${query.mode === "total" ? sql`` : sql`AND ${hourly.usedMode} = ${query.mode}`}
 			UNION ALL
-			SELECT ${m.key} AS key, ${minute.minuteTimestamp} AS ts, ${m.tokens} AS tokens
+			SELECT ${m.key} AS key, ${minute.minuteTimestamp} AS ts, ${m.tokens} AS tokens, ${m.split}
 			FROM ${minute}
 			WHERE ${minute.minuteTimestamp} >= ${start.toISOString()}::timestamp
 				AND ${minute.minuteTimestamp} < ${end.toISOString()}::timestamp
 				AND (${minute.minuteTimestamp} < ${firstHour}::timestamp
 					OR ${minute.minuteTimestamp} >= ${lastHour}::timestamp)
-				AND ${m.tokens} > 0
+				AND ${m.hasTokens}
 				AND ${excludeRegionalMappingRows(minute)}
 				${query.mode === "total" ? sql`` : sql`AND ${minute.usedMode} = ${query.mode}`}
 		), bucketed AS (
-			SELECT key, ${trunc} AS bucket, SUM(tokens)::float8 AS tokens
+			SELECT key, ${trunc} AS bucket, SUM(tokens)::float8 AS tokens,
+				SUM(input)::float8 AS input, SUM(cached)::float8 AS cached,
+				SUM(output)::float8 AS output
 			FROM usage GROUP BY GROUPING SETS ((key, ${trunc}), (${trunc}))
 		)
-		SELECT key, to_char(bucket, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp, tokens
+		SELECT key, to_char(bucket, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp,
+			tokens, input, cached, output
 		FROM bucketed
 		ORDER BY bucket, key
 	`;
@@ -187,12 +206,17 @@ adminTokenCapacity.openapi(
 		const end = new Date(Math.floor(now.getTime() / MINUTE_MS) * MINUTE_MS);
 		const elapsedMinutes = (end.getTime() - start.getTime()) / MINUTE_MS;
 		const usage = (
-			await db.execute<UsageRow>(
+			await db.execute<SplitUsageRow>(
 				tokenCapacityUsageQuery(query, start, end, unit),
 			)
 		).rows;
+		// Rows kept for the split may have none of the selected token type.
 		const keys = [
-			...new Set(usage.flatMap((row) => (row.key === null ? [] : [row.key]))),
+			...new Set(
+				usage.flatMap((row) =>
+					row.key === null || !(Number(row.tokens) > 0) ? [] : [row.key],
+				),
+			),
 		];
 		const peaks = (
 			await db.execute<UsageRow>(
@@ -200,24 +224,42 @@ adminTokenCapacity.openapi(
 			)
 		).rows;
 		const peakByKey = new Map(peaks.map((row) => [row.key, row]));
-		type Buckets = Map<string | null, Map<string, number>>;
+		type Totals = z.infer<typeof splitSchema> & { tokens: number };
+		const emptyTotals = (): Totals => ({
+			tokens: 0,
+			inputTokens: 0,
+			cachedTokens: 0,
+			outputTokens: 0,
+		});
+		type Buckets = Map<string | null, Map<string, Totals>>;
 		const dailyByKey: Buckets = new Map();
 		const hourlyByKey: Buckets = new Map();
 		const add = (
 			buckets: Buckets,
 			key: string | null,
 			timestamp: string,
-			tokens: number,
+			totals: Totals,
 		) => {
 			let values = buckets.get(key);
 			if (!values) {
 				values = new Map();
 				buckets.set(key, values);
 			}
-			values.set(timestamp, (values.get(timestamp) ?? 0) + tokens);
+			const current = values.get(timestamp) ?? emptyTotals();
+			values.set(timestamp, {
+				tokens: current.tokens + totals.tokens,
+				inputTokens: current.inputTokens + totals.inputTokens,
+				cachedTokens: current.cachedTokens + totals.cachedTokens,
+				outputTokens: current.outputTokens + totals.outputTokens,
+			});
 		};
 		for (const row of usage) {
-			const tokens = Number(row.tokens);
+			const tokens: Totals = {
+				tokens: Number(row.tokens),
+				inputTokens: Number(row.input),
+				cachedTokens: Number(row.cached),
+				outputTokens: Number(row.output),
+			};
 			add(
 				dailyByKey,
 				row.key,
@@ -251,12 +293,14 @@ adminTokenCapacity.openapi(
 		) =>
 			grid.map((bucket) => ({
 				...bucket,
-				tokens: buckets.get(key)?.get(bucket.timestamp) ?? 0,
+				...(buckets.get(key)?.get(bucket.timestamp) ?? emptyTotals()),
 			}));
 		const daysFor = (key: string | null) => seriesFor(dayGrid, dailyByKey, key);
 		const metricsFor = (key: string | null) => {
 			const values = daysFor(key);
 			const totalTokens = values.reduce((sum, day) => sum + day.tokens, 0);
+			const sum = (field: keyof z.infer<typeof splitSchema>) =>
+				values.reduce((total, day) => total + day[field], 0);
 			const peakDay = values
 				.filter((day) => !day.partial)
 				.reduce<(typeof values)[number] | null>(
@@ -266,6 +310,9 @@ adminTokenCapacity.openapi(
 			const peakMinute = peakByKey.get(key);
 			return {
 				totalTokens,
+				inputTokens: sum("inputTokens"),
+				cachedTokens: sum("cachedTokens"),
+				outputTokens: sum("outputTokens"),
 				avgTpm: totalTokens / elapsedMinutes,
 				peakTpm: Number(peakMinute?.tokens ?? 0),
 				peakMinuteAt:

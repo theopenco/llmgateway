@@ -28,7 +28,7 @@ async function createAccountFor(userId: string, email: string) {
 	await db.insert(tables.account).values({
 		id: `${userId}-account`,
 		providerId: "credential",
-		accountId: `${userId}-account`,
+		accountId: userId,
 		userId,
 		password: PASSWORD_HASH,
 	});

@@ -4,7 +4,6 @@ import { ArrowRight, Check, ShieldCheck, Zap } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 
-import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
@@ -40,7 +39,7 @@ const plans: PlanContent[] = [
 		description: "For evenings-and-weekends coding",
 		support: "Email",
 		features: [
-			"All 200+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
+			"All 100+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
 			"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge & any OpenAI-compatible tool",
 			"Real-time dashboard with per-request cost",
 		],
@@ -55,7 +54,6 @@ const plans: PlanContent[] = [
 			"Everything in Lite",
 			"Headroom for a full agent session every day",
 			"More frontier fair-use headroom than Lite",
-			"Priority routing on flagship models",
 		],
 	},
 	{
@@ -79,9 +77,6 @@ interface PricingPlansProps {
 export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 	return (
 		<div>
-			<div className="mb-6">
-				<DevPassPlanChangeNotice />
-			</div>
 			<div className="grid items-stretch gap-6 md:grid-cols-3">
 				{plans.map((plan, idx) => {
 					const monthlyPrice = DEV_PLAN_PRICES[plan.tier];
@@ -160,7 +155,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 										Model catalog
 									</dt>
 									<dd className="font-mono text-xs font-semibold tabular-nums">
-										200+ models
+										100+ models
 									</dd>
 								</div>
 								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
@@ -271,7 +266,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 							No subscription? Pay as you go
 						</p>
 						<p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-							The same 200+ models are on{" "}
+							The same 100+ models are on{" "}
 							<span className="font-semibold text-foreground">LLM Gateway</span>{" "}
 							without a plan — top up credits and pay per token at provider
 							rates with a flat {MARKETING_STATS.platformFee} platform fee, or

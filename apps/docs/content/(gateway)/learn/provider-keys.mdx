@@ -24,15 +24,16 @@ Click **Add Provider Key** to configure a new key:
 - **Provider** — Select which provider this key belongs to
 - **Custom name** — An optional label to identify the key
 - **API key** — Your provider's API key
-- **Base URL** — Optional custom endpoint (useful for Azure OpenAI or custom deployments)
+- **Base URL** — Optional custom endpoint for custom deployments (Enterprise plan)
 - **Allowed models** — Optional allowlist restricting which models the key serves
 - **Max spend** — Optional USD cap; the key is disabled once the spend attributed to it reaches the limit
 
 <Callout type="info">
-	The **Custom** provider requires the [**Enterprise
-	plan**](https://llmgateway.io/enterprise). On other plans, existing [custom
-	providers](/features/custom-providers) keep working and can be deactivated or
-	deleted, but not added or edited.
+	The **Custom** provider and a custom base URL on a built-in provider require
+	the [**Enterprise plan**](https://llmgateway.io/enterprise). On other plans,
+	existing [custom providers](/features/custom-providers) and keys with a custom
+	base URL keep working and can be deactivated or deleted, but not added or
+	edited.
 </Callout>
 
 ## Provider Keys List

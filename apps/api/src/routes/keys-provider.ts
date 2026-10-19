@@ -28,6 +28,7 @@ import {
 	encryptProviderKey,
 	readProviderKeyMask,
 	redactToken,
+	resolveVertexApiKeyProject,
 	validateProviderKey,
 } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -49,6 +50,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	isStealthProvider,
+	providers,
 	regionEndpointRequiresWorkspaceId,
 } from "@llmgateway/models";
 import {
@@ -236,20 +238,29 @@ function assertAllowedModelsSupported(provider: string) {
 }
 
 /**
- * Creating or editing custom providers is an enterprise feature. Existing keys
- * on other plans keep serving and can still be toggled or deleted.
+ * Custom providers and base URL overrides on built-in providers point upstream
+ * traffic at a host the organization controls, so creating or editing them is
+ * an enterprise feature. Existing keys on other plans keep serving and can
+ * still be toggled or deleted.
  */
-function assertCustomProviderEnterprise(
+function assertEnterpriseFeature(
 	organization: { id: string; plan: string } | null | undefined,
+	feature: string,
 ) {
 	if (!hasOrganizationEnterpriseAccess(organization?.id, organization?.plan)) {
 		throw new HTTPException(403, {
-			message: "Custom providers require an enterprise plan",
+			message: `${feature} require an enterprise plan`,
 		});
 	}
 }
 
-// The custom provider name is the routing segment used in `custom/<name>/<model>`
+function assertCustomProviderEnterprise(
+	organization: { id: string; plan: string } | null | undefined,
+) {
+	assertEnterpriseFeature(organization, "Custom providers");
+}
+
+// The custom provider name is the routing prefix used in `<name>/<model>`
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
@@ -258,6 +269,13 @@ export const customProviderNameSchema = z
 		(name) =>
 			!(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(name),
 		RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	)
+	// Catalogue provider ids (e.g. "openai", "custom") always win the
+	// `<name>/<model>` prefix in parseModelInput, so a colliding custom
+	// provider would be unaddressable.
+	.refine(
+		(name) => !providers.some((provider) => provider.id === name),
+		"This name matches a built-in provider id and cannot be used as a custom provider name",
 	);
 
 export async function assertCustomProviderNameAvailable(
@@ -602,6 +620,9 @@ keysProvider.openapi(create, async (c) => {
 	}
 
 	if (baseUrl) {
+		if (provider !== "custom") {
+			assertEnterpriseFeature(userOrgs[0]?.organization, "Custom base URLs");
+		}
 		await assertProviderBaseUrlAllowed(baseUrl);
 	}
 
@@ -710,6 +731,20 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// A Vertex API key without a project ID would use the project-less
+	// endpoint, which does not serve every model. Store the key's own project
+	// so requests use `projects/<n>/locations/global` from the start.
+	const vertexApiKeyProject =
+		provider === "google-vertex" &&
+		!baseUrl &&
+		!options?.google_vertex_project_id &&
+		!(process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true")
+			? await resolveVertexApiKeyProject(userToken)
+			: undefined;
+	const storedOptions = vertexApiKeyProject
+		? { ...options, google_vertex_project_id: vertexApiKeyProject }
+		: options;
+
 	// Encrypt the user-provided token at rest. Generate the id in application
 	// code so the AAD (which binds ciphertext to the row id + organization id)
 	// can be computed before the INSERT, keeping the write a single statement.
@@ -733,7 +768,7 @@ keysProvider.openapi(create, async (c) => {
 			name,
 			description: description || null,
 			baseUrl,
-			options,
+			options: storedOptions,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
 			...providerKeyRateLimitUpdates(rateLimitInput),

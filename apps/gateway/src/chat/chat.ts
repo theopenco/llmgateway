@@ -168,6 +168,7 @@ import {
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
+	routeProjectlessVertexEndpoint,
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
@@ -2146,6 +2147,31 @@ chat.openapi(completions, async (c) => {
 	// The web_search tool is a special tool that enables native web search for providers that support it
 	let webSearchTool: WebSearchTool | undefined;
 	if (tools && Array.isArray(tools)) {
+		// allowed_domains and blocked_domains are mutually exclusive; providers
+		// accept only one, and silently preferring one would drop the caller's
+		// other filter. Check every entry — only the first web_search tool is
+		// extracted below, so a conflicting duplicate must be rejected here.
+		if (
+			tools.some(
+				(tool) =>
+					tool.type === "web_search" &&
+					tool.allowed_domains?.length &&
+					tool.blocked_domains?.length,
+			)
+		) {
+			return c.json(
+				{
+					error: {
+						message:
+							"The web_search tool cannot specify both allowed_domains and blocked_domains. Use one or the other.",
+						type: "invalid_request_error",
+						param: "tools",
+						code: "unsupported_parameter_combination",
+					},
+				},
+				400,
+			);
+		}
 		const webSearchToolIndex = tools.findIndex(
 			(tool: any) => tool.type === "web_search",
 		);
@@ -3230,9 +3256,9 @@ chat.openapi(completions, async (c) => {
 		mode: project.mode,
 		organizationId: project.organizationId,
 	};
+	const retrySafetyIdentifier = apiKey.safetyIdentifier;
 	const retryOrganizationContext = {
 		id: organization.id,
-		safetyIdentifier: organization.safetyIdentifier,
 		credits: organization.credits,
 		plan: organization.plan,
 		kind: organization.kind,
@@ -7600,23 +7626,36 @@ chat.openapi(completions, async (c) => {
 		// A custom Airside carrier has no catalogue endpoint definition: route
 		// it like a BYOK custom provider, to the OpenAI-compatible base URL
 		// registered on its approved claim.
-		url = getProviderEndpoint(
-			airsideCustomBaseUrl ? "custom" : usedProvider,
-			credentialBaseUrl ?? airsideCustomBaseUrl,
-			upstreamModelName,
-			usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
-			stream,
-			supportsReasoning,
-			hasExistingToolCalls,
-			credentialOptions,
-			configIndex,
-			isImageGeneration,
-			usedRegion,
-			usesDatabaseCredential,
-			usedInternalModel,
-			resolveActiveVertexTokenType(),
-			envVariant,
-			getUsedProviderMapping()?.apiFormat,
+		const activeVertexTokenType = resolveActiveVertexTokenType();
+		const endpointProvider = airsideCustomBaseUrl ? "custom" : usedProvider;
+		const buildUrl = (endpointOptions: typeof credentialOptions) =>
+			getProviderEndpoint(
+				endpointProvider,
+				credentialBaseUrl ?? airsideCustomBaseUrl,
+				upstreamModelName,
+				usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
+				stream,
+				supportsReasoning,
+				hasExistingToolCalls,
+				endpointOptions,
+				configIndex,
+				isImageGeneration,
+				usedRegion,
+				usesDatabaseCredential,
+				usedInternalModel,
+				activeVertexTokenType,
+				envVariant,
+				getUsedProviderMapping()?.apiFormat,
+			);
+		url = await routeProjectlessVertexEndpoint(
+			buildUrl(credentialOptions),
+			usedProvider === "google-vertex" &&
+				!airsideCustomBaseUrl &&
+				activeVertexTokenType === "api-key"
+				? usedToken
+				: undefined,
+			(project) =>
+				buildUrl({ ...credentialOptions, google_vertex_project_id: project }),
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -7881,7 +7920,7 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -8097,7 +8136,7 @@ chat.openapi(completions, async (c) => {
 					cachedResponse.usage?.reasoning_tokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -8573,7 +8612,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			organization.safetyIdentifier,
+			apiKey.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
@@ -8774,6 +8813,7 @@ chat.openapi(completions, async (c) => {
 				prompt_cache_retention,
 				prompt_cache_options,
 				session_id: sessionId,
+				safetyIdentifier: retrySafetyIdentifier,
 				effort,
 				webSearchTool,
 				image_config,
@@ -10967,6 +11007,7 @@ chat.openapi(completions, async (c) => {
 				let cacheCreation1hTokens: number | null = null;
 				let audioInputTokens: number | null = null;
 				let cachedAudioInputTokens: number | null = null;
+				let imageInputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -11450,7 +11491,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -12451,6 +12492,9 @@ chat.openapi(completions, async (c) => {
 								if (usage.cachedAudioInputTokens !== null) {
 									cachedAudioInputTokens = usage.cachedAudioInputTokens;
 								}
+								if (usage.imageInputTokens !== null) {
+									imageInputTokens = usage.imageInputTokens;
+								}
 								if (
 									usage.totalTokens === null &&
 									promptTokens !== null &&
@@ -13039,7 +13083,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -13096,19 +13140,14 @@ chat.openapi(completions, async (c) => {
 									},
 								],
 								usage: (() => {
-									// Only add image input tokens for providers that
-									// exclude them from upstream usage (Google)
-									const providerExcludesImageInput =
-										isGoogleCompatibleProvider(transportProvider);
-									const imageInputAdj = providerExcludesImageInput
-										? inputImageCount * 560
-										: 0;
+									// costs.promptTokens adds estimated image input tokens
+									// only when upstream usage did not report them.
 									const adjPrompt = Math.max(
 										1,
 										Math.round(
-											promptTokens && promptTokens > 0
-												? promptTokens + imageInputAdj
-												: (calculatedPromptTokens ?? 1) + imageInputAdj,
+											streamingCostsEarly.promptTokens ??
+												calculatedPromptTokens ??
+												1,
 										),
 									);
 									const adjCompletion = Math.round(
@@ -13172,6 +13211,8 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens: calculatedReasoningTokens,
+										imageInputTokens:
+											imageInputTokens ?? streamingCostsEarly.imageInputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -13392,7 +13433,7 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
-									null,
+									imageInputTokens,
 									null,
 									{
 										cacheWriteTokens: cacheCreationTokens,
@@ -15909,7 +15950,7 @@ chat.openapi(completions, async (c) => {
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
-		imageInputTokens,
+		imageInputTokens ?? costs.imageInputTokens,
 		imageOutputTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,

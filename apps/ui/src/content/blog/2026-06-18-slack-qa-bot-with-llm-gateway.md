@@ -218,7 +218,7 @@ The default model is `anthropic/claude-sonnet-4-6`, but it's just an environment
 
 ```bash
 AI_MODEL=openai/gpt-4o
-AI_MODEL=google/gemini-2.5-pro
+AI_MODEL=google-ai-studio/gemini-3.1-pro-preview
 AI_MODEL=anthropic/claude-opus-4-6
 ```
 

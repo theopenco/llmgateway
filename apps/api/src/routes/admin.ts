@@ -228,9 +228,10 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
-		// Provider abuse reports quote the safety identifier we send upstream;
-		// searching on it is how such a report gets traced back to an org.
+		// Provider abuse reports quote the safety identifier we send upstream:
+		// per API key now, per organization for older reports.
 		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
+		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND ak.safety_identifier = ${trimmed})`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
 }
@@ -760,6 +761,7 @@ const apiKeySchema = z.object({
 	usageLimit: z.string().nullable(),
 	projectId: z.string(),
 	projectName: z.string(),
+	safetyIdentifier: z.string(),
 	createdAt: z.string(),
 	iamRules: z.array(iamRuleAdminSchema),
 });
@@ -3646,6 +3648,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			usageLimit: tables.apiKey.usageLimit,
 			projectId: tables.apiKey.projectId,
 			projectName: tables.project.name,
+			safetyIdentifier: tables.apiKey.safetyIdentifier,
 			createdAt: tables.apiKey.createdAt,
 		})
 		.from(tables.apiKey)

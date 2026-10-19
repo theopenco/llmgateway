@@ -1,6 +1,15 @@
 import { createServer, type Server } from "node:http";
 
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -56,6 +65,8 @@ describe("Gemini thought signature replay", () => {
 		"x-no-fallback": "true",
 		"x-no-cache": "true",
 	};
+	// The only Google mapping with healStreamingJsonOutput; pin the clock before
+	// its 2026-10-17 deactivation so the healed-JSON replay stays covered.
 	const model = "google-ai-studio/gemini-3.5-flash";
 
 	beforeAll(async () => {
@@ -160,6 +171,15 @@ describe("Gemini thought signature replay", () => {
 			throw new Error("Missing mock server port");
 		}
 		baseUrl = `http://localhost:${address.port}`;
+	});
+
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	afterAll(async () => {
