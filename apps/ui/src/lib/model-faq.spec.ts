@@ -82,3 +82,19 @@ describe("buildModelFaqs — JSON capability truthfulness", () => {
 		expect(faq.answer).toContain("does not currently support");
 	});
 });
+
+describe("buildModelFaqs — pricing", () => {
+	it("quotes per-page pricing for OCR models instead of $0 token prices", () => {
+		const faqs = buildModelFaqs(model("mistral-ocr-latest"), [
+			{
+				providerId: "mistral",
+				inputPrice: "0",
+				outputPrice: "0",
+				ocrPagePrice: "0.004",
+			},
+		]);
+		const faq = faqs.find((f) => f.question.includes("cost"))!;
+		expect(faq.answer).toContain("$4.00 per 1,000 pages");
+		expect(faq.answer).not.toContain("per million");
+	});
+});
