@@ -24,7 +24,7 @@ Click **Add Provider Key** to configure a new key:
 - **Provider** — Select which provider this key belongs to
 - **Custom name** — An optional label to identify the key
 - **API key** — Your provider's API key
-- **Base URL** — Self-hosted deployments only: a custom endpoint replacing the provider's published one. The hosted service rejects it, so configure the provider's own settings (such as an Azure resource) instead. [Custom providers](/features/custom-providers) always take a base URL.
+- **Base URL** — A custom endpoint replacing the provider's published one, for a built-in provider only where the deployment [allows the override](/self-host#provider-base-url-overrides): self-hosted deployments do by default, the hosted service does not. Configure the provider's own settings (such as an Azure resource) instead. [Custom providers](/features/custom-providers) always take a base URL.
 - **Allowed models** — Optional allowlist restricting which models the key serves
 - **Max spend** — Optional USD cap; the key is disabled once the spend attributed to it reaches the limit
 

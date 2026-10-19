@@ -737,6 +737,30 @@ describe("provider keys route", () => {
 			});
 			expect(res.status).toBe(200);
 		});
+
+		test("rejects an Azure resource that smuggles a host", async () => {
+			vi.stubEnv("HOSTED", "true");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					options: { azure_resource: "evil.example.com/x" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(400);
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "azure" } },
+			});
+			expect(stored).toBeUndefined();
+		});
 	});
 
 	test("POST /keys/provider with duplicate provider", async () => {

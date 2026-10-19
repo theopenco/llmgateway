@@ -379,12 +379,18 @@ export function isValidProviderToken(value: string): boolean {
 	}
 }
 
-// The workspace id becomes a hostname label on the workspace-dedicated
-// endpoint, so it is restricted to what Model Studio issues rather than
-// accepted verbatim.
-const WORKSPACE_ID_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
+// A workspace id or an Azure resource becomes a hostname label on the
+// provider's own endpoint, so both are restricted to a single label rather than
+// accepted verbatim: `evil.example.com/` would otherwise smuggle a different
+// host into the URL the gateway calls.
+const HOSTNAME_LABEL_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
 const WORKSPACE_ID_MESSAGE =
 	"Workspace ID must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_RESOURCE_MESSAGE =
+	"Azure resource must be 1-64 characters of letters, digits, or hyphens";
+const azureResourceSchema = z
+	.string()
+	.regex(HOSTNAME_LABEL_REGEX, AZURE_RESOURCE_MESSAGE);
 
 /**
  * A workspace id is optional: a region whose endpoint is workspace-scoped
@@ -439,20 +445,20 @@ const createProviderKeySchema = z.object({
 					"ap-southeast-2",
 				])
 				.optional(),
-			azure_resource: z.string().optional(),
+			azure_resource: azureResourceSchema.optional(),
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
 			azure_deployment_name: z.string().min(1).optional(),
-			azure_ai_foundry_resource: z.string().optional(),
+			azure_ai_foundry_resource: azureResourceSchema.optional(),
 			azure_ai_foundry_api_version: z.string().optional(),
-			azure_anthropic_resource: z.string().optional(),
+			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
 			alibaba_workspace_id: z
 				.string()
-				.regex(WORKSPACE_ID_REGEX, WORKSPACE_ID_MESSAGE)
+				.regex(HOSTNAME_LABEL_REGEX, WORKSPACE_ID_MESSAGE)
 				.optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
