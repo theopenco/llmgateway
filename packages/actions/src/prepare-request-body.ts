@@ -3406,8 +3406,11 @@ export async function prepareRequestBody(
 					reasoning_split: true,
 				};
 			}
-			// MiniMax doesn't recognize `reasoning_effort`; its thinking models
-			// take a binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
+			// Mappings listing `reasoning_effort` in supportedParameters
+			// (MiniMax-M3.1-Flash) take a graduated effort and reject disabling
+			// thinking, so none/minimal collapse onto the lowest declared tier.
+			// The older thinking models ignore `reasoning_effort` and take a
+			// binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
 			// and think by default. Map `none`/`minimal` to an explicit disable and
 			// every other tier to an explicit enable; when no effort is requested,
 			// send nothing and keep the provider default (thinking on). Only
@@ -3415,7 +3418,21 @@ export async function prepareRequestBody(
 			// ignores `"disabled"` and keeps thinking (verified live) — so mappings
 			// that can disable declare `none` in `reasoningEfforts` and disable
 			// requests collapse onto the minimum (thinking stays on) elsewhere.
-			if (supportsReasoning && reasoning_effort !== undefined) {
+			if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				const lowestEffort =
+					providerMappingForOptions.reasoningEfforts?.[0] ?? "low";
+				requestBody.reasoning_effort = wantsThinking
+					? reasoning_effort
+					: lowestEffort;
+			} else if (supportsReasoning && reasoning_effort !== undefined) {
 				const wantsThinking =
 					reasoning_effort !== "none" && reasoning_effort !== "minimal";
 				const canDisableThinking =
