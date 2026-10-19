@@ -241,6 +241,16 @@ export default async function ModelPage({ params }: PageProps) {
 			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: visibleProviders.length,
+			...(isOcrModel && isFinite(lowestInputPrice)
+				? {
+						priceSpecification: {
+							"@type": "UnitPriceSpecification",
+							price: lowestInputPrice,
+							priceCurrency: "USD",
+							unitText: "per page",
+						},
+					}
+				: {}),
 			availability: "https://schema.org/InStock",
 			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},

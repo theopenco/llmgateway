@@ -1,4 +1,4 @@
-import { perMillion } from "@/lib/discount";
+import { perMillion, applyDiscount } from "@/lib/discount";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -16,6 +16,7 @@ interface FaqProviderInfo {
 	inputPrice?: string | number | null;
 	outputPrice?: string | number | null;
 	ocrPagePrice?: string | number | null;
+	discount?: string | null;
 	tools?: boolean | null;
 	jsonOutput?: boolean | null;
 	jsonOutputSchema?: boolean | null;
@@ -64,7 +65,7 @@ export function buildModelFaqs(
 		.filter((n): n is number => n !== null && Number.isFinite(n));
 
 	const ocrPagePrices = providers
-		.map((p) => Number(p.ocrPagePrice ?? 0))
+		.map((p) => applyDiscount(Number(p.ocrPagePrice ?? 0), p.discount))
 		.filter((n) => Number.isFinite(n) && n > 0);
 
 	if (modelDef.free) {

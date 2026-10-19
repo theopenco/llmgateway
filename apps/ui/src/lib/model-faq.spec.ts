@@ -98,3 +98,13 @@ describe("buildModelFaqs — pricing", () => {
 		expect(faq.answer).not.toContain("per million");
 	});
 });
+
+describe("buildModelFaqs — OCR discount", () => {
+	it("applies provider discounts to the OCR starting price", () => {
+		const faqs = buildModelFaqs(model("mistral-ocr-latest"), [
+			{ providerId: "mistral", ocrPagePrice: "0.004", discount: "0.2" },
+		]);
+		const faq = faqs.find((f) => f.question.includes("cost"))!;
+		expect(faq.answer).toContain("$3.20 per 1,000 pages");
+	});
+});
