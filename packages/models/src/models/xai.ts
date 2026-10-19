@@ -700,6 +700,7 @@ export const xaiModels = [
 				// which 400s on `reasoning_effort` — leaving it undeclared
 				// keeps the gateway from forwarding a value Grok 4.20 rejects.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -725,6 +726,7 @@ export const xaiModels = [
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -1183,6 +1185,10 @@ export const xaiModels = [
 			},
 			{
 				providerId: "vertex-openai",
+				// Vertex 404s ("not found or your project does not have access")
+				// until Grok 4.6 is enabled for the project in Model Garden;
+				// drop this once the platform project has access.
+				stability: "unstable" as const,
 				externalId: "grok-4.6",
 				inputPrice: "2.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1224,6 +1230,7 @@ export const xaiModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
+				regions: [{ id: "global" }],
 			},
 		],
 	},

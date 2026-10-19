@@ -768,16 +768,28 @@ export function getProviderEndpoint(
 				variant,
 			);
 		case "vertex-openai": {
-			const projectId =
+			let projectId =
 				credentialConfig?.project ??
-				providerKeyOptions?.vertex_openai_project_id ??
-				getProviderEnvValue(
+				providerKeyOptions?.vertex_openai_project_id;
+			// Like vertex-anthropic: the credential is service-account JSON that
+			// names its project, so a BYOK key (or the env SA) needs no separate
+			// project setting.
+			if (!projectId && token) {
+				try {
+					projectId = (JSON.parse(token) as { project_id?: string }).project_id;
+				} catch {
+					// not service-account JSON; fall through to env resolution
+				}
+			}
+			if (!projectId && !skipEnvVars) {
+				projectId = getProviderEnvValue(
 					"vertex-openai",
 					"project",
 					configIndex,
 					undefined,
 					variant,
 				);
+			}
 			if (!projectId) {
 				const providerEnv = getProviderEnvConfig("vertex-openai");
 				throw new Error(

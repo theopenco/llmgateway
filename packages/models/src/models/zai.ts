@@ -908,6 +908,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				regions: [{ id: "global" }],
 			},
 			{
 				providerId: "baidu",
@@ -1394,6 +1395,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				regions: [{ id: "global" }],
 			},
 		],
 	},

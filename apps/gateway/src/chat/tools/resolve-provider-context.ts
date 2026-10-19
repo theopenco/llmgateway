@@ -958,6 +958,7 @@ export async function resolveProviderContext(
 				usedProvider === "google-vertex" ||
 				usedProvider === "quartz" ||
 				usedProvider === "vertex-anthropic" ||
+				usedProvider === "vertex-openai" ||
 				transportProvider === "google-vertex"
 				? usedToken
 				: undefined,

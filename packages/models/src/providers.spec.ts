@@ -554,6 +554,27 @@ describe("AWS Bedrock Anthropic regions", () => {
 	});
 });
 
+describe("Vertex AI (OpenAI-compatible) regions", () => {
+	// Vertex serves partner and MaaS models on the global endpoint; an
+	// unpinned mapping inherits the credential's region (e.g. us-central1)
+	// and 404s.
+	it("pins every mapping to the global region", () => {
+		const vertexOpenaiMappings = models.flatMap((model) =>
+			model.providers
+				.filter((provider) => provider.providerId === "vertex-openai")
+				.map((provider) => ({ model: model.id, provider })),
+		);
+
+		expect(vertexOpenaiMappings.length).toBeGreaterThan(0);
+		for (const { model, provider } of vertexOpenaiMappings) {
+			expect({ model, regions: getRegionIds(provider) }).toEqual({
+				model,
+				regions: ["global"],
+			});
+		}
+	});
+});
+
 describe("AtlasCloud video models", () => {
 	it("defines provider metadata and environment variables", () => {
 		const provider = providers.find((item) => item.id === "atlascloud");

@@ -269,6 +269,7 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				regions: [{ id: "global" }],
 			},
 		],
 	},

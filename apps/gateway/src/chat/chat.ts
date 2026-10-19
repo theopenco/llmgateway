@@ -7307,7 +7307,11 @@ chat.openapi(completions, async (c) => {
 	// usedToken already holds the selected SA JSON: round-robin no longer
 	// splits a JSON credential on its inner commas, so the selected entry is
 	// used as-is (whether it came from a provider key or the env var).
+	// Keep the SA JSON: the endpoint derives the project from it when the
+	// credential carries no explicit project setting.
+	let vertexOpenaiServiceAccountJson: string | undefined;
 	if (usedProvider === "vertex-openai") {
+		vertexOpenaiServiceAccountJson = usedToken;
 		usedToken = await getGcpServiceAccountAccessToken(usedToken);
 	}
 
@@ -7633,7 +7637,11 @@ chat.openapi(completions, async (c) => {
 				endpointProvider,
 				credentialBaseUrl ?? airsideCustomBaseUrl,
 				upstreamModelName,
-				usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
+				usesGoogleQueryToken(transportProvider)
+					? usedToken
+					: usedProvider === "vertex-openai"
+						? vertexOpenaiServiceAccountJson
+						: undefined,
 				stream,
 				supportsReasoning,
 				hasExistingToolCalls,
