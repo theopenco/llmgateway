@@ -83,6 +83,7 @@ export {
 	SELF_REFUND_USAGE_PERCENT,
 	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
+	buildRefundDescription,
 	isRefundFeedbackComplete,
 	refundCommentsRequired,
 	type RefundReason,

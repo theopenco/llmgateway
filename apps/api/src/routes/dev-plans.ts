@@ -89,6 +89,7 @@ import {
 	DEV_PLAN_RESET_PASS_PRICES,
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
+	buildRefundDescription,
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
@@ -2800,6 +2801,8 @@ devPlans.openapi(getInvoices, async (c) => {
 		},
 	});
 
+	const transactionsById = new Map(transactions.map((t) => [t.id, t]));
+
 	const invoices = transactions
 		.filter(
 			(t) =>
@@ -2819,7 +2822,18 @@ devPlans.openapi(getInvoices, async (c) => {
 			creditAmount: t.creditAmount,
 			currency: t.currency,
 			status: t.status,
-			description: t.description,
+			// Refund rows stored before buildRefundDescription existed read
+			// "Credit refund: …" whatever was refunded — rebuild the text from the
+			// refunded original rather than trusting the stored wording.
+			description:
+				t.type === "credit_refund"
+					? buildRefundDescription(
+							Number.parseFloat(t.amount ?? "0"),
+							t.relatedTransactionId
+								? transactionsById.get(t.relatedTransactionId)
+								: null,
+						)
+					: t.description,
 			refund: hasRefundAction(t)
 				? computeSelfRefundEligibility({
 						organization: personalOrg,
