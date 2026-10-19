@@ -122,3 +122,9 @@ key's own settings (such as an Azure resource) applied. Set
 `ALLOW_PROVIDER_BASE_URL_OVERRIDE` to `true` or `false` to override either
 default. [Custom providers](/features/custom-providers) are unaffected — their
 base URL defines them.
+
+Where the override is disallowed, a key that already stores one is skipped by
+routing rather than redirected to the published endpoint, whose host the key's
+token may not be meant for. Another key for the provider, another provider, or
+(in hybrid mode) credits serve the request instead, and the gateway logs the
+key it skipped.
