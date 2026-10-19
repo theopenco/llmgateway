@@ -112,6 +112,10 @@ export function ProviderKeyAlertsSettings() {
 	const slackConfigured = !!channelsQuery.data?.channels.some(
 		(c) => c.kind === "slack",
 	);
+	// Slack delivery is an enterprise feature: a lapsed plan keeps its webhook
+	// row but the worker drops Slack, so the form must not offer it either.
+	const slackEligible =
+		slackConfigured && selectedOrganization?.enterpriseAccess === true;
 	const [settings, setSettings] = useState<ProviderKeyAlertSettings>(
 		DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
 	);
@@ -152,7 +156,7 @@ export function ProviderKeyAlertsSettings() {
 				body: {
 					...settings,
 					channels:
-						settings.channels.includes("slack") && slackConfigured
+						settings.channels.includes("slack") && slackEligible
 							? ["slack"]
 							: [],
 				},
@@ -250,23 +254,27 @@ export function ProviderKeyAlertsSettings() {
 				<div className="flex items-center justify-between gap-4">
 					<span className="text-sm">
 						Slack
-						{slackConfigured ? null : (
+						{slackEligible ? null : (
 							<span className="text-muted-foreground">
 								{" "}
 								—{" "}
-								<Link
-									href={preferencesUrl}
-									className="whitespace-nowrap underline underline-offset-4"
-								>
-									connect a webhook
-								</Link>
+								{slackConfigured ? (
+									"requires Enterprise"
+								) : (
+									<Link
+										href={preferencesUrl}
+										className="whitespace-nowrap underline underline-offset-4"
+									>
+										connect a webhook
+									</Link>
+								)}
 							</span>
 						)}
 					</span>
 					<Switch
 						aria-label="Slack"
-						checked={settings.channels.includes("slack") && slackConfigured}
-						disabled={disabled || !slackConfigured}
+						checked={settings.channels.includes("slack") && slackEligible}
+						disabled={disabled || !slackEligible}
 						onCheckedChange={(slack) =>
 							update({ channels: slack ? ["slack"] : [] })
 						}

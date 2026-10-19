@@ -203,6 +203,7 @@ describe("processProviderKeyAlerts", () => {
 		await redisClient.del(
 			cooldownKey(ORG, shortRule.id, KEY),
 			cooldownKey(ORG, shortRule.id, PLATFORM),
+			cooldownKey(ORG, shortRule.id, platformTargetId("openai")),
 		);
 
 		await db.insert(tables.user).values([
@@ -298,16 +299,53 @@ describe("processProviderKeyAlerts", () => {
 		expect(notifications[0]).toMatchObject({ inApp: true, email: true });
 	});
 
-	it("does not raise a second alert when a pass retries inside the cooldown", async () => {
+	it("resumes a failed fan-out under its original event key", async () => {
+		// A pass reserved the cooldown in an earlier slot and failed before the
+		// alert row was written; the marker it left behind pins its event key.
+		const twoSlotsMs = 2 * shortRule.cooldownMinutes * 60_000;
+		const earlier = new Date(Date.now() - twoSlotsMs);
+		const pinned = alertEventKey(shortRule, KEY, earlier);
+		const cooldown = cooldownKey(ORG, shortRule.id, KEY);
+		await redisClient.set(cooldown, `pending:${pinned}`, "EX", 3600);
+
 		await processProviderKeyAlerts();
-		// A failed fan-out releases the cooldown; the retry must dedupe.
-		await redisClient.del(cooldownKey(ORG, shortRule.id, KEY));
+		const alerts = await db.query.organizationAlert.findMany({
+			where: { organizationId: ORG },
+		});
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0].eventKey).toBe(`${ORG}:${pinned}`);
+		expect(await redisClient.get(cooldown)).toBe("sent");
+		expect(await redisClient.ttl(cooldown)).toBeLessThanOrEqual(3600);
+
+		// Another pass inside the cooldown is a no-op.
 		await processProviderKeyAlerts();
 		expect(
 			await db.query.organizationAlert.findMany({
 				where: { organizationId: ORG },
 			}),
 		).toHaveLength(1);
+	});
+
+	it("does not raise a second alert when a pass retries a sent alert", async () => {
+		await processProviderKeyAlerts();
+		// Simulate a fan-out that wrote the alert row but failed afterwards: the
+		// marker stays pending and the retry dedupes on the event key.
+		const cooldown = cooldownKey(ORG, shortRule.id, KEY);
+		const [alert] = await db.query.organizationAlert.findMany({
+			where: { organizationId: ORG },
+		});
+		await redisClient.set(
+			cooldown,
+			`pending:${alert.eventKey.slice(ORG.length + 1)}`,
+			"KEEPTTL",
+		);
+		await processProviderKeyAlerts();
+		expect(
+			await db.query.organizationAlert.findMany({
+				where: { organizationId: ORG },
+			}),
+		).toHaveLength(1);
+		expect(await redisClient.get(cooldown)).toBe("sent");
 	});
 
 	it("drops Slack delivery without enterprise access", async () => {
@@ -337,6 +375,41 @@ describe("processProviderKeyAlerts", () => {
 		});
 		expect(alert.message).toContain("75.0% of 20 credit requests");
 		expect(alert.href).toBe("/providers/anthropic");
+	});
+
+	it("counts credit traffic on environment credentials, which has no key row", async () => {
+		await db.update(tables.organization).set({
+			providerKeyAlertSettings: { ...settings, keySource: "platform" },
+		});
+		await db.delete(tables.providerKeyHourlyStats);
+		const createdAt = new Date(Date.now() - 60_000);
+		await db.insert(tables.log).values(
+			Array.from({ length: 20 }, (_, i) => ({
+				requestId: `pka-env-${i}`,
+				organizationId: ORG,
+				projectId: "pka-project",
+				apiKeyId: "pka-api-key",
+				providerKeyId: null,
+				createdAt,
+				duration: 100,
+				requestedModel: "gpt-4o",
+				usedModel: "gpt-4o",
+				usedProvider: "openai",
+				responseSize: 0,
+				mode: "credits" as const,
+				usedMode: "credits" as const,
+				unifiedFinishReason: i < 15 ? "upstream_error" : "completed",
+			})),
+		);
+		await processProviderKeyAlerts();
+		expect(await alertTitles()).toEqual([
+			"LLM Gateway's OpenAI credentials are failing your requests",
+		]);
+		const [alert] = await db.query.organizationAlert.findMany({
+			where: { organizationId: ORG },
+		});
+		expect(alert.message).toContain("75.0% of 20 credit requests");
+		expect(alert.message).toContain("gpt-4o 75% (15/20)");
 	});
 
 	it("judges both kinds when the source is any", async () => {

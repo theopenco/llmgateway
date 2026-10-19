@@ -10,6 +10,7 @@ import {
 	providerKey,
 	providerKeyHourlyStats,
 	sql,
+	isNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getProviderDefinition } from "@llmgateway/models";
@@ -172,8 +173,9 @@ function formatWindow(minutes: number): string {
 }
 
 /**
- * Event key shared by every retry inside one cooldown slot, so a fan-out that
- * failed midway completes on the next pass instead of raising a second alert.
+ * Event key for an alert raised in one cooldown slot. `reserveCooldown` pins
+ * it for the lifetime of the incident, so retries after a failed fan-out keep
+ * deduplicating against the same alert.
  */
 export function alertEventKey(
 	rule: ProviderKeyAlertRule,
@@ -192,6 +194,39 @@ export function cooldownKey(
 	return `provider_key_alert:${organizationId}:${ruleId}:${targetId}`;
 }
 
+const COOLDOWN_PENDING_PREFIX = "pending:";
+const COOLDOWN_SENT = "sent";
+
+/**
+ * Reserves the cooldown for one alert and returns its event key, or `null`
+ * while a delivered alert's cooldown is still running. The key holds the
+ * event key until the fan-out completes: a pass that failed midway is resumed
+ * under the same key by the next pass, so event-key deduplication finishes
+ * the earlier alert even after the cooldown slot has rolled over.
+ */
+export async function reserveCooldown(
+	cooldown: string,
+	rule: ProviderKeyAlertRule,
+	targetId: string,
+	now: Date,
+): Promise<string | null> {
+	const eventKey = alertEventKey(rule, targetId, now);
+	const reserved = await redisClient.set(
+		cooldown,
+		`${COOLDOWN_PENDING_PREFIX}${eventKey}`,
+		"EX",
+		rule.cooldownMinutes * 60,
+		"NX",
+	);
+	if (reserved === "OK") {
+		return eventKey;
+	}
+	const current = await redisClient.get(cooldown);
+	return current?.startsWith(COOLDOWN_PENDING_PREFIX)
+		? current.slice(COOLDOWN_PENDING_PREFIX.length)
+		: null;
+}
+
 const errorCountColumns = {
 	requestCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.requestCount}), 0)::bigint`,
 	clientErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.clientErrorCount}), 0)::bigint`,
@@ -201,7 +236,9 @@ const errorCountColumns = {
 	retriedUpstreamErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.retriedUpstreamErrorCount}), 0)::bigint`,
 };
 
-function toCounts(row: Record<keyof typeof errorCountColumns, string>) {
+function toCounts(
+	row: Record<keyof typeof errorCountColumns, string>,
+): ErrorCounts {
 	return {
 		requestCount: Number(row.requestCount),
 		clientErrorCount: Number(row.clientErrorCount),
@@ -211,6 +248,15 @@ function toCounts(row: Record<keyof typeof errorCountColumns, string>) {
 		retriedUpstreamErrorCount: Number(row.retriedUpstreamErrorCount),
 	};
 }
+
+const logErrorCountColumns = {
+	requestCount: sql<string>`count(*)::bigint`,
+	clientErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'client_error')::bigint`,
+	gatewayErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'gateway_error')::bigint`,
+	upstreamErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'upstream_error')::bigint`,
+	retriedGatewayErrorCount: sql<string>`count(*) filter (where ${log.retried} = true and ${log.unifiedFinishReason} = 'gateway_error')::bigint`,
+	retriedUpstreamErrorCount: sql<string>`count(*) filter (where ${log.retried} = true and ${log.unifiedFinishReason} = 'upstream_error')::bigint`,
+};
 
 async function queryByokErrorCounts(
 	keyIds: string[],
@@ -225,17 +271,24 @@ async function queryByokErrorCounts(
 	return rows.map((row) => ({ targetId: row.targetId, ...toCounts(row) }));
 }
 
-/**
- * The organization's credit traffic on platform credentials, per provider.
- * `provider_key_hourly_stats` keeps `projectId` in its grain for exactly this
- * per-tenant split of a shared credential.
- */
 async function queryPlatformErrorCounts(
 	projectIds: string[],
 	since: Date,
+	now: Date,
 ): Promise<(TargetErrorCounts & { providerId: string })[]> {
 	const s = providerKeyHourlyStats;
-	const rows = await db
+	const byProvider = new Map<string, ErrorCounts>();
+	const add = (providerId: string, counts: ErrorCounts) => {
+		const current = byProvider.get(providerId);
+		if (!current) {
+			byProvider.set(providerId, counts);
+			return;
+		}
+		for (const key of Object.keys(counts) as (keyof ErrorCounts)[]) {
+			current[key] += counts[key];
+		}
+	};
+	const managedRows = await db
 		.select({ providerId: providerKey.provider, ...errorCountColumns })
 		.from(s)
 		.innerJoin(providerKey, eq(providerKey.id, s.providerKeyId))
@@ -247,19 +300,38 @@ async function queryPlatformErrorCounts(
 			),
 		)
 		.groupBy(providerKey.provider);
-	return rows.map((row) => ({
-		targetId: platformTargetId(row.providerId),
-		providerId: row.providerId,
-		...toCounts(row),
+	for (const row of managedRows) {
+		add(row.providerId, toCounts(row));
+	}
+	// Credentials configured through environment variables have no
+	// `provider_key` row, so their traffic is logged with a null key id and
+	// never reaches the hourly rollup. Read it from `log`, bounded by
+	// `log_project_id_created_at_idx`.
+	const envRows = await db
+		.select({ providerId: log.usedProvider, ...logErrorCountColumns })
+		.from(log)
+		.where(
+			and(
+				inArray(log.projectId, projectIds),
+				isNull(log.providerKeyId),
+				eq(log.usedMode, "credits"),
+				gte(log.createdAt, since),
+				lt(log.createdAt, now),
+			),
+		)
+		.groupBy(log.usedProvider);
+	for (const row of envRows) {
+		if (row.providerId) {
+			add(row.providerId, toCounts(row));
+		}
+	}
+	return [...byProvider.entries()].map(([providerId, counts]) => ({
+		targetId: platformTargetId(providerId),
+		providerId,
+		...counts,
 	}));
 }
 
-/**
- * Per-model split for one target that already breached a rule. No rollup
- * holds this in near real time, so it reads `log` once per alert, bounded by
- * `log_provider_key_id_created_at_idx` (own keys) or
- * `log_project_id_created_at_idx` (platform credentials) on both ends.
- */
 async function queryModelBreakdown(
 	target: AlertTarget,
 	projectIds: string[],
@@ -269,12 +341,7 @@ async function queryModelBreakdown(
 	const rows = await db
 		.select({
 			usedModel: sql<string>`coalesce(${log.usedModel}, 'unknown')`,
-			requestCount: sql<string>`count(*)::bigint`,
-			clientErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'client_error')::bigint`,
-			gatewayErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'gateway_error')::bigint`,
-			upstreamErrorCount: sql<string>`count(*) filter (where ${log.unifiedFinishReason} = 'upstream_error')::bigint`,
-			retriedGatewayErrorCount: sql<string>`count(*) filter (where ${log.retried} = true and ${log.unifiedFinishReason} = 'gateway_error')::bigint`,
-			retriedUpstreamErrorCount: sql<string>`count(*) filter (where ${log.retried} = true and ${log.unifiedFinishReason} = 'upstream_error')::bigint`,
+			...logErrorCountColumns,
 		})
 		.from(log)
 		.where(
@@ -383,7 +450,7 @@ async function alertRule(
 		);
 	}
 	if (source !== "byok" && projectIds.length) {
-		for (const row of await queryPlatformErrorCounts(projectIds, since)) {
+		for (const row of await queryPlatformErrorCounts(projectIds, since, now)) {
 			targets.set(row.targetId, {
 				kind: "platform",
 				id: row.targetId,
@@ -398,34 +465,26 @@ async function alertRule(
 			continue;
 		}
 		const cooldown = cooldownKey(org.id, rule.id, target.id);
-		const reserved = await redisClient.set(
-			cooldown,
-			"1",
-			"EX",
-			rule.cooldownMinutes * 60,
-			"NX",
-		);
-		if (reserved !== "OK") {
+		const eventKey = await reserveCooldown(cooldown, rule, target.id, now);
+		if (!eventKey) {
 			continue;
 		}
-		try {
-			const models = await queryModelBreakdown(target, projectIds, since, now);
-			await emitOrgAlert(
-				org,
-				{ ...delivery, recipientAudience: "admin" },
-				{
-					type: "provider_key_errors",
-					eventKey: alertEventKey(rule, target.id, now),
-					title: `${targetLabel(target)} ${target.kind === "platform" ? "are" : "is"} failing your requests`,
-					message: buildAlertMessage(rule, target, hit, models),
-					href: targetHref(org, target),
-				},
-			);
-		} catch (error) {
-			// Release the cooldown so the next pass retries the alert.
-			await redisClient.del(cooldown);
-			throw error;
-		}
+		// A failed fan-out leaves the pending marker in place, so the next pass
+		// resumes this alert under the same event key instead of raising a new
+		// one when the cooldown slot has moved on.
+		const models = await queryModelBreakdown(target, projectIds, since, now);
+		await emitOrgAlert(
+			org,
+			{ ...delivery, recipientAudience: "admin" },
+			{
+				type: "provider_key_errors",
+				eventKey,
+				title: `${targetLabel(target)} ${target.kind === "platform" ? "are" : "is"} failing your requests`,
+				message: buildAlertMessage(rule, target, hit, models),
+				href: targetHref(org, target),
+			},
+		);
+		await redisClient.set(cooldown, COOLDOWN_SENT, "KEEPTTL");
 		logger.info("Sent provider key error-rate alert", {
 			organizationId: org.id,
 			targetId: target.id,

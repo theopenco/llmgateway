@@ -27,7 +27,10 @@ import {
 } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ComplianceAlertSettings } from "@llmgateway/db";
+import type {
+	ComplianceAlertSettings,
+	OrganizationNotificationChannelKind,
+} from "@llmgateway/db";
 import type { Context } from "hono";
 
 export const complianceAlerts = new OpenAPIHono<ServerTypes>();
@@ -52,6 +55,22 @@ async function logSettingsChange(
 		},
 	});
 }
+/** The same settings with Slack delivery dropped, or `null` when it was off. */
+function withoutSlack<
+	T extends { channels: OrganizationNotificationChannelKind[] },
+>(settings: T | null | undefined): { old: T; next: T } | null {
+	if (!settings?.channels.includes("slack")) {
+		return null;
+	}
+	return {
+		old: settings,
+		next: {
+			...settings,
+			channels: settings.channels.filter((k) => k !== "slack"),
+		},
+	};
+}
+
 const DEFAULT_SETTINGS = {
 	inApp: true,
 	email: true,
@@ -235,50 +254,72 @@ complianceAlerts.openapi(
 	}),
 	async (c) => {
 		const { organizationId } = c.req.valid("param");
-		const { user, organization } = await assertOrgAccess(c, organizationId, {
+		const { user } = await assertOrgAccess(c, organizationId, {
 			manage: true,
 		});
-		const [removed] = await db
-			.delete(tables.organizationNotificationChannel)
-			.where(
-				and(
-					eq(
-						tables.organizationNotificationChannel.organizationId,
-						organizationId,
-					),
-					eq(tables.organizationNotificationChannel.kind, "slack"),
-				),
-			)
-			.returning();
-		const settings = organization.complianceAlertSettings;
-		if (settings?.channels.includes("slack")) {
-			const next = {
-				...settings,
-				channels: settings.channels.filter((k) => k !== "slack"),
-			};
-			await db
-				.update(tables.organization)
-				.set({ complianceAlertSettings: next })
-				.where(eq(tables.organization.id, organizationId));
-			await logSettingsChange(organizationId, user.id, settings, next);
+		// Lock the organization row so the cleanup reads the settings as they are
+		// now, not the snapshot from access checking: a concurrent settings save
+		// must not be overwritten with stale rules.
+		const { removed, compliance, keyAlerts } = await db.transaction(
+			async (tx) => {
+				const [removed] = await tx
+					.delete(tables.organizationNotificationChannel)
+					.where(
+						and(
+							eq(
+								tables.organizationNotificationChannel.organizationId,
+								organizationId,
+							),
+							eq(tables.organizationNotificationChannel.kind, "slack"),
+						),
+					)
+					.returning();
+				const [current] = await tx
+					.select({
+						complianceAlertSettings:
+							tables.organization.complianceAlertSettings,
+						providerKeyAlertSettings:
+							tables.organization.providerKeyAlertSettings,
+					})
+					.from(tables.organization)
+					.where(eq(tables.organization.id, organizationId))
+					.for("update");
+				const compliance = withoutSlack(current?.complianceAlertSettings);
+				const keyAlerts = withoutSlack(current?.providerKeyAlertSettings);
+				if (compliance || keyAlerts) {
+					await tx
+						.update(tables.organization)
+						.set({
+							...(compliance
+								? { complianceAlertSettings: compliance.next }
+								: {}),
+							...(keyAlerts
+								? { providerKeyAlertSettings: keyAlerts.next }
+								: {}),
+						})
+						.where(eq(tables.organization.id, organizationId));
+				}
+				return { removed, compliance, keyAlerts };
+			},
+		);
+		if (compliance) {
+			await logSettingsChange(
+				organizationId,
+				user.id,
+				compliance.old,
+				compliance.next,
+			);
 		}
-		const keyAlerts = organization.providerKeyAlertSettings;
-		if (keyAlerts?.channels.includes("slack")) {
-			const next = {
-				...keyAlerts,
-				channels: keyAlerts.channels.filter((k) => k !== "slack"),
-			};
-			await db
-				.update(tables.organization)
-				.set({ providerKeyAlertSettings: next })
-				.where(eq(tables.organization.id, organizationId));
+		if (keyAlerts) {
 			await logAuditEvent({
 				organizationId,
 				userId: user.id,
 				action: "provider_key_alert.settings_update",
 				resourceType: "provider_key_alert",
 				resourceId: organizationId,
-				metadata: { changes: { settings: { old: keyAlerts, new: next } } },
+				metadata: {
+					changes: { settings: { old: keyAlerts.old, new: keyAlerts.next } },
+				},
 			});
 		}
 		if (removed) {
