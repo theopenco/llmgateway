@@ -62,6 +62,10 @@ const providerSchema = z.object({
 	airsideIconUrl: z.string().nullable(),
 	// Self-declared public profile of a custom Airside carrier (display only).
 	airsideProfile: publicAirsideProfileSchema.nullable(),
+	// Whether the provider trains on prompts sent through its API. `true` is
+	// what model pickers warn on; `null` means the provider has not published a
+	// data policy, which is not the same as "does not train".
+	apiTraining: z.boolean().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -735,18 +739,22 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		claim: (typeof activeClaims)[number] | undefined,
 	) => (claim ? publicAirsideProfile(claim) : null);
 
-	// modelCardBadge only exists in the catalogue, not the provider table
+	// modelCardBadge and the data policy only exist in the catalogue, not the
+	// provider table
 	return c.json({
-		providers: providers.map((provider) => ({
-			...provider,
-			name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
-			modelCardBadge:
-				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
-				null,
-			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
-			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
-			airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
-		})),
+		providers: providers.map((provider) => {
+			const definition = providerDefinitions.find((p) => p.id === provider.id);
+			const branding = brandingByProvider.get(provider.id);
+			return {
+				...provider,
+				name: branding?.customName ?? provider.name,
+				modelCardBadge: definition?.modelCardBadge ?? null,
+				apiTraining: definition?.dataPolicy?.apiTraining ?? null,
+				airsideLogoUrl: branding?.logoUrl ?? null,
+				airsideIconUrl: branding?.iconUrl ?? null,
+				airsideProfile: airsideProfileFor(branding),
+			};
+		}),
 	});
 });
 

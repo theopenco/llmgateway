@@ -18,6 +18,7 @@ import { adminModelVerifications } from "./admin-model-verifications.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import { adminProviderAccess } from "./admin-provider-access.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
+import { adminProviderDpas } from "./admin-provider-dpas.js";
 import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
 import { adminSdk } from "./admin-sdk.js";
 import admin from "./admin.js";
@@ -110,6 +111,7 @@ routes.route("/admin", adminAirside);
 routes.route("/admin", adminModelVerifications);
 routes.route("/admin", adminSdk);
 routes.route("/admin", adminCrm);
+routes.route("/admin", adminProviderDpas);
 
 routes.route("/airside", airside);
 

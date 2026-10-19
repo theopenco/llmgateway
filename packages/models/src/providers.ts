@@ -198,6 +198,48 @@ export function narrowPolicyToDevPass(
 		: undefined;
 }
 
+/**
+ * The subset of {@link ProviderCompliancePolicy} that decides **where personal
+ * data may be transferred**, as opposed to the certification and procurement
+ * governance the rest of the policy expresses.
+ *
+ * This split exists for a legal reason, not a commercial one. For the prompts a
+ * customer routes through us they are the controller, so they — not us — carry
+ * the Art. 44-49 obligation for a transfer to a provider in a country with no
+ * adequacy decision. A control that is the customer's only means of discharging
+ * that obligation cannot sit behind a plan upgrade, so these can be configured
+ * on every plan (enforced at save time by the API). Certification
+ * requirements and the fine-grained allow/block lists stay an enterprise
+ * feature: they are governance tooling, not a lawful-basis mechanism.
+ */
+export const DATA_PROTECTION_POLICY_KEYS = [
+	"requireGdpr",
+	"blockApiTraining",
+	"blockPromptLogging",
+	"blockStealthProviders",
+	"allowedCountries",
+] as const satisfies readonly (keyof ProviderCompliancePolicy)[];
+
+/**
+ * Projects a policy onto the data-protection controls in
+ * {@link DATA_PROTECTION_POLICY_KEYS}, preserving `enabled`.
+ *
+ * This is the subset a non-enterprise organization may configure, so the
+ * dashboard uses it to build what it saves and previews for those plans.
+ */
+export function projectPolicyToDataProtection(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy {
+	return {
+		enabled: policy.enabled,
+		requireGdpr: policy.requireGdpr,
+		blockApiTraining: policy.blockApiTraining,
+		blockPromptLogging: policy.blockPromptLogging,
+		blockStealthProviders: policy.blockStealthProviders,
+		allowedCountries: policy.allowedCountries,
+	};
+}
+
 export interface ProviderDefinition {
 	id: string;
 	name: string;
@@ -1371,6 +1413,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
+			gdpr: null,
 		},
 	},
 	{
@@ -2096,6 +2139,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			gdpr: null,
 		},
 		additionalLinks: [
 			{
@@ -2135,6 +2179,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			promptLogging: false,
 			retentionPeriod: null,
+			gdpr: null,
 		},
 		priority: 1.2,
 	},
@@ -2193,6 +2238,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			promptLogging: null,
 			retentionPeriod: null,
+			gdpr: null,
 		},
 		additionalLinks: [
 			{

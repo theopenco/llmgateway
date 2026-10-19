@@ -15,10 +15,13 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	providers,
 	type ComplianceFailureReason,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
+
+import { findDpaSignedProviderIds } from "./cached-queries.js";
 
 import type { ProviderDefinition } from "@llmgateway/models";
 
@@ -50,18 +53,96 @@ export function getEffectiveRetentionLevel(
  * The active provider compliance policy for an organization, or `undefined`
  * when none is enabled. Enforcement deliberately checks neither enterprise
  * access nor the organization kind: what a policy may contain is restricted at
- * configuration time in the API (full policies need enterprise access, DevPass
- * settings can only write the no-training requirement), but an enabled stored
- * policy must fail closed. Gating enforcement on plan/license silently dropped
- * all restrictions when the gate misfired, and narrowing by kind stripped the
- * full policy of a devpass-kind org that holds an enterprise plan down to the
- * no-training requirement — both are compliance breaches, not downgrades.
+ * configuration time in the API (full policies need enterprise access, other
+ * plans may only save the data-protection subset in `DATA_PROTECTION_POLICY_KEYS`
+ * and DevPass settings can only write the no-training requirement), but an
+ * enabled stored policy must fail closed. Gating enforcement on plan/license
+ * silently dropped all restrictions when the gate misfired, and narrowing by
+ * kind stripped the full policy of a devpass-kind org that holds an enterprise
+ * plan down to the no-training requirement — both are compliance breaches, not downgrades.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
 	const policy = organization.providerCompliancePolicy;
 	return policy?.enabled ? policy : undefined;
+}
+
+/**
+ * Whether `requireGdpr` additionally requires a signed data-processing
+ * agreement on record for the provider (`provider.dpaSignedAt`, maintained in
+ * the admin dashboard). Off by default so enabling DPA tracking does not break
+ * existing `requireGdpr` routing; infra flips the flag once the records are
+ * filled in.
+ */
+export function isDpaEnforcementEnabled(): boolean {
+	return process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR === "true";
+}
+
+/**
+ * Pseudo-providers with no upstream operator to contract with: `llmgateway` is
+ * the internal router, and `custom` providers carry their posture per-org as a
+ * compliance attestation. Neither can have a DPA row, and blocking them here
+ * would break routing that the DPA requirement is not about.
+ */
+const DPA_EXEMPT_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
+
+/**
+ * Folds the DPA requirement into the policy by extending `blockedProviders`
+ * with every catalogue provider that has no signed agreement on record.
+ *
+ * Expressed through the existing block list rather than a new check so every
+ * consumer — pinned-provider checks, mapping filters, the OpenAI fallback —
+ * enforces it without threading extra state through each call site. Under
+ * `requireGdpr` the extra ids are at worst redundant: providers that are not
+ * `gdpr: true` in the catalogue are already blocked. Note the dashboard's
+ * impact preview cannot see this server-side merge (it knows neither the flag
+ * nor the signed set), so with the flag on it may show a provider as allowed
+ * that the gateway blocks.
+ */
+export function applyDpaRequirement(
+	policy: ProviderCompliancePolicy,
+	signedProviderIds: ReadonlySet<string>,
+	candidateProviders: readonly ProviderDefinition[] = providers,
+): ProviderCompliancePolicy {
+	const unsigned = candidateProviders
+		.filter(
+			(provider) =>
+				!DPA_EXEMPT_PROVIDER_IDS.has(provider.id) &&
+				!signedProviderIds.has(provider.id),
+		)
+		.map((provider) => provider.id);
+
+	if (unsigned.length === 0) {
+		return policy;
+	}
+
+	return {
+		...policy,
+		blockedProviders: [...(policy.blockedProviders ?? []), ...unsigned],
+	};
+}
+
+/**
+ * Applies the signed-DPA requirement to an active policy when the enforcement
+ * flag is on and the policy asks for GDPR-compliant providers. Anything else —
+ * flag off, no policy, or a policy without `requireGdpr` — passes through
+ * unchanged, so default routing is unaffected.
+ */
+export async function withDpaEnforcement(
+	policy: ProviderCompliancePolicy | undefined,
+): Promise<ProviderCompliancePolicy | undefined> {
+	if (!policy?.requireGdpr || !isDpaEnforcementEnabled()) {
+		return policy;
+	}
+	// Effective providers, not just the static catalogue: an active Airside
+	// carrier can self-declare `gdpr: true`, and it has no DPA record either, so
+	// leaving it out would let it satisfy `requireGdpr` unchecked.
+	const [signedIds, effectiveProviders] = await Promise.all([
+		findDpaSignedProviderIds(),
+		getEffectiveProviders(),
+	]);
+	return applyDpaRequirement(policy, new Set(signedIds), effectiveProviders);
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */
@@ -213,7 +294,9 @@ export async function assertProviderCompliant(
 		model?: string;
 	},
 ): Promise<void> {
-	const policy = getActiveCompliancePolicy(organization);
+	const policy = await withDpaEnforcement(
+		getActiveCompliancePolicy(organization),
+	);
 	if (
 		!policy ||
 		(isProviderIdCompliant(providerId, policy, {

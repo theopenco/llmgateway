@@ -66,7 +66,12 @@ import {
 	projectHourlyStats,
 	getEffectiveProviders,
 } from "@llmgateway/db";
-import { getProviderCountries, models, providers } from "@llmgateway/models";
+import {
+	DATA_PROTECTION_POLICY_KEYS,
+	getProviderCountries,
+	models,
+	providers,
+} from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,
@@ -783,8 +788,16 @@ organization.openapi(updateOrganization, async (c) => {
 	const grandfatheredRetain =
 		retentionLevel === "retain" && !retentionEnterpriseAccess;
 
-	// DevPass accepts only the no-API-training requirement, regardless of plan.
-	// Other organizations retain the enterprise gate for enabling a policy.
+	// Compliance policies are managed by owners and admins (matching the
+	// Guardrails settings page). DevPass accepts only the no-API-training
+	// requirement, regardless of plan. For other organizations the
+	// certification requirements and fine-grained allow/block lists are an
+	// enterprise feature; the data-protection controls are not, because they are
+	// the customer's only means of constraining where their personal data is
+	// transferred, and they are the controller for it. Non-enterprise orgs may
+	// therefore save the narrowed policy, and anything outside that subset is
+	// rejected rather than silently dropped — a policy that appears to require
+	// SOC 2 but does not enforce it is worse than one that refuses to be saved.
 	if (providerCompliancePolicy !== undefined) {
 		if (
 			userOrganization.role !== "owner" &&
@@ -841,9 +854,25 @@ organization.openapi(updateOrganization, async (c) => {
 				userOrganization.organization?.plan,
 			)
 		) {
-			throw new HTTPException(403, {
-				message: "Provider compliance policies require an enterprise plan",
-			});
+			const enterpriseOnlyKeys = Object.entries(providerCompliancePolicy)
+				.filter(([key, value]) => {
+					if (key === "enabled") {
+						return false;
+					}
+					if (
+						(DATA_PROTECTION_POLICY_KEYS as readonly string[]).includes(key)
+					) {
+						return false;
+					}
+					return Array.isArray(value) ? value.length > 0 : Boolean(value);
+				})
+				.map(([key]) => key);
+
+			if (enterpriseOnlyKeys.length > 0) {
+				throw new HTTPException(403, {
+					message: `These compliance settings require an enterprise plan: ${enterpriseOnlyKeys.join(", ")}. Data-protection controls (${DATA_PROTECTION_POLICY_KEYS.join(", ")}) are available on every plan.`,
+				});
+			}
 		}
 	}
 

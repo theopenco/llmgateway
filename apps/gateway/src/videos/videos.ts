@@ -43,6 +43,7 @@ import {
 	isProviderIdCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
+	withDpaEnforcement,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -4694,7 +4695,12 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
-	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	// `withDpaEnforcement` additionally blocks providers without a signed DPA
+	// on record when REQUIRE_PROVIDER_DPA_FOR_GDPR is enabled and the policy
+	// sets `requireGdpr` (mirrors the chat path).
+	const videoCompliancePolicy = await withDpaEnforcement(
+		getActiveCompliancePolicy(organization),
+	);
 	const retainVideoPayloads =
 		getEffectiveRetentionLevel(organization) === "retain";
 	let complianceModelInfo: ModelDefinition = accessModelInfo;

@@ -58,6 +58,7 @@ import {
 	isProviderIdCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
+	withDpaEnforcement,
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import { customModelToProviderMapping } from "@/lib/custom-model.js";
@@ -3844,7 +3845,12 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
-	const compliancePolicy = getActiveCompliancePolicy(organization);
+	// `withDpaEnforcement` additionally blocks providers without a signed DPA on
+	// record when REQUIRE_PROVIDER_DPA_FOR_GDPR is enabled and the policy sets
+	// `requireGdpr`.
+	const compliancePolicy = await withDpaEnforcement(
+		getActiveCompliancePolicy(organization),
+	);
 
 	const complianceContextFor = (
 		provider: ProviderModelMapping,
