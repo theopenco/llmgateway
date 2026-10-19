@@ -12,6 +12,8 @@ image:
   height: 1024
 ---
 
+**Update (October 12, 2026):** decision models now also have an OpenAI-compatible endpoint, `/v1/decisions`, which serves Jev alongside GPT-6 Luna Decisions and Microsoft-Decision-1. `/v1/systemone` keeps working for TypeSafe models but will be deprecated soon. See the [Decisions API changelog](/changelog/openai-compatible-decisions-api).
+
 Plenty of model calls exist only to make a decision: route this ticket, score
 this passage, check whether this citation supports the claim. A chat model can
 do it, but you then parse prose, hope the JSON holds, and get no number to

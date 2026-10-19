@@ -167,7 +167,11 @@ function ProviderKeyLabel({
 	);
 }
 
-type ErrorGroupBy = "none" | "stream" | "key";
+export type ErrorGroupBy = "none" | "stream" | "key";
+
+export function parseErrorGroupBy(value: string | null): ErrorGroupBy {
+	return value === "stream" || value === "key" ? value : "none";
+}
 
 const ERROR_GROUP_OPTIONS: { value: ErrorGroupBy; label: string }[] = [
 	{ value: "none", label: "None" },
@@ -260,6 +264,7 @@ export function ErrorDetails({
 	provider,
 	providerKeyId,
 	includeRetried,
+	groupSimilar,
 	window,
 	logLimit,
 	ignoreExpected,
@@ -267,11 +272,14 @@ export function ErrorDetails({
 	errorScope = "non_client",
 	incidentsOnly = false,
 	errorMessage = null,
+	groupBy: controlledGroupBy,
+	onGroupByChange,
 }: {
 	usedModel: string;
 	provider: string;
 	providerKeyId: string | undefined;
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	window: UnstableWindow;
 	logLimit: number;
 	ignoreExpected: boolean;
@@ -281,10 +289,15 @@ export function ErrorDetails({
 	incidentsOnly?: boolean;
 	/** Only errors whose public or internal details contain this text. */
 	errorMessage?: string | null;
+	/** Controlled grouping, e.g. persisted in the URL by the parent. */
+	groupBy?: ErrorGroupBy;
+	onGroupByChange?: (groupBy: ErrorGroupBy) => void;
 }) {
 	// A drilldown already scoped to one key has nothing to group by.
 	const canGroupByKey = providerKeyId === undefined;
-	const [selectedGroupBy, setGroupBy] = useState<ErrorGroupBy>("none");
+	const [localGroupBy, setLocalGroupBy] = useState<ErrorGroupBy>("none");
+	const selectedGroupBy = controlledGroupBy ?? localGroupBy;
+	const setGroupBy = onGroupByChange ?? setLocalGroupBy;
 	const groupBy =
 		selectedGroupBy === "key" && !canGroupByKey ? "none" : selectedGroupBy;
 	const $api = useApi();
@@ -298,6 +311,7 @@ export function ErrorDetails({
 					provider,
 					providerKeyId,
 					includeRetried: includeRetried ? "true" : "false",
+					groupSimilar: groupSimilar ? "true" : "false",
 					window,
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
@@ -477,6 +491,7 @@ export function ErrorDetails({
 export function UnstableMappingsTable({
 	mappings,
 	includeRetried,
+	groupSimilar,
 	window,
 	logLimit,
 	ignoreExpected,
@@ -487,6 +502,7 @@ export function UnstableMappingsTable({
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	window: UnstableWindow;
 	logLimit: number;
 	ignoreExpected: boolean;
@@ -644,6 +660,7 @@ export function UnstableMappingsTable({
 													: undefined
 											}
 											includeRetried={includeRetried}
+											groupSimilar={groupSimilar}
 											window={window}
 											logLimit={logLimit}
 											ignoreExpected={ignoreExpected}

@@ -523,6 +523,54 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 
+	describe("azure", () => {
+		it("builds the Azure OpenAI endpoint from a key's resource", () => {
+			const endpoint = getProviderEndpoint(
+				"azure",
+				undefined,
+				"gpt-4o-mini",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ azure_resource: "my-resource" },
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toContain("https://my-resource.openai.azure.com/");
+		});
+
+		it.each([
+			"evil.com/path",
+			"resource.evil.com",
+			"resource:8080",
+			"https://evil.com",
+			"a/b",
+			"a b",
+			"",
+		])("rejects a resource that smuggles a host (%s)", (resource) => {
+			expect(() =>
+				getProviderEndpoint(
+					"azure",
+					undefined,
+					"gpt-4o-mini",
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ azure_resource: resource },
+					undefined,
+					undefined,
+					undefined,
+					true, // skipEnvVars
+				),
+			).toThrow(/Azure (resource is invalid|requires a resource)/);
+		});
+	});
+
 	describe("azure-ai-foundry", () => {
 		it("builds the Azure AI Foundry endpoint from the resource env var", () => {
 			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
@@ -735,6 +783,96 @@ describe("getProviderEndpoint", () => {
 			);
 
 			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
+		});
+	});
+
+	describe("vertex-openai", () => {
+		const originalProject = process.env.LLM_VERTEX_OPENAI_PROJECT;
+		const originalRegion = process.env.LLM_VERTEX_OPENAI_REGION;
+
+		afterEach(() => {
+			if (originalProject === undefined) {
+				delete process.env.LLM_VERTEX_OPENAI_PROJECT;
+			} else {
+				process.env.LLM_VERTEX_OPENAI_PROJECT = originalProject;
+			}
+			if (originalRegion === undefined) {
+				delete process.env.LLM_VERTEX_OPENAI_REGION;
+			} else {
+				process.env.LLM_VERTEX_OPENAI_REGION = originalRegion;
+			}
+		});
+
+		it("derives the project from the service-account JSON token", () => {
+			delete process.env.LLM_VERTEX_OPENAI_PROJECT;
+			delete process.env.LLM_VERTEX_OPENAI_REGION;
+
+			const endpoint = getProviderEndpoint(
+				"vertex-openai",
+				undefined,
+				"grok-4.6",
+				JSON.stringify({ project_id: "sa-project" }),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"grok-4-6",
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/endpoints/openapi/chat/completions",
+			);
+		});
+
+		it("pins the mapping region over the credential region", () => {
+			process.env.LLM_VERTEX_OPENAI_PROJECT = "env-project";
+			process.env.LLM_VERTEX_OPENAI_REGION = "us-central1";
+
+			const endpoint = getProviderEndpoint(
+				"vertex-openai",
+				undefined,
+				"grok-4.6",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { region: "us-central1" } },
+				undefined,
+				undefined,
+				"global",
+				undefined,
+				"grok-4-6",
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/env-project/locations/global/endpoints/openapi/chat/completions",
+			);
+		});
+
+		it("ignores the server project in BYOK mode", () => {
+			process.env.LLM_VERTEX_OPENAI_PROJECT = "env-project";
+
+			expect(() =>
+				getProviderEndpoint(
+					"vertex-openai",
+					undefined,
+					"grok-4.6",
+					"not-service-account-json",
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					true,
+					"grok-4-6",
+				),
+			).toThrow("LLM_VERTEX_OPENAI_PROJECT");
 		});
 	});
 
@@ -1562,4 +1700,10 @@ describe("getProviderEndpoint", () => {
 			).toBe("https://api.perplexity.ai/chat/completions");
 		});
 	});
+});
+
+it("routes GPT-6 Astra chat requests through Responses for tool support", () => {
+	expect(
+		getProviderEndpoint("openai", "https://example.com", "gpt-6-astra"),
+	).toBe("https://example.com/v1/responses");
 });

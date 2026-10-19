@@ -228,7 +228,12 @@ function validateApiKeyPeriodConfig(
 }
 
 function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
-	const { token: _token, tokenHash: _tokenHash, ...publicApiKey } = apiKey;
+	const {
+		token: _token,
+		tokenHash: _tokenHash,
+		safetyIdentifier: _safetyIdentifier,
+		...publicApiKey
+	} = apiKey;
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {

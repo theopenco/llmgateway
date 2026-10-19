@@ -68,6 +68,8 @@ export interface GlobalStatsCsvScope {
 	/** Selected provider credentials; their traffic is summed. */
 	providerKeys: { id: string; label: string }[];
 	provider: string | null;
+	/** Selected model family, whichever provider served it. */
+	family: string | null;
 	metric: GlobalStatsChartMetric;
 }
 
@@ -261,6 +263,7 @@ export function buildGlobalStatsReportCsv(
 					["organization", scope.organization],
 					["breakDownBy", scope.groupBy],
 					...(scope.provider ? [["provider", scope.provider]] : []),
+					...(scope.family ? [["family", scope.family]] : []),
 					...(scope.modelView ? [["modelView", scope.modelView]] : []),
 					...scope.providerKeys.flatMap((key) => [
 						["providerKeyId", key.id],
@@ -332,13 +335,14 @@ export function globalStatsExportFilename(
 	section: string,
 	scope: Pick<
 		GlobalStatsCsvScope,
-		"start" | "end" | "allTime" | "providerKeys" | "provider"
+		"start" | "end" | "allTime" | "providerKeys" | "provider" | "family"
 	>,
 ): string {
 	const range = scope.allTime
 		? "all-time"
 		: `${scope.start}_${scope.end}`.replaceAll(":", "-");
 	const provider = scope.provider ? `-provider-${scope.provider}` : "";
+	const family = scope.family ? `-family-${scope.family}` : "";
 	const [firstKey] = scope.providerKeys;
 	const key =
 		scope.providerKeys.length > 1
@@ -346,5 +350,5 @@ export function globalStatsExportFilename(
 			: firstKey
 				? `-key-${firstKey.id}`
 				: "";
-	return `global-stats-${section}-${range}${provider}${key}.csv`;
+	return `global-stats-${section}-${range}${provider}${family}${key}.csv`;
 }

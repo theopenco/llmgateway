@@ -80,6 +80,7 @@ const report: ProviderKeyCsvReport = {
 	errorTypes: {
 		window: "24h",
 		includeRetried: true,
+		groupSimilar: true,
 		sampledErrors: 5,
 		errors: [
 			{
