@@ -3664,6 +3664,27 @@ describe("prepareRequestBody - MiniMax thinking", () => {
 		expect(requestBody.thinking).toEqual({ type: "adaptive" });
 		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
 	});
+
+	test("forwards graduated reasoning_effort when the mapping supports it", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3.1-flash",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test.each(["none", "minimal"] as const)(
+		"collapses %s onto the lowest declared tier on always-on effort models",
+		async (reasoningEffort) => {
+			const requestBody = await prepare({
+				model: "minimax-m3.1-flash",
+				reasoningEffort,
+			});
+			expect(requestBody.reasoning_effort).toBe("low");
+			expect(requestBody.thinking).toBeUndefined();
+		},
+	);
 });
 
 describe("prepareRequestBody - Xiaomi thinking", () => {
