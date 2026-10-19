@@ -128,7 +128,10 @@ async function exchangeJwtForAccessToken(
 	abortSignal?: AbortSignal,
 ): Promise<CachedToken> {
 	const jwt = signJwt(sa);
+	// `redirect: "error"` keeps the signed assertion from being replayed to
+	// whatever host a redirect names.
 	const res = await fetch(GOOGLE_OAUTH_TOKEN_URI, {
+		redirect: "error",
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -139,9 +142,10 @@ async function exchangeJwtForAccessToken(
 	});
 
 	if (!res.ok) {
-		const text = await res.text();
+		// The response body is upstream-controlled and ends up in logs and error
+		// paths, so only the status is reported.
 		throw new Error(
-			`Failed to exchange JWT for GCP access token: ${res.status} ${text}`,
+			`Failed to exchange JWT for GCP access token: ${res.status}`,
 		);
 	}
 
