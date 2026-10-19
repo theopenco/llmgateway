@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { audioTabModels, initialAudioModels } from "./audio-models";
+import { speechModels, initialAudioModels } from "./audio-models";
 
 import type { ApiModel } from "@/lib/fetch-models";
 
@@ -26,9 +26,9 @@ const models = [
 	},
 ] as unknown as ApiModel[];
 
-describe("audioTabModels", () => {
+describe("speechModels", () => {
 	it("lists speech models and leaves out realtime models that also output audio", () => {
-		expect(audioTabModels(models).map((model) => model.id)).toEqual(["tts-1"]);
+		expect(speechModels(models).map((model) => model.id)).toEqual(["tts-1"]);
 	});
 });
 

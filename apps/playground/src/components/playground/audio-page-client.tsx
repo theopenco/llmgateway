@@ -78,9 +78,6 @@ export default function AudioPageClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Newest-first by releasedAt with createdAt as fallback. releasedAt comes
-	// from the static model definition so the order is stable regardless of
-	// when each row was inserted into the gateway DB.
 	const audioGenModels = useMemo(
 		() =>
 			models.slice().sort((a, b) => {
