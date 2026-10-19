@@ -1382,7 +1382,13 @@ export function ProviderSection({
 										OCR
 									</span>
 									<span className="font-mono tabular-nums text-sm">
-										${(Number(activeMapping.ocrPagePrice) * 1000).toFixed(2)}
+										$
+										{(
+											ocrPagePrice *
+											1000 *
+											serviceTierMultiplier *
+											(1 - discountFraction(activeMapping.discount))
+										).toFixed(2)}
 										<span className="text-muted-foreground text-xs">
 											{" "}
 											/1K pages

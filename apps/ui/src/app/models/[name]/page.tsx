@@ -167,7 +167,9 @@ export default async function ModelPage({ params }: PageProps) {
 	// Search models bill per request only, so token and context stats are noise.
 	const isSearchModel = modelDef.output?.includes("search") ?? false;
 	// OCR models bill per page; their zero token prices would read as "free".
-	const isOcrModel = modelDef.output?.includes("ocr") ?? false;
+	const isOcrModel =
+		(modelDef.output?.includes("ocr") ?? false) ||
+		visibleProviders.some((p) => Number(p.ocrPagePrice ?? 0) > 0);
 	const hideTokenInfo = isSearchModel || isOcrModel;
 
 	const currentModelDiscount = getBestDiscount(
