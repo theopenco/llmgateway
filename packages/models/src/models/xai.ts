@@ -692,6 +692,9 @@ export const xaiModels = [
 				maxOutput: 30000,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningOutput: "omit",
 				tools: true,
@@ -723,6 +726,9 @@ export const xaiModels = [
 				maxOutput: 30000,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
@@ -1185,10 +1191,6 @@ export const xaiModels = [
 			},
 			{
 				providerId: "vertex-openai",
-				// Vertex 404s ("not found or your project does not have access")
-				// until Grok 4.6 is enabled for the project in Model Garden;
-				// drop this once the platform project has access.
-				stability: "unstable" as const,
 				externalId: "grok-4.6",
 				inputPrice: "2.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1214,6 +1216,9 @@ export const xaiModels = [
 				maxOutput: undefined,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningOutput: "omit",
