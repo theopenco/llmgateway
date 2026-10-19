@@ -180,7 +180,9 @@ export default async function VideoPage({
 				/>
 			) : null}
 			<VideoPageClient
-				models={models}
+				// Pre-filtered server-side (same predicate as the client) so the
+				// multi-MB full catalogue never crosses the RSC boundary.
+				models={models.filter((m) => m.output?.includes("video"))}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

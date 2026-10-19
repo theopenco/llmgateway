@@ -19,6 +19,12 @@ function getStripePromise(publishableKey: string) {
 	return stripePromise;
 }
 
+// Imperative loader for flows that need Stripe only after a user action (e.g.
+// a 3DS challenge), so the ~200KB script never loads on plain page views.
+export function loadStripeInstance(publishableKey?: string | null) {
+	return getStripePromise(publishableKey ?? FALLBACK_TEST_PUBLISHABLE_KEY);
+}
+
 // Pass enabled: false to skip loading Stripe.js entirely until the caller
 // actually needs it — the script is ~200KB and phones home on load.
 export function useStripe(enabled = true) {
