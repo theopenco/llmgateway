@@ -200,6 +200,34 @@ describe("getGcpServiceAccountAccessToken", () => {
 		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 
+	it("disables redirects when exchanging credentials", async () => {
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(tokenResponse("access-token"));
+
+		await getGcpServiceAccountAccessToken(
+			serviceAccount("redirect@example.com"),
+		);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			GOOGLE_OAUTH_TOKEN_URI,
+			expect.objectContaining({ redirect: "error" }),
+		);
+	});
+
+	it("does not expose token endpoint response bodies", async () => {
+		redisGetMock.mockResolvedValue(null);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("untrusted response details", { status: 400 }),
+		);
+
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount("error@example.com")),
+		).rejects.toThrow(/^Failed to exchange JWT for GCP access token: 400$/);
+	});
+
 	it("ignores a user-supplied token_uri", async () => {
 		redisGetMock.mockResolvedValue(null);
 		redisSetMock.mockResolvedValue("OK");

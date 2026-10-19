@@ -146,8 +146,8 @@ LLM_VERTEX_ANTHROPIC_REGION=global
 LLM Gateway handles the OAuth2 token lifecycle automatically:
 
 1. On first request, the service account JSON is parsed and used to sign a JWT
-2. The JWT is exchanged for an OAuth2 access token via Google's token endpoint
-3. The token is cached in Redis with a **50-minute TTL** (Google tokens expire after 60 minutes)
+2. The JWT is exchanged for an OAuth2 access token at `https://oauth2.googleapis.com/token`, whatever the key's `token_uri` says, and the exchange does not follow redirects
+3. The token is cached in Redis until shortly before the expiry Google reports for it
 4. An in-memory cache avoids Redis round-trips on subsequent requests
 5. When the cached token expires, a new one is generated transparently
 
@@ -155,7 +155,7 @@ This means:
 
 - No manual `gcloud auth print-access-token` commands
 - No cron jobs to refresh tokens
-- Works at any request rate (token generation happens at most once per 50 minutes)
+- Works at any request rate (a token is minted at most once per cache lifetime)
 - Multi-instance deployments share the cached token via Redis
 
 ## Available Regions
