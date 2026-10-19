@@ -738,6 +738,96 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 
+	describe("vertex-openai", () => {
+		const originalProject = process.env.LLM_VERTEX_OPENAI_PROJECT;
+		const originalRegion = process.env.LLM_VERTEX_OPENAI_REGION;
+
+		afterEach(() => {
+			if (originalProject === undefined) {
+				delete process.env.LLM_VERTEX_OPENAI_PROJECT;
+			} else {
+				process.env.LLM_VERTEX_OPENAI_PROJECT = originalProject;
+			}
+			if (originalRegion === undefined) {
+				delete process.env.LLM_VERTEX_OPENAI_REGION;
+			} else {
+				process.env.LLM_VERTEX_OPENAI_REGION = originalRegion;
+			}
+		});
+
+		it("derives the project from the service-account JSON token", () => {
+			delete process.env.LLM_VERTEX_OPENAI_PROJECT;
+			delete process.env.LLM_VERTEX_OPENAI_REGION;
+
+			const endpoint = getProviderEndpoint(
+				"vertex-openai",
+				undefined,
+				"grok-4.6",
+				JSON.stringify({ project_id: "sa-project" }),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"grok-4-6",
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/endpoints/openapi/chat/completions",
+			);
+		});
+
+		it("pins the mapping region over the credential region", () => {
+			process.env.LLM_VERTEX_OPENAI_PROJECT = "env-project";
+			process.env.LLM_VERTEX_OPENAI_REGION = "us-central1";
+
+			const endpoint = getProviderEndpoint(
+				"vertex-openai",
+				undefined,
+				"grok-4.6",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { region: "us-central1" } },
+				undefined,
+				undefined,
+				"global",
+				undefined,
+				"grok-4-6",
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/env-project/locations/global/endpoints/openapi/chat/completions",
+			);
+		});
+
+		it("ignores the server project in BYOK mode", () => {
+			process.env.LLM_VERTEX_OPENAI_PROJECT = "env-project";
+
+			expect(() =>
+				getProviderEndpoint(
+					"vertex-openai",
+					undefined,
+					"grok-4.6",
+					"not-service-account-json",
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					true,
+					"grok-4-6",
+				),
+			).toThrow("LLM_VERTEX_OPENAI_PROJECT");
+		});
+	});
+
 	describe("skipEnvVars (BYOK mode)", () => {
 		it("uses hardcoded default for google-ai-studio instead of env var", () => {
 			process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL =
