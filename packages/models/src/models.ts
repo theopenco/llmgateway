@@ -324,6 +324,12 @@ export interface ProviderModelMapping {
 	 */
 	inputAudioHourPrice?: Price;
 	/**
+	 * Price per user text input item in USD. Used by realtime speech-to-speech
+	 * models that bill session time plus a flat fee for each text
+	 * message the caller adds to the conversation (e.g. xAI Grok Voice).
+	 */
+	inputTextItemPrice?: Price;
+	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
 	imageOutputPrice?: Price;
@@ -833,10 +839,11 @@ export interface ProviderModelMapping {
 	 */
 	rerank?: boolean;
 	/**
-	 * Whether this model uses a dedicated typed-decision API (TypeSafe System
-	 * One). When true, requests are routed to the gateway's /v1/systemone
-	 * endpoint, which answers named questions with probabilities instead of
-	 * generated text. Billed on input tokens only.
+	 * Whether this model uses a dedicated typed-decision API (OpenAI Decisions,
+	 * TypeSafe System One). When true, requests are routed to the gateway's
+	 * /v1/decisions endpoint (TypeSafe models also on the legacy /v1/systemone),
+	 * which answers typed questions with probabilities instead of generated
+	 * text. Billed on input tokens only.
 	 */
 	decisions?: boolean;
 	/**

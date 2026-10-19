@@ -44,3 +44,20 @@ function decodePathname(pathname: string): string {
 		return pathname;
 	}
 }
+
+// A BYOK base URL replaces a catalogue provider's endpoint wholesale, so the
+// hosted service does not offer it: a provider is reached only at its published
+// endpoint, parameterized by the key's own options (an Azure resource, a
+// Bedrock region). Self-hosted deployments keep the override by default.
+// ALLOW_PROVIDER_BASE_URL_OVERRIDE overrides either default. Custom providers
+// are exempt — a base URL is what defines them.
+export function isProviderBaseUrlOverrideAllowed(): boolean {
+	const flag = process.env.ALLOW_PROVIDER_BASE_URL_OVERRIDE;
+	if (flag === "true" || flag === "false") {
+		return flag === "true";
+	}
+	return process.env.HOSTED !== "true";
+}
+
+export const PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE =
+	"A custom base URL cannot be set for this provider. Configure the provider's own settings instead, such as an Azure resource.";

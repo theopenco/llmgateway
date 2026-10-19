@@ -1,12 +1,9 @@
-// Pre-compiled regex pattern to avoid recompilation per request
-const IMAGE_URL_PATTERN = /https:\/\/[^\s]+/gi;
-
 /**
  * Counts images in messages for cost calculation.
  * Used primarily for Gemini image model pricing (gemini-3-pro-image, gemini-3.1-flash-image).
- * Counts both image_url type content parts and image URLs found in text content.
+ * Counts explicit image_url content parts.
  */
-export function countInputImages(messages: any[]): number {
+export function countInputImages(messages: { content?: unknown }[]): number {
 	let inputImageCount = 0;
 
 	for (const message of messages) {
@@ -19,21 +16,6 @@ export function countInputImages(messages: any[]): number {
 					part.type === "image_url"
 				) {
 					inputImageCount++;
-				} else if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					part.type === "text" &&
-					"text" in part &&
-					typeof part.text === "string"
-				) {
-					// Count image URLs in text content using pre-compiled pattern
-					// Reset lastIndex since global flag maintains state
-					IMAGE_URL_PATTERN.lastIndex = 0;
-					const matches = part.text.match(IMAGE_URL_PATTERN);
-					if (matches) {
-						inputImageCount += matches.length;
-					}
 				}
 			}
 		}

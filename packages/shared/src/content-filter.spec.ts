@@ -130,6 +130,14 @@ describe("isContentFilterErrorText", () => {
 		).toBe(true);
 	});
 
+	test("detects OpenAI cybersecurity policy blocks", () => {
+		expect(
+			isContentFilterErrorText(
+				'{"type":"error","error":{"type":"invalid_request","code":"cyber_policy","message":"This content was flagged for possible cybersecurity risk."}}',
+			),
+		).toBe(true);
+	});
+
 	test("returns false for generic upstream errors and empty input", () => {
 		expect(isContentFilterErrorText("Internal server error")).toBe(false);
 		expect(isContentFilterErrorText("the task id was not found")).toBe(false);

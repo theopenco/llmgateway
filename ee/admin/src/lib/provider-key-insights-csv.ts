@@ -76,6 +76,7 @@ export interface ProviderKeyCsvReport {
 	errorTypes: {
 		window: string;
 		includeRetried: boolean;
+		groupSimilar: boolean;
 		sampledErrors: number;
 		errors: ProviderKeyCsvErrorType[];
 	} | null;
@@ -276,7 +277,9 @@ export function buildProviderKeyReportCsv(
 		sections.push({
 			title: `Error details (last ${errorTypes.window}, ${
 				errorTypes.includeRetried ? "including" : "excluding"
-			} retried, ${errorTypes.sampledErrors} errors)`,
+			} retried, ${
+				errorTypes.groupSimilar ? "similar errors grouped" : "exact errors"
+			}, ${errorTypes.sampledErrors} errors)`,
 			csv: buildCsv(
 				[
 					"statusCode",

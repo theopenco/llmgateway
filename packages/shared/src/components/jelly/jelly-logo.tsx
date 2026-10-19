@@ -111,6 +111,7 @@ export function JellyLogo() {
 					className="absolute inset-0 h-full w-full outline-none"
 					style={{
 						opacity: ready ? 1 : 0,
+						pointerEvents: interactive ? "auto" : "none",
 						touchAction: interactive ? "none" : "pan-y",
 						maskImage:
 							"linear-gradient(to bottom, black 80%, transparent 100%)",

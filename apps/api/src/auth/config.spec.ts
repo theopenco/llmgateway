@@ -10,6 +10,7 @@ import {
 	isClientAuthError,
 	isClientJsonError,
 	redisClient,
+	SIGN_IN_DAILY_LIMIT,
 } from "./config.js";
 
 describe("isClientJsonError", () => {
@@ -814,5 +815,70 @@ describe("Signup country blocking", () => {
 		);
 
 		expect(response.status).not.toBe(403);
+	});
+});
+
+describe("Email sign-in daily IP limit", () => {
+	let ip = "";
+	let key = "";
+
+	beforeEach(() => {
+		ip = `203.0.113.${randomInt(0, 255)}`;
+		key = `sign_in_daily:${ip}`;
+	});
+
+	afterEach(async () => {
+		await redisClient.del(key);
+	});
+
+	const signIn = () =>
+		apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": ip,
+				},
+				body: JSON.stringify({
+					email: `daily-${Date.now()}@example.com`,
+					password: "Password123!",
+				}),
+			}),
+		);
+
+	test("counts each attempt against a 24h window", async () => {
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
+		expect(await redisClient.get(key)).toBe("1");
+		expect(await redisClient.ttl(key)).toBeGreaterThan(23 * 60 * 60);
+	});
+
+	test("allows the attempt that reaches the daily limit", async () => {
+		await redisClient.set(key, SIGN_IN_DAILY_LIMIT - 1, "EX", 3600);
+
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
+		expect(await redisClient.get(key)).toBe(String(SIGN_IN_DAILY_LIMIT));
+	});
+
+	test("rejects attempts once the IP reaches the daily limit", async () => {
+		await redisClient.set(key, SIGN_IN_DAILY_LIMIT, "EX", 3600);
+
+		const response = await signIn();
+
+		expect(response.status).toBe(429);
+		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+		expect((await response.json()).error).toBe("too_many_requests");
+	});
+
+	test("fails open when the counter cannot be updated", async () => {
+		// A hash at the key makes INCR fail inside MULTI without aborting it.
+		await redisClient.hset(key, "attempts", "1");
+
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
 	});
 });

@@ -35,6 +35,7 @@ import {
 	toolChoice,
 	toolResults,
 	tools,
+	rootModelIdSql,
 } from "@llmgateway/db";
 import { LOG_ERROR_TYPES } from "@llmgateway/shared";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
@@ -618,14 +619,8 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
 	}
 
-	// Add model filter - match the model id after the provider prefix and before
-	// any `:region` suffix (usedModel is stored as `provider/modelId[:region]`;
-	// model ids may themselves contain slashes), or the full value if there's no
-	// slash (seed data / legacy format)
 	if (model) {
-		whereConditions.push(
-			sql`SPLIT_PART(REGEXP_REPLACE(${tables.log.usedModel}, '^[^/]*/', ''), ':', 1) = ${model}`,
-		);
+		whereConditions.push(eq(rootModelIdSql(tables.log.usedModel), model));
 	}
 
 	// Add provider filter

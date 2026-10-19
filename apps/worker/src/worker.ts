@@ -47,8 +47,10 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingDailyAllowance,
 	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
+	isDailyWindowExpired,
 	isLoungeSource,
 	isPremiumUsedModel,
 	isPremiumWeekExpired,
@@ -84,6 +86,7 @@ import {
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
 import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
+import { tearDownPendingProviderKeys } from "./services/provider-key-teardown.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import {
 	backfillHistoryIfNeeded,
@@ -132,6 +135,8 @@ function getStripe(): Stripe {
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
+// Provider-key statuses that can still spend, so the spend fuse covers them.
+const SPEND_FUSE_STATUSES = ["active", "pending_deletion"] as const;
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
@@ -1387,6 +1392,8 @@ export async function batchProcessLogs(): Promise<number> {
 				remaining: Decimal;
 				premiumCreditsUsed?: Decimal;
 				premiumWeekStart?: Date | null;
+				dailyCreditsUsed?: Decimal;
+				dayStart?: Date | null;
 			}
 
 			const deductFromPlanPool = async (
@@ -1410,6 +1417,20 @@ export async function batchProcessLogs(): Promise<number> {
 					const weekExpired = isPremiumWeekExpired(pool.premiumWeekStart);
 					const now = new Date();
 					const premiumAmountStr = premiumAmount.toString();
+					// Daily pacing window: every pool debit counts, all models. An
+					// expired window restarts from this debit.
+					const dayExpired = isDailyWindowExpired(pool.dayStart);
+					const dailySet = dayExpired
+						? { devPlanDailyCreditsUsed: amountStr, devPlanDayStart: now }
+						: {
+								devPlanDailyCreditsUsed: sql`${organization.devPlanDailyCreditsUsed} + ${amountStr}`,
+							};
+					pool.dailyCreditsUsed = dayExpired
+						? amount
+						: (pool.dailyCreditsUsed ?? new Decimal(0)).plus(amount);
+					if (dayExpired) {
+						pool.dayStart = now;
+					}
 
 					if (premiumAmount.greaterThan(0)) {
 						if (weekExpired) {
@@ -1417,6 +1438,7 @@ export async function batchProcessLogs(): Promise<number> {
 								.update(organization)
 								.set({
 									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									...dailySet,
 									devPlanPremiumCreditsUsed: premiumAmountStr,
 									devPlanPremiumWeekStart: now,
 								})
@@ -1428,6 +1450,7 @@ export async function batchProcessLogs(): Promise<number> {
 								.update(organization)
 								.set({
 									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									...dailySet,
 									devPlanPremiumCreditsUsed: sql`${organization.devPlanPremiumCreditsUsed} + ${premiumAmountStr}`,
 								})
 								.where(eq(organization.id, orgId));
@@ -1440,6 +1463,7 @@ export async function batchProcessLogs(): Promise<number> {
 							.update(organization)
 							.set({
 								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								...dailySet,
 								devPlanPremiumCreditsUsed: "0",
 								devPlanPremiumWeekStart: now,
 							})
@@ -1451,6 +1475,7 @@ export async function batchProcessLogs(): Promise<number> {
 							.update(organization)
 							.set({
 								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								...dailySet,
 							})
 							.where(eq(organization.id, orgId));
 					}
@@ -1494,6 +1519,10 @@ export async function batchProcessLogs(): Promise<number> {
 									org.devPlanPremiumCreditsUsed || "0",
 								),
 								premiumWeekStart: org.devPlanPremiumWeekStart,
+								dailyCreditsUsed: new Decimal(
+									org.devPlanDailyCreditsUsed || "0",
+								),
+								dayStart: org.devPlanDayStart,
 							}
 						: null;
 
@@ -1536,6 +1565,32 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(premiumOverflow);
 						remainingPremium = remainingPremium.minus(premiumOverflow);
 					}
+					// The daily pacing allowance limits the plan pool the same way:
+					// with overflow opted in, pool spend past today's allowance is
+					// held out of the drain and billed to the credits balance. It
+					// applies to whatever can reach the dev pool: the whole bucket
+					// when the dev pool is preferred, otherwise only what the
+					// preferred chat pool cannot cover.
+					let dailyOverflow = new Decimal(0);
+					if (org?.devPlanPaygEnabled && devPool) {
+						const devPoolBound =
+							preferred === devPool || !chatPool
+								? remaining
+								: Decimal.max(
+										0,
+										remaining.minus(Decimal.max(0, chatPool.remaining)),
+									);
+						const dailyLeft = new Decimal(
+							getRemainingDailyAllowance(
+								org.devPlan as DevPlanTier,
+								devPool.dailyCreditsUsed?.toNumber() ?? 0,
+								devPool.dayStart,
+							),
+						);
+						dailyOverflow = Decimal.max(0, devPoolBound.minus(dailyLeft));
+						remaining = remaining.minus(dailyOverflow);
+						remainingPremium = Decimal.min(remainingPremium, remaining);
+					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -1553,7 +1608,7 @@ export async function batchProcessLogs(): Promise<number> {
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
 					return {
-						remaining: remaining.plus(premiumOverflow),
+						remaining: remaining.plus(premiumOverflow).plus(dailyOverflow),
 						remainingPremium,
 					};
 				};
@@ -1841,7 +1896,7 @@ export async function batchProcessLogs(): Promise<number> {
 					.where(
 						and(
 							inArray(tables.providerKey.id, [...providerKeyCosts.keys()]),
-							eq(tables.providerKey.status, "active"),
+							inArray(tables.providerKey.status, [...SPEND_FUSE_STATUSES]),
 							isNotNull(tables.providerKey.usageLimit),
 							sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
 						),
@@ -1880,11 +1935,15 @@ export async function batchProcessLogs(): Promise<number> {
 		if (overLimitProviderKeyIds.length > 0) {
 			const deactivated = await cdb
 				.update(tables.providerKey)
-				.set({ status: "inactive" })
+				// A key pending deletion only serves pinned conversations; past its
+				// cap it is torn down at once rather than parked as inactive.
+				.set({
+					status: sql`CASE WHEN ${tables.providerKey.status} = 'pending_deletion' THEN 'deleted' ELSE 'inactive' END`,
+				})
 				.where(
 					and(
 						inArray(tables.providerKey.id, overLimitProviderKeyIds),
-						eq(tables.providerKey.status, "active"),
+						inArray(tables.providerKey.status, [...SPEND_FUSE_STATUSES]),
 						isNotNull(tables.providerKey.usageLimit),
 						sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
 					),
@@ -2844,17 +2903,28 @@ async function runApiKeyExpirationLoop() {
 
 	try {
 		while (!isStopRequested()) {
+			// Separate so a failing API-key pass can never stall provider-key
+			// teardown: a pinned conversation keeps refreshing its pin.
+			let failed = false;
 			try {
 				await disableExpiredApiKeys();
-
-				await interruptibleSleep(interval);
 			} catch (error) {
+				failed = true;
 				logger.error(
 					"Error in API key expiration loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				await interruptibleSleep(5000);
 			}
+			try {
+				await tearDownPendingProviderKeys();
+			} catch (error) {
+				failed = true;
+				logger.error(
+					"Error tearing down pending-deletion provider keys",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+			await interruptibleSleep(failed ? 5000 : interval);
 		}
 	} finally {
 		activeLoops--;
