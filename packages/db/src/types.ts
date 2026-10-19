@@ -204,8 +204,6 @@ type SerializedOrganizationBase = Omit<
 	| "providerAccessRestriction"
 	// Served by GET /orgs/{id}/compliance-alerts.
 	| "complianceAlertSettings"
-	// Served by GET /orgs/{id}/provider-key-alerts.
-	| "providerKeyAlertSettings"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
 	| "devPlanDayStart"

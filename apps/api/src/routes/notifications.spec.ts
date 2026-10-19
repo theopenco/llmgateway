@@ -38,7 +38,7 @@ describe("notifications API", () => {
 		expect(response.status).toBe(200);
 		const { email, preferences } = await response.json();
 		expect(email).toBe("admin@example.com");
-		expect(preferences).toHaveLength(10);
+		expect(preferences).toHaveLength(9);
 		expect(
 			preferences
 				.filter((p: { inApp: boolean | null }) => p.inApp)
@@ -48,7 +48,6 @@ describe("notifications API", () => {
 			"compliance_downgrade",
 			"org_limit",
 			"data_stream",
-			"provider_key_errors",
 		]);
 		// The two email-only categories are on by default; the notification ones
 		// stay opt-in apart from the org alerts.
@@ -61,7 +60,6 @@ describe("notifications API", () => {
 			"compliance_downgrade",
 			"org_limit",
 			"data_stream",
-			"provider_key_errors",
 			"marketing",
 			"credit_alerts",
 		]);

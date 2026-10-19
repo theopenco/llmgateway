@@ -42,14 +42,7 @@ const MAX_DELIVERY_ATTEMPTS = 5;
 const DELIVERY_BUDGET_MS = 2 * 60 * 1000;
 
 type Organization = typeof organization.$inferSelect;
-type AlertType =
-	"model_available" | "compliance_downgrade" | "provider_key_errors";
-
-/** Delivery switches shared by every org-level alert kind. */
-export type OrgAlertDelivery = Pick<
-	ComplianceAlertSettings,
-	"inApp" | "email" | "channels" | "recipientAudience"
->;
+type AlertType = "model_available" | "compliance_downgrade";
 
 interface OrgAlert {
 	type: AlertType;
@@ -97,7 +90,7 @@ export async function isOrgAlertRecipient(
  */
 export async function emitOrgAlert(
 	org: Organization,
-	settings: OrgAlertDelivery,
+	settings: ComplianceAlertSettings,
 	alert: OrgAlert,
 ): Promise<void> {
 	// Org-scoped key: notification rows dedupe on (userId, eventKey).
