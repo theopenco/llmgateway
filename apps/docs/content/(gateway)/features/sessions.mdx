@@ -37,6 +37,10 @@ Reuse the same session id for every request in a conversation. If you don't set 
 
 For the [Anthropic Messages endpoint](/features/anthropic-endpoint) (`/v1/messages`), the session key is derived automatically from `metadata.user_id`. Coding agents such as Claude Code send a JSON object there (e.g. `{"session_id":"<uuid>",…}`); the gateway uses its `session_id` field. An explicit `x-session-id` header still takes precedence.
 
+### Responses endpoint
+
+The [Responses endpoint](/api-reference) (`/v1/responses`) resolves the session key from the same headers as chat completions, then the `prompt_cache_key` body field.
+
 ## Sticky provider routing
 
 When a model is served by multiple providers, requests are normally scored independently, so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix reach the **same** provider.
