@@ -261,4 +261,52 @@ describe("credit top-up via Stripe Checkout", () => {
 		});
 		expect(failures).toHaveLength(1);
 	});
+
+	test("credits a payment intent that succeeds after failed attempts", async () => {
+		// A client-confirmed PaymentIntent stays confirmable after a decline, so
+		// one PaymentIntent can record several failed rows and then succeed.
+		await deliver(
+			paymentIntentEvent("payment_intent.payment_failed", checkoutMetadata),
+		);
+		await deliver(
+			paymentIntentEvent("payment_intent.payment_failed", checkoutMetadata),
+		);
+		await deliver(
+			paymentIntentEvent("payment_intent.succeeded", checkoutMetadata),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+
+		const transactions = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transactions.map((t) => t.status).sort()).toEqual([
+			"completed",
+			"failed",
+			"failed",
+		]);
+	});
+
+	test("credits once when the same payment intent is delivered concurrently", async () => {
+		const event = paymentIntentEvent(
+			"payment_intent.succeeded",
+			checkoutMetadata,
+		);
+
+		await Promise.all([deliver(event), deliver(event)]);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+
+		const transactions = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transactions).toHaveLength(1);
+		expect(transactions[0].status).toBe("completed");
+	});
 });

@@ -33,7 +33,6 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -46,7 +45,7 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
+import { fetchSafeContentNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
@@ -308,10 +307,11 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
+	// SSRF: the URL comes from the request body. fetchSafeUserContentUrl
+	// validates it does not resolve to an internal host, pins DNS resolution to
+	// the validated address so it can't rebind before connecting, and refuses
+	// redirects.
+	const response = await fetchSafeContentNoRedirect(url);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
