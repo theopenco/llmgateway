@@ -30,8 +30,15 @@ function serviceAccount(
 	});
 }
 
+const MINUTE_MS = 60 * 1000;
+const CACHE_LIFETIME_MS = 50 * MINUTE_MS;
+
 function pending<T>(): Promise<T> {
 	return new Promise<T>(() => undefined);
+}
+
+function tokenResponse(accessToken: string, expiresIn?: number): Response {
+	return Response.json({ access_token: accessToken, expires_in: expiresIn });
 }
 
 describe("getGcpServiceAccountAccessToken", () => {
@@ -124,6 +131,72 @@ describe("getGcpServiceAccountAccessToken", () => {
 
 		await getGcpServiceAccountAccessToken(key);
 		expect(await getGcpServiceAccountAccessToken(key)).toBe("cached-token");
+		expect(fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it("caches a fresh token with its upstream expiry minus a safety margin", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			tokenResponse("fresh-token", 3600),
+		);
+
+		await getGcpServiceAccountAccessToken(serviceAccount("fresh@example.com"));
+
+		expect(redisSetMock).toHaveBeenCalledOnce();
+		const [, raw, mode, ttl] = redisSetMock.mock.calls[0] ?? [];
+		expect(mode).toBe("EX");
+		expect(ttl).toBe(50 * 60);
+		expect(JSON.parse(raw as string)).toEqual({
+			token: "fresh-token",
+			expiresAt: Date.now() + CACHE_LIFETIME_MS,
+		});
+		vi.useRealTimers();
+	});
+
+	it("does not extend the lifetime of a token read late from Redis", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+		const sa = serviceAccount("late-read@example.com");
+		// Minted by another pod 49 minutes ago: one minute of cache life left.
+		redisGetMock.mockResolvedValue(
+			JSON.stringify({
+				token: "stale-soon",
+				expiresAt: Date.now() + MINUTE_MS,
+			}),
+		);
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(tokenResponse("fresh-token", 3600));
+		redisSetMock.mockResolvedValue("OK");
+
+		await expect(getGcpServiceAccountAccessToken(sa)).resolves.toBe(
+			"stale-soon",
+		);
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(2 * MINUTE_MS);
+		redisGetMock.mockResolvedValue(null);
+
+		await expect(getGcpServiceAccountAccessToken(sa)).resolves.toBe(
+			"fresh-token",
+		);
+		expect(fetchMock).toHaveBeenCalledOnce();
+		vi.useRealTimers();
+	});
+
+	it("treats a legacy raw-string cache entry as a miss", async () => {
+		redisGetMock.mockResolvedValue("ya29.legacy-raw-token");
+		redisSetMock.mockResolvedValue("OK");
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(tokenResponse("fresh-token"));
+
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount("legacy@example.com")),
+		).resolves.toBe("fresh-token");
 		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 
