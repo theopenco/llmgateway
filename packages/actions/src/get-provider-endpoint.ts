@@ -17,19 +17,11 @@ import {
 	resolveVertexTokenType,
 	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
+import { isProviderHostnameLabel } from "@llmgateway/shared";
 
 import { getBedrockProfilePrefix } from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
-/**
- * A resource, workspace or deployment id supplied on a credential becomes a
- * hostname label on the provider's own domain. Interpolating it blindly would
- * let `evil.example.com/` smuggle a different host into the endpoint, so every
- * such value is restricted to a single label before it reaches a URL.
- */
-export function isProviderHostnameLabel(value: string): boolean {
-	return /^[a-zA-Z0-9-]{1,64}$/.test(value);
-}
 
 function appendPath(url: string, path: string): string {
 	let urlEnd = url.length;
@@ -953,9 +945,9 @@ export function getProviderEndpoint(
 							variant,
 						) ??
 						"2025-04-01-preview";
-					return `${url}/openai/deployments/${externalId}/images/generations?api-version=${imageApiVersion}`;
+					return `${url}/openai/deployments/${externalId}/images/generations?api-version=${encodeURIComponent(imageApiVersion)}`;
 				}
-				return `${url}/openai/deployments/${externalId}/chat/completions?api-version=${apiVersion}`;
+				return `${url}/openai/deployments/${externalId}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
 				if (imageGenerations) {
@@ -1001,7 +993,7 @@ export function getProviderEndpoint(
 					variant,
 				) ??
 				"2024-05-01-preview";
-			return `${url}/models/chat/completions?api-version=${apiVersion}`;
+			return `${url}/models/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
 		}
 		case "azure-anthropic":
 			// Claude models on Microsoft Foundry are only served through the

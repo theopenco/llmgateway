@@ -61,3 +61,16 @@ export function isProviderBaseUrlOverrideAllowed(): boolean {
 
 export const PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE =
 	"A custom base URL cannot be set for this provider. Configure the provider's own settings instead, such as an Azure resource.";
+
+// A resource, workspace or deployment id supplied on a provider key becomes a
+// hostname label on the provider's own domain. Interpolating one blindly would
+// let `evil.example.com/` smuggle a different host into the endpoint the
+// gateway calls, so every such value is restricted to a single label.
+export const PROVIDER_HOSTNAME_LABEL_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
+
+export const PROVIDER_HOSTNAME_LABEL_MESSAGE =
+	"Must be 1-64 characters of letters, digits, or hyphens";
+
+export function isProviderHostnameLabel(value: string): boolean {
+	return PROVIDER_HOSTNAME_LABEL_REGEX.test(value);
+}
