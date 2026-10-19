@@ -56,6 +56,8 @@ import {
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	isProviderBaseUrlOverrideAllowed,
+	PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "@llmgateway/shared";
@@ -377,12 +379,18 @@ export function isValidProviderToken(value: string): boolean {
 	}
 }
 
-// The workspace id becomes a hostname label on the workspace-dedicated
-// endpoint, so it is restricted to what Model Studio issues rather than
-// accepted verbatim.
-const WORKSPACE_ID_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
+// A workspace id or an Azure resource becomes a hostname label on the
+// provider's own endpoint, so both are restricted to a single label rather than
+// accepted verbatim: `evil.example.com/` would otherwise smuggle a different
+// host into the URL the gateway calls.
+const HOSTNAME_LABEL_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
 const WORKSPACE_ID_MESSAGE =
 	"Workspace ID must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_RESOURCE_MESSAGE =
+	"Azure resource must be 1-64 characters of letters, digits, or hyphens";
+const azureResourceSchema = z
+	.string()
+	.regex(HOSTNAME_LABEL_REGEX, AZURE_RESOURCE_MESSAGE);
 
 /**
  * A workspace id is optional: a region whose endpoint is workspace-scoped
@@ -437,20 +445,20 @@ const createProviderKeySchema = z.object({
 					"ap-southeast-2",
 				])
 				.optional(),
-			azure_resource: z.string().optional(),
+			azure_resource: azureResourceSchema.optional(),
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
 			azure_deployment_name: z.string().min(1).optional(),
-			azure_ai_foundry_resource: z.string().optional(),
+			azure_ai_foundry_resource: azureResourceSchema.optional(),
 			azure_ai_foundry_api_version: z.string().optional(),
-			azure_anthropic_resource: z.string().optional(),
+			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
 			alibaba_workspace_id: z
 				.string()
-				.regex(WORKSPACE_ID_REGEX, WORKSPACE_ID_MESSAGE)
+				.regex(HOSTNAME_LABEL_REGEX, WORKSPACE_ID_MESSAGE)
 				.optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
@@ -621,6 +629,15 @@ keysProvider.openapi(create, async (c) => {
 
 	if (baseUrl) {
 		if (provider !== "custom") {
+			// A catalogue provider is reached at its published endpoint, derived from
+			// the key's own settings (an Azure resource, a Bedrock region). A base URL
+			// would replace that endpoint wholesale, which the hosted service does not
+			// offer on any plan; only custom providers are defined by their URL.
+			if (!isProviderBaseUrlOverrideAllowed()) {
+				throw new HTTPException(400, {
+					message: PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
+				});
+			}
 			assertEnterpriseFeature(userOrgs[0]?.organization, "Custom base URLs");
 		}
 		await assertProviderBaseUrlAllowed(baseUrl);

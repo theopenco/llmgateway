@@ -639,6 +639,130 @@ describe("provider keys route", () => {
 		expect(providerKey).toBeUndefined();
 	});
 
+	describe("base URL overrides", () => {
+		beforeEach(() => {
+			vi.stubEnv("ALLOW_PROVIDER_BASE_URL_OVERRIDE", "");
+		});
+
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		test("rejects a base URL on a catalogue provider when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+			// Enterprise, so the rejection is the hosted restriction and not the plan
+			// gate on custom base URLs.
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					baseUrl: "https://my-own-endpoint.example.com",
+					options: { azure_resource: "my-resource" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain("custom base URL cannot be set");
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "azure" } },
+			});
+			expect(stored).toBeUndefined();
+		});
+
+		test("still accepts a catalogue provider without a base URL when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					options: { azure_resource: "my-resource" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("keeps the custom provider base URL when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "custom",
+					token: "custom-test-token",
+					name: "mycustomprovider",
+					baseUrl: "https://api.example.com",
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("allows the override on a self-hosted deployment", async () => {
+			vi.stubEnv("HOSTED", "");
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					baseUrl: "https://my-own-endpoint.example.com",
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("rejects an Azure resource that smuggles a host", async () => {
+			vi.stubEnv("HOSTED", "true");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					options: { azure_resource: "evil.example.com/x" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(400);
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "azure" } },
+			});
+			expect(stored).toBeUndefined();
+		});
+	});
+
 	test("POST /keys/provider with duplicate provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",

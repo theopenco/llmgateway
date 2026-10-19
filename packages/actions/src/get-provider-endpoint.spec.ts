@@ -523,6 +523,54 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 
+	describe("azure", () => {
+		it("builds the Azure OpenAI endpoint from a key's resource", () => {
+			const endpoint = getProviderEndpoint(
+				"azure",
+				undefined,
+				"gpt-4o-mini",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ azure_resource: "my-resource" },
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toContain("https://my-resource.openai.azure.com/");
+		});
+
+		it.each([
+			"evil.com/path",
+			"resource.evil.com",
+			"resource:8080",
+			"https://evil.com",
+			"a/b",
+			"a b",
+			"",
+		])("rejects a resource that smuggles a host (%s)", (resource) => {
+			expect(() =>
+				getProviderEndpoint(
+					"azure",
+					undefined,
+					"gpt-4o-mini",
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ azure_resource: resource },
+					undefined,
+					undefined,
+					undefined,
+					true, // skipEnvVars
+				),
+			).toThrow(/Azure (resource is invalid|requires a resource)/);
+		});
+	});
+
 	describe("azure-ai-foundry", () => {
 		it("builds the Azure AI Foundry endpoint from the resource env var", () => {
 			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";

@@ -112,3 +112,13 @@ to subsequent email sign-ups without a restart. Existing users can still sign in
 The custom list starts empty and has no built-in entries. Clearing and saving it
 removes custom domain blocks. The separate disposable-email and plus-address
 checks remain active in hosted mode.
+
+## Provider base URL overrides
+
+A [provider key](/learn/provider-keys) may carry a base URL that replaces the
+provider's published endpoint. Self-hosted deployments allow it; `HOSTED=true`
+rejects it, so a provider is reached only at its published endpoint with the
+key's own settings (such as an Azure resource) applied. Set
+`ALLOW_PROVIDER_BASE_URL_OVERRIDE` to `true` or `false` to override either
+default. [Custom providers](/features/custom-providers) are unaffected — their
+base URL defines them.
