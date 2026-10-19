@@ -150,6 +150,7 @@ const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
 	"model_stats_byok_errors_backfill";
+const PROJECT_STATS_LOCK_KEY = "project_stats_refresh";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -2640,7 +2641,17 @@ async function runProjectStatsLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await refreshProjectHourlyStats();
+				// The live refresh accumulates onto shared buckets, so only one
+				// replica may run a pass at a time. A lease, so a pass that outlived
+				// the lock never releases another replica's lock.
+				const leaseId = await acquireLease(PROJECT_STATS_LOCK_KEY);
+				if (leaseId) {
+					try {
+						await refreshProjectHourlyStats();
+					} finally {
+						await releaseLease(leaseId);
+					}
+				}
 
 				await interruptibleSleep(interval);
 			} catch (error) {
