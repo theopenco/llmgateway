@@ -56,6 +56,8 @@ import {
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	isProviderBaseUrlOverrideAllowed,
+	PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "@llmgateway/shared";
@@ -621,6 +623,15 @@ keysProvider.openapi(create, async (c) => {
 
 	if (baseUrl) {
 		if (provider !== "custom") {
+			// A catalogue provider is reached at its published endpoint, derived from
+			// the key's own settings (an Azure resource, a Bedrock region). A base URL
+			// would replace that endpoint wholesale, which the hosted service does not
+			// offer on any plan; only custom providers are defined by their URL.
+			if (!isProviderBaseUrlOverrideAllowed()) {
+				throw new HTTPException(400, {
+					message: PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
+				});
+			}
 			assertEnterpriseFeature(userOrgs[0]?.organization, "Custom base URLs");
 		}
 		await assertProviderBaseUrlAllowed(baseUrl);
