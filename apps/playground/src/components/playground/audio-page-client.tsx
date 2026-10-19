@@ -20,6 +20,7 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { getModelAudioConfig } from "@/lib/audio-gen";
+import { initialAudioModels } from "@/lib/audio-models";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
@@ -77,28 +78,24 @@ export default function AudioPageClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to audio-gen (text-to-speech) only, sorted newest-first by
-	// releasedAt with createdAt as fallback. releasedAt comes from the static
-	// model definition so the order is stable regardless of when each row was
-	// inserted into the gateway DB.
+	// Newest-first by releasedAt with createdAt as fallback. releasedAt comes
+	// from the static model definition so the order is stable regardless of
+	// when each row was inserted into the gateway DB.
 	const audioGenModels = useMemo(
 		() =>
-			models
-				.filter((m) => m.output?.includes("audio"))
-				.slice()
-				.sort((a, b) => {
-					const dateA = a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: a.createdAt
-							? new Date(a.createdAt).getTime()
-							: 0;
-					const dateB = b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: b.createdAt
-							? new Date(b.createdAt).getTime()
-							: 0;
-					return dateB - dateA;
-				}),
+			models.slice().sort((a, b) => {
+				const dateA = a.releasedAt
+					? new Date(a.releasedAt).getTime()
+					: a.createdAt
+						? new Date(a.createdAt).getTime()
+						: 0;
+				const dateB = b.releasedAt
+					? new Date(b.releasedAt).getTime()
+					: b.createdAt
+						? new Date(b.createdAt).getTime()
+						: 0;
+				return dateB - dateA;
+			}),
 		[models],
 	);
 
@@ -108,26 +105,15 @@ export default function AudioPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// State — initialize from URL params, then cookie, then default
-	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
-		const modelParam = searchParams.get("model");
-		if (modelParam) {
-			const models = modelParam.split(",").filter(Boolean);
-			if (models.length > 0) {
-				return models;
-			}
-		}
-		const stored =
-			getModelPreferenceCookie(AUDIO_MODEL_COOKIE) ?? initialModelPreference;
-		if (stored) {
-			const models = stored.split(",").filter(Boolean);
-			if (models.length > 0) {
-				return models;
-			}
-		}
-		const first = audioGenModels[0];
-		return first ? [first.id] : [];
-	});
+	const [selectedModels, setSelectedModels] = useState<string[]>(() =>
+		initialAudioModels(
+			[
+				searchParams.get("model"),
+				getModelPreferenceCookie(AUDIO_MODEL_COOKIE) ?? initialModelPreference,
+			],
+			availableModels,
+		),
+	);
 	const [comparisonMode, setComparisonMode] = useState(
 		() => searchParams.get("compare") === "1",
 	);
