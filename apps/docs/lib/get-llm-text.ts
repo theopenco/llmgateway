@@ -214,7 +214,26 @@ function replaceMdxComponents(text: string): string {
 	return out + text.slice(cursor);
 }
 
-export async function getLLMText(page: InferPageType<typeof source>) {
+// Page text is fixed after build, so process each page once per server
+// process (the llms.mdx route is hit per crawler request). A failure drops
+// the entry so the next request retries; the page set is bounded.
+const llmTextByUrl = new Map<string, Promise<string>>();
+
+export function getLLMText(
+	page: InferPageType<typeof source>,
+): Promise<string> {
+	let promise = llmTextByUrl.get(page.url);
+	if (!promise) {
+		promise = buildLLMText(page).catch((error: unknown) => {
+			llmTextByUrl.delete(page.url);
+			throw error;
+		});
+		llmTextByUrl.set(page.url, promise);
+	}
+	return promise;
+}
+
+async function buildLLMText(page: InferPageType<typeof source>) {
 	const processed = await page.data.getText("processed");
 	// Root-relative markdown links would be resolved against whatever domain
 	// serves this text (llmgateway.io proxies /llms-full.txt), so make them

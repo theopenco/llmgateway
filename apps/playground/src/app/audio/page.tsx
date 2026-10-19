@@ -186,7 +186,9 @@ export default async function AudioPage({
 				/>
 			) : null}
 			<AudioPageClient
-				models={models}
+				// Pre-filtered server-side (same predicate as the client) so the
+				// multi-MB full catalogue never crosses the RSC boundary.
+				models={models.filter((m) => m.output?.includes("audio"))}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

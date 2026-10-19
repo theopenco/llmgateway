@@ -713,7 +713,10 @@ export default async function ModelPage({ params }: PageProps) {
 							})()}
 						</div>
 
-						<ModelRating modelId={decodedName} />
+						<ModelRating
+							modelId={decodedName}
+							initialData={ratingsData ?? undefined}
+						/>
 					</div>
 
 					{currentModelDiscount && (

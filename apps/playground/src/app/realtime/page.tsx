@@ -134,7 +134,14 @@ export default async function RealtimePage({
 				/>
 			) : null}
 			<RealtimePageClient
-				models={models}
+				// Pre-filtered server-side (superset of the client's session
+				// restriction) so the multi-MB catalogue never crosses the RSC
+				// boundary.
+				models={models.filter((m) =>
+					m.mappings.some(
+						(mapping) => mapping.realtime || mapping.realtimeTranscription,
+					),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
