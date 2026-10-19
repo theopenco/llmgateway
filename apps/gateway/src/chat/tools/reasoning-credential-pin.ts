@@ -66,27 +66,56 @@ function isAccountBoundReasoningDetail(detail: ReasoningDetail): boolean {
  * can still be served without it. Gemini signatures are kept: a signed function
  * call is required, not optional.
  */
-export function stripAccountBoundReasoning<
-	T extends { role: string; reasoning_details?: unknown },
->(messages: readonly T[]): { messages: T[]; stripped: boolean } {
+export function stripAccountBoundReasoning<T extends StrippableMessage>(
+	messages: readonly T[],
+): { messages: T[]; stripped: boolean } {
+	return stripReasoningDetails(messages, isAccountBoundReasoningDetail);
+}
+
+interface StrippableMessage {
+	role: string;
+	reasoning_details?: unknown;
+	content?: unknown;
+	tool_calls?: unknown;
+}
+
+/**
+ * The messages without the reasoning details `drop` matches. An assistant
+ * message that carried only such reasoning (an incomplete prior turn: no
+ * content, no tool calls) is removed with it — a chat-completions upstream
+ * rejects an assistant message with neither.
+ */
+function stripReasoningDetails<T extends StrippableMessage>(
+	messages: readonly T[],
+	drop: (detail: ReasoningDetail) => boolean,
+): { messages: T[]; stripped: boolean } {
 	let stripped = false;
-	const result = messages.map((message) => {
+	const result = messages.flatMap((message) => {
 		if (
 			message.role !== "assistant" ||
 			!Array.isArray(message.reasoning_details)
 		) {
-			return message;
+			return [message];
 		}
 		const details = message.reasoning_details as ReasoningDetail[];
-		const kept = details.filter(
-			(detail) => !isAccountBoundReasoningDetail(detail),
-		);
+		const kept = details.filter((detail) => !drop(detail));
 		if (kept.length === details.length) {
-			return message;
+			return [message];
 		}
 		stripped = true;
+		if (kept.length > 0) {
+			return [{ ...message, reasoning_details: kept }];
+		}
 		const { reasoning_details: _dropped, ...rest } = message;
-		return (kept.length > 0 ? { ...rest, reasoning_details: kept } : rest) as T;
+		const hasContent =
+			typeof rest.content === "string"
+				? rest.content.length > 0
+				: Array.isArray(rest.content)
+					? rest.content.length > 0
+					: rest.content !== null && rest.content !== undefined;
+		const hasToolCalls =
+			Array.isArray(rest.tool_calls) && rest.tool_calls.length > 0;
+		return hasContent || hasToolCalls ? [rest as T] : [];
 	});
 	return { messages: result, stripped };
 }
@@ -278,9 +307,7 @@ function accountBoundIds<
  * kept. Pins of the payloads that are sent are refreshed, so a conversation
  * that outlives the pin TTL keeps its credential.
  */
-export async function stripForeignReasoning<
-	T extends { role: string; reasoning_details?: unknown },
->(
+export async function stripForeignReasoning<T extends StrippableMessage>(
 	organizationId: string,
 	messages: readonly T[],
 	credential: ReasoningCredential | undefined,
@@ -313,23 +340,10 @@ export async function stripForeignReasoning<
 			pin.apiKeyHash !== credential.apiKeyHash
 		);
 	};
-	let stripped = false;
-	const result = messages.map((message) => {
-		if (
-			message.role !== "assistant" ||
-			!Array.isArray(message.reasoning_details)
-		) {
-			return message;
-		}
-		const details = message.reasoning_details as ReasoningDetail[];
-		const kept = details.filter((detail) => !foreign(detail));
-		if (kept.length === details.length) {
-			return message;
-		}
-		stripped = true;
-		const { reasoning_details: _dropped, ...rest } = message;
-		return (kept.length > 0 ? { ...rest, reasoning_details: kept } : rest) as T;
-	});
+	const { messages: result, stripped } = stripReasoningDetails(
+		messages,
+		foreign,
+	);
 	const own = ids.filter((id) => {
 		const pin = pins.get(id);
 		return (

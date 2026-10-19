@@ -5,6 +5,7 @@ import {
 	lookupReasoningPin,
 	reasoningPinBindsModel,
 	rememberReasoningCredential,
+	stripAccountBoundReasoning,
 } from "@/chat/tools/reasoning-credential-pin.js";
 import { setPreferredProvider } from "@/lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
@@ -636,6 +637,33 @@ describe("reasoning credential pinning", () => {
 		expect((await turn(history)).status).toBe(200);
 		expect(attempts).toHaveLength(3);
 		expect(replayedReasoning).toEqual([true, false, false]);
+	});
+});
+
+describe("stripAccountBoundReasoning", () => {
+	test("drops a reasoning-only assistant turn with its payload", () => {
+		const detail = (data: string) => ({
+			type: "reasoning.encrypted",
+			data,
+			format: "openai-responses-v1",
+		});
+		const { messages, stripped } = stripAccountBoundReasoning([
+			{ role: "user", content: "Start" },
+			{ role: "assistant", content: null, reasoning_details: [detail("x")] },
+			{ role: "assistant", content: "Done", reasoning_details: [detail("y")] },
+			{
+				role: "assistant",
+				content: null,
+				tool_calls: [{ id: "call_1" }],
+				reasoning_details: [detail("z")],
+			},
+		]);
+		expect(stripped).toBe(true);
+		expect(messages).toEqual([
+			{ role: "user", content: "Start" },
+			{ role: "assistant", content: "Done" },
+			{ role: "assistant", content: null, tool_calls: [{ id: "call_1" }] },
+		]);
 	});
 });
 
