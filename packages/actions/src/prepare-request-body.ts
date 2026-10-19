@@ -33,7 +33,6 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -46,7 +45,6 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
@@ -290,6 +288,9 @@ function normalizeImageModeration(
 async function fetchImageAsBlob(
 	url: string,
 	index: number,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
 ): Promise<{ blob: Blob; filename: string }> {
 	const parsed = parseDataUrl(url);
 	if (parsed) {
@@ -308,21 +309,28 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
-	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
-		);
-	}
-	const mimeType =
-		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
-	const buffer = await response.arrayBuffer();
-	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+	// Load the remote image through `processImageUrl` instead of fetching inline.
+	// It keeps the SSRF validation and the redirect refusal, and it additionally
+	// rejects non-image content types and enforces the caller size cap *while* the
+	// body downloads. The inline `arrayBuffer()` this replaces had no cap at all,
+	// so an edits request pointing at an oversized (or endless) response buffered
+	// the whole thing in memory before anything looked at it.
+	const { data, mimeType } = await processImageUrl(
+		url,
+		isProd,
+		maxSizeMB,
+		userPlan,
+	);
+	// `processImageUrl` returns the raw Content-Type for remote fetches, which can
+	// carry parameters (e.g. "image/png; charset=binary"). The multipart part type
+	// and the filename extension both need the bare type.
+	const baseMimeType = mimeType.split(";", 1)[0].trim() || "image/png";
+	const raw = Buffer.from(data, "base64");
+	const buffer = new ArrayBuffer(raw.byteLength);
+	new Uint8Array(buffer).set(raw);
+	const ext = baseMimeType.split("/")[1]?.split("+")[0] ?? "png";
 	return {
-		blob: new Blob([buffer], { type: mimeType }),
+		blob: new Blob([buffer], { type: baseMimeType }),
 		filename: `image-${index}.${ext}`,
 	};
 }
@@ -1814,7 +1822,9 @@ export async function prepareRequestBody(
 			}
 
 			const decoded = await Promise.all(
-				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+				imageUrls.map((url, index) =>
+					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),
+				),
 			);
 			const fieldName = decoded.length === 1 ? "image" : "image[]";
 			for (const { blob, filename } of decoded) {
