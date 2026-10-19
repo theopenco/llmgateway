@@ -28,6 +28,11 @@ interface ArenaSnapshot {
 	publishedAt: string | null;
 }
 
+interface ArenaCandidate {
+	entry: ArenaEntry;
+	tokens: string[];
+}
+
 const DATASET_URL =
 	"https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset";
 const DATASET_REVISION = "main";
@@ -39,6 +44,61 @@ let cacheExpiry = 0;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RETRY_MS = 5 * 60 * 1000;
 
+/**
+ * Words Arena adds for an effort level, thinking mode or rollout of the same
+ * model, so `gemini-3-pro` still matches `Gemini 3 Pro Preview`.
+ */
+const QUALIFIER_TOKENS = new Set([
+	"preview",
+	"latest",
+	"exp",
+	"experimental",
+	"thinking",
+	"reasoning",
+	"high",
+	"xhigh",
+	"medium",
+	"low",
+	"instant",
+	"fast",
+	"turbo",
+	"max",
+	// `gemma-4-31b-it` against `gemma-4-31b`, `claude-haiku-4-5-free` against
+	// `claude-haiku-4-5-20251001`.
+	"it",
+	"free",
+]);
+
+/**
+ * Words that name a *different* model and must never be discounted: `gpt-5` is
+ * not `gpt-5-codex`, `gpt-4.1` is not `gpt-4.1-mini`.
+ */
+const DISTINCT_TOKENS = new Set([
+	"mini",
+	"nano",
+	"micro",
+	"lite",
+	"small",
+	"codex",
+	"code",
+	"pro",
+	"flash",
+	"plus",
+	"opus",
+	"sonnet",
+	"haiku",
+	"instruct",
+	"chat",
+	"vision",
+	"image",
+	"audio",
+	"realtime",
+	"transcribe",
+	"embedding",
+	"rerank",
+	"search",
+]);
+
 /** Splits a model name into lowercase word tokens, dropping qualifiers. */
 function modelTokens(name: string): string[] {
 	return name
@@ -48,14 +108,40 @@ function modelTokens(name: string): string[] {
 		.filter(Boolean);
 }
 
-/** `5` in `gpt-5.4` or `4` in `claude-opus-4-6` starts a new model version. */
-function isVersionToken(token: string): boolean {
-	return /^[0-9]/.test(token);
+/** Only qualifiers and release dates may be discounted between two names. */
+function isDiscountableToken(token: string): boolean {
+	return QUALIFIER_TOKENS.has(token) || /^[0-9]{2,}$/.test(token);
 }
 
-/** Release dates appear as trailing tokens: `20241022` or `2025-04-16`. */
-function isDateToken(token: string): boolean {
-	return /^[0-9]{6,}$/.test(token);
+function equalTokens(a: string[], b: string[]): boolean {
+	return a.length === b.length && a.every((token, index) => token === b[index]);
+}
+
+function startsWithTokens(tokens: string[], prefix: string[]): boolean {
+	return prefix.every((token, index) => tokens[index] === token);
+}
+
+function sharedPrefix(a: string[], b: string[]): number {
+	let index = 0;
+	while (index < a.length && index < b.length && a[index] === b[index]) {
+		index++;
+	}
+	return index;
+}
+
+/** Arena sometimes publishes both a plain and a `(High)`-style entry. */
+function qualificationRank(entry: ArenaEntry): number {
+	return entry.model.includes("(") ? 1 : 0;
+}
+
+function best(
+	matches: ArenaCandidate[],
+	compare: (a: ArenaCandidate, b: ArenaCandidate) => number,
+): ArenaEntry {
+	return [...matches].sort(
+		(a, b) =>
+			qualificationRank(a.entry) - qualificationRank(b.entry) || compare(a, b),
+	)[0]!.entry;
 }
 
 /**
@@ -94,30 +180,16 @@ export function findArenaMatch(
 		],
 		"claude-3-opus-20240229": ["claude-3-opus-20240229"],
 		// GPT models
-		"gpt-5": ["gpt-5-high", "gpt-5-chat", "gpt-5"],
-		"gpt-5-mini": ["gpt-5-mini-high", "gpt-5-mini"],
+		"gpt-5-chat-latest": ["gpt-5-chat", "gpt-5.3-chat-latest", "gpt-5-chat"],
 		"gpt-4o": ["chatgpt-4o-latest-20250326", "gpt-4o-2024-11-20"],
 		"gpt-4o-mini": ["gpt-4o-mini-2024-07-18"],
 		"gpt-4-turbo": ["gpt-4-turbo-2024-04-09"],
-		o3: ["o3-2025-04-16"],
-		"o4-mini": ["o4-mini-2025-04-16"],
-		o1: ["o1-2024-12-17"],
-		"o1-mini": ["o1-mini"],
-		"o1-preview": ["o1-preview"],
 		// Gemini models
-		"gemini-2.5-pro": ["gemini-2.5-pro"],
-		"gemini-2.5-flash": ["gemini-2.5-flash"],
 		"gemini-2.0-flash": ["gemini-2.0-flash-001"],
 		// DeepSeek models
 		"deepseek-r1": ["deepseek-r1", "deepseek-r1-0528"],
 		"deepseek-v3": ["deepseek-v3-0324", "deepseek-v3"],
 		"deepseek-chat": ["deepseek-v3-0324", "deepseek-v3"],
-		// Llama models
-		"llama-4-maverick": ["llama-4-maverick"],
-		"llama-3.3-70b-instruct": ["llama-3.3-70b-instruct"],
-		"llama-3.1-405b-instruct": ["llama-3.1-405b-instruct"],
-		"llama-3.1-70b-instruct": ["llama-3.1-70b-instruct"],
-		"llama-3.1-8b-instruct": ["llama-3.1-8b-instruct"],
 		// Mistral models
 		"mistral-large-latest": ["mistral-large-3"],
 		"mistral-small-latest": ["mistral-small-2501"],
@@ -151,55 +223,68 @@ export function findArenaMatch(
 		entry,
 		tokens: modelTokens(entry.model),
 	}));
-	const qualified = (entry: ArenaEntry) => (entry.model.includes("(") ? 1 : 0);
 
-	// Same words. Arena often publishes several effort variants of one model
-	// (`Claude Opus 4.6` and `Claude Opus 4.6 (High)`), so prefer the plain
-	// entry and otherwise the best-ranked one.
-	const sameWords = candidates.filter(
-		(c) =>
-			c.tokens.length === tokens.length &&
-			c.tokens.every((token, index) => token === tokens[index]),
-	);
+	const sameWords = candidates.filter((c) => equalTokens(c.tokens, tokens));
 	if (sameWords[0]) {
-		return sameWords.sort(
-			(a, b) =>
-				qualified(a.entry) - qualified(b.entry) || a.entry.rank - b.entry.rank,
-		)[0]!.entry;
+		return best(sameWords, (a, b) => a.entry.rank - b.entry.rank);
 	}
 
-	// Arena appends effort or thinking qualifiers (`gpt-5` vs `gpt-5-high`), so
-	// accept extra trailing words as long as they are not a version number
-	// (`gpt-5.4` is a different model than `gpt-5`).
+	// Arena appends effort, thinking or preview words, so tolerate extra trailing
+	// qualifiers. A trailing model word is a different model.
 	const extended = candidates.filter(
 		(c) =>
 			c.tokens.length > tokens.length &&
-			tokens.every((token, index) => c.tokens[index] === token) &&
-			!isVersionToken(c.tokens[tokens.length]!),
+			startsWithTokens(c.tokens, tokens) &&
+			c.tokens.slice(tokens.length).every(isDiscountableToken),
 	);
 	if (extended[0]) {
-		return extended.sort(
+		return best(
+			extended,
 			(a, b) =>
-				qualified(a.entry) - qualified(b.entry) ||
-				a.tokens.length - b.tokens.length ||
-				a.entry.rank - b.entry.rank,
-		)[0]!.entry;
+				a.tokens.length - b.tokens.length || a.entry.rank - b.entry.rank,
+		);
 	}
 
-	// Our ID carries a date (`claude-3-5-sonnet-20241022`) that Arena keeps in a
-	// qualifier: accept a shorter name whose remaining words are all dates.
-	const dated = candidates.filter(
+	// And the reverse: our ID carries qualifiers Arena drops, or a rollout Arena
+	// lists differently (`deepseek-v4.1-flash-1017` against
+	// `deepseek-v4.1-flash-max`). Only the Arena name's own words have to match.
+	const shorter = candidates.filter(
 		(c) =>
 			c.tokens.length >= 2 &&
 			c.tokens.length < tokens.length &&
-			c.tokens.every((token, index) => tokens[index] === token) &&
-			tokens.slice(c.tokens.length).every(isDateToken),
+			startsWithTokens(tokens, c.tokens) &&
+			tokens.slice(c.tokens.length).every(isDiscountableToken),
 	);
-	if (dated[0]) {
-		return dated.sort(
+	if (shorter[0]) {
+		return best(
+			shorter,
 			(a, b) =>
 				b.tokens.length - a.tokens.length || a.entry.rank - b.entry.rank,
-		)[0]!.entry;
+		);
+	}
+
+	// Both sides carry qualifiers (`claude-haiku-4-5` against
+	// `claude-haiku-4-5-20251001`): keep the longest shared prefix that leaves
+	// only qualifiers and dates behind.
+	const aligned = candidates.filter((c) => {
+		const shared = sharedPrefix(c.tokens, tokens);
+		if (shared < 3 || DISTINCT_TOKENS.has(c.tokens[shared] ?? "")) {
+			return false;
+		}
+		return (
+			c.tokens.slice(shared).every(isDiscountableToken) &&
+			tokens.slice(shared).every(isDiscountableToken)
+		);
+	});
+	if (aligned[0]) {
+		return best(
+			aligned,
+			(a, b) =>
+				sharedPrefix(b.tokens, tokens) - sharedPrefix(a.tokens, tokens) ||
+				Math.abs(a.tokens.length - tokens.length) -
+					Math.abs(b.tokens.length - tokens.length) ||
+				a.entry.rank - b.entry.rank,
+		);
 	}
 
 	return null;
