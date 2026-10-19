@@ -41,6 +41,14 @@ deployment rejects a capability the catalogue claims, fix that mapping's flag in
 `packages/models` (e.g. `vision: false`). If asked for a broad reclassification,
 raise the misclassification risk and confirm first.
 
+## Content filter
+
+The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) writes its audit
+CSV from the request body only: `request_id` and `account_id` come from the
+classify payload, headers are ignored. `internal-content-filter.ts` sends the
+gateway request id and the organization id (never the project, key, or user id —
+audit rows join on organization).
+
 ## Logging, streaming, shutdown
 
 - Pass `{ retentionLevel }` to every `insertLog` call; the one-argument form drops payloads for retaining orgs.
