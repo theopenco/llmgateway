@@ -1,7 +1,11 @@
 import { parquetWriteBuffer } from "hyparquet-writer";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { getArenaBenchmarks, parseArenaRows } from "./arena-benchmarks.js";
+import {
+	getArenaBenchmarks,
+	parseArenaRows,
+	findArenaMatch,
+} from "./arena-benchmarks.js";
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -117,4 +121,33 @@ test("reads the published parquet snapshots and keeps the last good one on failu
 	vi.setSystemTime(new Date("2026-09-29T12:00:00Z"));
 	vi.mocked(fetch).mockResolvedValue(new Response("gone", { status: 404 }));
 	expect(await getArenaBenchmarks()).toEqual(current);
+});
+
+test("matches Arena display names to our model ids", () => {
+	const entries = [
+		{ rank: 1, model: "Gemini 4 Argon (High)", score: 1524 },
+		{ rank: 2, model: "Claude Opus 4.6", score: 1497 },
+		{ rank: 3, model: "Claude Opus 4.6 (High)", score: 1503 },
+		{ rank: 4, model: "gpt-5.4", score: 1465 },
+		{ rank: 5, model: "gpt-5-high", score: 1435 },
+		{ rank: 6, model: "deepseek-v4.1-flash-max", score: 1475 },
+		{ rank: 7, model: "claude-haiku-4-5-20251001", score: 1414 },
+		{ rank: 8, model: "Claude Sonnet 5.5 (xHigh)", score: 1768 },
+	];
+
+	// Same words, preferring the entry without an effort qualifier.
+	expect(findArenaMatch("gemini-4-argon", entries)?.model).toBe(
+		"Gemini 4 Argon (High)",
+	);
+	expect(findArenaMatch("claude-opus-4-6", entries)?.model).toBe(
+		"Claude Opus 4.6",
+	);
+	// A trailing version or model word names a different model.
+	expect(findArenaMatch("gpt-5.4", entries)?.rank).toBe(4);
+	expect(findArenaMatch("gpt-5", entries)?.model).toBe("gpt-5-high");
+	// Effort and rollout words are discounted on either side.
+	expect(findArenaMatch("deepseek-v4.1-flash-1017", entries)?.rank).toBe(6);
+	expect(findArenaMatch("claude-haiku-4-5", entries)?.rank).toBe(7);
+	expect(findArenaMatch("claude-sonnet-5-5", entries)?.rank).toBe(8);
+	expect(findArenaMatch("claude-3-opus-20240229", entries)).toBeNull();
 });
