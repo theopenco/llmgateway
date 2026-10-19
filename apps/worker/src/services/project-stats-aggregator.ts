@@ -173,8 +173,9 @@ export function getBaseAggregationFields() {
 		// SUM(real) in float4 too — a busy hour is tens of thousands of rows, so the
 		// running sum runs out of its ~7 significant digits and the bucket is stored
 		// already-wrong. Casting to double precision first keeps the accumulation
-		// accurate; the target column is still float4, so only the final value is
-		// rounded rather than every partial sum along the way.
+		// accurate, and the rollup cost columns are double precision too, so the
+		// bucket is stored without float4 rounding (a few rollups not yet widened
+		// still round the final value once).
 		cost: sumLogMoney(log.cost, "cost"),
 		inputCost: sumLogMoney(log.inputCost, "inputCost"),
 		outputCost: sumLogMoney(log.outputCost, "outputCost"),
