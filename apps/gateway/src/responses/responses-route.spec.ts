@@ -263,7 +263,9 @@ describe("responses header passthrough", () => {
 				"content-type": "application/json",
 				"x-no-cache": "true",
 				"x-no-fallback": "true",
+				"x-session-id": "session-abc",
 				"x-session-affinity": "session-abc",
+				session_id: "session-abc",
 			},
 			body: JSON.stringify({
 				model: "gpt-4o-mini",
@@ -281,7 +283,46 @@ describe("responses header passthrough", () => {
 		];
 		expect(init.headers["x-no-cache"]).toBe("true");
 		expect(init.headers["x-no-fallback"]).toBe("true");
+		expect(init.headers["x-session-id"]).toBe("session-abc");
 		expect(init.headers["x-session-affinity"]).toBe("session-abc");
+		expect(init.headers["session_id"]).toBe("session-abc");
+	});
+
+	it("copies x-llmgateway-cache back on the streaming lane", async () => {
+		mocks.appRequest.mockResolvedValue(
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+				{
+					status: 200,
+					headers: {
+						"content-type": "text/event-stream",
+						"x-llmgateway-cache": "HIT",
+					},
+				},
+			),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				stream: true,
+				store: false,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBe("HIT");
+		await response.text();
 	});
 
 	it("omits opt-out headers the caller did not send", async () => {
@@ -325,9 +366,16 @@ describe("responses header passthrough", () => {
 			string,
 			{ headers: Record<string, string> },
 		];
-		expect("x-no-cache" in init.headers).toBe(false);
-		expect("x-no-fallback" in init.headers).toBe(false);
-		expect("x-session-affinity" in init.headers).toBe(false);
+		for (const header of [
+			"x-no-cache",
+			"x-no-fallback",
+			"x-session-id",
+			"x-session-affinity",
+			"session_id",
+			"session-id",
+		]) {
+			expect(header in init.headers).toBe(false);
+		}
 	});
 
 	it("forwards cache/session headers and copies x-llmgateway-cache back on /compact", async () => {

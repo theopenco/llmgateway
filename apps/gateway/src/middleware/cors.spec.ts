@@ -165,7 +165,11 @@ describe("corsMiddleware", () => {
 			},
 		});
 
-		const allowHeaders = preflight.headers.get("Access-Control-Allow-Headers");
+		const allowHeaders = (
+			preflight.headers.get("Access-Control-Allow-Headers") ?? ""
+		)
+			.split(",")
+			.map((header) => header.trim().toLowerCase());
 		for (const header of [
 			"x-no-cache",
 			"x-no-fallback",
@@ -181,8 +185,11 @@ describe("corsMiddleware", () => {
 			headers: { Origin: "https://www.typingmind.com" },
 		});
 
-		expect(res.headers.get("Access-Control-Expose-Headers")).toContain(
-			"x-llmgateway-cache",
-		);
+		const exposeHeaders = (
+			res.headers.get("Access-Control-Expose-Headers") ?? ""
+		)
+			.split(",")
+			.map((header) => header.trim().toLowerCase());
+		expect(exposeHeaders).toContain("x-llmgateway-cache");
 	});
 });
