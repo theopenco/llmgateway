@@ -22,14 +22,17 @@ export const alertAudiences = ["owner", "admin", "member"] as const;
 export type AlertAudience = (typeof alertAudiences)[number];
 
 /**
- * Audience of an org-scoped alert: limit alerts always go to owners and
- * admins; compliance alerts follow the organization's configured audience.
+ * Audience of an org-scoped alert: limit, data stream and provider key alerts
+ * always go to owners and admins; compliance alerts follow the organization's
+ * configured audience.
  */
 export function orgAlertAudience(
 	type: string,
 	complianceAudience: AlertAudience | null | undefined,
 ): AlertAudience | null {
-	return type === "org_limit" || type === "data_stream"
+	return type === "org_limit" ||
+		type === "data_stream" ||
+		type === "provider_key_errors"
 		? "admin"
 		: (complianceAudience ?? null);
 }
