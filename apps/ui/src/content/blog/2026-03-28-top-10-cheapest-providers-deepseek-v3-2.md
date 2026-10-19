@@ -107,7 +107,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 3. **[Calculate your savings](https://llmgateway.io/token-cost-calculator)** with our Token Cost Calculator
 
-No vendor lock-in. No platform fees. Just the cheapest path to every model.
+No vendor lock-in. No token markup. Just the cheapest path to every model.
 
 ---
 

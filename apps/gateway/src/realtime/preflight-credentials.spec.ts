@@ -64,11 +64,11 @@ describe("realtime preflight with managed credentials", () => {
 		// Health failures must attribute to the credential actually sent.
 		expect(result.trackedKeyHealthId).toBe("managed-openai");
 		expect(result.envVarName).toBeUndefined();
-		const [organization] = await db
-			.select({ safetyIdentifier: tables.organization.safetyIdentifier })
-			.from(tables.organization)
-			.where(eq(tables.organization.id, "org-id"));
-		expect(result.safetyIdentifier).toBe(organization?.safetyIdentifier);
+		const [apiKey] = await db
+			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
+			.from(tables.apiKey)
+			.where(eq(tables.apiKey.id, "token-id"));
+		expect(result.safetyIdentifier).toBe(apiKey?.safetyIdentifier);
 		// A managed credential is the platform's own key: the org is billed for
 		// the session exactly as it was on the env-var path.
 		expect(result.usedMode).toBe("credits");

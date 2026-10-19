@@ -4,6 +4,7 @@ import { useCallback } from "react";
 
 import { useGeminiRealtimeCall } from "@/hooks/use-gemini-realtime-call";
 import { useRealtimeCall } from "@/hooks/use-realtime-call";
+import { GEMINI_PROVIDER_ID } from "@/lib/realtime-transcription";
 
 import type { RealtimeTranscriptEntry } from "@/hooks/use-realtime-call";
 
@@ -13,21 +14,16 @@ export type {
 	RealtimeUsageTotals as VoiceCallUsageTotals,
 } from "@/hooks/use-realtime-call";
 
-/**
- * Providers whose realtime sessions speak their own wire protocol rather than
- * OpenAI's. The gateway proxies each protocol natively, so the browser client
- * has to match the provider serving the selected model.
- */
-const GEMINI_PROVIDER_ID = "google-ai-studio";
-
 interface UseVoiceCallOptions {
 	model: string | null;
 	voice: string | null;
 	/**
-	 * Provider id of the catalogue mapping serving the selected model. Null
-	 * falls back to the OpenAI protocol.
+	 * Provider id of the catalogue mapping serving the selected model. The
+	 * gateway proxies each provider's wire protocol natively, so the browser
+	 * client has to match it. Null falls back to the OpenAI protocol.
 	 */
 	provider: string | null;
+	transcriptionModel: string | null;
 	onCallError?: (message: string) => void;
 }
 
@@ -42,12 +38,14 @@ export function useVoiceCall({
 	model,
 	voice,
 	provider,
+	transcriptionModel,
 	onCallError,
 }: UseVoiceCallOptions) {
 	const isGemini = provider === GEMINI_PROVIDER_ID;
 	const openaiCall = useRealtimeCall({
 		model: isGemini ? null : model,
 		voice,
+		transcriptionModel,
 		onCallError,
 	});
 	const geminiCall = useGeminiRealtimeCall({

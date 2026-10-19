@@ -16,6 +16,8 @@ const origins: Record<string, ApiOrigin> = {
 	embeddings: "embeddings",
 	moderations: "moderations",
 	rerank: "rerank",
+	systemone: "systemone",
+	decisions: "decisions",
 	search: "search",
 	ocr: "ocr",
 	images: "images",
@@ -23,6 +25,7 @@ const origins: Record<string, ApiOrigin> = {
 	audio_transcriptions: "transcriptions",
 	videos: "videos",
 	ai_sdk: "ai-sdk",
+	realtime: "realtime",
 };
 
 export const rejectionLogMiddleware: MiddlewareHandler<ServerTypes> = async (

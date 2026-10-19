@@ -33,6 +33,15 @@ function createQueryMock(
 
 const { getEffectiveRateLimit } = await import("./rate-limit-helpers.js");
 
+const noTokenLimits = {
+	maxTpm: 0,
+	maxTpd: 0,
+	tpmSource: "none",
+	tpdSource: "none",
+	tpmShared: false,
+	tpdShared: false,
+} as const;
+
 describe("getEffectiveRateLimit", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -50,6 +59,57 @@ describe("getEffectiveRateLimit", () => {
 			rpdSource: "none",
 			rpmShared: false,
 			rpdShared: false,
+			maxTpm: 0,
+			maxTpd: 0,
+			tpmSource: "none",
+			tpdSource: "none",
+			tpmShared: false,
+			tpdShared: false,
+		});
+	});
+
+	it("resolves token windows independently of request windows", async () => {
+		createQueryMock([
+			{
+				id: "rl-org",
+				organizationId: "org-1",
+				provider: "openai",
+				model: null,
+				maxRpm: 10,
+				maxRpd: null,
+				maxTpm: null,
+				maxTpd: null,
+				enforcement: "per_org",
+				mode: "strict",
+			},
+			{
+				id: "rl-global",
+				organizationId: null,
+				provider: "openai",
+				model: null,
+				maxRpm: null,
+				maxRpd: null,
+				maxTpm: 100_000,
+				maxTpd: 5_000_000,
+				enforcement: "global",
+				mode: "soft",
+			},
+		]);
+
+		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result).toMatchObject({
+			maxRpm: 10,
+			rpmSource: "org_provider",
+			maxTpm: 100_000,
+			maxTpd: 5_000_000,
+			tpmSource: "global_provider",
+			tpdSource: "global_provider",
+			tpmMode: "soft",
+			tpmRateLimitId: "rl-global",
+			tpmShared: true,
+			tpmProvider: "openai",
+			tpmModel: null,
 		});
 	});
 
@@ -214,6 +274,7 @@ describe("getEffectiveRateLimit", () => {
 		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result).toEqual({
+			...noTokenLimits,
 			maxRpm: 100,
 			maxRpd: 0,
 			rpmSource: "global_provider_model",
@@ -263,6 +324,7 @@ describe("getEffectiveRateLimit", () => {
 		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result).toEqual({
+			...noTokenLimits,
 			maxRpm: 250,
 			maxRpd: 9000,
 			rpmSource: "org_provider",
@@ -289,6 +351,7 @@ describe("getEffectiveRateLimit", () => {
 		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result).toEqual({
+			...noTokenLimits,
 			maxRpm: 0,
 			maxRpd: 0,
 			rpmSource: "none",
@@ -321,6 +384,7 @@ describe("getEffectiveRateLimit", () => {
 		const result = await getEffectiveRateLimit(null, "openai", "gpt-4o");
 
 		expect(result).toEqual({
+			...noTokenLimits,
 			maxRpm: 0,
 			maxRpd: 3000,
 			rpmSource: "none",

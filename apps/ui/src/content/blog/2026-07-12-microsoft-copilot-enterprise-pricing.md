@@ -13,7 +13,7 @@ faqs:
   - question: "How much does GitHub Copilot Enterprise cost after the June 2026 change?"
     answer: "The seat is still $39 per user per month, but chat, agent mode, code review, and CLI usage now meter as AI Credits at $0.01 each with no default cap. Real-world overages range from a few dollars for light users to hundreds per developer for agent-heavy workflows."
   - question: "How can enterprises cap Copilot-style AI spend?"
-    answer: "Put a gateway between your tools and the model providers. LLM Gateway enforces hard budget limits per organization, project, and API key, records cost per request, caches repeated context automatically, and passes provider prices through with no markup — so spend is visible, attributable, and bounded."
+    answer: "Put a gateway between your tools and the model providers. LLM Gateway enforces hard budget limits per organization member and API key, records cost per request, caches repeated context automatically, and passes provider prices through with no markup — so spend is visible, attributable, and bounded."
 image:
   src: "/blog/microsoft-copilot-enterprise-pricing.png"
   alt: "Microsoft Copilot enterprise pricing in 2026 — seat-based costs turning into metered usage flowing through a controlled gateway"
@@ -72,7 +72,7 @@ Metered pricing isn't inherently bad — it's how every serious AI platform pric
 Whatever stack replaces or supplements Copilot, these are the controls to demand:
 
 1. **Per-request visibility.** Every request should record model, tokens, cost, latency, and which team spent it. Monthly roll-ups are how $3,000 surprises happen.
-2. **Hard caps, not alerts.** Budgets per organization, project, and API key that stop requests at the limit. An alert after the money is spent is a receipt, not a control.
+2. **Hard caps, not alerts.** Budgets per organization member and API key that stop requests at the limit. An alert after the money is spent is a receipt, not a control.
 3. **Pass-through token pricing.** Pay what providers charge, with the platform fee visible and flat — not baked into a per-credit rate you can't audit.
 4. **Prompt caching.** Agentic workloads resend the same context — system prompts, file trees, retrieved documents — on nearly every request. Caching routinely absorbs a large share of that spend automatically.
 5. **Model right-sizing.** Routing light tasks to light models is the single biggest lever: the same chat workload that costs $84 a month on a premium model costs about $6.40 on a mini model. Route by task, not by default.

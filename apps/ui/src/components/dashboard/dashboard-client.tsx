@@ -50,6 +50,7 @@ import {
 	useUsageMode,
 } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -226,6 +227,12 @@ export function DashboardClient({
 
 	// Get date range from URL params
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
@@ -252,15 +259,23 @@ export function DashboardClient({
 
 	// If no from/to params exist, add them to the URL immediately
 	useEffect(() => {
-		if (!searchParams.get("from") || !searchParams.get("to")) {
+		if (shouldApplyDefaults(new URLSearchParams(searchParams.toString()))) {
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("days");
-			const today = new Date();
-			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params.set("to", format(today, "yyyy-MM-dd"));
+			params.set("from", defaultFrom);
+			params.set("to", defaultTo);
+			markGenerated(params);
 			router.replace(`${buildUrl()}?${params.toString()}`);
 		}
-	}, [searchParams, router, buildUrl]);
+	}, [
+		searchParams,
+		router,
+		buildUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
 	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);

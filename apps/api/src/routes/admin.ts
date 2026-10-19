@@ -32,12 +32,21 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import {
+	buildErrorMessageMatchExpr,
+	buildIgnoredErrorMatchExpr,
+	buildIgnoredErrorsClause,
+	buildIncidentErrorScopeClause,
+	buildUnstableErrorScopeClause,
+	errorScopeSchema,
+	listIgnoredErrorMatchers,
+} from "@/lib/error-filters.js";
+import { escapeLikePattern } from "@/lib/like-pattern.js";
 import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
 	notRetriedClause,
-	incidentErrorsClause,
 	platformOnlyClause,
 	byokClauseFor,
 	queryMappingErrorShapes,
@@ -55,6 +64,7 @@ import {
 	organizationTimeseriesQuery,
 	organizationTimeseriesSchema,
 } from "@/lib/organization-timeseries.js";
+import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -130,6 +140,7 @@ import {
 	ne,
 	notInArray,
 	or,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	type SQL,
 	type SQLWrapper,
@@ -143,6 +154,7 @@ import {
 	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
+	rootModelIdSql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -197,15 +209,6 @@ function escapeHtml(text: string): string {
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
 
-// Search terms and stored matchers are plain substrings, so LIKE
-// metacharacters must be escaped before wrapping them in wildcards. For the
-// organization search this is a safety guard, not just correctness: an
-// unescaped "%" would silently become a match-everything filter, and the bulk
-// block endpoint reuses that filter to decide which organizations get banned.
-function escapeLikePattern(value: string): string {
-	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
 /**
  * Builds the organization search filter shared by the listing and the bulk
  * block endpoints. Returns `undefined` for an empty search so callers must
@@ -225,9 +228,10 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
-		// Provider abuse reports quote the safety identifier we send upstream;
-		// searching on it is how such a report gets traced back to an org.
+		// Provider abuse reports quote the safety identifier we send upstream:
+		// per API key now, per organization for older reports.
 		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
+		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND ak.safety_identifier = ${trimmed})`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
 }
@@ -573,6 +577,8 @@ const organizationSchema = z.object({
 	projectLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
+	// All-time DevPass + Chat Plan subscription payments, net of refunds.
+	totalSubscriptionValue: z.string().optional(),
 	totalSpent: z.string().optional(),
 	totalCreditsSpent: z.string().optional(),
 	totalApiKeysSpent: z.string().optional(),
@@ -755,6 +761,7 @@ const apiKeySchema = z.object({
 	usageLimit: z.string().nullable(),
 	projectId: z.string(),
 	projectName: z.string(),
+	safetyIdentifier: z.string(),
 	createdAt: z.string(),
 	iamRules: z.array(iamRuleAdminSchema),
 });
@@ -788,12 +795,10 @@ function toKeyStatusCounts(
 	for (const row of rows) {
 		const count = Number(row.count);
 		counts.all += count;
-		if (
-			row.status === "active" ||
-			row.status === "inactive" ||
-			row.status === "deleted"
-		) {
-			counts[row.status] += count;
+		// A provider key in its teardown grace period counts as deleted.
+		const status = row.status === "pending_deletion" ? "deleted" : row.status;
+		if (status === "active" || status === "inactive" || status === "deleted") {
+			counts[status] += count;
 		}
 	}
 	return counts;
@@ -810,6 +815,9 @@ function keyStatusCondition(column: AnyColumn, status: KeyStatusFilter) {
 	}
 	if (status === "active") {
 		return or(eq(column, "active"), isNull(column));
+	}
+	if (status === "deleted") {
+		return inArray(column, [...REMOVED_PROVIDER_KEY_STATUSES]);
 	}
 	return eq(column, status);
 }
@@ -941,6 +949,7 @@ const sortBySchema = z.enum([
 	"createdAt",
 	"status",
 	"totalCreditsAllTime",
+	"totalSubscriptionValue",
 	"totalSpent",
 	"totalRequests",
 	"totalTokens",
@@ -2787,6 +2796,75 @@ admin.openapi(getOrganizations, async (c) => {
 			.groupBy(tables.transaction.organizationId)
 			.as("all_time_credits");
 
+	// All-time subscription value per org: completed DevPass and Chat Plan
+	// subscription payments (`amount` = dollars charged), net of refunds against
+	// them. Deduplicated per invoice because the first invoice of a subscription
+	// writes both a `*_start` and a `*_renewal` row. Legacy `subscription_*`
+	// rows only count on DevPass orgs, since non-personal org Pro subs still
+	// write them. One-time Reset Pass purchases are not subscriptions.
+	const subscriptionPaymentTypes = [
+		...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+		...LEGACY_DEV_PLAN_TX_TYPES,
+		...CHAT_PLAN_TX_TYPES,
+	];
+	const subscriptionPaymentFilter = (tx: typeof tables.transaction) =>
+		or(
+			inArray(tx.type, [
+				...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+				...CHAT_PLAN_TX_TYPES,
+			]),
+			and(
+				inArray(tx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				eq(tables.organization.kind, "devpass"),
+			),
+		)!;
+	const subscriptionRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"subscription_refund_original_tx",
+	);
+	const subscriptionValueForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.transaction.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CASE WHEN ${tables.transaction.type} = 'credit_refund' THEN -CAST(${tables.transaction.amount} AS NUMERIC) ELSE CAST(${tables.transaction.amount} AS NUMERIC) END), 0)`.as(
+						"total",
+					),
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.leftJoin(
+				subscriptionRefundOriginalTx,
+				eq(
+					tables.transaction.relatedTransactionId,
+					subscriptionRefundOriginalTx.id,
+				),
+			)
+			.where(
+				and(
+					eq(tables.transaction.status, "completed"),
+					isNotNull(tables.transaction.amount),
+					organizationIds
+						? inArray(tables.transaction.organizationId, organizationIds)
+						: undefined,
+					or(
+						and(
+							subscriptionPaymentFilter(tables.transaction),
+							firstRowPerInvoiceFilter(subscriptionPaymentTypes),
+						),
+						and(
+							eq(tables.transaction.type, "credit_refund"),
+							subscriptionPaymentFilter(subscriptionRefundOriginalTx),
+						),
+					),
+				),
+			)
+			.groupBy(tables.transaction.organizationId)
+			.as("subscription_value");
+
 	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
 	// selected window.
 	const usageForOrganizations = (organizationIds?: string[]) =>
@@ -2836,6 +2914,7 @@ admin.openapi(getOrganizations, async (c) => {
 			.as("total_spent");
 
 	const allTimeCredits = creditsForOrganizations();
+	const allTimeSubscriptionValue = subscriptionValueForOrganizations();
 	const totalSpentSub = usageForOrganizations();
 
 	const whereClause = and(
@@ -2877,6 +2956,7 @@ admin.openapi(getOrganizations, async (c) => {
 		createdAt: tables.organization.createdAt,
 		status: tables.organization.status,
 		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
+		totalSubscriptionValue: sql`COALESCE(CAST(${allTimeSubscriptionValue.total} AS NUMERIC), 0)`,
 		totalSpent: sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0)`,
 		totalRequests: sql`COALESCE(CAST(${totalSpentSub.requestsTotal} AS NUMERIC), 0)`,
 		totalTokens: sql`COALESCE(CAST(${totalSpentSub.tokensTotal} AS NUMERIC), 0)`,
@@ -2910,6 +2990,12 @@ admin.openapi(getOrganizations, async (c) => {
 			eq(tables.organization.id, allTimeCredits.organizationId),
 		);
 	}
+	if (sortBy === "totalSubscriptionValue") {
+		pageQuery = pageQuery.leftJoin(
+			allTimeSubscriptionValue,
+			eq(tables.organization.id, allTimeSubscriptionValue.organizationId),
+		);
+	}
 	const [[countResult], page] = await Promise.all([
 		countQuery.where(whereClause),
 		pageQuery
@@ -2929,6 +3015,8 @@ admin.openapi(getOrganizations, async (c) => {
 		return c.json({ organizations: [], total, totalCredits, limit, offset });
 	}
 	const pageCredits = creditsForOrganizations(organizationIds);
+	const pageSubscriptionValue =
+		subscriptionValueForOrganizations(organizationIds);
 	const pageUsage = usageForOrganizations(organizationIds);
 	const ownerSub = buildOrganizationOwnerSubquery(organizationIds);
 
@@ -2952,6 +3040,10 @@ admin.openapi(getOrganizations, async (c) => {
 			totalCreditsAllTime: sql<string>`COALESCE(${pageCredits.total}, '0')`.as(
 				"totalCreditsAllTime",
 			),
+			totalSubscriptionValue:
+				sql<string>`COALESCE(${pageSubscriptionValue.total}, '0')`.as(
+					"totalSubscriptionValue",
+				),
 			totalSpent: sql<string>`COALESCE(${pageUsage.total}, '0')`.as(
 				"totalSpent",
 			),
@@ -2978,6 +3070,10 @@ admin.openapi(getOrganizations, async (c) => {
 			pageCredits,
 			eq(tables.organization.id, pageCredits.organizationId),
 		)
+		.leftJoin(
+			pageSubscriptionValue,
+			eq(tables.organization.id, pageSubscriptionValue.organizationId),
+		)
 		.leftJoin(pageUsage, eq(tables.organization.id, pageUsage.organizationId))
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(inArray(tables.organization.id, organizationIds));
@@ -2999,6 +3095,7 @@ admin.openapi(getOrganizations, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
+			totalSubscriptionValue: String(org.totalSubscriptionValue ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
 			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
 			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
@@ -3551,6 +3648,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			usageLimit: tables.apiKey.usageLimit,
 			projectId: tables.apiKey.projectId,
 			projectName: tables.project.name,
+			safetyIdentifier: tables.apiKey.safetyIdentifier,
 			createdAt: tables.apiKey.createdAt,
 		})
 		.from(tables.apiKey)
@@ -4199,12 +4297,7 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	}
 
 	if (query.model) {
-		whereConditions.push(
-			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
-				ELSE ${tables.log.usedModel}
-			END = ${query.model}`,
-		);
+		whereConditions.push(eq(rootModelIdSql(tables.log.usedModel), query.model));
 	}
 
 	if (query.source) {
@@ -5449,7 +5542,8 @@ const rateLimitSchema = z.object({
 	organizationId: z.string().nullable(),
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
+	// Requests for rpm/rpd, prompt + completion tokens for tpm/tpd.
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
 	mode: z.enum(["strict", "soft", "lax"]),
@@ -5466,11 +5560,12 @@ const rateLimitsListSchema = z.object({
 const createRateLimitBodySchema = z.object({
 	provider: z.string().nullable().optional(),
 	model: z.string().nullable().optional(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
-		.min(0, "Limit must be at least 0"),
+		.min(0, "Limit must be at least 0")
+		.max(PG_INTEGER_MAX, `Limit must be at most ${PG_INTEGER_MAX}`),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	// Soft preserves session pins; lax also permits explicit provider requests.
 	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
@@ -5698,6 +5793,18 @@ const deleteOrganizationRateLimit = createRoute({
 	},
 });
 
+type RateLimitType = z.infer<typeof rateLimitSchema>["limitType"];
+
+// Each row carries one window; the others stay null.
+function rateLimitColumns(limitType: RateLimitType, maxRequests: number) {
+	return {
+		maxRpm: limitType === "rpm" ? maxRequests : null,
+		maxRpd: limitType === "rpd" ? maxRequests : null,
+		maxTpm: limitType === "tpm" ? maxRequests : null,
+		maxTpd: limitType === "tpd" ? maxRequests : null,
+	};
+}
+
 // Helper to format rate limit for response
 function formatRateLimit(r: {
 	id: string;
@@ -5706,14 +5813,23 @@ function formatRateLimit(r: {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
 	enforcement: string;
 	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 }) {
-	const limitType: "rpm" | "rpd" = r.maxRpd !== null ? "rpd" : "rpm";
-	const maxRequests = r.maxRpd ?? r.maxRpm ?? 0;
+	const limitType: RateLimitType =
+		r.maxTpd !== null
+			? "tpd"
+			: r.maxTpm !== null
+				? "tpm"
+				: r.maxRpd !== null
+					? "rpd"
+					: "rpm";
+	const maxRequests = r.maxTpd ?? r.maxTpm ?? r.maxRpd ?? r.maxRpm ?? 0;
 
 	return {
 		id: r.id,
@@ -5766,8 +5882,7 @@ async function updateRateLimit(
 				.set({
 					provider,
 					model,
-					maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-					maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+					...rateLimitColumns(body.limitType, body.maxRequests),
 					enforcement: body.enforcement,
 					mode: body.mode,
 					reason: body.reason ?? null,
@@ -5788,7 +5903,7 @@ async function updateRateLimit(
 		) {
 			throw new HTTPException(409, {
 				message:
-					"A rate limit already exists for this provider/model combination",
+					"A rate limit already exists for this provider/model/limit type combination",
 			});
 		}
 		throw error;
@@ -5827,8 +5942,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			organizationId: null,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			enforcement: body.enforcement,
 			mode: body.mode,
 			reason: body.reason ?? null,
@@ -6720,8 +6834,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			organizationId: orgId,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			mode: body.mode,
 			reason: body.reason ?? null,
 		})
@@ -6746,6 +6859,8 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: created.maxRpm,
 			maxRpd: created.maxRpd,
+			maxTpm: created.maxTpm,
+			maxTpd: created.maxTpd,
 			mode: created.mode,
 			reason: created.reason,
 			source: "admin",
@@ -6806,6 +6921,8 @@ admin.openapi(deleteOrganizationRateLimit, async (c) => {
 			model: deleted.model,
 			maxRpm: deleted.maxRpm,
 			maxRpd: deleted.maxRpd,
+			maxTpm: deleted.maxTpm,
+			maxTpd: deleted.maxTpd,
 			source: "admin",
 		},
 	});
@@ -11622,7 +11739,12 @@ admin.openapi(getOrgCostByModel, async (c) => {
 
 // --- Cost by model time-series endpoints ---
 
-const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+const projectCostTimeseriesGroupBySchema = z.enum([
+	"model",
+	"source",
+	"api-key",
+	"user",
+]);
 
 const organizationCostTimeseriesGroupBySchema = z.enum([
 	"model",
@@ -11828,18 +11950,22 @@ const getProjectCostByModelTimeseries = createRoute({
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
 			modelView: costByModelViewSchema.default("mapping").optional(),
-			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
+			groupBy: projectCostTimeseriesGroupBySchema.default("model").optional(),
 			bucket: costTimeseriesBucketSchema.optional(),
+			...organizationTimeseriesQuery,
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: costByModelTimeseriesResponseSchema.openapi({}),
+					schema: costByModelTimeseriesResponseSchema
+						.extend({ timeseries: organizationTimeseriesSchema.optional() })
+						.openapi({}),
 				},
 			},
-			description: "Project cost breakdown by model or source over time.",
+			description:
+				"Project cost breakdown by model, source, API key, or user over time.",
 		},
 		404: {
 			description: "Project not found.",
@@ -11867,25 +11993,62 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
+	if (
+		groupBy !== "source" &&
+		(query.includeTimeseries === "true" || query.model || query.apiKeyId)
+	) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds: [projectId],
+			startDate,
+			endDate: new Date(),
+			bucket: bucketUnit,
+			groupBy: groupBy === "api-key" ? "apiKey" : groupBy,
+			modelView,
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			modelView,
+			groupBy,
+			models: timeseries.series.map((s) => s.label),
+			data: timeseries.points.map((p) => ({
+				timestamp: p.timestamp,
+				entries: p.entries.map((e) => ({ ...e, model: e.label })),
+			})),
+			timeseries,
+		});
+	}
+
 	const result =
-		groupBy === "source"
-			? await buildCostBySourceTimeseries({
+		groupBy === "api-key" || groupBy === "user"
+			? await buildCostByApiKeyDimensionTimeseries({
 					bucketUnit,
 					startDate,
-					baseFilter: and(
-						eq(projectHourlySourceStats.projectId, projectId),
-						gte(projectHourlySourceStats.hourTimestamp, startDate),
-					),
+					projectIds: [projectId],
+					groupBy,
 				})
-			: await buildCostByModelTimeseries({
-					modelView,
-					bucketUnit,
-					startDate,
-					baseFilter: and(
-						eq(projectHourlyModelStats.projectId, projectId),
-						gte(projectHourlyModelStats.hourTimestamp, startDate),
-					),
-				});
+			: groupBy === "source"
+				? await buildCostBySourceTimeseries({
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlySourceStats.projectId, projectId),
+							gte(projectHourlySourceStats.hourTimestamp, startDate),
+						),
+					})
+				: await buildCostByModelTimeseries({
+						modelView,
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlyModelStats.projectId, projectId),
+							gte(projectHourlyModelStats.hourTimestamp, startDate),
+						),
+					});
 
 	return c.json({
 		window,
@@ -13012,61 +13175,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Which error classes count against a mapping. `non_client` (default) drops
-// client-error logs from the sample; `client` drops every other failure, so
-// both rate against successes plus the selected errors.
-const unstableErrorScopeSchema = z.enum(["non_client", "all", "client"]);
-
-function buildUnstableErrorScopeClause(
-	scope: z.infer<typeof unstableErrorScopeSchema>,
-) {
-	switch (scope) {
-		case "all":
-			return sql``;
-		case "client":
-			return sql`AND (${tables.log.hasError} IS NOT TRUE OR ${tables.log.unifiedFinishReason} = 'client_error')`;
-		default:
-			return sql`AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'`;
-	}
-}
-
-interface IgnoredErrorMatcherTarget {
-	pattern: string | null;
-	statusCode: number | null;
-}
-
-// Builds an OR chain across all stored matchers so expected upstream errors
-// can be treated as non-errors. A substring pattern is matched
-// case-insensitively against the serialized error details JSON (covering
-// status text, response body, and cause); a status code is matched against the
-// upstream `statusCode` field. When a matcher has both, both must match.
-function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
-	return sql.join(
-		matchers.map((matcher) => {
-			const conditions = [];
-			if (matcher.pattern !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}::text ILIKE ${`%${escapeLikePattern(matcher.pattern)}%`}`,
-				);
-			}
-			if (matcher.statusCode !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}->>'statusCode' = ${String(matcher.statusCode)}`,
-				);
-			}
-			return sql`(${sql.join(conditions, sql` AND `)})`;
-		}),
-		sql` OR `,
-	);
-}
-
-// Case-insensitive substring match against the serialized public and internal
-// error details JSON, so stealth-provider errors are searchable too.
-function buildErrorMessageMatchExpr(message: string) {
-	const pattern = `%${escapeLikePattern(message)}%`;
-	return sql`COALESCE(${tables.log.errorDetails}::text ILIKE ${pattern} OR ${tables.log.internalErrorDetails}::text ILIKE ${pattern}, false)`;
-}
-
 /**
  * Every `used_model` (`provider/model[:region]`) a canonical model id logs
  * under: catalogue mappings plus DB-only (Airside, deactivated) rows.
@@ -13100,14 +13208,6 @@ async function listUsedModelsForModelId(modelId: string) {
 	}
 
 	return [...usedModels];
-}
-
-async function listIgnoredErrorMatchers() {
-	return await db.query.ignoredErrorMatcher.findMany({
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
 }
 
 /**
@@ -13191,7 +13291,7 @@ const unstableMappingsListSchema = z.object({
 	ignoreExpected: z.boolean(),
 	splitByKey: z.boolean(),
 	includeByok: z.boolean(),
-	errorScope: unstableErrorScopeSchema,
+	errorScope: errorScopeSchema,
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 	// The exact `used_model` the ranking is narrowed to, if any.
@@ -13218,7 +13318,7 @@ const getUnstableMappings = createRoute({
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
 			model: z.string().optional(),
 			provider: z.string().optional(),
@@ -13255,17 +13355,18 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const { interval: windowInterval, hours: windowHours } =
 		resolveMappingErrorWindow(query.window);
 	const mapping = query.model && query.provider ? query.model : null;
-	const mappingClause =
+	const providerClause =
 		mapping !== null
-			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
+			? sql`AND ${tables.log.usedProvider} = ${query.provider}`
 			: sql``;
 	const canonicalModelId = query.modelId || null;
-	// An exact `used_model` list keeps the filter an index condition; a
-	// `split_part` expression would fetch every log in the window.
-	const modelIdClause =
-		canonicalModelId !== null
-			? sql`AND ${inArray(tables.log.usedModel, await listUsedModelsForModelId(canonicalModelId))}`
-			: sql``;
+	// The exact `used_model` values the sample is scoped to; null samples all.
+	const scopedUsedModels =
+		mapping !== null
+			? [mapping]
+			: canonicalModelId !== null
+				? await listUsedModelsForModelId(canonicalModelId)
+				: null;
 
 	// With the split off every row carries a constant NULL key, so the extra
 	// GROUP BY column is a no-op and both modes share one query shape.
@@ -13291,6 +13392,41 @@ admin.openapi(getUnstableMappings, async (c) => {
 			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)${errorMessageClause})`
 			: sql`(${tables.log.hasError}${errorMessageClause})`;
 
+	// The latest `logLimit` logs in the window matching `scopeClause`.
+	const sampleLogs = (scopeClause: SQL) => sql`
+		SELECT ${tables.log.usedModel} AS used_model,
+			${tables.log.usedProvider} AS used_provider,
+			${providerKeyExpr} AS provider_key_id,
+			${hasErrorExpr} AS has_error,
+			${tables.log.createdAt} AS created_at
+		FROM ${tables.log}
+		WHERE ${tables.log.createdAt} >= ${windowInterval}
+			${buildUnstableErrorScopeClause(errorScope)}
+			${retriedClause}
+			${byokClause}
+			${scopeClause}
+		ORDER BY ${tables.log.createdAt} DESC
+		LIMIT ${logLimit}`;
+	// No index yields `used_model IN (...)` in created_at order, so a single
+	// scoped query walks every log in the window. One branch per `used_model`
+	// is an ordered (used_model, created_at) index scan each; the planner
+	// merges the branches and stops at the limit.
+	const recentLogs =
+		scopedUsedModels === null
+			? sampleLogs(sql``)
+			: scopedUsedModels.length === 0
+				? sampleLogs(sql`AND false`)
+				: sql`
+					SELECT * FROM (${sql.join(
+						scopedUsedModels.map(
+							(usedModel) =>
+								sql`(${sampleLogs(sql`AND ${tables.log.usedModel} = ${usedModel} ${providerClause}`)})`,
+						),
+						sql` UNION ALL `,
+					)}) AS scoped_logs
+					ORDER BY created_at DESC
+					LIMIT ${logLimit}`;
+
 	const rows = await db.execute<{
 		used_model: string;
 		used_provider: string;
@@ -13300,21 +13436,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		error_rate: string;
 		sampled_logs: string;
 	}>(sql`
-		WITH recent_logs AS (
-			SELECT ${tables.log.usedModel} AS used_model,
-				${tables.log.usedProvider} AS used_provider,
-				${providerKeyExpr} AS provider_key_id,
-				${hasErrorExpr} AS has_error
-			FROM ${tables.log}
-			WHERE ${tables.log.createdAt} >= ${windowInterval}
-				${buildUnstableErrorScopeClause(errorScope)}
-				${retriedClause}
-				${byokClause}
-				${mappingClause}
-				${modelIdClause}
-			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${logLimit}
-		)
+		WITH recent_logs AS (${recentLogs})
 		SELECT used_model,
 			used_provider,
 			provider_key_id,
@@ -13410,7 +13532,7 @@ const getUnstableMappingErrors = createRoute({
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/**
 			 * Narrows the sample to one provider key, mirroring a row of the
 			 * key-split ranking. The literal `__unattributed__` selects logs with
@@ -13418,7 +13540,10 @@ const getUnstableMappingErrors = createRoute({
 			 * one).
 			 */
 			providerKeyId: z.string().optional(),
-			/** Only upstream and gateway errors, matching the Incidents counts. */
+			/**
+			 * Only the error classes the Incidents counts use: upstream and
+			 * gateway errors, plus client errors under `errorScope=all|client`.
+			 */
 			incidentsOnly: z.enum(["true", "false"]).optional(),
 			/**
 			 * Top error shapes per provider key instead of overall. Ignored when
@@ -13432,6 +13557,8 @@ const getUnstableMappingErrors = createRoute({
 			 * instead of one shape carrying both counts.
 			 */
 			groupByStream: z.enum(["true", "false"]).optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -13462,6 +13589,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		groupByKey: groupByKeyParam,
 		errorMessage: errorMessageParam,
 		groupByStream: groupByStreamParam,
+		groupSimilar,
 	} = c.req.valid("query");
 	const errorMessage = errorMessageParam?.trim() || null;
 	const groupByKey = groupByKeyParam === "true" && providerKeyId === undefined;
@@ -13485,10 +13613,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	// drilldown shows the same errors that counted against the mapping.
 	const ignoredMatchers =
 		ignoreExpected !== "false" ? await listIgnoredErrorMatchers() : [];
-	const ignoredClause =
-		ignoredMatchers.length > 0
-			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
-			: sql``;
 
 	const shapes = await queryMappingErrorShapes({
 		usedModel: model,
@@ -13498,13 +13622,15 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		groupByKey,
 		bucketSeconds,
 		splitByStream: groupByStream,
+		groupSimilar: groupSimilar !== "false",
 		extraClauses: [
 			providerKeyClause,
 			retriedClause,
 			byokClause,
-			ignoredClause,
-			buildUnstableErrorScopeClause(errorScope ?? "non_client"),
-			incidentsOnly === "true" ? incidentErrorsClause : sql``,
+			buildIgnoredErrorsClause(ignoredMatchers),
+			incidentsOnly === "true"
+				? buildIncidentErrorScopeClause(errorScope ?? "non_client")
+				: buildUnstableErrorScopeClause(errorScope ?? "non_client"),
 			errorMessage !== null
 				? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
 				: sql``,
@@ -13997,9 +14123,6 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
-
 	const resend = getResendClient();
 	if (!resend) {
 		return c.json(
@@ -14066,9 +14189,6 @@ const sendEmail = createRoute({
 
 admin.openapi(sendEmail, async (c) => {
 	const { to, subject, body: emailBody, category } = c.req.valid("json");
-
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {

@@ -8,7 +8,10 @@ import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import { getAirsideRoutingSnapshot } from "./airside-routing-snapshot.js";
+import { findProviderKeyRateLimits } from "./cached-queries.js";
 import { getLogErrorCategory } from "./log-error-category.js";
+import { recordProviderKeyUsage } from "./provider-key-rate-limit.js";
+import { recordProviderTokenUsage } from "./provider-rate-limit.js";
 import { markRequestLogged } from "./request-log-context.js";
 import { recordSpend } from "./spend-limit.js";
 import {
@@ -365,6 +368,50 @@ export function organizationBilledCost(logData: LogInsertData): number {
 	return inference + storage;
 }
 
+/**
+ * Catalogue model id of a `usedModel` value (`provider/model[:region]`; model
+ * ids may contain slashes). Mirrors `rootModelIdSql`.
+ */
+export function rootModelIdFromUsedModel(usedModel: string): string {
+	const slash = usedModel.indexOf("/");
+	const withoutProvider = slash === -1 ? usedModel : usedModel.slice(slash + 1);
+	return withoutProvider.split(":")[0];
+}
+
+/**
+ * Count a logged request against the token windows of its provider/model caps
+ * and against its provider key's own caps. Cached responses never reached the
+ * provider, so they count against neither.
+ */
+async function recordRateLimitUsage(logData: LogInsertData): Promise<void> {
+	if (logData.cached) {
+		return;
+	}
+	const tokens =
+		Number(logData.totalTokens ?? 0) ||
+		Number(logData.promptTokens ?? 0) + Number(logData.completionTokens ?? 0);
+
+	if (logData.usedProvider && logData.usedModel) {
+		await recordProviderTokenUsage(
+			logData.organizationId,
+			logData.usedProvider,
+			rootModelIdFromUsedModel(logData.usedModel),
+			tokens,
+		);
+	}
+
+	if (logData.providerKeyId) {
+		try {
+			const keyLimits = await findProviderKeyRateLimits(logData.providerKeyId);
+			if (keyLimits) {
+				await recordProviderKeyUsage(keyLimits, tokens);
+			}
+		} catch (error) {
+			logger.error("Error loading provider key rate limits:", error as Error);
+		}
+	}
+}
+
 export async function insertLog(
 	logData: LogInsertData,
 	options?: { retentionLevel?: "retain" | "none" | null },
@@ -473,6 +520,7 @@ export async function insertLog(
 	// for every request path; swallows its own Redis errors so logging is never
 	// blocked.
 	await recordSpend(logData.organizationId, organizationBilledCost(logData));
+	await recordRateLimitUsage(logData);
 
 	await publishToQueue(LOG_QUEUE, logData);
 	markRequestLogged();

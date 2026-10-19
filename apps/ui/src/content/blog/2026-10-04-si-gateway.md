@@ -99,7 +99,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 `auto` lets the gateway pick a model for the request. Pin any of the 250+
 models instead, such as `gpt-5` or `claude-sonnet-4-5`, by changing one string.
-The [smart routing benchmark](/blog/smart-routing-benchmark) shows how `auto`
+The [smart routing benchmark](/blog/smart-routing-benchmark) shows how `smart`
 compares with fixed models.
 
 ## Should you rename AI to SI in your product?

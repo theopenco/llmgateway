@@ -1,6 +1,6 @@
 # Lounge by LLM Gateway — Pricing
 
-Last updated: 2026-09-01
+Last updated: 2026-10-15
 
 > Lounge is a monthly AI chat membership: one subscription for models from multiple providers, plus image, video, and audio studios and multi-model group chat. Each tier includes a monthly credit allowance metered at provider list rates.
 
@@ -33,7 +33,7 @@ Last updated: 2026-09-01
 
 ## Refunds
 
-- Self-serve from the billing page within 14 days of your first month while less than 20% of the allowance has been used.
+- Self-serve from the billing page within 14 days of your latest monthly payment while less than 10% of that cycle's allowance has been used. Payments made before October 15, 2026, at 00:00 UTC retain the 20% limit for their existing refund window.
 
 ## Notes
 

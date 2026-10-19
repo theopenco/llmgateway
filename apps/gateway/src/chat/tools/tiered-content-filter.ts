@@ -52,6 +52,8 @@ export interface TieredContentFilterEvaluation {
 
 const DEFAULT_STRICT_SCORE_THRESHOLD = 0.5;
 const DEFAULT_LENIENT_SCORE_THRESHOLD = 0.9;
+/** A request with many images can fail once per image; the stored row stays small. */
+const MAX_STORED_MODERATION_ERRORS = 5;
 
 function getScoreThreshold(envName: string, fallback: number): number {
 	const raw = process.env[envName];
@@ -214,7 +216,10 @@ export function buildGatewayContentFilterEvaluation(
 	durationMs: number,
 	breakdown: Pick<
 		GatewayContentFilterEvaluation,
-		"classifierDurationMs" | "classifierRequests" | "imageDurationMs"
+		| "classifierDurationMs"
+		| "classifierRequests"
+		| "imageDurationMs"
+		| "moderationErrors"
 	> = {},
 ): GatewayContentFilterEvaluation {
 	const blocked = plan.enforce && evaluation.violation;
@@ -242,6 +247,14 @@ export function buildGatewayContentFilterEvaluation(
 			: {}),
 		...(breakdown.imageDurationMs !== undefined
 			? { imageDurationMs: breakdown.imageDurationMs }
+			: {}),
+		...(breakdown.moderationErrors && breakdown.moderationErrors.length > 0
+			? {
+					moderationErrors: breakdown.moderationErrors.slice(
+						0,
+						MAX_STORED_MODERATION_ERRORS,
+					),
+				}
 			: {}),
 		...(plan.classifier === "internal"
 			? { internalScope: plan.internalScope }

@@ -7,13 +7,17 @@ import {
 	hasContentFilterCredential,
 	resolveContentFilterCredential,
 } from "./content-filter-credential.js";
-import { extractErrorCause } from "./extract-error-cause.js";
+import {
+	classifyContentFilterError,
+	logContentFilterError,
+} from "./content-filter-error.js";
 import {
 	buildOpenAIContentFilterTextInput,
 	type GatewayContentFilterContext,
 	type OpenAIContentFilterCheckResult,
 } from "./openai-content-filter.js";
 
+import type { ContentFilterModerationError } from "@llmgateway/db";
 import type { BaseMessage } from "@llmgateway/models";
 
 /**
@@ -111,13 +115,16 @@ export function buildJevModerationQuestions(): Record<string, unknown> {
 	);
 }
 
-function createFailedJevResult(): OpenAIContentFilterCheckResult {
+function createFailedJevResult(
+	errors: ContentFilterModerationError[] = [],
+): OpenAIContentFilterCheckResult {
 	return {
 		flagged: false,
 		model: JEV_MODERATION_MODEL,
 		upstreamRequestId: null,
 		results: [],
 		responses: [],
+		errors,
 	};
 }
 
@@ -139,35 +146,18 @@ function logJevResult(
 
 function logJevError(
 	context: GatewayContentFilterContext,
+	error: ContentFilterModerationError,
 	payload: Record<string, unknown>,
-	error?: unknown,
+	thrown?: unknown,
 ) {
-	const logPayload = {
-		provider: "typesafe",
-		mode: "jev",
-		rubricVersion: JEV_MODERATION_RUBRIC_VERSION,
-		requestId: context.requestId,
-		organizationId: context.organizationId,
-		projectId: context.projectId,
-		apiKeyId: context.apiKeyId,
-		...payload,
-		...(error instanceof Error
-			? {
-					error: error.message,
-					errorName: error.name,
-					...(extractErrorCause(error)
-						? { errorCause: extractErrorCause(error) }
-						: {}),
-				}
-			: { error: String(error) }),
-	};
-
-	if (error instanceof Error) {
-		logger.error("gateway_content_filter_error", logPayload, error);
-		return;
-	}
-
-	logger.error("gateway_content_filter_error", logPayload);
+	logContentFilterError(
+		"jev",
+		"typesafe",
+		context,
+		error,
+		{ rubricVersion: JEV_MODERATION_RUBRIC_VERSION, ...payload },
+		thrown,
+	);
 }
 
 /**
@@ -251,29 +241,26 @@ export async function checkJevContentFilter(
 			}
 		}
 
-		if (!upstreamResponse.ok) {
-			logJevError(context, {
+		const answers =
+			upstreamResponse.ok && responseJson && typeof responseJson === "object"
+				? ((responseJson as JevSystemOneResponse).answers ?? null)
+				: null;
+		if (!answers) {
+			const moderationError = classifyContentFilterError({
+				source: "jev",
+				inputType: "text",
+				status: upstreamResponse.status,
+				response: responseJson,
+				badResponse: upstreamResponse.ok,
+			});
+			logJevError(context, moderationError, {
 				durationMs: Date.now() - startTime,
 				status: upstreamResponse.status,
 				statusText: upstreamResponse.statusText,
 				upstreamRequestId,
 				response: responseJson,
 			});
-			return createFailedJevResult();
-		}
-
-		const answers =
-			responseJson && typeof responseJson === "object"
-				? ((responseJson as JevSystemOneResponse).answers ?? null)
-				: null;
-		if (!answers) {
-			logJevError(context, {
-				durationMs: Date.now() - startTime,
-				status: upstreamResponse.status,
-				upstreamRequestId,
-				response: responseJson,
-			});
-			return createFailedJevResult();
+			return createFailedJevResult([moderationError]);
 		}
 
 		const threshold = getJevModerationScoreThreshold();
@@ -316,6 +303,7 @@ export async function checkJevContentFilter(
 					results: [{ categories, category_scores: categoryScores }],
 				},
 			],
+			errors: [],
 		};
 	} catch (error) {
 		if (requestSignal?.aborted || isCancellationError(error)) {
@@ -324,8 +312,14 @@ export async function checkJevContentFilter(
 
 		// Fail open, like the OpenAI filter: a moderation outage must not fail
 		// customer requests at the gateway layer.
+		const moderationError = classifyContentFilterError({
+			source: "jev",
+			inputType: "text",
+			error,
+		});
 		logJevError(
 			context,
+			moderationError,
 			{
 				durationMs: Date.now() - startTime,
 				upstreamRequestId,
@@ -333,6 +327,6 @@ export async function checkJevContentFilter(
 			},
 			error,
 		);
-		return createFailedJevResult();
+		return createFailedJevResult([moderationError]);
 	}
 }

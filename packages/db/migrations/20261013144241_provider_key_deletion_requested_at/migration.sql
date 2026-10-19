@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD COLUMN "deletion_requested_at" timestamp;

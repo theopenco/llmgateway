@@ -167,6 +167,7 @@ describe("keys route", () => {
 		expect(json.apiKeys[0].description).toBe("Test API Key");
 		expect(json.apiKeys[0].token).toBeUndefined();
 		expect(json.apiKeys[0].tokenHash).toBeUndefined();
+		expect(json.apiKeys[0].safetyIdentifier).toBeUndefined();
 	});
 
 	test("GET /keys/api returns the managed playground row", async () => {
@@ -469,6 +470,7 @@ describe("keys route", () => {
 		expect(json).toHaveProperty("apiKey");
 		expect(json.apiKey.status).toBe("inactive");
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		// Verify the key was updated in the database
 		const apiKey = await db.query.apiKey.findFirst({
@@ -511,6 +513,7 @@ describe("keys route", () => {
 		expect(json.apiKey.token).not.toBe("test-token");
 		expect(json.apiKey.id).toBe("test-api-key-id");
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		// Verify the DB was updated and metadata/stats are intact.
 		const apiKey = await db.query.apiKey.findFirst({
@@ -752,7 +755,7 @@ describe("keys route", () => {
 		await db.insert(tables.account).values({
 			id: "other-account-id",
 			providerId: "credential",
-			accountId: "other-account-id",
+			accountId: "other-user-id",
 			userId: "other-user-id",
 			password:
 				"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",
@@ -814,6 +817,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {
@@ -1123,6 +1127,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
 		expect(json.apiKey.tokenHash).toBeUndefined();
+		expect(json.apiKey.safetyIdentifier).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {

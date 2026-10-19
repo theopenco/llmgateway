@@ -79,7 +79,7 @@ The cheapest run and the best _writing_ of the six. The diary nails the Xanga-er
 
 ![Retro pink Windows 98 desktop by GLM 5.3 Flash, with an animated Winamp equalizer, Paint doodle, Notepad and Word letter](/blog/ai-coding-model-benchmark/glm.png)
 
-The fastest run, done in under two minutes across 8 requests with no iteration at all. Properly pinkified Win98 bevels, a pure-CSS Winamp equalizer, an inline-SVG Paint doodle, working taskbar buttons. The middle of the desktop is sparse and Notepad slides behind the taskbar at shorter viewports. For 11 cents, remarkably little is wrong with it.
+The fastest run, done in under two minutes across 7 requests with no iteration at all. Properly pinkified Win98 bevels, a pure-CSS Winamp equalizer, an inline-SVG Paint doodle, working taskbar buttons. The middle of the desktop is sparse and Notepad slides behind the taskbar at shorter viewports. For 11 cents, remarkably little is wrong with it.
 
 ### DeepSeek V4.1 Flash — $1.18, 419s
 

@@ -9,17 +9,13 @@ import { Callout } from "fumadocs-ui/components/callout";
 LLMGateway provides a native Anthropic-compatible endpoint at `/v1/messages` that allows you to use any model in our catalog while maintaining the familiar Anthropic API format
 This is especially useful for applications designed for Claude that you want to extend to use other models.
 
-<Callout type="info">
-	Enjoy a 50% discount on our Anthropic models for a limited time.
-</Callout>
-
 ## Overview
 
 The Anthropic endpoint transforms requests from Anthropic's message format to the OpenAI-compatible format used by LLMGateway, then transforms the responses back to Anthropic's format. This means you can:
 
 - Use **any model** available in LLMGateway with Anthropic's API format
 - Maintain existing code that uses Anthropic's SDK or API format
-- Access models from OpenAI, Google, Cohere, and other providers through the Anthropic interface
+- Access models from OpenAI, Google, xAI, and other providers through the Anthropic interface
 - Leverage LLMGateway's routing, caching, and cost optimization features
 
 ## Basic Usage
@@ -60,7 +56,7 @@ export ANTHROPIC_MODEL=gpt-5-mini
 export ANTHROPIC_MODEL=gemini-3.1-pro-preview
 
 # Use Anthropic's actual Claude models
-export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
 ## Environment Variables
@@ -188,6 +184,18 @@ A `system` message inside `messages` (as Claude Code sends on recent Claude mode
 	usage fields stay `0`. See [Provider Cache
 	Control](/features/caching/provider-cache-control) for details.
 </Callout>
+
+### Tool choice
+
+`tool_choice` (`auto`, `any`, `none`, or `{"type": "tool", "name": …}`) is honoured on every provider: it is translated into the upstream's own forced-tool form (Anthropic `any`/`tool`, OpenAI `required`/named function, Gemini `functionCallingConfig`), and a mapping that cannot force a tool is skipped during routing. `disable_parallel_tool_use: true` is carried as well; on providers without an equivalent it is ignored. An OpenAI-style `tool_choice` value (`"required"`, `{"type": "function", …}`) is dropped rather than rejected.
+
+### Tool definitions and results
+
+A tool's `strict: true` reaches the Anthropic API (with its structured-outputs beta) and OpenAI-compatible providers as `function.strict`; providers without an equivalent receive the tool without it. `allowed_callers` is forwarded to the Anthropic API only, with the advanced-tool-use beta, and stripped elsewhere.
+
+Gemini models take tool schemas through Google's typed `parameters` carrier, which has no `const` or `additionalProperties`. A `const` is sent as a single-member `enum` (typed from the value when the node has no `type`; on non-string nodes, where Vertex rejects `enum`, it becomes an "Allowed values" hint in the description), and an explicit `enum` on the same node wins. `pattern` is forwarded on string nodes. `additionalProperties` is dropped. The same translation applies on `/v1/chat/completions`.
+
+An `image` block inside a `tool_result` (a screenshot returned by a tool, say) is delivered to Anthropic models as an image block; a result that mixes text and images keeps its order. Other providers receive it as the chat-completions image part their tool message format allows, or as text where there is none.
 
 ### Web Search
 

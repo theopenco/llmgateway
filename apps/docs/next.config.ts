@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
 	outputFileTracingRoot: join(__dirname, "../../"),
 	distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
 	output: "standalone",
+	env: {
+		NEXT_PUBLIC_PLAYGROUND_URL:
+			process.env.PLAYGROUND_URL ??
+			(process.env.NODE_ENV === "development"
+				? `http://localhost:${process.env.PLAYGROUND_PORT ?? 3003}`
+				: "https://lounge.llmgateway.io"),
+	},
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,

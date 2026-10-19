@@ -25,7 +25,7 @@ export function useUser(options?: UseUserOptions) {
 	const api = useApi();
 	const pathname = usePathname();
 
-	const { data, isLoading, error } = api.useQuery(
+	const { data, isLoading, error, errorUpdatedAt } = api.useQuery(
 		"get",
 		"/user/me",
 		{},
@@ -84,6 +84,8 @@ export function useUser(options?: UseUserOptions) {
 		user: data?.user ?? null,
 		isLoading,
 		error,
+		/** Whether `/user/me` has ever rejected the session; survives refetches. */
+		sessionRejected: errorUpdatedAt > 0,
 		data,
 	};
 }

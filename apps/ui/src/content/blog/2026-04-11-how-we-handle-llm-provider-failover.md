@@ -60,18 +60,18 @@ Up to 2 retries on different providers, all within the same API call. The client
 
 ## Smart Routing: Picking the Right Provider
 
-When a request comes in for a model like `gpt-4o` without a provider prefix, the gateway needs to decide which provider to use. We don't do round-robin. We don't pick randomly. We score every available provider using a weighted algorithm based on real-time metrics from the last 5 minutes.
+When a request comes in for a model like `gpt-4o` without a provider prefix, the gateway needs to decide which provider to use. We don't do round-robin. We don't pick randomly. We score every available provider using a weighted algorithm based on real-time metrics from a rolling %routing.history.windowMinutes%-minute window that weights the last few minutes most.
 
 ### The Scoring Formula
 
-Four factors, weighted:
+Four factors, weighted (each weight is divided by the sum of the active weights):
 
-| Factor         | Weight | What It Measures                     |
-| -------------- | ------ | ------------------------------------ |
-| **Uptime**     | 50%    | Success rate of recent requests      |
-| **Throughput** | 20%    | Tokens per second generation speed   |
-| **Price**      | 20%    | Cost per token                       |
-| **Latency**    | 10%    | Time to first token (streaming only) |
+| Factor         | Weight                         | What It Measures                     |
+| -------------- | ------------------------------ | ------------------------------------ |
+| **Price**      | `%routing.weights.price%`      | Cost per token                       |
+| **Uptime**     | `%routing.weights.uptime%`     | Success rate of recent requests      |
+| **Throughput** | `%routing.weights.throughput%` | Tokens per second generation speed   |
+| **Latency**    | `%routing.weights.latency%`    | Time to first token (streaming only) |
 
 For non-streaming requests, the latency weight is redistributed proportionally to the other factors — time to first token doesn't matter when you're waiting for the complete response anyway.
 
@@ -79,7 +79,7 @@ All metrics are normalized so the scoring is fair across providers with differen
 
 ### The Uptime Penalty
 
-Uptime gets the highest weight (50%) because reliability is the most important factor for production workloads. But linear weighting isn't aggressive enough. A provider at 80% uptime is significantly worse than one at 95%, and the scoring should reflect that.
+Uptime carries one of the two largest weights because reliability is the most important factor for production workloads. But linear weighting isn't aggressive enough. A provider at 80% uptime is significantly worse than one at 95%, and the scoring should reflect that.
 
 We use an exponential penalty for providers below 95% uptime:
 
@@ -187,7 +187,7 @@ Some providers expose the same model in multiple regions. The gateway supports t
 - `provider/model` — Scores all eligible regions and picks the best one
 - `provider/model:region` — Pins to a specific region
 
-For example, `alibaba/deepseek-v3.2` lets the gateway choose the best Alibaba region based on the same uptime/throughput/latency/price scoring. `alibaba/deepseek-v3.2:cn-beijing` forces the Beijing region.
+For example, `alibaba/deepseek-v4-flash` lets the gateway choose the best Alibaba region based on the same uptime/throughput/latency/price scoring. `alibaba/deepseek-v4-flash:cn-beijing` forces the Beijing region.
 
 ## Routing Transparency
 

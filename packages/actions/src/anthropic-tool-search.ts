@@ -97,13 +97,16 @@ export function stripAnthropicToolExtensions(
 		.map((tool) => {
 			if (
 				tool.type !== "function" ||
-				(tool.defer_loading === undefined && tool.cache_control === undefined)
+				(tool.defer_loading === undefined &&
+					tool.cache_control === undefined &&
+					tool.allowed_callers === undefined)
 			) {
 				return tool;
 			}
 			const {
 				defer_loading: _deferLoading,
 				cache_control: _cacheControl,
+				allowed_callers: _allowedCallers,
 				...rest
 			} = tool;
 			return rest;

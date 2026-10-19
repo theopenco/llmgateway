@@ -2,6 +2,58 @@ import type { ModelDefinition } from "@/models.js";
 
 export const minimaxModels = [
 	{
+		id: "minimax-m3.1-flash",
+		name: "MiniMax M3.1 Flash",
+		description:
+			"MiniMax M3.1 Flash is a multimodal M-series model for agentic reasoning, tool use, coding, and long-context tasks, with a 1M token context window and tunable thinking depth.",
+		family: "minimax",
+		releasedAt: new Date("2026-10-19"),
+		providers: [
+			{
+				providerId: "minimax",
+				externalId: "MiniMax-M3.1-Flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.015e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 524288,
+				streaming: true,
+				reasoning: true,
+				// Adaptive thinking skips reasoning on simple tool calls, so
+				// reasoning content is not guaranteed in every response.
+				reasoningOutput: "omit",
+				// Thinking cannot be disabled; the effort tier is forwarded as
+				// `reasoning_effort`.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				// tool_choice "none", "required" and named functions are accepted
+				// and then ignored.
+				supportedToolChoices: ["auto"],
+				// response_format is accepted and then ignored.
+				jsonOutput: false,
+				supportedParameters: [
+					"messages",
+					"model",
+					"stream",
+					"stream_options",
+					"temperature",
+					"top_p",
+					"max_tokens",
+					"max_completion_tokens",
+					"frequency_penalty",
+					"presence_penalty",
+					"seed",
+					"stop",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "minimax-m3",
 		name: "MiniMax M3",
 		description:

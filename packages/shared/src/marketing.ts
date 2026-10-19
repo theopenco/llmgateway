@@ -17,19 +17,9 @@ export const MARKETING_STATS = {
 	githubStars: "1.6K+",
 } as const;
 
-// Runware launch partnership: 30% off all Runware-served OSS models from the
-// 2026-07-27 launch, extended by two weeks on 2026-08-25. The promo banners in
-// apps/ui and apps/code hand over to SCX once `endsAt` passes.
-export const RUNWARE_PROMO = {
-	id: "runware",
-	discountPercent: 30,
-	endsAt: "2026-09-09T23:59:59Z",
-	providerPath: "/providers/runware",
-	providerUrl: "https://llmgateway.io/providers/runware",
-} as const;
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SCX_PROMO_DURATION_MS = 15 * DAY_MS;
+const SCX_PROMO_STARTS_AT = "2026-09-09T23:59:59Z";
 // Extended by 15 days on 2026-09-22.
 const SCX_PROMO_EXTENSION_MS = 15 * DAY_MS;
 
@@ -37,9 +27,9 @@ export const SCX_PROMO = {
 	id: "scx",
 	discountPercent: 20,
 	modelCount: 7,
-	startsAt: RUNWARE_PROMO.endsAt,
+	startsAt: SCX_PROMO_STARTS_AT,
 	endsAt: new Date(
-		Date.parse(RUNWARE_PROMO.endsAt) +
+		Date.parse(SCX_PROMO_STARTS_AT) +
 			SCX_PROMO_DURATION_MS +
 			SCX_PROMO_EXTENSION_MS,
 	).toISOString(),
@@ -48,9 +38,6 @@ export const SCX_PROMO = {
 } as const;
 
 export function getActiveProviderPromo(now = Date.now()) {
-	if (now < Date.parse(RUNWARE_PROMO.endsAt)) {
-		return RUNWARE_PROMO;
-	}
 	if (
 		now >= Date.parse(SCX_PROMO.startsAt) &&
 		now < Date.parse(SCX_PROMO.endsAt)

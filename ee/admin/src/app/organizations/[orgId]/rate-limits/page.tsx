@@ -156,7 +156,7 @@ export default async function OrganizationRateLimitsPage({
 										<p>No rate limits configured for this organization</p>
 										{isAdmin ? (
 											<p className="text-xs">
-												Add an RPM or RPD cap for this organization
+												Add an RPM, RPD, TPM or TPD cap for this organization
 											</p>
 										) : null}
 									</div>
@@ -304,7 +304,8 @@ export default async function OrganizationRateLimitsPage({
 					</li>
 					<li>
 						Rate limits cap the maximum requests per minute (RPM) or per day
-						(RPD) for matching providers and models
+						(RPD), or prompt + completion tokens per minute (TPM) or per day
+						(TPD), for matching providers and models
 					</li>
 					<li>
 						<strong>Lax</strong> limits also allow explicit provider requests

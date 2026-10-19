@@ -35,6 +35,7 @@ export const thinkingmachinesModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "thinkingmachines/Inkling",
+				deactivatedAt: new Date("2026-10-22"),
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.16e-6",
 				outputPrice: "4.05e-6",

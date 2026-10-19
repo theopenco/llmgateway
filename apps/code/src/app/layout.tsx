@@ -72,7 +72,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
-			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 200+ models.",
+			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 100+ models.",
 		creator: "@llmgateway",
 	},
 };
@@ -109,6 +109,9 @@ export default async function RootLayout({
 			suppressHydrationWarning
 		>
 			<head>
+				{/* The dashboard fetches from the API origin right after hydration
+				    (status polling, usage queries); warm up the connection early. */}
+				<link rel="preconnect" href={config.apiUrl} />
 				<script
 					type="application/ld+json"
 					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml

@@ -1,19 +1,14 @@
-import {
-	eq,
-	inArray,
-	or,
-	type SQL,
-	tables,
-	UnifiedFinishReason,
-} from "@llmgateway/db";
+import { logErrorSql, sql, type SQL, tables } from "@llmgateway/db";
 
 import type { LogErrorType } from "@llmgateway/shared";
 
-const ERROR_FINISH_REASONS: string[] = [
-	UnifiedFinishReason.CLIENT_ERROR,
-	UnifiedFinishReason.GATEWAY_ERROR,
-	UnifiedFinishReason.UPSTREAM_ERROR,
-];
+// Inlined rather than bound so the partial
+// `log_error_project_id_created_at_idx` stays provably usable.
+const SINGLE_REASON_SQL: Record<Exclude<LogErrorType, "all" | "any">, SQL> = {
+	client_error: sql`${tables.log.unifiedFinishReason} = 'client_error'`,
+	gateway_error: sql`${tables.log.unifiedFinishReason} = 'gateway_error'`,
+	upstream_error: sql`${tables.log.unifiedFinishReason} = 'upstream_error'`,
+};
 
 /**
  * `any` matches both the stored error flag and requests that ended in an error
@@ -24,14 +19,11 @@ export function buildLogErrorFilter(
 ): SQL | undefined {
 	switch (errorType) {
 		case "any":
-			return or(
-				eq(tables.log.hasError, true),
-				inArray(tables.log.unifiedFinishReason, ERROR_FINISH_REASONS),
-			);
+			return logErrorSql(tables.log);
 		case "client_error":
 		case "gateway_error":
 		case "upstream_error":
-			return eq(tables.log.unifiedFinishReason, errorType);
+			return SINGLE_REASON_SQL[errorType];
 		default:
 			return undefined;
 	}

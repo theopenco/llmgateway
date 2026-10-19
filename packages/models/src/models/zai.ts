@@ -908,10 +908,14 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				regions: [{ id: "global" }],
 			},
 			{
 				providerId: "baidu",
 				externalId: "glm-5",
+				// Qianfan still lists glm-5 but every chat request 401s with
+				// invalid_model while glm-5.1+ keep serving.
+				deactivatedAt: new Date("2026-10-19"),
 				// Use Qianfan's public list price. /v1/models may return an
 				// account-specific promotional or negotiated rate instead.
 				inputPrice: "1e-6",
@@ -1391,6 +1395,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				regions: [{ id: "global" }],
 			},
 		],
 	},

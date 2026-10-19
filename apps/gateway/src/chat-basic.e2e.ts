@@ -80,6 +80,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 	});
 
 	describe("extended coverage", () => {
+		test("empty", () => {
+			expect(true).toBe(true);
+		});
+
 		test.each(providerModels)(
 			"complex $model",
 			getTestOptions(),

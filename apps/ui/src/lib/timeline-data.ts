@@ -1,4 +1,4 @@
-import { getProviderDefinition } from "@llmgateway/models";
+import { modelFamilyLabel } from "@llmgateway/models";
 
 import type { ApiModel } from "./fetch-models";
 
@@ -30,43 +30,6 @@ export interface TimelineStats {
 export interface TimelineFaq {
 	question: string;
 	answer: string;
-}
-
-// Human-friendly labels for model families. The family slug usually matches a
-// provider id, but some families (google, meta, …) do not, so we keep an
-// explicit map and fall back to the provider definition, then the slug.
-const FAMILY_LABELS: Record<string, string> = {
-	alibaba: "Alibaba",
-	anthropic: "Anthropic",
-	atlascloud: "AtlasCloud",
-	bytedance: "ByteDance",
-	deepseek: "DeepSeek",
-	elevenlabs: "ElevenLabs",
-	google: "Google",
-	llmgateway: "LLM Gateway",
-	meta: "Meta",
-	minimax: "MiniMax",
-	mistral: "Mistral",
-	moonshot: "Moonshot AI",
-	nvidia: "NVIDIA",
-	openai: "OpenAI",
-	perplexity: "Perplexity",
-	reve: "Reve",
-	sakana: "Sakana AI",
-	xai: "xAI",
-	xiaomi: "Xiaomi",
-	zai: "Z.AI",
-};
-
-export function familyLabel(family: string): string {
-	if (FAMILY_LABELS[family]) {
-		return FAMILY_LABELS[family];
-	}
-	const def = getProviderDefinition(family);
-	if (def?.name) {
-		return def.name;
-	}
-	return family.charAt(0).toUpperCase() + family.slice(1);
 }
 
 // Rough heuristic to highlight major / flagship models.
@@ -124,7 +87,7 @@ export function buildTimelineModels(models: ApiModel[]): TimelineModel[] {
 				id: String(model.id),
 				name,
 				family: String(model.family),
-				providerName: familyLabel(String(model.family)),
+				providerName: modelFamilyLabel(String(model.family)),
 				releasedAt: model.releasedAt
 					? new Date(model.releasedAt).toISOString()
 					: null,

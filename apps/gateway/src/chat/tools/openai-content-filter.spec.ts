@@ -595,6 +595,131 @@ describe("checkOpenAIContentFilter", () => {
 		expect(result.upstreamRequestId).toBe("req-invalid-env-threshold");
 	});
 
+	it("warns on a rejected image and keeps the text verdict", async () => {
+		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			const body = JSON.parse(String(init?.body ?? "{}")) as {
+				input: unknown;
+			};
+			if (typeof body.input === "string") {
+				return new Response(
+					JSON.stringify({
+						model: "omni-moderation-latest",
+						results: [{ flagged: false, categories: {}, category_scores: {} }],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					error: {
+						code: "invalid_image_format",
+						message: "Unsupported format: image/avif",
+						param: "input",
+						type: "invalid_request_error",
+					},
+				}),
+				{
+					status: 400,
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": "req-image",
+					},
+				},
+			);
+		});
+
+		const result = await checkOpenAIContentFilter(
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "look" },
+						{
+							type: "image_url",
+							image_url: { url: "data:image/avif;base64,AAAA" },
+						},
+					],
+				},
+			],
+			{
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+			},
+		);
+
+		expect(result.results).toHaveLength(1);
+		expect(result.errors).toEqual([
+			{
+				source: "openai",
+				kind: "upstream_4xx",
+				inputType: "image",
+				status: 400,
+				code: "invalid_image_format",
+				message: "Unsupported format: image/avif",
+			},
+		]);
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({
+				mode: "openai",
+				inputType: "image",
+				status: 400,
+				upstreamRequestId: "req-image",
+				errorKind: "upstream_4xx",
+				errorCode: "invalid_image_format",
+				error: "Unsupported format: image/avif",
+			}),
+		);
+		expect(warnSpy.mock.calls[0]?.[1]).not.toHaveProperty("errorName");
+	});
+
+	it("logs an upstream 5xx error page by its title", async () => {
+		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				"<html><head><title>api.openai.com | 504: Gateway time-out</title></head><body>long</body></html>",
+				{ status: 504, headers: { "Content-Type": "text/html" } },
+			),
+		);
+
+		const result = await checkOpenAIContentFilter(
+			[{ role: "user", content: "hello" }],
+			{
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+			},
+		);
+
+		expect(result.errors).toEqual([
+			{
+				source: "openai",
+				kind: "upstream_5xx",
+				inputType: "text",
+				status: 504,
+				message: "api.openai.com | 504: Gateway time-out",
+			},
+		]);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({
+				status: 504,
+				errorKind: "upstream_5xx",
+				response: "api.openai.com | 504: Gateway time-out",
+			}),
+		);
+	});
+
 	it("logs nested fetch causes as structured moderation errors", async () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 		const loggerErrorSpy = vi
@@ -630,6 +755,7 @@ describe("checkOpenAIContentFilter", () => {
 			upstreamRequestId: null,
 			results: [],
 			responses: [],
+			errors: expect.any(Array),
 		});
 		expect(loggerErrorSpy).toHaveBeenCalledWith(
 			"gateway_content_filter_error",
@@ -679,6 +805,7 @@ describe("checkOpenAIContentFilter", () => {
 			upstreamRequestId: null,
 			results: [],
 			responses: [],
+			errors: expect.any(Array),
 		});
 		expect(loggerErrorSpy).toHaveBeenCalledWith(
 			"gateway_content_filter_error",
@@ -763,6 +890,7 @@ describe("checkOpenAIContentFilter", () => {
 			upstreamRequestId: null,
 			results: [],
 			responses: [],
+			errors: expect.any(Array),
 		});
 		expect(loggerErrorSpy).toHaveBeenCalledWith(
 			"gateway_content_filter_error",

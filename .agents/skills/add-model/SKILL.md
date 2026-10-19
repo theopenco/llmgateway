@@ -218,6 +218,21 @@ mappings.
 Image and video are the one docs exception to never enumerating models: update
 `apps/docs/content/(gateway)/features/{image,video}-generation.mdx`.
 
+## Azure deployments
+
+An `azure` mapping serves only once the model is deployed in the Foundry
+resource (ai.azure.com → Build → Models → Deploy). The gateway sends
+`externalId` as the deployment name, so name the deployment exactly the
+mapping's `externalId`. Use Global Standard, which has the highest limits.
+
+Deployments are often created far below their allowed limit (10K TPM is
+common). For every deployment: Edit, drag the Tokens per Minute slider (Requests
+per Minute for image models) to the maximum shown after the `/`, Save. That
+maximum is the subscription's shared quota for the model (Operate → Quota). Once
+a model shows 100% allocated there, more capacity needs a Request quota
+submission to Microsoft or a resource in another subscription, which has its own
+quota.
+
 ## 7. Verify
 
 Use the `verify` skill to launch an isolated stack so another worktree cannot

@@ -102,12 +102,17 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 
 	const window = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const $api = useApi();
-	const { data: metrics, isLoading: loading } = $api.useQuery(
+	const api = useApi();
+	const {
+		data: metrics,
+		isPending: loading,
+		isError,
+		refetch,
+	} = api.useQuery(
 		"get",
 		"/admin/organizations/{orgId}",
-		{ params: { path: { orgId }, query: { window } } },
-		// Live usage: refetch on every visit, as the page did before.
+		{ params: { path: { orgId }, query: { window: window } } },
+		// Live usage: refetch on every visit instead of the 5-minute default.
 		{ staleTime: 0 },
 	);
 
@@ -128,7 +133,16 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 			<section className="space-y-4">
 				<h2 className="text-lg font-semibold">Usage Metrics</h2>
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
-					No usage data available.
+					{isError ? "Unable to load usage data." : "No usage data available."}
+					{isError && (
+						<button
+							type="button"
+							onClick={() => void refetch()}
+							className="ml-2 underline"
+						>
+							Try again
+						</button>
+					)}
 				</div>
 			</section>
 		);

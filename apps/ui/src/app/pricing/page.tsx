@@ -58,7 +58,7 @@ const pricingSchema = {
 				name: "Enterprise",
 				priceCurrency: "USD",
 				description:
-					"Volume discounts, custom routing, unlimited data retention, and a 99.9% uptime SLA.",
+					"Volume discounts, custom routing, full request and response retention (30 days), and a 99.9% uptime SLA.",
 				url: "https://llmgateway.io/enterprise",
 			},
 		],

@@ -20,7 +20,7 @@ faqs:
   - question: Does LLM Gateway work with Claude Code, Cursor and Cline?
     answer: "Yes. LLM Gateway exposes an OpenAI- and Anthropic-compatible API, so any tool that speaks those formats — Claude Code, Cursor, Cline, Aider, Continue, or your own agent — works by pointing it at the gateway base URL and an API key. No SDK changes required."
   - question: How does model fallback work?
-    answer: "You can define a primary model and one or more fallbacks. If the primary provider returns an error or rate-limits, the gateway automatically routes the request to the next model in the chain, so your agent keeps running instead of failing the task."
+    answer: "Use a model ID without a provider prefix and the gateway routes across every provider that serves it. If the selected provider returns an error or rate-limits, the gateway automatically retries the request on another provider for the same model, so your agent keeps running instead of failing the task."
   - question: Can I track cost per agent or per project?
     answer: "Yes. Every request is logged with its model, token counts, latency and dollar cost. You can group spend by API key, so giving each agent, project or environment its own key gives you clean per-agent cost breakdowns."
   - question: Will switching models break my code?
@@ -57,7 +57,7 @@ Same request shape, any provider. No per-provider SDKs, no second set of keys.
 
 ## Keep long runs alive with automatic fallback
 
-The fastest way to ruin an agent run is a provider hiccup three minutes in. Define a fallback chain and the gateway handles it — if the primary model rate-limits or errors, the request routes to the next model automatically. Your agent finishes the task; your users never see the blip.
+The fastest way to ruin an agent run is a provider hiccup three minutes in. Use a model ID without a provider prefix and the gateway handles it — if the selected provider rate-limits or errors, the request is retried on another provider serving the same model automatically. Your agent finishes the task; your users never see the blip.
 
 ## Know what every agent costs
 

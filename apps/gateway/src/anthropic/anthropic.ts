@@ -49,6 +49,11 @@ import {
 } from "./openai-request-detection.js";
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
+import {
+	anthropicToolChoiceDisablesParallelUse,
+	isAnthropicToolChoice,
+	mapAnthropicToolChoice,
+} from "./tool-choice.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type {
@@ -262,6 +267,34 @@ const anthropicRequestSchema = z.object({
 	tools: z.array(anthropicToolSchema).optional().openapi({
 		description: "Available tools for the model to use",
 	}),
+	tool_choice: z
+		.preprocess(
+			// OpenAI-style values ("auto", { type: "function" }) were stripped before
+			// this field existed; keep dropping them rather than turning them into 400s.
+			(value) => (isAnthropicToolChoice(value) ? value : undefined),
+			z
+				.discriminatedUnion("type", [
+					z.object({
+						type: z.literal("auto"),
+						disable_parallel_tool_use: z.boolean().optional(),
+					}),
+					z.object({
+						type: z.literal("any"),
+						disable_parallel_tool_use: z.boolean().optional(),
+					}),
+					z.object({
+						type: z.literal("tool"),
+						name: z.string(),
+						disable_parallel_tool_use: z.boolean().optional(),
+					}),
+					z.object({ type: z.literal("none") }),
+				])
+				.optional(),
+		)
+		.openapi({
+			description:
+				"How the model should use the provided tools: `auto`, `any` (must call a tool), `tool` (must call the named tool) or `none`.",
+		}),
 	stream: z.boolean().optional().default(false).openapi({
 		description: "Whether to stream the response",
 		example: false,
@@ -811,6 +844,15 @@ anthropic.openapi(messages, async (c) => {
 				// sharing a tool_use_id collapse into one message, so the last
 				// marker wins: it is the one that ends the prefix.
 				let toolResultCacheControl: CacheControl | undefined;
+				// An image in a tool result (a screenshot tool, say) only survives
+				// as an image part. The array form is kept for results that carry
+				// one; text-only results keep the stringified form the cached
+				// prefix of existing conversations was built on.
+				const hasImageResult = blocks.some(
+					(block) =>
+						Array.isArray(block.content) &&
+						block.content.some(isAnthropicImageBlock),
+				);
 				const combinedContent = blocks
 					.map((block) => {
 						if (typeof block.content === "string") {
@@ -855,7 +897,9 @@ anthropic.openapi(messages, async (c) => {
 
 				openaiMessages.push({
 					role: "tool",
-					content: combinedContent,
+					content: hasImageResult
+						? blocks.flatMap((block) => toolResultToOpenAIParts(block.content))
+						: combinedContent,
 					tool_call_id: toolUseId,
 					...(referenceBlocks.length > 0 && {
 						anthropic_native_blocks: referenceBlocks,
@@ -1028,6 +1072,7 @@ anthropic.openapi(messages, async (c) => {
 							name: tool.name,
 							description: tool.description,
 							parameters: tool.input_schema,
+							...(tool.strict !== undefined && { strict: tool.strict }),
 						},
 						// Carried through to Anthropic upstreams and stripped
 						// elsewhere, where the tool is simply loaded eagerly.
@@ -1038,6 +1083,9 @@ anthropic.openapi(messages, async (c) => {
 						// base of Anthropic's cache hierarchy, so dropping it here cost
 						// the caller the largest cacheable prefix they have.
 						...(tool.cache_control && { cache_control: tool.cache_control }),
+						...(tool.allowed_callers && {
+							allowed_callers: tool.allowed_callers,
+						}),
 					};
 				}
 
@@ -1090,6 +1138,13 @@ anthropic.openapi(messages, async (c) => {
 
 	if (openaiTools && openaiTools.length > 0) {
 		openaiRequest.tools = openaiTools;
+		const toolChoice = mapAnthropicToolChoice(anthropicRequest.tool_choice);
+		if (toolChoice) {
+			openaiRequest.tool_choice = toolChoice;
+		}
+		if (anthropicToolChoiceDisablesParallelUse(anthropicRequest.tool_choice)) {
+			openaiRequest.parallel_tool_calls = false;
+		}
 	}
 
 	// Translate Anthropic reasoning controls (extended `thinking` and adaptive
@@ -2161,6 +2216,55 @@ anthropic.openapi(messages, async (c) => {
 
 	return c.json(anthropicResponse);
 });
+
+interface AnthropicImageBlock {
+	type: "image";
+	source:
+		| { type: "base64"; media_type: string; data: string }
+		| { type: "url"; url: string };
+}
+
+function isAnthropicImageBlock(block: unknown): block is AnthropicImageBlock {
+	if (!block || typeof block !== "object") {
+		return false;
+	}
+	const candidate = block as { type?: unknown; source?: unknown };
+	if (candidate.type !== "image" || !candidate.source) {
+		return false;
+	}
+	const source = candidate.source as { type?: unknown };
+	return source.type === "base64" || source.type === "url";
+}
+
+/**
+ * Lower a tool_result content array to OpenAI content parts. Text and image
+ * blocks map one to one; anything else keeps the stringified form the
+ * string-only path uses, so no block is silently lost.
+ */
+function toolResultToOpenAIParts(
+	content: string | unknown[] | undefined,
+): Array<
+	| { type: "text"; text: string }
+	| { type: "image_url"; image_url: { url: string } }
+> {
+	if (typeof content === "string") {
+		return content ? [{ type: "text", text: content }] : [];
+	}
+	return (content ?? []).map((block) => {
+		if (isAnthropicImageBlock(block)) {
+			const url =
+				block.source.type === "base64"
+					? `data:${block.source.media_type};base64,${block.source.data}`
+					: block.source.url;
+			return { type: "image_url", image_url: { url } };
+		}
+		const text = block as { type?: unknown; text?: unknown };
+		if (text.type === "text" && typeof text.text === "string") {
+			return { type: "text", text: text.text };
+		}
+		return { type: "text", text: JSON.stringify(block) };
+	});
+}
 
 function determineStopReason(
 	finishReason: string | undefined,

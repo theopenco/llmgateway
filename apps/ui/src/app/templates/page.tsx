@@ -10,11 +10,11 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "AI App Templates — Production-Ready Starters",
 	description:
-		"Production-ready templates to jumpstart your AI applications — image generation, chatbots, end-user monetization, and more.",
+		"Production-ready templates to jumpstart your AI applications — model comparison, image generation, chatbots, slides, end-user monetization, and more.",
 	openGraph: {
 		title: "AI App Templates — Production-Ready Starters",
 		description:
-			"Production-ready templates to jumpstart your AI applications — image generation, chatbots, end-user monetization, and more.",
+			"Production-ready templates to jumpstart your AI applications — model comparison, image generation, chatbots, slides, end-user monetization, and more.",
 	},
 };
 

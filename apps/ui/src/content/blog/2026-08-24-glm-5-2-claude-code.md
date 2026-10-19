@@ -79,11 +79,11 @@ Also worth knowing: [OpenCode ships LLM Gateway as a built-in provider](/blog/op
 
 Agent loops are token-hungry, which is exactly the case [DevPass](https://devpass.llmgateway.io) was built for — a flat monthly rate instead of a per-token bill:
 
-| Plan    | Price      | Model usage included   |
-| ------- | ---------- | ---------------------- |
-| Lite    | $29/mo     | ~$87 at provider rates |
-| **Pro** | **$79/mo** | **~$237**              |
-| Max     | $179/mo    | ~$537                  |
+| Plan    | Price      | Model usage included  |
+| ------- | ---------- | --------------------- |
+| Lite    | $29/mo     | $58 at provider rates |
+| **Pro** | **$79/mo** | **$158**              |
+| Max     | $179/mo    | $358                  |
 
 Here's what makes GLM-5.2 special on DevPass: it's a **standard-tier model**, so unlike Kimi K3 or the frontier flagships it has **no weekly allowance cap** — it draws only from your monthly credit pool. At GLM-5.2's list rates ($1.40/M input, $0.26/M cached input, $4.40/M output — discounted providers only improve the math), a heavy agent session — a few million tokens in, most of them cache hits — lands around $2. The Pro allowance covers over a hundred of those a month, and the cached-input rate is what makes the math work: agent loops re-send the same context every step, and cache hits bill at less than a fifth of the fresh rate.
 

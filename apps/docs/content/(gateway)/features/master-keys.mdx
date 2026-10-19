@@ -402,7 +402,7 @@ Response (200):
 			"projectName": null,
 			"apiKeyId": null,
 			"apiKeyName": null,
-			"model": "gpt-5.6",
+			"model": "gpt-5.6-sol",
 			"provider": "openai",
 			"requestCount": 128,
 			"errorCount": 2,
@@ -522,7 +522,7 @@ Response (200):
 			"apiKeyId": "ak_...",
 			"ruleType": "allow_models",
 			"ruleValue": {
-				"models": ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
+				"models": ["openai/gpt-4o", "anthropic/claude-sonnet-4-6"]
 			},
 			"status": "active",
 			"createdAt": "...",
@@ -543,7 +543,7 @@ curl -X POST https://internal.llmgateway.io/v1/master/keys/ak_.../iam \
   -d '{
     "ruleType": "allow_models",
     "ruleValue": {
-      "models": ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
+      "models": ["openai/gpt-4o", "anthropic/claude-sonnet-4-6"]
     }
   }'
 ```

@@ -100,6 +100,7 @@ export async function getOrganizationTimeseries({
 	timeZone = "UTC",
 	model,
 	apiKeyId,
+	apiKeyIds,
 	rankBy = "cost",
 	mode = "total",
 	now = new Date(),
@@ -113,6 +114,8 @@ export async function getOrganizationTimeseries({
 	timeZone?: string;
 	model?: string;
 	apiKeyId?: string;
+	/** Restrict to these keys (developer scope); omits unattributed traffic. */
+	apiKeyIds?: string[];
 	rankBy?: "cost" | "requestCount" | "totalTokens" | "inputTokens";
 	now?: Date;
 	mode?: "total" | "credits" | "api-keys";
@@ -157,14 +160,27 @@ export async function getOrganizationTimeseries({
 		bucket === "hour"
 			? sql<string>`to_char(${table.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 			: sql<string>`to_char(${table.hourTimestamp} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')`;
-	const modelOptions = projectIds.length
-		? await db
-				.select({ key: canonical(projectHourlyModelStats) })
-				.from(projectHourlyModelStats)
-				.where(range(projectHourlyModelStats))
-				.groupBy(sql`1`)
-				.orderBy(sql`1`)
-		: [];
+	// Key-scoped callers must not see models used only by other keys.
+	const modelOptions = !projectIds.length
+		? []
+		: apiKeyIds
+			? await db
+					.select({ key: canonical(apiKeyHourlyModelStats) })
+					.from(apiKeyHourlyModelStats)
+					.where(
+						and(
+							range(apiKeyHourlyModelStats),
+							inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds),
+						),
+					)
+					.groupBy(sql`1`)
+					.orderBy(sql`1`)
+			: await db
+					.select({ key: canonical(projectHourlyModelStats) })
+					.from(projectHourlyModelStats)
+					.where(range(projectHourlyModelStats))
+					.groupBy(sql`1`)
+					.orderBy(sql`1`);
 	const keyOptions = projectIds.length
 		? await db
 				.select({
@@ -181,10 +197,22 @@ export async function getOrganizationTimeseries({
 					tables.project,
 					eq(tables.project.id, apiKeyHourlyModelStats.projectId),
 				)
-				.where(range(apiKeyHourlyModelStats))
+				.where(
+					and(
+						range(apiKeyHourlyModelStats),
+						apiKeyIds
+							? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
+							: undefined,
+					),
+				)
 				.groupBy(sql`1, 2, 3`)
 				.orderBy(sql`1`)
 		: [];
+	if (apiKeyId && apiKeyIds && !apiKeyIds.includes(apiKeyId)) {
+		throw new HTTPException(404, {
+			message: "API key not found in this organization",
+		});
+	}
 	if (apiKeyId) {
 		const key = await db.query.apiKey.findFirst({
 			where: { id: { eq: apiKeyId }, projectId: { in: projectIds } },
@@ -203,7 +231,8 @@ export async function getOrganizationTimeseries({
 			label: `${name ?? "Deleted key"} · ${project ?? "Project"} · ${key.slice(-6)}`,
 		})),
 	};
-	const needsKeys = !!apiKeyId || groupBy === "apiKey" || groupBy === "user";
+	const needsKeys =
+		!!apiKeyId || !!apiKeyIds || groupBy === "apiKey" || groupBy === "user";
 	const table = needsKeys ? apiKeyHourlyModelStats : projectHourlyModelStats;
 	const dimension =
 		groupBy === "model"
@@ -255,6 +284,9 @@ export async function getOrganizationTimeseries({
 						apiKeyId
 							? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId)
 							: undefined,
+						apiKeyIds
+							? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
+							: undefined,
 					),
 				)
 				.groupBy(sql`1, 2, 3`)
@@ -282,7 +314,7 @@ export async function getOrganizationTimeseries({
 		addCounts(total, entry);
 		ranked.set(entry.key, total);
 	}
-	if (needsKeys && !apiKeyId && projectIds.length) {
+	if (needsKeys && !apiKeyId && !apiKeyIds && projectIds.length) {
 		// Key rollups omit platform traffic; retain it as an explicit residual.
 		const totals = await db
 			.select({

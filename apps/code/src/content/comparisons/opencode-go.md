@@ -17,7 +17,7 @@ features:
     devpass: "$29 / $79 / $179"
     competitor: "$10 (Go) / $40 (Go Plus)"
   - label: "Included usage"
-    devpass: "2× the plan price, shared by every model ($58 / $158 / $358) for subscriptions from October 15; existing ones keep 3× until their first renewal after that date"
+    devpass: "2× the plan price, shared by every model ($58 / $158 / $358)"
     competitor: "Separate limit per model: Go $15–$60 (1.5–6×), Go Plus $60–$240 (1.5–6×)"
   - label: "Short-window caps"
     devpass: "Daily 8% / 9% / 10%; premium weekly 10% / 12% / 15%"
@@ -87,6 +87,6 @@ Go expects typical coding-agent traffic from a client that identifies itself wit
 
 ## DevPass pricing and limits
 
-DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. From **October 15, 2026**, new subscriptions include 2× the plan price in monthly usage ($58, $158, $358); existing subscriptions move to 2× at their first renewal on or after that date. Daily caps (8%, 9%, 10% of the monthly allowance), premium weekly caps (10%, 12%, 15%) and Reset Pass prices ($5, $15, $45) take effect October 15, including within existing billing cycles. Read the [plan-change terms](/legal/terms#october-2026-plan-changes) before subscribing.
+DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. Each plan includes 2× its price in monthly usage ($58, $158, $358), with daily caps (8%, 9%, 10% of the monthly allowance), premium weekly caps (10%, 12%, 15%) and Reset Passes at $5, $15 and $45. See [plan details](/pricing).
 
 For the three-way breakdown with OpenCode Zen, read [DevPass vs OpenCode Go vs OpenCode Zen](https://llmgateway.io/blog/devpass-vs-opencode-go-vs-zen).

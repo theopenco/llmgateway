@@ -126,7 +126,7 @@ describe("checkInternalContentFilter", () => {
 		}
 	});
 
-	it("posts the prompt and keeps the raw verdict on the response", async () => {
+	it("posts the prompt with the request and org ids the audit log stores", async () => {
 		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			verdict({
 				tags: ["sexual_content"],
@@ -145,7 +145,12 @@ describe("checkInternalContentFilter", () => {
 			"http://classifier.test/v1/classify",
 			expect.objectContaining({
 				method: "POST",
-				body: JSON.stringify({ prompt: "user: bad prompt" }),
+				headers: expect.objectContaining({ "X-Request-Id": "request-id" }),
+				body: JSON.stringify({
+					prompt: "user: bad prompt",
+					request_id: "request-id",
+					account_id: "org-id",
+				}),
 			}),
 		);
 		expect(result.flagged).toBe(true);

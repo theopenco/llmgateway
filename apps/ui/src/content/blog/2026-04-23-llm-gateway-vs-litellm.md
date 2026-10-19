@@ -84,12 +84,12 @@ Nothing to wire up. Open the dashboard and it's there.
 
 LiteLLM's fallback is a static list: "if this fails, try that." You write it in config. You update it when providers change.
 
-LLM Gateway's router scores every available provider for a model using the last 5 minutes of real metrics:
+LLM Gateway's router scores every available provider for a model using real metrics from a rolling %routing.history.windowMinutes%-minute window that weights the last few minutes most:
 
-- **Uptime (50%)** — exponential penalty below 95%
-- **Throughput (20%)** — tokens per second
-- **Price (20%)** — weighted toward cheaper providers
-- **Latency (10%)** — time to first token on streaming
+- **Price (weight %routing.weights.price%)** — weighted toward cheaper providers
+- **Uptime (weight %routing.weights.uptime%)** — exponential penalty below %routing.thresholds.uptimePenalty%%
+- **Throughput (weight %routing.weights.throughput%)** — tokens per second
+- **Latency (weight %routing.weights.latency%)** — time to first token on streaming
 
 Epsilon-greedy exploration (1% of requests) probes underused providers so the scoring stays honest as conditions change. Every decision is logged with the scores and the winner, so nothing is a black box.
 
@@ -154,7 +154,7 @@ Using the LiteLLM library directly? Point it at LLM Gateway:
 import litellm
 
 response = litellm.completion(
-    model="gpt-4",
+    model="gpt-5.2",
     messages=[{"role": "user", "content": "Hello!"}],
     api_base="https://api.llmgateway.io/v1",
     api_key=os.environ["LLM_GATEWAY_API_KEY"],

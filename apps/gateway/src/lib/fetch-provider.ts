@@ -2,7 +2,10 @@ import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { getTenantUpstreamDispatcher } from "@/lib/upstream-dispatcher.js";
 
 import { fetchNoRedirect, RedirectError } from "@llmgateway/actions";
-import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
+import {
+	assertSafeUserUrl,
+	isProviderUrlGuardEnabled,
+} from "@llmgateway/shared";
 
 /**
  * Route redirect policy rejections through the normal 4xx logging flow. Pass
@@ -36,4 +39,24 @@ export async function fetchProvider(
 			{ status: 400, statusText: "Bad Request" },
 		);
 	}
+}
+
+/**
+ * Fetch a download URL a provider returned (video or audio content). A BYOK
+ * base URL makes the provider tenant-controlled, so the URL gets the user-URL
+ * guard: https, no internal hosts, addresses checked at connect time, no
+ * redirects.
+ */
+export async function fetchProviderIssuedUrl(
+	url: string,
+	init?: RequestInit,
+): Promise<Response> {
+	if (!isProviderUrlGuardEnabled()) {
+		return await fetchNoRedirect(url, init);
+	}
+	assertSafeUserUrl(url);
+	return await fetchNoRedirect(url, {
+		...init,
+		dispatcher: getTenantUpstreamDispatcher(),
+	} as RequestInit);
 }

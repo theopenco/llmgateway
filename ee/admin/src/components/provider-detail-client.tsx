@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
+import { AirsideListingsTable } from "@/components/airside-listings-table";
 import {
 	AirsideSettingsSection,
 	FareBadge,
@@ -225,6 +226,15 @@ export function ProviderDetailClient({
 
 			{airside ? (
 				<AirsideSettingsSection providerId={providerId} carrier={airside} />
+			) : null}
+
+			{airside ? (
+				<section className="space-y-4">
+					<h2 className="text-xl font-semibold">Airside listings</h2>
+					<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+						<AirsideListingsTable providerId={providerId} />
+					</div>
+				</section>
 			) : null}
 
 			<section className="space-y-4">

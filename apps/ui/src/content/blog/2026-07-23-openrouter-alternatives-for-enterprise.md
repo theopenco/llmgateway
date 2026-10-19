@@ -170,7 +170,7 @@ Bedrock offers AWS-hosted models behind IAM, with Bedrock Guardrails and AWS's c
 
 **Pricing:** Standard AWS billing; on-demand or provisioned throughput.
 
-**Best for:** AWS-committed enterprises whose model needs fit the Bedrock catalog. See the [detailed comparison](/compare/bedrock).
+**Best for:** AWS-committed enterprises whose model needs fit the Bedrock catalog. See the [detailed comparison](/compare/aws-bedrock).
 
 ---
 
@@ -194,7 +194,7 @@ Azure AI Foundry brings OpenAI's models plus a partner catalog under Azure's ide
 
 **Pricing:** Standard Azure billing; pay-as-you-go or provisioned.
 
-**Best for:** Azure-committed enterprises centered on OpenAI models. See the [detailed comparison](/compare/azure-foundry).
+**Best for:** Azure-committed enterprises centered on OpenAI models. See the [detailed comparison](/compare/azure-ai-foundry).
 
 ---
 

@@ -45,12 +45,12 @@ claude
 
 Browse [models with tool calling support](https://llmgateway.io/models?filters=1&tools=true). Here are popular choices:
 
-| Model                                | Best For                                    | Cost |
-| ------------------------------------ | ------------------------------------------- | ---- |
-| `openai/gpt-5`                       | Complex reasoning, flagship performance     | $$$  |
-| `anthropic/claude-sonnet-4-20250514` | Balanced performance and cost               | $$   |
-| `gpt-4o-mini`                        | Routine tasks, cost-conscious usage         | $    |
-| `glm-4.5v`                           | Similar quality, 50-70% cheaper than Claude | $    |
+| Model                         | Best For                                    | Cost |
+| ----------------------------- | ------------------------------------------- | ---- |
+| `openai/gpt-5`                | Complex reasoning, flagship performance     | $$$  |
+| `anthropic/claude-sonnet-4-6` | Balanced performance and cost               | $$   |
+| `gpt-4o-mini`                 | Routine tasks, cost-conscious usage         | $    |
+| `glm-4.5v`                    | Similar quality, 50-70% cheaper than Claude | $    |
 
 <BlogCta variant="devpass" location="mid_article" />
 
@@ -65,7 +65,7 @@ You can easily switch models by updating the environment variable:
 export ANTHROPIC_MODEL=gpt-4o-mini
 
 # Switch to Claude Sonnet for complex reasoning
-export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
 To see the full list of models available to you, check out [models with tool calls](https://llmgateway.io/models?filters=1&tools=true)

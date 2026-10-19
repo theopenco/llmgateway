@@ -1,0 +1,350 @@
+.dotGrid {
+	background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+	background-size: 18px 18px;
+}
+
+.glow {
+	background: radial-gradient(
+		60% 60% at 50% 40%,
+		color-mix(in oklab, var(--fa) 22%, transparent),
+		transparent 70%
+	);
+}
+
+.enter {
+	animation: enter 600ms cubic-bezier(0.23, 1, 0.32, 1) both;
+	animation-delay: calc(var(--i, 0) * 70ms + 150ms);
+}
+
+@keyframes enter {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+		filter: blur(4px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+		filter: blur(0);
+	}
+}
+
+.pop {
+	animation: pop 500ms cubic-bezier(0.23, 1, 0.32, 1) both;
+	animation-delay: calc(var(--i, 0) * 90ms + 300ms);
+}
+
+@keyframes pop {
+	from {
+		opacity: 0;
+		transform: scale(0.92);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.grow {
+	transform-origin: left center;
+	animation: grow 900ms cubic-bezier(0.23, 1, 0.32, 1) both;
+	animation-delay: calc(var(--i, 0) * 90ms + 300ms);
+}
+
+@keyframes grow {
+	from {
+		transform: scaleX(0.02);
+	}
+	to {
+		transform: scaleX(1);
+	}
+}
+
+.draw {
+	stroke-dasharray: 1;
+	stroke-dashoffset: 1;
+	animation: draw 900ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+	animation-delay: calc(var(--i, 0) * 120ms + 200ms);
+}
+
+@keyframes draw {
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
+.flowDash {
+	stroke-dasharray: 4 6;
+	animation: dash 1.2s linear infinite;
+}
+
+@keyframes dash {
+	to {
+		stroke-dashoffset: -20;
+	}
+}
+
+.pulse {
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: pulse 2.4s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+@keyframes pulse {
+	0% {
+		opacity: 0.55;
+		transform: scale(1);
+	}
+	100% {
+		opacity: 0;
+		transform: scale(1.6);
+	}
+}
+
+.blink {
+	animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+.shimmer {
+	background: linear-gradient(
+		100deg,
+		transparent 20%,
+		color-mix(in oklab, var(--foreground) 10%, transparent) 50%,
+		transparent 80%
+	);
+	background-size: 200% 100%;
+	animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes shimmer {
+	from {
+		background-position: 150% 0;
+	}
+	to {
+		background-position: -50% 0;
+	}
+}
+
+.revealOnce {
+	animation: revealOnce 900ms cubic-bezier(0.23, 1, 0.32, 1) both;
+	animation-delay: calc(var(--i, 0) * 120ms + 250ms);
+}
+
+@keyframes revealOnce {
+	from {
+		clip-path: inset(0 0 100% 0);
+		scale: 1.04;
+	}
+	to {
+		clip-path: inset(0 0 0 0);
+		scale: 1;
+	}
+}
+
+.wave {
+	transform-origin: center;
+	animation: wave 1.1s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+	animation-delay: calc(var(--i, 0) * -73ms);
+}
+
+@keyframes wave {
+	from {
+		transform: scaleY(0.25);
+	}
+	to {
+		transform: scaleY(1);
+	}
+}
+
+.scan {
+	animation: scan 3.2s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+}
+
+@keyframes scan {
+	from {
+		transform: translateY(0);
+	}
+	to {
+		transform: translateY(calc(var(--scan-h, 180px) - 2px));
+	}
+}
+
+.label {
+	animation: label 6s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+
+@keyframes label {
+	0%,
+	40% {
+		transform: translateX(0);
+	}
+	50%,
+	90% {
+		transform: translateX(var(--shift, 100%));
+	}
+	100% {
+		transform: translateX(0);
+	}
+}
+
+.heal {
+	animation: heal 6s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+@keyframes heal {
+	0%,
+	35% {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	45%,
+	92% {
+		opacity: 1;
+		transform: none;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+.healScan {
+	animation: healScan 6s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+
+@keyframes healScan {
+	0%,
+	10% {
+		transform: translateX(-100%);
+		opacity: 0;
+	}
+	15% {
+		opacity: 1;
+	}
+	35% {
+		transform: translateX(100%);
+		opacity: 1;
+	}
+	40%,
+	100% {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+}
+
+.float {
+	animation: float 5s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+	animation-delay: calc(var(--i, 0) * -900ms);
+}
+
+@keyframes float {
+	from {
+		transform: translateY(-3px);
+	}
+	to {
+		transform: translateY(3px);
+	}
+}
+
+.tick {
+	opacity: 0;
+	animation: tick 4s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+	animation-delay: calc(var(--i, 0) * 1s);
+}
+
+@keyframes tick {
+	0% {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	4%,
+	21% {
+		opacity: 1;
+		transform: none;
+	}
+	25%,
+	100% {
+		opacity: 0;
+		transform: translateY(-8px);
+	}
+}
+
+.motion {
+	display: inline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.enter,
+	.pop,
+	.heal {
+		animation: fade 300ms ease both;
+	}
+	.tick {
+		animation: none;
+	}
+	.tickLead {
+		opacity: 1;
+	}
+	.revealOnce,
+	.grow,
+	.draw,
+	.flowDash,
+	.pulse,
+	.wave,
+	.scan,
+	.label,
+	.healScan,
+	.float,
+	.shimmer,
+	.blink {
+		animation: none;
+	}
+	.draw {
+		stroke-dashoffset: 0;
+	}
+	.healScan {
+		opacity: 0;
+	}
+	.motion {
+		display: none;
+	}
+}
+
+@keyframes fade {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.lift {
+	transition:
+		translate 200ms cubic-bezier(0.23, 1, 0.32, 1),
+		scale 160ms cubic-bezier(0.23, 1, 0.32, 1),
+		box-shadow 200ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.lift:hover {
+		translate: 0 -2px;
+	}
+}
+
+.lift:active {
+	scale: 0.98;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.lift:hover,
+	.lift:active {
+		translate: none;
+		scale: none;
+	}
+}

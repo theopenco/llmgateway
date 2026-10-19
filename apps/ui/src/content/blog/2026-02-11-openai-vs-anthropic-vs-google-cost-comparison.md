@@ -35,7 +35,7 @@ For most production use cases, mid-tier models offer the best quality-to-cost ra
 | Model                 | Input (per 1M tokens) | Output (per 1M tokens) | Context Window |
 | --------------------- | --------------------- | ---------------------- | -------------- |
 | **GPT-4o**            | $2.50                 | $10.00                 | 128K           |
-| **Claude Sonnet 4.6** | $3.00                 | $15.00                 | 200K           |
+| **Claude Sonnet 4.6** | $3.00                 | $15.00                 | 1M             |
 | **Gemini 2.5 Flash**  | $0.30                 | $2.50                  | 1M             |
 
 Gemini 2.5 Flash is the clear cost leader here — roughly 10x cheaper on input and 4-6x cheaper on output than its competitors, while still offering reasoning capabilities and a massive 1M token context window.

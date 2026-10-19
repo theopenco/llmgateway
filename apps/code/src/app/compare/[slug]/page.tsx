@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 
 import { BrandTile } from "@/components/brand-logos";
 import { ComparisonTable } from "@/components/ComparisonTable";
-import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
@@ -239,10 +238,6 @@ export default async function ComparePage({ params }: ComparePageProps) {
 							</Button>
 						</div>
 					</div>
-				</section>
-
-				<section className="container mx-auto max-w-4xl px-4 pt-8">
-					<DevPassPlanChangeNotice />
 				</section>
 
 				{/* Verdict */}

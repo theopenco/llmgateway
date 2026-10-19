@@ -56,7 +56,7 @@ Both have a 1M-token context window. K3's output limit defaults to 131K tokens b
 
 Concrete math: a coding-agent workload of 100M input and 20M output tokens a month runs $600 on Kimi K3 and $1,000 on Claude Opus 4.8. Same ratio at any scale — K3 is 40% cheaper on input, cached input, and output alike.
 
-One operational difference: K3's reasoning is always on at full effort — `reasoning_effort` currently accepts only `max`, with lower-effort modes promised in later updates. That is part of why its benchmark numbers are strong, but it means K3 spends thinking tokens even on trivial requests. Opus 4.8 lets you dial reasoning effort up and down per request today — cheaper and faster on the easy 80%.
+One operational difference: K3's reasoning is always on — on Moonshot's native API `reasoning_effort` accepts only `low`, `high`, or `max`, defaulting to `max`, and there is no way to turn thinking off. That is part of why its benchmark numbers are strong, but it means K3 spends thinking tokens even on trivial requests. Opus 4.8 offers a finer effort scale per request — cheaper and faster on the easy 80%.
 
 <BlogCta variant="devpass" location="mid_article" />
 
@@ -64,7 +64,7 @@ One operational difference: K3's reasoning is always on at full effort — `reas
 
 **Pick Kimi K3 when** cost dominates, you want frontend-heavy code generation (the Arena result is real), you need single-shot outputs longer than 128K tokens, or open weights matter — self-hosting, fine-tuning, or simply not depending on one vendor's API terms.
 
-**Pick Claude Opus 4.8 when** you're running mature agent harnesses tuned for Claude, you want configurable reasoning effort, or you need the SWE-bench-class repo-editing reliability that teams have already validated in production.
+**Pick Claude Opus 4.8 when** you're running mature agent harnesses tuned for Claude, you want finer-grained reasoning effort, or you need the SWE-bench-class repo-editing reliability that teams have already validated in production.
 
 **Or don't pick.** The switch between them is a one-word change to the request body, which makes the real answer an A/B test on your own workload:
 

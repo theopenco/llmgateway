@@ -101,12 +101,13 @@ export default function TermsPage() {
 
 			<h2>2. Carrier Claims and Domain Verification</h2>
 			<p>
-				A claim is authorized by <strong>email domain control</strong>. You may
-				file a claim only from a verified email address whose registrable domain
-				matches the registrable domain of the provider&rsquo;s API endpoint or
-				published website. Free and disposable email domains are rejected. This
-				check is enforced server-side; the interface is a convenience, not the
-				control.
+				A claim is authorized by <strong>email or website DNS control</strong>.
+				Your verified email domain or DNS-verified website domain must match the
+				registrable domain of the provider&rsquo;s API endpoint or published
+				website. Free and disposable email domains cannot establish an
+				email-domain match; accounts using them may verify website ownership
+				through DNS instead. The server checks domain ownership before accepting
+				a claim.
 			</p>
 			<p>
 				<strong>Claims are reviewed before they take effect.</strong> A filed
@@ -175,9 +176,10 @@ export default function TermsPage() {
 					approved. Only one filing may be pending per model at a time.
 				</li>
 				<li>
-					Every other attribute — display name, description, context window,
-					capabilities, rate limits — you may edit directly, and changes to a
-					live listing are mirrored into the catalogue without review.
+					Changes to other attributes, including display name, description,
+					context window, capabilities, and rate limits, create a metadata
+					filing for an active listing. They take effect in the catalogue after
+					approval.
 				</li>
 			</ul>
 			<p>

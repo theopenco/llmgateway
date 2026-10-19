@@ -8,15 +8,22 @@ import {
 	Copy,
 	Check,
 	FileText,
+	GitPullRequest,
 	Github,
+	LifeBuoy,
 	Mail,
+	NotebookPen,
+	Route,
 	ScanText,
 	SmilePlus,
+	Telescope,
 	UserSearch,
 	Wrench,
 	Zap,
+	Database,
 } from "lucide-react";
 import { useState, useCallback } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -35,15 +42,76 @@ interface Agent {
 
 const agents: Agent[] = [
 	{
+		name: "Research Agent",
+		description:
+			"Deep web research from your terminal. Breaks a question into sub-questions, searches the live web, reads the key sources, and writes a cited markdown report.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/research-agent",
+		icon: Telescope,
+		capabilities: ["Web Search", "Source Reading", "Cited Reports"],
+		tags: ["TypeScript", "AI SDK 7", "ToolLoopAgent"],
+		gradient: "from-cyan-500/20 via-sky-500/20 to-blue-500/20",
+		featured: true,
+	},
+	{
+		name: "Code Review Agent",
+		description:
+			"Reviews staged changes or a branch diff, opens the surrounding code, and reports findings by severity with concrete fixes. Use --strict to gate CI and post the review to the GitHub job summary.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/code-review-agent",
+		icon: GitPullRequest,
+		capabilities: ["Git Diff Tools", "Severity Findings", "CI Gate"],
+		tags: ["TypeScript", "AI SDK 7", "GitHub Actions"],
+		gradient: "from-orange-500/20 via-red-500/20 to-rose-500/20",
+		featured: true,
+	},
+	{
+		name: "Model Router",
+		description:
+			"Routes every prompt to the cheapest model tier that can answer it well, streams the answer, and prints latency, tokens, and the real cost reported by LLM Gateway.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/model-router-agent",
+		icon: Route,
+		capabilities: ["Cost Routing", "Streaming", "Usage Accounting"],
+		tags: ["TypeScript", "AI SDK 7", "Zod"],
+		gradient: "from-lime-500/20 via-green-500/20 to-emerald-500/20",
+	},
+	{
+		name: "Meeting Notes",
+		description:
+			"Turns raw transcripts into a summary, decisions, action items with owners and due dates, open questions, and risks. Optionally posts the notes to Slack or Discord.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/meeting-notes-agent",
+		icon: NotebookPen,
+		capabilities: ["Structured Output", "Action Items", "Slack & Discord"],
+		tags: ["TypeScript", "AI SDK 7", "Zod"],
+		gradient: "from-yellow-500/20 via-amber-500/20 to-orange-500/20",
+	},
+	{
+		name: "SQL Agent",
+		description:
+			"Ask questions about your data in plain English. Reads the schema, writes read-only SQLite, fixes its own query when it errors, and answers with a table plus the final SQL.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/sql-agent",
+		icon: Database,
+		capabilities: ["Schema Discovery", "Read-only SQL", "Self-correcting"],
+		tags: ["TypeScript", "AI SDK 7", "SQLite"],
+		gradient: "from-blue-500/20 via-sky-500/20 to-cyan-500/20",
+	},
+	{
+		name: "Support Triage",
+		description:
+			"Triages a batch of support tickets: category, priority, sentiment, language, an escalation flag, and a draft reply in the customer's language.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/support-triage-agent",
+		icon: LifeBuoy,
+		capabilities: ["Batch Triage", "Escalation", "Multilingual Replies"],
+		tags: ["TypeScript", "AI SDK 7", "Zod"],
+		gradient: "from-teal-500/20 via-cyan-500/20 to-sky-500/20",
+	},
+	{
 		name: "Weather Agent",
 		description:
-			"An intelligent AI agent that provides real-time weather information using tool calling. Demonstrates function calling patterns with LLM Gateway.",
+			"A ToolLoopAgent that answers weather questions with live Open-Meteo data for any city, no weather API key needed. Demonstrates multi-step tool calling with LLM Gateway.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/weather-agent",
 		icon: CloudSun,
 		capabilities: ["Tool Calling", "Real-time Data", "Natural Language"],
-		tags: ["TypeScript", "AI SDK", "OpenAI"],
+		tags: ["TypeScript", "AI SDK 7", "Open-Meteo"],
 		gradient: "from-sky-500/20 via-cyan-500/20 to-teal-500/20",
-		featured: true,
 	},
 	{
 		name: "Lead Agent",
@@ -52,7 +120,7 @@ const agents: Agent[] = [
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/lead-agent",
 		icon: UserSearch,
 		capabilities: ["Web Search", "Profile Research", "Discord Integration"],
-		tags: ["TypeScript", "AI SDK", "Perplexity"],
+		tags: ["TypeScript", "AI SDK 7", "Perplexity Sonar"],
 		gradient: "from-violet-500/20 via-purple-500/20 to-fuchsia-500/20",
 	},
 	{
@@ -62,7 +130,7 @@ const agents: Agent[] = [
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/changelog-generator-agent",
 		icon: FileText,
 		capabilities: ["Tool Calling", "Git Analysis", "Structured Output"],
-		tags: ["TypeScript", "AI SDK", "Zod"],
+		tags: ["TypeScript", "AI SDK 7", "Zod"],
 		gradient: "from-amber-500/20 via-orange-500/20 to-red-500/20",
 	},
 	{
@@ -72,7 +140,7 @@ const agents: Agent[] = [
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/email-drafter-agent",
 		icon: Mail,
 		capabilities: ["Structured Output", "Tone Control", "Text Generation"],
-		tags: ["TypeScript", "AI SDK", "Zod"],
+		tags: ["TypeScript", "AI SDK 7", "Zod"],
 		gradient: "from-blue-500/20 via-indigo-500/20 to-violet-500/20",
 	},
 	{
@@ -82,7 +150,7 @@ const agents: Agent[] = [
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/sentiment-analyzer-agent",
 		icon: SmilePlus,
 		capabilities: ["Sentiment Analysis", "Key Phrases", "File Input"],
-		tags: ["TypeScript", "AI SDK", "Zod"],
+		tags: ["TypeScript", "AI SDK 7", "Zod"],
 		gradient: "from-emerald-500/20 via-green-500/20 to-teal-500/20",
 	},
 	{
@@ -92,7 +160,7 @@ const agents: Agent[] = [
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/data-extractor-agent",
 		icon: ScanText,
 		capabilities: ["Entity Extraction", "Structured Output", "NLP"],
-		tags: ["TypeScript", "AI SDK", "Zod"],
+		tags: ["TypeScript", "AI SDK 7", "Zod"],
 		gradient: "from-rose-500/20 via-pink-500/20 to-fuchsia-500/20",
 	},
 ];
@@ -100,13 +168,19 @@ const agents: Agent[] = [
 export function AgentCards() {
 	const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
-	const copyToClipboard = useCallback((url: string) => {
+	const copyToClipboard = useCallback(async (url: string) => {
 		const templateName = url.split("/").pop();
-		void navigator.clipboard.writeText(
-			`npx @llmgateway/cli init --template ${templateName}`,
-		);
-		setCopiedUrl(url);
-		setTimeout(() => setCopiedUrl(null), 2000);
+		try {
+			await navigator.clipboard.writeText(
+				`npx @llmgateway/cli init --template ${templateName}`,
+			);
+			setCopiedUrl(url);
+			setTimeout(() => setCopiedUrl(null), 2000);
+		} catch {
+			toast.error(
+				"Could not copy the command. Check clipboard permissions and try again.",
+			);
+		}
 	}, []);
 
 	if (agents.length === 0) {

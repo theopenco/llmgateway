@@ -21,6 +21,12 @@ import {
  * for. Every admin stats payload carries this shape, so a single set of
  * renderers covers the history chart, the list tables and the detail pages.
  */
+export const TOKEN_COLORS = {
+	input: "hsl(221 83% 53%)",
+	cached: "hsl(142 71% 45%)",
+	output: "hsl(32 95% 44%)",
+};
+
 export interface TokenBreakdownData {
 	inputTokens: number;
 	cachedTokens: number;
@@ -46,7 +52,7 @@ const SEGMENTS: {
 		shortLabel: "In",
 		tokensKey: "inputTokens",
 		costKey: "inputCost",
-		color: "hsl(221 83% 53%)",
+		color: TOKEN_COLORS.input,
 	},
 	{
 		kind: "cached",
@@ -54,7 +60,7 @@ const SEGMENTS: {
 		shortLabel: "Cached",
 		tokensKey: "cachedTokens",
 		costKey: "cachedInputCost",
-		color: "hsl(142 71% 45%)",
+		color: TOKEN_COLORS.cached,
 	},
 	{
 		kind: "output",
@@ -62,7 +68,7 @@ const SEGMENTS: {
 		shortLabel: "Out",
 		tokensKey: "outputTokens",
 		costKey: "outputCost",
-		color: "hsl(32 95% 44%)",
+		color: TOKEN_COLORS.output,
 	},
 ];
 

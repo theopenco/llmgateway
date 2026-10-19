@@ -1,6 +1,6 @@
 # Airside — What It Costs To List
 
-Last updated: 2026-09-13
+Last updated: 2026-10-15
 
 > Airside is the carrier console where an AI model provider lists its models on LLM Gateway. There is no subscription and no minimum volume: you set the prices developers pay, you choose the gateway margin you accept, and you share margin only on traffic you win.
 
@@ -29,7 +29,7 @@ Last updated: 2026-09-13
 ## How traffic is allocated
 
 - Every request runs a routing election across eligible providers. The lowest score wins.
-- Scored on: price after your discount and accepted margin (heaviest weight), availability, prompt-cache support, throughput, then latency to first token.
+- Scored on: price after your discount and accepted margin, including cache-read savings (heaviest weight), availability, throughput, then latency to first token.
 - No paid placement: ranking cannot be bought outside these mechanics, and no traffic volume is guaranteed.
 - Developers can pin a provider or disable fallback, which overrides automatic selection.
 

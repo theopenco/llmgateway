@@ -460,6 +460,6 @@ async function runRealtimePreflightInner(
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
-		safetyIdentifier: organization.safetyIdentifier,
+		safetyIdentifier: apiKey.safetyIdentifier,
 	};
 }

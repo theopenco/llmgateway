@@ -1,12 +1,12 @@
 ---
 title: Service Tiers
-description: Trade latency against cost on supported OpenAI, Google, Fireworks, and AWS Bedrock models with Flex and Priority processing tiers.
+description: Trade latency against cost on supported OpenAI, Google, Fireworks, AWS Bedrock, and Azure models with Flex and Priority processing tiers.
 icon: Gauge
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Some OpenAI, Google, Fireworks, and AWS Bedrock models support selectable **processing tiers** that trade
+Some OpenAI, Google, Fireworks, AWS Bedrock, and Azure models support selectable **processing tiers** that trade
 latency and availability against price. You pick one per request with the
 OpenAI-compatible `service_tier` parameter, and LLM Gateway forwards it only
 when the selected provider/model mapping supports that tier.
@@ -135,7 +135,9 @@ carried through all of it.
 
 This applies to a tier you requested yourself. The optional coding-plan default
 tier is a cost preference rather than a requirement, so a request that cannot be
-served at that tier runs at standard instead of failing; `used_service_tier` in
+served at that tier runs at standard instead of failing. That includes a provider
+temporarily out of Flex capacity (OpenAI's `flex_unavailable`): the request is
+retried on the same provider at standard. `used_service_tier` in
 the response metadata always reports what was actually served. A tier sent on
 the request always takes precedence over that default, within the tiers the plan
 allows.

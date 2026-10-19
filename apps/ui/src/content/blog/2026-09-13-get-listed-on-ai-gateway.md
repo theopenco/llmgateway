@@ -48,7 +48,7 @@ Not a Chat Completions shop? Each model declares its own **upstream API**: carri
 
 Capability flags are not marketing. On LLM Gateway they decide which elections you enter: a request with tool calls only considers listings with tools enabled, and the same gate applies to vision, audio input, JSON output, JSON schema output, reasoning, reasoning budgets, and web search. Over-declare and you win candidacy followed by a `400`. Under-declare and you sit out requests you could have served.
 
-Airside runs a **preflight** against your endpoint before a model can be filed. You paste a provider key that is used only for that run and erased afterward, and each declared capability gets its own live check:
+Airside runs a **preflight** against your endpoint before a model can be filed. You paste a provider key once; it is stored encrypted as your carrier's test key, reused by later runs, and can be replaced or removed under **Settings**. Each declared capability gets its own live check:
 
 | Check            | Runs when you declare    |
 | ---------------- | ------------------------ |

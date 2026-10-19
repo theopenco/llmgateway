@@ -48,8 +48,10 @@ function IncidentsContent() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const mapping = searchParams.get("mapping");
+	const model = searchParams.get("model");
 	const groupByError = searchParams.get("group") === "error";
 	const includeByok = searchParams.get("includeByok") === "true";
+	const groupSimilar = searchParams.get("groupSimilar") !== "false";
 	const { company, isLoading: companyLoading } = useCompany();
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [providerId, setProviderId] = useState<string | undefined>(undefined);
@@ -83,12 +85,27 @@ function IncidentsContent() {
 	const filteredQuery = api.useQuery(
 		"get",
 		"/airside/incidents",
-		{ params: { query: { ...baseQuery, mapping: mapping ?? undefined } } },
-		{ ...queryOptions, enabled: !!company && mapping !== null },
+		{
+			params: {
+				query: {
+					...baseQuery,
+					mapping: mapping ?? undefined,
+					model: model ?? undefined,
+				},
+			},
+		},
+		{
+			...queryOptions,
+			enabled: !!company && (mapping !== null || model !== null),
+		},
 	);
 
 	function setParam(name: string, next: string | null) {
 		const params = new URLSearchParams(searchParams.toString());
+		if (name === "mapping") {
+			// Picking or clearing a mapping replaces the all-regions model filter.
+			params.delete("model");
+		}
 		if (next) {
 			params.set(name, next);
 		} else {
@@ -119,7 +136,8 @@ function IncidentsContent() {
 		);
 	}
 
-	const activeQuery = mapping !== null ? filteredQuery : allQuery;
+	const activeQuery =
+		mapping !== null || model !== null ? filteredQuery : allQuery;
 	const data = activeQuery.data;
 	const refreshing = activeQuery.isPlaceholderData;
 	const mappingOptions = allQuery.data?.mappings.map((row) => row.usedModel);
@@ -270,13 +288,13 @@ function IncidentsContent() {
 								))}
 							</SelectContent>
 						</Select>
-						{mapping !== null ? (
+						{mapping !== null || (model !== null && !groupByError) ? (
 							<button
 								type="button"
 								onClick={() => setMapping(null)}
 								className="bg-primary/15 text-primary inline-flex items-center gap-1 rounded px-2 py-1 font-mono text-xs"
 							>
-								{mapping}
+								{mapping ?? `${model} (all regions)`}
 								<X className="size-3" aria-label="Clear mapping filter" />
 							</button>
 						) : null}
@@ -288,6 +306,18 @@ function IncidentsContent() {
 							/>
 							<Label htmlFor="include-retried" className="text-xs">
 								{groupByError ? "Retried errors" : "Retried errors in details"}
+							</Label>
+						</div>
+						<div className="flex items-center gap-2">
+							<Switch
+								id="group-similar"
+								checked={groupSimilar}
+								onCheckedChange={(checked) =>
+									setParam("groupSimilar", checked ? null : "false")
+								}
+							/>
+							<Label htmlFor="group-similar" className="text-xs">
+								Group similar errors
 							</Label>
 						</div>
 						<div className="flex items-center gap-2">
@@ -312,6 +342,7 @@ function IncidentsContent() {
 							mapping={mapping}
 							window={timeWindow}
 							includeRetried={includeRetried}
+							groupSimilar={groupSimilar}
 							includeByok={includeByok}
 							showCarrier={company.claims.length > 1}
 						/>
@@ -344,6 +375,7 @@ function IncidentsContent() {
 										mappings={data.mappings}
 										window={timeWindow}
 										includeRetried={includeRetried}
+										groupSimilar={groupSimilar}
 										includeByok={includeByok}
 									/>
 								</div>

@@ -47,7 +47,7 @@ const FAQ_ITEMS: PricingFaqItem[] = [
 	},
 	{
 		question: "What does the Enterprise plan include?",
-		answer: `Enterprise adds volume discounts, custom routing, unlimited data retention, and a ${MARKETING_STATS.uptimeSla} uptime SLA on top of everything in the free plan.`,
+		answer: `Enterprise adds volume discounts, custom routing, full request and response retention (30 days), and a ${MARKETING_STATS.uptimeSla} uptime SLA on top of everything in the free plan.`,
 		links: [{ href: "/enterprise", label: "Explore Enterprise" }],
 	},
 	{

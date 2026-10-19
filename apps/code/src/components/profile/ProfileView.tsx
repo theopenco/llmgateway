@@ -139,7 +139,13 @@ function StatCard({
 	);
 }
 
-export function ProfileView({ profile }: { profile: ProfileData }) {
+export function ProfileView({
+	profile,
+	shareEnabled = true,
+}: {
+	profile: ProfileData;
+	shareEnabled?: boolean;
+}) {
 	const displayName =
 		profile.name?.trim() || profile.username || "DevPass user";
 	const topAgent =
@@ -173,11 +179,13 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 					)}
 				</div>
 				<div className="ml-auto flex-shrink-0 self-start">
-					<ProfileShareActions
-						profile={profile}
-						location="profile_header"
-						variant="compact"
-					/>
+					{shareEnabled && (
+						<ProfileShareActions
+							profile={profile}
+							location="profile_header"
+							variant="compact"
+						/>
+					)}
 				</div>
 			</div>
 
@@ -188,7 +196,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 
 			{/* Wrapped card + share toolkit */}
 			<div className="mt-8">
-				<ProfileWrapped profile={profile} />
+				<ProfileWrapped profile={profile} shareEnabled={shareEnabled} />
 			</div>
 
 			<div className="mt-8 grid gap-8 lg:grid-cols-[240px_1fr]">

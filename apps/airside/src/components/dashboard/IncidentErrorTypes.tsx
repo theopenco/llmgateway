@@ -152,6 +152,7 @@ export function IncidentErrorTypes({
 	mapping,
 	window,
 	includeRetried,
+	groupSimilar,
 	includeByok,
 	showCarrier,
 }: {
@@ -160,6 +161,7 @@ export function IncidentErrorTypes({
 	mapping: string | null;
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	includeByok: boolean;
 	showCarrier: boolean;
 }) {
@@ -174,6 +176,7 @@ export function IncidentErrorTypes({
 						providerCompanyId,
 						window,
 						includeRetried: includeRetried ? "true" : "false",
+						groupSimilar: groupSimilar ? "true" : "false",
 						includeByok: includeByok ? "true" : "false",
 						...(providerId ? { providerId } : {}),
 						...(mapping !== null ? { mapping } : {}),

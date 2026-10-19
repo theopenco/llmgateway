@@ -75,13 +75,13 @@ const MAX_CALL_AUDIO_BYTES = 24 * 1024 * 1024;
 interface UseRealtimeCallOptions {
 	model: string | null;
 	voice: string | null;
+	transcriptionModel: string | null;
 	onCallError?: (message: string) => void;
 }
 
 interface MintResponse {
 	client_secret: string;
 	expires_at?: number;
-	transcription_model?: string;
 	ws_url: string;
 }
 
@@ -92,6 +92,7 @@ function readCount(value: unknown): number {
 export function useRealtimeCall({
 	model,
 	voice,
+	transcriptionModel,
 	onCallError,
 }: UseRealtimeCallOptions) {
 	const [status, setStatus] = useState<RealtimeCallStatus>("idle");
@@ -586,6 +587,7 @@ export function useRealtimeCall({
 		async (context: AudioContext, callId: number) => {
 			const isStale = () => callIdRef.current !== callId;
 			const currentModel = model;
+			const currentTranscriptionModel = transcriptionModel;
 			if (!currentModel) {
 				failCall("Select a realtime model first.");
 				return;
@@ -624,7 +626,12 @@ export function useRealtimeCall({
 				const response = await fetch("/api/realtime/session", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ model: currentModel }),
+					body: JSON.stringify({
+						model: currentModel,
+						...(currentTranscriptionModel
+							? { transcriptionModel: currentTranscriptionModel }
+							: {}),
+					}),
 				});
 				if (!response.ok) {
 					const data = (await response.json().catch(() => null)) as {
@@ -652,7 +659,7 @@ export function useRealtimeCall({
 				failCall("The call setup response was invalid.");
 				return;
 			}
-			transcriptionModelRef.current = mint.transcription_model ?? null;
+			transcriptionModelRef.current = currentTranscriptionModel;
 
 			updateStatus("connecting");
 			// The secret travels only in the official credential subprotocol —
@@ -746,7 +753,7 @@ export function useRealtimeCall({
 				}
 			}
 		},
-		[failCall, handleServerEvent, model, updateStatus],
+		[failCall, handleServerEvent, model, transcriptionModel, updateStatus],
 	);
 
 	/** Clear the finished call from view. No-op while a call is in progress. */

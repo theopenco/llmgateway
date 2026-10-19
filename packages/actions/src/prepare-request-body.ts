@@ -29,6 +29,7 @@ import {
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
 	type ToolChoiceType,
+	usesEncryptedReasoning,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
@@ -449,9 +450,37 @@ function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
  */
-function convertOpenAISchemaToGoogle(schema: any): any {
+function convertOpenAISchemaToGoogle(
+	schema: any,
+	rootDefs: Record<string, any> = schema?.$defs ?? schema?.definitions ?? {},
+	seenRefs: Set<string> = new Set(),
+	rootSchema: any = schema,
+): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
+	}
+
+	// Google's responseSchema has no $ref, so expand it inline. A recursive
+	// reference collapses to a generic object instead of recursing forever.
+	if (typeof schema.$ref === "string") {
+		if (seenRefs.has(schema.$ref)) {
+			return schema.description
+				? { type: "OBJECT", description: schema.description }
+				: { type: "OBJECT" };
+		}
+		const resolved = resolveRef(schema.$ref, rootDefs, rootSchema);
+		if (resolved) {
+			const expanded = convertOpenAISchemaToGoogle(
+				resolved,
+				rootDefs,
+				new Set(seenRefs).add(schema.$ref),
+				rootSchema,
+			);
+			if (schema.description && !expanded.description) {
+				expanded.description = schema.description;
+			}
+			return expanded;
+		}
 	}
 
 	const converted: any = {};
@@ -482,13 +511,52 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 	if (schema.properties) {
 		converted.properties = {};
 		for (const [key, value] of Object.entries(schema.properties)) {
-			converted.properties[key] = convertOpenAISchemaToGoogle(value);
+			converted.properties[key] = convertOpenAISchemaToGoogle(
+				value,
+				rootDefs,
+				seenRefs,
+				rootSchema,
+			);
 		}
 	}
 
 	// Handle array items
 	if (schema.items) {
-		converted.items = convertOpenAISchemaToGoogle(schema.items);
+		converted.items = convertOpenAISchemaToGoogle(
+			schema.items,
+			rootDefs,
+			seenRefs,
+			rootSchema,
+		);
+	}
+
+	// Unions: Google has `anyOf` but no null type, so a null member becomes
+	// `nullable` and a lone remaining member is folded into this node. A
+	// single-member `allOf` (older pydantic wraps described refs in one) is
+	// folded the same way.
+	const union = Array.isArray(schema.anyOf)
+		? schema.anyOf
+		: Array.isArray(schema.oneOf)
+			? schema.oneOf
+			: Array.isArray(schema.allOf) && schema.allOf.length === 1
+				? schema.allOf
+				: undefined;
+	if (Array.isArray(union)) {
+		const members = union.filter((member: any) => member?.type !== "null");
+		if (members.length !== union.length) {
+			converted.nullable = true;
+		}
+		const convertedMembers = members.map((member: any) =>
+			convertOpenAISchemaToGoogle(member, rootDefs, seenRefs, rootSchema),
+		);
+		if (convertedMembers.length === 1) {
+			Object.assign(converted, {
+				...convertedMembers[0],
+				...converted,
+			});
+		} else if (convertedMembers.length > 1) {
+			converted.anyOf = convertedMembers;
+		}
 	}
 
 	// Copy required array if present
@@ -496,11 +564,19 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Google's Schema proto represents every enum member as a string, including
-	// members of numeric and boolean schemas.
+	// Google's Schema proto represents every enum member as a string, and
+	// Vertex rejects an enum on any non-STRING schema with a 400. Keep a
+	// numeric or boolean enum as a description hint so the type survives.
 	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
 	if (normalizedEnum !== undefined) {
-		converted.enum = normalizedEnum;
+		if (!converted.type || converted.type === "STRING") {
+			converted.enum = normalizedEnum;
+		} else {
+			const hint = `Allowed values: ${normalizedEnum.join(", ")}`;
+			converted.description = converted.description
+				? `${converted.description} (${hint})`
+				: hint;
+		}
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -591,14 +667,33 @@ function sanitizeCerebrasSchema(schema: any): any {
 /**
  * Resolves a $ref path like "#/$defs/QuestionOption" to the actual definition
  */
-function resolveRef(ref: string, rootDefs: Record<string, any>): any {
-	// Handle JSON Pointer format: #/$defs/Name or #/definitions/Name
-	const match = ref.match(/^#\/(\$defs|definitions)\/(.+)$/);
-	if (match) {
-		const defName = match[2];
-		return rootDefs[defName];
+function resolveRef(
+	ref: string,
+	rootDefs: Record<string, any>,
+	rootSchema?: any,
+): any {
+	if (ref === "#") {
+		return rootSchema ?? null;
 	}
-	return null;
+	if (!ref.startsWith("#/")) {
+		return null;
+	}
+	const [first, ...rest] = ref
+		.slice(2)
+		.split("/")
+		.map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+	// Prefer the namespace the ref names, so #/definitions/X still resolves
+	// when the root also carries $defs.
+	let node: any =
+		rootSchema?.[first] ??
+		(first === "$defs" || first === "definitions" ? rootDefs : undefined);
+	for (const segment of rest) {
+		if (!node || typeof node !== "object") {
+			return null;
+		}
+		node = node[segment];
+	}
+	return node && typeof node === "object" ? node : null;
 }
 
 /**
@@ -617,12 +712,16 @@ function resolveRef(ref: string, rootDefs: Record<string, any>): any {
  * degradation.
  *
  * Deliberately omitted even though Google does accept them: `minLength`,
- * `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`,
- * `minProperties`, `maxProperties` and `not`. The gateway has always stripped
- * those, and forwarding them would change how models fill tool arguments, so
- * restoring them is a separate behavioural change rather than part of this
- * fix. `$ref` / `$defs` / `definitions` are absent because they are consumed
- * by the inline expansion below instead of being forwarded.
+ * `maxLength`, `minimum`, `maximum`, `minItems`, `maxItems`, `minProperties`,
+ * `maxProperties` and `not`. The gateway has always stripped those, and
+ * forwarding them would change how models fill tool arguments, so restoring
+ * them is a separate behavioural change rather than part of this fix.
+ * `pattern` is forwarded on string nodes only (verified live on the Gemini
+ * API), since a pinned value format is what a caller means by it. `const` is
+ * rewritten below. `additionalProperties` has no field in this carrier (the
+ * Gemini API 400s on it); only `parametersJsonSchema` would carry it. `$ref` /
+ * `$defs` / `definitions` are absent because they are consumed by the inline
+ * expansion below instead of being forwarded.
  */
 const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"type",
@@ -640,6 +739,7 @@ const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"allOf",
 	"propertyOrdering",
 	"example",
+	"pattern",
 ]);
 
 /**
@@ -747,9 +847,47 @@ function stripUnsupportedSchemaProperties(
 
 	const cleaned: any = {};
 	let nullableFromType = false;
+	let nullableFromConst = false;
+	let constEnum: string[] | undefined;
+	let constType: string | undefined;
 
 	for (const [key, value] of Object.entries(schema)) {
+		// Google's `parameters` carrier has no `const` vocabulary: pin the value
+		// as a single-member `enum`, which constrains the model identically and
+		// which the carrier accepts. An explicit `enum` always wins. (#4148)
+		if (key === "const") {
+			if ("enum" in schema) {
+				continue;
+			}
+			if (value === null) {
+				// Google's Type enum has no NULL member, so a null-only constraint
+				// cannot survive as an enum: String(null) would demand the literal
+				// string "null". Fold it into `nullable` with the type list below.
+				nullableFromConst = true;
+				continue;
+			}
+			// Deferred to the emit below: whether it may become an `enum`
+			// depends on the node's `type`, which may come later.
+			constEnum = normalizeGoogleSchemaEnum([value]);
+			constType =
+				typeof value === "number"
+					? Number.isInteger(value)
+						? "integer"
+						: "number"
+					: typeof value;
+			continue;
+		}
+
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		// `pattern` only has meaning on strings; Google's proto accepts it on
+		// any node but the model has nothing to match it against elsewhere.
+		if (key === "pattern") {
+			if (typeof value === "string") {
+				cleaned.pattern = value;
+			}
 			continue;
 		}
 
@@ -814,10 +952,47 @@ function stripUnsupportedSchemaProperties(
 		}
 	}
 
-	// Applied after the loop so it wins over an explicit `nullable: false` that
-	// contradicts a `"null"` member in the type list, whichever key came first.
-	if (nullableFromType) {
+	// Applied after the loop so either source wins over an explicit
+	// `nullable: false` that contradicts it, whichever key came first.
+	if (nullableFromType || nullableFromConst) {
 		cleaned.nullable = true;
+		// A bare `const: null` carries no type; Vertex rejects an untyped node.
+		if (nullableFromConst && cleaned.type === undefined) {
+			cleaned.type = "string";
+		}
+	}
+
+	// Vertex rejects an `enum` on any non-STRING schema with a 400, so a
+	// numeric or boolean const is kept as a description hint instead, the
+	// same way convertOpenAISchemaToGoogle treats such an enum. (#4148)
+	if (constEnum !== undefined) {
+		// A bare `const` (no `type`) is common from schema generators. Vertex
+		// rejects an untyped node outright, and the Gemini API ignores an enum
+		// it cannot type, so take the type from the value itself.
+		if (cleaned.type === undefined && constType !== undefined) {
+			cleaned.type = constType;
+		}
+		if (
+			typeof cleaned.type !== "string" ||
+			cleaned.type.toLowerCase() === "string"
+		) {
+			cleaned.enum = constEnum;
+		} else {
+			const hint = `Allowed values: ${constEnum.join(", ")}`;
+			cleaned.description =
+				typeof cleaned.description === "string" && cleaned.description
+					? `${cleaned.description} (${hint})`
+					: hint;
+		}
+	}
+
+	// A `pattern` that survived on a non-string node has nothing to match.
+	if (
+		cleaned.pattern !== undefined &&
+		typeof cleaned.type === "string" &&
+		cleaned.type.toLowerCase() !== "string"
+	) {
+		delete cleaned.pattern;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'
@@ -1466,6 +1641,7 @@ export async function prepareRequestBody(
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
 	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
+	parallel_tool_calls?: boolean,
 ): Promise<ProviderRequestBody | FormData> {
 	// Check before provider transforms can strip a caller's markers.
 	const hasCacheMarker = (part: object) =>
@@ -2357,6 +2533,24 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// `parallel_tool_calls` is only valid next to tools (OpenAI rejects it
+	// otherwise). OpenAI and Azure document it; other OpenAI-compatible mappings
+	// opt in through supportedParameters. Anthropic maps it onto tool_choice in
+	// its case below; provider-native formats delete it from the base body.
+	const acceptsParallelToolCalls =
+		usedProvider === "openai" ||
+		usedProvider === "azure" ||
+		providerMappingForOptions?.supportedParameters?.includes(
+			"parallel_tool_calls",
+		) === true;
+	if (
+		parallel_tool_calls !== undefined &&
+		requestBody.tools !== undefined &&
+		acceptsParallelToolCalls
+	) {
+		requestBody.parallel_tool_calls = parallel_tool_calls;
+	}
+
 	// Resolve tool_choice against what the mapping declares it accepts. Fall
 	// back to "auto" when the mapping omits "tool_choice" from
 	// supportedParameters, or when the requested tool_choice mode isn't listed
@@ -2536,7 +2730,10 @@ export async function prepareRequestBody(
 				// full).
 				if (getProviderDefinition(usedProvider)?.encryptedReasoning) {
 					responsesBody.store = false;
-					responsesBody.include = ["reasoning.encrypted_content"];
+					// Only mappings that reason return replayable payloads.
+					if (usesEncryptedReasoning(providerMappingForOptions)) {
+						responsesBody.include = ["reasoning.encrypted_content"];
+					}
 				}
 
 				if (usedProvider === "aws-mantle") {
@@ -2618,13 +2815,16 @@ export async function prepareRequestBody(
 					}
 				}
 
-				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
-				// surface is what the Responses API path always uses) document
-				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
-				// neither documents it and an unknown field risks a 400.
+				// Abuse-attribution identifier. OpenAI, Azure (whose v1 surface is
+				// what the Responses API path always uses) and Meta document
+				// `safety_identifier`; Bedrock Mantle does not, and an unknown field
+				// risks a 400.
 				if (
 					safety_identifier !== undefined &&
-					(usedProvider === "openai" || usedProvider === "azure")
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					responsesBody.safety_identifier = safety_identifier;
 				}
@@ -2645,6 +2845,9 @@ export async function prepareRequestBody(
 							name: tool.function.name,
 							description: tool.function.description,
 							parameters: tool.function.parameters as FunctionParameter,
+							...(typeof tool.function.strict === "boolean" && {
+								strict: tool.function.strict,
+							}),
 						}));
 					}
 				}
@@ -2703,6 +2906,13 @@ export async function prepareRequestBody(
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
+				if (
+					acceptsParallelToolCalls &&
+					parallel_tool_calls !== undefined &&
+					responsesBody.tools?.length
+				) {
+					responsesBody.parallel_tool_calls = parallel_tool_calls;
+				}
 
 				// Add optional parameters if they are provided
 				if (temperature !== undefined) {
@@ -2746,9 +2956,14 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
-				if (usedProvider === "openai" || usedProvider === "azure") {
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta" ||
+					usedProvider === "meta-contributor"
+				) {
 					if (safety_identifier !== undefined) {
-						if (usedProvider === "openai") {
+						if (usedProvider !== "azure") {
 							requestBody.safety_identifier = safety_identifier;
 						} else {
 							// Azure's deployment-based APIs predate safety_identifier but
@@ -3191,8 +3406,11 @@ export async function prepareRequestBody(
 					reasoning_split: true,
 				};
 			}
-			// MiniMax doesn't recognize `reasoning_effort`; its thinking models
-			// take a binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
+			// Mappings listing `reasoning_effort` in supportedParameters
+			// (MiniMax-M3.1-Flash) take a graduated effort and reject disabling
+			// thinking, so none/minimal collapse onto the lowest declared tier.
+			// The older thinking models ignore `reasoning_effort` and take a
+			// binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
 			// and think by default. Map `none`/`minimal` to an explicit disable and
 			// every other tier to an explicit enable; when no effort is requested,
 			// send nothing and keep the provider default (thinking on). Only
@@ -3200,7 +3418,21 @@ export async function prepareRequestBody(
 			// ignores `"disabled"` and keeps thinking (verified live) — so mappings
 			// that can disable declare `none` in `reasoningEfforts` and disable
 			// requests collapse onto the minimum (thinking stays on) elsewhere.
-			if (supportsReasoning && reasoning_effort !== undefined) {
+			if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				const lowestEffort =
+					providerMappingForOptions.reasoningEfforts?.[0] ?? "low";
+				requestBody.reasoning_effort = wantsThinking
+					? reasoning_effort
+					: lowestEffort;
+			} else if (supportsReasoning && reasoning_effort !== undefined) {
 				const wantsThinking =
 					reasoning_effort !== "none" && reasoning_effort !== "minimal";
 				const canDisableThinking =
@@ -3219,6 +3451,7 @@ export async function prepareRequestBody(
 		case "azure-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
+			delete requestBody.parallel_tool_calls;
 
 			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
 			// both the direct API and Vertex `rawPredict` (verified live). AWS
@@ -3514,6 +3747,10 @@ export async function prepareRequestBody(
 						// section before the cache key is computed, so forwarding this
 						// is what keeps a large tool catalogue out of the cached prefix.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						...(tool.function.strict === true && { strict: true }),
+						...(tool.allowed_callers && {
+							allowed_callers: tool.allowed_callers,
+						}),
 						// Budget and TTL ordering were both settled above, where the
 						// system pass needed the resulting count.
 						...(toolCacheControlKept[index] && {
@@ -3577,6 +3814,18 @@ export async function prepareRequestBody(
 				} else if (resolvedToolChoice === "none") {
 					requestBody.tool_choice = { type: "none" };
 				}
+			}
+			// Anthropic has no parallel_tool_calls; the same switch lives on
+			// tool_choice, which rejects it alongside type "none".
+			if (
+				parallel_tool_calls === false &&
+				requestBody.tools?.length &&
+				requestBody.tool_choice?.type !== "none"
+			) {
+				requestBody.tool_choice = {
+					...(requestBody.tool_choice ?? { type: "auto" }),
+					disable_parallel_tool_use: true,
+				};
 			}
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
@@ -3730,6 +3979,7 @@ export async function prepareRequestBody(
 			delete requestBody.messages; // Will be transformed to Bedrock format
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
+			delete requestBody.parallel_tool_calls; // No Converse equivalent
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
@@ -4367,6 +4617,7 @@ export async function prepareRequestBody(
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
+			delete requestBody.parallel_tool_calls; // No Gemini equivalent
 			// Map OpenAI tool_choice to Google's toolConfig format
 			if (
 				resolvedToolChoice &&
@@ -4472,10 +4723,21 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.responseMimeType = "application/json";
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
-				// Convert OpenAI's JSON schema format to Google's format
 				if (response_format.json_schema?.schema) {
-					requestBody.generationConfig.responseSchema =
-						convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					// AI Studio and Vertex take standard JSON Schema ($ref, $defs,
+					// anyOf, type arrays, numeric enums) via responseJsonSchema; the
+					// compatible transports still get the OpenAPI-subset conversion in
+					// responseSchema.
+					if (
+						usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex"
+					) {
+						requestBody.generationConfig.responseJsonSchema =
+							foldSingleMemberAllOf(response_format.json_schema.schema);
+					} else {
+						requestBody.generationConfig.responseSchema =
+							convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					}
 				}
 			}
 
@@ -5112,4 +5374,33 @@ export async function prepareRequestBody(
 	}
 
 	return requestBody;
+}
+/**
+ * Gemini's responseJsonSchema ignores `allOf`, leaving the field unconstrained.
+ * Fold the single-member `allOf` older pydantic emits around described refs
+ * into its parent so the constraint survives.
+ */
+function foldSingleMemberAllOf(schema: any): any {
+	if (Array.isArray(schema)) {
+		return schema.map((item) => foldSingleMemberAllOf(item));
+	}
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+	const result: any = {};
+	for (const [key, value] of Object.entries(schema)) {
+		result[key] = foldSingleMemberAllOf(value);
+	}
+	const member = result.allOf?.[0];
+	if (
+		Array.isArray(result.allOf) &&
+		result.allOf.length === 1 &&
+		member &&
+		typeof member === "object" &&
+		!Array.isArray(member)
+	) {
+		delete result.allOf;
+		return { ...member, ...result };
+	}
+	return result;
 }

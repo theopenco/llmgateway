@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { getActiveProviderPromo, RUNWARE_PROMO, SCX_PROMO } from "./marketing";
+import { getActiveProviderPromo, SCX_PROMO } from "./marketing";
 
 describe("provider promo schedule", () => {
-	it("hands over from Runware to SCX at the existing cutoff", () => {
-		const cutoff = Date.parse(RUNWARE_PROMO.endsAt);
-		expect(getActiveProviderPromo(cutoff - 1)?.id).toBe("runware");
-		expect(getActiveProviderPromo(cutoff)?.id).toBe("scx");
-		expect(getActiveProviderPromo(cutoff + 1)?.id).toBe("scx");
+	it("shows no promo before SCX starts", () => {
+		const start = Date.parse(SCX_PROMO.startsAt);
+		expect(getActiveProviderPromo(start - 1)).toBeNull();
+		expect(getActiveProviderPromo(start)?.id).toBe("scx");
 	});
 
 	it("shows SCX for the extended 30 days and then removes the banner", () => {

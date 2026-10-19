@@ -2,9 +2,9 @@
 id: kimi-code
 slug: kimi-code
 title: Kimi Code Integration
-seoTitle: Use Kimi Code with LLM Gateway
-description: Connect Kimi Code to LLM Gateway, discover models, and verify a coding task.
-date: 2026-09-23
+seoTitle: Install Kimi Code and use it with LLM Gateway
+description: Install Kimi Code on macOS, Linux or Windows (curl or irm one-liners), connect it to LLM Gateway or DevPass, discover models, and verify a coding task.
+date: 2026-10-11
 ---
 
 [Kimi Code](https://github.com/MoonshotAI/kimi-code) is a terminal coding agent. Its provider manager can discover LLM Gateway models and save the connection for future sessions.
@@ -23,14 +23,42 @@ date: 2026-09-23
 	></iframe>
 </div>
 
-## Install
+## Install Kimi Code
+
+The official install script needs no Node.js. It downloads the latest release, verifies the checksum and puts the `kimi` binary on your `PATH`.
+
+**macOS / Linux**
 
 ```bash
-pnpm add -g @moonshot-ai/kimi-code
-kimi --version
+curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 ```
 
-Use the current Kimi Code package. Additional installation options are in the&nbsp;[official documentation](https://github.com/MoonshotAI/kimi-code).
+**Windows (PowerShell)**
+
+```powershell
+irm https://code.kimi.com/kimi-code/install.ps1 | iex
+```
+
+On Windows, install [Git for Windows](https://gitforwindows.org/) before the first launch: Kimi Code uses the bundled Git Bash as its shell. If Git Bash lives somewhere else, set `KIMI_SHELL_PATH` to the full path of `bash.exe`.
+
+Pin a version with `KIMI_VERSION=0.5.0` (or `--version 0.5.0` on the shell script), change the install directory with `KIMI_INSTALL_DIR`, or skip the `PATH` change with `KIMI_NO_MODIFY_PATH=1`.
+
+**npm (Node.js 22.19 or later)**
+
+```bash
+npm install -g @moonshot-ai/kimi-code
+# or
+pnpm add -g @moonshot-ai/kimi-code
+```
+
+Then check the binary and, later, upgrade in place:
+
+```bash
+kimi --version
+kimi upgrade
+```
+
+Full options are in the [Kimi Code getting-started guide](https://moonshotai.github.io/kimi-code/en/guides/getting-started).
 
 ## Connect your account
 

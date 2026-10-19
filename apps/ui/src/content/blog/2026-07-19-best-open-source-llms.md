@@ -137,7 +137,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   }'
 ```
 
-Two ways to pay. **Pay-as-you-go**: top up from $10, pay the published per-token rates plus a 5% platform fee at top-up — right for shipping products. **[DevPass](https://devpass.llmgateway.io)**: flat $29/$79/$179 a month for coding agents, with roughly 3× your subscription price in model usage at provider rates. On DevPass, every model on this list except Kimi K3 is standard-tier with no weekly cap; K3 crosses the premium price threshold and draws from a weekly premium allowance.
+Two ways to pay. **Pay-as-you-go**: top up from $10, pay the published per-token rates plus a 5% platform fee at top-up — right for shipping products. **[DevPass](https://devpass.llmgateway.io)**: flat $29/$79/$179 a month for coding agents, with 2× your subscription price in model usage at provider rates. On DevPass, every model on this list except Kimi K3 is standard-tier with no weekly cap; K3 crosses the premium price threshold and draws from a weekly premium allowance.
 
 ## Getting started
 

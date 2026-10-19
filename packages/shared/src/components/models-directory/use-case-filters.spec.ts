@@ -398,6 +398,7 @@ describe("category → capability implication tables", () => {
 		imageGeneration: "image",
 		videoGeneration: "video",
 		embedding: "embedding",
+		decisions: "decision",
 	};
 
 	function capableModel(output: string[]) {
@@ -422,7 +423,10 @@ describe("category → capability implication tables", () => {
 
 	describe("Use Case implied keys are enforced by applyUseCaseFilter", () => {
 		function outputFor(category: string): string[] {
-			return category === "image" ? ["image"] : ["text"];
+			if (category === "image") {
+				return ["image"];
+			}
+			return category === "decisions" ? ["decision"] : ["text"];
 		}
 
 		for (const category of useCaseCategories) {
@@ -490,6 +494,7 @@ describe("category → capability implication tables", () => {
 			"image-to-image",
 			"video",
 			"embedding",
+			"decisions",
 			"web-search",
 			"vision",
 			"reasoning",
@@ -506,6 +511,8 @@ describe("category → capability implication tables", () => {
 					return ["video"];
 				case "embedding":
 					return ["embedding"];
+				case "decisions":
+					return ["decision"];
 				default:
 					return ["text"];
 			}

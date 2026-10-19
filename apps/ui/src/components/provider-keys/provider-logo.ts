@@ -48,7 +48,6 @@ export const providerLogoUrls: Partial<
 	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,
-	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
 	consensusprotocol: ProviderIcons.consensusprotocol,

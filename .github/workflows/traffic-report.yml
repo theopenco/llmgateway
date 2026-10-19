@@ -37,7 +37,7 @@ jobs:
         with:
           version: ${{ env.pnpm_version }}
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ env.nodejs_version }}
           cache: pnpm

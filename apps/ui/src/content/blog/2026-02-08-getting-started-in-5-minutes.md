@@ -142,7 +142,7 @@ The best part of using a gateway: switching providers is a one-line change. Try 
 "model": "anthropic/claude-haiku-4-5"
 
 # Google
-"model": "google-ai-studio/gemini-2.5-flash"
+"model": "google-ai-studio/gemini-3-flash-preview"
 ```
 
 Same API, same code. Just a different model string.

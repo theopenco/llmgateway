@@ -1,7 +1,7 @@
 /** Windows the Airside carriers table can show traffic over. */
 export type CarrierWindow = "24h" | "7d" | "30d";
 
-export const DEFAULT_CARRIER_WINDOW: CarrierWindow = "7d";
+export const DEFAULT_CARRIER_WINDOW: CarrierWindow = "24h";
 
 export const CARRIER_WINDOW_OPTIONS: {
 	value: CarrierWindow;
@@ -26,6 +26,6 @@ export function parseCarrierWindow(
 export function carrierWindowOption(window: CarrierWindow) {
 	return (
 		CARRIER_WINDOW_OPTIONS.find((option) => option.value === window) ??
-		CARRIER_WINDOW_OPTIONS[1]
+		CARRIER_WINDOW_OPTIONS[0]
 	);
 }

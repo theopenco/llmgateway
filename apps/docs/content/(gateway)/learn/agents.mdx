@@ -20,8 +20,9 @@ individual sessions behind the numbers.
 />
 
 <Callout type="info">
-	Agents are identified by the `x-source` header their requests send. Anything
-	that doesn't match a known agent stays out of this view — use
+	Agents are identified by the `x-source` header their requests send, falling
+	back to the `User-Agent`, `X-Title`, and `HTTP-Referer` headers. Anything that
+	doesn't match a known agent stays out of this view — use
 	[**Activity**](/learn/activity) for the full request log.
 </Callout>
 

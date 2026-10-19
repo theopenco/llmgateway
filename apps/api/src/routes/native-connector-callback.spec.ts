@@ -172,7 +172,7 @@ describe("native connector authorization", () => {
 		});
 		await db.insert(tables.account).values({
 			id: "connector-other-account",
-			accountId: "connector-other-account",
+			accountId: "connector-other-user",
 			providerId: "credential",
 			userId: "connector-other-user",
 			password: account!.password,

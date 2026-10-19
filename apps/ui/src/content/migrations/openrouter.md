@@ -154,7 +154,7 @@ OpenRouter selects the upstream through a `provider` object in the request body.
 | `provider.order: ["Anthropic"]`       | `anthropic/claude-sonnet-5` — pinned; falls back to the best alternative only if its uptime drops below 90% |
 | `provider.order` with several entries | A dynamic route whose `providers` list is the same ordered fallback preference                              |
 | `provider.allow_fallbacks: false`     | Add the `x-no-fallback: true` header to fail instead of retrying elsewhere                                  |
-| Your own provider keys (BYOK)         | Add keys under Settings > Provider Keys — 0% gateway fee at any monthly volume                              |
+| Your own provider keys (BYOK)         | Add keys under Organization > Provider Keys — 0% gateway fee at any monthly volume                          |
 
 See the [routing](https://docs.llmgateway.io/features/routing) and [dynamic routes](https://docs.llmgateway.io/features/dynamic-routes) documentation for the details.
 

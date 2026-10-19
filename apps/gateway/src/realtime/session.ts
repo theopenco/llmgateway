@@ -19,6 +19,7 @@ import {
 	recordRealtimeTranscription,
 } from "./billing.js";
 import { findRealtimeTranscriptionMapping } from "./catalog.js";
+import { RealtimeDurationMeter } from "./duration-meter.js";
 import {
 	LEASE_HEARTBEAT_INTERVAL_MS,
 	releaseRealtimeLease,
@@ -30,6 +31,10 @@ import {
 	buildRealtimePriceSnapshot,
 	normalizeRealtimeUsage,
 	priceRealtimeUsage,
+	isDurationBilledRealtime,
+	normalizeDurationRealtimeUsage,
+	priceDurationRealtimeUsage,
+	type NormalizedRealtimeUsage,
 } from "./pricing.js";
 import {
 	applyTranscriptionDiscount,
@@ -37,10 +42,26 @@ import {
 	normalizeTranscriptionUsage,
 	priceTranscriptionUsage,
 } from "./transcription.js";
+import { logRealtimeTurnDenial } from "./turn-denial-log.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { RawData } from "ws";
+
+const EMPTY_REALTIME_USAGE: NormalizedRealtimeUsage = {
+	totalTokens: 0,
+	inputTokens: 0,
+	outputTokens: 0,
+	inputTextTokens: 0,
+	inputAudioTokens: 0,
+	inputImageTokens: 0,
+	cachedTokens: 0,
+	cachedTextTokens: 0,
+	cachedAudioTokens: 0,
+	cachedImageTokens: 0,
+	outputTextTokens: 0,
+	outputAudioTokens: 0,
+};
 
 const maxSessionMs = () =>
 	(Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) * 1000;
@@ -175,6 +196,12 @@ export class RealtimeProxySession {
 	// Whether input transcription is currently enabled, i.e. whether newly
 	// committed audio items will produce a billable transcription event.
 	private transcriptionEnabled = false;
+	// User text input items forwarded since the last billed response. Billed
+	// per item on duration-billed mappings with the next response.done.
+	private pendingTextInputItems = 0;
+	// Duration-billed mappings only: reconciles the provider's running
+	// billable-seconds total and the unreported time billed on close.
+	private readonly durationMeter: RealtimeDurationMeter | null;
 	private readonly allowedTranscription: RealtimeMappingMatch | null;
 	private readonly pinnedInstructions: string | null;
 	private readonly pinnedVoice: string | null;
@@ -244,6 +271,9 @@ export class RealtimeProxySession {
 		this.onClosed = options.onClosed;
 		this.clientQueue = this.upstreamConfigured;
 		this.transcriptionOnly = this.preflight.sessionType === "transcription";
+		this.durationMeter = isDurationBilledRealtime(this.preflight.match.mapping)
+			? new RealtimeDurationMeter()
+			: null;
 		if (this.transcriptionOnly) {
 			this.transcription = {
 				match: this.preflight.match,
@@ -422,7 +452,27 @@ export class RealtimeProxySession {
 					);
 					return;
 				}
+				if (isForceMessage(message.item)) {
+					// Scripted TTS lines are synthesized outside any response, so no
+					// usage event would ever price them.
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"item_type_not_supported",
+							"force_message items are not supported for realtime sessions on LLMGateway.",
+						),
+					);
+					return;
+				}
+				if (isUserTextItem(message.item)) {
+					this.pendingTextInputItems += 1;
+				}
 				this.forwardToUpstream(JSON.stringify(message));
+				return;
+			case "input_audio_buffer.append":
+				if (this.durationMeter && typeof message.audio === "string") {
+					this.durationMeter.addInputAudio(message.audio, Date.now());
+				}
+				this.forwardToUpstream(text);
 				return;
 			case "input_audio_buffer.clear":
 				// Clearing audio the provider has already transcribed live would
@@ -615,6 +665,21 @@ export class RealtimeProxySession {
 			}
 		}
 
+		// xAI's idle re-engagement starts responses on its own, bypassing the
+		// gateway's generation gates.
+		if (
+			this.preflight.match.mapping.providerId === "xai" &&
+			hasIdleTimeout(session)
+		) {
+			this.sendToClientRaw(
+				buildErrorEvent(
+					"idle_timeout_not_supported",
+					"turn_detection.idle_timeout_ms is not supported for this realtime model on LLMGateway.",
+				),
+			);
+			return;
+		}
+
 		// Hosted tools (MCP, web search, etc.) carry separate fees that are not
 		// metered here; only plain function tools are allowed.
 		if (containsUnsupportedTools(session.tools)) {
@@ -703,6 +768,13 @@ export class RealtimeProxySession {
 			}
 		}
 
+		if (this.durationMeter) {
+			this.durationMeter.setInputFormat(
+				audioInput && "format" in audioInput
+					? audioInput.format
+					: session.input_audio_format,
+			);
+		}
 		this.forwardToUpstream(JSON.stringify(forwarded));
 	}
 
@@ -770,8 +842,13 @@ export class RealtimeProxySession {
 		if (this.clientGone()) {
 			return;
 		}
+		if (Array.isArray(response?.input)) {
+			this.pendingTextInputItems +=
+				response.input.filter(isUserTextItem).length;
+		}
 		this.responseInFlight = "pending";
 		this.responseStartedAt = Date.now();
+		this.durationMeter?.start(this.responseStartedAt);
 		this.forwardToUpstream(JSON.stringify(message));
 	}
 
@@ -798,6 +875,7 @@ export class RealtimeProxySession {
 		}
 		this.responseInFlight = "pending";
 		this.responseStartedAt = Date.now();
+		this.durationMeter?.start(this.responseStartedAt);
 		this.forwardToUpstream(JSON.stringify({ type: "response.create" }));
 	}
 
@@ -833,6 +911,22 @@ export class RealtimeProxySession {
 		}
 	}
 
+	/**
+	 * Refuses one billable turn and logs it like a rejected HTTP request.
+	 */
+	private refuseTurn(code: string, message: string): void {
+		this.sendToClientRaw(buildErrorEvent(code, message));
+		void logRealtimeTurnDenial({
+			gatewayToken: this.gatewayToken,
+			sessionRecordId: this.sessionRecordId,
+			requestedModel: this.requestedModel,
+			source: this.source,
+			userAgent: this.userAgent,
+			code,
+			message,
+		});
+	}
+
 	private async authorizeAccount(
 		match: RealtimeMappingMatch,
 	): Promise<AuthorizeAccountResult> {
@@ -846,20 +940,16 @@ export class RealtimeProxySession {
 
 	private async runGenerationGatesInner(): Promise<boolean> {
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"session_spend_limit",
-					`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
-				),
+			this.refuseTurn(
+				"session_spend_limit",
+				`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
 			);
 			return false;
 		}
 
 		const authorization = await this.authorizeAccount(this.preflight.match);
 		if (!authorization.ok) {
-			this.sendToClientRaw(
-				buildErrorEvent(authorization.code, authorization.message),
-			);
+			this.refuseTurn(authorization.code, authorization.message);
 			if (authorization.severity === "close") {
 				this.shutdown(1008, authorization.code);
 			}
@@ -869,20 +959,16 @@ export class RealtimeProxySession {
 		if (this.preflight.usedMode === "credits") {
 			const available = await this.availableCredits(authorization.organization);
 			if (available === null) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"gate_unavailable",
-						"Unable to verify account state; generation is temporarily unavailable.",
-					),
+				this.refuseTurn(
+					"gate_unavailable",
+					"Unable to verify account state; generation is temporarily unavailable.",
 				);
 				return false;
 			}
 			if (available.lessThanOrEqualTo(0)) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"insufficient_credits",
-						"Organization has insufficient credits for further responses.",
-					),
+				this.refuseTurn(
+					"insufficient_credits",
+					"Organization has insufficient credits for further responses.",
 				);
 				return false;
 			}
@@ -894,11 +980,9 @@ export class RealtimeProxySession {
 			this.preflight.match.modelId,
 		);
 		if (!rateLimit.allowed) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"rate_limit_exceeded",
-					`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
-				),
+			this.refuseTurn(
+				"rate_limit_exceeded",
+				`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
 			);
 			return false;
 		}
@@ -936,11 +1020,9 @@ export class RealtimeProxySession {
 			return;
 		}
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"session_spend_limit",
-					`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
-				),
+			this.refuseTurn(
+				"session_spend_limit",
+				`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
 			);
 			this.drainOrShutdown(1008, "session_spend_limit");
 			return;
@@ -952,9 +1034,7 @@ export class RealtimeProxySession {
 			if (authorization.severity === "transient") {
 				return;
 			}
-			this.sendToClientRaw(
-				buildErrorEvent(authorization.code, authorization.message),
-			);
+			this.refuseTurn(authorization.code, authorization.message);
 			this.drainOrShutdown(1008, authorization.code);
 			return;
 		}
@@ -969,11 +1049,9 @@ export class RealtimeProxySession {
 				transcriptionMatch.modelId,
 			);
 			if (!rateLimit.allowed) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"rate_limit_exceeded",
-						`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
-					),
+				this.refuseTurn(
+					"rate_limit_exceeded",
+					`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
 				);
 				this.drainOrShutdown(1008, "rate_limit_exceeded");
 				return;
@@ -986,11 +1064,9 @@ export class RealtimeProxySession {
 		if (available === null || available.greaterThan(0)) {
 			return;
 		}
-		this.sendToClientRaw(
-			buildErrorEvent(
-				"insufficient_credits",
-				"Organization has insufficient credits to continue this session.",
-			),
+		this.refuseTurn(
+			"insufficient_credits",
+			"Organization has insufficient credits to continue this session.",
 		);
 		this.drainOrShutdown(1008, "insufficient_credits");
 	}
@@ -1316,19 +1392,33 @@ export class RealtimeProxySession {
 			return;
 		}
 
-		const normalized = normalizeRealtimeUsage(response.usage);
+		const durationBilled = this.durationMeter !== null;
+		// Duration-billed providers (xAI) report usage on the event itself.
+		const rawUsage = durationBilled ? event.usage : response.usage;
+		const durationUsage = durationBilled
+			? normalizeDurationRealtimeUsage(rawUsage)
+			: null;
+		const normalized = durationUsage ?? normalizeRealtimeUsage(rawUsage);
 		if (!normalized.ok) {
 			logger.error(`Unpriceable realtime usage: ${normalized.reason}`, {
 				sessionId: this.sessionRecordId,
 				responseId,
-				usage: response.usage,
+				usage: rawUsage,
 			});
 			this.shutdown(1011, `unpriceable_usage:${normalized.reason}`);
 			return;
 		}
 
 		const snapshot = buildRealtimePriceSnapshot(this.preflight.match.mapping);
-		const priced = priceRealtimeUsage(normalized.usage, snapshot);
+		const textInputItems = this.pendingTextInputItems;
+		const priced = durationUsage?.ok
+			? priceDurationRealtimeUsage(
+					durationUsage.usage,
+					this.durationMeter!.increase(durationUsage.billableAudioSeconds),
+					textInputItems,
+					snapshot,
+				)
+			: priceRealtimeUsage(normalized.usage, snapshot);
 		if (!priced.ok) {
 			logger.error(`Unpriceable realtime usage: ${priced.reason}`, {
 				sessionId: this.sessionRecordId,
@@ -1387,6 +1477,13 @@ export class RealtimeProxySession {
 			if (inserted) {
 				this.sessionSpend = this.sessionSpend.plus(discountedCosts.totalCost);
 			}
+			if (durationUsage?.ok) {
+				this.pendingTextInputItems -= textInputItems;
+				this.durationMeter!.commit(
+					durationUsage.billableAudioSeconds,
+					Date.now(),
+				);
+			}
 		} catch (error) {
 			logger.error(
 				"Failed to persist realtime billing event; closing session",
@@ -1434,6 +1531,16 @@ export class RealtimeProxySession {
 			event.content_index >= 0
 				? event.content_index
 				: 0;
+
+		// Duration-billed sessions (xAI) transcribe input audio as part of the
+		// session price, without any configured ASR model.
+		if (
+			!this.transcription &&
+			isDurationBilledRealtime(this.preflight.match.mapping)
+		) {
+			this.sendToClientRaw(rawText);
+			return;
+		}
 
 		if (!this.transcription || !itemId) {
 			logger.error(
@@ -1658,6 +1765,12 @@ export class RealtimeProxySession {
 		}
 
 		void releaseRealtimeLease(this.lease);
+		void this.billUnreportedDuration().catch((error: unknown) => {
+			logger.error(
+				"Failed to bill unreported realtime session time",
+				error as Error,
+			);
+		});
 		void closeRealtimeSessionRecord(
 			this.sessionRecordId,
 			reason.startsWith("unpriceable_usage") ||
@@ -1756,6 +1869,57 @@ export class RealtimeProxySession {
 			}
 		}, 100);
 	}
+
+	/**
+	 * Bill what a duration-billed provider metered after its last usage report:
+	 * session time and text inputs that no response.done carried. The provider
+	 * reports nothing on close, so the time comes from the gateway's own clock
+	 * and forwarded input audio.
+	 */
+	private async billUnreportedDuration(): Promise<void> {
+		if (!this.durationMeter) {
+			return;
+		}
+		const seconds = this.durationMeter.unreportedSeconds(Date.now());
+		const textInputItems = this.pendingTextInputItems;
+		if (seconds === 0 && textInputItems === 0) {
+			return;
+		}
+		const snapshot = buildRealtimePriceSnapshot(this.preflight.match.mapping);
+		const priced = priceDurationRealtimeUsage(
+			EMPTY_REALTIME_USAGE,
+			seconds,
+			textInputItems,
+			snapshot,
+		);
+		if (!priced.ok) {
+			logger.error(`Unpriceable unreported realtime time: ${priced.reason}`, {
+				sessionId: this.sessionRecordId,
+			});
+			return;
+		}
+		const effectiveDiscount = await getEffectiveDiscount(
+			this.preflight.project.organizationId,
+			this.preflight.match.mapping.providerId,
+			this.preflight.match.modelId,
+		);
+		const discount = new Decimal(effectiveDiscount.discount);
+		await recordRealtimeResponse({
+			preflight: this.preflight,
+			sessionId: this.sessionRecordId,
+			requestedModel: this.requestedModel,
+			responseId: "unreported-duration",
+			responseStatus: "completed",
+			durationMs: seconds * 1000,
+			responseSizeBytes: 0,
+			usage: EMPTY_REALTIME_USAGE,
+			costs: applyRealtimeDiscount(priced.costs, discount),
+			pricingSnapshot: snapshot,
+			discount: discount.toNumber(),
+			source: this.source,
+			userAgent: this.userAgent,
+		});
+	}
 }
 
 function itemContainsImageContent(item: Record<string, unknown>): boolean {
@@ -1792,5 +1956,49 @@ function containsUnsupportedTools(tools: unknown): boolean {
 			!tool ||
 			typeof tool !== "object" ||
 			(tool as Record<string, unknown>).type !== "function",
+	);
+}
+
+function isForceMessage(item: unknown): boolean {
+	return (
+		!!item &&
+		typeof item === "object" &&
+		(item as Record<string, unknown>).type === "force_message"
+	);
+}
+
+/**
+ * A user message carrying text input — the unit duration-billed providers
+ * charge a flat per-item fee for.
+ */
+function isUserTextItem(item: unknown): boolean {
+	if (!item || typeof item !== "object") {
+		return false;
+	}
+	const record = item as Record<string, unknown>;
+	if (
+		(record.type !== undefined && record.type !== "message") ||
+		record.role !== "user" ||
+		!Array.isArray(record.content)
+	) {
+		return false;
+	}
+	return record.content.some(
+		(part) =>
+			part &&
+			typeof part === "object" &&
+			(part as Record<string, unknown>).type === "input_text",
+	);
+}
+
+function hasIdleTimeout(session: Record<string, unknown>): boolean {
+	const audio = session.audio as Record<string, unknown> | undefined;
+	const input = audio?.input as Record<string, unknown> | undefined;
+	return [input?.turn_detection, session.turn_detection].some(
+		(td) =>
+			!!td &&
+			typeof td === "object" &&
+			(td as Record<string, unknown>).idle_timeout_ms !== undefined &&
+			(td as Record<string, unknown>).idle_timeout_ms !== null,
 	);
 }

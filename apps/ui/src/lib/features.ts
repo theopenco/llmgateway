@@ -1,4 +1,62 @@
-import type { ReactNode } from "react";
+import {
+	Activity,
+	BarChart3,
+	Cloud,
+	FolderKanban,
+	KeyRound,
+	Layers,
+	LineChart,
+	Plug,
+	PieChart,
+	ScrollText,
+	Shield,
+	type LucideIcon,
+} from "lucide-react";
+
+import { docFeatures } from "./feature-catalog";
+
+import type { FeatureVisual } from "./feature-visuals";
+
+export type FeatureCategory =
+	"routing" | "models" | "observability" | "security" | "build";
+
+export const featureCategories: Array<{
+	id: FeatureCategory;
+	label: string;
+	tagline: string;
+	accent: string;
+}> = [
+	{
+		id: "routing",
+		label: "Routing & reliability",
+		tagline: "One API, the right provider, every time.",
+		accent: "oklch(0.685 0.169 237.323)",
+	},
+	{
+		id: "models",
+		label: "Models & modalities",
+		tagline: "Text, images, video, audio, search and more.",
+		accent: "oklch(0.606 0.25 292.717)",
+	},
+	{
+		id: "observability",
+		label: "Observability & cost",
+		tagline: "See every request, token and dollar.",
+		accent: "oklch(0.696 0.17 162.48)",
+	},
+	{
+		id: "security",
+		label: "Security & governance",
+		tagline: "Control who calls what, and where data goes.",
+		accent: "oklch(0.585 0.233 277.117)",
+	},
+	{
+		id: "build",
+		label: "Build & monetize",
+		tagline: "Ship prompts, skills and payments faster.",
+		accent: "oklch(0.769 0.188 70.08)",
+	},
+];
 
 export interface FeatureDefinition {
 	id: string;
@@ -7,7 +65,12 @@ export interface FeatureDefinition {
 	subtitle: string;
 	description: string;
 	longDescription: string;
-	icon: ReactNode;
+	icon: LucideIcon;
+	category: FeatureCategory;
+	visual: FeatureVisual;
+	docsPath?: string;
+	enterprise?: boolean;
+	developerSnippet?: boolean;
 	benefits: Array<{
 		title: string;
 		description: string;
@@ -43,7 +106,20 @@ export const features: FeatureDefinition[] = [
 			"Compatible with the OpenAI API format — migrate by changing the base URL, keep your SDK, and reach 200+ models across 40+ providers with no code changes.",
 		longDescription:
 			"LLM Gateway provides a unified API interface that's fully compatible with the OpenAI API format. This means you can easily migrate from OpenAI to any other provider without changing your code. Simply update the base URL and API key, and you're ready to go.",
-		icon: null,
+		icon: Plug,
+		category: "routing",
+		visual: {
+			kind: "flow",
+			source: "OpenAI SDK",
+			hub: "LLM Gateway",
+			targets: [
+				{ label: "OpenAI", status: "active" },
+				{ label: "Anthropic", status: "active" },
+				{ label: "Google", status: "active" },
+				{ label: "Mistral", status: "active" },
+			],
+			caption: "Change the base URL, keep your code",
+		},
 		benefits: [
 			{
 				title: "Zero Code Changes",
@@ -81,25 +157,7 @@ export const features: FeatureDefinition[] = [
 				description: "Avoid vendor lock-in by using a provider-agnostic API",
 			},
 		],
-		codeExample: {
-			title: "Simple Integration",
-			language: "typescript",
-			code: `import OpenAI from "openai";
-
-const client = new OpenAI({
-	baseURL: "https://api.llmgateway.io/v1",
-	apiKey: process.env.LLMGATEWAY_API_KEY,
-});
-
-const completion = await client.chat.completions.create({
-	model: "anthropic/claude-3-5-sonnet-20241022",
-	messages: [
-		{ role: "user", content: "Hello, how are you?" }
-	],
-});
-
-console.log(completion.choices[0].message.content);`,
-		},
+		developerSnippet: true,
 	},
 	{
 		id: "multi-provider",
@@ -109,7 +167,21 @@ console.log(completion.choices[0].message.content);`,
 		description: "Connect to various LLM providers through a single gateway.",
 		longDescription:
 			"LLM Gateway supports 40+ LLM providers, including OpenAI, Anthropic, Google, AWS Bedrock, Azure, and many more. Access cutting-edge models from multiple providers without managing separate integrations.",
-		icon: null,
+		icon: Layers,
+		category: "routing",
+		visual: {
+			kind: "flow",
+			source: "Your app",
+			hub: "LLM Gateway",
+			targets: [
+				{ label: "OpenAI", status: "active" },
+				{ label: "Anthropic", status: "active" },
+				{ label: "Google", status: "active" },
+				{ label: "AWS Bedrock", status: "active" },
+				{ label: "Azure", status: "active" },
+			],
+			caption: "40+ providers behind one key",
+		},
 		demoComponent: "multi-provider",
 		benefits: [
 			{
@@ -156,7 +228,17 @@ console.log(completion.choices[0].message.content);`,
 			"Compare different models' performance and cost-effectiveness.",
 		longDescription:
 			"Get detailed insights into your LLM usage with comprehensive performance monitoring. Track latency, throughput, error rates, and costs across all your requests. Compare different models and providers to optimize for performance and cost.",
-		icon: null,
+		icon: Activity,
+		category: "observability",
+		visual: {
+			kind: "ranking",
+			title: "Time to first token · p50",
+			items: [
+				{ label: "Provider A", value: 0.32, display: "310 ms" },
+				{ label: "Provider B", value: 0.55, display: "540 ms" },
+				{ label: "Provider C", value: 0.9, display: "880 ms", tone: "warn" },
+			],
+		},
 		demoComponent: "performance-monitoring",
 		benefits: [
 			{
@@ -202,7 +284,19 @@ console.log(completion.choices[0].message.content);`,
 		description: "Manage API keys for different providers in one secure place.",
 		longDescription:
 			"Securely store and manage API keys for all your LLM providers in one place. Create project-specific keys, set usage limits, and track usage per key. Rotate keys without downtime and audit key usage.",
-		icon: null,
+		icon: KeyRound,
+		category: "security",
+		docsPath: "/features/api-keys",
+		visual: {
+			kind: "feed",
+			title: "Project · API keys",
+			items: [
+				{ title: "production", meta: "llmgtwy_••••a91f", tone: "ok" },
+				{ title: "staging", meta: "$50 budget", tone: "info" },
+				{ title: "ci-evals", meta: "80% of limit", tone: "warn" },
+				{ title: "old-intern-key", meta: "revoked", tone: "error" },
+			],
+		},
 		demoComponent: "api-key",
 		benefits: [
 			{
@@ -247,7 +341,24 @@ console.log(completion.choices[0].message.content);`,
 		description: "Deploy on your own infrastructure or use our hosted version.",
 		longDescription:
 			"LLM Gateway offers flexible deployment options. Use our hosted cloud version for instant setup, or deploy on your own infrastructure for complete control. Both options provide the same features and performance.",
-		icon: null,
+		icon: Cloud,
+		category: "routing",
+		visual: {
+			kind: "tree",
+			root: "LLM Gateway",
+			branches: [
+				{
+					label: "Cloud",
+					badge: "managed",
+					children: ["api.llmgateway.io", "zero ops"],
+				},
+				{
+					label: "Self-hosted",
+					badge: "open source",
+					children: ["Docker", "your infra", "your keys"],
+				},
+			],
+		},
 		benefits: [
 			{
 				title: "Cloud Hosted",
@@ -293,7 +404,18 @@ console.log(completion.choices[0].message.content);`,
 			"See requests, tokens, total spend, and average cost per 1K tokens across 7 or 30 days.",
 		longDescription:
 			"Get complete visibility into your LLM costs with detailed analytics. Track requests, tokens, and spending over time. See cost per 1K tokens, compare providers, and identify cost optimization opportunities.",
-		icon: null,
+		icon: LineChart,
+		category: "observability",
+		visual: {
+			kind: "ranking",
+			title: "Spend by model · 30 days",
+			items: [
+				{ label: "claude-sonnet", value: 0.86, display: "$412" },
+				{ label: "gpt-5", value: 0.61, display: "$291" },
+				{ label: "gemini-3-flash", value: 0.22, display: "$104" },
+				{ label: "embeddings", value: 0.06, display: "$28", tone: "muted" },
+			],
+		},
 		demoComponent: "cost-analytics",
 		benefits: [
 			{
@@ -337,7 +459,18 @@ console.log(completion.choices[0].message.content);`,
 			"Break down usage and spend by provider and model so you can quickly spot expensive outliers.",
 		longDescription:
 			"See exactly where your money is going with per-model and per-provider breakdowns. Identify which models and providers are most expensive, and optimize your usage accordingly.",
-		icon: null,
+		icon: PieChart,
+		category: "observability",
+		visual: {
+			kind: "ranking",
+			title: "Requests by provider",
+			items: [
+				{ label: "Anthropic", value: 0.78, display: "48%" },
+				{ label: "OpenAI", value: 0.52, display: "32%" },
+				{ label: "Google", value: 0.24, display: "15%" },
+				{ label: "Others", value: 0.08, display: "5%", tone: "muted" },
+			],
+		},
 		demoComponent: "model-breakdown",
 		benefits: [
 			{
@@ -382,7 +515,18 @@ console.log(completion.choices[0].message.content);`,
 			"Monitor error rate, cache hit rate, and reliability trends directly from the dashboard.",
 		longDescription:
 			"Keep your LLM applications running smoothly with comprehensive error and reliability monitoring. Track error rates, identify issues before they become problems, and ensure high availability.",
-		icon: null,
+		icon: BarChart3,
+		category: "observability",
+		visual: {
+			kind: "feed",
+			title: "Reliability · last hour",
+			items: [
+				{ title: "Error rate 0.4%", meta: "−0.2%", tone: "ok" },
+				{ title: "Cache hit rate 31%", meta: "+6%", tone: "info" },
+				{ title: "429s from one provider", meta: "rerouted", tone: "warn" },
+				{ title: "Upstream timeout", meta: "retried", tone: "error" },
+			],
+		},
 		demoComponent: "errors-monitoring",
 		benefits: [
 			{
@@ -427,7 +571,17 @@ console.log(completion.choices[0].message.content);`,
 			"Drill into each project's requests, models, errors, cache, and costs with dedicated charts and tables.",
 		longDescription:
 			"Explore your LLM usage at the project level with detailed charts, tables, and analytics. See every request, track model usage, monitor errors, and analyze costs for each of your projects.",
-		icon: null,
+		icon: FolderKanban,
+		category: "observability",
+		visual: {
+			kind: "ranking",
+			title: "Projects · requests this week",
+			items: [
+				{ label: "support-bot", value: 0.9, display: "182k" },
+				{ label: "search", value: 0.57, display: "114k" },
+				{ label: "internal-tools", value: 0.31, display: "62k" },
+			],
+		},
 		demoComponent: "activity-logs",
 		benefits: [
 			{
@@ -471,7 +625,19 @@ console.log(completion.choices[0].message.content);`,
 			"Track who did what, when, and maintain compliance with comprehensive audit trails.",
 		longDescription:
 			"Enterprise Audit Logs provide complete visibility into every action taken within your organization. Track user activity, configuration changes, API key management, and more. Maintain compliance requirements with immutable, time-stamped records that can be filtered and exported.",
-		icon: null,
+		icon: ScrollText,
+		category: "security",
+		docsPath: "/features/audit-logs",
+		visual: {
+			kind: "feed",
+			title: "Audit log",
+			items: [
+				{ title: "API key created", meta: "admin · 2m", tone: "info" },
+				{ title: "Member role changed", meta: "owner · 14m", tone: "warn" },
+				{ title: "Provider key rotated", meta: "admin · 1h", tone: "ok" },
+				{ title: "Project archived", meta: "owner · 3h", tone: "error" },
+			],
+		},
 		benefits: [
 			{
 				title: "Complete Activity History",
@@ -521,7 +687,24 @@ console.log(completion.choices[0].message.content);`,
 			"Prevent prompt injection, detect PII, and block malicious requests with intelligent guardrails.",
 		longDescription:
 			"LLM Guardrails provide comprehensive protection for your AI applications. Automatically detect and block prompt injection attacks, jailbreak attempts, and sensitive data leakage. Configure custom rules for blocked terms, topic restrictions, and file handling to ensure your LLM usage stays safe and compliant.",
-		icon: null,
+		icon: Shield,
+		category: "security",
+		docsPath: "/features/guardrails",
+		enterprise: true,
+		visual: {
+			kind: "feed",
+			title: "Guardrails · incoming prompts",
+			items: [
+				{ title: "Email address redacted", meta: "PII", tone: "warn" },
+				{
+					title: '"Ignore previous instructions"',
+					meta: "blocked",
+					tone: "error",
+				},
+				{ title: "API secret detected", meta: "blocked", tone: "error" },
+				{ title: "Clean request passed", meta: "allowed", tone: "ok" },
+			],
+		},
 		benefits: [
 			{
 				title: "Prompt Injection Protection",
@@ -562,8 +745,29 @@ console.log(completion.choices[0].message.content);`,
 			},
 		],
 	},
+	...docFeatures,
 ];
 
 export function getFeatureBySlug(slug: string): FeatureDefinition | undefined {
 	return features.find((f) => f.slug === slug);
+}
+
+export function getFeatureCategory(id: FeatureCategory) {
+	return featureCategories.find((category) => category.id === id)!;
+}
+
+export function getRelatedFeatures(
+	feature: FeatureDefinition,
+	count = 3,
+): FeatureDefinition[] {
+	const sameCategory = features.filter(
+		(f) => f.category === feature.category && f.slug !== feature.slug,
+	);
+	const start = sameCategory.length
+		? features.indexOf(feature) % sameCategory.length
+		: 0;
+	return [...sameCategory.slice(start), ...sameCategory.slice(0, start)].slice(
+		0,
+		count,
+	);
 }

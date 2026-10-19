@@ -10,9 +10,7 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 
 import {
 	AGENTS,
-	ALL_CODING_AGENT_SOURCES,
 	type AgentStats,
-	computeAgentStats,
 	formatLastActive,
 	formatTokens,
 } from "./coding-agents-shared";
@@ -21,7 +19,10 @@ function AgentCard({
 	stats,
 	onClick,
 }: {
-	stats: AgentStats;
+	stats: Pick<
+		AgentStats,
+		"agent" | "requestCount" | "totalCost" | "totalTokens" | "lastActive"
+	>;
 	onClick: () => void;
 }) {
 	const Icon = stats.agent.icon;
@@ -121,38 +122,44 @@ export default function CodingAgents({
 	const router = useRouter();
 	const api = useApi();
 
-	const since = useMemo(() => {
-		const d = new Date();
-		d.setDate(d.getDate() - 7);
-		return d.toISOString();
-	}, []);
-	const until = useMemo(() => new Date().toISOString(), []);
-
 	const { data, isLoading, error } = api.useQuery(
 		"get",
-		"/logs",
-		{
-			params: {
-				query: {
-					orgId,
-					...(projectId ? { projectId } : {}),
-					orderBy: "createdAt_desc",
-					limit: "100",
-					source: ALL_CODING_AGENT_SOURCES.join(","),
-					startDate: since,
-					endDate: until,
-				},
-			},
-		},
+		"/activity/sources",
+		{ params: { query: { projectId: projectId ?? "", timeRange: "7d" } } },
 		{
 			enabled: !!orgId && !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 60_000,
 		},
 	);
-
-	const allLogs = useMemo(() => data?.logs ?? [], [data]);
-	const agentStats = useMemo(() => computeAgentStats(allLogs), [allLogs]);
+	const agentStats = useMemo(
+		() =>
+			AGENTS.flatMap((agent) => {
+				const sources = agent.sources.map((source) => source.toLowerCase());
+				const rows = (data?.sources ?? []).filter((row) =>
+					sources.includes(row.source.toLowerCase()),
+				);
+				if (!rows.length) {
+					return [];
+				}
+				return [
+					{
+						agent,
+						requestCount: rows.reduce((sum, row) => sum + row.requestCount, 0),
+						totalCost: rows.reduce((sum, row) => sum + row.cost, 0),
+						totalTokens: rows.reduce((sum, row) => sum + row.totalTokens, 0),
+						lastActive: new Date(
+							Math.max(
+								...rows.map((row) =>
+									row.lastUsedAt ? Date.parse(row.lastUsedAt) : 0,
+								),
+							),
+						),
+					},
+				];
+			}).sort((a, b) => b.totalCost - a.totalCost),
+		[data?.sources],
+	);
 
 	const totalCost = agentStats.reduce((sum, s) => sum + s.totalCost, 0);
 	const totalRequests = agentStats.reduce((sum, s) => sum + s.requestCount, 0);

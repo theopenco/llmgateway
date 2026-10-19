@@ -81,7 +81,7 @@ Orchestration tools fall into two broad layers:
 
 **Application / workflow frameworks** — LangChain, LlamaIndex, and similar libraries orchestrate _within your process_: chains, agents, memory, tool calls, and RAG pipelines. They're excellent at structuring multi-step logic.
 
-**Gateway / infrastructure orchestrators** — LLM Gateway, and platforms like LiteLLM, OpenRouter, and Portkey, orchestrate _across providers_: routing, failover, caching, guardrails, and analytics behind one API. They're excellent at making model calls reliable and cheap. (We compare several of these in [7 best AI gateways in 2026](/blog/best-ai-gateways).)
+**Gateway / infrastructure orchestrators** — LLM Gateway, and platforms like LiteLLM, OpenRouter, and Portkey, orchestrate _across providers_: routing, failover, caching, guardrails, and analytics behind one API. They're excellent at making model calls reliable and cheap. (We compare several of these in [8 best AI gateways in 2026](/blog/best-ai-gateways).)
 
 Most production stacks use both: a framework for workflow logic, a gateway for the provider-level orchestration underneath it. They're not competitors — they're different floors of the same building.
 
@@ -108,7 +108,7 @@ The tipping point is usually the second provider or the first production inciden
 
 LLM Gateway is an orchestration layer you don't have to build. Behind one OpenAI-compatible endpoint it provides:
 
-- **Smart routing** — every provider scored on uptime (50%), throughput (20%), price (20%), and latency (10%), with 1% exploration to keep scores honest
+- **Smart routing** — every provider scored on price, uptime, throughput, and latency (weights %routing.weights.price%, %routing.weights.uptime%, %routing.weights.throughput%, and %routing.weights.latency%), with 1% exploration to keep scores honest
 - **Automatic failover** — transparent retries on a healthy provider when one fails
 - **Caching** — a project-level toggle, Redis-backed, TTL from 10 seconds to a year
 - **Guardrails** — prompt injection, PII, jailbreak, and secret detection with block/redact/warn rules

@@ -10,7 +10,8 @@ import {
 	eq,
 	gte,
 	inArray,
-	ne,
+	notInArray,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -122,7 +123,9 @@ async function syncKey(
 					eq(tables.providerKey.id, key.id),
 					eq(tables.providerKey.managed, true),
 					eq(tables.providerKey.modelSyncEnabled, true),
-					ne(tables.providerKey.status, "deleted"),
+					notInArray(tables.providerKey.status, [
+						...REMOVED_PROVIDER_KEY_STATUSES,
+					]),
 					sql`cardinality(${column}) > 0`,
 				),
 			)

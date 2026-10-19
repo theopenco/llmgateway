@@ -5,6 +5,7 @@ import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
 
+import { sortTooltipPayload } from "@llmgateway/shared/chart-tooltip";
 import { formatChartValue } from "@llmgateway/shared/number-format";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -190,9 +191,8 @@ function ChartTooltipContent({
 		>
 			{!nestLabel ? tooltipLabel : null}
 			<div className="grid gap-1.5">
-				{payload
-					.filter((item) => item.type !== "none")
-					.map((item, index) => {
+				{sortTooltipPayload(payload.filter((item) => item.type !== "none")).map(
+					(item, index) => {
 						const key = `${nameKey || item.name || item.dataKey || "value"}`;
 						const itemConfig = getPayloadConfigFromPayload(config, item, key);
 						const indicatorColor = color || item.payload.fill || item.color;
@@ -257,7 +257,8 @@ function ChartTooltipContent({
 								)}
 							</div>
 						);
-					})}
+					},
+				)}
 			</div>
 		</div>
 	);

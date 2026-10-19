@@ -19,7 +19,7 @@ import type { AirsideRegionPrice } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
-type CatalogueTransaction = Parameters<
+export type CatalogueTransaction = Parameters<
 	Parameters<typeof cdb.transaction>[0]
 >[0];
 

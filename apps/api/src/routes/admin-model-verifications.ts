@@ -7,6 +7,7 @@ import {
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
+	listingDeclaresPromptCaching,
 	pendingFiledCapabilities,
 	resolveVerificationCredential,
 	serializeVerification,
@@ -99,6 +100,7 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 		webSearch: mapping.webSearch,
 		contextSize: mapping.contextSize,
 		maxOutput: mapping.maxOutput,
+		promptCaching: mapping.cachedInputPrice !== null,
 	});
 }
 
@@ -107,6 +109,7 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 function draftModelTarget(
 	model: DraftModelRow,
 	filed: CapabilityOverrides,
+	promptCaching: boolean,
 ): ProviderModelVerificationTarget {
 	return buildVerificationTarget({
 		providerId: model.providerId,
@@ -126,6 +129,7 @@ function draftModelTarget(
 		webSearch: model.webSearch,
 		contextSize: model.contextSize,
 		maxOutput: model.maxOutput,
+		promptCaching,
 		...filed,
 	});
 }
@@ -215,17 +219,21 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 				message: "Delisted mappings cannot be verified.",
 			});
 		}
-		target = draftModelTarget(model, await pendingFiledCapabilities(model.id));
+		target = draftModelTarget(
+			model,
+			await pendingFiledCapabilities(model.id),
+			await listingDeclaresPromptCaching(model.id),
+		);
 		providerCompanyId = model.providerCompanyId;
 	}
 
 	// A carrier-claimed provider runs on the carrier's own credential, so our
 	// managed keys never pay for testing a listing we do not bill for.
-	const credential = await resolveVerificationCredential(
-		target,
-		apiKey,
-		await activeProviderClaim(target.providerId),
-	);
+	const claim = await activeProviderClaim(target.providerId);
+	const credential = await resolveVerificationCredential(target, apiKey, claim);
+	// The worker resolves a custom carrier's endpoint from its claim, which it
+	// finds through the run's company; a live mapping carries none of its own.
+	providerCompanyId ??= claim?.providerCompanyId ?? null;
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({

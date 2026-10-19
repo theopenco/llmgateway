@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	checkProviderRateLimit,
@@ -6,6 +6,7 @@ import {
 	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
 	pickNonRateLimitedCandidates,
+	recordProviderTokenUsage,
 } from "./provider-rate-limit.js";
 
 vi.mock("@llmgateway/cache", () => ({
@@ -15,6 +16,9 @@ vi.mock("@llmgateway/cache", () => ({
 		zrange: vi.fn(),
 		zadd: vi.fn(),
 		expire: vi.fn(),
+		hgetall: vi.fn(),
+		hdel: vi.fn(),
+		hincrby: vi.fn(),
 	},
 }));
 
@@ -657,5 +661,103 @@ describe("getExceededProviderRateLimitLabels", () => {
 		expect(getExceededProviderRateLimitLabels(["rpm", "rpd"])).toBe(
 			"RPM and RPD",
 		);
+	});
+});
+
+describe("token windows", () => {
+	const now = 1_700_000_000_000;
+
+	beforeEach(() => {
+		vi.resetAllMocks();
+		vi.spyOn(Date, "now").mockReturnValue(now);
+		vi.mocked(redis.zcard).mockResolvedValue(0);
+		vi.mocked(redis.zrange).mockResolvedValue([]);
+		vi.mocked(redis.hgetall).mockResolvedValue({});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("blocks once a TPM window is at its cap and only consumes request windows", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			...noLimits,
+			maxRpm: 100,
+			rpmSource: "global_provider",
+			maxTpm: 1000,
+			tpmSource: "org_provider",
+		});
+		vi.mocked(redis.hgetall).mockResolvedValue({
+			// Slid out of the window: pruned and not counted.
+			[String(now - 120_000)]: "5000",
+			[String(now - 30_000)]: "600",
+			[String(now - 10_000)]: "400",
+		});
+
+		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.allowed).toBe(false);
+		expect(result.blockedBy).toEqual(["tpm"]);
+		expect(result.limits.tpm).toMatchObject({
+			currentCount: 1000,
+			limit: 1000,
+			rateLimited: true,
+		});
+		// The 600-token bucket leaves the window 30s from now (+1s bucket).
+		expect(result.retryAfter).toBe(31);
+		expect(redis.hdel).toHaveBeenCalledWith(
+			"rate_limit:provider_cap:tpm:org-1:openai:gpt-4o",
+			String(now - 120_000),
+		);
+		expect(redis.zadd).not.toHaveBeenCalled();
+	});
+
+	it("admits requests under the token cap without recording tokens up front", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			...noLimits,
+			maxTpd: 1000,
+			tpdSource: "global_provider",
+		});
+		vi.mocked(redis.hgetall).mockResolvedValue({
+			[String(now - 60_000)]: "999",
+		});
+
+		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.allowed).toBe(true);
+		expect(result.limits.tpd.remaining).toBe(1);
+		expect(redis.hincrby).not.toHaveBeenCalled();
+		expect(redis.zadd).not.toHaveBeenCalled();
+	});
+
+	it("records tokens only against configured token windows, keyed like request windows", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			...noLimits,
+			maxRpm: 10,
+			rpmSource: "org_provider",
+			maxTpm: 1000,
+			tpmSource: "global_provider",
+			tpmShared: true,
+			tpmProvider: "openai",
+			tpmModel: null,
+			tpdSource: "none",
+		});
+
+		await recordProviderTokenUsage("org-1", "openai", "gpt-4o", 250);
+
+		expect(redis.hincrby).toHaveBeenCalledTimes(1);
+		expect(redis.hincrby).toHaveBeenCalledWith(
+			"rate_limit:provider_cap:tpm:__global__:openai:__all_models__",
+			String(now),
+			250,
+		);
+		expect(redis.zadd).not.toHaveBeenCalled();
+	});
+
+	it("skips recording when there are no tokens", async () => {
+		await recordProviderTokenUsage("org-1", "openai", "gpt-4o", 0);
+
+		expect(mockCachedQueries.findEffectiveRateLimit).not.toHaveBeenCalled();
+		expect(redis.hincrby).not.toHaveBeenCalled();
 	});
 });

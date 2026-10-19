@@ -325,6 +325,14 @@ export const completionsRequestSchema = z.object({
 						name: z.string(),
 						description: z.string().optional(),
 						parameters: z.record(z.any()).optional(),
+						strict: z.boolean().optional().openapi({
+							description:
+								"Ask the provider to constrain tool arguments to the schema. Forwarded to OpenAI-compatible providers and, as Anthropic's tool-level `strict`, to the Anthropic Messages API. Dropped for providers without an equivalent.",
+						}),
+					}),
+					allowed_callers: z.array(z.string()).optional().openapi({
+						description:
+							"Anthropic only. Which callers may invoke the tool (programmatic tool calling). Stripped for every other provider.",
 					}),
 					defer_loading: z.boolean().optional().openapi({
 						description:
@@ -389,6 +397,16 @@ export const completionsRequestSchema = z.object({
 		.openapi({
 			description:
 				'Controls which tool the model calls. `{"type": "web_search"}` demands a search instead of offering one, and requires a `web_search` tool in `tools`. Providers whose web search is model-elected are unaffected by it — the model already decides — but it is the only way to reach providers that can search solely on demand (currently Alibaba\'s DashScope and its resellers), which are otherwise skipped when routing a web search request.',
+		}),
+	parallel_tool_calls: z
+		.boolean()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Whether the model may call several tools in one turn. Only sent alongside `tools`. Forwarded to OpenAI, Azure, and OpenAI-compatible providers that list it in `supported_parameters`; `false` maps to Anthropic's `disable_parallel_tool_use`. Ignored elsewhere.",
+			example: false,
 		}),
 	reasoning_effort: z
 		.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])

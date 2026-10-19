@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
+import { isContentFilterClassifierCompliant } from "@/chat/tools/content-filter-classifier.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
@@ -14,6 +15,12 @@ import {
 	isRetryableErrorType,
 	shouldRetryAlternateKey,
 } from "@/chat/tools/retry-with-fallback.js";
+import {
+	getContentFilterLogResponse,
+	startTieredContentFilter,
+	type TieredContentFilterOutcome,
+} from "@/chat/tools/run-tiered-content-filter.js";
+import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
@@ -32,9 +39,11 @@ import {
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	getContentFilterSettings,
 } from "@/lib/cached-queries.js";
 import {
 	assertProviderCompliant,
+	getActiveCompliancePolicy,
 	getEffectiveRetentionLevel,
 } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
@@ -44,14 +53,18 @@ import {
 } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
-import { fetchProvider } from "@/lib/fetch-provider.js";
+import { fetchProvider, fetchProviderIssuedUrl } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
-import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	calculateDataStorageCost,
+	insertLog as _insertLog,
+} from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { trackPendingWork } from "@/lib/pending-work.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { fetchNoRedirect, RedirectError } from "@llmgateway/actions";
+import { RedirectError } from "@llmgateway/actions";
 import {
 	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
@@ -60,12 +73,13 @@ import {
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	ELEVENLABS_VOICE_IDS,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 } from "@llmgateway/models";
+import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -77,6 +91,7 @@ import type {
 	ProviderModelMapping,
 	VertexTokenType,
 } from "@llmgateway/models";
+import type { ContentFilterClassifier } from "@llmgateway/shared";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
@@ -961,34 +976,30 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 	let attempt: SpeechAttempt = await resolveAttempt();
 
-	const controller = new AbortController();
-	const onAbort = () => {
-		controller.abort();
-	};
-	c.req.raw.signal.addEventListener("abort", onAbort);
-
-	try {
-		while (true) {
-			const attemptLogId = shortid();
-			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
-			// BYOK only when the organization's own key served the attempt; a
-			// platform-managed credential is LLM Gateway's key and bills as credits.
-			const credentialSource: RoutingCredentialSource = attempt.providerKey
-				? "byok"
-				: "platform";
-			// Named only for the organization's own key; providerKeyLabel()
-			// refuses to describe a platform-managed credential.
-			const providerKeyId = attempt.providerKey?.id;
-			const keyLabel = providerKeyLabel(attempt.providerKey);
-			const usedProviderKey = { id: providerKeyId, label: keyLabel };
-			const baseLogEntry = createLogEntry({
+	const describeAttempt = (current: SpeechAttempt) => {
+		// BYOK only when the organization's own key served the attempt; a
+		// platform-managed credential is LLM Gateway's key and bills as credits.
+		const credentialSource: RoutingCredentialSource = current.providerKey
+			? "byok"
+			: "platform";
+		// Named only for the organization's own key; providerKeyLabel()
+		// refuses to describe a platform-managed credential.
+		const providerKeyId = current.providerKey?.id;
+		const keyLabel = providerKeyLabel(current.providerKey);
+		return {
+			usedApiKeyHash: getApiKeyFingerprint(current.usedToken),
+			credentialSource,
+			providerKeyId,
+			keyLabel,
+			usedProviderKey: { id: providerKeyId, label: keyLabel },
+			baseLogEntry: createLogEntry({
 				requestId,
 				project,
 				apiKey,
 				// BYOK only: a managed credential is the platform's own key and its
 				// traffic must still bill as credits.
-				organizationProviderKeyId: attempt.providerKey?.id,
-				usedProviderKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
+				organizationProviderKeyId: current.providerKey?.id,
+				usedProviderKeyId: current.providerKey?.id ?? current.managedKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,
@@ -1002,7 +1013,177 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				userAgent,
 				rawRequest: rawBody,
 				upstreamRequest: upstreamRequestBody,
+			}),
+		};
+	};
+
+	// Tiered gateway content filter on the input text, keyed on the provider the
+	// request is routed to; same semantics as chat completions.
+	let tieredContentFilter: TieredContentFilterOutcome = null;
+	let pendingTieredContentFilter: Promise<TieredContentFilterOutcome> | null =
+		null;
+	const tieredContentFilterPlan = await resolveTieredContentFilterPlan(
+		organization,
+		providerId,
+		await getContentFilterSettings(),
+	);
+	if (tieredContentFilterPlan) {
+		// Prompts never reach a classifier's provider when the org's compliance
+		// policy excludes it.
+		const compliancePolicy = getActiveCompliancePolicy(organization);
+		const classifierAllowed = (classifier: ContentFilterClassifier) =>
+			isContentFilterClassifierCompliant(classifier, compliancePolicy);
+		const started = await startTieredContentFilter({
+			plan: tieredContentFilterPlan,
+			// `instructions` reaches the provider too (as a directive or inside the
+			// prompt), so it is moderated along with `input`.
+			messages: request.instructions
+				? [
+						{
+							role: "user" as const,
+							content: `${request.instructions}\n\n${request.input}`,
+						},
+					]
+				: normalizedMessages,
+			context: {
+				requestId,
+				organizationId: project.organizationId,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+			},
+			signal: c.req.raw.signal,
+			imagesAllowed: classifierAllowed("openai"),
+			classifierAllowed,
+		});
+		tieredContentFilter = started.outcome;
+		pendingTieredContentFilter = started.pending;
+	}
+
+	const publishLog = (
+		tiered: TieredContentFilterOutcome,
+		logData: Parameters<typeof _insertLog>[0],
+		options: Parameters<typeof _insertLog>[1],
+	) => {
+		const evaluation = tiered?.evaluation ?? null;
+		return _insertLog(
+			{
+				...logData,
+				internalContentFilter:
+					evaluation?.violation === true ? true : logData.internalContentFilter,
+				gatewayContentFilterResponse:
+					logData.gatewayContentFilterResponse ??
+					getContentFilterLogResponse(tiered?.results ?? []),
+				gatewayContentFilterEvaluation:
+					logData.gatewayContentFilterEvaluation ?? evaluation,
+			},
+			options,
+		);
+	};
+	const insertLog = async (
+		logData: Parameters<typeof _insertLog>[0],
+		options: Parameters<typeof _insertLog>[1],
+	): Promise<void> => {
+		if (!pendingTieredContentFilter) {
+			await publishLog(tieredContentFilter, logData, options);
+			return;
+		}
+		// Never hold the response for a background evaluation: publish the row
+		// once it settles.
+		void trackPendingWork(
+			pendingTieredContentFilter
+				.then((tiered) => publishLog(tiered, logData, options))
+				.catch((error: unknown) => {
+					logger.error("Failed to insert log after content filter", {
+						requestId,
+						error: toError(error),
+					});
+				}),
+		);
+	};
+
+	if (tieredContentFilter?.evaluation.action === "blocked") {
+		const blocked = describeAttempt(attempt);
+		try {
+			await insertLog(
+				{
+					...blocked.baseLogEntry,
+					id: finalLogId,
+					routingMetadata: buildSpeechRoutingMetadata(
+						blocked.usedApiKeyHash,
+						blocked.credentialSource,
+						blocked.usedProviderKey,
+					),
+					duration: Date.now() - startedAt,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize: GATEWAY_CONTENT_FILTER_MESSAGE.length,
+					content: null,
+					reasoningContent: null,
+					finishReason: "llmgateway_content_filter",
+					unifiedFinishReason: "content_filter",
+					internalContentFilter: true,
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: {
+						statusCode: 403,
+						statusText: "Forbidden",
+						responseText: GATEWAY_CONTENT_FILTER_MESSAGE,
+					},
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+					cached: false,
+					toolResults: null,
+				},
+				{ retentionLevel },
+			);
+		} catch (error) {
+			logger.error("Failed to log gateway content filter block", {
+				requestId,
+				error: toError(error),
 			});
+		}
+		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
+	}
+
+	const controller = new AbortController();
+	const onAbort = () => {
+		controller.abort();
+	};
+	// The client may have hung up while an enforced check was awaited.
+	if (c.req.raw.signal.aborted) {
+		controller.abort();
+	}
+	c.req.raw.signal.addEventListener("abort", onAbort);
+
+	try {
+		while (true) {
+			const attemptLogId = shortid();
+			const {
+				usedApiKeyHash,
+				credentialSource,
+				providerKeyId,
+				keyLabel,
+				usedProviderKey,
+				baseLogEntry,
+			} = describeAttempt(attempt);
 
 			let upstreamResponse: Response;
 			let fetchError: Error | null = null;
@@ -1626,10 +1807,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				let redirectBlocked = false;
 				if (typeof audioUrl === "string" && audioUrl) {
 					try {
-						const audioResponse = await fetchNoRedirect(audioUrl, {
-							// The download URL is provider-issued; still never follow
-							// redirects so the response can't be bounced elsewhere.
-							redirect: "error",
+						const audioResponse = await fetchProviderIssuedUrl(audioUrl, {
 							signal: createCombinedSignal(controller),
 						});
 						if (audioResponse.ok) {

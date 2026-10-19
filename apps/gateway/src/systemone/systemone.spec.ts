@@ -147,6 +147,28 @@ describe("systemone", () => {
 		expect((await res.json()).error.code).toBe("model_not_found");
 	});
 
+	test("/v1/systemone points non-TypeSafe decision models at /v1/decisions", async () => {
+		await seedKeys("systemone-openai-model");
+
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-openai-model",
+			},
+			body: JSON.stringify({
+				model: "gpt-6-luna-decisions",
+				state: "hello",
+				questions: { urgency: QUESTIONS.urgency },
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("model_not_found");
+		expect(json.error.message).toContain("/v1/decisions");
+	});
+
 	test("/v1/systemone rejects a request with no questions", async () => {
 		await seedKeys("systemone-no-questions");
 

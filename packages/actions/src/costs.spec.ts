@@ -1074,6 +1074,32 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("does not add reported Google image tokens on top of the prompt", async () => {
+		// Google's promptTokenCount already includes the IMAGE modality tokens.
+		const result = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			null,
+			526, // 10 text + 516 image
+			500,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			2, // input images; the reported count takes precedence
+			null,
+			null,
+			undefined,
+			516, // reported IMAGE modality tokens
+		);
+
+		expect(result.imageInputTokens).toBe(516);
+		expect(result.imageInputCost).toBeCloseTo(516 * (2 / 1e6));
+		expect(result.promptTokens).toBe(526);
+		expect(result.inputCost).toBeCloseTo(526 * (2 / 1e6));
+	});
+
 	it("should track image output tokens and costs separately", async () => {
 		// Test with gemini-3-pro-image-preview for image output
 		const result = await calculateCosts(
@@ -1998,6 +2024,27 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(
 			(result.inputCost ?? 0) + 0.09 + (result.requestCost ?? 0),
 		);
+	});
+
+	it("bills Qwen Image 2.1 Turbo at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"qwen-image-2.1-turbo",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			2,
+			"2048x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.032);
+		expect(result.outputCost).toBeCloseTo(0.032);
+		expect(result.totalCost).toBeCloseTo(0.032);
 	});
 
 	it("bills Muse at its flat per-image price", async () => {

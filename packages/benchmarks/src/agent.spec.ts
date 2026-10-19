@@ -73,6 +73,22 @@ function session(calls: string[]): BenchmarkAgentSession {
 }
 
 describe("executeAgentRequest", () => {
+	it("does not report partial usage as a complete total", async () => {
+		const last = textChunk("DONE");
+		delete last.usage;
+		const responses = [sse([toolCallChunk("ping", "{}")]), sse([last])];
+		const outcome = await executeAgentRequest({
+			client: { url: "https://example.com/v1/chat/completions" },
+			request: { messages: [{ role: "user", content: "go" }] },
+			model: "m",
+			timeoutMs: 1000,
+			fetch: (async () => responses.shift()) as typeof fetch,
+			agent: { maxTurns: 5, createSession: () => session([]) },
+			context,
+		});
+		expect(outcome.response.usage.promptTokens).toBeNull();
+		expect(outcome.response.usage.completionTokens).toBeNull();
+	});
 	it("feeds tool results back and stops when the model answers", async () => {
 		const calls: string[] = [];
 		const responses = [
@@ -108,6 +124,25 @@ describe("executeAgentRequest", () => {
 			"tool",
 		]);
 		expect(second.messages[2].content).toBe("pong");
+	});
+
+	it("keeps generation timing when a turn only calls tools", async () => {
+		const responses = [
+			sse([toolCallChunk("ping", "{}")]),
+			sse([textChunk("DO"), textChunk("NE")]),
+		];
+		const outcome = await executeAgentRequest({
+			client: { url: "https://example.com/v1/chat/completions" },
+			request: { messages: [{ role: "user", content: "go" }] },
+			model: "m",
+			timeoutMs: 1000,
+			fetch: (async () => responses.shift()) as unknown as typeof fetch,
+			agent: { maxTurns: 5, createSession: () => session([]) },
+			context,
+		});
+
+		expect(outcome.response.agent?.turns[0].timing.generationMs).toBeNull();
+		expect(outcome.response.timing.generationMs).not.toBeNull();
 	});
 
 	it("sums usage across turns", async () => {

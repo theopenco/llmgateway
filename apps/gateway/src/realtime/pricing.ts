@@ -192,6 +192,10 @@ export interface RealtimePriceSnapshot {
 	// declares a non-zero flat per-request price fails as unpriceable instead
 	// of silently under-billing.
 	requestPrice?: string;
+	// Duration-billed mappings: USD per hour of billable input audio and per
+	// user text input item.
+	audioInputHour?: string;
+	textInputItem?: string;
 }
 
 export function buildRealtimePriceSnapshot(
@@ -206,6 +210,8 @@ export function buildRealtimePriceSnapshot(
 		| "outputPrice"
 		| "outputAudioPrice"
 		| "requestPrice"
+		| "inputAudioHourPrice"
+		| "inputTextItemPrice"
 	>,
 ): RealtimePriceSnapshot {
 	return {
@@ -221,6 +227,8 @@ export function buildRealtimePriceSnapshot(
 		textOutput: mapping.outputPrice,
 		audioOutput: mapping.outputAudioPrice ?? mapping.outputPrice,
 		requestPrice: mapping.requestPrice,
+		audioInputHour: mapping.inputAudioHourPrice,
+		textInputItem: mapping.inputTextItemPrice,
 	};
 }
 
@@ -394,5 +402,112 @@ export function applyRealtimeDiscount(
 		outputCost: costs.outputCost.times(multiplier),
 		audioOutputCost: costs.audioOutputCost.times(multiplier),
 		totalCost: costs.totalCost.times(multiplier),
+	};
+}
+
+/**
+ * Whether a realtime mapping bills by session time (plus per text
+ * input item) rather than per token, e.g. xAI Grok Voice.
+ */
+export function isDurationBilledRealtime(
+	mapping: Pick<ProviderModelMapping, "inputAudioHourPrice">,
+): boolean {
+	return mapping.inputAudioHourPrice !== undefined;
+}
+
+export type NormalizeDurationRealtimeUsageResult =
+	| { ok: true; usage: NormalizedRealtimeUsage; billableAudioSeconds: number }
+	| { ok: false; reason: string };
+
+function foldGrokTokens(details: unknown): unknown {
+	if (!details || typeof details !== "object" || Array.isArray(details)) {
+		return details;
+	}
+	const { grok_tokens: grokTokens, ...rest } = details as Record<
+		string,
+		unknown
+	>;
+	if (grokTokens === undefined || grokTokens === 0) {
+		return rest;
+	}
+	if (typeof rest.text_tokens !== "number" || typeof grokTokens !== "number") {
+		return details;
+	}
+	return { ...rest, text_tokens: rest.text_tokens + grokTokens };
+}
+
+/**
+ * Strictly normalize a duration-billed `response.done` usage block. xAI reports
+ * it on the event itself (`response.usage` stays empty) with the billable
+ * input audio seconds alongside OpenAI-shaped token counts, which are recorded
+ * for analytics. `grok_tokens` are folded into the text counts.
+ */
+export function normalizeDurationRealtimeUsage(
+	rawUsage: unknown,
+): NormalizeDurationRealtimeUsageResult {
+	const usage = asObject(rawUsage);
+	// An empty object (xAI's `response.usage`) must not pass as zero usage.
+	if (!usage || typeof usage.total_tokens !== "number") {
+		return { ok: false, reason: "missing usage object" };
+	}
+	// A running session total (see RealtimeDurationMeter); omitted when zero, like other zero-valued fields in xAI's usage blocks.
+	const seconds = usage.billable_audio_seconds ?? 0;
+	if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) {
+		return { ok: false, reason: "malformed billable_audio_seconds" };
+	}
+	const tokens = normalizeRealtimeUsage({
+		...usage,
+		input_token_details: foldGrokTokens(usage.input_token_details),
+		output_token_details: foldGrokTokens(usage.output_token_details),
+	});
+	if (!tokens.ok) {
+		return tokens;
+	}
+	return { ok: true, usage: tokens.usage, billableAudioSeconds: seconds };
+}
+
+const SECONDS_PER_HOUR = 3600;
+
+/**
+ * Price a duration-billed response: its token usage at the mapping's token
+ * prices, plus billable input audio seconds at the hourly rate (added to
+ * audioInputCost) and user text input items at the per-item rate (added to
+ * inputCost). A billable quantity without a configured price fails closed.
+ */
+export function priceDurationRealtimeUsage(
+	usage: NormalizedRealtimeUsage,
+	billableAudioSeconds: number,
+	textInputItems: number,
+	snapshot: RealtimePriceSnapshot,
+): PriceRealtimeUsageResult {
+	const tokens = priceRealtimeUsage(usage, snapshot);
+	if (!tokens.ok) {
+		return tokens;
+	}
+	if (billableAudioSeconds > 0 && snapshot.audioInputHour === undefined) {
+		return { ok: false, reason: "no price configured for audio duration" };
+	}
+	if (textInputItems > 0 && snapshot.textInputItem === undefined) {
+		return { ok: false, reason: "no price configured for text input items" };
+	}
+	const audioCost =
+		billableAudioSeconds > 0
+			? new Decimal(snapshot.audioInputHour!)
+					.times(billableAudioSeconds)
+					.dividedBy(SECONDS_PER_HOUR)
+			: new Decimal(0);
+	const textCost =
+		textInputItems > 0
+			? new Decimal(snapshot.textInputItem!).times(textInputItems)
+			: new Decimal(0);
+	const costs = tokens.costs;
+	return {
+		ok: true,
+		costs: {
+			...costs,
+			inputCost: costs.inputCost.plus(textCost),
+			audioInputCost: costs.audioInputCost.plus(audioCost),
+			totalCost: costs.totalCost.plus(textCost).plus(audioCost),
+		},
 	};
 }

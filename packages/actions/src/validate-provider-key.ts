@@ -13,6 +13,8 @@ import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import {
+	getAzureFoundryBaseUrl,
+	getDecisionsUpstreamPath,
 	getGoogleVertexPublisherModelPath,
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
@@ -472,10 +474,33 @@ export async function validateProviderKey(
 				);
 				payload = { input: "Hello", model: validationModel.externalId };
 			}
-		} else if (validationModel.kind === "decision") {
+		} else if (validationModel.kind === "decision" && provider === "openai") {
 			endpoint = appendPath(
 				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
-				"v1/systemone",
+				"v1/decisions",
+			);
+			payload = {
+				model: validationModel.externalId,
+				input: "Hello",
+				questions: [
+					{
+						type: "predicate",
+						name: "greeting",
+						instructions: "Is this a greeting?",
+					},
+				],
+			};
+		} else if (validationModel.kind === "decision") {
+			const azureResource =
+				provider === "azure" && !baseUrl
+					? (providerKeyOptions?.azure_resource ??
+						providerKeyOptions?.env_config?.resource)
+					: undefined;
+			endpoint = appendPath(
+				azureResource && !providerKeyOptions?.env_config?.baseUrl
+					? getAzureFoundryBaseUrl(azureResource)
+					: getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
+				getDecisionsUpstreamPath(provider),
 			);
 			payload = {
 				model: validationModel.externalId,

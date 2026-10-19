@@ -134,6 +134,24 @@ describe("admin organization key listings", () => {
 			expect(json.counts.active).toBe(2);
 			expect(json.counts.all).toBe(4);
 		});
+
+		it("traces a provider abuse report's safety identifier to its key", async () => {
+			const res = await get("/api-keys", cookie);
+			const json = await res.json();
+			const [key] = json.apiKeys as { id: string; safetyIdentifier: string }[];
+			expect(key.id).toBe("ak-active");
+			expect(key.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
+
+			const search = await app.request(
+				`/admin/organizations?search=${encodeURIComponent(key.safetyIdentifier)}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(search.status).toBe(200);
+			const searchJson = await search.json();
+			expect(searchJson.organizations.map((o: { id: string }) => o.id)).toEqual(
+				[ORG_ID],
+			);
+		});
 	});
 
 	describe("provider keys", () => {
