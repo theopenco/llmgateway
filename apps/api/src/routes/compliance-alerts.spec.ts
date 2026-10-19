@@ -4,7 +4,6 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
-import { DEFAULT_PROVIDER_KEY_ALERT_SETTINGS } from "@llmgateway/shared/provider-key-alerts";
 
 const organizationId = "compliance-alerts-org";
 const slackUrl = "https://hooks.slack.com/services/T000/B000/abcdef123456";
@@ -202,17 +201,9 @@ describe("compliance alerts", () => {
 		expect(body.settings.recipientAudience).toBe("owner");
 		expect(body.recipientCount).toBe(1);
 
-		await request("/provider-key-alerts", "PUT", {
-			...DEFAULT_PROVIDER_KEY_ALERT_SETTINGS,
-			channels: ["slack"],
-		});
-
 		await request("/notification-channels/slack", "DELETE");
 		const after = await (await request("/compliance-alerts")).json();
 		expect(after.settings.channels).toEqual([]);
-		// Removing the webhook also drops it from the provider key alerts.
-		const keyAlerts = await (await request("/provider-key-alerts")).json();
-		expect(keyAlerts.settings.channels).toEqual([]);
 	});
 
 	test("only owners and admins can manage alerts", async () => {

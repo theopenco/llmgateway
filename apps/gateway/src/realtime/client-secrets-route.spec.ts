@@ -46,7 +46,6 @@ describe("realtime client secrets route", () => {
 				plan: "pro",
 				providerCompliancePolicy: null,
 				complianceAlertSettings: null,
-				providerKeyAlertSettings: null,
 			},
 		});
 	});
