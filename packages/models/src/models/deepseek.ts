@@ -763,9 +763,10 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "fireworks",
-				// The undated `deepseek-v4-flash` alias still resolves to the launch
-				// snapshot; `-0731` is the current deployment.
+				// Fireworks removed both the `-0731` snapshot and the undated alias
+				// (404 NOT_FOUND); only deepseek-v4p1-flash remains deployed.
 				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-10-19"),
 				inputPrice: "0.22e-6",
 				cachedInputPrice: "0.007e-6",
 				outputPrice: "0.66e-6",
