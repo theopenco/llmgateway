@@ -1,8 +1,14 @@
+import { parquetReadObjects } from "hyparquet";
+
 import { logger } from "@llmgateway/logger";
 
 /**
  * Arena benchmark data fetcher with caching.
- * Fetches leaderboard data from arena.ai and caches it for 24 hours.
+ *
+ * arena.ai answers server-side requests with a Cloudflare challenge (HTTP 403),
+ * so ratings come from the official `lmarena-ai/leaderboard-dataset` snapshots
+ * on the Hugging Face datasets CDN. Text ratings use the style-controlled
+ * leaderboard (Arena's default since May 2025); code ratings use Code Arena.
  */
 
 interface ArenaEntry {
@@ -17,10 +23,40 @@ interface ArenaBenchmarks {
 	fetchedAt: string;
 }
 
+interface ArenaSnapshot {
+	entries: ArenaEntry[];
+	publishedAt: string | null;
+}
+
+const DATASET_URL =
+	"https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset";
+const DATASET_REVISION = "main";
+const SUBSETS = { text: "text_style_control", code: "webdev" } as const;
+
 let cachedData: ArenaBenchmarks | null = null;
 let cacheExpiry = 0;
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const RETRY_MS = 5 * 60 * 1000;
+
+/** Splits a model name into lowercase word tokens, dropping qualifiers. */
+function modelTokens(name: string): string[] {
+	return name
+		.toLowerCase()
+		.replace(/\([^)]*\)/g, " ")
+		.split(/[^a-z0-9]+/)
+		.filter(Boolean);
+}
+
+/** `5` in `gpt-5.4` or `4` in `claude-opus-4-6` starts a new model version. */
+function isVersionToken(token: string): boolean {
+	return /^[0-9]/.test(token);
+}
+
+/** Release dates appear as trailing tokens: `20241022` or `2025-04-16`. */
+function isDateToken(token: string): boolean {
+	return /^[0-9]{6,}$/.test(token);
+}
 
 /**
  * Maps a model ID from our system to possible Arena leaderboard names.
@@ -31,12 +67,6 @@ export function findArenaMatch(
 	entries: ArenaEntry[],
 ): ArenaEntry | null {
 	const id = modelId.toLowerCase();
-
-	// Direct match
-	const direct = entries.find((e) => e.model.toLowerCase() === id);
-	if (direct) {
-		return direct;
-	}
 
 	// Common mappings between our model IDs and Arena names
 	const mappings: Record<string, string[]> = {
@@ -64,7 +94,7 @@ export function findArenaMatch(
 		],
 		"claude-3-opus-20240229": ["claude-3-opus-20240229"],
 		// GPT models
-		"gpt-5": ["gpt-5-chat", "gpt-5-high"],
+		"gpt-5": ["gpt-5-high", "gpt-5-chat", "gpt-5"],
 		"gpt-5-mini": ["gpt-5-mini-high", "gpt-5-mini"],
 		"gpt-4o": ["chatgpt-4o-latest-20250326", "gpt-4o-2024-11-20"],
 		"gpt-4o-mini": ["gpt-4o-mini-2024-07-18"],
@@ -113,126 +143,174 @@ export function findArenaMatch(
 		}
 	}
 
-	// Fuzzy: check if arena model name starts with our model ID
-	const startsWith = entries.find((e) => e.model.toLowerCase().startsWith(id));
-	if (startsWith) {
-		return startsWith;
+	const tokens = modelTokens(modelId);
+	if (tokens.length === 0) {
+		return null;
+	}
+	const candidates = entries.map((entry) => ({
+		entry,
+		tokens: modelTokens(entry.model),
+	}));
+	const qualified = (entry: ArenaEntry) => (entry.model.includes("(") ? 1 : 0);
+
+	// Same words. Arena often publishes several effort variants of one model
+	// (`Claude Opus 4.6` and `Claude Opus 4.6 (High)`), so prefer the plain
+	// entry and otherwise the best-ranked one.
+	const sameWords = candidates.filter(
+		(c) =>
+			c.tokens.length === tokens.length &&
+			c.tokens.every((token, index) => token === tokens[index]),
+	);
+	if (sameWords[0]) {
+		return sameWords.sort(
+			(a, b) =>
+				qualified(a.entry) - qualified(b.entry) || a.entry.rank - b.entry.rank,
+		)[0]!.entry;
 	}
 
-	// Fuzzy: check if our model ID starts with arena model name
-	const reverseMatch = entries.find((e) =>
-		id.startsWith(e.model.toLowerCase()),
+	// Arena appends effort or thinking qualifiers (`gpt-5` vs `gpt-5-high`), so
+	// accept extra trailing words as long as they are not a version number
+	// (`gpt-5.4` is a different model than `gpt-5`).
+	const extended = candidates.filter(
+		(c) =>
+			c.tokens.length > tokens.length &&
+			tokens.every((token, index) => c.tokens[index] === token) &&
+			!isVersionToken(c.tokens[tokens.length]!),
 	);
-	if (reverseMatch) {
-		return reverseMatch;
+	if (extended[0]) {
+		return extended.sort(
+			(a, b) =>
+				qualified(a.entry) - qualified(b.entry) ||
+				a.tokens.length - b.tokens.length ||
+				a.entry.rank - b.entry.rank,
+		)[0]!.entry;
+	}
+
+	// Our ID carries a date (`claude-3-5-sonnet-20241022`) that Arena keeps in a
+	// qualifier: accept a shorter name whose remaining words are all dates.
+	const dated = candidates.filter(
+		(c) =>
+			c.tokens.length >= 2 &&
+			c.tokens.length < tokens.length &&
+			c.tokens.every((token, index) => tokens[index] === token) &&
+			tokens.slice(c.tokens.length).every(isDateToken),
+	);
+	if (dated[0]) {
+		return dated.sort(
+			(a, b) =>
+				b.tokens.length - a.tokens.length || a.entry.rank - b.entry.rank,
+		)[0]!.entry;
 	}
 
 	return null;
 }
 
-export function parseArenaLeaderboard(
-	html: string,
-	category: "text" | "code",
-): ArenaEntry[] {
-	const chunks: string[] = [];
-	for (const match of html.matchAll(
-		/self\.__next_f\.push\((\[1,"(?:\\.|[^"\\])*"\])\)/g,
-	)) {
-		const chunk: unknown = JSON.parse(match[1]!);
-		if (Array.isArray(chunk) && typeof chunk[1] === "string") {
-			chunks.push(chunk[1]);
-		}
-	}
-	const findEntries = (value: unknown): ArenaEntry[] | null => {
-		if (!value || typeof value !== "object") {
-			return null;
-		}
-		if (Array.isArray(value)) {
-			for (const child of value) {
-				const entries = findEntries(child);
-				if (entries) {
-					return entries;
-				}
-			}
-			return null;
-		}
-		const record = value as Record<string, unknown>;
-		if (
-			record.arenaSlug === category &&
-			record.leaderboardSlug === "overall" &&
-			Array.isArray(record.entries)
-		) {
-			return record.entries.map((entry: unknown) => {
-				if (!entry || typeof entry !== "object") {
-					throw new Error("Invalid Arena entry");
-				}
-				const row = entry as Record<string, unknown>;
-				if (
-					typeof row.modelDisplayName !== "string" ||
-					!row.modelDisplayName ||
-					typeof row.rank !== "number" ||
-					!Number.isFinite(row.rank) ||
-					typeof row.rating !== "number" ||
-					!Number.isFinite(row.rating)
-				) {
-					throw new Error("Invalid Arena entry");
-				}
-				return {
-					rank: row.rank,
-					model: row.modelDisplayName,
-					score: Math.round(row.rating),
-				};
-			});
-		}
-		for (const child of Object.values(record)) {
-			const entries = findEntries(child);
-			if (entries) {
-				return entries;
-			}
-		}
-		return null;
-	};
-	for (const line of chunks.join("").split("\n")) {
-		const payload = line.slice(line.indexOf(":") + 1);
-		if (!payload.startsWith("[") && !payload.startsWith("{")) {
-			continue;
-		}
-		const entries = findEntries(JSON.parse(payload));
-		if (entries?.length) {
-			return entries;
-		}
-	}
-	throw new Error(`Arena ${category} leaderboard data was not found`);
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
-async function fetchLeaderboard(
-	category: "text" | "code",
-): Promise<ArenaEntry[]> {
-	const response = await fetch(`https://arena.ai/leaderboard/${category}`, {
-		headers: { Accept: "text/html", "User-Agent": "LLMGateway/1.0" },
-		signal: AbortSignal.timeout(10000),
-	});
-	if (!response.ok) {
-		throw new Error(`Arena ${category} returned HTTP ${response.status}`);
+/** Extracts the newest published overall ranking from a dataset snapshot. */
+export function parseArenaRows(
+	rows: readonly Record<string, unknown>[],
+	subset: string,
+): ArenaSnapshot {
+	const overall = rows.filter(
+		(row) => row.category === "overall" && typeof row.model_name === "string",
+	);
+	if (overall.length === 0) {
+		return { entries: [], publishedAt: null };
 	}
-	return parseArenaLeaderboard(await response.text(), category);
+
+	const publishedAt =
+		overall
+			.map((row) => row.leaderboard_publish_date)
+			.filter((date): date is string => typeof date === "string")
+			.sort()
+			.at(-1) ?? null;
+	if (!publishedAt) {
+		throw new Error(`Arena ${subset} snapshot has no publish date`);
+	}
+
+	const entries = overall
+		.filter((row) => row.leaderboard_publish_date === publishedAt)
+		.map((row) => {
+			const rank = Number(row.rank);
+			const score = Number(row.rating);
+			if (!Number.isFinite(rank) || !Number.isFinite(score)) {
+				throw new Error(
+					`Arena ${subset} snapshot has a malformed row for ${String(row.model_name)}`,
+				);
+			}
+			return {
+				rank,
+				model: row.model_name as string,
+				score: Math.round(score),
+			};
+		})
+		.sort((a, b) => a.rank - b.rank);
+
+	return { entries, publishedAt };
+}
+
+/** Downloads and parses the `latest` parquet snapshot of a dataset subset. */
+async function fetchSnapshot(subset: string): Promise<ArenaSnapshot> {
+	const listing = await fetch(
+		`https://huggingface.co/api/datasets/lmarena-ai/leaderboard-dataset/tree/${DATASET_REVISION}/${subset}`,
+		{ signal: AbortSignal.timeout(10000) },
+	);
+	if (!listing.ok) {
+		throw new Error(`Arena ${subset} listing returned HTTP ${listing.status}`);
+	}
+	const files: unknown = await listing.json();
+	const snapshotPath = Array.isArray(files)
+		? files.find(
+				(file): file is { path: string } =>
+					isRecord(file) &&
+					typeof file.path === "string" &&
+					file.path.startsWith(`${subset}/latest-`) &&
+					file.path.endsWith(".parquet"),
+			)?.path
+		: undefined;
+	if (!snapshotPath) {
+		throw new Error(`Arena ${subset} has no latest parquet snapshot`);
+	}
+
+	const response = await fetch(
+		`${DATASET_URL}/resolve/${DATASET_REVISION}/${snapshotPath}`,
+		{ signal: AbortSignal.timeout(20000) },
+	);
+	if (!response.ok) {
+		throw new Error(`Arena ${subset} returned HTTP ${response.status}`);
+	}
+
+	const rows = await parquetReadObjects({ file: await response.arrayBuffer() });
+	return parseArenaRows(rows, subset);
 }
 
 /** `null` while Arena is unreachable and no earlier snapshot exists. */
 export async function getArenaBenchmarks(): Promise<ArenaBenchmarks | null> {
 	const now = Date.now();
+
 	if (now < cacheExpiry) {
 		return cachedData;
 	}
+
 	try {
 		const [text, code] = await Promise.all([
-			fetchLeaderboard("text"),
-			fetchLeaderboard("code"),
+			fetchSnapshot(SUBSETS.text),
+			fetchSnapshot(SUBSETS.code),
 		]);
+		const publishedAt = [text.publishedAt, code.publishedAt]
+			.filter((date): date is string => date !== null)
+			.sort()
+			.at(-1);
+		if (!publishedAt) {
+			throw new Error("Arena snapshots are empty");
+		}
 		cachedData = {
-			text,
-			code,
-			fetchedAt: new Date().toISOString().split("T")[0]!,
+			text: text.entries,
+			code: code.entries,
+			fetchedAt: publishedAt,
 		};
 		cacheExpiry = now + CACHE_TTL_MS;
 		return cachedData;
@@ -241,10 +319,9 @@ export async function getArenaBenchmarks(): Promise<ArenaBenchmarks | null> {
 			"Arena leaderboard refresh failed",
 			error instanceof Error ? error : new Error(String(error)),
 		);
-		// Back off even without a snapshot, so a cold start during an Arena
-		// outage does not refetch both leaderboards on every request.
-		const retryMs = 5 * 60 * 1000;
-		cacheExpiry = now + retryMs;
+		// Back off and keep the last good snapshot, so an Arena outage does not
+		// refetch both leaderboards on every request or blank the leaderboard.
+		cacheExpiry = now + RETRY_MS;
 		return cachedData;
 	}
 }

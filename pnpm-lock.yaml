@@ -470,6 +470,9 @@ importers:
       hono-openapi:
         specifier: ^1.1.1
         version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(@valibot/to-json-schema@1.6.0(valibot@1.4.2(typescript@5.9.3)))(quansync@0.2.11)(valibot@1.4.2(typescript@5.9.3))(zod-to-json-schema@3.25.1(zod@3.25.76))(zod@3.25.76))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(@valibot/to-json-schema@1.6.0(valibot@1.4.2(typescript@5.9.3)))(quansync@0.2.11)(valibot@1.4.2(typescript@5.9.3))(zod-to-json-schema@3.25.1(zod@3.25.76))(zod@3.25.76))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(valibot@1.4.2(typescript@5.9.3))(zod-openapi@5.4.3(zod@3.25.76))(zod@3.25.76))(@types/json-schema@7.0.15)(hono@4.13.7)(openapi-types@12.1.3)
+      hyparquet:
+        specifier: 1.31.4
+        version: 1.31.4
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -516,6 +519,9 @@ importers:
       '@types/react':
         specifier: 19.3.0
         version: 19.3.0
+      hyparquet-writer:
+        specifier: 0.16.12
+        version: 0.16.12
 
   apps/code:
     dependencies:
@@ -10632,6 +10638,12 @@ packages:
     resolution: {integrity: sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==}
     engines: {node: '>=18'}
     hasBin: true
+
+  hyparquet-writer@0.16.12:
+    resolution: {integrity: sha512-tlFRfU1TdhWCjqxxQdi8DpxL+C41SU2ebSPDvT0FLT4jFVrVEnBc7pzyFkrXpTMnwk4J2vSo6lQnlXjWmQmw6A==}
+
+  hyparquet@1.31.4:
+    resolution: {integrity: sha512-Qe37Nhu1lLvmnSL9bQuY/CN8suLDoNMPNhrTb6+ZXJDfiy1mHHRjkoVYIYPhf0krYpRdAxMMnuEWEHeSUCe40g==}
 
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
@@ -25324,6 +25336,12 @@ snapshots:
       ms: 2.1.3
 
   husky@9.1.7: {}
+
+  hyparquet-writer@0.16.12:
+    dependencies:
+      hyparquet: 1.31.4
+
+  hyparquet@1.31.4: {}
 
   iconv-lite@0.6.3:
     dependencies:

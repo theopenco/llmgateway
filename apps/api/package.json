@@ -52,6 +52,7 @@
 		"gateway": "workspace:*",
 		"hono": "^4.13.5",
 		"hono-openapi": "^1.1.1",
+		"hyparquet": "1.31.4",
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",
 		"openai": "^5.19.1",
@@ -68,6 +69,7 @@
 		"zod-openapi": "^5.4.3"
 	},
 	"devDependencies": {
-		"@types/react": "19.3.0"
+		"@types/react": "19.3.0",
+		"hyparquet-writer": "0.16.12"
 	}
 }
