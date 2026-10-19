@@ -15,15 +15,39 @@ interface ServiceAccountKey {
 export const GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
 const REDIS_KEY_PREFIX = "gcp:service-account:access_token";
-const TTL_SECONDS = 50 * 60;
-const TTL_MS = TTL_SECONDS * 1000;
+// Google access tokens live for `expires_in` seconds (normally one hour).
+// Cached entries carry their absolute expiry so a pod that picks up a token
+// from Redis late never extends its lifetime past the upstream expiry.
+const DEFAULT_EXPIRES_IN_SECONDS = 3600;
+const EXPIRY_SAFETY_MARGIN_SECONDS = 10 * 60;
+const MIN_CACHE_SECONDS = 60;
+const MS_PER_SECOND = 1000;
 
-interface MemoryCacheEntry {
+interface CachedToken {
 	token: string;
 	expiresAt: number;
 }
 
-const memoryCache = new Map<string, MemoryCacheEntry>();
+const memoryCache = new Map<string, CachedToken>();
+
+function parseCachedToken(raw: string): CachedToken | null {
+	try {
+		const parsed = JSON.parse(raw) as Partial<CachedToken> | null;
+		if (
+			parsed &&
+			typeof parsed.token === "string" &&
+			typeof parsed.expiresAt === "number"
+		) {
+			return { token: parsed.token, expiresAt: parsed.expiresAt };
+		}
+	} catch (err) {
+		logger.warn(
+			"Discarding malformed cached GCP service account token",
+			err instanceof Error ? err : new Error(String(err)),
+		);
+	}
+	return null;
+}
 
 function abortError(abortSignal: AbortSignal): Error {
 	return abortSignal.reason instanceof Error
@@ -102,7 +126,7 @@ function signJwt(sa: ServiceAccountKey): string {
 async function exchangeJwtForAccessToken(
 	sa: ServiceAccountKey,
 	abortSignal?: AbortSignal,
-): Promise<string> {
+): Promise<CachedToken> {
 	const jwt = signJwt(sa);
 	const res = await fetch(GOOGLE_OAUTH_TOKEN_URI, {
 		method: "POST",
@@ -121,11 +145,23 @@ async function exchangeJwtForAccessToken(
 		);
 	}
 
-	const data = (await res.json()) as { access_token?: string };
+	const data = (await res.json()) as {
+		access_token?: string;
+		expires_in?: number;
+	};
 	if (!data.access_token) {
 		throw new Error("GCP token endpoint returned no access_token");
 	}
-	return data.access_token;
+	const expiresIn =
+		typeof data.expires_in === "number" && data.expires_in > 0
+			? data.expires_in
+			: DEFAULT_EXPIRES_IN_SECONDS;
+	const cacheSeconds = Math.max(
+		expiresIn - EXPIRY_SAFETY_MARGIN_SECONDS,
+		MIN_CACHE_SECONDS,
+	);
+	const cacheMs = cacheSeconds * MS_PER_SECOND;
+	return { token: data.access_token, expiresAt: Date.now() + cacheMs };
 }
 
 /**
@@ -141,7 +177,7 @@ function cacheKey(sa: ServiceAccountKey): string {
 		.update("\0")
 		.update(sa.private_key)
 		.digest("hex");
-	return `${REDIS_KEY_PREFIX}:v2:${fingerprint}`;
+	return `${REDIS_KEY_PREFIX}:v3:${fingerprint}`;
 }
 
 export async function getGcpServiceAccountAccessToken(
@@ -164,10 +200,11 @@ export async function getGcpServiceAccountAccessToken(
 	}
 
 	try {
-		const redisToken = await withAbortSignal(redisClient.get(key), abortSignal);
-		if (redisToken) {
-			memoryCache.set(key, { token: redisToken, expiresAt: now + TTL_MS });
-			return redisToken;
+		const raw = await withAbortSignal(redisClient.get(key), abortSignal);
+		const cached = raw ? parseCachedToken(raw) : null;
+		if (cached && cached.expiresAt > now) {
+			memoryCache.set(key, cached);
+			return cached.token;
 		}
 	} catch (err) {
 		rethrowAbort(abortSignal);
@@ -177,11 +214,15 @@ export async function getGcpServiceAccountAccessToken(
 		);
 	}
 
-	const token = await exchangeJwtForAccessToken(sa, abortSignal);
-	memoryCache.set(key, { token, expiresAt: now + TTL_MS });
+	const entry = await exchangeJwtForAccessToken(sa, abortSignal);
+	memoryCache.set(key, entry);
+	const ttlSeconds = Math.max(
+		Math.floor((entry.expiresAt - Date.now()) / MS_PER_SECOND),
+		1,
+	);
 	try {
 		await withAbortSignal(
-			redisClient.set(key, token, "EX", TTL_SECONDS),
+			redisClient.set(key, JSON.stringify(entry), "EX", ttlSeconds),
 			abortSignal,
 		);
 	} catch (err) {
@@ -191,7 +232,7 @@ export async function getGcpServiceAccountAccessToken(
 			err instanceof Error ? err : new Error(String(err)),
 		);
 	}
-	return token;
+	return entry.token;
 }
 
 export function getGcpServiceAccountProjectId(
