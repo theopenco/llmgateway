@@ -168,6 +168,52 @@ describe("responses streaming lifecycle", () => {
 		expect(mocks.storeResponse).not.toHaveBeenCalled();
 	});
 
+	it("forwards parallel_tool_calls and tool strict to the chat request", async () => {
+		mocks.appRequest.mockResolvedValue(
+			Response.json({
+				id: "chatcmpl_test",
+				object: "chat.completion",
+				created: 1,
+				model: "openai/gpt-4o-mini",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "ok" },
+						finish_reason: "stop",
+					},
+				],
+				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+			}),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "Weather in Paris and Rome?",
+				store: false,
+				parallel_tool_calls: false,
+				tools: [
+					{
+						type: "function",
+						name: "get_weather",
+						parameters: { type: "object", properties: {} },
+						strict: true,
+					},
+				],
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const chatBody = JSON.parse(mocks.appRequest.mock.calls[0]![1].body);
+		expect(chatBody.parallel_tool_calls).toBe(false);
+		expect(chatBody.tools[0].function.strict).toBe(true);
+	});
+
 	it("does not store compacted Responses state while ZDR is active", async () => {
 		mocks.findOrganizationById.mockResolvedValue({
 			id: "org_test",

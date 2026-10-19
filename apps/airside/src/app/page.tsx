@@ -38,7 +38,7 @@ const STEPS = [
 	{
 		icon: ShieldCheck,
 		title: "Verify your domain",
-		body: "Sign up with your company email. Verify ownership through your API or website domain, then submit your carrier claim for review. Settle the one-time $2,500 listing fee — or a partner invite code — before claim approval.",
+		body: "Sign up with your company email. Verify ownership through your API or website domain. Settle the one-time $2,500 listing fee — or a partner invite code — then submit your carrier claim for review.",
 	},
 	{
 		icon: PlaneTakeoff,

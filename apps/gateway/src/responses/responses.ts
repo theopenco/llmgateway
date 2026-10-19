@@ -381,6 +381,7 @@ responses.post("/", async (c) => {
 						name: tool.name,
 						description: tool.description,
 						parameters: tool.parameters,
+						...(typeof tool.strict === "boolean" && { strict: tool.strict }),
 					},
 				};
 			}
@@ -458,6 +459,9 @@ responses.post("/", async (c) => {
 			typeof req.tool_choice === "object" && "name" in req.tool_choice
 				? { type: "function", function: { name: req.tool_choice.name } }
 				: req.tool_choice;
+	}
+	if (req.parallel_tool_calls !== undefined) {
+		chatRequest.parallel_tool_calls = req.parallel_tool_calls;
 	}
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;

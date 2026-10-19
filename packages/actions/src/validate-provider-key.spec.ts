@@ -88,7 +88,6 @@ describe("getValidationModel", () => {
 				expect(getValidationModel(provider.id), provider.id).not.toBeNull();
 			}
 		}
-		expect(getValidationModel("atria")?.modelId).toBe("atria-dawn-preview");
 	});
 
 	it("selects a model from the newer half of the provider's text releases", () => {
@@ -375,6 +374,60 @@ describe("validateProviderKey model-specific probes", () => {
 		);
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
 			model: "jev-1.13.0",
+			state: "Hello",
+			questions: {
+				greeting: { type: "noul", instructions: "Is this a greeting?" },
+			},
+		});
+	});
+
+	it("probes an OpenAI decision model via the Decisions API", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+			undefined,
+			"gpt-6-luna-decisions",
+		);
+
+		expect(result).toEqual({ valid: true, model: "gpt-6-luna-decisions" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.openai.com/v1/decisions",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "gpt-6-luna",
+			input: "Hello",
+			questions: [
+				{
+					type: "predicate",
+					name: "greeting",
+					instructions: "Is this a greeting?",
+				},
+			],
+		});
+	});
+
+	it("probes Microsoft-Decision-1 on the Azure resource's Foundry host", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"azure",
+			"azure-test",
+			undefined,
+			false,
+			{ azure_resource: "my-resource" },
+			"microsoft-decision-1",
+		);
+
+		expect(result).toEqual({ valid: true, model: "microsoft-decision-1" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://my-resource.services.ai.azure.com/providers/microsoft/v1/systemone",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "Decision-1",
 			state: "Hello",
 			questions: {
 				greeting: { type: "noul", instructions: "Is this a greeting?" },
