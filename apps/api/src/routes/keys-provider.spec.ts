@@ -738,29 +738,37 @@ describe("provider keys route", () => {
 			expect(res.status).toBe(200);
 		});
 
-		test("rejects an Azure resource that smuggles a host", async () => {
-			vi.stubEnv("HOSTED", "true");
+		test.each([
+			["azure_resource", "evil.example.com/x"],
+			["azure_deployment_name", "gpt-4o/../../foo"],
+			["azure_api_version", "2024-10-21&foo=bar"],
+			["google_vertex_project_id", "../../project"],
+		])(
+			"rejects an option that reshapes the endpoint URL (%s)",
+			async (option, value) => {
+				vi.stubEnv("HOSTED", "true");
 
-			const res = await app.request("/keys/provider", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Cookie: token,
-				},
-				body: JSON.stringify({
-					provider: "azure",
-					token: "azure-test-token",
-					options: { azure_resource: "evil.example.com/x" },
-					organizationId: "test-org-id",
-				}),
-			});
-			expect(res.status).toBe(400);
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({
+						provider: "azure",
+						token: "azure-test-token",
+						options: { azure_resource: "my-resource", [option]: value },
+						organizationId: "test-org-id",
+					}),
+				});
+				expect(res.status).toBe(400);
 
-			const stored = await db.query.providerKey.findFirst({
-				where: { provider: { eq: "azure" } },
-			});
-			expect(stored).toBeUndefined();
-		});
+				const stored = await db.query.providerKey.findFirst({
+					where: { provider: { eq: "azure" } },
+				});
+				expect(stored).toBeUndefined();
+			},
+		);
 	});
 
 	test("POST /keys/provider with duplicate provider", async () => {
