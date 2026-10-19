@@ -9006,7 +9006,7 @@ chat.openapi(completions, async (c) => {
 			retriedWithoutEncryptedReasoning ||
 			!usedProvider ||
 			!isInvalidEncryptedContentError(errorText) ||
-			!stripAccountBoundReasoning(messages).stripped
+			!stripAccountBoundReasoning(initialReplay.messages).stripped
 		) {
 			return null;
 		}

@@ -230,7 +230,7 @@ function replayedReasoningIds(
 	];
 }
 
-function pinKey(organizationId: string, id: string): string {
+export function pinKey(organizationId: string, id: string): string {
 	const digest = createHash("sha256").update(id).digest("hex").slice(0, 32);
 	return `reasoning_credential:${organizationId}:${digest}`;
 }
@@ -277,24 +277,51 @@ async function readPins(
 	return pins;
 }
 
+/**
+ * Whether a pin names `credential`. Keys stored in the database are matched
+ * by row, so a rotated token on the same key (the same account) keeps its
+ * reasoning; env credentials have no row and are matched by token fingerprint.
+ */
+function sameCredential(
+	pin: ReasoningCredential,
+	credential: ReasoningCredential,
+): boolean {
+	if (pin.provider !== credential.provider) {
+		return false;
+	}
+	return pin.providerKeyId && credential.providerKeyId
+		? pin.providerKeyId === credential.providerKeyId
+		: pin.apiKeyHash === credential.apiKeyHash;
+}
+
+/**
+ * Ids of the OpenAI-format encrypted payloads a request replays, newest first
+ * and capped like `replayedReasoningIds`, so a long conversation costs one
+ * bounded MGET per turn. Older payloads past the cap are sent as they are.
+ */
 function accountBoundIds<
 	T extends { role: string; reasoning_details?: unknown },
 >(messages: readonly T[]): string[] {
 	const ids = new Set<string>();
-	for (const message of messages) {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
 		if (
 			message.role !== "assistant" ||
 			!Array.isArray(message.reasoning_details)
 		) {
 			continue;
 		}
-		for (const detail of message.reasoning_details as ReasoningDetail[]) {
-			if (isAccountBoundReasoningDetail(detail)) {
-				ids.add(`data:${detail.data as string}`);
+		const details = message.reasoning_details as ReasoningDetail[];
+		for (let j = details.length - 1; j >= 0; j--) {
+			if (isAccountBoundReasoningDetail(details[j])) {
+				ids.add(`data:${details[j].data as string}`);
 			}
 		}
+		if (ids.size >= MAX_PIN_LOOKUP_IDS) {
+			break;
+		}
 	}
-	return [...ids];
+	return [...ids].slice(0, MAX_PIN_LOOKUP_IDS);
 }
 
 /**
@@ -334,27 +361,25 @@ export async function stripForeignReasoning<T extends StrippableMessage>(
 		if (!pin) {
 			return false;
 		}
-		return (
-			isRejectedPin(pin) ||
-			pin.provider !== credential.provider ||
-			pin.apiKeyHash !== credential.apiKeyHash
-		);
+		return isRejectedPin(pin) || !sameCredential(pin, credential);
 	};
 	const { messages: result, stripped } = stripReasoningDetails(
 		messages,
 		foreign,
 	);
-	const own = ids.filter((id) => {
+	// Refresh the pins of what is sent, and the tombstones of what is left
+	// out: a client replays its full history, so a rejected payload would
+	// otherwise resurface once its tombstone expires.
+	const refresh = ids.filter((id) => {
 		const pin = pins.get(id);
 		return (
 			pin !== undefined &&
-			!isRejectedPin(pin) &&
-			pin.apiKeyHash === credential.apiKeyHash
+			(isRejectedPin(pin) || sameCredential(pin, credential))
 		);
 	});
-	if (own.length > 0) {
+	if (refresh.length > 0) {
 		const pipeline = redisClient.pipeline();
-		for (const id of own) {
+		for (const id of refresh) {
 			pipeline.expire(
 				pinKey(organizationId, id),
 				REASONING_CREDENTIAL_PIN_TTL_SECONDS,
@@ -376,7 +401,10 @@ export async function stripForeignReasoning<T extends StrippableMessage>(
  * Record the encrypted reasoning an account refused, so later turns leave it
  * out up front. The upstream names one item; that one and every payload the
  * request carried without a pin (unknown origin) are marked. Payloads pinned
- * to `credential` and not named are kept: they were not the cause.
+ * to `credential` and not named are kept: they were not the cause. When that
+ * leaves nothing (every payload is pinned here and the client dropped the
+ * item ids), every payload is marked: that is what the self-heal retry sends
+ * anyway, and it keeps the next turn from being rejected again.
  */
 export async function rememberRejectedReasoning<
 	T extends { role: string; reasoning_details?: unknown },
@@ -387,7 +415,7 @@ export async function rememberRejectedReasoning<
 	errorText: string | undefined,
 ): Promise<void> {
 	const ids = accountBoundIds(messages);
-	if (ids.length === 0) {
+	if (ids.length === 0 || !credential) {
 		return;
 	}
 	const namedItem = errorText?.match(/\brs_[0-9a-f]+/)?.[0];
@@ -409,17 +437,22 @@ export async function rememberRejectedReasoning<
 	}
 	try {
 		const pins = await readPins(organizationId, ids);
-		const rejected = ids.filter((id) => {
+		let rejected = ids.filter((id) => {
 			const pin = pins.get(id);
 			return (
 				namedIds.has(id) ||
 				!pin ||
 				isRejectedPin(pin) ||
-				pin.apiKeyHash !== credential?.apiKeyHash
+				!sameCredential(pin, credential)
 			);
 		});
 		if (rejected.length === 0) {
-			return;
+			logger.warn("Account rejected reasoning pinned to it; marking all", {
+				organizationId,
+				provider: credential.provider,
+				payloads: ids.length,
+			});
+			rejected = ids;
 		}
 		const value = JSON.stringify({
 			rejected: true,

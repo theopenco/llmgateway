@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/app.js";
 import {
 	lookupReasoningPin,
+	pinKey,
 	reasoningPinBindsModel,
 	rememberReasoningCredential,
 	stripAccountBoundReasoning,
@@ -615,6 +616,55 @@ describe("reasoning credential pinning", () => {
 		// The client replays the same history; the rejected payload is not
 		// sent again.
 		expect((await turn("enc:from-another-account")).status).toBe(200);
+		expect(attempts).toHaveLength(3);
+		expect(replayedReasoning).toEqual([true, false, false]);
+	});
+
+	test("keeps a payload without a pin and refreshes the pins it sends", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		const attempts = mockUpstream();
+		const own = await firstTurnReasoning();
+		const ownKey = pinKey("org-id", `data:${own}`);
+		await redisClient.expire(ownKey, 60);
+
+		expect(
+			(await turn([{ data: "enc:unknown-origin" }, { data: own }])).status,
+		).toBe(200);
+		expect(attempts).toHaveLength(2);
+		expect(replayedPayloads[1]).toEqual(["enc:unknown-origin", own]);
+		expect(await redisClient.ttl(ownKey)).toBeGreaterThan(60);
+	});
+
+	test("keeps reasoning across a token rotation on the same key", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		const attempts = mockUpstream();
+		const own = await firstTurnReasoning();
+
+		await cdb
+			.update(tables.providerKey)
+			.set(encryptProviderKeyForStorage("sk-managed-a2", "managed-a", null))
+			.where(eq(tables.providerKey.id, "managed-a"));
+		expect((await turn(own)).status).toBe(200);
+		expect(attempts).toEqual(["Bearer sk-managed-a", "Bearer sk-managed-a2"]);
+		expect(replayedPayloads[1]).toEqual([own]);
+	});
+
+	test("marks every payload when an account rejects its own without naming one", async () => {
+		await harness.setProjectMode("credits");
+		await seedKey({ id: "managed-a", token: "sk-managed-a", managed: true });
+		mockUpstream();
+		const own = await firstTurnReasoning();
+
+		vi.restoreAllMocks();
+		const attempts = mockUpstream((_authorization, body) =>
+			body.includes('"encrypted_content"') ? 400 : 200,
+		);
+		// No item id in the history, so the error's rs_ id matches nothing.
+		expect((await turn(own)).status).toBe(200);
+		expect(attempts).toHaveLength(2);
+		expect((await turn(own)).status).toBe(200);
 		expect(attempts).toHaveLength(3);
 		expect(replayedReasoning).toEqual([true, false, false]);
 	});

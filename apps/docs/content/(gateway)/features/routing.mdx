@@ -582,11 +582,13 @@ After such a failover the conversation carries reasoning from more than one
 account. Later turns are pinned to the key that produced the newest reasoning,
 and the items the other key produced are left out of the request up front; the
 items from the pinned key are replayed as usual.
-When an upstream rejects replayed encrypted reasoning anyway (for example
-history from another gateway, or older than its pin), the gateway retries once
-on the same provider without it and remembers the rejected items, so later
-turns of the conversation leave them out instead of failing again. In every
-case the log's `routingMetadata.encryptedReasoningDropped` is `true`.
+Reasoning without a remembered key is always replayed. When an upstream
+rejects replayed encrypted reasoning anyway (for example history from another
+gateway, or older than its pin), the gateway retries once on the same provider
+without it and remembers the rejected items for 24 hours after the
+conversation's last turn, so later turns leave them out instead of failing
+again. In every case the log's `routingMetadata.encryptedReasoningDropped` is
+`true`.
 
 Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
 During that time it serves only conversations that replay reasoning it
