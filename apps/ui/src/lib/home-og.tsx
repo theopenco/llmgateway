@@ -145,13 +145,14 @@ const HOME_SNIPPET: CodeToken[][] = [
 		["  model: "],
 		['"claude-sonnet-5"', AMBER],
 		[","],
-		["  // any of 250+", CODE_DIM],
+		[`  // any of ${MARKETING_STATS.models}`, CODE_DIM],
 	],
 	[["  messages,"]],
 	[["});"]],
 ];
 
-const HOME_MODELS = ["gpt-5.5", "claude-sonnet-5", "gemini-3.1-pro", "kimi-k3"];
+// Catalogue ids for the providers named in the headline.
+const HOME_MODELS = ["gpt-5.5", "claude-sonnet-5", "gemini-3.1-pro-preview"];
 
 function CodeLine({ tokens }: { tokens: CodeToken[] }) {
 	return (
