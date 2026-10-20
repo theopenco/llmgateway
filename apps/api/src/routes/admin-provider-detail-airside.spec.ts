@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser } from "@/testing.js";
 
-import { computeAirsideAdjustment, db, eq, tables } from "@llmgateway/db";
+import {
+	computeAirsideAdjustment,
+	db,
+	eq,
+	inArray,
+	tables,
+} from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const CARRIER_ID = "airside-detail-carrier";
@@ -15,6 +21,8 @@ const FILING_ID = "airside-detail-filing";
 const DRAFT_MODEL_ID = "airside-detail-draft";
 const MODEL_ID = "airside-detail-model";
 const MAPPING_ID = "airside-detail-mapping";
+const OWNER_USER_ID = "airside-detail-owner";
+const NEXT_OWNER_USER_ID = "airside-detail-next-owner";
 
 interface ProviderDetail {
 	provider: { id: string; name: string };
@@ -62,6 +70,9 @@ async function clearFixtures() {
 		.delete(tables.providerCompany)
 		.where(eq(tables.providerCompany.id, COMPANY_ID));
 	await db.delete(tables.provider).where(eq(tables.provider.id, CARRIER_ID));
+	await db
+		.delete(tables.user)
+		.where(inArray(tables.user.id, [OWNER_USER_ID, NEXT_OWNER_USER_ID]));
 }
 
 describe("admin provider detail for airside carriers", () => {
@@ -389,13 +400,13 @@ describe("admin provider detail for airside carriers", () => {
 	test("admins transfer company ownership to another account", async () => {
 		await db.insert(tables.user).values([
 			{
-				id: "airside-detail-owner",
+				id: OWNER_USER_ID,
 				name: "Current Owner",
 				email: "owner@airside-detail.example",
 				emailVerified: true,
 			},
 			{
-				id: "airside-detail-next-owner",
+				id: NEXT_OWNER_USER_ID,
 				name: "Next Owner",
 				email: "next@airside-detail.example",
 				emailVerified: true,
@@ -404,7 +415,7 @@ describe("admin provider detail for airside carriers", () => {
 		await db.insert(tables.providerCompanyMember).values({
 			id: "airside-detail-owner-member",
 			providerCompanyId: COMPANY_ID,
-			userId: "airside-detail-owner",
+			userId: OWNER_USER_ID,
 			role: "owner",
 		});
 		const transfer = (email: string) =>
