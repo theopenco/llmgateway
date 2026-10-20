@@ -184,7 +184,10 @@ key.openapi(getKey, async (c): Promise<any> => {
 	const premiumWeekStart = organization.devPlanPremiumWeekStart
 		? new Date(organization.devPlanPremiumWeekStart)
 		: null;
-	const premiumWeeklyLimit = getDevPlanPremiumWeeklyLimit(devPlan);
+	const premiumWeeklyLimit = getDevPlanPremiumWeeklyLimit(
+		devPlan,
+		organization.devPlanCreditsLimit,
+	);
 	const premiumWeekExpired = isPremiumWeekExpired(premiumWeekStart);
 	const premiumCreditsUsed = premiumWeekExpired
 		? 0

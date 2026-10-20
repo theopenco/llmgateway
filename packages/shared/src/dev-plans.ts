@@ -58,7 +58,7 @@ export function getDevPlanUpgradeCredits(
 
 /**
  * Weekly fair-use allowance for premium-category models per tier, expressed as
- * a fraction of the tier's total monthly credit allowance. Premium models
+ * a fraction of the org's monthly credit allowance. Premium models
  * (frontier flagships) are subject to this weekly cap in addition to the
  * monthly credit allowance. Deriving from the monthly limit keeps the ratio
  * exact regardless of DEV_PLAN_CREDITS_MULTIPLIER.
@@ -69,8 +69,29 @@ export const DEV_PLAN_PREMIUM_WEEKLY_PERCENT: Record<DevPlanTier, number> = {
 	max: 0.15,
 };
 
-export function getDevPlanPremiumWeeklyLimit(tier: DevPlanTier): number {
-	return getDevPlanCreditsLimit(tier) * DEV_PLAN_PREMIUM_WEEKLY_PERCENT[tier];
+/**
+ * The cycle allowance the weekly and daily shares are taken from: the org's
+ * stored limit, which can exceed the tier base (upgrade rollover, or an
+ * allotment granted under an earlier multiplier that lasts until renewal).
+ * Falls back to the tier base when no stored limit is available.
+ */
+function getCycleAllowance(
+	tier: DevPlanTier,
+	creditsLimit: string | number | null | undefined,
+): Decimal {
+	const stored = toDecimalOrZero(creditsLimit);
+	return stored.greaterThan(0)
+		? stored
+		: new Decimal(getDevPlanCreditsLimit(tier));
+}
+
+export function getDevPlanPremiumWeeklyLimit(
+	tier: DevPlanTier,
+	creditsLimit?: string | number | null,
+): number {
+	return getCycleAllowance(tier, creditsLimit)
+		.times(DEV_PLAN_PREMIUM_WEEKLY_PERCENT[tier])
+		.toNumber();
 }
 
 export const DEV_PLAN_PREMIUM_WEEK_LENGTH_MS = 7 * 24 * 60 * 60 * 1000;
@@ -87,21 +108,13 @@ export const DEV_PLAN_DAILY_PERCENT: Record<DevPlanTier, number> = {
 	max: 0.1,
 };
 
-/**
- * Daily allowance as a share of the org's stored cycle allowance, which can
- * exceed the tier base (upgrade rollover, or an allotment granted under an
- * earlier multiplier that lasts until renewal). Falls back to the tier base
- * when no stored limit is available.
- */
 export function getDevPlanDailyLimit(
 	tier: DevPlanTier,
 	creditsLimit?: string | number | null,
 ): number {
-	const stored = toDecimalOrZero(creditsLimit);
-	const base = stored.greaterThan(0)
-		? stored
-		: new Decimal(getDevPlanCreditsLimit(tier));
-	return base.times(DEV_PLAN_DAILY_PERCENT[tier]).toNumber();
+	return getCycleAllowance(tier, creditsLimit)
+		.times(DEV_PLAN_DAILY_PERCENT[tier])
+		.toNumber();
 }
 
 export const DEV_PLAN_DAY_LENGTH_MS = 24 * 60 * 60 * 1000;
@@ -238,11 +251,12 @@ export function getRemainingDailyAllowance(
  */
 export function getRemainingPremiumWeeklyAllowance(
 	tier: DevPlanTier,
+	creditsLimit: string | number | null | undefined,
 	creditsUsed: string | number | null | undefined,
 	weekStart: Date | null | undefined,
 	now: Date = new Date(),
 ): number {
-	const limit = getDevPlanPremiumWeeklyLimit(tier);
+	const limit = getDevPlanPremiumWeeklyLimit(tier, creditsLimit);
 	if (isPremiumWeekExpired(weekStart, now)) {
 		return limit;
 	}

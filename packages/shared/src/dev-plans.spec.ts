@@ -14,6 +14,7 @@ import {
 	getDevPlanPremiumWeeklyLimit,
 	getIncludedResetPassesRemaining,
 	getRemainingDailyAllowance,
+	getRemainingPremiumWeeklyAllowance,
 	isDailyWindowExpired,
 } from "./dev-plans.js";
 
@@ -131,6 +132,23 @@ describe("daily pacing allowance", () => {
 				now,
 			),
 		).toBeCloseTo(43.7);
+	});
+
+	it("scales the weekly premium limit with the stored cycle allowance", () => {
+		expect(getDevPlanPremiumWeeklyLimit("max", "537")).toBeCloseTo(80.55);
+		expect(getDevPlanPremiumWeeklyLimit("pro", null)).toBe(
+			getDevPlanPremiumWeeklyLimit("pro"),
+		);
+		const now = new Date("2026-09-12T12:00:00Z");
+		expect(
+			getRemainingPremiumWeeklyAllowance(
+				"max",
+				"537",
+				"20",
+				new Date(now.getTime() - 60_000),
+				now,
+			),
+		).toBeCloseTo(60.55);
 	});
 
 	it("keeps the daily limit above the weekly premium pace", () => {

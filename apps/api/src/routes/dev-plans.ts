@@ -2057,7 +2057,10 @@ devPlans.openapi(getStatus, async (c) => {
 	// reset date — the full allowance is already available again.
 	const premiumWeeklyLimit =
 		personalOrg.devPlan !== "none"
-			? getDevPlanPremiumWeeklyLimit(personalOrg.devPlan)
+			? getDevPlanPremiumWeeklyLimit(
+					personalOrg.devPlan,
+					personalOrg.devPlanCreditsLimit,
+				)
 			: 0;
 	const premiumWeekExpired = isPremiumWeekExpired(
 		personalOrg.devPlanPremiumWeekStart,
@@ -4228,9 +4231,13 @@ devPlans.openapi(redeemResetPass, async (c) => {
 	}
 
 	const tier = personalOrg.devPlan;
-	const weeklyLimit = getDevPlanPremiumWeeklyLimit(tier);
+	const weeklyLimit = getDevPlanPremiumWeeklyLimit(
+		tier,
+		personalOrg.devPlanCreditsLimit,
+	);
 	const remaining = getRemainingPremiumWeeklyAllowance(
 		tier,
+		personalOrg.devPlanCreditsLimit,
 		personalOrg.devPlanPremiumCreditsUsed,
 		personalOrg.devPlanPremiumWeekStart,
 	);

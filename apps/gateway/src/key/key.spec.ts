@@ -163,7 +163,7 @@ describe("/v1/key", () => {
 		expect(data.devPlanCreditsLimit).toBe("237");
 		expect(data.devPlanCreditsRemaining).toBe("212.00");
 		expect(data.devPlanPremiumWeeklyLimit).toBe(
-			getDevPlanPremiumWeeklyLimit("pro").toFixed(2),
+			getDevPlanPremiumWeeklyLimit("pro", "237").toFixed(2),
 		);
 		expect(data.devPlanPremiumCreditsUsed).toBe("5.00");
 		expect(data.devPlanPremiumWeekResetsAt).toBe(

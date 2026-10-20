@@ -1554,6 +1554,7 @@ export async function batchProcessLogs(): Promise<number> {
 						const allowanceLeft = new Decimal(
 							getRemainingPremiumWeeklyAllowance(
 								org.devPlan as DevPlanTier,
+								org.devPlanCreditsLimit,
 								devPool.premiumCreditsUsed?.toNumber() ?? 0,
 								devPool.premiumWeekStart,
 							),
