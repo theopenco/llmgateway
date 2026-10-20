@@ -123,149 +123,252 @@ async function renderCard({
 	);
 }
 
+const CODE_STRING = "#fde68a";
+const CODE_KEYWORD = "#c4b5fd";
+const CODE_DIM = "rgba(244,241,232,0.5)";
+
+type CodeToken = [text: string, color?: string];
+
+const HOME_SNIPPET: CodeToken[][] = [
+	[
+		["const ", CODE_KEYWORD],
+		["client = "],
+		["new ", CODE_KEYWORD],
+		["OpenAI({"],
+	],
+	[["  baseURL: "], ['"https://api.llmgateway.io/v1"', CODE_STRING], [","]],
+	[["  apiKey: "], ["process.env.LLM_GATEWAY_API_KEY"], [","]],
+	[["});"]],
+	[[""]],
+	[["await ", CODE_KEYWORD], ["client.chat.completions.create({"]],
+	[
+		["  model: "],
+		['"claude-sonnet-5"', AMBER],
+		[","],
+		["  // any of 250+", CODE_DIM],
+	],
+	[["  messages,"]],
+	[["});"]],
+];
+
+const HOME_MODELS = ["gpt-5.5", "claude-sonnet-5", "gemini-3.1-pro", "kimi-k3"];
+
+function CodeLine({ tokens }: { tokens: CodeToken[] }) {
+	return (
+		<div style={{ display: "flex", height: 24 }}>
+			{tokens.map(([text, color], index) => (
+				<span
+					key={index}
+					style={{ whiteSpace: "pre", color: color ?? PAPER, display: "flex" }}
+				>
+					{text}
+				</span>
+			))}
+		</div>
+	);
+}
+
+const HOME_STATS = [
+	[MARKETING_STATS.tokensRouted, "tokens routed"],
+	[MARKETING_STATS.requestsRouted, "requests routed"],
+	[MARKETING_STATS.models, "models"],
+	[MARKETING_STATS.providers, "providers"],
+];
+
 export async function homeOgImage() {
 	return await renderCard({
 		glow: "rgba(245,184,61,0.24)",
 		children: (
-			<div
-				style={{
-					display: "flex",
-					flex: 1,
-					alignItems: "center",
-					justifyContent: "space-between",
-					gap: 32,
-				}}
-			>
+			<div style={{ display: "flex", flex: 1, flexDirection: "column" }}>
 				<div
 					style={{
 						display: "flex",
-						flexDirection: "column",
-						width: 640,
-						gap: 20,
+						flex: 1,
+						alignItems: "center",
+						justifyContent: "space-between",
+						gap: 36,
 					}}
 				>
-					<Eyebrow>Enterprise AI gateway</Eyebrow>
 					<div
 						style={{
 							display: "flex",
 							flexDirection: "column",
-							fontSize: 62,
-							fontWeight: 800,
-							letterSpacing: "-0.045em",
-							lineHeight: 1.02,
+							width: 556,
+							gap: 16,
 						}}
 					>
-						<span>Company-wide AI,</span>
-						<span
+						<Eyebrow>Open-source LLM API gateway</Eyebrow>
+						<div
 							style={{
-								fontFamily: "Serif",
-								fontStyle: "italic",
-								fontWeight: 400,
-								letterSpacing: "-0.02em",
-								color: AMBER,
+								display: "flex",
+								flexDirection: "column",
+								fontSize: 46,
+								fontWeight: 800,
+								letterSpacing: "-0.045em",
+								lineHeight: 1.04,
+							}}
+						>
+							<span>{`One API for ${MARKETING_STATS.providers} providers.`}</span>
+							<span
+								style={{
+									fontFamily: "Serif",
+									fontStyle: "italic",
+									fontWeight: 400,
+									letterSpacing: "-0.02em",
+									color: AMBER,
+									marginTop: 4,
+								}}
+							>
+								OpenAI, Anthropic, Google &amp; more.
+							</span>
+						</div>
+						<div
+							style={{
+								display: "flex",
+								fontSize: 20,
+								lineHeight: 1.42,
+								color: MUTED,
+							}}
+						>
+							{`Route ${MARKETING_STATS.models} models, track costs in real time and switch providers without changing your code.`}
+						</div>
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 18,
 								marginTop: 6,
 							}}
 						>
-							live in weeks, not quarters.
-						</span>
+							<div
+								style={{
+									display: "flex",
+									padding: "12px 22px",
+									borderRadius: 999,
+									background: AMBER,
+									color: INK,
+									fontSize: 19,
+									fontWeight: 800,
+								}}
+							>
+								Get my API key →
+							</div>
+							<div
+								style={{
+									display: "flex",
+									fontFamily: "Mono",
+									fontSize: 14,
+									letterSpacing: "0.08em",
+									color: FAINT,
+								}}
+							>
+								FREE WITH YOUR OWN KEYS · NO CARD
+							</div>
+						</div>
 					</div>
 					<div
 						style={{
 							display: "flex",
-							fontSize: 23,
-							lineHeight: 1.4,
-							color: MUTED,
+							flexDirection: "column",
+							width: 480,
+							borderRadius: 18,
+							background: "rgba(255,255,255,0.04)",
+							border: "1px solid rgba(255,255,255,0.14)",
+							boxShadow: "0 40px 90px -30px rgba(245,184,61,0.45)",
+							padding: "20px 24px 22px",
+							fontFamily: "Mono",
+							fontSize: 14,
 						}}
 					>
-						{`One OpenAI-compatible gateway to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers. SSO, audit logs and guardrails on Enterprise.`}
+						<div
+							style={{
+								display: "flex",
+								justifyContent: "space-between",
+								fontSize: 12,
+								letterSpacing: "0.18em",
+								color: FAINT,
+								marginBottom: 16,
+							}}
+						>
+							<span>● OPENAI-COMPATIBLE</span>
+							<span>main.ts</span>
+						</div>
+						{HOME_SNIPPET.map((tokens, index) => (
+							<CodeLine key={index} tokens={tokens} />
+						))}
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 8,
+								marginTop: 18,
+								paddingTop: 16,
+								borderTop: "1px dashed rgba(244,241,232,0.16)",
+							}}
+						>
+							{HOME_MODELS.map((model) => {
+								const active = model === "claude-sonnet-5";
+								return (
+									<span
+										key={model}
+										style={{
+											display: "flex",
+											flexShrink: 0,
+											whiteSpace: "nowrap",
+											padding: "5px 11px",
+											borderRadius: 999,
+											fontSize: 12,
+											border: `1px solid ${active ? AMBER : "rgba(244,241,232,0.18)"}`,
+											background: active
+												? "rgba(252,211,77,0.14)"
+												: "transparent",
+											color: active ? AMBER : CODE_DIM,
+										}}
+									>
+										{model}
+									</span>
+								);
+							})}
+						</div>
 					</div>
 				</div>
 				<div
 					style={{
 						display: "flex",
-						flexDirection: "column",
-						width: 396,
-						borderRadius: 22,
-						background: "#fffdf7",
-						color: "#111113",
-						padding: "26px 28px",
-						boxShadow: "0 40px 90px -30px rgba(245,184,61,0.45)",
+						justifyContent: "space-between",
+						paddingTop: 22,
+						borderTop: "2px dashed rgba(244,241,232,0.16)",
 					}}
 				>
-					<div
-						style={{
-							display: "flex",
-							justifyContent: "space-between",
-							fontFamily: "Mono",
-							fontSize: 13,
-							letterSpacing: "0.18em",
-							color: "rgba(17,17,19,0.5)",
-						}}
-					>
-						<span>● BOARDING PASS</span>
-						<span>ENTERPRISE PILOT</span>
-					</div>
-					<div
-						style={{
-							display: "flex",
-							marginTop: 16,
-							fontSize: 28,
-							fontWeight: 800,
-							letterSpacing: "-0.035em",
-						}}
-					>
-						30-day production pilot
-					</div>
-					{[
-						["WEEK 1", "Traffic live"],
-						["WEEK 2", "Controls on"],
-						["DAY 30", "You decide"],
-					].map(([when, what]) => (
+					{HOME_STATS.map(([value, label]) => (
 						<div
-							key={when}
-							style={{
-								display: "flex",
-								alignItems: "baseline",
-								gap: 18,
-								marginTop: 14,
-							}}
+							key={label}
+							style={{ display: "flex", alignItems: "baseline", gap: 12 }}
 						>
 							<span
 								style={{
 									display: "flex",
-									width: 78,
-									fontFamily: "Mono",
-									fontSize: 14,
-									letterSpacing: "0.12em",
-									color: "#b45309",
+									fontSize: 34,
+									fontWeight: 800,
+									letterSpacing: "-0.04em",
 								}}
 							>
-								{when}
+								{value}
 							</span>
-							<span style={{ display: "flex", fontSize: 20 }}>{what}</span>
+							<span
+								style={{
+									display: "flex",
+									fontFamily: "Mono",
+									fontSize: 13,
+									letterSpacing: "0.18em",
+									textTransform: "uppercase",
+									color: FAINT,
+								}}
+							>
+								{label}
+							</span>
 						</div>
 					))}
-					<div
-						style={{
-							display: "flex",
-							marginTop: 22,
-							borderTop: "2px dashed rgba(17,17,19,0.16)",
-						}}
-					/>
-					<div
-						style={{
-							display: "flex",
-							justifyContent: "center",
-							marginTop: 20,
-							padding: "14px 0",
-							borderRadius: 999,
-							background: AMBER,
-							fontSize: 20,
-							fontWeight: 800,
-						}}
-					>
-						Start your 30-day pilot →
-					</div>
 				</div>
 			</div>
 		),
