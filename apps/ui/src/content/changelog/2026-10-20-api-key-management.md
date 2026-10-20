@@ -3,7 +3,7 @@ id: "115"
 slug: "api-key-management"
 date: "2026-10-20"
 title: "Bulk API Key Management and Insights"
-summary: "Manage every API key in your organization from one page, deactivate, reactivate, or delete keys in bulk, see usage for the last 24 hours to 90 days, and get warned about keys that have not been used in 30 or 90 days."
+summary: "Manage every API key in your organization from one page, deactivate, reactivate, or delete keys in bulk, see usage for the last 24 hours to 90 days, get warned about keys that have not been used in 30 or 90 days, and cap low-use keys with a one-click spend limit suggestion."
 tags: ["llmgateway"]
 image:
   src: "/changelog/api-key-management.png"
@@ -12,7 +12,7 @@ image:
   height: 1024
 ---
 
-Keys pile up. Old CI jobs, finished demos, and departed teammates leave keys that still authenticate, and cleaning them up meant opening each project and deactivating keys one at a time, with only an all-time usage number to tell whether a key was still in use. The API Keys page now shows **how recently every key was used**, flags the ones that look abandoned, and lets you act on many keys at once.
+Keys pile up. Old CI jobs, finished demos, and departed teammates leave keys that still authenticate, and cleaning them up meant opening each project and deactivating keys one at a time, with only an all-time usage number to tell whether a key was still in use. The API Keys page now shows **how recently every key was used**, flags the ones that look abandoned, suggests spend limits for keys that have none, and lets you act on many keys at once.
 
 ## Every key in one place
 
@@ -31,6 +31,19 @@ A period selector switches the usage column between **All time** (the default), 
 | Never used (30+ days old) | Amber or red, counted from creation |
 
 A banner above the list counts the unused active keys and selects them in one click, so deactivating forgotten keys takes seconds.
+
+## Spend limit suggestions
+
+A low-use key with no spend limit is an easy target if it leaks. Active keys that have spent under $250 and have no limit now show a subtle **Suggest** hint sized to their all-time spend:
+
+| All-time spend | Suggested cap  |
+| -------------- | -------------- |
+| Under $1       | $10 per week   |
+| $1 to $10      | $25 per week   |
+| $10 to $50     | $100 per week  |
+| $50 to $250    | $500 per month |
+
+Each cap is at least twice the key's all-time spend, so it never blocks traffic the key already sends. Click the hint, then **Set**, to apply it; the confirmation offers **Undo**, and the limit stays editable like any other. Expired keys, playground keys, unused keys, and keys whose creator has a capped member budget get no suggestion.
 
 ## Bulk deactivate, reactivate, and delete
 

@@ -90,6 +90,9 @@ Examples:
 If a key hits either limit, requests using that key are rejected until the key
 is updated or, for recurring limits, the next window begins.
 
+Low-spend active keys without a limit get a [suggested cap](#limit-suggestions)
+you can apply in one click.
+
 ### How recurring windows work
 
 Recurring usage is tracked separately from total lifetime usage.
@@ -124,7 +127,7 @@ Each key in the list shows:
 | **Last Used**      | The hour of the key's most recent request, or **Never**             |
 | **Usage**          | Spend for the selected period, plus request count when not all time |
 | **Current Period** | Spend in the active recurring window, if configured                 |
-| **Limits**         | All-time and recurring limit summary                                |
+| **Limits**         | All-time and recurring limit summary, or a suggested cap            |
 | **IAM Rules**      | Whether model/provider/pricing access controls are configured       |
 
 The period selector next to the search box switches the **Usage** column
@@ -143,6 +146,26 @@ counts from its creation date. A banner above the list counts these
 keys and offers **Show unused** (filters the list to them) and **Select unused**
 (selects them for a bulk deactivate). Unused keys are a leak risk, so deactivate
 the ones you no longer need.
+
+### Limit suggestions
+
+An active key with no limits and low all-time spend shows a muted **Suggest**
+hint under its limits, for example **Suggest $10/week**. The suggested cap
+grows with the key's spend and is always at least twice its all-time spend, so
+it never blocks traffic the key has already served:
+
+| All-time spend | Suggested cap  |
+| -------------- | -------------- |
+| Under $1       | $10 per week   |
+| $1 to $10      | $25 per week   |
+| $10 to $50     | $100 per week  |
+| $50 to $250    | $500 per month |
+
+Click the hint, then **Set**, to apply the cap as the key's recurring limit; the
+confirmation offers **Undo**, which is skipped if the limit changed in the
+meantime, and you can change or remove the limit anytime.
+Keys that have spent $250 or more, expired keys, playground keys, keys flagged
+as unused, and keys whose creator has a capped member budget get no suggestion.
 
 ### Selecting keys and bulk actions
 
