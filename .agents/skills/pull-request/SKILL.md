@@ -41,8 +41,9 @@ Most review happens before the PR exists. Before `gh pr create`:
   from outside the maintainer list, keeps the `risk-gate` check red until a
   maintainer approves the latest commit; a push after approval needs a fresh
   one.
-- CodeRabbit and `security-review` post findings as threads. Fix each one or
-  resolve it with a one-line reason; unresolved threads block the merge.
+- CodeRabbit (every PR) and `security-review` (sensitive paths, branches in
+  this repository only) post findings as threads. Fix each one or resolve it
+  with a one-line reason; unresolved threads block the merge.
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
 

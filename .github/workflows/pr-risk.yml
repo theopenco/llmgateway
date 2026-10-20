@@ -1,21 +1,28 @@
 name: pr-risk
 
-# Two jobs, one file:
+# Risk-scaled human review. The change sets the tier, not the author.
 #
-# classify — labels every PR risk: low / medium / high once CodeRabbit has
-#   reviewed it (its walkthrough comment carries a Merge Risk line) and asks a
-#   maintainer to review the high-risk ones. Authors outside the maintainer
-#   list never get the low tier.
+# classify — on CodeRabbit's walkthrough comment (it carries a Merge Risk
+#   line), labels the PR risk: low / medium / high and asks a maintainer to
+#   review the high-risk ones.
 #
-# gate — publishes the `risk-gate` commit status. It fails while a
-#   `risk: high` PR, or any PR from an outside author, lacks a maintainer
-#   approval of the current head commit. Make it a required status check on
-#   main so that approval is enforced, not advisory.
+# gate — publishes the `risk-gate` commit status on the PR head. It
+#   recomputes the tier from the changed files (labels can only raise it) and
+#   fails while a high-risk PR, or any PR from an outside author, lacks a
+#   maintainer approval of the current head commit. Runs on PR open/sync,
+#   after classify, and after a review. Make it a required status check on
+#   main so the approval is enforced, not advisory.
 #
-# issue_comment, pull_request_target and pull_request_review all run from the
-# default branch with a write token, including for fork PRs. No PR code is
-# checked out or executed; the checkout below is the base branch, only to load
-# .github/scripts/pr-risk.mjs.
+# relay — pull_request_review runs on the PR merge ref with a read-only
+#   token for forks, so it must not post statuses or load repo scripts. It
+#   only exists so that its completion fires workflow_run, which runs on the
+#   default branch with a write token and recomputes the gate from the API.
+#
+# merge-queue — the queue re-runs checks on a synthetic commit that no
+#   approval covers; the gate already passed on the PR head, so report success.
+#
+# Fork safety: every job that holds a write token checks out the default
+# branch only (sparse, .github/scripts) and never runs PR code.
 
 on:
   issue_comment:
@@ -33,18 +40,20 @@ on:
     types:
       - submitted
       - dismissed
+  workflow_run:
+    workflows:
+      - pr-risk
+    types:
+      - completed
+  merge_group:
+    types:
+      - checks_requested
 
 permissions:
   contents: read
   issues: write
   pull-requests: write
   statuses: write
-
-# Runs for the same PR execute in order; unrelated comments never queue behind
-# a classification because the job condition skips them before this matters.
-concurrency:
-  group: pr-risk-${{ github.event.issue.number || github.event.pull_request.number }}
-  cancel-in-progress: false
 
 jobs:
   classify:
@@ -54,16 +63,20 @@ jobs:
       github.event.comment.user.login == 'coderabbitai[bot]' &&
       contains(github.event.comment.body, 'Merge Risk:')
     runs-on: ubuntu-latest
+    concurrency:
+      group: pr-risk-classify-${{ github.event.issue.number }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: .github/scripts
 
       - uses: actions/github-script@v9.0.0
         with:
           script: |
-            const { LABELS, classifyRisk, parseCodeRabbitLevel, pickReviewer } =
+            const { HIGH_PATHS, LABELS, classifyRisk, parseCodeRabbitLevel, pickReviewer } =
               await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-risk.mjs`);
             const MARKER = "<!-- pr-risk-review -->";
 
@@ -124,7 +137,6 @@ jobs:
             const reasons = [];
             if (codeRabbitLevel === "high") reasons.push("CodeRabbit rated the merge risk high");
             if (fromPaths === "high") {
-              const { HIGH_PATHS } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-risk.mjs`);
               const hits = paths.filter((p) => HIGH_PATHS.some((re) => re.test(p))).slice(0, 5);
               reasons.push(`touches high-risk paths: ${hits.map((p) => `\`${p}\``).join(", ")}`);
             }
@@ -135,36 +147,68 @@ jobs:
               body: `${MARKER}\n@${reviewer} this PR is labelled **risk: high** (${reasons.join("; ")}). The \`risk-gate\` check stays red until a maintainer approves the latest commit.`,
             });
 
+  relay:
+    if: github.event_name == 'pull_request_review'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo "review on pull request $PR; the gate recomputes via workflow_run"
+        env:
+          PR: ${{ github.event.pull_request.number }}
+
   gate:
     needs: classify
     if: >-
       always() &&
-      (github.event_name != 'issue_comment' || needs.classify.result == 'success')
+      (
+        github.event_name == 'pull_request_target' ||
+        (github.event_name == 'issue_comment' && needs.classify.result == 'success') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request_review')
+      )
     runs-on: ubuntu-latest
+    concurrency:
+      group: pr-risk-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: .github/scripts
 
       - uses: actions/github-script@v9.0.0
         with:
           script: |
-            const { STATUS_CONTEXT, gateDecision } =
+            const { STATUS_CONTEXT, classifyRisk, gateDecision, labelRisk, RANK } =
               await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-risk.mjs`);
 
             const { owner, repo } = context.repo;
-            const number = context.payload.pull_request?.number ?? context.issue.number;
+            let number = context.payload.pull_request?.number ?? context.payload.issue?.number;
+            if (!number && context.eventName === "workflow_run") {
+              // workflow_run.pull_requests is empty for forks; resolve by head sha.
+              const run = context.payload.workflow_run;
+              number = run.pull_requests[0]?.number;
+              if (!number) {
+                const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: run.head_sha });
+                number = prs.find((p) => p.state === "open")?.number ?? prs[0]?.number;
+              }
+            }
+            if (!number) {
+              core.info("No pull request for this event; nothing to gate.");
+              return;
+            }
 
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
             const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 });
-            const decision = gateDecision({
-              labels: pr.labels.map((l) => l.name),
-              author: pr.user.login,
-              reviews,
-              headSha: pr.head.sha,
-            });
-            core.info(`${STATUS_CONTEXT} ${decision.state} @ ${pr.head.sha}: ${decision.description}`);
+
+            const fromFiles = classifyRisk({ files, author: pr.user.login }).risk;
+            const fromLabel = labelRisk(pr.labels.map((l) => l.name));
+            const risk = fromLabel && RANK[fromLabel] > RANK[fromFiles] ? fromLabel : fromFiles;
+
+            const decision = gateDecision({ risk, author: pr.user.login, reviews, headSha: pr.head.sha });
+            core.info(`${STATUS_CONTEXT} ${decision.state} @ ${pr.head.sha} (files: ${fromFiles}, label: ${fromLabel ?? "none"}): ${decision.description}`);
             await github.rest.repos.createCommitStatus({
               owner,
               repo,
@@ -173,4 +217,21 @@ jobs:
               context: STATUS_CONTEXT,
               description: decision.description.slice(0, 140),
               target_url: `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+            });
+
+  merge-queue:
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: context.sha,
+              state: "success",
+              context: "risk-gate",
+              description: "merge queue: gate passed on the pull request head",
             });

@@ -3,6 +3,7 @@
 # pr-risk.yml parses the "Merge Risk" line of the walkthrough, so keep the
 # walkthrough on.
 language: en-US
+inheritance: true
 
 reviews:
   profile: chill

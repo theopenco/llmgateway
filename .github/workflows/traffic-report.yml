@@ -68,3 +68,9 @@ jobs:
           POSTHOG_QUERY_HOST: ${{ secrets.POSTHOG_QUERY_HOST }}
           DISCORD_TRAFFIC_NOTIFICATION_URL: ${{ secrets.DISCORD_TRAFFIC_NOTIFICATION_URL }}
         run: pnpm --filter @llmgateway/scripts traffic-report --period=${{ steps.period.outputs.period }}
+
+      - name: Send review report (human review cost, revert rate)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCORD_TRAFFIC_NOTIFICATION_URL: ${{ secrets.DISCORD_TRAFFIC_NOTIFICATION_URL }}
+        run: pnpm --filter @llmgateway/scripts review-report --period=${{ steps.period.outputs.period }}

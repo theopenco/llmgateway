@@ -12,9 +12,9 @@ failures, in order:
    that is not `Decimal` from `decimal.js`.
 4. Server-side request forgery: user-supplied URLs (custom providers, MCP
    endpoints, webhooks, images) fetched with a bare `fetch()` instead of
-   `processImageUrl` or `assertSafeUserContentUrl` from
-   `@llmgateway/shared/url-safety-node`; private-network and metadata-endpoint
-   reachability.
+   `processImageUrl` (`packages/actions/src/process-image-url.ts`) or
+   `assertSafeUserContentUrl` from `@llmgateway/shared/url-safety-node`;
+   private-network and metadata-endpoint reachability.
 5. Authorization on admin and enterprise routes (`ee/`), including internal
    routes that trust a header set by a trusted proxy.
 6. GitHub Actions: workflows on `pull_request_target` or `issue_comment` that

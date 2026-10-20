@@ -1,5 +1,6 @@
 // Shared by pr-risk.yml. Pure functions only: the workflow does the GitHub
-// API calls so this file can be exercised with plain node.
+// API calls so this file can be exercised with plain node
+// (node .github/scripts/pr-risk.test.mjs).
 
 // Maintainers whose changes take the lighter review path. Everyone else needs
 // a maintainer approval regardless of tier.
@@ -27,6 +28,7 @@ export const HIGH_PATHS = [
 	/^packages\/db\/src\/schema\.ts$/,
 	/^apps\/api\/src\/auth\//,
 	/^apps\/api\/src\/routes\/(payments|platform-webhooks|stripe)/,
+	/^apps\/api\/src\/stripe\.ts$/,
 	/^\.github\/workflows\//,
 	/^\.github\/scripts\//,
 ];
@@ -107,18 +109,24 @@ export function pickReviewer(number, author) {
 	return candidates.length ? candidates[number % candidates.length] : undefined;
 }
 
+// Tier a label carries, if any. Labels are advisory: the gate recomputes risk
+// from the files itself and lets a label only raise the tier, so a missing,
+// stale or removed label never lowers it.
+export function labelRisk(labels) {
+	return Object.entries(LABELS).find(([, l]) => labels.includes(l.name))?.[0];
+}
+
 // reviews: GitHub pull review objects in submission order. An approval counts
 // only when it is a maintainer's latest review and it covers the current head
-// commit; a push after approval needs a fresh look.
-export function gateDecision({ labels, author, reviews, headSha }) {
-	const high = labels.includes(LABELS.high.name);
+// commit; a push after approval needs a fresh look. Any maintainer's open
+// "changes requested" blocks regardless of other approvals.
+export function gateDecision({ risk, author, reviews, headSha }) {
+	const high = risk === "high";
 	const trusted = isTrusted(author);
 	if (!high && trusted) {
 		return {
 			state: "success",
-			description: labels.some((l) => l.startsWith("risk: "))
-				? "no maintainer approval required"
-				: "no risk label yet; classified as low until CodeRabbit reviews",
+			description: `risk: ${risk}; no maintainer approval required`,
 		};
 	}
 
@@ -135,16 +143,25 @@ export function gateDecision({ labels, author, reviews, headSha }) {
 		}
 		latest.set(login, review);
 	}
+	const why = high ? "risk: high" : "external author";
+	const blocker = [...latest.values()].find(
+		(r) => r.state === "CHANGES_REQUESTED",
+	);
+	if (blocker) {
+		return {
+			state: "failure",
+			description: `${why}: ${blocker.user.login} requested changes`,
+		};
+	}
 	const approver = [...latest.values()].find(
 		(r) => r.state === "APPROVED" && r.commit_id === headSha,
 	);
 	if (approver) {
 		return {
 			state: "success",
-			description: `approved at ${headSha.slice(0, 7)} by ${approver.user.login}`,
+			description: `${why}: approved at ${headSha.slice(0, 7)} by ${approver.user.login}`,
 		};
 	}
-	const why = high ? "risk: high" : "external author";
 	return {
 		state: "failure",
 		description: `${why}: needs a maintainer approval of the latest commit`,
