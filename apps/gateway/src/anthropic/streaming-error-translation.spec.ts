@@ -10,9 +10,7 @@ describe("mapInternalErrorTypeToAnthropic", () => {
 		expect(mapInternalErrorTypeToAnthropic("client_error")).toBe(
 			"invalid_request_error",
 		);
-		expect(mapInternalErrorTypeToAnthropic("gateway_error")).toBe(
-			"authentication_error",
-		);
+		expect(mapInternalErrorTypeToAnthropic("gateway_error")).toBe("api_error");
 		expect(mapInternalErrorTypeToAnthropic("upstream_error")).toBe("api_error");
 	});
 
@@ -105,11 +103,9 @@ describe("buildAnthropicErrorEvent", () => {
 
 	it("translates the wrapped internal gateway_error shape", () => {
 		const chunk = {
-			error: { message: "Bad API key", type: "gateway_error" },
+			error: { message: "Upstream read failed", type: "gateway_error" },
 		};
-		expect(buildAnthropicErrorEvent(chunk).error.type).toBe(
-			"authentication_error",
-		);
+		expect(buildAnthropicErrorEvent(chunk).error.type).toBe("api_error");
 	});
 
 	it("falls back to api_error + JSON-stringified body for unparseable shapes", () => {

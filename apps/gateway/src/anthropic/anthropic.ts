@@ -1358,6 +1358,10 @@ anthropic.openapi(messages, async (c) => {
 				let currentTextBlockIndex: number | null = null;
 				let currentThinkingBlockIndex: number | null = null;
 				const toolCallBlockIndex = new Map<number, number>();
+				const pendingToolCalls = new Map<
+					number,
+					{ id: string; name: string; input: string }
+				>();
 				let currentEventType: string | null = null;
 				let stopReason: string | null = null;
 				// Routing metadata from the inner final usage chunk.
@@ -1905,49 +1909,59 @@ anthropic.openapi(messages, async (c) => {
 										}
 
 										let blockIndex = toolCallBlockIndex.get(toolCall.index);
+										let argumentsDelta = toolCall.function?.arguments ?? "";
 										if (blockIndex === undefined) {
+											const pending = pendingToolCalls.get(toolCall.index) ?? {
+												id: `tool_${toolCall.index}`,
+												name: "",
+												input: "",
+											};
+											pending.id = toolCall.id ?? pending.id;
+											pending.name += toolCall.function?.name ?? "";
+											pending.input += argumentsDelta;
+											pendingToolCalls.set(toolCall.index, pending);
+											if (!pending.name) {
+												continue;
+											}
 											blockIndex = contentBlocks.length;
 											toolCallBlockIndex.set(toolCall.index, blockIndex);
-											const id = toolCall.id ?? `tool_${toolCall.index}`;
-											const name = toolCall.function?.name ?? "";
 											contentBlocks.push({
 												type: "tool_use",
-												id,
-												name,
+												id: pending.id,
+												name: pending.name,
 												input: "",
 											});
-
 											await stream.writeSSE({
 												data: JSON.stringify({
 													type: "content_block_start",
 													index: blockIndex,
 													content_block: {
 														type: "tool_use",
-														id,
-														name,
+														id: pending.id,
+														name: pending.name,
 														input: {},
 													},
 												}),
 												event: "content_block_start",
 											});
+											argumentsDelta = pending.input;
+											pendingToolCalls.delete(toolCall.index);
 										}
-
-										if (toolCall.function?.arguments) {
+										if (argumentsDelta) {
 											const toolBlock = contentBlocks[blockIndex] as {
 												type: "tool_use";
 												id: string;
 												name: string;
 												input: string;
 											};
-											toolBlock.input += toolCall.function.arguments;
-
+											toolBlock.input += argumentsDelta;
 											await stream.writeSSE({
 												data: JSON.stringify({
 													type: "content_block_delta",
 													index: blockIndex,
 													delta: {
 														type: "input_json_delta",
-														partial_json: toolCall.function.arguments,
+														partial_json: argumentsDelta,
 													},
 												}),
 												event: "content_block_delta",

@@ -16,6 +16,7 @@ import type {
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
+	ProviderId,
 } from "@llmgateway/models";
 
 /**
@@ -1066,6 +1067,73 @@ describe("prepareRequestBody - Anthropic", () => {
 		}
 	});
 
+	test("fetches and preserves images inside tool results", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(Buffer.from("image"), {
+				headers: { "Content-Type": "image/png" },
+			}),
+		);
+		try {
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				"claude-3-5-sonnet-20241022",
+				null,
+				"claude-3-5-sonnet-20241022",
+				[
+					{ role: "user", content: "Screenshot the page." },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "screenshot", arguments: "{}" },
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_1",
+						content: [
+							{
+								type: "image_url",
+								image_url: { url: "https://example.com/huge.png" },
+							},
+						],
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+			)) as AnthropicRequestBody;
+
+			expect(fetchSpy).toHaveBeenCalledOnce();
+			expect(requestBody.messages[2]!.content).toMatchObject([
+				{
+					type: "tool_result",
+					tool_use_id: "call_1",
+					content: [
+						{
+							type: "image",
+							source: {
+								type: "base64",
+								media_type: "image/png",
+								data: Buffer.from("image").toString("base64"),
+							},
+						},
+					],
+				},
+			]);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("degrades an unfetchable image inside a tool message to a placeholder", async () => {
 		// Images inside a tool result are forwarded as image blocks, so the URL
 		// is fetched. A fetch failure must not fail the whole request.
@@ -1879,14 +1947,16 @@ describe("prepareRequestBody - Anthropic", () => {
 	});
 
 	test.each(
-		[
-			["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+		(
 			[
-				"aws-bedrock",
-				"claude-sonnet-4-5",
-				"anthropic.claude-sonnet-4-5-20250929-v1:0",
-			],
-		].flatMap(([provider, model, upstreamModel]) =>
+				["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+				[
+					"aws-bedrock",
+					"claude-sonnet-4-5",
+					"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				],
+			] as const
+		).flatMap(([provider, model, upstreamModel]) =>
 			(["field", "parts", "override"] as const).map((source) => ({
 				provider,
 				model,
@@ -2950,7 +3020,7 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		["deepinfra", "hy3"],
 		["novita", "hy3"],
 		["canopywave", "kimi-k3"],
-	])(
+	] as const)(
 		"forwards none to %s when the mapping declares it",
 		async (provider, model) => {
 			// These providers are in the handlesNoneNatively allowlist, and
@@ -9335,7 +9405,7 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 });
 
 describe("prepareRequestBody - Xiaomi", () => {
-	test("flattens tool message with array content (text + image) to plain string", async () => {
+	test("keeps tool text and moves images to an adjacent user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
 			"mimo-v2.6-flash",
@@ -9369,7 +9439,14 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages).toHaveLength(3);
+		expect(requestBody.messages[2]).toMatchObject({
+			role: "user",
+			content: [
+				{ type: "text" },
+				{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+			],
+		});
 		expect(requestBody.messages[0].content).toBe("describe this");
 		expect(requestBody.messages[1].role).toBe("tool");
 		expect(requestBody.messages[1].content).toBe("screenshot taken");
@@ -9486,7 +9563,7 @@ describe("prepareRequestBody - Xiaomi", () => {
 		expect(requestBody.messages[0].content).toBe("part one \npart two");
 	});
 
-	test("handles tool message with only images, no text (empty string)", async () => {
+	test("moves tool-message images to a user turn, leaving a placeholder", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
 			"mimo-v2.6-flash",
@@ -9518,7 +9595,16 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages[0].content).toBe("");
+		expect(requestBody.messages[0].content).toBe(
+			"The tool returned 1 image, attached in the next message.",
+		);
+		expect(requestBody.messages[1]).toMatchObject({
+			role: "user",
+			content: [
+				{ type: "text", text: "Images from tool result call_1:" },
+				{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+			],
+		});
 	});
 
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
@@ -9774,7 +9860,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 
 describe("prepareRequestBody - developer role normalization", () => {
 	async function prepare(
-		provider: string,
+		provider: ProviderId,
 		model: string,
 		region: string | null = null,
 	) {
