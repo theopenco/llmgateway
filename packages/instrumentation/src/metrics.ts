@@ -1,4 +1,8 @@
+import { createServer, type Server } from "node:http";
+
 import { Counter, Gauge, Histogram, Registry } from "prom-client";
+
+import { logger } from "@llmgateway/logger";
 
 // Create a dedicated registry to avoid conflicts with default metrics
 export const metricsRegistry = new Registry();
@@ -199,4 +203,102 @@ export async function getMetrics(): Promise<string> {
  */
 export function getMetricsContentType(): string {
 	return metricsRegistry.contentType;
+}
+
+/** Labels every metric with the emitting service (default: the gateway). */
+export function setMetricsServiceName(service: string): void {
+	metricsRegistry.setDefaultLabels({ service });
+}
+
+export interface DbPoolStats {
+	total: number;
+	idle: number;
+	waiting: number;
+	max: number;
+}
+
+let dbPoolMetricsRegistered = false;
+
+/**
+ * Exports the shared pg pool's occupancy, read at scrape time. Saturation
+ * (active == max) with waiting clients is the early signal of a lock pile-up:
+ * queries queue behind a blocked statement long before Postgres runs out of
+ * connection slots.
+ */
+export function registerDbPoolMetrics(getStats: () => DbPoolStats): void {
+	if (dbPoolMetricsRegistered) {
+		return;
+	}
+	dbPoolMetricsRegistered = true;
+
+	const gauges = [
+		new Gauge({
+			name: "db_pool_connections",
+			help: "Connections in the database pool by state (total, idle, active)",
+			labelNames: ["state"] as const,
+			registers: [],
+			collect() {
+				const stats = getStats();
+				this.set({ state: "total" }, stats.total);
+				this.set({ state: "idle" }, stats.idle);
+				this.set({ state: "active" }, stats.total - stats.idle);
+			},
+		}),
+		new Gauge({
+			name: "db_pool_waiting_clients",
+			help: "Queries waiting for a free database pool connection",
+			registers: [],
+			collect() {
+				this.set(getStats().waiting);
+			},
+		}),
+		new Gauge({
+			name: "db_pool_max_connections",
+			help: "Configured database pool size",
+			registers: [],
+			collect() {
+				this.set(getStats().max);
+			},
+		}),
+		new Gauge({
+			name: "db_pool_utilization_ratio",
+			help: "Active database pool connections divided by the pool size",
+			registers: [],
+			collect() {
+				const stats = getStats();
+				this.set(stats.max > 0 ? (stats.total - stats.idle) / stats.max : 0);
+			},
+		}),
+	];
+	for (const gauge of gauges) {
+		metricsRegistry.registerMetric(gauge);
+	}
+}
+
+/**
+ * Serves `GET /metrics` on its own port, for services without an HTTP app of
+ * their own (the worker) or that keep metrics off their public port (the API).
+ */
+export function startMetricsServer(port: number): Server {
+	const server = createServer((req, res) => {
+		if (req.method !== "GET" || req.url !== "/metrics") {
+			res.writeHead(404).end();
+			return;
+		}
+		metricsRegistry.metrics().then(
+			(body) => {
+				res.writeHead(200, { "Content-Type": metricsRegistry.contentType });
+				res.end(body);
+			},
+			(error: unknown) => {
+				logger.error(
+					"Failed to collect metrics",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				res.writeHead(500).end();
+			},
+		);
+	});
+	server.listen(port);
+	return server;
 }

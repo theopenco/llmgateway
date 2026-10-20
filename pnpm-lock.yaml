@@ -1665,6 +1665,9 @@ importers:
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@llmgateway/instrumentation':
+        specifier: workspace:*
+        version: link:../../packages/instrumentation
       '@llmgateway/logger':
         specifier: workspace:*
         version: link:../../packages/logger

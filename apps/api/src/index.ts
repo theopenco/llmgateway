@@ -241,6 +241,10 @@ app.onError((error, c) => {
 	);
 });
 
+// Liveness: the process serves HTTP. Never touches the database, so a slow or
+// locked database cannot get healthy pods restarted (use `/` for readiness).
+app.get("/livez", (c) => c.json({ status: "ok" }));
+
 const root = createRoute({
 	method: "get",
 	path: "/",

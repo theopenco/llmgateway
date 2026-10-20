@@ -56,6 +56,23 @@ describe("api", () => {
 		expect(data.health).toHaveProperty("database");
 	});
 
+	test("/livez answers without touching dependencies", async () => {
+		const res = await app.request("/livez");
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ status: "ok" });
+	});
+
+	test("/health/deep checks the database and Redis", async () => {
+		const res = await app.request("/health/deep");
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		expect(data.health).toMatchObject({
+			status: "ok",
+			database: { connected: true },
+			redis: { connected: true },
+		});
+	});
+
 	test("/v1/chat/completions rejects image-output models for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
