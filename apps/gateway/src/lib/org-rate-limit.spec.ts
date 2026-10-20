@@ -371,8 +371,20 @@ describe("checkOrgRateLimit", () => {
 		expect(result.remaining).toBe(6);
 		expect(redis.zadd).toHaveBeenCalled();
 		expect(redis.expire).toHaveBeenCalled();
-		// Under the base limit the spend tier must not be resolved.
-		expect(getMultiplier).not.toHaveBeenCalled();
+	});
+
+	it("advertises the tier-scaled limit even under the base limit", async () => {
+		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
+		vi.mocked(redis.zcard).mockResolvedValue(3);
+
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			multiplierOf(20),
+		);
+
+		expect(result).toEqual({ allowed: true, limit: 200, remaining: 196 });
 	});
 
 	it("fails open as unenforced (limit 0) on a Redis error", async () => {
@@ -432,7 +444,7 @@ describe("checkOrgRateLimit", () => {
 		expect(result.limit).toBe(chatConfig.devDefaultRpm);
 	});
 
-	it("resolves the spend-tier multiplier only once the base limit is hit", async () => {
+	it("admits past the base limit when the spend tier raises it", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
 		vi.mocked(redis.zcard).mockResolvedValue(15);
 

@@ -199,7 +199,7 @@ Rate limits returned by an upstream provider are treated as provider errors and 
 
 All rate-limit response headers describe limits enforced by **LLMGateway**.
 
-Successful authenticated responses carry the organization requests-per-minute (RPM) policy, remaining request quota, and reset delay only when they passed an RPM quota check. Anonymous requests, enterprise RPM exemptions, and disabled or unavailable RPM limiters omit these headers on success.
+Successful authenticated responses carry the organization requests-per-minute (RPM) policy, remaining request quota, and reset delay only when they passed an RPM quota check. Anonymous requests, enterprise RPM exemptions, and disabled or unavailable RPM limiters omit these headers on success. The quota is your effective limit, including your trust tier's multiplier.
 
 ```http
 RateLimit-Policy: "requests";q=600;w=60
