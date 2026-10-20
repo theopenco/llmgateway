@@ -38,17 +38,20 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # The action's Claude Code CLI and Anthropic SDK both read this, so the
+    # review runs through LLM Gateway's Anthropic-compatible endpoint.
+    env:
+      ANTHROPIC_BASE_URL: https://api.llmgateway.io
     steps:
-      # The key must be enabled for Claude Code, not only the Claude API; a
-      # plain API key fails with 401. Until the secret is set the job warns and
+      # An LLM Gateway API key. Until the secret is set the job warns and
       # passes, so it can be made a required check without blocking PRs.
       - name: Check for the reviewer key
         id: key
         env:
-          KEY: ${{ secrets.CLAUDE_CODE_SECURITY_REVIEW_API_KEY }}
+          KEY: ${{ secrets.SECURITY_REVIEW_LLM_GATEWAY_API_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::warning::CLAUDE_CODE_SECURITY_REVIEW_API_KEY is not set; skipping the security review"
+            echo "::warning::SECURITY_REVIEW_LLM_GATEWAY_API_KEY is not set; skipping the security review"
             echo "present=false" >> "$GITHUB_OUTPUT"
           else
             echo "present=true" >> "$GITHUB_OUTPUT"
@@ -70,7 +73,7 @@ jobs:
           comment-pr: true
           upload-results: true
           run-every-commit: true
-          claude-api-key: ${{ secrets.CLAUDE_CODE_SECURITY_REVIEW_API_KEY }}
+          claude-api-key: ${{ secrets.SECURITY_REVIEW_LLM_GATEWAY_API_KEY }}
           claude-model: claude-opus-5-5
           exclude-directories: node_modules,dist,.next,apps/docs,apps/mobile/ios,apps/mobile/android,marketing
           custom-security-scan-instructions: ${{ github.workspace }}/.github/security-review/scan-instructions.md
