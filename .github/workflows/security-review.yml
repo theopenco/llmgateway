@@ -69,6 +69,10 @@ jobs:
             echo "::error::security review produced no results"
             exit 1
           fi
+          if ! jq empty claudecode-results.json; then
+            echo "::error::security review results are not valid JSON"
+            exit 1
+          fi
           if jq -e '.error' claudecode-results.json > /dev/null; then
             echo "::error::security review failed: $(jq -r '.error' claudecode-results.json)"
             exit 1

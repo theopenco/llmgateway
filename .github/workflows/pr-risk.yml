@@ -179,7 +179,7 @@ jobs:
               // branch and sha instead.
               const run = context.payload.workflow_run;
               number = run.pull_requests[0]?.number;
-              if (!number) {
+              if (!number && run.head_repository) {
                 const { data: prs } = await github.rest.pulls.list({
                   owner,
                   repo,
