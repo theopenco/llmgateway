@@ -670,12 +670,8 @@ logs.openapi(get, async (c) => {
 	// Build where conditions for the select query
 	const whereConditions: Array<SQL | undefined> = [];
 
-	// Add project filter
-	if (projectId) {
-		whereConditions.push(eq(tables.log.projectId, projectId));
-	} else {
-		whereConditions.push(inArray(tables.log.projectId, projectIds));
-	}
+	// The project filter is applied per project below.
+	const searchedProjectIds = projectId ? [projectId] : projectIds;
 
 	const scopeCondition = apiKeyScopeFilter(
 		scope,
@@ -850,12 +846,52 @@ logs.openapi(get, async (c) => {
 				}
 			}
 
-			return await tx
+			// One index-ordered scan per project, merged here. `project_id IN
+			// (...) ORDER BY created_at` cannot use the (project_id, created_at)
+			// index for ordering, so Postgres may walk the whole table
+			// newest-first instead; such a scan ran for 8 hours on 2026-10-19.
+			// Each scan stops after limit + 1 keys; full rows are read for the
+			// merged page only.
+			// created_at as text keeps its microseconds, which a JS Date drops.
+			const keys: Array<{ id: string; createdAt: string }> = [];
+			for (const id of searchedProjectIds) {
+				keys.push(
+					...(await tx
+						.select({
+							id: tables.log.id,
+							createdAt: sql<string>`${tables.log.createdAt}::text`,
+						})
+						.from(tables.log)
+						.where(and(eq(tables.log.projectId, id), ...whereConditions))
+						.orderBy(...orderByClauses)
+						.limit(limit + 1)),
+				);
+			}
+			const direction = orderBy === "createdAt_asc" ? 1 : -1;
+			const page = keys
+				.sort((a, b) => {
+					if (a.createdAt !== b.createdAt) {
+						return a.createdAt < b.createdAt ? -direction : direction;
+					}
+					return a.id < b.id ? -direction : direction;
+				})
+				.slice(0, limit + 1); // Fetch one extra for pagination
+			if (!page.length) {
+				return [];
+			}
+			const rows = await tx
 				.select(publicLogColumns)
 				.from(tables.log)
-				.where(and(...whereConditions))
-				.orderBy(...orderByClauses)
-				.limit(limit + 1); // Fetch one extra for pagination
+				.where(
+					inArray(
+						tables.log.id,
+						page.map((key) => key.id),
+					),
+				);
+			const position = new Map(page.map((key, index) => [key.id, index]));
+			return rows.sort(
+				(a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0),
+			);
 		});
 	} finally {
 		await release();

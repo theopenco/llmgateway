@@ -695,6 +695,71 @@ describe("logs route", () => {
 			).toEqual(["new-length-log", "old-length-log"]);
 		});
 
+		test("merges results across projects in order and paginates", async () => {
+			const rows = [
+				["merge-a1", "test-project-id", 5],
+				["merge-b1", "test-project-id-2", 4],
+				["merge-a2", "test-project-id", 3],
+				["merge-b2", "test-project-id-2", 2],
+				["merge-a3", "test-project-id", 1],
+			] as const;
+			for (const [id, projectId, minutesAgo] of rows) {
+				await db.insert(tables.log).values({
+					id,
+					requestId: id,
+					createdAt: msAgo(minutesAgo * 60_000),
+					organizationId:
+						projectId === "test-project-id" ? "test-org-id" : "test-org-id-2",
+					projectId,
+					apiKeyId:
+						projectId === "test-project-id"
+							? "test-api-key-id"
+							: "test-api-key-id-2",
+					duration: 1,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 1,
+					content: "x",
+					promptTokens: "1",
+					completionTokens: "1",
+					totalTokens: "2",
+					messages: JSON.stringify([{ role: "user", content: "x" }]),
+					mode: "api-keys",
+					usedMode: "api-keys",
+				});
+			}
+			await db
+				.delete(tables.log)
+				.where(eq(tables.log.requestId, "test-log-id-1"));
+			await db
+				.delete(tables.log)
+				.where(eq(tables.log.requestId, "test-log-id-2"));
+
+			const seen: string[] = [];
+			let cursor: string | null = null;
+			do {
+				const params = new URLSearchParams({ limit: "2" });
+				if (cursor) {
+					params.set("cursor", cursor);
+				}
+				const res = await app.request("/logs?" + params, {
+					headers: { Cookie: token },
+				});
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				seen.push(
+					...json.logs
+						.map((log: { id: string }) => log.id)
+						.filter((id: string) => id.startsWith("merge-")),
+				);
+				cursor = json.pagination.nextCursor;
+			} while (cursor);
+
+			expect(seen).toEqual(rows.map(([id]) => id).reverse());
+		});
+
 		test("rejects unindexed filters over more than 31 days", async () => {
 			const params = new URLSearchParams({
 				projectId: "test-project-id",
