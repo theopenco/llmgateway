@@ -556,6 +556,69 @@ describe("airside provider portal", () => {
 			legalEntity: "Mistral AI SAS",
 			headquarters: "FR",
 			dataPolicy: null,
+			compliance: null,
+		});
+	});
+
+	it("lets catalogue carriers declare their own certifications", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const created = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(created.status).toBe(201);
+		const { claim } = await created.json();
+		const reviewed = claim.profile;
+		expect(reviewed).toMatchObject({ gdpr: true, soc2: 2, iso27001: true });
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/claims/${claim.id}/profile`,
+				json(cookie, body, "PATCH"),
+			);
+		await activateClaim();
+		await db
+			.insert(tables.provider)
+			.values({ id: "mistral", name: "Mistral", description: "" })
+			.onConflictDoNothing();
+		const listed = async () =>
+			(await (await app.request("/internal/providers")).json()).providers.find(
+				(p: { id: string }) => p.id === "mistral",
+			);
+		const facts = async () =>
+			(
+				await (await app.request("/internal/provider-facts")).json()
+			).providers.find((p: { id: string }) => p.id === "mistral");
+
+		const declared = await patch({ soc2: 1, iso27001: false });
+		expect(declared.status).toBe(200);
+		expect((await declared.json()).claim.profile).toEqual({
+			...reviewed,
+			soc2: 1,
+			iso27001: false,
+		});
+		expect((await listed()).airsideProfile.compliance).toEqual({
+			gdpr: null,
+			soc2: 1,
+			iso27001: false,
+		});
+		expect((await facts()).dataPolicy).toMatchObject({
+			apiTraining: false,
+			gdpr: true,
+			soc2: 1,
+			iso27001: false,
+		});
+
+		expect((await patch({ soc2: 0 })).status).toBe(200);
+		expect((await facts()).dataPolicy.soc2).toBeNull();
+
+		const restored = await patch({ soc2: null, iso27001: null });
+		expect(restored.status).toBe(200);
+		expect((await restored.json()).claim.profile).toEqual(reviewed);
+		expect((await listed()).airsideProfile.compliance).toBeNull();
+		expect((await facts()).dataPolicy).toMatchObject({
+			soc2: 2,
+			iso27001: true,
 		});
 	});
 
@@ -5049,6 +5112,7 @@ describe("airside provider portal", () => {
 				soc2: 0,
 				iso27001: null,
 			},
+			compliance: null,
 		});
 	});
 

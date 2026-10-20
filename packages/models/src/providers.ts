@@ -112,6 +112,48 @@ export interface ProviderDataPolicy {
 	gdpr?: boolean | null;
 }
 
+/**
+ * Certifications a provider declares itself in Airside. A null field keeps
+ * the catalogue's reviewed value; SOC 2 `0` declares no certification.
+ */
+export interface DeclaredCompliance {
+	gdpr: boolean | null;
+	soc2: number | null;
+	iso27001: boolean | null;
+}
+
+/** `policy` with the provider's own declared certifications layered on top. */
+export function applyDeclaredCompliance<
+	T extends ProviderDataPolicy | null | undefined,
+>(
+	policy: T,
+	declared: DeclaredCompliance | null | undefined,
+): T | ProviderDataPolicy {
+	if (
+		!declared ||
+		(declared.gdpr === null &&
+			declared.soc2 === null &&
+			declared.iso27001 === null)
+	) {
+		return policy;
+	}
+	const base: ProviderDataPolicy = policy ?? {
+		apiTraining: null,
+		promptLogging: null,
+	};
+	return {
+		...base,
+		gdpr: declared.gdpr ?? base.gdpr,
+		iso27001: declared.iso27001 ?? base.iso27001,
+		soc2:
+			declared.soc2 === null
+				? base.soc2
+				: declared.soc2 === 1 || declared.soc2 === 2
+					? declared.soc2
+					: null,
+	};
+}
+
 export interface ProviderAdditionalLink {
 	desc: string;
 	link: string;

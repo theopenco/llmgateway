@@ -47,6 +47,14 @@ export interface ApiAirsideProfile {
 		soc2: 0 | 1 | 2 | null;
 		iso27001: boolean | null;
 	} | null;
+	/** Certifications a catalogue provider declared over its reviewed policy;
+	 *  null fields keep the reviewed value. Null for custom carriers. */
+	compliance?: {
+		gdpr: boolean | null;
+		/** 0 = none, 1 = Type I, 2 = Type II, null = keep the reviewed value. */
+		soc2: 0 | 1 | 2 | null;
+		iso27001: boolean | null;
+	} | null;
 }
 
 export interface ApiModelProviderMapping {
