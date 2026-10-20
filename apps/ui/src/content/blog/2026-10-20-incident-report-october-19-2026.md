@@ -68,36 +68,38 @@ Restarting the database at 19:07 ended every stuck session, released the locks, 
 - **Our deploy tooling does not roll back on its own.** It waits for a deploy to become healthy, but when that times out, a person has to roll back by hand.
 - **Our monitoring was slow to page.** The gateway uptime check does not touch the database, so it stayed green while uncached requests failed. Our paging alerts for the API and gateway were set to wait out long stretches of failure before paging anyone.
 - **We could not see the blocker quickly.** Nothing alerted on queries that had been running for hours, the database was not logging lock waits, and our services did not label their database connections, so finding the session the migration was waiting on took longer than it should have. Once connections ran out, we restarted the database to clear them.
+- **Warning signs did not page anyone.** The database had been running unusually hot for more than an hour before the migration started. The long-running queries also held their snapshot open, which blocked routine cleanup (vacuum) for about eight hours. That likely contributed to the load, and neither signal paged anyone.
 
 ## What we're changing
 
-### Preventing stuck migrations
+### Merged and rolling out
 
-- **Bounded log queries.** The request log queries behind the dashboard and API will run read-only with short statement and lock timeouts, a limit on how many can run at once per user and per organization, and a default time range. Log views that span several projects will query each project through an index and merge the results, so one view cannot scan the whole log table, and the log scan will not join other tables. A query like the ones that blocked this migration would be stopped by its statement timeout within seconds.
-- **Migrations give up fast.** Each migration will run in its own transaction with a 5 second lock timeout and a statement timeout, and retry with backoff. A migration that cannot get its locks fails cleanly and leaves nothing half-applied, instead of blocking the table.
+These changes are merged and rolling out to production now.
+
+- **Bounded log queries.** The request log queries behind the dashboard and API run read-only with short statement and lock timeouts, a limit on how many can run at once per user and per organization, and a default time range. Log views that span several projects query each project through an index and merge the results, so one view cannot scan the whole log table, and the log scan no longer joins other tables. A query like the ones that blocked this migration would be stopped by its statement timeout within seconds.
+- **Migrations give up fast.** Each migration runs in its own transaction with a 5 second lock timeout and a statement timeout, and retries with backoff. A migration that cannot get its locks fails cleanly and leaves nothing half-applied, instead of blocking the table.
 - **A preflight check before migrations run.** It refuses to run if a pending migration touches a table with a long-running transaction open, and names the session that is blocking it. It also requires new indexes on production to be built ahead of time without locking the table.
-- **CI checks for risky migrations.** Lint rules flag migration patterns that take long locks on large tables, and a test holds a lock in another session and asserts that the migration fails fast and applies nothing.
+- **CI checks for risky migrations.** Lint rules flag migration patterns that take long locks on large tables, a test holds a lock in another session and asserts that the migration fails fast and applies nothing, and migration changes need review from database owners.
+- **Session timeouts and labels.** Every database session from our services has a lock timeout and an idle-in-transaction timeout, and carries the name of the service and server that opened it, so we can see a blocking session right away. Services also report how full their connection pools are.
+- **The gateway keeps serving when the database does not answer.** It serves API keys and provider settings from cache when the database errors, never caches a failed lookup, and fails fast with a circuit breaker instead of waiting 10 seconds per request.
+- **Health endpoints that match what customers see.** Our servers expose a liveness check that only confirms the process is running, and the gateway exposes a deep health check that exercises the database and cache.
+- **Public statistics from a shared cache.** Heavy public statistics pages are served from a shared cache, so a burst of unauthenticated traffic cannot fan out into expensive database queries.
+
+### In progress
+
+These need changes to our infrastructure and database configuration, and will land after review.
+
 - **Migrations run as their own deploy step.** They will run once, as a dedicated step before the new version rolls out, instead of inside API server startup where a health check can kill and retry them.
-- **Database timeouts.** Every database session from our services will have lock, idle-in-transaction and statement timeouts sized to each service, with a database-wide default as a backstop. Customer-facing log queries get a much shorter statement timeout. The database will drop sessions whose client has disconnected, so a restarted server cannot leak connections.
-- **Safer rollout of schema changes.** Risky migrations are labeled, deployed on their own, and split into backwards-compatible steps.
-
-### Detecting and paging faster
-
-- **Uptime alerts page within a few minutes** when at least two of our three check regions see failures.
-- **A deep gateway health check** that exercises the database and cache, so monitoring sees what uncached requests see.
-- **New pages** when database connection usage stays at or above 70% for 5 minutes, both in each service's connection pool and on the database server, and when database CPU stays above 90%. Also for connection pool timeouts, repeated API restarts, failed or slow migrations, and a synthetic completion request every 5 minutes that needs the database.
-- **Better visibility during an incident.** The database will log lock waits and slow queries, and every connection will carry the name of the service and server that opened it, so we can see a blocking session right away.
-
-### Recovering faster
-
-- **Health checks will not restart servers for a slow database.** The liveness check will only confirm the process is running. Database checks move to readiness, which takes a server out of rotation without killing it.
-- **The gateway keeps serving when the database does not answer.** It will serve API keys and provider settings from cache when the database errors, never cache a failed lookup, and fail fast with a circuit breaker instead of waiting 10 seconds per request.
+- **Health checks will not restart servers for a slow database.** Our deployments will switch liveness to the process-only check. Database checks move to readiness, which takes a server out of rotation without killing it.
 - **Automatic rollback.** Our deploy tooling will roll back on its own when a deploy does not become healthy in time, and notify the team.
-- **Reserved access for responders.** The database will keep connection slots reserved so engineers can always connect, even when applications have used up the rest.
-- **A runbook and a second escalation level.** The runbook covers finding and ending the blocking session, pausing deploys, and restarting the database only as a last resort. A second on-call level with full infrastructure access will back up the first.
+- **Statement timeouts everywhere.** Every service will get a statement timeout sized to its workload, with a database-wide default as a backstop.
+- **Faster paging.** Uptime alerts will page within a few minutes when at least two of our three check regions see failures. New pages will fire when database connection usage stays at or above 70% for 5 minutes, both in each service's connection pool and on the database server, and when database CPU stays above 90%. Others cover the deep gateway health check, connection pool timeouts, repeated API restarts, failed or slow migrations, and a synthetic completion request every 5 minutes that needs the database.
+- **Database settings.** The database will drop sessions whose client has disconnected, so a restarted server cannot leak connections. It will log lock waits and slow queries, and keep connection slots reserved so engineers can always connect, even when applications have used up the rest.
 - **A sturdier database setup.** We will move the database to a high-availability configuration with connection pooling in front of it.
+- **Safer rollout of schema changes.** Risky migrations will be labeled, deployed on their own, and split into backwards-compatible steps.
+- **A runbook and a second escalation level.** The runbook covers finding and ending the blocking session, pausing deploys, and restarting the database only as a last resort. A second on-call level with full infrastructure access will back up the first.
 
-We will post an update here as these changes land.
+**Update (2026-10-20):** the changes under "Merged and rolling out" are merged and deploying to production. We will update this post as they finish rolling out and as the items under "In progress" land.
 
 ## We're sorry
 
