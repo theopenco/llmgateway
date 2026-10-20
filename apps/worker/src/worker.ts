@@ -1559,6 +1559,7 @@ export async function batchProcessLogs(): Promise<number> {
 						const allowanceLeft = new Decimal(
 							getRemainingPremiumWeeklyAllowance(
 								org.devPlan as DevPlanTier,
+								org.devPlanCreditsLimit,
 								devPool.premiumCreditsUsed?.toNumber() ?? 0,
 								devPool.premiumWeekStart,
 							),
@@ -1588,6 +1589,7 @@ export async function batchProcessLogs(): Promise<number> {
 						const dailyLeft = new Decimal(
 							getRemainingDailyAllowance(
 								org.devPlan as DevPlanTier,
+								org.devPlanCreditsLimit,
 								devPool.dailyCreditsUsed?.toNumber() ?? 0,
 								devPool.dayStart,
 							),

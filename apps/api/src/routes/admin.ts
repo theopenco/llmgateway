@@ -16670,7 +16670,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const marginPct = mrrNum > 0 ? (marginNum / mrrNum) * 100 : null;
 
 		const premiumCreditsLimitNum =
-			tier === "none" ? 0 : getDevPlanPremiumWeeklyLimit(tier as DevPlanTier);
+			tier === "none"
+				? 0
+				: getDevPlanPremiumWeeklyLimit(tier as DevPlanTier, row.creditsLimit);
 		const premiumWeekStart = row.premiumWeekStart
 			? new Date(row.premiumWeekStart).toISOString()
 			: null;
@@ -18121,7 +18123,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const premiumCreditsLimitNum =
 		org.devPlan === "none"
 			? 0
-			: getDevPlanPremiumWeeklyLimit(org.devPlan as DevPlanTier);
+			: getDevPlanPremiumWeeklyLimit(
+					org.devPlan as DevPlanTier,
+					org.devPlanCreditsLimit,
+				);
 
 	const subscriber = {
 		id: org.id,
