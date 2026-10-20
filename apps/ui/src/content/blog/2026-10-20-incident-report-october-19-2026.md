@@ -11,7 +11,7 @@ faqs:
   - question: "Which services were affected?"
     answer: "From 18:24 to 19:12 UTC the dashboard and the API behind it were down. The gateway at api.llmgateway.io kept serving most requests, but requests that needed an API key or organization settings not already in cache failed."
   - question: "What is LLM Gateway changing after the incident?"
-    answer: "Migrations will give up quickly instead of waiting on locks and will run as a separate deploy step, health checks will no longer restart servers because the database is slow, the gateway will keep serving cached keys when the database is unavailable, and new alerts will page us within minutes."
+    answer: "Dashboard log queries will be bounded so they cannot hold locks for long, migrations will give up quickly instead of waiting on locks and will run as a separate deploy step, health checks will no longer restart servers because the database is slow, the gateway will keep serving cached keys when the database is unavailable, and new alerts will page us within minutes."
 image:
   src: "/blog/incident-report-october-19-2026.png"
   alt: "A glowing database cylinder with a restored heartbeat line on a central chip, surrounded by an open padlock, a stopwatch, a heart monitor and a shield with a checkmark, representing the October 19, 2026 LLM Gateway incident report"
@@ -73,18 +73,19 @@ Restarting the database at 19:07 ended every stuck session, released the locks, 
 
 ### Preventing stuck migrations
 
+- **Bounded log queries.** The request log queries behind the dashboard and API will run read-only with short statement and lock timeouts, a limit on how many can run at once per user and per organization, and a default time range. They will scan the log table without joining other tables, so a slow log view no longer holds a lock on organization settings.
 - **Migrations give up fast.** Each migration will run in its own transaction with a 5 second lock timeout and a statement timeout, and retry with backoff. A migration that cannot get its locks fails cleanly and leaves nothing half-applied, instead of blocking the table.
 - **A preflight check before migrations run.** It refuses to run if a pending migration touches a table with a long-running transaction open, and names the session that is blocking it. It also requires new indexes on production to be built ahead of time without locking the table.
 - **CI checks for risky migrations.** Lint rules flag migration patterns that take long locks on large tables, and a test holds a lock in another session and asserts that the migration fails fast and applies nothing.
 - **Migrations run as their own deploy step.** They will run once, as a dedicated step before the new version rolls out, instead of inside API server startup where a health check can kill and retry them.
-- **Database timeouts on every connection.** Our services will set statement, lock and idle-in-transaction timeouts on their database sessions, and the database will drop sessions whose client has disconnected, so a restarted server cannot leak connections.
+- **Database timeouts.** Every database session from our services will have a lock timeout and an idle-in-transaction timeout, and customer-facing log queries and migrations will also have statement timeouts. We are considering a database-wide default statement timeout as well. The database will drop sessions whose client has disconnected, so a restarted server cannot leak connections.
 - **Safer rollout of schema changes.** Risky migrations are labeled, deployed on their own, and split into backwards-compatible steps.
 
 ### Detecting and paging faster
 
 - **Uptime alerts page within a few minutes** when at least two of our three check regions see failures.
 - **A deep gateway health check** that exercises the database and cache, so monitoring sees what uncached requests see.
-- **New pages** for database connection pool timeouts, database connection count, repeated API restarts, failed or slow migrations, and a synthetic completion request every 5 minutes that needs the database.
+- **New pages** when database connection usage stays at or above 70% for 5 minutes, both in each service's connection pool and on the database server, and when database CPU stays above 90%. Also for connection pool timeouts, repeated API restarts, failed or slow migrations, and a synthetic completion request every 5 minutes that needs the database.
 - **Better visibility during an incident.** The database will log lock waits and slow queries, and every connection will carry the name of the service and server that opened it, so we can see a blocking session right away.
 
 ### Recovering faster
@@ -93,8 +94,8 @@ Restarting the database at 19:07 ended every stuck session, released the locks, 
 - **The gateway keeps serving when the database does not answer.** It will serve API keys and provider settings from cache when the database errors, never cache a failed lookup, and fail fast with a circuit breaker instead of waiting 10 seconds per request.
 - **Automatic rollback.** Our deploy tooling will roll back on its own when a deploy does not become healthy in time, and notify the team.
 - **Reserved access for responders.** The database will keep connection slots reserved so engineers can always connect, even when applications have used up the rest.
-- **A runbook and a second escalation level.** The runbook covers finding and ending the blocking session, pausing deploys, and restarting the database only as a last resort. A second on-call level with full infrastructure access backs up the first.
-- **A sturdier database setup.** We are moving the database to a high-availability configuration with connection pooling in front of it.
+- **A runbook and a second escalation level.** The runbook covers finding and ending the blocking session, pausing deploys, and restarting the database only as a last resort. A second on-call level with full infrastructure access will back up the first.
+- **A sturdier database setup.** We will move the database to a high-availability configuration with connection pooling in front of it.
 
 We will post an update here as these changes land.
 
