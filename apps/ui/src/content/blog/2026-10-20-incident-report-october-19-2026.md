@@ -51,8 +51,6 @@ The change added new columns to two tables, one of them the table that holds org
 
 The migration could not get its locks because another session was already using one of the tables. We are still confirming exactly which query that was. The migration had no lock timeout, so instead of giving up, it waited, and until its transaction finished, every new query on the organization table queued behind it. Nearly every dashboard, API and uncached gateway request reads organization settings, so they all stopped.
 
-This was not a gap in what we know about Postgres locking. For schema changes that lock large tables, such as new indexes, our standard practice is to build them by hand with `CREATE INDEX CONCURRENTLY` before the deploy, so the migration itself never blocks the table. This migration only added columns, which Postgres normally completes in milliseconds, so it shipped as a routine change without a lock timeout. That was an oversight. Even a fast change has to get its lock first, and nothing in our tooling stopped it from waiting indefinitely.
-
 Three things turned a stuck migration into an outage:
 
 1. **Health checks restarted the migration over and over.** Our API servers run pending migrations on startup, before they begin serving. The server running the migration was not answering its health check, so it was killed and restarted about every 75 seconds. Each restart started the migration again and queued it behind the same locks.
