@@ -88,7 +88,7 @@ describe("runMigrations", () => {
 			`ALTER TABLE "${schema}"."b" ADD COLUMN "z" integer;`,
 		]);
 
-		// A long transaction reading `b`, like the worker's aggregation in the
+		// A long-running read on `b`, like the dashboard log searches in the
 		// 2026-10-19 outage: ADD COLUMN needs ACCESS EXCLUSIVE and must not wait.
 		const holder = await connectSession();
 		await holder.query("BEGIN");

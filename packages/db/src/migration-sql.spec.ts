@@ -13,8 +13,8 @@ import {
 
 const BP = "--> statement-breakpoint";
 
-// The migration behind the 2026-10-19 outage: three ADD COLUMNs across two
-// live tables in one transaction.
+// Shaped like the migration that queued behind long reads on 2026-10-19: three
+// ADD COLUMNs across two live tables, all locks held until commit.
 const MULTI_TABLE = [
 	`ALTER TABLE "organization" ADD COLUMN "provider_key_alerts_enabled" boolean DEFAULT true NOT NULL;`,
 	`ALTER TABLE "provider_key_hourly_stats" ADD COLUMN "error_count" integer DEFAULT 0 NOT NULL;`,
