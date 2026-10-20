@@ -30,6 +30,36 @@ Every deployment is built from the same pieces:
 
 In production, run PostgreSQL and Redis as managed services from your cloud provider so backups, failover, and patching are handled for you.
 
+## Database migrations
+
+The API applies pending migrations at startup when `RUN_MIGRATIONS=true`. You can
+also run them as a one-off job before rolling out new images:
+`node dist/migrate.js` in the API image applies them, and
+`node dist/migrate.js --check` is a read-only preflight that reports pending
+migrations, index changes that need a manual step, and long-running
+transactions holding locks on the tables they touch.
+
+Each migration runs in its own transaction. A migration that cannot take a
+lock within `MIGRATIONS_LOCK_TIMEOUT_MS` rolls back and retries with backoff
+instead of queueing your traffic behind it; the error names the sessions
+holding the lock.
+
+| Variable                                 | Default  | Purpose                                                                                           |
+| ---------------------------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `MIGRATIONS_LOCK_TIMEOUT_MS`             | `5000`   | Lock wait per statement before an attempt gives up                                                |
+| `MIGRATIONS_MAX_ATTEMPTS`                | `5`      | Attempts per migration after lock timeouts or deadlocks                                           |
+| `MIGRATIONS_STATEMENT_TIMEOUT_MS`        | `900000` | Runtime cap per statement; `0` disables it                                                        |
+| `MIGRATIONS_RUNNER_LOCK_WAIT_MS`         | `900000` | How long a replica waits for another replica's migration run                                      |
+| `MIGRATIONS_CHECK_MAX_TRANSACTION_AGE_S` | `30`     | Transaction age at which `--check` reports a lock holder                                          |
+| `MIGRATIONS_REQUIRE_PREBUILT_INDEXES`    | `false`  | Refuse to deploy index changes on existing tables until they were built or dropped `CONCURRENTLY` |
+
+With `MIGRATIONS_REQUIRE_PREBUILT_INDEXES=true`, a pending migration that
+creates or drops an index on an existing table fails before any migration runs
+and prints the exact `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY`
+commands to run first (including dropping an `INVALID` index left by a failed
+build). Run them with `psql` outside a transaction, then deploy again. Leave it
+off for small databases, where building an index inside the migration is quick.
+
 ## Product links
 
 For self-hosted DevPass and Airside, set `UI_URL` and `PLAYGROUND_URL` to your Gateway dashboard and Lounge origins. When unset, these apps use `https://llmgateway.io` and `https://lounge.llmgateway.io`; with `NODE_ENV=development`, they use `http://localhost:3002` and `http://localhost:3003`.
