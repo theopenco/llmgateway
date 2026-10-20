@@ -32,7 +32,7 @@ There are two ways to control reasoning effort:
 
 Add the `reasoning_effort` parameter directly to your request:
 
-- `none` - Disable reasoning. Supported by OpenAI's newer reasoning models (e.g. `gpt-5.4-mini` and later, which accept `none` instead of `minimal`). For other providers this turns reasoning off. Claude models receive an explicit `thinking: { type: "disabled" }` on every provider, and `thinking: { type: "disabled" }` sent to `/v1/messages` is forwarded the same way.
+- `none` - Disable reasoning. Supported by OpenAI's newer reasoning models (e.g. `gpt-5.4-mini` and later, which accept `none` instead of `minimal`). For other providers this turns reasoning off. Claude models that can turn thinking off (their `reasoning_efforts` include `none`) receive an explicit `thinking: { type: "disabled" }` on every provider, and `thinking: { type: "disabled" }` sent to `/v1/messages` is forwarded the same way. Claude models that cannot turn thinking off keep their default.
 - `minimal` - Fastest reasoning with minimal thought process (only for GPT-5 models)
 - `low` - Light reasoning for simpler tasks
 - `medium` - Balanced reasoning for most tasks
