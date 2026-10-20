@@ -26,11 +26,9 @@ permissions:
   contents: read
   pull-requests: write
 
-# The action caches a per-PR marker; a cancelled run would leave it behind,
-# so runs are never cancelled.
 concurrency:
   group: security-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   security:
@@ -38,11 +36,12 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    # The action's Claude Code CLI and Anthropic SDK both read these, so the
-    # review runs through LLM Gateway's Anthropic-compatible endpoint, and
-    # Claude Code's background and subagent calls use Opus 5.5 as well.
+    # Claude Code and the Anthropic SDK both read these, so every call runs
+    # through LLM Gateway's Anthropic-compatible endpoint on Opus 5.5,
+    # including Claude Code's background and subagent calls.
     env:
       ANTHROPIC_BASE_URL: https://api.llmgateway.io
+      CLAUDE_MODEL: claude-opus-5-5
       ANTHROPIC_DEFAULT_OPUS_MODEL: claude-opus-5-5
       ANTHROPIC_DEFAULT_SONNET_MODEL: claude-opus-5-5
       ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-opus-5-5
@@ -69,30 +68,59 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 2
 
-      # Pinned to a commit on main (2026-02-11); the action has no tags. It
-      # runs from its own directory, hence the absolute instruction paths.
-      - uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda
+      # anthropics/claude-code-security-review, pinned to a commit on main
+      # (2026-02-11); it has no tags. It runs from source instead of as an
+      # action because the action installs Claude Code on Node 18, which
+      # resolves to a release too old for Opus 5.5.
+      - uses: actions/checkout@v7.0.1
         if: steps.key.outputs.present == 'true'
-        id: scan
         with:
-          comment-pr: true
-          upload-results: true
-          run-every-commit: true
-          claude-api-key: ${{ secrets.SECURITY_REVIEW_LLM_GATEWAY_API_KEY }}
-          claude-model: claude-opus-5-5
-          exclude-directories: node_modules,dist,.next,apps/docs,apps/mobile/ios,apps/mobile/android,marketing
-          custom-security-scan-instructions: ${{ github.workspace }}/.github/security-review/scan-instructions.md
-          false-positive-filtering-instructions: ${{ github.workspace }}/.github/security-review/false-positives.md
+          repository: anthropics/claude-code-security-review
+          ref: 0c6a49f1fa56a1d472575da86a94dbc1edb78eda
+          path: .security-review
+          persist-credentials: false
 
-      # The action only warns when the scan itself fails; a green job must mean
-      # the code was actually reviewed.
+      - uses: actions/setup-node@v7.1.0
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: 22
+
+      - name: Install the reviewer
+        if: steps.key.outputs.present == 'true'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q -r .security-review/claudecode/requirements.txt
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+          npm install -g @anthropic-ai/claude-code@2.1.304
+
+      # The scanner exits non-zero when it finds a high-severity issue; the
+      # findings still get posted, and the next step checks the scan ran.
+      - name: Scan
+        if: steps.key.outputs.present == 'true'
+        working-directory: .security-review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ANTHROPIC_API_KEY: ${{ secrets.SECURITY_REVIEW_LLM_GATEWAY_API_KEY }}
+          REPO_PATH: ${{ github.workspace }}
+          ENABLE_CLAUDE_FILTERING: "true"
+          EXCLUDE_DIRECTORIES: node_modules,dist,.next,.security-review,apps/docs,apps/mobile/ios,apps/mobile/android,marketing
+          CUSTOM_SECURITY_SCAN_INSTRUCTIONS: ${{ github.workspace }}/.github/security-review/scan-instructions.md
+          FALSE_POSITIVE_FILTERING_INSTRUCTIONS: ${{ github.workspace }}/.github/security-review/false-positives.md
+        run: |
+          claude --version
+          PYTHONPATH="$PWD" python -u claudecode/github_action_audit.py \
+            > "$GITHUB_WORKSPACE/claudecode-results.json" \
+            2> "$GITHUB_WORKSPACE/claudecode-error.log" ||
+            echo "::warning::scanner exited with code $?"
+
+      # A green job must mean the code was actually reviewed.
       - name: Fail when the scan did not run
         if: steps.key.outputs.present == 'true'
-        env:
-          FINDINGS: ${{ steps.scan.outputs.findings-count }}
         run: |
           if [ ! -s claudecode-results.json ]; then
             echo "::error::security review produced no results"
+            cat claudecode-error.log
             exit 1
           fi
           if ! jq empty claudecode-results.json; then
@@ -103,4 +131,22 @@ jobs:
             echo "::error::security review failed: $(jq -r '.error' claudecode-results.json)"
             exit 1
           fi
-          echo "findings: $FINDINGS"
+          jq '.findings // []' claudecode-results.json > findings.json
+          echo "findings: $(jq length findings.json)"
+
+      - name: Comment findings
+        if: steps.key.outputs.present == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .security-review/scripts/comment-pr-findings.js
+
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.key.outputs.present == 'true'
+        with:
+          name: security-review-results
+          path: |
+            findings.json
+            claudecode-results.json
+            claudecode-error.log
+          retention-days: 7
+          if-no-files-found: ignore
