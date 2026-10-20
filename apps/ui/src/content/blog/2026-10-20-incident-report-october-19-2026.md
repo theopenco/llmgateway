@@ -78,7 +78,7 @@ Restarting the database at 19:07 ended every stuck session, released the locks, 
 - **A preflight check before migrations run.** It refuses to run if a pending migration touches a table with a long-running transaction open, and names the session that is blocking it. It also requires new indexes on production to be built ahead of time without locking the table.
 - **CI checks for risky migrations.** Lint rules flag migration patterns that take long locks on large tables, and a test holds a lock in another session and asserts that the migration fails fast and applies nothing.
 - **Migrations run as their own deploy step.** They will run once, as a dedicated step before the new version rolls out, instead of inside API server startup where a health check can kill and retry them.
-- **Database timeouts.** Every database session from our services will have a lock timeout and an idle-in-transaction timeout, and customer-facing log queries and migrations will also have statement timeouts. We are considering a database-wide default statement timeout as well. The database will drop sessions whose client has disconnected, so a restarted server cannot leak connections.
+- **Database timeouts.** Every database session from our services will have lock, idle-in-transaction and statement timeouts sized to each service, with a database-wide default as a backstop. Customer-facing log queries get a much shorter statement timeout. The database will drop sessions whose client has disconnected, so a restarted server cannot leak connections.
 - **Safer rollout of schema changes.** Risky migrations are labeled, deployed on their own, and split into backwards-compatible steps.
 
 ### Detecting and paging faster
