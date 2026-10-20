@@ -114,11 +114,13 @@ export function getApiKeyLimitSuggestion(
 		ApiKey,
 		"status" | "kind" | "usage" | "usageLimit" | "periodUsageLimit"
 	> & {
+		expiresAt?: string | null;
 		ownerBudget?: {
 			usageLimit: string | null;
 			periodUsageLimit: string | null;
 		} | null;
 	},
+	now: Date = new Date(),
 ): ApiKeyLimitSuggestion | null {
 	const ownerCapped =
 		!!key.ownerBudget &&
@@ -129,7 +131,8 @@ export function getApiKeyLimitSuggestion(
 		key.kind === "playground" ||
 		key.usageLimit !== null ||
 		key.periodUsageLimit !== null ||
-		ownerCapped
+		ownerCapped ||
+		(!!key.expiresAt && new Date(key.expiresAt).getTime() <= now.getTime())
 	) {
 		return null;
 	}
@@ -150,6 +153,27 @@ export function formatApiKeyLimitSuggestion(
 ): string {
 	const { periodUsageDurationUnit: unit, periodUsageDurationValue: count } =
 		suggestion;
-	const window = count === 1 ? unit : `${count} ${unit}s`;
-	return `$${suggestion.periodUsageLimit}/${window}`;
+	const periodLabel = count === 1 ? unit : `${count} ${unit}s`;
+	return `$${suggestion.periodUsageLimit}/${periodLabel}`;
+}
+
+/**
+ * Whether a key's recurring limit was changed to something other than the
+ * applied suggestion. A key still without one is a refetch that has not landed.
+ */
+export function recurringLimitDiffersFrom(
+	key: Pick<
+		ApiKey,
+		"periodUsageLimit" | "periodUsageDurationValue" | "periodUsageDurationUnit"
+	>,
+	suggestion: ApiKeyLimitSuggestion,
+): boolean {
+	if (key.periodUsageLimit === null) {
+		return false;
+	}
+	return (
+		Number(key.periodUsageLimit) !== Number(suggestion.periodUsageLimit) ||
+		key.periodUsageDurationValue !== suggestion.periodUsageDurationValue ||
+		key.periodUsageDurationUnit !== suggestion.periodUsageDurationUnit
+	);
 }

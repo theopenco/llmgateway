@@ -5,6 +5,7 @@ import {
 	formatApiKeyLimitSuggestion,
 	getApiKeyLimitSuggestion,
 	getApiKeyUnusedInsight,
+	recurringLimitDiffersFrom,
 } from "./api-key-insights";
 
 const now = new Date("2026-06-01T12:00:00Z");
@@ -89,6 +90,7 @@ const uncappedKey = (overrides: {
 	periodUsageLimit?: string | null;
 	status?: "active" | "inactive" | "deleted";
 	kind?: "regular" | "playground";
+	expiresAt?: string | null;
 	ownerBudget?: {
 		usageLimit: string | null;
 		periodUsageLimit: string | null;
@@ -138,6 +140,13 @@ describe("getApiKeyLimitSuggestion", () => {
 				}),
 			),
 		).toBeNull();
+		expect(
+			getApiKeyLimitSuggestion(
+				uncappedKey({
+					ownerBudget: { usageLimit: "100", periodUsageLimit: null },
+				}),
+			),
+		).toBeNull();
 	});
 
 	it("suggests a cap when the owner budget sets none", () => {
@@ -157,5 +166,54 @@ describe("getApiKeyLimitSuggestion", () => {
 		expect(
 			getApiKeyLimitSuggestion(uncappedKey({ kind: "playground" })),
 		).toBeNull();
+	});
+});
+
+describe("getApiKeyLimitSuggestion edge cases", () => {
+	it("skips keys whose expiration has passed", () => {
+		expect(
+			getApiKeyLimitSuggestion(uncappedKey({ expiresAt: daysAgo(1) }), now),
+		).toBeNull();
+		expect(
+			getApiKeyLimitSuggestion(
+				uncappedKey({
+					expiresAt: new Date(now.getTime() + DAY_MS).toISOString(),
+				}),
+				now,
+			),
+		).not.toBeNull();
+	});
+
+	it("skips non-numeric usage", () => {
+		expect(getApiKeyLimitSuggestion(uncappedKey({ usage: "abc" }))).toBeNull();
+	});
+});
+
+describe("recurringLimitDiffersFrom", () => {
+	const suggestion = {
+		periodUsageLimit: "10",
+		periodUsageDurationValue: 1,
+		periodUsageDurationUnit: "week" as const,
+	};
+	const limit = (
+		periodUsageLimit: string | null,
+		periodUsageDurationUnit: "day" | "week" | null = "week",
+	) => ({
+		periodUsageLimit,
+		periodUsageDurationValue: periodUsageLimit === null ? null : 1,
+		periodUsageDurationUnit:
+			periodUsageLimit === null ? null : periodUsageDurationUnit,
+	});
+
+	it("treats the applied suggestion or a pending refetch as unchanged", () => {
+		expect(recurringLimitDiffersFrom(limit("10.00"), suggestion)).toBe(false);
+		expect(recurringLimitDiffersFrom(limit(null), suggestion)).toBe(false);
+	});
+
+	it("detects a limit saved after the suggestion", () => {
+		expect(recurringLimitDiffersFrom(limit("40"), suggestion)).toBe(true);
+		expect(recurringLimitDiffersFrom(limit("10", "day"), suggestion)).toBe(
+			true,
+		);
 	});
 });

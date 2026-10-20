@@ -135,9 +135,11 @@ export function ApiKeyInsightsSummary({
 
 /** Muted nudge to cap a low-spend key that has no limit. */
 export function ApiKeyLimitSuggestionHint({
+	keyName,
 	suggestion,
 	onApply,
 }: {
+	keyName: string;
 	suggestion: ApiKeyLimitSuggestion | null;
 	onApply: (suggestion: ApiKeyLimitSuggestion) => Promise<boolean>;
 }) {
@@ -155,13 +157,18 @@ export function ApiKeyLimitSuggestionHint({
 			<PopoverTrigger asChild>
 				<button
 					type="button"
-					className="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-xs transition-colors"
+					aria-label={`Suggest a ${label} limit for ${keyName}`}
+					className="text-muted-foreground hover:text-foreground focus-visible:ring-ring inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-xs transition-colors outline-none focus-visible:ring-2"
 				>
 					<ShieldCheckIcon className="h-3 w-3" />
 					Suggest {label}
 				</button>
 			</PopoverTrigger>
-			<PopoverContent align="start" className="w-72 space-y-3 text-sm">
+			<PopoverContent
+				align="start"
+				aria-label={`Suggested limit for ${keyName}`}
+				className="w-72 space-y-3 text-sm"
+			>
 				<p>
 					This key spends little and has no limit. A cap of{" "}
 					<strong>{label}</strong> keeps a leaked key from running up costs

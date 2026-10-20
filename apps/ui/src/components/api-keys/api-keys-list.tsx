@@ -85,6 +85,7 @@ import {
 	getApiKeyUnusedInsight,
 	formatApiKeyLimitSuggestion,
 	getApiKeyLimitSuggestion,
+	recurringLimitDiffersFrom,
 } from "./api-key-insights";
 import {
 	formatCurrentPeriodUsageSummary,
@@ -450,10 +451,10 @@ export function ApiKeysList({
 			new Map<string, ApiKeyLimitSuggestion | null>(
 				allKeys.map((key) => [
 					key.id,
-					insights.get(key.id) ? null : getApiKeyLimitSuggestion(key),
+					insights.get(key.id) ? null : getApiKeyLimitSuggestion(key, now),
 				]),
 			),
-		[allKeys, insights],
+		[allKeys, insights, now],
 	);
 	const limitSuggestionOf = (key: ApiKey) =>
 		limitSuggestions.get(key.id) ?? null;
@@ -782,6 +783,24 @@ export function ApiKeysList({
 			body: payload,
 		});
 
+	// Undo must not wipe a limit someone saved after the suggestion. The
+	// cached key is either refetched with the suggestion or not refetched yet.
+	const recurringLimitChangedSince = (
+		id: string,
+		suggestion: ApiKeyLimitSuggestion,
+	) => {
+		const updatedAt = (queryKey: readonly unknown[]) =>
+			queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0;
+		const cached = queryClient
+			.getQueriesData<{ apiKeys?: ApiKey[] }>({
+				queryKey: ["get", "/keys/api"],
+			})
+			.sort(([a], [b]) => updatedAt(b) - updatedAt(a))
+			.flatMap(([, cachedData]) => cachedData?.apiKeys ?? [])
+			.find((cachedKey) => cachedKey.id === id);
+		return !!cached && recurringLimitDiffersFrom(cached, suggestion);
+	};
+
 	const applyLimitSuggestion = async (
 		key: ApiKey,
 		suggestion: ApiKeyLimitSuggestion,
@@ -813,9 +832,21 @@ export function ApiKeysList({
 				<ToastAction
 					altText="Undo"
 					onClick={async () => {
+						if (recurringLimitChangedSince(key.id, suggestion)) {
+							toast({
+								title: "Limit not removed",
+								description:
+									"The key's recurring limit changed after the suggestion was set.",
+							});
+							return;
+						}
 						try {
 							await setKeyLimits(key.id, noRecurringLimit);
 							invalidateApiKeys();
+							toast({
+								title: "API Key Limit Removed",
+								description: `${key.description} has no recurring limit again.`,
+							});
 						} catch (error) {
 							toast({
 								title: "Failed to undo the API key limit.",
@@ -834,6 +865,7 @@ export function ApiKeysList({
 
 	const renderLimitSuggestion = (key: ApiKey) => (
 		<ApiKeyLimitSuggestionHint
+			keyName={key.description}
 			suggestion={limitSuggestionOf(key)}
 			onApply={(suggestion) => applyLimitSuggestion(key, suggestion)}
 		/>

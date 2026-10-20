@@ -43,7 +43,7 @@ A low-use key with no spend limit is an easy target if it leaks. Active keys tha
 | $10 to $50     | $100 per week  |
 | $50 to $250    | $500 per month |
 
-Each cap is at least twice the key's all-time spend, so it never blocks traffic the key already sends. Click the hint, then **Set**, to apply it; the confirmation offers **Undo**, and the limit stays editable like any other. Playground keys, unused keys, and keys whose creator has a capped member budget get no suggestion.
+Each cap is at least twice the key's all-time spend, so it never blocks traffic the key already sends. Click the hint, then **Set**, to apply it; the confirmation offers **Undo**, and the limit stays editable like any other. Expired keys, playground keys, unused keys, and keys whose creator has a capped member budget get no suggestion.
 
 ## Bulk deactivate, reactivate, and delete
 
