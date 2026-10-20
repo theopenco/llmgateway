@@ -212,10 +212,12 @@ async function swrFetch<T>(
 		try {
 			const result = await readMirror<T>(key);
 			if (result.hit) {
-				logger.warn("serving SWR stale fallback", {
-					key,
-					circuitOpen: error instanceof DbCircuitOpenError,
-				});
+				logger.warn(
+					"serving SWR stale fallback",
+					error instanceof DbCircuitOpenError
+						? { key, circuitOpen: true }
+						: { key },
+				);
 				return result.value;
 			}
 		} catch (redisError) {
