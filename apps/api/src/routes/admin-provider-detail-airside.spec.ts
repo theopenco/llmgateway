@@ -30,6 +30,7 @@ interface ProviderDetail {
 			customBaseUrl: string | null;
 			customDescription: string | null;
 			companyWebsite: string | null;
+			members: { id: string; email: string; role: string }[];
 			listedModels: string[];
 			verificationKeyMasked: string | null;
 			billingMode: string;
@@ -383,6 +384,85 @@ describe("admin provider detail for airside carriers", () => {
 			status: "rejected",
 			reviewNote: "Superseded by an admin fare change.",
 		});
+	});
+
+	test("admins transfer company ownership to another account", async () => {
+		await db.insert(tables.user).values([
+			{
+				id: "airside-detail-owner",
+				name: "Current Owner",
+				email: "owner@airside-detail.example",
+				emailVerified: true,
+			},
+			{
+				id: "airside-detail-next-owner",
+				name: "Next Owner",
+				email: "next@airside-detail.example",
+				emailVerified: true,
+			},
+		]);
+		await db.insert(tables.providerCompanyMember).values({
+			id: "airside-detail-owner-member",
+			providerCompanyId: COMPANY_ID,
+			userId: "airside-detail-owner",
+			role: "owner",
+		});
+		const transfer = (email: string) =>
+			app.request(`/admin/airside/companies/${COMPANY_ID}/owner`, {
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ email }),
+			});
+		const members = async () =>
+			(
+				(await (
+					await app.request(`/admin/providers/${CARRIER_ID}`, {
+						headers: { Cookie: cookie },
+					})
+				).json()) as ProviderDetail
+			).airside?.settings.members;
+
+		expect(await members()).toEqual([
+			expect.objectContaining({
+				email: "owner@airside-detail.example",
+				role: "owner",
+			}),
+		]);
+		expect((await transfer("nobody@airside-detail.example")).status).toBe(404);
+
+		// A non-member becomes the sole owner; the previous owner stays as crew.
+		const response = await transfer("Next@Airside-Detail.example");
+		expect(response.status).toBe(200);
+		expect((await response.json()).members).toEqual([
+			expect.objectContaining({
+				email: "owner@airside-detail.example",
+				role: "member",
+			}),
+			expect.objectContaining({
+				email: "next@airside-detail.example",
+				role: "owner",
+			}),
+		]);
+		expect(await members()).toMatchObject([
+			{ email: "owner@airside-detail.example", role: "member" },
+			{ email: "next@airside-detail.example", role: "owner" },
+		]);
+
+		// Transferring back promotes the existing member in place.
+		expect((await transfer("owner@airside-detail.example")).status).toBe(200);
+		expect(await members()).toMatchObject([
+			{ email: "owner@airside-detail.example", role: "owner" },
+			{ email: "next@airside-detail.example", role: "member" },
+		]);
+		expect(
+			(
+				await app.request(`/admin/airside/companies/missing/owner`, {
+					method: "PUT",
+					headers: { Cookie: cookie, "Content-Type": "application/json" },
+					body: JSON.stringify({ email: "owner@airside-detail.example" }),
+				})
+			).status,
+		).toBe(404);
 	});
 
 	test("falls back to the default margin when no routing row exists", async () => {
