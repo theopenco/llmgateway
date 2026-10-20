@@ -1,5 +1,11 @@
 import { logger } from "@llmgateway/logger";
 
+import {
+	DbCircuitOpenError,
+	dbCircuitAllowsRequest,
+	recordDbFailure,
+	recordDbSuccess,
+} from "./db-circuit-breaker.js";
 import { redisClient } from "./redis.js";
 
 export const SWR_PREFIX = "swr:v2:";
@@ -190,12 +196,26 @@ async function swrFetch<T>(
 ): Promise<T> {
 	let value: T;
 	try {
-		value = await fetcher();
+		// While Postgres is unavailable, skip straight to the stale mirror
+		// instead of queueing on the pool's connection timeout per request.
+		if (!dbCircuitAllowsRequest()) {
+			throw new DbCircuitOpenError();
+		}
+		try {
+			value = await fetcher();
+		} catch (error) {
+			recordDbFailure(error);
+			throw error;
+		}
+		recordDbSuccess();
 	} catch (error) {
 		try {
 			const result = await readMirror<T>(key);
 			if (result.hit) {
-				logger.warn("serving SWR stale fallback", { key });
+				logger.warn("serving SWR stale fallback", {
+					key,
+					circuitOpen: error instanceof DbCircuitOpenError,
+				});
 				return result.value;
 			}
 		} catch (redisError) {
