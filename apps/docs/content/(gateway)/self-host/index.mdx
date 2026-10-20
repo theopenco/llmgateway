@@ -67,6 +67,20 @@ The current incomplete hour is excluded. The worker refreshes hourly after a
 settling delay, so recent hours may still be processing. CSV timestamps remain
 in UTC. Apply database migrations and run the worker to populate hourly history.
 
+## Activity log searches
+
+Dashboard log searches run with a statement timeout and a short lock timeout
+and are limited in concurrency, so a slow search cannot hold locks on the log
+table. Concurrency slots live in Redis; if Redis is unreachable, searches run
+unlimited.
+
+| Variable                            | Default | Purpose                                  |
+| ----------------------------------- | ------- | ---------------------------------------- |
+| `LOG_QUERY_TIMEOUT_MS`              | `10000` | Cancels a log search after this long     |
+| `LOG_QUERY_LOCK_TIMEOUT_MS`         | `2000`  | Fails a search that would wait on a lock |
+| `LOG_QUERY_MAX_CONCURRENT_PER_USER` | `3`     | Concurrent searches per user             |
+| `LOG_QUERY_MAX_CONCURRENT_PER_ORG`  | `6`     | Concurrent searches per organization     |
+
 ## Gateway load
 
 The admin dashboard's **Gateway Load → Requests** view reports peak throughput
