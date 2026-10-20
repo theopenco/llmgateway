@@ -76,6 +76,7 @@ export interface MigrationCheckResult {
 
 const DEFAULT_DATABASE_URL = "postgres://postgres:pw@localhost:5432/db";
 const RETRY_MAX_DELAY_MS = 30_000;
+const SLOW_MIGRATION_WARNING_MS = 60_000;
 // Advisory lock pair ("llmg", "migr") serializing concurrent runners, e.g.
 // several API replicas starting with RUN_MIGRATIONS=true.
 const RUNNER_LOCK = [0x6c6c6d67, 0x6d696772] as const;
@@ -429,6 +430,15 @@ async function applyWithRetry(
 	const tables = [...touchedTables(migrationSql(migration))];
 	for (let attempt = 1; ; attempt++) {
 		const startedAt = Date.now();
+		// Alerting keys on this line: a migration still running after a minute
+		// is holding its locks far longer than a schema change should.
+		const slowWarning = setInterval(() => {
+			logger.warn("Migration still running", {
+				migration: migration.name,
+				attempt,
+				elapsedMs: Date.now() - startedAt,
+			});
+		}, SLOW_MIGRATION_WARNING_MS);
 		try {
 			await applyMigration(client, migration, o);
 			logger.info("Applied migration", {
@@ -438,6 +448,7 @@ async function applyWithRetry(
 			});
 			return;
 		} catch (error) {
+			clearInterval(slowWarning);
 			if (!isRetryableLockError(error)) {
 				throw error;
 			}
@@ -477,6 +488,8 @@ async function applyWithRetry(
 				delayMs,
 			});
 			await sleep(delayMs);
+		} finally {
+			clearInterval(slowWarning);
 		}
 	}
 }
