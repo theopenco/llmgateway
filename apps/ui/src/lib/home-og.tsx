@@ -4,10 +4,8 @@ import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import sharp from "sharp";
 
-import { LogoLockup } from "@/lib/icons/Logo";
+import Logo, { LogoLockup } from "@/lib/icons/Logo";
 import { ogSize } from "@/lib/og";
-
-import { MARKETING_STATS } from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
 
@@ -15,7 +13,6 @@ const INK = "#09090b";
 const PAPER = "#f4f1e8";
 const MUTED = "rgba(244,241,232,0.64)";
 const FAINT = "rgba(244,241,232,0.42)";
-const AMBER = "#fcd34d";
 
 const fontDir = join(process.cwd(), "src/assets/og-fonts");
 const fontFiles = Promise.all([
@@ -123,257 +120,24 @@ async function renderCard({
 	);
 }
 
-const CODE_STRING = "#fde68a";
-const CODE_KEYWORD = "#c4b5fd";
-const CODE_DIM = "rgba(244,241,232,0.5)";
-
-type CodeToken = [text: string, color?: string];
-
-const HOME_SNIPPET: CodeToken[][] = [
-	[
-		["const ", CODE_KEYWORD],
-		["client = "],
-		["new ", CODE_KEYWORD],
-		["OpenAI({"],
-	],
-	[["  baseURL: "], ['"https://api.llmgateway.io/v1"', CODE_STRING], [","]],
-	[["  apiKey: "], ["process.env.LLM_GATEWAY_API_KEY"], [","]],
-	[["});"]],
-	[[""]],
-	[["await ", CODE_KEYWORD], ["client.chat.completions.create({"]],
-	[
-		["  model: "],
-		['"claude-sonnet-5"', AMBER],
-		[","],
-		[`  // any of ${MARKETING_STATS.models}`, CODE_DIM],
-	],
-	[["  messages,"]],
-	[["});"]],
-];
-
-// Catalogue ids for the providers named in the headline.
-const HOME_MODELS = ["gpt-5.5", "claude-sonnet-5", "gemini-3.1-pro-preview"];
-
-function CodeLine({ tokens }: { tokens: CodeToken[] }) {
-	return (
-		<div style={{ display: "flex", height: 24 }}>
-			{tokens.map(([text, color], index) => (
-				<span
-					key={index}
-					style={{ whiteSpace: "pre", color: color ?? PAPER, display: "flex" }}
-				>
-					{text}
-				</span>
-			))}
-		</div>
+/** Plain black card with the white logo mark: the home share preview. */
+export function homeOgImage() {
+	return new ImageResponse(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				background: "#000000",
+				color: "#ffffff",
+			}}
+		>
+			<Logo style={{ width: 244, height: 260 }} />
+		</div>,
+		ogSize,
 	);
-}
-
-const HOME_STATS = [
-	[MARKETING_STATS.tokensRouted, "tokens routed"],
-	[MARKETING_STATS.requestsRouted, "requests routed"],
-	[MARKETING_STATS.models, "models"],
-	[MARKETING_STATS.providers, "providers"],
-];
-
-export async function homeOgImage() {
-	return await renderCard({
-		glow: "rgba(245,184,61,0.24)",
-		children: (
-			<div style={{ display: "flex", flex: 1, flexDirection: "column" }}>
-				<div
-					style={{
-						display: "flex",
-						flex: 1,
-						alignItems: "center",
-						justifyContent: "space-between",
-						gap: 36,
-					}}
-				>
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "column",
-							width: 556,
-							gap: 16,
-						}}
-					>
-						<Eyebrow>Open-source LLM API gateway</Eyebrow>
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "column",
-								fontSize: 46,
-								fontWeight: 800,
-								letterSpacing: "-0.045em",
-								lineHeight: 1.04,
-							}}
-						>
-							<span>{`One API for ${MARKETING_STATS.providers} providers.`}</span>
-							<span
-								style={{
-									fontFamily: "Serif",
-									fontStyle: "italic",
-									fontWeight: 400,
-									letterSpacing: "-0.02em",
-									color: AMBER,
-									marginTop: 4,
-								}}
-							>
-								OpenAI, Anthropic, Google &amp; more.
-							</span>
-						</div>
-						<div
-							style={{
-								display: "flex",
-								fontSize: 20,
-								lineHeight: 1.42,
-								color: MUTED,
-							}}
-						>
-							{`Route ${MARKETING_STATS.models} models, track costs in real time and switch providers without changing your code.`}
-						</div>
-						<div
-							style={{
-								display: "flex",
-								alignItems: "center",
-								gap: 18,
-								marginTop: 6,
-							}}
-						>
-							<div
-								style={{
-									display: "flex",
-									padding: "12px 22px",
-									borderRadius: 999,
-									background: AMBER,
-									color: INK,
-									fontSize: 19,
-									fontWeight: 800,
-								}}
-							>
-								Get my API key →
-							</div>
-							<div
-								style={{
-									display: "flex",
-									fontFamily: "Mono",
-									fontSize: 14,
-									letterSpacing: "0.08em",
-									color: FAINT,
-								}}
-							>
-								FREE WITH YOUR OWN KEYS · NO CARD
-							</div>
-						</div>
-					</div>
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "column",
-							width: 480,
-							borderRadius: 18,
-							background: "rgba(255,255,255,0.04)",
-							border: "1px solid rgba(255,255,255,0.14)",
-							boxShadow: "0 40px 90px -30px rgba(245,184,61,0.45)",
-							padding: "20px 24px 22px",
-							fontFamily: "Mono",
-							fontSize: 14,
-						}}
-					>
-						<div
-							style={{
-								display: "flex",
-								justifyContent: "space-between",
-								fontSize: 12,
-								letterSpacing: "0.18em",
-								color: FAINT,
-								marginBottom: 16,
-							}}
-						>
-							<span>● OPENAI-COMPATIBLE</span>
-							<span>main.ts</span>
-						</div>
-						{HOME_SNIPPET.map((tokens, index) => (
-							<CodeLine key={index} tokens={tokens} />
-						))}
-						<div
-							style={{
-								display: "flex",
-								alignItems: "center",
-								gap: 8,
-								marginTop: 18,
-								paddingTop: 16,
-								borderTop: "1px dashed rgba(244,241,232,0.16)",
-							}}
-						>
-							{HOME_MODELS.map((model) => {
-								const active = model === "claude-sonnet-5";
-								return (
-									<span
-										key={model}
-										style={{
-											display: "flex",
-											flexShrink: 0,
-											whiteSpace: "nowrap",
-											padding: "5px 11px",
-											borderRadius: 999,
-											fontSize: 12,
-											border: `1px solid ${active ? AMBER : "rgba(244,241,232,0.18)"}`,
-											background: active
-												? "rgba(252,211,77,0.14)"
-												: "transparent",
-											color: active ? AMBER : CODE_DIM,
-										}}
-									>
-										{model}
-									</span>
-								);
-							})}
-						</div>
-					</div>
-				</div>
-				<div
-					style={{
-						display: "flex",
-						justifyContent: "space-between",
-						paddingTop: 22,
-						borderTop: "2px dashed rgba(244,241,232,0.16)",
-					}}
-				>
-					{HOME_STATS.map(([value, label]) => (
-						<div
-							key={label}
-							style={{ display: "flex", alignItems: "baseline", gap: 12 }}
-						>
-							<span
-								style={{
-									display: "flex",
-									fontSize: 34,
-									fontWeight: 800,
-									letterSpacing: "-0.04em",
-								}}
-							>
-								{value}
-							</span>
-							<span
-								style={{
-									display: "flex",
-									fontFamily: "Mono",
-									fontSize: 13,
-									letterSpacing: "0.18em",
-									textTransform: "uppercase",
-									color: FAINT,
-								}}
-							>
-								{label}
-							</span>
-						</div>
-					))}
-				</div>
-			</div>
-		),
-	});
 }
 
 export interface ProductOgOptions {
