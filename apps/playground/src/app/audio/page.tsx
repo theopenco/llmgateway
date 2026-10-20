@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import AudioPageClient from "@/components/playground/audio-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
+import { speechModels } from "@/lib/audio-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	AUDIO_MODEL_COOKIE,
@@ -186,9 +187,7 @@ export default async function AudioPage({
 				/>
 			) : null}
 			<AudioPageClient
-				// Pre-filtered server-side (same predicate as the client) so the
-				// multi-MB full catalogue never crosses the RSC boundary.
-				models={models.filter((m) => m.output?.includes("audio"))}
+				models={speechModels(models)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
