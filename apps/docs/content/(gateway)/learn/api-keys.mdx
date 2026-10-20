@@ -90,6 +90,9 @@ Examples:
 If a key hits either limit, requests using that key are rejected until the key
 is updated or, for recurring limits, the next window begins.
 
+Keys without a limit get a [suggested cap](#limit-suggestions) you can apply in
+one click.
+
 ### How recurring windows work
 
 Recurring usage is tracked separately from total lifetime usage.
@@ -124,7 +127,7 @@ Each key in the list shows:
 | **Last Used**      | The hour of the key's most recent request, or **Never**             |
 | **Usage**          | Spend for the selected period, plus request count when not all time |
 | **Current Period** | Spend in the active recurring window, if configured                 |
-| **Limits**         | All-time and recurring limit summary                                |
+| **Limits**         | All-time and recurring limit summary, or a suggested cap            |
 | **IAM Rules**      | Whether model/provider/pricing access controls are configured       |
 
 The period selector next to the search box switches the **Usage** column
