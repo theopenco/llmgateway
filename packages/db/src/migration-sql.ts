@@ -84,11 +84,25 @@ export interface LintFinding {
 	statement?: string;
 }
 
+// A linear scan rather than a regex: block comments can be unterminated.
 function stripComments(sql: string): string {
-	return sql
-		.replace(/\/\*[\s\S]*?\*\//g, " ")
-		.replace(/--[^\n]*/g, " ")
-		.trim();
+	let out = "";
+	let i = 0;
+	while (i < sql.length) {
+		if (sql.startsWith("/*", i)) {
+			const end = sql.indexOf("*/", i + 2);
+			i = end === -1 ? sql.length : end + 2;
+			out += " ";
+		} else if (sql.startsWith("--", i)) {
+			const end = sql.indexOf("\n", i + 2);
+			i = end === -1 ? sql.length : end;
+			out += " ";
+		} else {
+			out += sql[i];
+			i++;
+		}
+	}
+	return out.trim();
 }
 
 export function splitStatements(migrationSql: string): MigrationStatement[] {
