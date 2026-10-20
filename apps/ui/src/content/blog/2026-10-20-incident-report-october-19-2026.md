@@ -49,7 +49,7 @@ All times below are UTC.
 
 The change added new columns to two tables, one of them the table that holds organization settings. In Postgres, adding a column needs a brief exclusive lock on the table. All three column changes ran in a single transaction, so the migration had to hold or wait for locks on both tables at once.
 
-The migration could not get its locks because another session was already using one of the tables. We are still confirming exactly which query that was. The migration had no lock timeout, so instead of giving up, it waited, and until its transaction finished, every new query on the organization table queued behind it. Nearly every dashboard, API and uncached gateway request reads organization settings, so they all stopped.
+The migration could not get its locks because several queries from the dashboard's request log view had been stuck since about 10:54 UTC that morning, more than seven hours earlier. Each one read the organization table and kept its lock on it. They were waiting to send results to connections that had stopped reading, and Postgres does not apply query timeouts while it waits on a client, so nothing ended them. The migration had no lock timeout, so instead of giving up, it waited, and until its transaction finished, every new query on the organization table queued behind it. Nearly every dashboard, API and uncached gateway request reads organization settings, so they all stopped.
 
 Three things turned a stuck migration into an outage:
 
