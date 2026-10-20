@@ -7,7 +7,7 @@ summary: "On October 19, 2026, from 18:24 to 19:12 UTC, the LLM Gateway dashboar
 categories: ["Engineering"]
 faqs:
   - question: "What caused the LLM Gateway outage on October 19, 2026?"
-    answer: "A database migration shipped with a deploy had to wait for table locks. While it waited, other queries queued behind it, health checks restarted our API servers in a loop, and the database ran out of connections. Restarting the database cleared the stuck sessions and restored service."
+    answer: "A routine database migration that added columns had to wait for a lock on our organization table, because queries from the dashboard's request log view had been stuck holding it since that morning. While the migration waited, other queries queued behind it, health checks restarted our API servers in a loop, and the database ran out of connections. Restarting the database cleared the stuck sessions and restored service."
   - question: "Which services were affected?"
     answer: "From 18:24 to 19:12 UTC the dashboard and the API behind it were down. The gateway at api.llmgateway.io kept serving most requests, but requests that needed an API key or organization settings not already in cache failed."
   - question: "What is LLM Gateway changing after the incident?"
@@ -34,6 +34,7 @@ All times below are UTC.
 
 | Time  | Event                                                                                                                        |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 10:54 | Several request log queries from the dashboard got stuck, holding a lock on the organization table.                          |
 | 18:12 | A change that included a database migration was merged.                                                                      |
 | 18:21 | The deploy carrying it started.                                                                                              |
 | 18:24 | The migration started and began waiting for table locks. The dashboard, the API and uncached gateway requests began failing. |
@@ -45,26 +46,28 @@ All times below are UTC.
 | 19:07 | We restarted the database.                                                                                                   |
 | 19:12 | All services were healthy.                                                                                                   |
 
-## Root cause: a migration waiting on table locks
+## Root cause: a routine migration blocked by stuck queries
 
-The change added new columns to two tables, one of them the table that holds organization settings. In Postgres, adding a column needs a brief exclusive lock on the table. All three column changes ran in a single transaction, so the migration had to hold or wait for locks on both tables at once.
+The change added new columns to two tables, one of them the table that holds organization settings. It was a routine schema change. In Postgres, adding a nullable column, or one with a constant default, only updates the table definition and normally finishes in milliseconds. It does need a brief exclusive lock on the table, and to get that lock it has to wait for queries already using the table to finish.
 
-The migration could not get its locks because several queries from the dashboard's request log view had been stuck since about 10:54 UTC that morning, more than seven hours earlier. Each one read the organization table and kept its lock on it. They were waiting to send results to connections that had stopped reading, and Postgres does not apply query timeouts while it waits on a client, so nothing ended them. The migration had no lock timeout, so instead of giving up, it waited, and until its transaction finished, every new query on the organization table queued behind it. Nearly every dashboard, API and uncached gateway request reads organization settings, so they all stopped.
+The migration could not get its locks because several queries from the dashboard's request log view had been stuck since about 10:54 UTC that morning, more than seven hours earlier. Each one read the organization table and kept its lock on it. They were waiting to send results to connections that had stopped reading, and Postgres does not apply query timeouts while it waits on a client, so nothing ended them. We are still investigating why those connections stopped reading. The migration had no lock timeout, so instead of giving up, it waited, and until its transaction finished, every new query on the organization table queued behind it. Nearly every dashboard, API and uncached gateway request reads organization settings, so they all stopped.
+
+On any other day this migration would have finished within a second. With a lock timeout, it would have failed after a few seconds and left the dashboard and API running.
 
 Three things turned a stuck migration into an outage:
 
 1. **Health checks restarted the migration over and over.** Our API servers run pending migrations on startup, before they begin serving. The server running the migration was not answering its health check, so it was killed and restarted about every 75 seconds. Each restart started the migration again and queued it behind the same locks.
 2. **Health checks restarted the healthy servers too.** The API health check queries the database. On the servers that were already running, those queries were stuck in the same queue, so the health checks failed and those servers were restarted about every two minutes as well.
-3. **Restarted servers left their connections behind.** When a server was killed, the queries it had waiting stayed open on the database, because the database was not set up to notice that the client was gone. Each restart leaked connections. At 19:03, with the rollback deploy adding new servers, the database ran out of connection slots entirely.
+3. **Restarted servers left their connections behind.** When a server was killed, the queries it had waiting stayed open on the database, because the database was not set up to notice that the client was gone. Each restart leaked more, and the connection count climbed steadily from 18:25 until every slot was in use at 19:03.
 
 Restarting the database at 19:07 ended every stuck session, released the locks, and let the rolled-back servers connect. Service was healthy by 19:12.
 
 ## Why recovery took 48 minutes
 
-- **Reverting the code did not release the database.** The stuck sessions and lock queue lived inside Postgres. Rolling the deploy back stopped new migration attempts but did not clear what was already waiting, and the rollback itself added connections at the worst moment.
+- **Reverting the code did not release the database.** The stuck sessions and lock queue lived inside Postgres. Rolling the deploy back stopped new migration attempts but did not clear what was already waiting. The rolled-back servers came up at 19:01 into a database that was almost out of connections, and could not connect.
 - **Our deploy tooling does not roll back on its own.** It waits for a deploy to become healthy, but when that times out, a person has to roll back by hand.
 - **Our monitoring was slow to page.** The gateway uptime check does not touch the database, so it stayed green while uncached requests failed. Our paging alerts for the API and gateway were set to wait out long stretches of failure before paging anyone.
-- **We could not see the blocker quickly.** The database was not logging lock waits, and our services did not label their database connections, so finding the session the migration was waiting on took longer than it should have. Once connections ran out, we restarted the database to clear them.
+- **We could not see the blocker quickly.** Nothing alerted on queries that had been running for hours, the database was not logging lock waits, and our services did not label their database connections, so finding the session the migration was waiting on took longer than it should have. Once connections ran out, we restarted the database to clear them.
 
 ## What we're changing
 
