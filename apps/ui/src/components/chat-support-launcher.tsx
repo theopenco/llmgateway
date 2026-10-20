@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ChatSupportTrigger } from "@/components/chat-support-trigger";
+import { useSessionStatus } from "@/hooks/useUser";
 import { toast } from "@/lib/components/use-toast";
 
 import type { ChatSupport as ChatSupportComponent } from "@/components/chat-support";
@@ -15,6 +16,7 @@ export function ChatSupportLauncher() {
 		typeof ChatSupportComponent | null
 	>(null);
 	const [loading, setLoading] = useState(false);
+	const { isAuthenticated } = useSessionStatus();
 
 	const prefetch = () => {
 		loadChatSupport().catch((error: unknown) => {
@@ -38,6 +40,12 @@ export function ChatSupportLauncher() {
 			})
 			.finally(() => setLoading(false));
 	};
+
+	// Anonymous visitors kept spamming the widget, so it only exists for
+	// signed-in users (the API rejects the rest anyway).
+	if (!isAuthenticated) {
+		return null;
+	}
 
 	if (ChatSupport) {
 		return <ChatSupport defaultOpen />;
