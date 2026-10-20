@@ -128,3 +128,21 @@ Use the `verify` skill to launch an isolated stack and capture the screenshot.
 ## CI
 
 The e2e workflow does **not** run automatically on PRs — e2e spends real money on provider API calls. Trigger it on demand by commenting `/e2e` on the PR (maintainers/collaborators only, and only for branches in this repository, not forks), or via `workflow_dispatch`.
+
+## Auto-merge means ship it
+
+When the user explicitly asks to set a PR to auto-merge, enable it
+(`gh pr merge <n> --auto --squash`) and own the PR until it runs in production:
+
+1. Watch the required checks and reviews. On a failing check, a merge conflict,
+   or requested changes, push a fix to the PR branch and keep watching. Never
+   bypass checks (see `AGENTS.md`).
+2. Confirm the PR merged.
+3. Follow the rollout through the deployment repository: the image-bump PR for
+   the merge commit, its merge, and the deploy run it triggers. A later image
+   bump also ships the commit. If the deploy fails for a reason unrelated to the
+   change, report it rather than changing shared infrastructure.
+4. Confirm every deployment runs the merge commit's image, then send a final
+   message saying it is live.
+
+Monitor with a background job instead of polling in the conversation.
