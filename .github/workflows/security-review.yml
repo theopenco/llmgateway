@@ -85,9 +85,15 @@ jobs:
         with:
           node-version: 22
 
+      # The false-positive filter checks API access with a hardcoded model
+      # that is deactivated; on failure it silently skips the filter and
+      # false-positives.md. Point the check at the review model instead.
       - name: Install the reviewer
         if: steps.key.outputs.present == 'true'
         run: |
+          client=.security-review/claudecode/claude_api_client.py
+          grep -q '"claude-3-5-haiku-20241022"' "$client"
+          sed -i "s/\"claude-3-5-haiku-20241022\"/\"$CLAUDE_MODEL\"/" "$client"
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q -r .security-review/claudecode/requirements.txt
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
