@@ -4001,7 +4001,7 @@ export async function prepareRequestBody(
 			delete requestBody.stream; // Will be added to inferenceConfig
 			delete requestBody.messages; // Will be transformed to Bedrock format
 			delete requestBody.tools; // Will be transformed to Bedrock format
-			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
+			delete requestBody.tool_choice; // Converse uses toolConfig.toolChoice
 			delete requestBody.parallel_tool_calls; // No Converse equivalent
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
@@ -4625,6 +4625,28 @@ export async function prepareRequestBody(
 				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
+				}
+			}
+
+			// Converse takes Claude's forced tool choice as `toolConfig.toolChoice`.
+			// Budget thinking rejects it ("Thinking may not be enabled when
+			// tool_choice forces tool use"), so those requests stay on auto, as
+			// before. Converse has no `none`.
+			if (
+				usesBedrockClaudeConverse &&
+				requestBody.toolConfig &&
+				tools?.some(isFunctionTool) &&
+				requestBody.additionalModelRequestFields?.thinking?.type !== "enabled"
+			) {
+				if (resolvedToolChoice === "required") {
+					requestBody.toolConfig.toolChoice = { any: {} };
+				} else if (
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
+				) {
+					requestBody.toolConfig.toolChoice = {
+						tool: { name: resolvedToolChoice.function.name },
+					};
 				}
 			}
 
