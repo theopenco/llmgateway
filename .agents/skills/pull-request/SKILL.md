@@ -19,6 +19,33 @@ run shared-state test files in parallel.
 
 Never open a PR from `main` — branch first if you are on it.
 
+## Self-review before opening
+
+Most review happens before the PR exists. Before `gh pr create`:
+
+1. **Prove it.** Run the thing the change affects — a test, a request against
+   the isolated stack (`verify` skill), a screenshot — and keep the output.
+   It goes under **Verification** in the PR body; "it builds" is not
+   verification.
+2. **Fresh-context review.** Hand `git diff origin/main...HEAD` and the
+   intended behaviour to a subagent (or a new session) that has not seen the
+   work, with `REVIEW.md` as its brief: hunt bugs (root cause on fixes, missed
+   call sites, migration locks, cross-org data), simplify, and report findings
+   as `file:line`. Fix or justify each one before pushing.
+3. **Fill in Rollback.** State whether a plain revert of the squash commit is
+   safe; if not, list the steps.
+
+## After opening
+
+- `pr-risk` labels the PR `risk: low|medium|high`. `risk: high`, and any PR
+  from outside the maintainer list, keeps the `risk-gate` check red until a
+  maintainer approves the latest commit; a push after approval needs a fresh
+  one.
+- CodeRabbit and `security-review` post findings as threads. Fix each one or
+  resolve it with a one-line reason; unresolved threads block the merge.
+- When the same finding comes back on a second PR, fix it at the source
+  (ESLint rule, skill line, `REVIEW.md`) in that PR.
+
 ## Creating the PR
 
 ```bash

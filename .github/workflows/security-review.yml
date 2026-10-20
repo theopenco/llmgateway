@@ -1,0 +1,56 @@
+name: security-review
+
+# A separate security pass on PRs that touch code where a bug costs money,
+# data or access. Findings land as inline review threads; the main ruleset
+# requires every thread to be resolved before merging, so a finding is either
+# fixed or closed with a one-line reason.
+#
+# The reviewer is not hardened against prompt injection, so it runs only for
+# branches in this repository, never for forks.
+
+on:
+  pull_request:
+    paths:
+      - apps/api/src/**
+      - apps/gateway/src/**
+      - apps/worker/src/**
+      - packages/actions/src/**
+      - packages/shared/src/**
+      - packages/db/src/**
+      - ee/guardrails/src/**
+      - ee/audit/src/**
+      - .github/workflows/**
+      - .github/scripts/**
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: security-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      # Pinned to a commit on main (2026-02-11); the action has no tags.
+      - uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda
+        with:
+          comment-pr: true
+          upload-results: true
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude-model: claude-opus-5-5
+          claudecode-timeout: "25"
+          exclude-directories: node_modules,dist,.next,apps/docs,apps/mobile/ios,apps/mobile/android,marketing
+          custom-security-scan-instructions: .github/security-review/scan-instructions.md
+          false-positive-filtering-instructions: .github/security-review/false-positives.md
