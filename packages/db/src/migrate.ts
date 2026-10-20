@@ -674,5 +674,17 @@ export async function runMigrateCli(argv: string[]): Promise<number> {
 	}
 	out.push(result.ok ? "Migration check passed." : "Migration check failed.");
 	process.stdout.write(out.join("\n\n") + "\n");
+	if (!result.ok) {
+		// Logged at ERROR so deploy alerting (log metric, Discord sink) sees a
+		// refused deploy, not just a failed process.
+		logger.error("Migration check failed", {
+			pending: result.pending,
+			indexProblems: result.indexProblems.map(
+				(problem) =>
+					`${problem.migration}: ${problem.index} ${problem.problem}`,
+			),
+			blockers: formatLockHolders(result.blockers),
+		});
+	}
 	return result.ok ? 0 : 1;
 }
