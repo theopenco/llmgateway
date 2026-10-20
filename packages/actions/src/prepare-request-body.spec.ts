@@ -9662,6 +9662,89 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 
 		expect(requestBody.additionalModelRequestFields?.thinking).toBeUndefined();
 	});
+	describe("aws-bedrock forced tool choice", () => {
+		test.each([
+			["required", "required" as const, { any: {} } as Record<string, unknown>],
+			[
+				"a named function",
+				{
+					type: "function" as const,
+					function: { name: "get_weather" },
+				},
+				{ tool: { name: "get_weather" } },
+			],
+		])(
+			"forwards %s as toolConfig.toolChoice",
+			async (_label, toolChoice, expected) => {
+				for (const reasoningEffort of [undefined, "none", "high"] as const) {
+					const requestBody = await prepare({
+						provider: "aws-bedrock",
+						model: "claude-haiku-5-5",
+						reasoningEffort,
+						toolChoice,
+					});
+
+					expect(requestBody.toolConfig.toolChoice).toEqual(expected);
+					expect(requestBody.tool_choice).toBeUndefined();
+				}
+			},
+		);
+
+		test("keeps sonnet-5 forced tool choice on every provider", async () => {
+			for (const provider of [
+				"anthropic",
+				"vertex-anthropic",
+				"azure-anthropic",
+			] as const) {
+				const requestBody = await prepare({
+					provider,
+					model: "claude-sonnet-5",
+					toolChoice: "required",
+				});
+				expect(requestBody.tool_choice).toEqual({ type: "any" });
+			}
+			const bedrock = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-sonnet-5",
+				toolChoice: "required",
+			});
+			expect(bedrock.toolConfig.toolChoice).toEqual({ any: {} });
+		});
+
+		test("leaves auto unset", async () => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-haiku-5-5",
+				toolChoice: "auto",
+			});
+
+			expect(requestBody.toolConfig.toolChoice).toBeUndefined();
+		});
+
+		test("stays on auto with budget thinking, which rejects forced tool use", async () => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-sonnet-4-5",
+				reasoningEffort: "high",
+				toolChoice: "required",
+			});
+
+			expect(requestBody.additionalModelRequestFields.thinking.type).toBe(
+				"enabled",
+			);
+			expect(requestBody.toolConfig.toolChoice).toBeUndefined();
+		});
+
+		test("forwards forced tool choice to budget-era models without thinking", async () => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-sonnet-4-5",
+				toolChoice: "required",
+			});
+
+			expect(requestBody.toolConfig.toolChoice).toEqual({ any: {} });
+		});
+	});
 
 	// These models 400 on `thinking: { type: "disabled" }` (verified live).
 	test.each([
