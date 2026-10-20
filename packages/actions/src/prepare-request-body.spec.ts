@@ -3004,12 +3004,12 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		).toBeUndefined();
 	});
 
-	test("normalizes none to off for Anthropic (thinking not enabled)", async () => {
+	test("forwards none to Anthropic as thinking disabled", async () => {
 		const requestBody = (await prepare({
 			provider: "anthropic",
 			model: "claude-sonnet-4-20250514",
 		})) as AnthropicRequestBody;
-		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
 	});
 });
 
@@ -9550,6 +9550,117 @@ describe("prepareRequestBody - Xiaomi", () => {
 		expect(requestBody.frequency_penalty).toBe(0.5);
 		expect(requestBody.presence_penalty).toBe(0.5);
 		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+});
+
+describe("prepareRequestBody - Anthropic thinking disabled", () => {
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				parameters: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		},
+	];
+
+	async function prepare(options: {
+		provider?:
+			"anthropic" | "vertex-anthropic" | "azure-anthropic" | "aws-bedrock";
+		model: string;
+		reasoningEffort?: Parameters<typeof prepareRequestBody>[14];
+		toolChoice?: Parameters<typeof prepareRequestBody>[13];
+	}) {
+		return (await prepareRequestBody(
+			options.provider ?? "anthropic",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			options.toolChoice ? tools : undefined,
+			options.toolChoice,
+			options.reasoningEffort,
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+	}
+
+	test.each([
+		["anthropic", "claude-haiku-5-5"],
+		["anthropic", "claude-sonnet-5"],
+		["anthropic", "claude-sonnet-4-5"],
+		["vertex-anthropic", "claude-sonnet-4-5"],
+	] as const)(
+		"%s %s forwards none as thinking disabled",
+		async (provider, model) => {
+			const requestBody = await prepare({
+				provider,
+				model,
+				reasoningEffort: "none",
+			});
+
+			expect(requestBody.thinking).toEqual({ type: "disabled" });
+			expect(requestBody.output_config?.effort).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	test("keeps a forced tool choice with thinking disabled", async () => {
+		const requestBody = await prepare({
+			model: "claude-haiku-5-5",
+			reasoningEffort: "none",
+			toolChoice: { type: "function", function: { name: "get_weather" } },
+		});
+
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.tool_choice).toEqual({
+			type: "tool",
+			name: "get_weather",
+		});
+	});
+
+	test("sends no thinking field when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "claude-haiku-5-5" });
+
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test.each(["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-4-5"])(
+		"aws-bedrock %s forwards none as thinking disabled",
+		async (model) => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model,
+				reasoningEffort: "none",
+				toolChoice: { type: "function", function: { name: "get_weather" } },
+			});
+
+			expect(requestBody.additionalModelRequestFields?.thinking).toEqual({
+				type: "disabled",
+			});
+			expect(
+				requestBody.additionalModelRequestFields?.output_config,
+			).toBeUndefined();
+		},
+	);
+
+	test("aws-bedrock sends no thinking field when no effort is requested", async () => {
+		const requestBody = await prepare({
+			provider: "aws-bedrock",
+			model: "claude-haiku-5-5",
+		});
+
+		expect(requestBody.additionalModelRequestFields?.thinking).toBeUndefined();
 	});
 });
 
