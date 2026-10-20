@@ -218,7 +218,9 @@ function ManagedPlaygroundTableRow({
 				<TableCell className="text-muted-foreground">{projectName}</TableCell>
 			)}
 			<TableCell className="min-w-40 max-w-40">
-				<span className="font-mono text-xs truncate">{apiKey.maskedToken}</span>
+				<span className="block max-w-36 truncate font-mono text-xs">
+					{apiKey.maskedToken}
+				</span>
 			</TableCell>
 			<TableCell>
 				<StatusBadge status={apiKey.status} variant="detailed" />
@@ -1262,7 +1264,7 @@ export function ApiKeysList({
 									>
 										<TableCell>{renderRowCheckbox(key)}</TableCell>
 										<TableCell className="font-medium">
-											<div className="flex flex-col items-start gap-1">
+											<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 												<span className="text-sm font-medium">
 													{key.description}
 												</span>
@@ -1275,7 +1277,7 @@ export function ApiKeysList({
 											</TableCell>
 										)}
 										<TableCell className="min-w-40 max-w-40">
-											<span className="font-mono text-xs truncate">
+											<span className="block max-w-36 truncate font-mono text-xs">
 												{key.maskedToken}
 											</span>
 										</TableCell>

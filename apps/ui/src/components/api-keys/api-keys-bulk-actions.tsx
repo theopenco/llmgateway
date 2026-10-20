@@ -84,7 +84,7 @@ export function ApiKeysSelectionBanner({
 					<Button
 						variant="link"
 						size="sm"
-						className="h-auto p-0"
+						className="h-auto p-0 font-semibold underline underline-offset-4"
 						onClick={onClear}
 					>
 						Clear selection
@@ -98,7 +98,7 @@ export function ApiKeysSelectionBanner({
 					<Button
 						variant="link"
 						size="sm"
-						className="h-auto p-0"
+						className="h-auto p-0 font-semibold underline underline-offset-4"
 						onClick={onSelectView}
 					>
 						Select all {viewCount} keys in this view
@@ -113,7 +113,7 @@ export function ApiKeysSelectionBanner({
 					<Button
 						variant="link"
 						size="sm"
-						className="h-auto p-0"
+						className="h-auto p-0 font-semibold underline underline-offset-4"
 						onClick={onSelectView}
 					>
 						Select all {viewCount}
