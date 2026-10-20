@@ -62,6 +62,7 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@/lib/components/tabs";
+import { ToastAction } from "@/lib/components/toast";
 import {
 	Tooltip,
 	TooltipContent,
@@ -78,8 +79,13 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 import {
 	ApiKeyInsightsSummary,
 	ApiKeyUnusedBadge,
+	ApiKeyLimitSuggestionHint,
 } from "./api-key-insight-indicators";
-import { getApiKeyUnusedInsight } from "./api-key-insights";
+import {
+	getApiKeyUnusedInsight,
+	formatApiKeyLimitSuggestion,
+	getApiKeyLimitSuggestion,
+} from "./api-key-insights";
 import {
 	formatCurrentPeriodUsageSummary,
 	formatCurrencyAmount,
@@ -113,7 +119,10 @@ import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
 import { RenameApiKeyDialog } from "./rename-api-key-dialog";
 import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
-import type { ApiKeyUnusedInsight } from "./api-key-insights";
+import type {
+	ApiKeyUnusedInsight,
+	ApiKeyLimitSuggestion,
+} from "./api-key-insights";
 import type { ApiKeyLimitStatus } from "./api-key-limit-status";
 import type { ApiKeyUsagePeriod } from "./api-key-usage-period";
 import type { paths } from "@/lib/api/v1";
@@ -435,6 +444,20 @@ export function ApiKeysList({
 	);
 	const insightOf = (key: ApiKey) => insights.get(key.id) ?? null;
 
+	// Unused keys get the stronger nudge to deactivate instead.
+	const limitSuggestions = useMemo(
+		() =>
+			new Map<string, ApiKeyLimitSuggestion | null>(
+				allKeys.map((key) => [
+					key.id,
+					insights.get(key.id) ? null : getApiKeyLimitSuggestion(key),
+				]),
+			),
+		[allKeys, insights],
+	);
+	const limitSuggestionOf = (key: ApiKey) =>
+		limitSuggestions.get(key.id) ?? null;
+
 	const normalizedSearch = search.trim().toLowerCase();
 	const scopedKeys = allKeys.filter(
 		(key) =>
@@ -749,6 +772,69 @@ export function ApiKeysList({
 			throw error;
 		}
 	};
+
+	const setKeyLimits = (id: string, payload: ApiKeyLimitPayload) =>
+		updateKeyUsageLimitMutation.mutateAsync({
+			params: { path: { id } },
+			body: payload,
+		});
+
+	const applyLimitSuggestion = async (
+		key: ApiKey,
+		suggestion: ApiKeyLimitSuggestion,
+	): Promise<boolean> => {
+		// Suggestions only target keys without limits, so undo clears them.
+		const noLimits: ApiKeyLimitPayload = {
+			usageLimit: null,
+			periodUsageLimit: null,
+			periodUsageDurationValue: null,
+			periodUsageDurationUnit: null,
+		};
+
+		try {
+			await setKeyLimits(key.id, { ...noLimits, ...suggestion });
+		} catch (error) {
+			toast({
+				title: "Failed to set API key limit.",
+				description: getApiErrorMessage(error, "Please try again."),
+				variant: "destructive",
+			});
+			return false;
+		}
+
+		invalidateApiKeys();
+		toast({
+			title: "API Key Limit Set",
+			description: `${key.description} is now capped at ${formatApiKeyLimitSuggestion(suggestion)}.`,
+			action: (
+				<ToastAction
+					altText="Undo"
+					onClick={async () => {
+						try {
+							await setKeyLimits(key.id, noLimits);
+							invalidateApiKeys();
+						} catch (error) {
+							toast({
+								title: "Failed to undo the API key limit.",
+								description: getApiErrorMessage(error, "Please try again."),
+								variant: "destructive",
+							});
+						}
+					}}
+				>
+					Undo
+				</ToastAction>
+			),
+		});
+		return true;
+	};
+
+	const renderLimitSuggestion = (key: ApiKey) => (
+		<ApiKeyLimitSuggestionHint
+			suggestion={limitSuggestionOf(key)}
+			onApply={(suggestion) => applyLimitSuggestion(key, suggestion)}
+		/>
+	);
 
 	const renderUsage = (key: ApiKey) => {
 		if (period !== "all") {
@@ -1323,21 +1409,24 @@ export function ApiKeysList({
 										<TableCell>{renderUsage(key)}</TableCell>
 										<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
 										<TableCell>
-											<ApiKeyLimitsDialog
-												apiKey={key}
-												onSubmit={(payload) =>
-													updateKeyUsageLimit(key.id, payload)
-												}
-											>
-												<Button
-													variant="outline"
-													size="sm"
-													className="min-w-48 flex items-center justify-between gap-3"
+											<div className="flex flex-col items-start gap-1">
+												<ApiKeyLimitsDialog
+													apiKey={key}
+													onSubmit={(payload) =>
+														updateKeyUsageLimit(key.id, payload)
+													}
 												>
-													{renderLimitSummary(key)}
-													<EditIcon />
-												</Button>
-											</ApiKeyLimitsDialog>
+													<Button
+														variant="outline"
+														size="sm"
+														className="min-w-48 flex items-center justify-between gap-3"
+													>
+														{renderLimitSummary(key)}
+														<EditIcon />
+													</Button>
+												</ApiKeyLimitsDialog>
+												{renderLimitSuggestion(key)}
+											</div>
 										</TableCell>
 										<TableCell>{renderIamRules(key)}</TableCell>
 										<TableCell className="sticky right-0 bg-card group-hover:bg-muted/30 text-center">
@@ -1448,6 +1537,7 @@ export function ApiKeysList({
 											<EditIcon />
 										</Button>
 									</ApiKeyLimitsDialog>
+									{renderLimitSuggestion(key)}
 									{renderIamRules(key, "h-7")}
 								</div>
 							</div>

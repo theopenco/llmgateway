@@ -144,6 +144,24 @@ keys and offers **Show unused** (filters the list to them) and **Select unused**
 (selects them for a bulk deactivate). Unused keys are a leak risk, so deactivate
 the ones you no longer need.
 
+### Limit suggestions
+
+An active key with no limits and low all-time spend shows a muted **Suggest**
+hint under its limits, for example **Suggest $10/week**. The suggested cap
+grows with the key's spend and is always at least twice its all-time spend, so
+it never blocks traffic the key has already served:
+
+| All-time spend | Suggested cap  |
+| -------------- | -------------- |
+| Under $1       | $10 per week   |
+| $1 to $10      | $25 per week   |
+| $10 to $50     | $100 per week  |
+| $50 to $250    | $500 per month |
+
+Click the hint, then **Set**, to apply the cap; the confirmation offers
+**Undo**, and you can change or remove the limit anytime. Keys whose creator
+has a member budget, and keys flagged as unused, get no suggestion.
+
 ### Selecting keys and bulk actions
 
 Tick the checkbox on a row to select it. The list shows 50 keys per page, and

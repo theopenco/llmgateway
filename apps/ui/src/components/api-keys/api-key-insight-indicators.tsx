@@ -1,8 +1,18 @@
 "use client";
 
-import { AlertTriangleIcon, ClockAlertIcon } from "lucide-react";
+import {
+	AlertTriangleIcon,
+	ClockAlertIcon,
+	ShieldCheckIcon,
+} from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/lib/components/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/lib/components/popover";
 import {
 	Tooltip,
 	TooltipContent,
@@ -14,9 +24,13 @@ import {
 	UNUSED_CRITICAL_DAYS,
 	UNUSED_WARNING_DAYS,
 	describeApiKeyUnusedInsight,
+	formatApiKeyLimitSuggestion,
 } from "./api-key-insights";
 
-import type { ApiKeyUnusedInsight } from "./api-key-insights";
+import type {
+	ApiKeyUnusedInsight,
+	ApiKeyLimitSuggestion,
+} from "./api-key-insights";
 
 const levelTone = {
 	warning:
@@ -116,5 +130,73 @@ export function ApiKeyInsightsSummary({
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+/** Muted nudge to cap a low-spend key that has no limit. */
+export function ApiKeyLimitSuggestionHint({
+	suggestion,
+	onApply,
+}: {
+	suggestion: ApiKeyLimitSuggestion | null;
+	onApply: (suggestion: ApiKeyLimitSuggestion) => Promise<boolean>;
+}) {
+	const [open, setOpen] = useState(false);
+	const [isApplying, setIsApplying] = useState(false);
+
+	if (!suggestion) {
+		return null;
+	}
+
+	const label = formatApiKeyLimitSuggestion(suggestion);
+
+	return (
+		<Popover open={open} onOpenChange={setOpen}>
+			<PopoverTrigger asChild>
+				<button
+					type="button"
+					className="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-xs transition-colors"
+				>
+					<ShieldCheckIcon className="h-3 w-3" />
+					Suggest {label}
+				</button>
+			</PopoverTrigger>
+			<PopoverContent align="start" className="w-72 space-y-3 text-sm">
+				<p>
+					This key spends little and has no limit. A cap of{" "}
+					<strong>{label}</strong> keeps a leaked key from running up costs
+					without getting in the way of its current usage.
+				</p>
+				<p className="text-muted-foreground text-xs">
+					Change or remove it anytime from the key's limits.
+				</p>
+				<div className="flex justify-end gap-2">
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={isApplying}
+						onClick={() => setOpen(false)}
+					>
+						Not now
+					</Button>
+					<Button
+						size="sm"
+						disabled={isApplying}
+						onClick={async () => {
+							setIsApplying(true);
+							try {
+								if (await onApply(suggestion)) {
+									setOpen(false);
+								}
+							} finally {
+								setIsApplying(false);
+							}
+						}}
+					>
+						{isApplying ? "Setting..." : `Set ${label}`}
+					</Button>
+				</div>
+			</PopoverContent>
+		</Popover>
 	);
 }
