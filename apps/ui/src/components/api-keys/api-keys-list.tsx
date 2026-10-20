@@ -1,6 +1,11 @@
+"use client";
+
 import { useQueryClient } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
 import {
 	BarChart3Icon,
+	ChevronLeftIcon,
+	ChevronRightIcon,
 	EditIcon,
 	KeyIcon,
 	MoreHorizontal,
@@ -8,10 +13,11 @@ import {
 	PlusIcon,
 	PowerIcon,
 	RefreshCwIcon,
+	SearchIcon,
 	Shield,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -37,6 +43,15 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
+import { Input } from "@/lib/components/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
+import { SelectionCheckbox } from "@/lib/components/selection-checkbox";
 import { StatusBadge } from "@/lib/components/status-badge";
 import {
 	Table,
@@ -58,7 +73,13 @@ import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
 
 import { Time } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
+import {
+	ApiKeyInsightsSummary,
+	ApiKeyUnusedBadge,
+} from "./api-key-insight-indicators";
+import { getApiKeyUnusedInsight } from "./api-key-insights";
 import {
 	formatCurrentPeriodUsageSummary,
 	formatCurrencyAmount,
@@ -72,42 +93,139 @@ import {
 } from "./api-key-limit-indicators";
 import { getApiKeyLimitStatus } from "./api-key-limit-status";
 import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
+import {
+	summarizeApiKeySelection,
+	toggleKeySelection,
+	togglePageSelection,
+} from "./api-key-selection";
 import { formatApiKeyExpiry } from "./api-key-ttl-fields";
+import {
+	apiKeyUsagePeriodLabel,
+	parseApiKeyUsagePeriod,
+} from "./api-key-usage-period";
+import { ApiKeyUsagePeriodSelect } from "./api-key-usage-period-select";
+import {
+	ApiKeysBulkActionBar,
+	ApiKeysSelectionBanner,
+} from "./api-keys-bulk-actions";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
 import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
 import { RenameApiKeyDialog } from "./rename-api-key-dialog";
 import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
+import type { ApiKeyUnusedInsight } from "./api-key-insights";
 import type { ApiKeyLimitStatus } from "./api-key-limit-status";
+import type { ApiKeyUsagePeriod } from "./api-key-usage-period";
+import type { paths } from "@/lib/api/v1";
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
+import type { ReactNode } from "react";
+
+/** Which keys a list shows: one project, or every project of an organization. */
+export type ApiKeysScope =
+	| { type: "project"; project: Project | null }
+	| { type: "organization"; organizationId: string; projects: Project[] };
+
+/** GET /keys/api response, as rendered by the server page. */
+export type ApiKeysResponse =
+	paths["/keys/api"]["get"]["responses"][200]["content"]["application/json"];
 
 interface ApiKeysListProps {
-	selectedProject: Project | null;
-	initialData: ApiKey[];
+	scope: ApiKeysScope;
+	initialData: ApiKeysResponse | undefined;
+	/** Period the SSR `initialData` was fetched for. */
+	initialPeriod: ApiKeyUsagePeriod;
 }
 
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
-type LimitFilter = "all" | "approaching" | "reached";
+type UsageFilter = "all" | "approaching" | "reached" | "unused";
+
+export const API_KEYS_PAGE_SIZE = 50;
+
+const ALL_PROJECTS = "__all__";
+
+/** Query params of GET /keys/api for a scope, shared with the page header. */
+export function apiKeysScopeQuery(scope: ApiKeysScope) {
+	return scope.type === "project"
+		? { projectId: scope.project?.id ?? "" }
+		: { organizationId: scope.organizationId };
+}
+
+export function isApiKeysScopeReady(scope: ApiKeysScope): boolean {
+	return scope.type === "project"
+		? !!scope.project?.id
+		: !!scope.organizationId;
+}
+
+export function formatPlanLimitMessage(planLimits: {
+	plan: "free" | "pro" | "enterprise";
+	maxKeys: number;
+}): string {
+	const plan =
+		planLimits.plan === "enterprise"
+			? "Enterprise"
+			: planLimits.plan === "pro"
+				? "Pro"
+				: "Free";
+	return `${plan} plan allows maximum ${planLimits.maxKeys} API keys per organization`;
+}
+
+function activeRuleCount(key: ApiKey): number {
+	return key.iamRules?.filter((rule) => rule.status === "active").length ?? 0;
+}
+
+function renderLastUsed(key: ApiKey) {
+	if (!key.lastUsedAt) {
+		return <span className="text-muted-foreground text-xs">Never</span>;
+	}
+
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="text-muted-foreground cursor-help text-xs">
+					{formatDistanceToNow(new Date(key.lastUsedAt), { addSuffix: true })}
+				</span>
+			</TooltipTrigger>
+			<TooltipContent>
+				<p className="max-w-xs text-xs whitespace-nowrap">
+					Last request in the hour starting{" "}
+					<Time date={key.lastUsedAt} format="monthDayYearHourMinuteZone" />
+				</p>
+			</TooltipContent>
+		</Tooltip>
+	);
+}
 
 function ManagedPlaygroundTableRow({
 	apiKey,
 	statisticsUrl,
+	projectName,
+	usage,
+	lastUsed,
 }: {
 	apiKey: ApiKey;
 	statisticsUrl: Route;
+	projectName?: string;
+	usage: ReactNode;
+	lastUsed: ReactNode;
 }) {
 	return (
 		<TableRow className="hover:bg-muted/30 transition-colors">
+			<TableCell />
 			<TableCell>
 				<div className="flex items-center gap-2">
 					<span className="font-medium">Playground</span>
 					<Badge variant="outline">Managed</Badge>
 				</div>
 			</TableCell>
+			{projectName !== undefined && (
+				<TableCell className="text-muted-foreground">{projectName}</TableCell>
+			)}
 			<TableCell className="min-w-40 max-w-40">
-				<span className="font-mono text-xs truncate">{apiKey.maskedToken}</span>
+				<span className="block max-w-36 truncate font-mono text-xs">
+					{apiKey.maskedToken}
+				</span>
 			</TableCell>
 			<TableCell>
 				<StatusBadge status={apiKey.status} variant="detailed" />
@@ -115,10 +233,11 @@ function ManagedPlaygroundTableRow({
 			<TableCell>
 				<Time date={apiKey.createdAt} format="monthDayYear" />
 			</TableCell>
+			<TableCell>{lastUsed}</TableCell>
 			<TableCell className="text-muted-foreground">
 				{apiKey.creator?.name ?? apiKey.creator?.email ?? "Unknown"}
 			</TableCell>
-			<TableCell>{formatCurrencyAmount(apiKey.usage)}</TableCell>
+			<TableCell>{usage}</TableCell>
 			<TableCell className="text-muted-foreground">
 				{formatCurrentPeriodUsageSummary(apiKey).summary}
 			</TableCell>
@@ -139,9 +258,11 @@ function ManagedPlaygroundTableRow({
 function ManagedPlaygroundCard({
 	apiKey,
 	statisticsUrl,
+	usage,
 }: {
 	apiKey: ApiKey;
 	statisticsUrl: Route;
+	usage: ReactNode;
 }) {
 	return (
 		<div className="border rounded-lg p-3 space-y-3">
@@ -167,15 +288,7 @@ function ManagedPlaygroundCard({
 				</div>
 				<div>
 					<div className="text-xs text-muted-foreground mb-1">Usage</div>
-					<div className="font-mono text-xs">
-						{formatCurrencyAmount(apiKey.usage)}
-					</div>
-				</div>
-			</div>
-			<div className="pt-2 border-t">
-				<div className="text-xs text-muted-foreground mb-1">Created By</div>
-				<div className="text-sm">
-					{apiKey.creator?.name ?? apiKey.creator?.email ?? "Unknown"}
+					{usage}
 				</div>
 			</div>
 		</div>
@@ -183,31 +296,73 @@ function ManagedPlaygroundCard({
 }
 
 export function ApiKeysList({
-	selectedProject,
+	scope,
 	initialData,
+	initialPeriod,
 }: ApiKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const pathname = usePathname();
+	const router = useRouter();
+	const searchParams = useSearchParams();
 	const { selectedOrganization } = useDashboardNavigation();
 	// Developers only ever see their own keys, so the All/Mine selector is hidden.
 	const isDeveloper = selectedOrganization?.role === "developer";
-	const { orgId, projectId } = useMemo(
+	const { orgId } = useMemo(
 		() => extractOrgAndProjectFromPath(pathname),
 		[pathname],
 	);
+	const isOrgScope = scope.type === "organization";
+	const period = parseApiKeyUsagePeriod(searchParams.get("period"));
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
-	const [limitFilter, setLimitFilter] = useState<LimitFilter>("all");
+	const [usageFilter, setUsageFilter] = useState<UsageFilter>("all");
+	const [projectFilter, setProjectFilter] = useState<string>(ALL_PROJECTS);
+	const [search, setSearch] = useState("");
+	const [page, setPage] = useState(0);
+	const [selected, setSelected] = useState<Set<string>>(() => new Set());
 	const [reactivateKey, setReactivateKey] = useState<ApiKey | null>(null);
 	const [rollKey, setRollKey] = useState<ApiKey | null>(null);
 	const [renameKey, setRenameKey] = useState<ApiKey | null>(null);
+	const [now] = useState(() => new Date());
 
-	const getIamRulesUrl = (keyId: string) =>
-		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
+	const projectNames = useMemo(
+		() =>
+			new Map(
+				(scope.type === "organization" ? scope.projects : []).map((project) => [
+					project.id,
+					project.name,
+				]),
+			),
+		[scope],
+	);
 
-	const getStatisticsUrl = (keyId: string) =>
-		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}` as Route;
+	const getIamRulesUrl = (key: ApiKey) =>
+		`/dashboard/${orgId}/${key.projectId}/api-keys/${key.id}/iam` as Route;
+
+	const getStatisticsUrl = (key: ApiKey) =>
+		`/dashboard/${orgId}/${key.projectId}/api-keys/${key.id}` as Route;
+
+	// Every view change starts a fresh selection on the first page, so a bulk
+	// action never touches keys the user can no longer see.
+	const resetView = () => {
+		setSelected(new Set());
+		setPage(0);
+	};
+
+	const setPeriod = (next: ApiKeyUsagePeriod) => {
+		const params = new URLSearchParams(searchParams.toString());
+		if (next === "all") {
+			params.delete("period");
+		} else {
+			params.set("period", next);
+		}
+		const query = params.toString();
+		resetView();
+		router.replace(`${pathname}${query ? `?${query}` : ""}` as Route, {
+			scroll: false,
+		});
+	};
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -216,28 +371,21 @@ export function ApiKeysList({
 		{
 			params: {
 				query: {
-					projectId: selectedProject?.id ?? "",
+					...apiKeysScopeQuery(scope),
 					filter: creatorFilter,
+					period,
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: isApiKeysScopeReady(scope),
 			staleTime: 5 * 60 * 1000, // 5 minutes
 			refetchOnWindowFocus: false,
-			refetchOnMount: false,
 			refetchInterval: false,
-			// Only use initialData when filter is "all" (matches the SSR data)
-			...(creatorFilter === "all" && {
-				initialData: {
-					apiKeys: initialData.map((key) => ({
-						...key,
-						maskedToken: key.maskedToken,
-						ownerBudget: key.ownerBudget ?? null,
-					})),
-					userRole: "owner" as const,
-				},
-			}),
+			// Only use initialData for the query the server rendered
+			...(creatorFilter === "all" &&
+				period === initialPeriod &&
+				initialData && { initialData }),
 		},
 	);
 
@@ -262,28 +410,52 @@ export function ApiKeysList({
 	const { mutateAsync: renameKeyAsync, isPending: isRenamePending } =
 		api.useMutation("patch", "/keys/api/{id}");
 
-	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
-	const activeKeys = allKeys.filter((key) => key.status === "active");
-	const inactiveKeys = allKeys.filter((key) => key.status === "inactive");
+	const allKeys = useMemo(
+		() => data?.apiKeys.filter((key) => key.status !== "deleted") ?? [],
+		[data],
+	);
 	const planLimits = data?.planLimits;
 
-	const limitStatuses = new Map<string, ApiKeyLimitStatus>(
-		allKeys.map((key) => [key.id, getApiKeyLimitStatus(key)]),
+	const limitStatuses = useMemo(
+		() =>
+			new Map<string, ApiKeyLimitStatus>(
+				allKeys.map((key) => [key.id, getApiKeyLimitStatus(key)]),
+			),
+		[allKeys],
 	);
 	const limitStatusOf = (key: ApiKey): ApiKeyLimitStatus =>
 		limitStatuses.get(key.id) ?? { period: null, state: null, total: null };
 
-	const statusFilteredKeys = (() => {
-		switch (statusFilter) {
-			case "active":
-				return activeKeys;
-			case "inactive":
-				return inactiveKeys;
-			case "all":
-			default:
-				return allKeys;
-		}
-	})();
+	const insights = useMemo(
+		() =>
+			new Map<string, ApiKeyUnusedInsight | null>(
+				allKeys.map((key) => [key.id, getApiKeyUnusedInsight(key, now)]),
+			),
+		[allKeys, now],
+	);
+	const insightOf = (key: ApiKey) => insights.get(key.id) ?? null;
+
+	const normalizedSearch = search.trim().toLowerCase();
+	const scopedKeys = allKeys.filter(
+		(key) =>
+			(projectFilter === ALL_PROJECTS || key.projectId === projectFilter) &&
+			(!normalizedSearch ||
+				key.description.toLowerCase().includes(normalizedSearch) ||
+				key.maskedToken.toLowerCase().includes(normalizedSearch)),
+	);
+	const activeKeys = scopedKeys.filter((key) => key.status === "active");
+	const inactiveKeys = scopedKeys.filter((key) => key.status === "inactive");
+	const unusedKeys = scopedKeys.filter((key) => insightOf(key) !== null);
+	const criticalUnusedCount = unusedKeys.filter(
+		(key) => insightOf(key)?.level === "critical",
+	).length;
+
+	const statusFilteredKeys =
+		statusFilter === "active"
+			? activeKeys
+			: statusFilter === "inactive"
+				? inactiveKeys
+				: scopedKeys;
 
 	const approachingKeys = statusFilteredKeys.filter(
 		(key) => limitStatusOf(key).state === "approaching",
@@ -291,22 +463,41 @@ export function ApiKeysList({
 	const reachedKeys = statusFilteredKeys.filter(
 		(key) => limitStatusOf(key).state === "reached",
 	);
+	const unusedInStatus = statusFilteredKeys.filter(
+		(key) => insightOf(key) !== null,
+	);
 
-	const filteredKeys = (() => {
-		switch (limitFilter) {
-			case "approaching":
-				return approachingKeys;
-			case "reached":
-				return reachedKeys;
-			case "all":
-			default:
-				return statusFilteredKeys;
-		}
-	})();
+	const filteredKeys =
+		usageFilter === "approaching"
+			? approachingKeys
+			: usageFilter === "reached"
+				? reachedKeys
+				: usageFilter === "unused"
+					? unusedInStatus
+					: statusFilteredKeys;
+
+	const pageCount = Math.max(
+		1,
+		Math.ceil(filteredKeys.length / API_KEYS_PAGE_SIZE),
+	);
+	const currentPage = Math.min(page, pageCount - 1);
+	const pageStart = currentPage * API_KEYS_PAGE_SIZE;
+	const pageKeys = filteredKeys.slice(
+		pageStart,
+		pageStart + API_KEYS_PAGE_SIZE,
+	);
+	const selectableIds = (keys: ApiKey[]) =>
+		keys.filter((key) => key.kind !== "playground").map((key) => key.id);
+	const viewIds = selectableIds(filteredKeys);
+	const pageIds = selectableIds(pageKeys);
+	const selection = summarizeApiKeySelection(selected, pageIds, viewIds);
+	const selectedKeys = filteredKeys.filter((key) =>
+		selection.selectedIds.includes(key.id),
+	);
 
 	// Auto-switch to a tab with content if current tab becomes empty
 	useEffect(() => {
-		if (statusFilteredKeys.length === 0 && allKeys.length > 0) {
+		if (statusFilteredKeys.length === 0 && scopedKeys.length > 0) {
 			if (statusFilter === "active" && inactiveKeys.length > 0) {
 				setStatusFilter("inactive");
 			} else if (statusFilter === "inactive" && activeKeys.length > 0) {
@@ -317,7 +508,7 @@ export function ApiKeysList({
 		}
 	}, [
 		statusFilteredKeys.length,
-		allKeys.length,
+		scopedKeys.length,
 		activeKeys.length,
 		inactiveKeys.length,
 		statusFilter,
@@ -325,15 +516,21 @@ export function ApiKeysList({
 
 	// Drop a usage filter once no key in the current status tab matches it.
 	useEffect(() => {
-		if (limitFilter === "approaching" && approachingKeys.length === 0) {
-			setLimitFilter("all");
-		} else if (limitFilter === "reached" && reachedKeys.length === 0) {
-			setLimitFilter("all");
+		if (
+			(usageFilter === "approaching" && approachingKeys.length === 0) ||
+			(usageFilter === "reached" && reachedKeys.length === 0) ||
+			(usageFilter === "unused" && unusedInStatus.length === 0)
+		) {
+			setUsageFilter("all");
 		}
-	}, [limitFilter, approachingKeys.length, reachedKeys.length]);
+	}, [
+		usageFilter,
+		approachingKeys.length,
+		reachedKeys.length,
+		unusedInStatus.length,
+	]);
 
-	// Show message if no project is selected
-	if (!selectedProject) {
+	if (scope.type === "project" && !scope.project) {
 		return (
 			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
 				<div className="mb-4">
@@ -372,6 +569,10 @@ export function ApiKeysList({
 		);
 	}
 
+	const invalidateApiKeys = () => {
+		void queryClient.invalidateQueries({ queryKey: ["get", "/keys/api"] });
+	};
+
 	const deleteKey = (id: string) => {
 		deleteMutation(
 			{
@@ -381,28 +582,11 @@ export function ApiKeysList({
 			},
 			{
 				onSuccess: () => {
-					const queryKey = api.queryOptions("get", "/keys/api", {
-						params: {
-							query: { projectId: selectedProject.id },
-						},
-					}).queryKey;
-
-					void queryClient.invalidateQueries({ queryKey });
-
+					invalidateApiKeys();
 					toast({ title: "API key deleted successfully." });
 				},
 			},
 		);
-	};
-
-	const invalidateApiKeys = () => {
-		const queryKey = api.queryOptions("get", "/keys/api", {
-			params: {
-				query: { projectId: selectedProject.id },
-			},
-		}).queryKey;
-
-		void queryClient.invalidateQueries({ queryKey });
 	};
 
 	const toggleStatus = (key: ApiKey) => {
@@ -547,13 +731,7 @@ export function ApiKeysList({
 				},
 				{
 					onSuccess: () => {
-						const queryKey = api.queryOptions("get", "/keys/api", {
-							params: {
-								query: { projectId: selectedProject.id },
-							},
-						}).queryKey;
-
-						void queryClient.invalidateQueries({ queryKey });
+						invalidateApiKeys();
 
 						toast({
 							title: "API Key Limits Updated",
@@ -573,6 +751,20 @@ export function ApiKeysList({
 	};
 
 	const renderUsage = (key: ApiKey) => {
+		if (period !== "all") {
+			return (
+				<div className="space-y-0.5">
+					<div className="font-mono text-xs">
+						{formatCurrencyAmount(key.periodUsage ?? "0")}
+					</div>
+					<div className="text-muted-foreground text-xs">
+						{formatNumber(key.periodRequestCount ?? 0)} request
+						{key.periodRequestCount === 1 ? "" : "s"}
+					</div>
+				</div>
+			);
+		}
+
 		const total = limitStatusOf(key).total;
 
 		return (
@@ -593,8 +785,8 @@ export function ApiKeysList({
 
 	const renderCurrentPeriodUsage = (key: ApiKey) => {
 		const summary = formatCurrentPeriodUsageSummary(key);
-		const period = limitStatusOf(key).period;
-		const reached = period?.state === "reached";
+		const limitPeriod = limitStatusOf(key).period;
+		const reached = limitPeriod?.state === "reached";
 
 		return (
 			<div className="space-y-1">
@@ -603,12 +795,12 @@ export function ApiKeysList({
 						summary.windowLabel
 							? "font-mono text-xs"
 							: "text-muted-foreground text-xs",
-						period && apiKeyLimitTextTone[period.state],
+						limitPeriod && apiKeyLimitTextTone[limitPeriod.state],
 					)}
 				>
 					{summary.summary}
 				</div>
-				{period && <ApiKeyLimitMeter gauge={period} />}
+				{limitPeriod && <ApiKeyLimitMeter gauge={limitPeriod} />}
 				{summary.windowLabel && (
 					<div className="text-muted-foreground text-xs">
 						Every {summary.windowLabel}
@@ -646,7 +838,7 @@ export function ApiKeysList({
 	};
 
 	const renderLimitSummary = (key: ApiKey) => {
-		const { period, total } = limitStatusOf(key);
+		const { period: limitPeriod, total } = limitStatusOf(key);
 
 		return (
 			<div className="text-left">
@@ -663,8 +855,8 @@ export function ApiKeysList({
 				<div
 					className={cn(
 						"text-xs",
-						period && period.state !== "ok"
-							? apiKeyLimitTextTone[period.state]
+						limitPeriod && limitPeriod.state !== "ok"
+							? apiKeyLimitTextTone[limitPeriod.state]
 							: "text-muted-foreground",
 					)}
 				>
@@ -674,6 +866,103 @@ export function ApiKeysList({
 		);
 	};
 
+	const renderIamRules = (key: ApiKey, className?: string) => {
+		const count = activeRuleCount(key);
+		return (
+			<Button
+				variant={count ? "outline" : "ghost"}
+				size="sm"
+				className={cn("text-xs", !count && "text-muted-foreground", className)}
+				asChild
+			>
+				<Link href={getIamRulesUrl(key)}>
+					{count ? `${count} rule${count === 1 ? "" : "s"}` : "No rules"}
+				</Link>
+			</Button>
+		);
+	};
+
+	const renderActions = (key: ApiKey) => (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button variant="ghost" size="icon" className="h-8 w-8">
+					<MoreHorizontal className="h-4 w-4" />
+					<span className="sr-only">Open menu</span>
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				<DropdownMenuLabel>Actions</DropdownMenuLabel>
+				<DropdownMenuItem asChild>
+					<Link href={getStatisticsUrl(key)} prefetch={true}>
+						<BarChart3Icon className="mr-2 h-4 w-4" />
+						View Statistics
+					</Link>
+				</DropdownMenuItem>
+				<DropdownMenuItem asChild>
+					<Link href={getIamRulesUrl(key)}>
+						<Shield className="mr-2 h-4 w-4" />
+						Manage IAM Rules
+					</Link>
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem onClick={() => setRenameKey(key)}>
+					<PencilIcon className="mr-2 h-4 w-4" />
+					Rename Key
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={() => toggleStatus(key)}>
+					<PowerIcon className="mr-2 h-4 w-4" />
+					{key.status === "active" ? "Deactivate" : "Activate"} Key
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={() => setRollKey(key)}>
+					<RefreshCwIcon className="mr-2 h-4 w-4" />
+					Roll Key
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<AlertDialog>
+					<AlertDialogTrigger asChild>
+						<DropdownMenuItem
+							onSelect={(e) => e.preventDefault()}
+							className="text-destructive focus:text-destructive"
+						>
+							Delete
+						</DropdownMenuItem>
+					</AlertDialogTrigger>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+							<AlertDialogDescription>
+								This action cannot be undone. This will permanently delete the
+								API key and it will no longer be able to access your account.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>Cancel</AlertDialogCancel>
+							<AlertDialogAction onClick={() => deleteKey(key.id)}>
+								Delete
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+
+	const renderRowCheckbox = (key: ApiKey) => (
+		<SelectionCheckbox
+			checked={selected.has(key.id)}
+			onCheckedChange={() => setSelected(toggleKeySelection(selected, key.id))}
+			aria-label={`Select ${key.description}`}
+		/>
+	);
+
+	const createDialogProps =
+		scope.type === "project"
+			? { selectedProject: scope.project! }
+			: { projects: scope.projects };
+	const createDisabled = planLimits
+		? planLimits.currentCount >= planLimits.maxKeys
+		: false;
+
 	if (allKeys.length === 0) {
 		return (
 			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
@@ -682,21 +971,15 @@ export function ApiKeysList({
 				</div>
 				<p className="text-gray-400 mb-6">No API keys have been created yet.</p>
 				<CreateApiKeyDialog
-					selectedProject={selectedProject}
-					disabled={
-						planLimits ? planLimits.currentCount >= planLimits.maxKeys : false
-					}
+					{...createDialogProps}
+					disabled={createDisabled}
 					disabledMessage={
-						planLimits
-							? `${planLimits.plan === "enterprise" ? "Enterprise" : planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per organization`
-							: undefined
+						planLimits ? formatPlanLimitMessage(planLimits) : undefined
 					}
 				>
 					<Button
 						type="button"
-						disabled={
-							planLimits ? planLimits.currentCount >= planLimits.maxKeys : false
-						}
+						disabled={createDisabled}
 						className="cursor-pointer flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
 					>
 						<PlusIcon className="h-5 w-5" />
@@ -707,125 +990,185 @@ export function ApiKeysList({
 		);
 	}
 
+	const countBadge = (count: number, active: boolean) => (
+		<Badge variant={active ? "default" : "outline"} className="text-xs">
+			{count}
+		</Badge>
+	);
+
+	const usageLabel = apiKeyUsagePeriodLabel(period);
+
 	return (
-		<>
-			{/* Filter Tabs */}
-			<div className="mb-6 flex flex-col gap-4">
+		<div className="space-y-3">
+			<div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
 				{/* Creator Filter — hidden for developers (own keys only) */}
 				{!isDeveloper && (
 					<Tabs
 						value={creatorFilter}
-						onValueChange={(value) => setCreatorFilter(value as CreatorFilter)}
+						onValueChange={(value) => {
+							resetView();
+							setCreatorFilter(value as CreatorFilter);
+						}}
 					>
-						<TabsList className="flex space-x-2 w-full md:w-fit">
+						<TabsList className="w-full lg:w-fit">
 							<TabsTrigger value="all">All Keys</TabsTrigger>
 							<TabsTrigger value="mine">My Keys</TabsTrigger>
 						</TabsList>
 					</Tabs>
 				)}
 
-				<div className="flex flex-col gap-4 md:flex-row md:items-center">
-					{/* Status Filter Tabs */}
-					<Tabs
-						value={statusFilter}
-						onValueChange={(value) => setStatusFilter(value as StatusFilter)}
-					>
-						<TabsList className="flex space-x-2 w-full md:w-fit">
-							<TabsTrigger value="all">
-								All{" "}
-								<Badge
-									variant={statusFilter === "all" ? "default" : "outline"}
-									className="text-xs"
-								>
-									{allKeys.length}
-								</Badge>
+				<Tabs
+					value={statusFilter}
+					onValueChange={(value) => {
+						resetView();
+						setStatusFilter(value as StatusFilter);
+					}}
+				>
+					<TabsList className="w-full lg:w-fit">
+						<TabsTrigger value="all">
+							All {countBadge(scopedKeys.length, statusFilter === "all")}
+						</TabsTrigger>
+						{activeKeys.length > 0 && (
+							<TabsTrigger value="active">
+								Active{" "}
+								{countBadge(activeKeys.length, statusFilter === "active")}
 							</TabsTrigger>
-							{activeKeys.length > 0 && (
-								<TabsTrigger value="active">
-									Active{" "}
-									<Badge
-										variant={statusFilter === "active" ? "default" : "outline"}
-										className="text-xs"
-									>
-										{activeKeys.length}
-									</Badge>
+						)}
+						{inactiveKeys.length > 0 && (
+							<TabsTrigger value="inactive">
+								Inactive{" "}
+								{countBadge(inactiveKeys.length, statusFilter === "inactive")}
+							</TabsTrigger>
+						)}
+					</TabsList>
+				</Tabs>
+
+				{(approachingKeys.length > 0 ||
+					reachedKeys.length > 0 ||
+					unusedInStatus.length > 0) && (
+					<Tabs
+						value={usageFilter}
+						onValueChange={(value) => {
+							resetView();
+							setUsageFilter(value as UsageFilter);
+						}}
+					>
+						<TabsList className="w-full lg:w-fit">
+							<TabsTrigger value="all">Any usage</TabsTrigger>
+							{approachingKeys.length > 0 && (
+								<TabsTrigger value="approaching">
+									Near limit{" "}
+									{countBadge(
+										approachingKeys.length,
+										usageFilter === "approaching",
+									)}
 								</TabsTrigger>
 							)}
-							{inactiveKeys.length > 0 && (
-								<TabsTrigger value="inactive">
-									Inactive{" "}
-									<Badge
-										variant={
-											statusFilter === "inactive" ? "default" : "outline"
-										}
-										className="text-xs"
-									>
-										{inactiveKeys.length}
-									</Badge>
+							{reachedKeys.length > 0 && (
+								<TabsTrigger value="reached">
+									Limit reached{" "}
+									{countBadge(reachedKeys.length, usageFilter === "reached")}
+								</TabsTrigger>
+							)}
+							{unusedInStatus.length > 0 && (
+								<TabsTrigger value="unused">
+									Unused{" "}
+									{countBadge(unusedInStatus.length, usageFilter === "unused")}
 								</TabsTrigger>
 							)}
 						</TabsList>
 					</Tabs>
+				)}
 
-					{/* Usage Limit Filter Tabs */}
-					{(approachingKeys.length > 0 || reachedKeys.length > 0) && (
-						<Tabs
-							value={limitFilter}
-							onValueChange={(value) => setLimitFilter(value as LimitFilter)}
+				<div className="flex flex-col gap-2 md:flex-row lg:ml-auto">
+					{scope.type === "organization" && (
+						<Select
+							value={projectFilter}
+							onValueChange={(value) => {
+								resetView();
+								setProjectFilter(value);
+							}}
 						>
-							<TabsList className="flex space-x-2 w-full md:w-fit">
-								<TabsTrigger value="all">Any usage</TabsTrigger>
-								{approachingKeys.length > 0 && (
-									<TabsTrigger value="approaching">
-										Near limit{" "}
-										<Badge
-											variant={
-												limitFilter === "approaching" ? "default" : "outline"
-											}
-											className="text-xs"
-										>
-											{approachingKeys.length}
-										</Badge>
-									</TabsTrigger>
-								)}
-								{reachedKeys.length > 0 && (
-									<TabsTrigger value="reached">
-										Limit reached{" "}
-										<Badge
-											variant={
-												limitFilter === "reached" ? "default" : "outline"
-											}
-											className="text-xs"
-										>
-											{reachedKeys.length}
-										</Badge>
-									</TabsTrigger>
-								)}
-							</TabsList>
-						</Tabs>
+							<SelectTrigger
+								size="sm"
+								className="w-full md:w-44"
+								aria-label="Project"
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={ALL_PROJECTS}>All projects</SelectItem>
+								{scope.projects.map((project) => (
+									<SelectItem key={project.id} value={project.id}>
+										{project.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					)}
+					<div className="relative">
+						<SearchIcon className="text-muted-foreground absolute left-2.5 top-2 h-4 w-4" />
+						<Input
+							value={search}
+							onChange={(event) => {
+								resetView();
+								setSearch(event.target.value);
+							}}
+							placeholder="Search keys"
+							aria-label="Search API keys"
+							className="h-8 w-full pl-8 md:w-48"
+						/>
+					</div>
+					<ApiKeyUsagePeriodSelect value={period} onChange={setPeriod} />
 				</div>
 			</div>
 
-			{/* Plan Limits Display */}
 			{planLimits && (
-				<div className="mb-4 rounded-lg border bg-muted/30 p-4">
-					<div className="flex items-center justify-between">
-						<div className="flex items-center gap-4">
-							<div className="text-sm text-muted-foreground">
-								<span className="font-medium">API Keys:</span>{" "}
-								{planLimits.currentCount} of {planLimits.maxKeys} used
-							</div>
-						</div>
-						{planLimits.currentCount >= planLimits.maxKeys && (
-							<div className="text-xs text-amber-600 font-medium">
-								Limit reached — contact us at contact@llmgateway.io to unlock
-								more
-							</div>
-						)}
-					</div>
+				<div className="text-muted-foreground flex flex-wrap items-center gap-x-3 text-xs">
+					<span>
+						<span className="font-medium">Active API keys:</span>{" "}
+						{planLimits.currentCount} of {planLimits.maxKeys} used across the
+						organization
+					</span>
+					{planLimits.currentCount >= planLimits.maxKeys && (
+						<span className="text-amber-600 font-medium">
+							Limit reached — contact us at contact@llmgateway.io to unlock more
+						</span>
+					)}
 				</div>
 			)}
+
+			<ApiKeyInsightsSummary
+				warningCount={unusedKeys.length - criticalUnusedCount}
+				criticalCount={criticalUnusedCount}
+				showingUnused={usageFilter === "unused"}
+				onShowUnused={() => {
+					resetView();
+					setStatusFilter("active");
+					setUsageFilter("unused");
+				}}
+				onSelectUnused={() => {
+					setPage(0);
+					setStatusFilter("active");
+					setUsageFilter("unused");
+					setSelected(new Set(unusedKeys.map((key) => key.id)));
+				}}
+			/>
+
+			<ApiKeysBulkActionBar
+				selectedKeys={selectedKeys}
+				onClear={() => setSelected(new Set())}
+			/>
+			<ApiKeysSelectionBanner
+				selectedCount={selection.selectedIds.length}
+				pageCount={pageIds.length}
+				viewCount={viewIds.length}
+				allPageSelected={selection.allPageSelected}
+				allViewSelected={selection.allViewSelected}
+				viewExceedsPage={selection.viewExceedsPage}
+				onSelectView={() => setSelected(new Set(viewIds))}
+				onClear={() => setSelected(new Set())}
+			/>
 
 			{filteredKeys.length === 0 && (
 				<div className="text-muted-foreground py-10 text-center text-sm">
@@ -834,342 +1177,264 @@ export function ApiKeysList({
 			)}
 
 			{/* Desktop Table */}
-			<div className="hidden md:block overflow-x-auto">
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead>Name</TableHead>
-							<TableHead className="w-40">API Key</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead>Created</TableHead>
-							<TableHead>Created By</TableHead>
-							<TableHead>Usage</TableHead>
-							<TableHead>Current Period</TableHead>
-							<TableHead>Limits</TableHead>
-							<TableHead>IAM Rules</TableHead>
-							<TableHead className="sticky right-0 bg-card w-12" />
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{filteredKeys.map((key) => {
-							if (key.kind === "playground") {
-								return (
-									<ManagedPlaygroundTableRow
-										key={key.id}
-										apiKey={key}
-										statisticsUrl={getStatisticsUrl(key.id)}
-									/>
-								);
-							}
-
-							return (
-								<TableRow
-									key={key.id}
-									className="hover:bg-muted/30 transition-colors"
-								>
-									<TableCell className="font-medium">
-										<span className="text-sm font-medium">
-											{key.description}
+			{filteredKeys.length > 0 && (
+				<div className="hidden md:block overflow-x-auto">
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead className="w-8">
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className="inline-flex">
+												<SelectionCheckbox
+													checked={
+														selection.allPageSelected
+															? true
+															: selection.somePageSelected
+																? "indeterminate"
+																: false
+													}
+													disabled={!pageIds.length}
+													onCheckedChange={() =>
+														setSelected(togglePageSelection(selected, pageIds))
+													}
+													aria-label={`Select all ${pageIds.length} keys on this page`}
+												/>
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="text-xs">
+												{selection.allPageSelected
+													? "Clear the keys on this page"
+													: `Select the ${pageIds.length} keys on this page`}
+											</p>
+										</TooltipContent>
+									</Tooltip>
+								</TableHead>
+								<TableHead>Name</TableHead>
+								{isOrgScope && <TableHead>Project</TableHead>}
+								<TableHead className="w-40">API Key</TableHead>
+								<TableHead>Status</TableHead>
+								<TableHead>Created</TableHead>
+								<TableHead>Last Used</TableHead>
+								<TableHead>Created By</TableHead>
+								<TableHead>
+									Usage
+									{period !== "all" && (
+										<span className="text-muted-foreground block text-xs font-normal">
+											{usageLabel}
 										</span>
-									</TableCell>
-									<TableCell className="min-w-40 max-w-40">
-										<div className="flex items-center space-x-2">
-											<span className="font-mono text-xs truncate">
+									)}
+								</TableHead>
+								<TableHead>Current Period</TableHead>
+								<TableHead>Limits</TableHead>
+								<TableHead>IAM Rules</TableHead>
+								<TableHead className="sticky right-0 bg-card w-12" />
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{pageKeys.map((key) => {
+								if (key.kind === "playground") {
+									return (
+										<ManagedPlaygroundTableRow
+											key={key.id}
+											apiKey={key}
+											statisticsUrl={getStatisticsUrl(key)}
+											projectName={
+												isOrgScope
+													? (projectNames.get(key.projectId) ?? "—")
+													: undefined
+											}
+											usage={renderUsage(key)}
+											lastUsed={renderLastUsed(key)}
+										/>
+									);
+								}
+
+								return (
+									<TableRow
+										key={key.id}
+										data-state={selected.has(key.id) ? "selected" : undefined}
+										className="hover:bg-muted/30 transition-colors"
+									>
+										<TableCell>{renderRowCheckbox(key)}</TableCell>
+										<TableCell className="font-medium">
+											<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+												<span className="text-sm font-medium">
+													{key.description}
+												</span>
+												<ApiKeyUnusedBadge insight={insightOf(key)} />
+											</div>
+										</TableCell>
+										{isOrgScope && (
+											<TableCell className="text-muted-foreground text-sm">
+												{projectNames.get(key.projectId) ?? "—"}
+											</TableCell>
+										)}
+										<TableCell className="min-w-40 max-w-40">
+											<span className="block max-w-36 truncate font-mono text-xs">
 												{key.maskedToken}
 											</span>
-										</div>
-									</TableCell>
-									<TableCell>
-										<div className="space-y-1">
-											<StatusBadge status={key.status} variant="detailed" />
+										</TableCell>
+										<TableCell>
+											<div className="space-y-1">
+												<StatusBadge status={key.status} variant="detailed" />
+												<ApiKeyLimitBadge
+													apiKey={key}
+													status={limitStatusOf(key)}
+												/>
+												{renderExpiry(key)}
+											</div>
+										</TableCell>
+										<TableCell>
+											<Tooltip>
+												<TooltipTrigger asChild>
+													<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
+														<Time date={key.createdAt} format="monthDayYear" />
+													</span>
+												</TooltipTrigger>
+												<TooltipContent>
+													<p className="max-w-xs text-xs whitespace-nowrap">
+														<Time
+															date={key.createdAt}
+															format="monthDayYearHourMinuteZone"
+														/>
+													</p>
+												</TooltipContent>
+											</Tooltip>
+										</TableCell>
+										<TableCell>{renderLastUsed(key)}</TableCell>
+										<TableCell>
+											<Tooltip>
+												<TooltipTrigger asChild>
+													<span className="text-muted-foreground cursor-help">
+														{key.creator?.name ??
+															key.creator?.email ??
+															"Unknown"}
+													</span>
+												</TooltipTrigger>
+												<TooltipContent>
+													<p className="max-w-xs text-xs">
+														{key.creator?.email ?? "No email available"}
+													</p>
+												</TooltipContent>
+											</Tooltip>
+										</TableCell>
+										<TableCell>{renderUsage(key)}</TableCell>
+										<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
+										<TableCell>
+											<ApiKeyLimitsDialog
+												apiKey={key}
+												onSubmit={(payload) =>
+													updateKeyUsageLimit(key.id, payload)
+												}
+											>
+												<Button
+													variant="outline"
+													size="sm"
+													className="min-w-48 flex items-center justify-between gap-3"
+												>
+													{renderLimitSummary(key)}
+													<EditIcon />
+												</Button>
+											</ApiKeyLimitsDialog>
+										</TableCell>
+										<TableCell>{renderIamRules(key)}</TableCell>
+										<TableCell className="sticky right-0 bg-card group-hover:bg-muted/30 text-center">
+											{renderActions(key)}
+										</TableCell>
+									</TableRow>
+								);
+							})}
+						</TableBody>
+					</Table>
+				</div>
+			)}
+
+			{/* Mobile Cards */}
+			{filteredKeys.length > 0 && (
+				<div className="md:hidden space-y-3">
+					{pageIds.length > 0 && (
+						<label className="flex items-center gap-2 text-sm">
+							<SelectionCheckbox
+								checked={
+									selection.allPageSelected
+										? true
+										: selection.somePageSelected
+											? "indeterminate"
+											: false
+								}
+								onCheckedChange={() =>
+									setSelected(togglePageSelection(selected, pageIds))
+								}
+							/>
+							Select the {pageIds.length} keys on this page
+						</label>
+					)}
+					{pageKeys.map((key) => {
+						if (key.kind === "playground") {
+							return (
+								<ManagedPlaygroundCard
+									key={key.id}
+									apiKey={key}
+									statisticsUrl={getStatisticsUrl(key)}
+									usage={renderUsage(key)}
+								/>
+							);
+						}
+
+						return (
+							<div key={key.id} className="border rounded-lg p-3 space-y-3">
+								<div className="flex items-start justify-between gap-2">
+									<div className="pt-0.5">{renderRowCheckbox(key)}</div>
+									<div className="flex-1 min-w-0 space-y-1">
+										<div className="flex flex-wrap items-center gap-2">
+											<h3 className="font-medium text-sm">{key.description}</h3>
+											<StatusBadge status={key.status} />
 											<ApiKeyLimitBadge
 												apiKey={key}
 												status={limitStatusOf(key)}
 											/>
-											{renderExpiry(key)}
+											<ApiKeyUnusedBadge insight={insightOf(key)} />
 										</div>
-									</TableCell>
-									<TableCell>
-										<Tooltip>
-											<TooltipTrigger asChild>
-												<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
-													<Time date={key.createdAt} format="monthDayYear" />
-												</span>
-											</TooltipTrigger>
-											<TooltipContent>
-												<p className="max-w-xs text-xs whitespace-nowrap">
-													<Time
-														date={key.createdAt}
-														format="monthDayYearHourMinuteZone"
-													/>
-												</p>
-											</TooltipContent>
-										</Tooltip>
-									</TableCell>
-									<TableCell>
-										<Tooltip>
-											<TooltipTrigger asChild>
-												<span className="text-muted-foreground cursor-help">
-													{key.creator?.name ?? key.creator?.email ?? "Unknown"}
-												</span>
-											</TooltipTrigger>
-											<TooltipContent>
-												<p className="max-w-xs text-xs">
-													{key.creator?.email ?? "No email available"}
-												</p>
-											</TooltipContent>
-										</Tooltip>
-									</TableCell>
-									<TableCell>{renderUsage(key)}</TableCell>
-									<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
-									<TableCell>
-										<ApiKeyLimitsDialog
-											apiKey={key}
-											onSubmit={(payload) =>
-												updateKeyUsageLimit(key.id, payload)
-											}
-										>
-											<Button
-												variant="outline"
-												size="sm"
-												className="min-w-48 flex items-center justify-between gap-3"
-											>
-												{renderLimitSummary(key)}
-												<EditIcon />
-											</Button>
-										</ApiKeyLimitsDialog>
-									</TableCell>
-									<TableCell>
-										{key.iamRules && key.iamRules.length > 0 ? (
-											<Button
-												variant="outline"
-												size="sm"
-												className="text-xs"
-												asChild
-											>
-												<Link href={getIamRulesUrl(key.id)}>
-													{
-														key.iamRules.filter(
-															(rule) => rule.status === "active",
-														).length
-													}{" "}
-													rule
-													{key.iamRules.filter(
-														(rule) => rule.status === "active",
-													).length !== 1
-														? "s"
-														: ""}
-												</Link>
-											</Button>
-										) : (
-											<Button
-												variant="ghost"
-												size="sm"
-												className="text-xs text-muted-foreground"
-												asChild
-											>
-												<Link href={getIamRulesUrl(key.id)}>No rules</Link>
-											</Button>
+										{isOrgScope && (
+											<div className="text-muted-foreground text-xs">
+												{projectNames.get(key.projectId) ?? "—"}
+											</div>
 										)}
-									</TableCell>
-									<TableCell className="sticky right-0 bg-card group-hover:bg-muted/30 text-center">
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
-												<Button variant="ghost" size="icon" className="h-8 w-8">
-													<MoreHorizontal className="h-4 w-4" />
-													<span className="sr-only">Open menu</span>
-												</Button>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent align="end">
-												<DropdownMenuLabel>Actions</DropdownMenuLabel>
-												<DropdownMenuItem asChild>
-													<Link href={getStatisticsUrl(key.id)} prefetch={true}>
-														<BarChart3Icon className="mr-2 h-4 w-4" />
-														View Statistics
-													</Link>
-												</DropdownMenuItem>
-												<DropdownMenuItem asChild>
-													<Link href={getIamRulesUrl(key.id)}>
-														<Shield className="mr-2 h-4 w-4" />
-														Manage IAM Rules
-													</Link>
-												</DropdownMenuItem>
-												<DropdownMenuSeparator />
-												<DropdownMenuItem onClick={() => setRenameKey(key)}>
-													<PencilIcon className="mr-2 h-4 w-4" />
-													Rename Key
-												</DropdownMenuItem>
-												<DropdownMenuItem onClick={() => toggleStatus(key)}>
-													<PowerIcon className="mr-2 h-4 w-4" />
-													{key.status === "active"
-														? "Deactivate"
-														: "Activate"}{" "}
-													Key
-												</DropdownMenuItem>
-												<DropdownMenuItem onClick={() => setRollKey(key)}>
-													<RefreshCwIcon className="mr-2 h-4 w-4" />
-													Roll Key
-												</DropdownMenuItem>
-												<DropdownMenuSeparator />
-												<AlertDialog>
-													<AlertDialogTrigger asChild>
-														<DropdownMenuItem
-															onSelect={(e) => e.preventDefault()}
-															className="text-destructive focus:text-destructive"
-														>
-															Delete
-														</DropdownMenuItem>
-													</AlertDialogTrigger>
-													<AlertDialogContent>
-														<AlertDialogHeader>
-															<AlertDialogTitle>
-																Are you absolutely sure?
-															</AlertDialogTitle>
-															<AlertDialogDescription>
-																This action cannot be undone. This will
-																permanently delete the API key and it will no
-																longer be able to access your account.
-															</AlertDialogDescription>
-														</AlertDialogHeader>
-														<AlertDialogFooter>
-															<AlertDialogCancel>Cancel</AlertDialogCancel>
-															<AlertDialogAction
-																onClick={() => deleteKey(key.id)}
-															>
-																Delete
-															</AlertDialogAction>
-														</AlertDialogFooter>
-													</AlertDialogContent>
-												</AlertDialog>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									</TableCell>
-								</TableRow>
-							);
-						})}
-					</TableBody>
-				</Table>
-			</div>
-
-			{/* Mobile Cards */}
-			<div className="md:hidden space-y-3">
-				{filteredKeys.map((key) => {
-					if (key.kind === "playground") {
-						return (
-							<ManagedPlaygroundCard
-								key={key.id}
-								apiKey={key}
-								statisticsUrl={getStatisticsUrl(key.id)}
-							/>
-						);
-					}
-
-					return (
-						<div key={key.id} className="border rounded-lg p-3 space-y-3">
-							<div className="flex items-start justify-between">
-								<div className="flex-1 min-w-0">
-									<div className="flex items-center gap-2">
-										<h3 className="font-medium text-sm">{key.description}</h3>
-										<StatusBadge status={key.status} />
-										<ApiKeyLimitBadge
-											apiKey={key}
-											status={limitStatusOf(key)}
-										/>
-									</div>
-									{renderExpiry(key)}
-									<div className="flex items-center gap-2 mt-1">
-										<span className="text-xs text-muted-foreground">
+										{renderExpiry(key)}
+										<div className="text-xs text-muted-foreground">
+											Created{" "}
 											<Time
 												date={key.createdAt}
 												format="monthDayYearHourMinuteZone"
-											/>
-										</span>
+											/>{" "}
+											by {key.creator?.name ?? key.creator?.email ?? "Unknown"}
+										</div>
+										<div className="text-xs text-muted-foreground">
+											Last used {renderLastUsed(key)}
+										</div>
 									</div>
+									{renderActions(key)}
 								</div>
-								<DropdownMenu>
-									<DropdownMenuTrigger asChild>
-										<Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-											<MoreHorizontal className="h-4 w-4" />
-											<span className="sr-only">Open menu</span>
-										</Button>
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end">
-										<DropdownMenuLabel>Actions</DropdownMenuLabel>
-										<DropdownMenuItem asChild>
-											<Link href={getStatisticsUrl(key.id)} prefetch={true}>
-												<BarChart3Icon className="mr-2 h-4 w-4" />
-												View Statistics
-											</Link>
-										</DropdownMenuItem>
-										<DropdownMenuItem asChild>
-											<Link href={getIamRulesUrl(key.id)}>
-												<Shield className="mr-2 h-4 w-4" />
-												Manage IAM Rules
-											</Link>
-										</DropdownMenuItem>
-										<DropdownMenuSeparator />
-										<DropdownMenuItem onClick={() => toggleStatus(key)}>
-											<PowerIcon className="mr-2 h-4 w-4" />
-											{key.status === "active" ? "Deactivate" : "Activate"} Key
-										</DropdownMenuItem>
-										<DropdownMenuItem onClick={() => setRollKey(key)}>
-											<RefreshCwIcon className="mr-2 h-4 w-4" />
-											Roll Key
-										</DropdownMenuItem>
-										<DropdownMenuSeparator />
-										<AlertDialog>
-											<AlertDialogTrigger asChild>
-												<DropdownMenuItem
-													onSelect={(e) => e.preventDefault()}
-													className="text-destructive focus:text-destructive"
-												>
-													Delete
-												</DropdownMenuItem>
-											</AlertDialogTrigger>
-											<AlertDialogContent>
-												<AlertDialogHeader>
-													<AlertDialogTitle>
-														Are you absolutely sure?
-													</AlertDialogTitle>
-													<AlertDialogDescription>
-														This action cannot be undone. This will permanently
-														delete the API key and it will no longer be able to
-														access your account.
-													</AlertDialogDescription>
-												</AlertDialogHeader>
-												<AlertDialogFooter>
-													<AlertDialogCancel>Cancel</AlertDialogCancel>
-													<AlertDialogAction onClick={() => deleteKey(key.id)}>
-														Delete
-													</AlertDialogAction>
-												</AlertDialogFooter>
-											</AlertDialogContent>
-										</AlertDialog>
-									</DropdownMenuContent>
-								</DropdownMenu>
-							</div>
-							<div className="pt-2 border-t">
-								<div className="text-xs text-muted-foreground mb-1">
-									API Key
-								</div>
-								<div className="font-mono text-xs break-all">
+								<div className="pt-2 border-t font-mono text-xs break-all">
 									{key.maskedToken}
 								</div>
-							</div>
-							<div className="pt-2 border-t grid gap-3 md:grid-cols-3">
-								<div className="py-1">
-									<div className="text-xs text-muted-foreground mb-1">
-										Usage
+								<div className="pt-2 border-t grid grid-cols-2 gap-3">
+									<div>
+										<div className="text-xs text-muted-foreground mb-1">
+											Usage · {usageLabel}
+										</div>
+										{renderUsage(key)}
 									</div>
-									{renderUsage(key)}
-								</div>
-								<div className="py-1">
-									<div className="text-xs text-muted-foreground mb-1">
-										Current Period
+									<div>
+										<div className="text-xs text-muted-foreground mb-1">
+											Current Period
+										</div>
+										{renderCurrentPeriodUsage(key)}
 									</div>
-									{renderCurrentPeriodUsage(key)}
 								</div>
-								<div>
+								<div className="pt-2 border-t flex flex-wrap items-center gap-2">
 									<ApiKeyLimitsDialog
 										apiKey={key}
 										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
@@ -1177,70 +1442,48 @@ export function ApiKeysList({
 										<Button
 											variant="outline"
 											size="sm"
-											className="min-w-32 flex justify-between h-full py-2"
+											className="flex h-auto justify-between gap-3 py-1.5"
 										>
-											<div className="text-left">
-												<div className="text-xs text-muted-foreground mb-1">
-													Limits
-												</div>
-												{renderLimitSummary(key)}
-											</div>
+											{renderLimitSummary(key)}
 											<EditIcon />
 										</Button>
 									</ApiKeyLimitsDialog>
+									{renderIamRules(key, "h-7")}
 								</div>
 							</div>
-							<div className="pt-2 border-t">
-								<div className="text-xs text-muted-foreground mb-1">
-									IAM Rules
-								</div>
-								<div className="flex items-center">
-									{key.iamRules && key.iamRules.length > 0 ? (
-										<Button
-											variant="outline"
-											size="sm"
-											className="text-xs h-7"
-											asChild
-										>
-											<Link href={getIamRulesUrl(key.id)}>
-												{
-													key.iamRules.filter(
-														(rule) => rule.status === "active",
-													).length
-												}{" "}
-												active rule
-												{key.iamRules.filter((rule) => rule.status === "active")
-													.length !== 1
-													? "s"
-													: ""}
-											</Link>
-										</Button>
-									) : (
-										<Button
-											variant="ghost"
-											size="sm"
-											className="text-xs text-muted-foreground h-7"
-											asChild
-										>
-											<Link href={getIamRulesUrl(key.id)}>
-												No rules configured
-											</Link>
-										</Button>
-									)}
-								</div>
-							</div>
-							<div className="pt-2 border-t">
-								<div className="text-xs text-muted-foreground mb-1">
-									Created By
-								</div>
-								<div className="text-sm">
-									{key.creator?.name ?? key.creator?.email ?? "Unknown"}
-								</div>
-							</div>
-						</div>
-					);
-				})}
-			</div>
+						);
+					})}
+				</div>
+			)}
+
+			{filteredKeys.length > API_KEYS_PAGE_SIZE && (
+				<div className="flex items-center justify-between gap-2 text-sm">
+					<span className="text-muted-foreground">
+						Showing {pageStart + 1}–{pageStart + pageKeys.length} of{" "}
+						{filteredKeys.length} keys
+					</span>
+					<div className="flex gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={currentPage === 0}
+							onClick={() => setPage(currentPage - 1)}
+						>
+							<ChevronLeftIcon className="h-4 w-4" />
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={currentPage >= pageCount - 1}
+							onClick={() => setPage(currentPage + 1)}
+						>
+							Next
+							<ChevronRightIcon className="h-4 w-4" />
+						</Button>
+					</div>
+				</div>
+			)}
 
 			<ReactivateApiKeyDialog
 				apiKey={reactivateKey}
@@ -1277,6 +1520,6 @@ export function ApiKeysList({
 				onConfirm={handleRename}
 				isPending={isRenamePending}
 			/>
-		</>
+		</div>
 	);
 }

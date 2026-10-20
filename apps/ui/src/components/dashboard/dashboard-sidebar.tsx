@@ -212,6 +212,11 @@ const ORGANIZATION_NAVIGATION: readonly {
 		icon: AnimatedUsers,
 	},
 	{
+		href: "org/api-keys",
+		label: "API Keys",
+		icon: AnimatedKey,
+	},
+	{
 		href: "org/provider-keys",
 		label: "Provider Keys",
 		icon: AnimatedKeyRound,
