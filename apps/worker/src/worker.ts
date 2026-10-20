@@ -898,6 +898,10 @@ export async function cleanupExpiredLogData(): Promise<void> {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
 				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
+				// ORDER BY created_at forces the partial index. Without it the planner
+				// assumes the two predicates are independent, expects many matches, and
+				// picks a seq scan that "stops early" — but pending rows are all recent,
+				// so it reads the whole heap and finds almost nothing.
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
@@ -907,6 +911,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
+					.orderBy(log.createdAt)
 					.limit(CLEANUP_BATCH_SIZE)
 					.for("update", { skipLocked: true });
 
