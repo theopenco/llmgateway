@@ -12,7 +12,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 
-import { redisClient } from "@/auth/config.js";
+import { apiAuth, redisClient } from "@/auth/config.js";
 import { ChatSupportDiagnostics } from "@/utils/chat-support-diagnostics.js";
 import {
 	fetchKnowledgePage,
@@ -471,8 +471,6 @@ const chatSupportRequestSchema = z.object({
 		.array(chatSupportMessageSchema)
 		.min(1, "Missing messages")
 		.max(100, "Too many messages in conversation"),
-	name: z.string().max(200).optional(),
-	email: z.string().max(320).optional(),
 	clientId: z.string().min(1).max(64),
 });
 
@@ -481,6 +479,19 @@ export const publicChatSupport = new Hono<{
 		supportDiagnostics: ChatSupportDiagnostics;
 	};
 }>();
+
+// Signed-in users only. The widget used to be open to anonymous visitors and
+// drew a steady stream of spam; a session is now required on every endpoint
+// and the visitor's identity comes from it rather than the request body.
+publicChatSupport.use("*", async (c, next) => {
+	const session = await apiAuth.api.getSession({ headers: c.req.raw.headers });
+	if (!session?.user) {
+		return c.json({ error: "Please sign in to use chat support." }, 401);
+	}
+	c.set("user", session.user);
+	c.set("session", session.session);
+	return await next();
+});
 
 publicChatSupport.use("/", async (c, next) => {
 	const diagnostics = new ChatSupportDiagnostics();
@@ -512,7 +523,8 @@ publicChatSupport.post("/", async (c) => {
 			400,
 		);
 	}
-	const { name, email, clientId } = parsed.data;
+	const { clientId } = parsed.data;
+	const { name, email } = c.get("user")!;
 	const messages = parsed.data.messages.map((message) => ({
 		...message,
 		// AI SDK UI messages have no developer role. It has the same instruction
@@ -937,12 +949,11 @@ publicChatSupport.post("/escalate", async (c) => {
 	}
 
 	const body = await c.req.json<{
-		name?: string;
-		email?: string;
 		clientId?: string;
 		messages?: { role: string; content: string }[];
 	}>();
-	const { name, email, clientId, messages } = body;
+	const { clientId, messages } = body;
+	const { name, email } = c.get("user")!;
 
 	if (!clientId || typeof clientId !== "string" || clientId.length > 64) {
 		return c.json({ error: "Missing or invalid clientId" }, 400);
