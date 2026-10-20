@@ -238,6 +238,23 @@ describe("admin provider detail for airside carriers", () => {
 			status: "active",
 		});
 
+		const publicProvider = async () =>
+			(
+				(await (await app.request("/internal/providers")).json()) as {
+					providers: Array<{ id: string; name: string; description: string }>;
+				}
+			).providers.find((provider) => provider.id === CARRIER_ID);
+		expect(
+			(
+				await send("PATCH", `/admin/airside/claims/${CLAIM_ID}/settings`, {
+					description: "Runs open-weight models on its own GPUs.",
+				})
+			).status,
+		).toBe(200);
+		// The public catalogue reads the live claim, not the approval snapshot.
+		expect(await publicProvider()).toMatchObject({
+			description: "Runs open-weight models on its own GPUs.",
+		});
 		expect(
 			(
 				await send("PATCH", `/admin/airside/claims/${CLAIM_ID}/settings`, {
@@ -247,6 +264,10 @@ describe("admin provider detail for airside carriers", () => {
 				})
 			).status,
 		).toBe(200);
+		expect(await publicProvider()).toMatchObject({
+			name: "Renamed Carrier",
+			description: "test",
+		});
 		expect(
 			(
 				await send(
