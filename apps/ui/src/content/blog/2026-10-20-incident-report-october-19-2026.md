@@ -7,7 +7,7 @@ summary: "On October 19, 2026, from 18:24 to 19:12 UTC, the LLM Gateway dashboar
 categories: ["Engineering"]
 faqs:
   - question: "What caused the LLM Gateway outage on October 19, 2026?"
-    answer: "A routine database migration that added columns had to wait for a lock on our organization table, because queries from the dashboard's request log view had been stuck holding it since that morning. While the migration waited, other queries queued behind it, health checks restarted our API servers in a loop, and the database ran out of connections. Restarting the database cleared the stuck sessions and restored service."
+    answer: "A routine database migration that added columns had to wait for a lock on our organization table, because queries from the dashboard's request log view had been running and holding it since that morning. While the migration waited, other queries queued behind it, health checks restarted our API servers in a loop, and the database ran out of connections. Restarting the database cleared the stuck sessions and restored service."
   - question: "Which services were affected?"
     answer: "From 18:24 to 19:12 UTC the dashboard and the API behind it were down. The gateway at api.llmgateway.io kept serving most requests, but requests that needed an API key or organization settings not already in cache failed."
   - question: "What is LLM Gateway changing after the incident?"
@@ -34,7 +34,7 @@ All times below are UTC.
 
 | Time  | Event                                                                                                                        |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 10:54 | Several request log queries from the dashboard got stuck, holding a lock on the organization table.                          |
+| 10:54 | Several long-running request log queries from the dashboard started, holding a lock on the organization table.               |
 | 18:12 | A change that included a database migration was merged.                                                                      |
 | 18:21 | The deploy carrying it started.                                                                                              |
 | 18:24 | The migration started and began waiting for table locks. The dashboard, the API and uncached gateway requests began failing. |
@@ -46,15 +46,15 @@ All times below are UTC.
 | 19:07 | We restarted the database.                                                                                                   |
 | 19:12 | All services were healthy.                                                                                                   |
 
-## Root cause: a routine migration blocked by stuck queries
+## Root cause: a routine migration blocked by long-running queries
 
 The change added new columns to two tables, one of them the table that holds organization settings. It was a routine schema change. In Postgres, adding a nullable column, or one with a constant default, only updates the table definition and normally finishes in milliseconds. It does need a brief exclusive lock on the table, and to get that lock it has to wait for queries already using the table to finish.
 
-The migration could not get its locks because several queries from the dashboard's request log view had been stuck since about 10:54 UTC that morning, more than seven hours earlier. Each one read the organization table and kept its lock on it. They were waiting to send results to connections that had stopped reading, and Postgres does not apply query timeouts while it waits on a client, so nothing ended them. We are still investigating why those connections stopped reading. The migration had no lock timeout, so instead of giving up, it waited, and until its transaction finished, every new query on the organization table queued behind it. Nearly every dashboard, API and uncached gateway request reads organization settings, so they all stopped.
+The migration could not get its locks because of several dashboard request log queries that had started at about 10:54 UTC, more than seven hours earlier. They listed recent requests across several projects at once, and we believe that query shape made Postgres scan far more of the log table than it needed to. They ran for over seven hours and held their lock on the organization table the whole time. Nothing stopped them, because we had no statement timeout on those queries. The migration had no lock timeout, so instead of giving up, it waited, and until its transaction finished, every new query on the organization table queued behind it. Nearly every dashboard, API and uncached gateway request reads organization settings, so they all stopped.
 
 On any other day this migration would have finished within a second. With a lock timeout, it would have failed after a few seconds and left the dashboard and API running.
 
-Three things turned a stuck migration into an outage:
+Three things turned a blocked migration into an outage:
 
 1. **Health checks restarted the migration over and over.** Our API servers run pending migrations on startup, before they begin serving. The server running the migration was not answering its health check, so it was killed and restarted about every 75 seconds. Each restart started the migration again and queued it behind the same locks.
 2. **Health checks restarted the healthy servers too.** The API health check queries the database. On the servers that were already running, those queries were stuck in the same queue, so the health checks failed and those servers were restarted about every two minutes as well.
@@ -73,7 +73,7 @@ Restarting the database at 19:07 ended every stuck session, released the locks, 
 
 ### Preventing stuck migrations
 
-- **Bounded log queries.** The request log queries behind the dashboard and API will run read-only with short statement and lock timeouts, a limit on how many can run at once per user and per organization, and a default time range. They will scan the log table without joining other tables, so a slow log view no longer holds a lock on organization settings.
+- **Bounded log queries.** The request log queries behind the dashboard and API will run read-only with short statement and lock timeouts, a limit on how many can run at once per user and per organization, and a default time range. Log views that span several projects will query each project through an index and merge the results, so one view cannot scan the whole log table, and the log scan will not join other tables. A query like the ones that blocked this migration would be stopped by its statement timeout within seconds.
 - **Migrations give up fast.** Each migration will run in its own transaction with a 5 second lock timeout and a statement timeout, and retry with backoff. A migration that cannot get its locks fails cleanly and leaves nothing half-applied, instead of blocking the table.
 - **A preflight check before migrations run.** It refuses to run if a pending migration touches a table with a long-running transaction open, and names the session that is blocking it. It also requires new indexes on production to be built ahead of time without locking the table.
 - **CI checks for risky migrations.** Lint rules flag migration patterns that take long locks on large tables, and a test holds a lock in another session and asserts that the migration fails fast and applies nothing.
