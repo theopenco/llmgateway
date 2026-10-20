@@ -116,6 +116,7 @@ import { RollApiKeyDialog } from "./roll-api-key-dialog";
 import type { ApiKeyUnusedInsight } from "./api-key-insights";
 import type { ApiKeyLimitStatus } from "./api-key-limit-status";
 import type { ApiKeyUsagePeriod } from "./api-key-usage-period";
+import type { paths } from "@/lib/api/v1";
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
 import type { ReactNode } from "react";
@@ -125,9 +126,13 @@ export type ApiKeysScope =
 	| { type: "project"; project: Project | null }
 	| { type: "organization"; organizationId: string; projects: Project[] };
 
+/** GET /keys/api response, as rendered by the server page. */
+export type ApiKeysResponse =
+	paths["/keys/api"]["get"]["responses"][200]["content"]["application/json"];
+
 interface ApiKeysListProps {
 	scope: ApiKeysScope;
-	initialData: ApiKey[];
+	initialData: ApiKeysResponse | undefined;
 	/** Period the SSR `initialData` was fetched for. */
 	initialPeriod: ApiKeyUsagePeriod;
 }
@@ -379,18 +384,8 @@ export function ApiKeysList({
 			refetchInterval: false,
 			// Only use initialData for the query the server rendered
 			...(creatorFilter === "all" &&
-				period === initialPeriod && {
-					initialData: {
-						apiKeys: initialData.map((key) => ({
-							...key,
-							ownerBudget: key.ownerBudget ?? null,
-							periodUsage: key.periodUsage ?? null,
-							periodRequestCount: key.periodRequestCount ?? null,
-							lastUsedAt: key.lastUsedAt ?? null,
-						})),
-						userRole: "owner" as const,
-					},
-				}),
+				period === initialPeriod &&
+				initialData && { initialData }),
 		},
 	);
 

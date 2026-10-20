@@ -2,7 +2,7 @@ import { parseApiKeyUsagePeriod } from "@/components/api-keys/api-key-usage-peri
 import { ApiKeysClient } from "@/components/api-keys/api-keys-client";
 import { fetchServerData } from "@/lib/server-api";
 
-import type { ApiKey } from "@/lib/types";
+import type { ApiKeysResponse } from "@/components/api-keys/api-keys-list";
 
 export default async function DeveloperApiKeysPage({
 	params,
@@ -14,7 +14,7 @@ export default async function DeveloperApiKeysPage({
 	const [{ projectId }, query] = await Promise.all([params, searchParams]);
 	const period = parseApiKeyUsagePeriod(query.period);
 
-	const initialData = await fetchServerData<{ apiKeys: ApiKey[] }>(
+	const initialData = await fetchServerData<ApiKeysResponse>(
 		"GET",
 		"/keys/api",
 		{
@@ -27,7 +27,7 @@ export default async function DeveloperApiKeysPage({
 	return (
 		<ApiKeysClient
 			scope="project"
-			initialData={initialData?.apiKeys ?? []}
+			initialData={initialData ?? undefined}
 			initialPeriod={period}
 		/>
 	);

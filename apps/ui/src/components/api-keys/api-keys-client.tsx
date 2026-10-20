@@ -9,6 +9,7 @@ import {
 	apiKeysScopeQuery,
 	formatPlanLimitMessage,
 	isApiKeysScopeReady,
+	type ApiKeysResponse,
 	type ApiKeysScope,
 } from "@/components/api-keys/api-keys-list";
 import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
@@ -20,7 +21,7 @@ import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ApiKeyUsagePeriod } from "@/components/api-keys/api-key-usage-period";
-import type { Project, ApiKey } from "@/lib/types";
+import type { Project } from "@/lib/types";
 
 /**
  * API keys page shared by the project page (one project's keys) and the
@@ -32,7 +33,7 @@ export function ApiKeysClient({
 	initialPeriod,
 }: {
 	scope: ApiKeysScope["type"];
-	initialData: ApiKey[];
+	initialData: ApiKeysResponse | undefined;
 	initialPeriod: ApiKeyUsagePeriod;
 }) {
 	const pathname = usePathname();
@@ -76,19 +77,25 @@ export function ApiKeysClient({
 		};
 	}, [scopeType, orgId, projectId, projectsData]);
 
-	// Same params as the list's default view, so both share one cached request.
+	// Same params and initial data as the list's first view, so both share one
+	// cached request.
 	const { data: apiKeysData } = api.useQuery(
 		"get",
 		"/keys/api",
 		{
 			params: {
-				query: { ...apiKeysScopeQuery(scope), filter: "all", period: "all" },
+				query: {
+					...apiKeysScopeQuery(scope),
+					filter: "all",
+					period: initialPeriod,
+				},
 			},
 		},
 		{
 			enabled: isApiKeysScopeReady(scope),
 			staleTime: 5 * 60 * 1000, // 5 minutes
 			refetchOnWindowFocus: false,
+			...(initialData && { initialData }),
 		},
 	);
 
