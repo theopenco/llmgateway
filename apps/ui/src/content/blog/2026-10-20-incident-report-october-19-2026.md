@@ -12,6 +12,11 @@ faqs:
     answer: "From 18:24 to 19:12 UTC the dashboard and the API behind it were down. The gateway at api.llmgateway.io kept serving most requests, but requests that needed an API key or organization settings not already in cache failed."
   - question: "What is LLM Gateway changing after the incident?"
     answer: "Migrations will give up quickly instead of waiting on locks and will run as a separate deploy step, health checks will no longer restart servers because the database is slow, the gateway will keep serving cached keys when the database is unavailable, and new alerts will page us within minutes."
+image:
+  src: "/blog/incident-report-october-19-2026.png"
+  alt: "A glowing database cylinder with a restored heartbeat line on a central chip, surrounded by an open padlock, a stopwatch, a heart monitor and a shield with a checkmark, representing the October 19, 2026 LLM Gateway incident report"
+  width: 1536
+  height: 1024
 ---
 
 On Monday, October 19, 2026, the **LLM Gateway** dashboard and API were down for about 48 minutes, from 18:24 to 19:12 UTC. During the same window the gateway was partially degraded: requests that needed data not already in cache failed.
@@ -21,7 +26,7 @@ This incident report explains what happened, why it took as long as it did to re
 ## Customer impact
 
 - **Dashboard and API: down.** The dashboard at llmgateway.io and the API behind it returned errors or timed out for the whole window. Signing in, managing API keys, viewing usage and changing settings did not work.
-- **Gateway: partially degraded.** The gateway at `https://api.llmgateway.io/v1/...` kept serving requests whose API key and organization settings were already in cache. Requests that needed a database lookup, such as a newly created key or one that had not been used recently, waited about 10 seconds and then failed.
+- **Gateway: partially degraded.** The gateway at `https://api.llmgateway.io/v1/...` kept serving requests whose API key and organization settings were already in cache. Requests that needed a database lookup, such as a newly created key or one that had not been used recently, waited about 10 seconds and then failed. These requests returned a 5xx error before reaching a model provider, so they were not billed.
 
 All times below are UTC.
 
