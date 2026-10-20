@@ -38,10 +38,15 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    # The action's Claude Code CLI and Anthropic SDK both read this, so the
-    # review runs through LLM Gateway's Anthropic-compatible endpoint.
+    # The action's Claude Code CLI and Anthropic SDK both read these, so the
+    # review runs through LLM Gateway's Anthropic-compatible endpoint, and
+    # Claude Code's background and subagent calls use Opus 5.5 as well.
     env:
       ANTHROPIC_BASE_URL: https://api.llmgateway.io
+      ANTHROPIC_DEFAULT_OPUS_MODEL: claude-opus-5-5
+      ANTHROPIC_DEFAULT_SONNET_MODEL: claude-opus-5-5
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-opus-5-5
+      CLAUDE_CODE_SUBAGENT_MODEL: claude-opus-5-5
     steps:
       # An LLM Gateway API key. Until the secret is set the job warns and
       # passes, so it can be made a required check without blocking PRs.
