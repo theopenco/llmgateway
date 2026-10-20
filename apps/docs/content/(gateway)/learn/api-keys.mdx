@@ -90,8 +90,8 @@ Examples:
 If a key hits either limit, requests using that key are rejected until the key
 is updated or, for recurring limits, the next window begins.
 
-Keys without a limit get a [suggested cap](#limit-suggestions) you can apply in
-one click.
+Low-spend active keys without a limit get a [suggested cap](#limit-suggestions)
+you can apply in one click.
 
 ### How recurring windows work
 
@@ -161,9 +161,10 @@ it never blocks traffic the key has already served:
 | $10 to $50     | $100 per week  |
 | $50 to $250    | $500 per month |
 
-Click the hint, then **Set**, to apply the cap; the confirmation offers
-**Undo**, and you can change or remove the limit anytime. Keys whose creator
-has a member budget, and keys flagged as unused, get no suggestion.
+Click the hint, then **Set**, to apply the cap as the key's recurring limit; the
+confirmation offers **Undo**, and you can change or remove the limit anytime.
+Keys that have spent $250 or more, playground keys, keys flagged as unused, and
+keys whose creator has a capped member budget get no suggestion.
 
 ### Selecting keys and bulk actions
 

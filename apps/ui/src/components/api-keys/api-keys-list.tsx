@@ -773,7 +773,10 @@ export function ApiKeysList({
 		}
 	};
 
-	const setKeyLimits = (id: string, payload: ApiKeyLimitPayload) =>
+	const setKeyLimits = (
+		id: string,
+		payload: Omit<ApiKeyLimitPayload, "usageLimit">,
+	) =>
 		updateKeyUsageLimitMutation.mutateAsync({
 			params: { path: { id } },
 			body: payload,
@@ -783,16 +786,16 @@ export function ApiKeysList({
 		key: ApiKey,
 		suggestion: ApiKeyLimitSuggestion,
 	): Promise<boolean> => {
-		// Suggestions only target keys without limits, so undo clears them.
-		const noLimits: ApiKeyLimitPayload = {
-			usageLimit: null,
+		// Only the recurring limit is touched, so an all-time limit set
+		// elsewhere survives both apply and undo.
+		const noRecurringLimit = {
 			periodUsageLimit: null,
 			periodUsageDurationValue: null,
 			periodUsageDurationUnit: null,
 		};
 
 		try {
-			await setKeyLimits(key.id, { ...noLimits, ...suggestion });
+			await setKeyLimits(key.id, suggestion);
 		} catch (error) {
 			toast({
 				title: "Failed to set API key limit.",
@@ -811,7 +814,7 @@ export function ApiKeysList({
 					altText="Undo"
 					onClick={async () => {
 						try {
-							await setKeyLimits(key.id, noLimits);
+							await setKeyLimits(key.id, noRecurringLimit);
 							invalidateApiKeys();
 						} catch (error) {
 							toast({
