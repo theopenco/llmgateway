@@ -53,6 +53,17 @@ every response. A subscriber's plan margin stays visible, since it is the plan
 price minus usage these roles already see. Request payloads in logs are shown
 unmodified.
 
+## Gateway during database outages
+
+The gateway keeps a stale copy of the API keys, projects, organizations, and
+provider settings it reads from Postgres in Redis (`SWR_STALE_TTL_SECONDS`,
+default 4 hours) and serves it when a database read fails. After
+`DB_CIRCUIT_FAILURE_THRESHOLD` (default `5`) consecutive connection, lock, or
+timeout errors, it stops querying Postgres for `DB_CIRCUIT_OPEN_MS` (default
+`5000`): requests with a stale copy are served from it, and the rest fail
+immediately instead of waiting for a database connection. One request per
+interval probes Postgres and closes the circuit once it succeeds.
+
 ## Global Stats time ranges
 
 Global Stats defaults to UTC. Choose **Display time zone** to use your device's
