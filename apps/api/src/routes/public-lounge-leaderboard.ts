@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { cachedPublicResponse } from "@/lib/public-response-cache.js";
 import { getLoungeLevel } from "@/utils/lounge-points.js";
 
 import {
@@ -54,10 +55,23 @@ const getLoungeLeaderboard = createRoute({
 	},
 });
 
+// Public and unauthenticated, and the ranking aggregates a year of usage, so
+// the top 100 is computed by one caller at most every 5 minutes and every
+// request is served a slice of it.
+const LEADERBOARD_SIZE = 100;
+const LEADERBOARD_REFRESH_MS = 5 * 60 * 1000;
+
 publicLoungeLeaderboard.openapi(getLoungeLeaderboard, async (c) => {
 	const { limit } = c.req.valid("query");
-	const take = limit ?? 50;
+	const { entries } = await cachedPublicResponse(
+		"lounge-leaderboard:top100",
+		{ refreshAfterMs: LEADERBOARD_REFRESH_MS },
+		async () => await loadLoungeLeaderboard(LEADERBOARD_SIZE),
+	);
+	return c.json({ entries: entries.slice(0, limit ?? 50) }, 200);
+});
 
+async function loadLoungeLeaderboard(take: number) {
 	const totalPointsExpr = sql<number>`COALESCE(SUM(${loungePointEvent.points}), 0)`;
 	// RANK() so tied totals share a rank, matching the rank users see on their
 	// own profile (computeLoungeStats counts strictly-greater totals).
@@ -108,5 +122,5 @@ publicLoungeLeaderboard.openapi(getLoungeLeaderboard, async (c) => {
 			};
 		});
 
-	return c.json({ entries }, 200);
-});
+	return { entries };
+}
