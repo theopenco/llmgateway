@@ -87,8 +87,21 @@ export const DEV_PLAN_DAILY_PERCENT: Record<DevPlanTier, number> = {
 	max: 0.1,
 };
 
-export function getDevPlanDailyLimit(tier: DevPlanTier): number {
-	return getDevPlanCreditsLimit(tier) * DEV_PLAN_DAILY_PERCENT[tier];
+/**
+ * Daily allowance as a share of the org's stored cycle allowance, which can
+ * exceed the tier base (upgrade rollover, or an allotment granted under an
+ * earlier multiplier that lasts until renewal). Falls back to the tier base
+ * when no stored limit is available.
+ */
+export function getDevPlanDailyLimit(
+	tier: DevPlanTier,
+	creditsLimit?: string | number | null,
+): number {
+	const stored = toDecimalOrZero(creditsLimit);
+	const base = stored.greaterThan(0)
+		? stored
+		: new Decimal(getDevPlanCreditsLimit(tier));
+	return base.times(DEV_PLAN_DAILY_PERCENT[tier]).toNumber();
 }
 
 export const DEV_PLAN_DAY_LENGTH_MS = 24 * 60 * 60 * 1000;
@@ -207,11 +220,12 @@ function parseUsed(creditsUsed: string | number | null | undefined): number {
  */
 export function getRemainingDailyAllowance(
 	tier: DevPlanTier,
+	creditsLimit: string | number | null | undefined,
 	creditsUsed: string | number | null | undefined,
 	dayStart: Date | null | undefined,
 	now: Date = new Date(),
 ): number {
-	const limit = getDevPlanDailyLimit(tier);
+	const limit = getDevPlanDailyLimit(tier, creditsLimit);
 	if (isDailyWindowExpired(dayStart, now)) {
 		return limit;
 	}

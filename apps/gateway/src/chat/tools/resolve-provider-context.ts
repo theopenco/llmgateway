@@ -445,6 +445,7 @@ export function assertDevPlanDailyCapNotExceeded(
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingDailyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanDailyCreditsUsed,
 		organization.devPlanDayStart,
 	);

@@ -410,9 +410,9 @@ export const organization = snakeCase.table(
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Rolling 24-hour pacing window on the monthly allowance, the same
-		// shape as the premium weekly pair above. The limit derives from the
-		// tier (DEV_PLAN_DAILY_PERCENT), so only usage and window start are
-		// stored.
+		// shape as the premium weekly pair above. The limit derives from
+		// devPlanCreditsLimit × DEV_PLAN_DAILY_PERCENT, so only usage and
+		// window start are stored.
 		devPlanDailyCreditsUsed: decimal().notNull().default("0"),
 		devPlanDayStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.

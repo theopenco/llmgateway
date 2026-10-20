@@ -2076,7 +2076,10 @@ devPlans.openapi(getStatus, async (c) => {
 	// Daily pacing allowance, same semantics as the weekly window above.
 	const dailyLimit =
 		personalOrg.devPlan !== "none"
-			? getDevPlanDailyLimit(personalOrg.devPlan)
+			? getDevPlanDailyLimit(
+					personalOrg.devPlan,
+					personalOrg.devPlanCreditsLimit,
+				)
 			: 0;
 	const dayExpired = isDailyWindowExpired(personalOrg.devPlanDayStart);
 	const dailyCreditsUsed = dayExpired

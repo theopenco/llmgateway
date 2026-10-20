@@ -199,7 +199,10 @@ key.openapi(getKey, async (c): Promise<any> => {
 	const dayStart = organization.devPlanDayStart
 		? new Date(organization.devPlanDayStart)
 		: null;
-	const dailyLimit = getDevPlanDailyLimit(devPlan);
+	const dailyLimit = getDevPlanDailyLimit(
+		devPlan,
+		organization.devPlanCreditsLimit,
+	);
 	const dayExpired = isDailyWindowExpired(dayStart);
 	const dailyCreditsUsed = dayExpired
 		? 0

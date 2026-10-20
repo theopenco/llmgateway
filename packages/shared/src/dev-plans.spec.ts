@@ -116,6 +116,23 @@ describe("daily pacing allowance", () => {
 		}
 	});
 
+	it("scales the daily limit with the stored cycle allowance", () => {
+		expect(getDevPlanDailyLimit("max", "537")).toBeCloseTo(53.7);
+		expect(getDevPlanDailyLimit("max", "568.52")).toBeCloseTo(56.852);
+		expect(getDevPlanDailyLimit("pro", "0")).toBe(getDevPlanDailyLimit("pro"));
+		expect(getDevPlanDailyLimit("pro", null)).toBe(getDevPlanDailyLimit("pro"));
+		const now = new Date("2026-09-12T12:00:00Z");
+		expect(
+			getRemainingDailyAllowance(
+				"max",
+				"537",
+				"10",
+				new Date(now.getTime() - 60_000),
+				now,
+			),
+		).toBeCloseTo(43.7);
+	});
+
 	it("keeps the daily limit above the weekly premium pace", () => {
 		// A subscriber who only uses premium models must be able to spend a
 		// full week's premium allowance within the week.
@@ -149,6 +166,7 @@ describe("daily pacing allowance", () => {
 		expect(
 			getRemainingDailyAllowance(
 				"pro",
+				null,
 				"99",
 				new Date(now.getTime() - DEV_PLAN_DAY_LENGTH_MS),
 				now,
@@ -157,6 +175,7 @@ describe("daily pacing allowance", () => {
 		expect(
 			getRemainingDailyAllowance(
 				"pro",
+				null,
 				"1.5",
 				new Date(now.getTime() - 60_000),
 				now,
@@ -165,6 +184,7 @@ describe("daily pacing allowance", () => {
 		expect(
 			getRemainingDailyAllowance(
 				"pro",
+				null,
 				String(limit + 10),
 				new Date(now.getTime() - 60_000),
 				now,
