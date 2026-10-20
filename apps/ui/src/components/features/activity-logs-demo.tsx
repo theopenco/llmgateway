@@ -8,9 +8,10 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { mockLogs } from "@/lib/mock-feature-data";
+import { getMockLogs } from "@/lib/mock-feature-data";
 
 export function ActivityLogsDemo() {
+	const logs = getMockLogs();
 	return (
 		<Card>
 			<CardHeader>
@@ -21,7 +22,7 @@ export function ActivityLogsDemo() {
 			</CardHeader>
 			<CardContent>
 				<div className="space-y-4">
-					{mockLogs.map((log) => (
+					{logs.map((log) => (
 						<LogCard key={log.id} log={log} />
 					))}
 				</div>

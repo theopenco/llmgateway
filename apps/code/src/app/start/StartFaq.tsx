@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/accordion";
 
 import {
-	MARKETING_STATS,
 	SELF_REFUND_USAGE_PERCENT,
 	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
@@ -43,7 +42,7 @@ const faqItems: { question: string; answer: ReactNode }[] = [
 	},
 	{
 		question: "What models are included?",
-		answer: `Every plan includes the full ${MARKETING_STATS.models} model catalog — Claude, GPT-5, Gemini, Llama, Qwen, and the rest. Plans differ in the size of your monthly usage allowance and the weekly fair-use allowance on premium frontier models.`,
+		answer: `Every plan includes the full 100+ model catalog — Claude, GPT-5, Gemini, GLM, Qwen, and the rest. Plans differ in the size of your monthly usage allowance, its daily pacing, and the weekly fair-use allowance on premium frontier models.`,
 	},
 	{
 		question: "How is usage metered?",

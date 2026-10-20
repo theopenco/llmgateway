@@ -1764,7 +1764,6 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
-		case "runware":
 		case "gonka24":
 		case "ranoai":
 		case "baidu":

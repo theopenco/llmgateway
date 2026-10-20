@@ -17,35 +17,38 @@ import { parseUsedModel } from "@llmgateway/shared";
 import type { ErrorScope } from "@/lib/error-filters.js";
 
 // Request-specific tokens would split one upstream error into a shape per
-// request; mask them so otherwise identical errors group together.
+// request; mask them so otherwise identical errors group together. Postgres
+// regexes are slow with open-ended lookaheads, so the patterns use only
+// fixed-length ones and each starts at a word boundary.
 const VOLATILE_TOKEN_MASKS: [pattern: string, replacement: string][] = [
 	[
-		"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+		"\\m[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\M",
 		"<uuid>",
 	],
 	// Prefixed ids with a digit, e.g. `rs_…`, `req_…`, `chatcmpl-…`.
-	["([A-Za-z]+[_-])(?=[A-Za-z]*[0-9])[A-Za-z0-9]{12,}", "\\1<id>"],
-	// Bare hashes and tokens mixing letters and digits.
-	["(?=[A-Za-z]*[0-9])(?=[0-9]*[A-Za-z])[A-Za-z0-9]{20,}", "<id>"],
-	// Bare hex ids, e.g. trace ids.
-	["\\m(?=[a-fA-F]*[0-9])(?=[0-9]*[a-fA-F])[0-9a-fA-F]{16,}\\M", "<id>"],
+	[
+		"\\m([A-Za-z]+[_-])(?=[A-Za-z0-9]{12})[A-Za-z]*[0-9][A-Za-z0-9]*",
+		"\\1<id>",
+	],
+	// Bare hashes, trace ids, and other long tokens with a digit.
+	["\\m(?=[A-Za-z0-9]{16})[A-Za-z]*[0-9][A-Za-z0-9]*", "<id>"],
 	// Standalone numbers (token counts, timestamps); not dated model ids.
 	["(?<!-)\\m[0-9]{4,}\\M", "<n>"],
 ];
 
 /**
- * An error's truncated response text. With `groupSimilar`, volatile tokens are
- * masked so errors differing only by ids share one shape.
+ * An already truncated response text, with volatile tokens masked when
+ * `groupSimilar` so errors differing only by ids share one shape. Applied to
+ * pre-aggregated rows so each distinct text is masked once, not every log.
  */
-function responseTextExpr(column: SQL, groupSimilar: boolean): SQL {
-	const truncated = sql`LEFT(${column}, 2000)`;
+function maskedResponseText(column: SQL, groupSimilar: boolean): SQL {
 	return groupSimilar
 		? VOLATILE_TOKEN_MASKS.reduce(
 				(expr, [pattern, replacement]) =>
 					sql`regexp_replace(${expr}, ${pattern}, ${replacement}, 'g')`,
-				truncated,
+				column,
 			)
-		: truncated;
+		: column;
 }
 
 // Selectable time windows, mapping each value to its SQL interval bound, an
@@ -282,7 +285,7 @@ export async function queryMappingErrorShapes({
 		shape_buckets AS (
 			SELECT error_details->>'statusCode' AS status_code,
 				${statusTextExpr} AS status_text,
-				${responseTextExpr(sql`error_details->>'responseText'`, groupSimilar)} AS response_text,
+				LEFT(error_details->>'responseText', 2000) AS response_text,
 				error_details->>'cause' AS cause,
 				classification,
 				${streamGroupExpr} AS streamed,
@@ -292,6 +295,20 @@ export async function queryMappingErrorShapes({
 				COUNT(*) FILTER (WHERE streamed) AS streamed_count
 			FROM recent_errors
 			GROUP BY 1, 2, 3, 4, classification, 6, provider_key_id, bucket
+		),
+		masked_buckets AS (
+			SELECT status_code,
+				status_text,
+				${maskedResponseText(sql`response_text`, groupSimilar)} AS response_text,
+				cause,
+				classification,
+				streamed,
+				provider_key_id,
+				bucket,
+				SUM(count) AS count,
+				SUM(streamed_count) AS streamed_count
+			FROM shape_buckets
+			GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
 		),
 		shapes AS (
 			SELECT status_code,
@@ -304,7 +321,7 @@ export async function queryMappingErrorShapes({
 				SUM(count) AS count,
 				SUM(streamed_count) AS streamed_count,
 				json_agg(json_build_array(bucket, count) ORDER BY bucket) AS buckets
-			FROM shape_buckets
+			FROM masked_buckets
 			GROUP BY status_code, status_text, response_text, cause, classification, streamed, provider_key_id
 		),
 		ranked AS (
@@ -643,7 +660,7 @@ export async function queryIncidentErrorTypes({
 				mappings.used_model,
 				sampled.error_details->>'statusCode' AS status_code,
 				COALESCE(sampled.error_details->>'statusText', NULLIF(sampled.finish_reason, sampled.classification)) AS status_text,
-				${responseTextExpr(sql`sampled.error_details->>'responseText'`, groupSimilar)} AS response_text,
+				LEFT(sampled.error_details->>'responseText', 2000) AS response_text,
 				sampled.error_details->>'cause' AS cause,
 				sampled.classification,
 				sampled.streamed,
@@ -665,6 +682,34 @@ export async function queryIncidentErrorTypes({
 				LIMIT ${sampleLimit}
 			) sampled
 		),
+		raw_groups AS (
+			SELECT status_code,
+				status_text,
+				response_text,
+				cause,
+				classification,
+				used_provider,
+				used_model,
+				bucket,
+				COUNT(*) AS count,
+				COUNT(*) FILTER (WHERE streamed) AS streamed_count
+			FROM recent_errors
+			GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+		),
+		masked_groups AS (
+			SELECT status_code,
+				status_text,
+				${maskedResponseText(sql`response_text`, groupSimilar)} AS response_text,
+				cause,
+				classification,
+				used_provider,
+				used_model,
+				bucket,
+				SUM(count) AS count,
+				SUM(streamed_count) AS streamed_count
+			FROM raw_groups
+			GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+		),
 		shape_models AS (
 			SELECT status_code,
 				status_text,
@@ -673,9 +718,9 @@ export async function queryIncidentErrorTypes({
 				classification,
 				used_provider,
 				used_model,
-				COUNT(*) AS count,
-				COUNT(*) FILTER (WHERE streamed) AS streamed_count
-			FROM recent_errors
+				SUM(count) AS count,
+				SUM(streamed_count) AS streamed_count
+			FROM masked_groups
 			GROUP BY status_code, status_text, response_text, cause, classification, used_provider, used_model
 		),
 		shapes AS (
@@ -709,8 +754,8 @@ export async function queryIncidentErrorTypes({
 					cause,
 					classification,
 					bucket,
-					COUNT(*) AS count
-				FROM recent_errors
+					SUM(count) AS count
+				FROM masked_groups
 				GROUP BY status_code, status_text, response_text, cause, classification, bucket
 			) bucketed
 			GROUP BY status_code, status_text, response_text, cause, classification

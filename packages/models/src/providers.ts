@@ -245,7 +245,7 @@ export interface ProviderDefinition {
 	name: string;
 	description: string;
 	/**
-	 * Whether LLM Gateway forwards its opaque per-organization safety identifier
+	 * Whether LLM Gateway forwards its opaque per-API-key safety identifier
 	 * to this provider. Informational only; request preparation does not use it.
 	 */
 	forwardsSafetyIdentifier: boolean;
@@ -2019,37 +2019,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "runware",
-		managedInAirside: true,
-		name: "Runware",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Runware provides fast, cost-efficient inference for open and frontier LLMs through an OpenAI-compatible API.",
-		env: {
-			required: {
-				apiKey: "LLM_RUNWARE_API_KEY",
-			},
-			optional: {
-				baseUrl: "LLM_RUNWARE_BASE_URL",
-			},
-		},
-		cancellation: false,
-		color: "#a8f399",
-		website: "https://runware.ai",
-		statusPageUrl: "https://status.runware.ai/",
-		announcement: "Launch offer: 30% off all Runware models until September 9",
-		termsUrl: "https://runware.ai/terms",
-		privacyPolicyUrl: "https://runware.ai/privacy",
-		usagePolicyUrl: "https://runware.ai/terms",
-		legalEntity: "Runware Ltd",
-		headquarters: "GB",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-	},
-	{
 		id: "gonka24",
 		managedInAirside: true,
 		name: "Gonka24",
@@ -2758,7 +2727,6 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	JP: "Japan",
 	KZ: "Kazakhstan",
 	AU: "Australia",
-	GB: "United Kingdom",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

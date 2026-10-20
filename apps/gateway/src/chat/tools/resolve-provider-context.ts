@@ -21,6 +21,7 @@ import {
 	prepareRequestBody,
 	providerKeyLabel,
 	readProviderKey,
+	routeProjectlessVertexEndpoint,
 	selectProviderMapping,
 } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
@@ -167,6 +168,8 @@ export interface ProviderContextOptions {
 	prompt_cache_retention: PromptCacheRetention | undefined;
 	prompt_cache_options: PromptCacheOptions | undefined;
 	session_id: string | undefined;
+	/** Opaque per-API-key identifier forwarded to providers for abuse attribution. */
+	safetyIdentifier: string;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -210,8 +213,6 @@ interface ProjectInfo {
 
 interface OrgInfo {
 	id: string;
-	/** Opaque per-org identifier forwarded to providers for abuse attribution. */
-	safetyIdentifier: string;
 	credits: string | null;
 	plan: string;
 	kind: string;
@@ -352,6 +353,7 @@ export function assertDevPlanPremiumCapNotExceeded(
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingPremiumWeeklyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanPremiumCreditsUsed,
 		organization.devPlanPremiumWeekStart,
 	);
@@ -444,6 +446,7 @@ export function assertDevPlanDailyCapNotExceeded(
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingDailyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanDailyCreditsUsed,
 		organization.devPlanDayStart,
 	);
@@ -947,30 +950,42 @@ export async function resolveProviderContext(
 				: undefined;
 	const airsideCustomBaseUrl =
 		await resolveAirsideProviderBaseUrl(usedProvider);
-	const url = getProviderEndpoint(
-		airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
-		credentialBaseUrl ?? airsideCustomBaseUrl,
-		upstreamModelName,
-		usedProvider === "google-ai-studio" ||
-			usedProvider === "glacier" ||
-			usedProvider === "google-vertex" ||
-			usedProvider === "quartz" ||
-			usedProvider === "vertex-anthropic" ||
-			transportProvider === "google-vertex"
+	const buildUrl = (endpointOptions: typeof credentialOptions) =>
+		getProviderEndpoint(
+			airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
+			credentialBaseUrl ?? airsideCustomBaseUrl,
+			upstreamModelName,
+			usedProvider === "google-ai-studio" ||
+				usedProvider === "glacier" ||
+				usedProvider === "google-vertex" ||
+				usedProvider === "quartz" ||
+				usedProvider === "vertex-anthropic" ||
+				usedProvider === "vertex-openai" ||
+				transportProvider === "google-vertex"
+				? usedToken
+				: undefined,
+			options.stream,
+			supportsReasoning,
+			options.hasExistingToolCalls,
+			endpointOptions,
+			configIndex,
+			isImageGeneration,
+			usedRegion,
+			usesDatabaseCredential,
+			usedInternalModel,
+			vertexTokenType,
+			envVariant,
+			apiFormat,
+		);
+	const url = await routeProjectlessVertexEndpoint(
+		buildUrl(credentialOptions),
+		usedProvider === "google-vertex" &&
+			!airsideCustomBaseUrl &&
+			vertexTokenType === "api-key"
 			? usedToken
 			: undefined,
-		options.stream,
-		supportsReasoning,
-		options.hasExistingToolCalls,
-		credentialOptions,
-		configIndex,
-		isImageGeneration,
-		usedRegion,
-		usesDatabaseCredential,
-		usedInternalModel,
-		vertexTokenType,
-		envVariant,
-		apiFormat,
+		(project) =>
+			buildUrl({ ...credentialOptions, google_vertex_project_id: project }),
 	);
 
 	if (!url) {
@@ -1120,7 +1135,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_options,
 		options.session_id,
 		undefined,
-		organization.safetyIdentifier,
+		options.safetyIdentifier,
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,

@@ -289,8 +289,8 @@ npx @llmgateway/cli docs [topic]
 
 <Callout type="info">
 	The commands below require a dashboard session — sign in first with
-	`llmgateway auth login --email`. A gateway API key alone is not enough for
-	account management.
+	`llmgateway auth login` (browser) or `llmgateway auth login --email`. A
+	gateway API key alone is not enough for account management.
 </Callout>
 
 ### `auth`
@@ -300,8 +300,9 @@ Manage authentication (dashboard session and gateway API key).
 For browser-based device sign-in, the approval page is titled **Authorize your device**. Check that its code matches the one on your device before choosing **Authorize device**. Approval creates a separate account session; signing the device out leaves the browser signed in. Choose **Deny** for a request you did not start.
 
 ```bash
-# Sign in with email & password (full access), or paste an API key
+# Sign in in your browser (including SSO), with email & password, or paste an API key
 npx @llmgateway/cli auth login
+npx @llmgateway/cli auth login --sso
 npx @llmgateway/cli auth login --email you@example.com
 npx @llmgateway/cli auth login --key
 
@@ -534,7 +535,7 @@ The CLI stores configuration in `~/.llmgateway/config.json`:
 }
 ```
 
-Signing in with `auth login --email` also stores a dashboard session used by the account commands (`keys`, `budget`, `usage`, `orgs`, `projects`, `credits`).
+Signing in with `auth login` (browser, `--sso`, or `--email`) also stores a dashboard session used by the account commands (`keys`, `budget`, `usage`, `orgs`, `projects`, `credits`).
 
 ### Environment Variables
 

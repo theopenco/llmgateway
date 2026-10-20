@@ -164,6 +164,19 @@ redisClient.on("error", (err: unknown) =>
 	),
 );
 
+// Fixed-window counter for Better Auth's rate-limit `consume`. Increment and
+// expiry must land together, and the TTL check repairs a counter left without
+// expiry by an earlier failure — same idiom as
+// apps/api/src/utils/public-rate-limit.ts (which imports redisClient from
+// here, so the helper cannot be shared without a cycle).
+const CONSUME_AUTH_RATE_LIMIT = `
+local count = redis.call('incr', KEYS[1])
+if count == 1 or redis.call('ttl', KEYS[1]) < 0 then
+	redis.call('expire', KEYS[1], ARGV[1])
+end
+return {count, redis.call('ttl', KEYS[1])}
+`;
+
 export interface RateLimitConfig {
 	keyPrefix: string;
 	windowSizeMs: number;
@@ -764,26 +777,20 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			trustedOrigins: originUrls.split(","),
 			rateLimit: {
 				customStorage: {
-					get: async (key: string) => {
-						const value = await redisClient.get(`auth:rate-limit:${key}`);
-						return value
-							? (JSON.parse(value) as {
-									key: string;
-									count: number;
-									lastRequest: number;
-								})
-							: null;
-					},
-					set: async (
+					consume: async (
 						key: string,
-						value: { key: string; count: number; lastRequest: number },
+						rule: { window: number; max: number },
 					) => {
-						await redisClient.set(
+						const [count, ttl] = (await redisClient.eval(
+							CONSUME_AUTH_RATE_LIMIT,
+							1,
 							`auth:rate-limit:${key}`,
-							JSON.stringify(value),
-							"EX",
-							60,
-						);
+							String(rule.window),
+						)) as [number, number];
+						if (count <= rule.max) {
+							return { allowed: true, retryAfter: null };
+						}
+						return { allowed: false, retryAfter: ttl > 0 ? ttl : rule.window };
 					},
 				},
 				customRules: {

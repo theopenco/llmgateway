@@ -408,6 +408,47 @@ const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	webSearch: "Web Search",
 };
 
+function shouldShowStabilityWarning(
+	stability?: StabilityLevel | null,
+): boolean {
+	return (
+		stability !== null &&
+		stability !== undefined &&
+		["unstable", "experimental"].includes(stability)
+	);
+}
+
+function formatPrice(
+	price: string | null | undefined,
+	discount?: string | null,
+) {
+	const priceNum = parseStrictPrice(price);
+	if (priceNum === null) {
+		return "—";
+	}
+	const discountNum = discountFraction(discount);
+	const originalPrice = (priceNum * 1e6).toFixed(2);
+	if (discountNum > 0) {
+		const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
+		return (
+			<div className="flex flex-col items-end">
+				<div className="flex items-center gap-1">
+					<span className="line-through text-muted-foreground text-xs">
+						${originalPrice}
+					</span>
+					<span className="text-green-600 font-semibold">
+						${discountedPrice}
+					</span>
+				</div>
+				<span className="text-[10px] text-green-600">
+					-{Math.round(discountNum * 100)}% off
+				</span>
+			</div>
+		);
+	}
+	return `$${originalPrice}`;
+}
+
 // Memoized table row component for performance
 const ModelTableRow = React.memo(
 	({
@@ -424,9 +465,9 @@ const ModelTableRow = React.memo(
 		row: FlattenedModelRow;
 		isExpanded: boolean;
 		copiedModel: string | null;
-		onToggleExpand: () => void;
+		onToggleExpand: (rowKey: string) => void;
 		onCopy: (text: string, key: string, e: React.MouseEvent) => void;
-		onNavigate: () => void;
+		onNavigate: (row: FlattenedModelRow) => void;
 		formatPrice: (
 			price: string | null | undefined,
 			discount?: string | null,
@@ -454,6 +495,12 @@ const ModelTableRow = React.memo(
 		const perThousandChars = getInputCharacterPricePer1K(row.provider);
 		const hasCharacterPricing =
 			(parseStrictPrice(row.provider.inputCharacterPrice) ?? 0) > 0;
+		// OCR bills per page; its zero token prices would read as "free".
+		const ocrPagePrice = parseStrictPrice(row.provider.ocrPagePrice) ?? 0;
+		const ocrPerThousandPages =
+			ocrPagePrice > 0 && !inputTokenPrice && !outputTokenPrice
+				? ocrPagePrice * 1000 * (1 - discountFraction(row.provider.discount))
+				: null;
 		const perSecondPrices = row.provider.perSecondPrice;
 		const perSecondLabel = perSecondPrices
 			? (formatPerSecondPriceLabel(perSecondPrices, row.provider.discount)
@@ -469,7 +516,7 @@ const ModelTableRow = React.memo(
 						isCustom ? "cursor-default" : "cursor-pointer",
 						isBlocked && "opacity-60",
 					)}
-					onClick={onNavigate}
+					onClick={() => onNavigate(row)}
 				>
 					{/* Provider Column */}
 					<TableCell className="font-medium">
@@ -478,7 +525,7 @@ const ModelTableRow = React.memo(
 								<button
 									onClick={(e) => {
 										e.stopPropagation();
-										onToggleExpand();
+										onToggleExpand(row.rowKey);
 									}}
 									className="p-0.5 hover:bg-muted rounded"
 									aria-label="Toggle additional pricing details"
@@ -672,6 +719,19 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
+						) : ocrPerThousandPages !== null ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										${ocrPerThousandPages.toFixed(2)}/1K pages
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-page OCR pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
 						) : hasCharacterPricing &&
 						  perThousandChars !== null &&
 						  !inputTokenPrice ? (
@@ -741,14 +801,15 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.outputPrice ||
+						) : ocrPerThousandPages !== null ||
+						  ((!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  ((row.provider.requestPrice &&
-								parseFloat(row.provider.requestPrice) > 0) ||
-								(row.provider.perImagePrice &&
-									Object.keys(row.provider.perImagePrice).length > 0) ||
-								(row.provider.inputCharacterPrice &&
-									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
+								((row.provider.requestPrice &&
+									parseFloat(row.provider.requestPrice) > 0) ||
+									(row.provider.perImagePrice &&
+										Object.keys(row.provider.perImagePrice).length > 0) ||
+									(row.provider.inputCharacterPrice &&
+										parseFloat(row.provider.inputCharacterPrice) > 0))) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)
@@ -881,6 +942,27 @@ const ModelTableRow = React.memo(
 	},
 );
 
+const GridModelCard = React.memo(
+	({
+		model,
+		onNavigate,
+		renderCta,
+	}: {
+		model: ModelWithProviders;
+		onNavigate: (model: ModelWithProviders) => void;
+		renderCta: AllModelsProps["renderCta"];
+	}) => (
+		<ModelCard
+			shouldShowStabilityWarning={shouldShowStabilityWarning}
+			getCapabilityIcons={computeCapabilities}
+			model={model}
+			goToModel={() => onNavigate(model)}
+			formatPrice={formatPrice}
+			renderCta={renderCta}
+		/>
+	),
+);
+
 const TABLE_ROWS_PER_PAGE = 50;
 const GRID_MODELS_PER_PAGE = 12;
 
@@ -905,7 +987,10 @@ export function AllModels({
 	const searchParams = useSearchParams();
 	const isMobile = useIsMobile();
 
-	const modelHref = (path: string) => `${modelHrefBase}${path}`;
+	const modelHref = useCallback(
+		(path: string) => `${modelHrefBase}${path}`,
+		[modelHrefBase],
+	);
 
 	const [viewMode, setViewMode] = useState<"table" | "grid">(
 		(searchParams.get("view") as "table" | "grid") === "grid"
@@ -1653,6 +1738,37 @@ export function AllModels({
 		[],
 	);
 
+	const openModelPage = useCallback(
+		(model: ApiModel, path: string) => {
+			// Custom models have no public model page to navigate to.
+			if (model.source === "custom") {
+				return;
+			}
+			const url = modelHref(path);
+			if (modelHrefBase) {
+				window.open(url, "_blank");
+			} else {
+				router.push(url);
+			}
+		},
+		[modelHref, modelHrefBase, router],
+	);
+
+	const navigateToRow = useCallback(
+		(row: FlattenedModelRow) =>
+			openModelPage(
+				row.model,
+				`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
+			),
+		[openModelPage],
+	);
+
+	const navigateToModel = useCallback(
+		(model: ModelWithProviders) =>
+			openModelPage(model, `/models/${encodeURIComponent(model.id)}`),
+		[openModelPage],
+	);
+
 	const handleSort = (field: SortField) => {
 		if (sortField === field) {
 			const newDir: SortDirection = sortDirection === "asc" ? "desc" : "asc";
@@ -1675,49 +1791,6 @@ export function AllModels({
 			<ArrowDown className="ml-2 h-4 w-4 text-primary" />
 		);
 	};
-
-	const shouldShowStabilityWarning = (
-		stability?: StabilityLevel | null,
-	): boolean => {
-		return (
-			stability !== null &&
-			stability !== undefined &&
-			["unstable", "experimental"].includes(stability)
-		);
-	};
-
-	const formatPrice = (
-		price: string | null | undefined,
-		discount?: string | null,
-	) => {
-		const priceNum = parseStrictPrice(price);
-		if (priceNum === null) {
-			return "—";
-		}
-		const discountNum = discountFraction(discount);
-		const originalPrice = (priceNum * 1e6).toFixed(2);
-		if (discountNum > 0) {
-			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
-			return (
-				<div className="flex flex-col items-end">
-					<div className="flex items-center gap-1">
-						<span className="line-through text-muted-foreground text-xs">
-							${originalPrice}
-						</span>
-						<span className="text-green-600 font-semibold">
-							${discountedPrice}
-						</span>
-					</div>
-					<span className="text-[10px] text-green-600">
-						-{Math.round(discountNum * 100)}% off
-					</span>
-				</div>
-			);
-		}
-		return `$${originalPrice}`;
-	};
-
-	const getCapabilityIcons = computeCapabilities;
 
 	const clearFilters = () => {
 		setSearchQuery("");
@@ -2550,22 +2623,9 @@ export function AllModels({
 									row={row}
 									isExpanded={expandedRows.has(row.rowKey)}
 									copiedModel={copiedModel}
-									onToggleExpand={() => toggleRowExpanded(row.rowKey)}
+									onToggleExpand={toggleRowExpanded}
 									onCopy={copyToClipboard}
-									onNavigate={() => {
-										// Custom models have no public model page to navigate to.
-										if (row.model.source === "custom") {
-											return;
-										}
-										const url = modelHref(
-											`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
-										);
-										if (modelHrefBase) {
-											window.open(url, "_blank");
-										} else {
-											router.push(url);
-										}
-									}}
+									onNavigate={navigateToRow}
 									formatPrice={formatPrice}
 									modelHref={modelHref}
 									pinnedCapabilityKeys={pinnedCapabilityKeys}
@@ -2581,24 +2641,10 @@ export function AllModels({
 	const renderGridView = () => (
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 			{paginatedModels.map((model) => (
-				<ModelCard
+				<GridModelCard
 					key={`${model.id}-${model.providerDetails[0].provider.providerId}-${model.providerDetails[0].provider.region ?? ""}`}
-					shouldShowStabilityWarning={shouldShowStabilityWarning}
-					getCapabilityIcons={getCapabilityIcons}
 					model={model}
-					goToModel={() => {
-						// Custom models have no public model page to navigate to.
-						if (model.source === "custom") {
-							return;
-						}
-						const url = modelHref(`/models/${encodeURIComponent(model.id)}`);
-						if (modelHrefBase) {
-							window.open(url, "_blank");
-						} else {
-							router.push(url);
-						}
-					}}
-					formatPrice={formatPrice}
+					onNavigate={navigateToModel}
 					renderCta={renderCta}
 				/>
 			))}

@@ -251,6 +251,15 @@ export const Navbar = ({
 				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
 		},
 		{
+			title: "Features",
+			href: "/features",
+			description:
+				"Routing, multimodal APIs, cost tracking, compliance and more, at a glance.",
+			icon: Sparkles,
+			gradient:
+				"hover:from-sky-500/20 hover:to-indigo-600/30 hover:shadow-sky-500/10 group-hover/product:text-sky-500 dark:group-hover/product:text-sky-400",
+		},
+		{
 			title: "Guardrails",
 			href: "/features/guardrails",
 			description:
@@ -631,7 +640,9 @@ export const Navbar = ({
 							{/* Mobile nav */}
 							<div className="nav:hidden">
 								<div className="mb-4">
-									<ModelSearch />
+									{/* The desktop instance above owns the ⌘K hotkey; this
+									    hidden-on-desktop copy must not also open on it. */}
+									<ModelSearch hotkey={false} />
 								</div>
 								<ul className="text-base">
 									<li>

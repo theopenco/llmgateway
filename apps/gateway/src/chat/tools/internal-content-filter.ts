@@ -212,7 +212,13 @@ async function classifyPrompt(
 				"Content-Type": "application/json",
 				"X-Request-Id": context.requestId,
 			},
-			body: JSON.stringify({ prompt }),
+			body: JSON.stringify({
+				prompt,
+				// The audit log only fills these two columns from the body; a
+				// header is ignored, leaving its rows unattributable.
+				request_id: context.requestId,
+				account_id: context.organizationId,
+			}),
 			signal,
 		});
 		const text = await response.text();

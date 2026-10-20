@@ -166,6 +166,11 @@ export default async function ModelPage({ params }: PageProps) {
 		activeProviders.length > 0 ? activeProviders : modelProviders;
 	// Search models bill per request only, so token and context stats are noise.
 	const isSearchModel = modelDef.output?.includes("search") ?? false;
+	// OCR models bill per page; their zero token prices would read as "free".
+	const isOcrModel =
+		(modelDef.output?.includes("ocr") ?? false) ||
+		visibleProviders.some((p) => Number(p.ocrPagePrice ?? 0) > 0);
+	const hideTokenInfo = isSearchModel || isOcrModel;
 
 	const currentModelDiscount = getBestDiscount(
 		allDiscounts,
@@ -208,8 +213,13 @@ export default async function ModelPage({ params }: PageProps) {
 	};
 
 	const providerPrices = visibleProviders
-		.filter((p) => p.inputPrice)
-		.map((p) => applyDiscount(perMillion(p.inputPrice)!, p.discount));
+		.filter((p) => (isOcrModel ? p.ocrPagePrice : p.inputPrice))
+		.map((p) =>
+			applyDiscount(
+				isOcrModel ? Number(p.ocrPagePrice) : perMillion(p.inputPrice)!,
+				p.discount,
+			),
+		);
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
@@ -233,6 +243,16 @@ export default async function ModelPage({ params }: PageProps) {
 			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: visibleProviders.length,
+			...(isOcrModel && isFinite(lowestInputPrice)
+				? {
+						priceSpecification: {
+							"@type": "UnitPriceSpecification",
+							price: lowestInputPrice,
+							priceCurrency: "USD",
+							unitText: "per page",
+						},
+					}
+				: {}),
 			availability: "https://schema.org/InStock",
 			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},
@@ -332,7 +352,7 @@ export default async function ModelPage({ params }: PageProps) {
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
-							{!isSearchModel && (
+							{!hideTokenInfo && (
 								<div>
 									{formatNumber(
 										Math.max(
@@ -353,7 +373,7 @@ export default async function ModelPage({ params }: PageProps) {
 									})}
 								</div>
 							)}
-							{!isSearchModel && visibleProviders.some((p) => p.inputPrice) && (
+							{!hideTokenInfo && visibleProviders.some((p) => p.inputPrice) && (
 								<div>
 									Starting at{" "}
 									{(() => {
@@ -385,7 +405,7 @@ export default async function ModelPage({ params }: PageProps) {
 									)}
 								</div>
 							)}
-							{!isSearchModel &&
+							{!hideTokenInfo &&
 								visibleProviders.some((p) => p.outputPrice) && (
 									<div>
 										Starting at{" "}
@@ -522,7 +542,9 @@ export default async function ModelPage({ params }: PageProps) {
 									{(() => {
 										const pagePrices = visibleProviders
 											.filter((p) => p.ocrPagePrice !== undefined)
-											.map((p) => Number(p.ocrPagePrice))
+											.map((p) =>
+												applyDiscount(Number(p.ocrPagePrice), p.discount),
+											)
 											.filter((n) => Number.isFinite(n));
 										if (pagePrices.length === 0) {
 											return "Unknown";
@@ -713,7 +735,10 @@ export default async function ModelPage({ params }: PageProps) {
 							})()}
 						</div>
 
-						<ModelRating modelId={decodedName} />
+						<ModelRating
+							modelId={decodedName}
+							initialData={ratingsData ?? undefined}
+						/>
 					</div>
 
 					{currentModelDiscount && (

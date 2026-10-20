@@ -7,7 +7,7 @@ import type {
 const FINAL_SYSTEM_PROMPT =
 	"Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line.";
 
-export function normalizeAnswer(value: string): string {
+export function normalizeAnswer(value: string, caseSensitive = false): string {
 	const trimmed = value.trim();
 	let start = 0;
 	let end = trimmed.length;
@@ -19,23 +19,29 @@ export function normalizeAnswer(value: string): string {
 	while (end > start && isQuote(trimmed[end - 1])) {
 		end--;
 	}
-	return trimmed.slice(start, end).replace(/\s+/g, "").toLowerCase();
+	const answer = trimmed.slice(start, end).replace(/\s+/g, "");
+	return caseSensitive ? answer : answer.toLowerCase();
 }
 
-export function extractFinalAnswer(content: string): string {
+export function extractFinalAnswer(
+	content: string,
+	caseSensitive = false,
+): string {
 	const matches = [...content.matchAll(/FINAL\s*:\s*([^\n\r]+)/gi)];
-	if (matches.length > 0) {
-		return normalizeAnswer(matches.at(-1)?.[1] ?? "");
-	}
-	return normalizeAnswer(content.split(/\r?\n/).filter(Boolean).at(-1) ?? "");
+	const answer =
+		matches.length > 0
+			? (matches.at(-1)?.[1] ?? "")
+			: (content.split(/\r?\n/).filter(Boolean).at(-1) ?? "");
+	return normalizeAnswer(answer, caseSensitive);
 }
 
 function exactEvaluation(
 	response: BenchmarkResponse,
 	expected: string,
+	caseSensitive = false,
 ): BenchmarkEvaluation {
-	const answer = extractFinalAnswer(response.content);
-	const normalizedExpected = normalizeAnswer(expected);
+	const answer = extractFinalAnswer(response.content, caseSensitive);
+	const normalizedExpected = normalizeAnswer(expected, caseSensitive);
 	return {
 		passed: answer === normalizedExpected,
 		answer,
@@ -291,6 +297,7 @@ function qualityCase(
 	category: string,
 	prompt: string,
 	expected: string,
+	caseSensitive = false,
 ): BenchmarkCase {
 	return {
 		id,
@@ -308,7 +315,7 @@ function qualityCase(
 			reasoningEffort: "none",
 			temperature: 0,
 		},
-		evaluate: (response) => exactEvaluation(response, expected),
+		evaluate: (response) => exactEvaluation(response, expected, caseSensitive),
 	};
 }
 
@@ -495,5 +502,6 @@ export const qualityCases: BenchmarkCase[] = [
 				.replaceAll("A", "Z")
 				.replaceAll("E", "Q");
 		})(),
+		true,
 	),
 ];

@@ -20,15 +20,15 @@ describe("DevPass cached-workload price routing", () => {
 	});
 
 	test.each([
-		[false, 2000, "deepinfra", true, true],
-		[false, 1, "deepinfra", true, true],
-		[true, 2000, "fireworks", true, true],
-		[true, 1, "fireworks", true, true],
-		[false, 1, "deepinfra", false, true],
-		[true, 1, "fireworks", false, true],
-		[false, 1, "deepinfra", false, false],
+		[false, 2000, "novita", true, true],
+		[false, 1, "novita", true, true],
+		[true, 2000, "bytedance", true, true],
+		[true, 1, "bytedance", true, true],
+		[false, 1, "novita", false, true],
+		[true, 1, "bytedance", false, true],
+		[false, 1, "novita", false, false],
 		// A provider that never caches must not make the others look uncached.
-		[true, 1, "fireworks", true, true, "0"],
+		[true, 1, "bytedance", true, true, "0"],
 	])(
 		"routes with usage=%s, repetitions=%s, provider=%s, DevPass=%s, coding=%s, cached=%s",
 		async (
@@ -61,17 +61,14 @@ describe("DevPass cached-workload price routing", () => {
 				createdBy: "user-id",
 				description: "Test API Key",
 			});
-			for (const provider of ["deepinfra", "fireworks"] as const) {
+			for (const provider of ["novita", "bytedance"] as const) {
 				const keyId = `provider-key-cache-routing-${provider}`;
 				await db.insert(tables.providerKey).values({
 					id: keyId,
 					...encryptProviderKeyForStorage("sk-test-key", keyId, "org-id"),
 					provider,
 					organizationId: "org-id",
-					baseUrl:
-						provider === "deepinfra"
-							? `${harness.mockServerUrl}/v1`
-							: harness.mockServerUrl,
+					baseUrl: `${harness.mockServerUrl}/v1`,
 				});
 				await harness.setRoutingMetrics(model, provider, { uptime: 100 });
 			}
@@ -81,8 +78,8 @@ describe("DevPass cached-workload price routing", () => {
 					hourTimestamp: new Date(
 						Math.floor(Date.now() / 3_600_000) * 3_600_000,
 					),
-					usedModel: `deepinfra/${model}`,
-					usedProvider: "deepinfra",
+					usedModel: `novita/${model}`,
+					usedProvider: "novita",
 					requestCount: 20,
 					inputTokens: "20000",
 					cachedTokens,

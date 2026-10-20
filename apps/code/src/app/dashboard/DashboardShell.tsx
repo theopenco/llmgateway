@@ -509,7 +509,7 @@ export default function DashboardShell({
 						: "Choose your Dev Plan"}
 				</h1>
 				<p className="text-sm text-muted-foreground leading-relaxed">
-					Pick a plan to get your API key and start coding with 200+ models.
+					Pick a plan to get your API key and start coding with 100+ models.
 					Every dollar gives you 2× in usage.
 				</p>
 			</div>

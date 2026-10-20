@@ -239,7 +239,6 @@ export {
 export {
 	getActiveProviderPromo,
 	MARKETING_STATS,
-	RUNWARE_PROMO,
 	SCX_PROMO,
 } from "./marketing.js";
 
@@ -310,8 +309,13 @@ export {
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	isProviderBaseUrlOverrideAllowed,
+	isProviderHostnameLabel,
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
 	providerBaseUrlHasEndpointPath,
+	PROVIDER_HOSTNAME_LABEL_MESSAGE,
+	PROVIDER_HOSTNAME_LABEL_REGEX,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";

@@ -53,7 +53,7 @@ import {
 } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
-import { fetchProvider } from "@/lib/fetch-provider.js";
+import { fetchProvider, fetchProviderIssuedUrl } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
@@ -64,7 +64,7 @@ import { trackPendingWork } from "@/lib/pending-work.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { fetchNoRedirect, RedirectError } from "@llmgateway/actions";
+import { RedirectError } from "@llmgateway/actions";
 import {
 	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
@@ -1807,10 +1807,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				let redirectBlocked = false;
 				if (typeof audioUrl === "string" && audioUrl) {
 					try {
-						const audioResponse = await fetchNoRedirect(audioUrl, {
-							// The download URL is provider-issued; still never follow
-							// redirects so the response can't be bounced elsewhere.
-							redirect: "error",
+						const audioResponse = await fetchProviderIssuedUrl(audioUrl, {
 							signal: createCombinedSignal(controller),
 						});
 						if (audioResponse.ok) {

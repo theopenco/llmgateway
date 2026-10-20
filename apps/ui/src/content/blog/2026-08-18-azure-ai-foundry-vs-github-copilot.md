@@ -13,7 +13,7 @@ faqs:
   - question: "Is GitHub Copilot cheaper than an AI coding plan like DevPass?"
     answer: "Compare what a plan dollar buys. Copilot's individual plans include roughly 1.5–2x their price in metered AI Credits: Pro is $10 for about $15 of usage, Pro+ $39 for about $70, Max $100 for about $200. Every DevPass tier includes 2x its price in model usage metered at provider list rates: Lite is $29 for $58, Pro $79 for $158, Max $179 for $358 — and it works across coding agents like Claude Code, Cline, and OpenCode rather than one vendor's tooling."
   - question: "Do I need Azure API Management's AI Gateway tier?"
-    answer: "Only if you stay fully inside the Azure stack. It is a dedicated Azure API Management tier (public preview since August 2026, pricing not yet announced) that adds token limits, quotas, content safety, and model fallback in front of Foundry — controls that come built into gateways like LLM Gateway as configurable hard budget caps per organization, project, and API key."
+    answer: "Only if you stay fully inside the Azure stack. It is a dedicated Azure API Management tier (public preview since August 2026, pricing not yet announced) that adds token limits, quotas, content safety, and model fallback in front of Foundry — controls that come built into gateways like LLM Gateway as configurable hard budget caps per organization member and API key."
 image:
   src: "/blog/azure-ai-foundry-vs-github-copilot.png"
   alt: "Split circuit board showing two separate expensive Microsoft product chips versus one unified LLM Gateway chip serving both API and coding-agent workloads"
@@ -55,7 +55,7 @@ Three products, two vendors' worth of dashboards, and three separate places a co
 
 **LLM Gateway** sells both use cases as one platform with one model catalogue and one balance:
 
-- **The API use case** — an OpenAI-compatible gateway in front of 200+ models from 40+ providers. Tokens at provider list price with a flat 5% fee on credits, or 0% with your own provider keys. Configurable budgets with hard caps per organization, project, and API key, prompt caching, and per-request cost attribution are built in — the things the APIM AI Gateway tier packages separately.
+- **The API use case** — an OpenAI-compatible gateway in front of 200+ models from 40+ providers. Tokens at provider list price with a flat 5% fee on credits, or 0% with your own provider keys. Configurable budgets with hard caps per organization member and API key, prompt caching, and per-request cost attribution are built in — the things the APIM AI Gateway tier packages separately.
 - **The coding use case** — [DevPass](https://devpass.llmgateway.io) flat plans for agents like Claude Code, Cursor, Cline, and OpenCode, drawing on the same catalogue.
 
 The plan math is where the difference stops being philosophical. Compare what a dollar of subscription buys in metered usage:

@@ -52,9 +52,11 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
+	isProviderBaseUrlOverrideAllowed,
 	parseContentFilterSettings,
 } from "@llmgateway/shared";
 import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
@@ -877,6 +879,34 @@ export async function findActiveCustomModels(
 }
 
 /**
+ * Whether an organization-owned key may still be used where base URL overrides
+ * are disallowed (the hosted service). A key written before that restriction
+ * landed can carry a base URL for a catalogue provider, and the write-time
+ * check never sees it again — so routing drops it here instead.
+ *
+ * Dropping it rather than ignoring the base URL is deliberate: the key's token
+ * may only be valid for that private endpoint, and sending it to the provider's
+ * published host would hand the credential to a third party. Skipping the key
+ * lets a sibling key, another provider, or (in hybrid mode) credits serve the
+ * request. Platform-managed credentials are not affected: they are operator-
+ * authored and never organization-owned.
+ */
+function providerKeyBaseUrlAllowed(key: ProviderKey): boolean {
+	if (!key.baseUrl || key.provider === "custom") {
+		return true;
+	}
+	if (isProviderBaseUrlOverrideAllowed()) {
+		return true;
+	}
+	logger.warn("Skipping provider key with a disallowed base URL", {
+		providerKeyId: key.id,
+		organizationId: key.organizationId,
+		provider: key.provider,
+	});
+	return false;
+}
+
+/**
  * The organization's own keys for a provider that can serve this request, in
  * selection order (index 0 is the primary). This is exactly the candidate set
  * findProviderKey picks from, before health failover and per-attempt
@@ -912,7 +942,8 @@ export async function listEligibleProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
-	return filter ? results.filter(filter) : results;
+	const usable = results.filter(providerKeyBaseUrlAllowed);
+	return filter ? usable.filter(filter) : usable;
 }
 
 /**
@@ -945,7 +976,7 @@ export async function findProviderKey(
 export async function findActiveProviderKeys(
 	organizationId: string,
 ): Promise<ProviderKey[]> {
-	return await swrWrap(
+	const results = await swrWrap(
 		`providerKey:active:${organizationId}`,
 		[providerKeyTableName],
 		async () =>
@@ -968,6 +999,7 @@ export async function findActiveProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
+	return results.filter(providerKeyBaseUrlAllowed);
 }
 
 /**
@@ -981,7 +1013,7 @@ export async function findProviderKeysByProviders(
 		return [];
 	}
 	const providersKey = providers.slice().sort().join(",");
-	return await swrWrap(
+	const results = await swrWrap(
 		`providerKey:byProviders:${organizationId}:${providersKey}`,
 		[providerKeyTableName],
 		async () =>
@@ -1005,6 +1037,7 @@ export async function findProviderKeysByProviders(
 					asc(providerKeyTable.id),
 				),
 	);
+	return results.filter(providerKeyBaseUrlAllowed);
 }
 
 /**

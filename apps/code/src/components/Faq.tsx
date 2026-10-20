@@ -185,9 +185,9 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 				"Anything that speaks the OpenAI or Anthropic API — Claude Code, GitHub Copilot, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
 		},
 		{
-			question: "Are all 200+ models included on every plan?",
+			question: "Are all 100+ models included on every plan?",
 			answer:
-				"Yes. Every plan includes the full catalog — Claude, GPT-5, Gemini, Llama, Qwen, and the rest. Plans differ in the size of your monthly usage allowance, its daily pacing, and the weekly fair-use allowance on premium frontier models.",
+				"Yes. Every plan includes the full catalog — Claude, GPT-5, Gemini, GLM, Qwen, and the rest. Plans differ in the size of your monthly usage allowance, its daily pacing, and the weekly fair-use allowance on premium frontier models.",
 		},
 		{
 			question: "Can I pin a specific provider, like on pay-as-you-go?",

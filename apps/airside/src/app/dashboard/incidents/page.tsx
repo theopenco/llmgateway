@@ -51,11 +51,11 @@ function IncidentsContent() {
 	const model = searchParams.get("model");
 	const groupByError = searchParams.get("group") === "error";
 	const includeByok = searchParams.get("includeByok") === "true";
+	const groupSimilar = searchParams.get("groupSimilar") !== "false";
 	const { company, isLoading: companyLoading } = useCompany();
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [providerId, setProviderId] = useState<string | undefined>(undefined);
 	const [includeRetried, setIncludeRetried] = useState(true);
-	const [groupSimilar, setGroupSimilar] = useState(true);
 
 	const companyId = company?.id;
 	useEffect(() => {
@@ -312,7 +312,9 @@ function IncidentsContent() {
 							<Switch
 								id="group-similar"
 								checked={groupSimilar}
-								onCheckedChange={setGroupSimilar}
+								onCheckedChange={(checked) =>
+									setParam("groupSimilar", checked ? null : "false")
+								}
 							/>
 							<Label htmlFor="group-similar" className="text-xs">
 								Group similar errors

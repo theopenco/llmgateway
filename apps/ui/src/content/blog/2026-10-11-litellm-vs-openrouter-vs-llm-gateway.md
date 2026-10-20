@@ -51,7 +51,7 @@ This is the first fork in the road.
 
 **OpenRouter** is a service. There is nothing to run; you get one key and a catalog of 400+ models. You also get nothing to configure beyond the request, and no option to keep traffic inside your own network.
 
-**LLM Gateway** does both. The hosted endpoint at `https://api.llmgateway.io/v1` works like OpenRouter: one key, no infrastructure. The same code is open source under AGPLv3 and runs with one Docker command when you need it inside your VPC. You can start hosted and move to self-hosted later without changing the API your application calls. See [self-hosting LLM Gateway](/blog/self-host-llm-gateway).
+**LLM Gateway** does both. The hosted endpoint at `https://api.llmgateway.io/v1` works like OpenRouter: one key, no infrastructure. The same code is open source under AGPLv3 and runs with one Docker command when you need it inside your VPC. You can start hosted and move to self-hosted later without changing the API your application calls. See [self-hosting LLM Gateway](/blog/how-to-self-host-llm-gateway).
 
 ## What you pay on your own keys
 

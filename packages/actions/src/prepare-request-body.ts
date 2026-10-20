@@ -1698,12 +1698,24 @@ export async function prepareRequestBody(
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
 	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
 	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
-	// thinking when asked. Every other provider treats the absence of
-	// reasoning_effort as "off" already, so normalize `none` away for them to
+	// thinking when asked. Claude (Anthropic, Vertex, Azure and Bedrock Converse)
+	// receives it as `thinking: { type: "disabled" }` so an explicit disable
+	// reaches the model. Every other provider treats the
+	// absence of reasoning_effort as "off" already, so normalize `none` away for them to
 	// avoid forwarding an unsupported enum value. A mapping that publishes
 	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
 	// it documents that the provider accepts the value, so forward it even
 	// when the provider is not in the allowlist above (#3423).
+	const usesBedrockClaudeConverse =
+		usedProvider === "aws-bedrock" &&
+		providerMappingForOptions?.apiFormat !== "openai-chat-completions" &&
+		modelDef?.family === "anthropic";
+	// Some adaptive-only Claude models (Fable 5, Sonnet 5.5, Opus 5.5) reject
+	// `thinking: { type: "disabled" }`; adaptive mappings that accept it declare
+	// `none` in `reasoningEfforts`. Budget-era Claude models all accept it.
+	const claudeCanDisableThinking =
+		providerMappingForOptions?.reasoningMode !== "adaptive" ||
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1721,6 +1733,10 @@ export async function prepareRequestBody(
 		usedProvider === "together-ai" ||
 		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
+		usedProvider === "anthropic" ||
+		usedProvider === "vertex-anthropic" ||
+		usedProvider === "azure-anthropic" ||
+		usesBedrockClaudeConverse ||
 		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -3406,8 +3422,11 @@ export async function prepareRequestBody(
 					reasoning_split: true,
 				};
 			}
-			// MiniMax doesn't recognize `reasoning_effort`; its thinking models
-			// take a binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
+			// Mappings listing `reasoning_effort` in supportedParameters
+			// (MiniMax-M3.1-Flash) take a graduated effort and reject disabling
+			// thinking, so none/minimal collapse onto the lowest declared tier.
+			// The older thinking models ignore `reasoning_effort` and take a
+			// binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
 			// and think by default. Map `none`/`minimal` to an explicit disable and
 			// every other tier to an explicit enable; when no effort is requested,
 			// send nothing and keep the provider default (thinking on). Only
@@ -3415,7 +3434,21 @@ export async function prepareRequestBody(
 			// ignores `"disabled"` and keeps thinking (verified live) — so mappings
 			// that can disable declare `none` in `reasoningEfforts` and disable
 			// requests collapse onto the minimum (thinking stays on) elsewhere.
-			if (supportsReasoning && reasoning_effort !== undefined) {
+			if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				const lowestEffort =
+					providerMappingForOptions.reasoningEfforts?.[0] ?? "low";
+				requestBody.reasoning_effort = wantsThinking
+					? reasoning_effort
+					: lowestEffort;
+			} else if (supportsReasoning && reasoning_effort !== undefined) {
 				const wantsThinking =
 					reasoning_effort !== "none" && reasoning_effort !== "minimal";
 				const canDisableThinking =
@@ -3444,6 +3477,17 @@ export async function prepareRequestBody(
 				requestBody.metadata = { user_id: safety_identifier };
 			}
 
+			// `none` is an explicit disable: it sends `thinking: { type: "disabled" }`
+			// (unless a budget is also given) and never enables thinking. Models that
+			// cannot disable thinking get no `thinking` field, as without an effort.
+			const thinkingDisabled =
+				supportsReasoning &&
+				claudeCanDisableThinking &&
+				reasoning_effort === "none" &&
+				reasoning_max_tokens === undefined;
+			const thinkingEffort =
+				reasoning_effort === "none" ? undefined : reasoning_effort;
+
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
 			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
 			const getThinkingBudget = (effort?: string) => {
@@ -3455,7 +3499,7 @@ export async function prepareRequestBody(
 					// Anthropic has a minimum of 1024 and maximum of 128000 for thinking budget
 					return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
 				}
-				if (!reasoning_effort) {
+				if (!effort) {
 					return 0;
 				}
 				switch (effort) {
@@ -3471,7 +3515,7 @@ export async function prepareRequestBody(
 						return 2000; // medium or undefined
 				}
 			};
-			const thinkingBudget = getThinkingBudget(reasoning_effort);
+			const thinkingBudget = getThinkingBudget(thinkingEffort);
 			// Anthropic's Messages API requires max_tokens to be set. When the
 			// caller didn't specify one, fall back to the model's full advertised
 			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
@@ -3811,8 +3855,12 @@ export async function prepareRequestBody(
 				};
 			}
 
+			if (thinkingDisabled) {
+				requestBody.thinking = { type: "disabled" };
+			}
+
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+			if (supportsReasoning && (thinkingEffort || reasoning_max_tokens)) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
@@ -3821,7 +3869,7 @@ export async function prepareRequestBody(
 					// thinking text — their default flipped to "omitted" (empty thinking,
 					// signature only), unlike Opus 4.6 which defaults to "summarized".
 					requestBody.thinking = { type: "adaptive", display: "summarized" };
-					if (effort === undefined && reasoning_effort) {
+					if (effort === undefined && thinkingEffort) {
 						const mapEffort = (
 							e: typeof reasoning_effort,
 						): "low" | "medium" | "high" | "xhigh" | "max" => {
@@ -3842,7 +3890,7 @@ export async function prepareRequestBody(
 							}
 						};
 						requestBody.output_config ??= {};
-						requestBody.output_config.effort = mapEffort(reasoning_effort);
+						requestBody.output_config.effort = mapEffort(thinkingEffort);
 					}
 				} else {
 					requestBody.thinking = {
@@ -4468,10 +4516,27 @@ export async function prepareRequestBody(
 				requestBody.inferenceConfig = inferenceConfig;
 			}
 
+			// `none` explicitly disables Claude's thinking, mirroring the Anthropic
+			// branch; it never enables thinking.
+			const bedrockThinkingEffort =
+				reasoning_effort === "none" ? undefined : reasoning_effort;
+			if (
+				usesBedrockClaudeConverse &&
+				claudeCanDisableThinking &&
+				supportsReasoning &&
+				reasoning_effort === "none" &&
+				reasoning_max_tokens === undefined
+			) {
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.thinking = {
+					type: "disabled",
+				};
+			}
+
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
 			if (
 				supportsReasoning &&
-				(effort || reasoning_effort || reasoning_max_tokens)
+				(effort || bedrockThinkingEffort || reasoning_max_tokens)
 			) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
@@ -4505,7 +4570,9 @@ export async function prepareRequestBody(
 					};
 					const adaptiveEffort =
 						effort ??
-						(reasoning_effort ? mapEffort(reasoning_effort) : undefined);
+						(bedrockThinkingEffort
+							? mapEffort(bedrockThinkingEffort)
+							: undefined);
 					if (adaptiveEffort !== undefined) {
 						requestBody.additionalModelRequestFields.output_config = {
 							effort: adaptiveEffort,
@@ -4532,7 +4599,7 @@ export async function prepareRequestBody(
 								return 2000;
 						}
 					};
-					const thinkingBudget = getThinkingBudget(reasoning_effort);
+					const thinkingBudget = getThinkingBudget(bedrockThinkingEffort);
 					requestBody.additionalModelRequestFields ??= {};
 					requestBody.additionalModelRequestFields.thinking = {
 						type: "enabled",
