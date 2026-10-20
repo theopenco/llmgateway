@@ -1710,6 +1710,12 @@ export async function prepareRequestBody(
 		usedProvider === "aws-bedrock" &&
 		providerMappingForOptions?.apiFormat !== "openai-chat-completions" &&
 		modelDef?.family === "anthropic";
+	// Some adaptive-only Claude models (Fable 5, Sonnet 5.5, Opus 5.5) reject
+	// `thinking: { type: "disabled" }`; adaptive mappings that accept it declare
+	// `none` in `reasoningEfforts`. Budget-era Claude models all accept it.
+	const claudeCanDisableThinking =
+		providerMappingForOptions?.reasoningMode !== "adaptive" ||
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -3472,9 +3478,11 @@ export async function prepareRequestBody(
 			}
 
 			// `none` is an explicit disable: it sends `thinking: { type: "disabled" }`
-			// (unless a budget is also given) and never enables thinking.
+			// (unless a budget is also given) and never enables thinking. Models that
+			// cannot disable thinking get no `thinking` field, as without an effort.
 			const thinkingDisabled =
 				supportsReasoning &&
+				claudeCanDisableThinking &&
 				reasoning_effort === "none" &&
 				reasoning_max_tokens === undefined;
 			const thinkingEffort =
@@ -4514,6 +4522,7 @@ export async function prepareRequestBody(
 				reasoning_effort === "none" ? undefined : reasoning_effort;
 			if (
 				usesBedrockClaudeConverse &&
+				claudeCanDisableThinking &&
 				supportsReasoning &&
 				reasoning_effort === "none" &&
 				reasoning_max_tokens === undefined

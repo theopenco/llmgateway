@@ -9745,6 +9745,31 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 			expect(requestBody.toolConfig.toolChoice).toEqual({ any: {} });
 		});
 	});
+
+	// These models 400 on `thinking: { type: "disabled" }` (verified live).
+	test.each([
+		["anthropic", "claude-sonnet-5-5"],
+		["anthropic", "claude-fable-5"],
+		["anthropic", "claude-opus-5-5"],
+		["azure-anthropic", "claude-opus-5-5"],
+		["aws-bedrock", "claude-sonnet-5-5"],
+		["aws-bedrock", "claude-fable-5-1"],
+	] as const)(
+		"%s %s never sends disabled to a model that cannot turn thinking off",
+		async (provider, model) => {
+			const requestBody = await prepare({
+				provider,
+				model,
+				reasoningEffort: "none",
+			});
+
+			expect(requestBody.thinking).toBeUndefined();
+			expect(
+				requestBody.additionalModelRequestFields?.thinking,
+			).toBeUndefined();
+			expect(requestBody.output_config?.effort).toBeUndefined();
+		},
+	);
 });
 
 describe("prepareRequestBody - developer role normalization", () => {

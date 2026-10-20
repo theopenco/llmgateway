@@ -253,6 +253,7 @@ describe("Models API", () => {
 			(p: { providerId: string }) => p.providerId === "anthropic",
 		);
 		expect(anthropicMapping.reasoning_efforts).toEqual([
+			"none",
 			"low",
 			"medium",
 			"high",
