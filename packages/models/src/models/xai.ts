@@ -682,7 +682,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -690,6 +689,8 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 2_000_000,
 				maxOutput: 30000,
+				// Temperatures near 2 return gibberish until max_tokens.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
 				// Vertex fetches remote images itself and refuses hosts whose
@@ -716,7 +717,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-non-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -1214,6 +1214,8 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 500_000,
 				maxOutput: undefined,
+				// Temperatures near 2 never return; 1 answers normally.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
 				// Vertex fetches remote images itself and refuses hosts whose
@@ -1325,9 +1327,6 @@ export const xaiModels = [
 			},
 			{
 				providerId: "vertex-openai",
-				// Preview deployment: correct answers, but 1-3 minutes for a
-				// one-word reply, so keep it out of automatic routing.
-				stability: "unstable" as const,
 				externalId: "grok-4.7",
 				inputPrice: "2.0e-6",
 				cachedInputPrice: "0.5e-6",
