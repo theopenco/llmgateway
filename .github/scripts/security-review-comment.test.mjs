@@ -17,68 +17,100 @@ const finding = (file, line, description, severity = "HIGH") => ({
 	exploit_scenario: "x",
 	recommendation: "y",
 });
+// Fake sources: a.ts has the same vulnerable line at 10 and 20, and a different
+// one at 30.
+const SOURCE = {
+	"a.ts": {
+		10: "db.query(sql + input)",
+		20: "db.query(sql + input)",
+		30: "exec(cmd)",
+	},
+	"b.ts": { 3: "innerHTML = x" },
+};
+const read = (path, line) => SOURCE[path]?.[line] ?? "";
+const thread = (body, isResolved = false, isOutdated = false) => ({
+	body,
+	isResolved,
+	isOutdated,
+});
 
-const built = buildComment(finding("a.ts", 10, "SQL injection"));
+const built = buildComment(finding("a.ts", 10, "SQL injection"), read);
 assert.equal(built.path, "a.ts");
 assert.equal(built.line, 10);
-assert.ok(built.body.startsWith("🤖 **Security Issue: SQL injection**\n"));
+assert.match(
+	built.body,
+	/^<!-- security-finding:[0-9a-f]{16} -->\n🤖 \*\*Security Issue: SQL injection\*\*\n/,
+);
 assert.ok(built.body.includes("**Exploit Scenario:** x"));
+assert.equal(existingKey(built.body), built.key);
+assert.equal(existingKey("unrelated"), undefined);
 
-// A comment produced from the body round-trips to the same key.
+// Same message, different code: different findings.
+const other = buildComment(finding("a.ts", 30, "SQL injection"), read);
+assert.notEqual(other.key, built.key);
+// Same message, same code elsewhere in the file: same finding (a moved line).
 assert.equal(
-	existingKey({ path: "a.ts", line: 10, body: built.body }),
-	built.key,
-);
-assert.equal(
-	existingKey({ path: "a.ts", line: 10, body: "unrelated" }),
-	undefined,
-);
-
-// A comment whose line moved (line: null, original_line kept) still matches.
-assert.equal(
-	existingKey({ path: "a.ts", line: null, original_line: 8, body: built.body }),
+	buildComment(finding("a.ts", 20, "SQL injection"), read).key,
 	built.key,
 );
 
-const existing = [
-	{ path: "a.ts", line: null, original_line: 8, body: built.body },
-];
 const changed = ["a.ts", "b.ts"];
 const out = selectNew(
 	[
-		finding("a.ts", 12, "SQL injection"),
-		finding("a.ts", 12, "SQL injection"),
+		finding("a.ts", 20, "SQL injection"),
+		finding("a.ts", 20, "SQL injection"),
+		finding("a.ts", 30, "SQL injection"),
 		finding("b.ts", 3, "XSS"),
 		finding("c.ts", 1, "not in diff"),
 	],
-	existing,
+	[thread(built.body)],
 	changed,
+	read,
 );
 assert.deepEqual(
 	out.map((c) => [c.path, c.line]),
-	[["b.ts", 3]],
+	[
+		["a.ts", 30],
+		["b.ts", 3],
+	],
 );
 
-// Resolving a thread clears its high finding; others stay open.
+// An outdated thread (the flagged line was edited) no longer deduplicates.
+assert.equal(
+	selectNew(
+		[finding("a.ts", 10, "SQL injection")],
+		[thread(built.body, true, true)],
+		changed,
+		read,
+	).length,
+	1,
+);
+
+// Resolving a still-anchored thread clears its high finding only; a resolved
+// but outdated thread does not; medium findings never count.
 const open = openHighFindings(
 	[
-		finding("a.ts", 12, "SQL injection"),
+		finding("a.ts", 10, "SQL injection"),
+		finding("a.ts", 30, "SQL injection"),
 		finding("b.ts", 3, "XSS"),
-		finding("b.ts", 9, "weak hash", "MEDIUM"),
+		finding("b.ts", 3, "weak hash", "MEDIUM"),
 	],
-	[{ path: "a.ts", body: built.body }],
+	[thread(built.body, true), thread(other.body, true, true)],
+	read,
 );
 assert.deepEqual(
 	open.map((c) => [c.path, c.line]),
-	[["b.ts", 3]],
+	[
+		["a.ts", 30],
+		["b.ts", 3],
+	],
 );
 
 // Fallback field shapes from the scanner.
-const alt = buildComment({
-	path: "d.ts",
-	start: { line: 7 },
-	extra: { message: "m" },
-});
+const alt = buildComment(
+	{ path: "d.ts", start: { line: 7 }, extra: { message: "m" } },
+	read,
+);
 assert.equal(alt.path, "d.ts");
 assert.equal(alt.line, 7);
 assert.ok(alt.body.includes("Security Issue: m**"));

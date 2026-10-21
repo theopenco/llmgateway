@@ -159,9 +159,10 @@ jobs:
             const { postFindings } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/security-review-comment.mjs`);
             await postFindings({ github, context, core });
 
-      # findings-open.json holds the high-severity findings whose threads are
-      # not resolved. Resolving a thread with a reason and re-running the job
-      # (or pushing) clears a false positive.
+      # findings-open.json holds the high-severity findings without a resolved
+      # thread. Resolving a thread with a reason and re-running the job clears
+      # a false positive; editing the flagged line outdates the thread, and
+      # the finding needs a fresh resolution if it is still reported.
       - name: Fail on open high-severity findings
         if: steps.key.outputs.present == 'true'
         run: |

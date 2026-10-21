@@ -4,34 +4,58 @@
 // Replaces the scanner's own scripts/comment-pr-findings.js, which stops
 // posting altogether once one security comment exists.
 //
+// Identity of a finding: path, category, message and the text of the flagged
+// source line. Two findings with the same message on different code get
+// different keys; a line that only moved keeps its key. Threads count only
+// while GitHub still anchors them to unchanged code (not outdated): once the
+// flagged line is edited, the next scan posts a fresh comment and a previous
+// resolution no longer clears it.
+//
 // Used by security-review.yml via actions/github-script; testable with plain
 // node (node .github/scripts/security-review-comment.test.mjs).
 
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 
 export const MARKER = "🤖 **Security Issue:";
+const KEY_MARKER = /<!-- security-finding:([0-9a-f]{16}) -->/;
 
-// A finding keeps its identity when a later commit moves the line, so the
-// line is not part of the key.
-export function findingKey(path, message) {
-	return `${path}:${message.trim()}`;
+export function readSourceLine(path, line) {
+	try {
+		return readFileSync(path, "utf8").split("\n")[line - 1] ?? "";
+	} catch {
+		return "";
+	}
 }
 
-export function buildComment(finding) {
+export function findingKey({ path, category, message, source }) {
+	return createHash("sha256")
+		.update([path, category, message.trim(), source.trim()].join("\0"))
+		.digest("hex")
+		.slice(0, 16);
+}
+
+export function buildComment(finding, readLine = readSourceLine) {
 	const file = finding.file || finding.path;
 	const line = finding.line || finding.start?.line || 1;
 	const message =
 		finding.description ||
 		finding.extra?.message ||
 		"Security vulnerability detected";
-	const severity = finding.severity || "HIGH";
+	const severity = String(finding.severity || "HIGH").toUpperCase();
 	const category = finding.category || "security_issue";
 	const exploit =
 		finding.exploit_scenario || finding.extra?.metadata?.exploit_scenario;
 	const recommendation =
 		finding.recommendation || finding.extra?.metadata?.recommendation;
+	const key = findingKey({
+		path: file,
+		category,
+		message,
+		source: readLine(file, line),
+	});
 
-	let body = `${MARKER} ${message}**\n\n`;
+	let body = `<!-- security-finding:${key} -->\n${MARKER} ${message}**\n\n`;
 	body += `**Severity:** ${severity}\n`;
 	body += `**Category:** ${category}\n`;
 	if (exploit) {
@@ -40,38 +64,55 @@ export function buildComment(finding) {
 	if (recommendation) {
 		body += `\n**Recommendation:** ${recommendation}\n`;
 	}
-	return {
-		path: file,
-		line,
-		side: "RIGHT",
-		body,
-		severity: String(severity).toUpperCase(),
-		key: findingKey(file, message),
-	};
+	return { path: file, line, side: "RIGHT", body, severity, key };
 }
 
-// Key of an existing bot comment: path and the first line of the body.
-export function existingKey(comment) {
-	const match = comment.body?.match(/🤖 \*\*Security Issue: ([\s\S]*?)\*\*\n/);
-	if (!match) {
-		return undefined;
-	}
-	return findingKey(comment.path, match[1]);
+// Key carried by an existing comment body, if it is one of ours.
+export function existingKey(body) {
+	return body?.match(KEY_MARKER)?.[1];
 }
 
-// High-severity findings that have no resolved thread on the PR. Resolving a
-// thread with a reason is how a false positive clears the check.
-export function openHighFindings(findings, resolvedThreadComments) {
-	const resolved = new Set(
-		resolvedThreadComments.map(existingKey).filter((k) => k !== undefined),
+// threads: [{ isResolved, isOutdated, body }] for the PR's review threads.
+export function selectNew(findings, threads, changedFiles, readLine) {
+	const changed = new Set(changedFiles);
+	const seen = new Set(
+		threads
+			.filter((t) => !t.isOutdated)
+			.map((t) => existingKey(t.body))
+			.filter((k) => k !== undefined),
 	);
-	return findings
-		.map(buildComment)
-		.filter((c) => c.severity === "HIGH" && !resolved.has(c.key))
-		.map(({ path, line, key }) => ({ path, line, key }));
+	const out = [];
+	for (const finding of findings) {
+		const comment = buildComment(finding, readLine);
+		if (!changed.has(comment.path) || seen.has(comment.key)) {
+			continue;
+		}
+		seen.add(comment.key);
+		out.push(comment);
+	}
+	return out;
 }
 
-const RESOLVED_THREADS_QUERY = `
+// High-severity findings with no resolved, still-anchored thread. Resolving
+// a thread with a reason is how a false positive clears the check.
+export function openHighFindings(findings, threads, readLine) {
+	const resolved = new Set(
+		threads
+			.filter((t) => t.isResolved && !t.isOutdated)
+			.map((t) => existingKey(t.body))
+			.filter((k) => k !== undefined),
+	);
+	const open = new Map();
+	for (const finding of findings) {
+		const c = buildComment(finding, readLine);
+		if (c.severity === "HIGH" && !resolved.has(c.key) && !open.has(c.key)) {
+			open.set(c.key, { path: c.path, line: c.line, key: c.key });
+		}
+	}
+	return [...open.values()];
+}
+
+const THREADS_QUERY = `
 query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
 	repository(owner: $owner, name: $repo) {
 		pullRequest(number: $number) {
@@ -79,7 +120,7 @@ query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
 				pageInfo { hasNextPage endCursor }
 				nodes {
 					isResolved
-					path
+					isOutdated
 					comments(first: 1) { nodes { body } }
 				}
 			}
@@ -87,11 +128,11 @@ query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
 	}
 }`;
 
-async function listResolvedThreadComments(github, owner, repo, number) {
+async function listThreads(github, owner, repo, number) {
 	const out = [];
 	let after = null;
 	do {
-		const data = await github.graphql(RESOLVED_THREADS_QUERY, {
+		const data = await github.graphql(THREADS_QUERY, {
 			owner,
 			repo,
 			number,
@@ -99,29 +140,14 @@ async function listResolvedThreadComments(github, owner, repo, number) {
 		});
 		const threads = data.repository.pullRequest.reviewThreads;
 		for (const thread of threads.nodes) {
-			if (thread.isResolved && thread.comments.nodes[0]) {
-				out.push({ path: thread.path, body: thread.comments.nodes[0].body });
-			}
+			out.push({
+				isResolved: thread.isResolved,
+				isOutdated: thread.isOutdated,
+				body: thread.comments.nodes[0]?.body,
+			});
 		}
 		after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
 	} while (after);
-	return out;
-}
-
-export function selectNew(findings, existingComments, changedFiles) {
-	const changed = new Set(changedFiles);
-	const seen = new Set(
-		existingComments.map(existingKey).filter((k) => k !== undefined),
-	);
-	const out = [];
-	for (const finding of findings) {
-		const comment = buildComment(finding);
-		if (!changed.has(comment.path) || seen.has(comment.key)) {
-			continue;
-		}
-		seen.add(comment.key);
-		out.push(comment);
-	}
 	return out;
 }
 
@@ -140,15 +166,10 @@ export async function postFindings({ github, context, core }) {
 		pull_number: number,
 		per_page: 100,
 	});
-	const existing = await github.paginate(github.rest.pulls.listReviewComments, {
-		owner,
-		repo,
-		pull_number: number,
-		per_page: 100,
-	});
+	let threads = await listThreads(github, owner, repo, number);
 	const comments = selectNew(
 		findings,
-		existing.filter((c) => c.user?.type === "Bot"),
+		threads,
 		files.map((f) => f.filename),
 	);
 	core.info(`${findings.length} finding(s), ${comments.length} new`);
@@ -162,14 +183,9 @@ export async function postFindings({ github, context, core }) {
 			comments,
 			core,
 		);
+		threads = await listThreads(github, owner, repo, number);
 	}
-	const resolved = await listResolvedThreadComments(
-		github,
-		owner,
-		repo,
-		number,
-	);
-	const open = openHighFindings(findings, resolved);
+	const open = openHighFindings(findings, threads);
 	writeFileSync("findings-open.json", JSON.stringify(open, null, "\t"));
 	core.info(
 		`${open.length} high-severity finding(s) without a resolved thread`,
