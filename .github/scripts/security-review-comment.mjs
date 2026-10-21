@@ -1,17 +1,20 @@
 // Posts security-review findings as inline review comments, skipping any
-// finding that is already on the PR. Replaces the scanner's own
-// scripts/comment-pr-findings.js, which stops posting altogether once one
-// security comment exists.
+// finding that is already on the PR, and writes the high-severity findings
+// whose threads are still open to findings-open.json for the failing step.
+// Replaces the scanner's own scripts/comment-pr-findings.js, which stops
+// posting altogether once one security comment exists.
 //
 // Used by security-review.yml via actions/github-script; testable with plain
 // node (node .github/scripts/security-review-comment.test.mjs).
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 export const MARKER = "🤖 **Security Issue:";
 
-export function findingKey(path, line, message) {
-	return `${path}:${line}:${message.trim()}`;
+// A finding keeps its identity when a later commit moves the line, so the
+// line is not part of the key.
+export function findingKey(path, message) {
+	return `${path}:${message.trim()}`;
 }
 
 export function buildComment(finding) {
@@ -42,21 +45,67 @@ export function buildComment(finding) {
 		line,
 		side: "RIGHT",
 		body,
-		key: findingKey(file, line, message),
+		severity: String(severity).toUpperCase(),
+		key: findingKey(file, message),
 	};
 }
 
-// Key of an existing bot comment: path, line and the first line of the body.
+// Key of an existing bot comment: path and the first line of the body.
 export function existingKey(comment) {
 	const match = comment.body?.match(/🤖 \*\*Security Issue: ([\s\S]*?)\*\*\n/);
 	if (!match) {
 		return undefined;
 	}
-	return findingKey(
-		comment.path,
-		comment.line ?? comment.original_line,
-		match[1],
+	return findingKey(comment.path, match[1]);
+}
+
+// High-severity findings that have no resolved thread on the PR. Resolving a
+// thread with a reason is how a false positive clears the check.
+export function openHighFindings(findings, resolvedThreadComments) {
+	const resolved = new Set(
+		resolvedThreadComments.map(existingKey).filter((k) => k !== undefined),
 	);
+	return findings
+		.map(buildComment)
+		.filter((c) => c.severity === "HIGH" && !resolved.has(c.key))
+		.map(({ path, line, key }) => ({ path, line, key }));
+}
+
+const RESOLVED_THREADS_QUERY = `
+query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
+	repository(owner: $owner, name: $repo) {
+		pullRequest(number: $number) {
+			reviewThreads(first: 100, after: $after) {
+				pageInfo { hasNextPage endCursor }
+				nodes {
+					isResolved
+					path
+					comments(first: 1) { nodes { body } }
+				}
+			}
+		}
+	}
+}`;
+
+async function listResolvedThreadComments(github, owner, repo, number) {
+	const out = [];
+	let after = null;
+	do {
+		const data = await github.graphql(RESOLVED_THREADS_QUERY, {
+			owner,
+			repo,
+			number,
+			after,
+		});
+		const threads = data.repository.pullRequest.reviewThreads;
+		for (const thread of threads.nodes) {
+			if (thread.isResolved && thread.comments.nodes[0]) {
+				out.push({ path: thread.path, body: thread.comments.nodes[0].body });
+			}
+		}
+		after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
+	} while (after);
+	return out;
 }
 
 export function selectNew(findings, existingComments, changedFiles) {
@@ -80,6 +129,7 @@ export async function postFindings({ github, context, core }) {
 	const { owner, repo } = context.repo;
 	const number = context.payload.pull_request.number;
 	const findings = JSON.parse(readFileSync("findings.json", "utf8"));
+	writeFileSync("findings-open.json", "[]");
 	if (findings.length === 0) {
 		core.info("no findings to post");
 		return;
@@ -102,10 +152,31 @@ export async function postFindings({ github, context, core }) {
 		files.map((f) => f.filename),
 	);
 	core.info(`${findings.length} finding(s), ${comments.length} new`);
-	if (comments.length === 0) {
-		return;
+	if (comments.length > 0) {
+		await postReview(
+			github,
+			owner,
+			repo,
+			number,
+			context.payload.pull_request.head.sha,
+			comments,
+			core,
+		);
 	}
-	const head = context.payload.pull_request.head.sha;
+	const resolved = await listResolvedThreadComments(
+		github,
+		owner,
+		repo,
+		number,
+	);
+	const open = openHighFindings(findings, resolved);
+	writeFileSync("findings-open.json", JSON.stringify(open, null, "\t"));
+	core.info(
+		`${open.length} high-severity finding(s) without a resolved thread`,
+	);
+}
+
+async function postReview(github, owner, repo, number, head, comments, core) {
 	try {
 		await github.rest.pulls.createReview({
 			owner,

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
 	buildComment,
 	existingKey,
+	openHighFindings,
 	selectNew,
 } from "./security-review-comment.mjs";
 
@@ -33,12 +34,20 @@ assert.equal(
 	undefined,
 );
 
-const existing = [{ path: "a.ts", line: 10, body: built.body }];
+// A comment whose line moved (line: null, original_line kept) still matches.
+assert.equal(
+	existingKey({ path: "a.ts", line: null, original_line: 8, body: built.body }),
+	built.key,
+);
+
+const existing = [
+	{ path: "a.ts", line: null, original_line: 8, body: built.body },
+];
 const changed = ["a.ts", "b.ts"];
 const out = selectNew(
 	[
-		finding("a.ts", 10, "SQL injection"),
-		finding("a.ts", 10, "SQL injection"),
+		finding("a.ts", 12, "SQL injection"),
+		finding("a.ts", 12, "SQL injection"),
 		finding("b.ts", 3, "XSS"),
 		finding("c.ts", 1, "not in diff"),
 	],
@@ -47,6 +56,20 @@ const out = selectNew(
 );
 assert.deepEqual(
 	out.map((c) => [c.path, c.line]),
+	[["b.ts", 3]],
+);
+
+// Resolving a thread clears its high finding; others stay open.
+const open = openHighFindings(
+	[
+		finding("a.ts", 12, "SQL injection"),
+		finding("b.ts", 3, "XSS"),
+		finding("b.ts", 9, "weak hash", "MEDIUM"),
+	],
+	[{ path: "a.ts", body: built.body }],
+);
+assert.deepEqual(
+	open.map((c) => [c.path, c.line]),
 	[["b.ts", 3]],
 );
 

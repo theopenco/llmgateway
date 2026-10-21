@@ -159,12 +159,16 @@ jobs:
             const { postFindings } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/security-review-comment.mjs`);
             await postFindings({ github, context, core });
 
-      - name: Fail on high-severity findings
+      # findings-open.json holds the high-severity findings whose threads are
+      # not resolved. Resolving a thread with a reason and re-running the job
+      # (or pushing) clears a false positive.
+      - name: Fail on open high-severity findings
         if: steps.key.outputs.present == 'true'
         run: |
-          high=$(jq '[.[] | select((.severity // "HIGH") | ascii_upcase == "HIGH")] | length' findings.json)
-          if [ "$high" -gt 0 ]; then
-            echo "::error::security review kept $high high-severity finding(s); fix them or resolve the threads with a reason"
+          open=$(jq length findings-open.json)
+          if [ "$open" -gt 0 ]; then
+            jq -r '.[] | "::error file=\(.path),line=\(.line)::open high-severity security finding"' findings-open.json
+            echo "::error::$open high-severity finding(s) open; fix the code, or resolve the thread with a reason and re-run this job"
             exit 1
           fi
 
@@ -174,6 +178,7 @@ jobs:
           name: security-review-results
           path: |
             findings.json
+            findings-open.json
             claudecode-results.json
             claudecode-error.log
           retention-days: 7
