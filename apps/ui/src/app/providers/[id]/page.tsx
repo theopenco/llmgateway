@@ -82,6 +82,7 @@ async function renderDynamicProviderPage(id: string) {
 					uploadedLogo={uploadedLogo}
 					dynamicProvider={{ name: providerName, description }}
 					airsideProfile={apiProvider.airsideProfile ?? null}
+					certification={apiProvider.airsideCertification ?? null}
 				/>
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
@@ -328,6 +329,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					providerId={provider.id}
 					uploadedLogo={uploadedLogo}
 					airsideProfile={apiProvider?.airsideProfile ?? null}
+					certification={apiProvider?.airsideCertification ?? null}
 				/>
 
 				<ProviderStatsRow providerId={provider.id} />

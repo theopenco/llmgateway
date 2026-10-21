@@ -2,6 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
+	publicCertification,
+	publicCertificationSchema,
+} from "@/lib/airside-certification.js";
+import {
+	effectiveCarrierProfile,
 	publicAirsideProfile,
 	publicAirsideProfileSchema,
 } from "@/lib/airside-profile.js";
@@ -62,6 +67,9 @@ const providerSchema = z.object({
 	airsideIconUrl: z.string().nullable(),
 	// Self-declared public profile of a custom Airside carrier (display only).
 	airsideProfile: publicAirsideProfileSchema.nullable(),
+	// Airworthy certificate, present only while it is active, unexpired and
+	// the carrier's live profile still matches what it attests.
+	airsideCertification: publicCertificationSchema.nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -708,6 +716,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	const activeClaims = await db.query.providerClaim.findMany({
 		where: { status: { eq: "active" } },
 		columns: {
+			id: true,
 			providerId: true,
 			kind: true,
 			customName: true,
@@ -735,6 +744,27 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	const airsideProfileFor = (
 		claim: (typeof activeClaims)[number] | undefined,
 	) => (claim ? publicAirsideProfile(claim) : null);
+	const activeCertifications =
+		activeClaims.length > 0
+			? await db.query.providerCertification.findMany({
+					where: {
+						status: { eq: "active" },
+						providerClaimId: { in: activeClaims.map((claim) => claim.id) },
+					},
+				})
+			: [];
+	const certificationByClaim = new Map(
+		activeCertifications.map((row) => [row.providerClaimId, row]),
+	);
+	const airsideCertificationFor = (
+		claim: (typeof activeClaims)[number] | undefined,
+	) =>
+		claim
+			? publicCertification(
+					certificationByClaim.get(claim.id),
+					effectiveCarrierProfile(claim),
+				)
+			: null;
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
@@ -752,6 +782,9 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
 			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
 			airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
+			airsideCertification: airsideCertificationFor(
+				brandingByProvider.get(provider.id),
+			),
 		})),
 	});
 });

@@ -22,8 +22,10 @@ import {
 	type ProviderId,
 } from "@llmgateway/models";
 import {
+	AirworthyStamp,
 	CarrierMark,
 	providerLogoUrls,
+	type ApiAirsideCertification,
 	type ApiAirsideProfile,
 } from "@llmgateway/shared/components";
 
@@ -42,6 +44,16 @@ interface HeroProps {
 	 *  catalogue's; a null dataPolicy keeps the reviewed catalogue policy,
 	 *  with any declared certifications layered on top. */
 	airsideProfile?: ApiAirsideProfile | null;
+	/** A valid Airworthy certificate: the stamp and its verified-claims note. */
+	certification?: ApiAirsideCertification | null;
+}
+
+function formatCertificateDate(iso: string) {
+	return new Date(iso).toLocaleDateString("en-US", {
+		month: "short",
+		year: "numeric",
+		timeZone: "UTC",
+	});
 }
 
 function DataPolicyBadge({
@@ -85,8 +97,10 @@ export function Hero({
 	uploadedLogo,
 	dynamicProvider,
 	airsideProfile,
+	certification,
 }: HeroProps) {
 	const config = getConfig();
+	const airworthyUrl = `${config.airsideUrl}/airworthy`;
 	const staticProvider = providerDefinitions.find((p) => p.id === providerId);
 	const baseProvider = staticProvider ?? {
 		id: providerId,
@@ -320,6 +334,34 @@ export function Hero({
 									))}
 								</div>
 							)}
+						{certification ? (
+							<a
+								href={airworthyUrl}
+								className="group mt-3 flex items-center gap-3 border-t pt-3 text-sm"
+								data-testid="airworthy-certification"
+							>
+								<AirworthyStamp
+									texture={false}
+									className="h-10 w-10 shrink-0 text-amber-600 dark:text-amber-400"
+									aria-hidden="true"
+								/>
+								<span className="text-muted-foreground">
+									<span className="font-medium text-foreground">
+										Airworthy certified.
+									</span>{" "}
+									LLM Gateway verified these claims against evidence.
+									Certificate{" "}
+									<span className="font-mono text-xs text-foreground">
+										{certification.certificateNumber}
+									</span>
+									, valid until {formatCertificateDate(certification.expiresAt)}
+									.{" "}
+									<span className="whitespace-nowrap text-foreground underline-offset-4 group-hover:underline">
+										What this means
+									</span>
+								</span>
+							</a>
+						) : null}
 					</div>
 
 					{referenceLinks.length > 0 && (
@@ -362,6 +404,18 @@ export function Hero({
 					>
 						{getProviderIcon(providerId)}
 					</div>
+					{certification ? (
+						<a
+							href={airworthyUrl}
+							title={`Airworthy certified · ${certification.certificateNumber}`}
+							className="absolute -bottom-20 right-4 block h-36 w-36 -rotate-12 text-amber-600 opacity-90 transition-transform duration-300 hover:-rotate-6 hover:scale-105 sm:right-12 lg:-bottom-6 lg:right-24 lg:h-40 lg:w-40 dark:text-amber-400"
+						>
+							<AirworthyStamp
+								certificateNumber={certification.certificateNumber}
+								className="h-full w-full"
+							/>
+						</a>
+					) : null}
 				</div>
 			</div>
 		</div>
