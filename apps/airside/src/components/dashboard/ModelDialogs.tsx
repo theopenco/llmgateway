@@ -1716,7 +1716,7 @@ export function VerifyModelDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Verify {model.modelName}
