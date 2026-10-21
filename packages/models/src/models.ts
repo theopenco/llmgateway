@@ -288,6 +288,19 @@ export const TOOL_CHOICE_MODES = [
 
 export type ToolChoiceMode = (typeof TOOL_CHOICE_MODES)[number];
 
+/**
+ * How an OpenAI-compatible Chat Completions endpoint takes a web search
+ * request. "web_search_options" is the Chat Completions body field;
+ * "web_search_tool" is a `tools: [{type: "web_search"}]` entry (the Responses
+ * API's hosted tool), which some chat endpoints accept instead.
+ */
+export const WEB_SEARCH_FORMATS = [
+	"web_search_options",
+	"web_search_tool",
+] as const;
+
+export type WebSearchFormat = (typeof WEB_SEARCH_FORMATS)[number];
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
@@ -703,6 +716,13 @@ export interface ProviderModelMapping {
 	 * with `tool_choice: "auto"` routes elsewhere instead.
 	 */
 	webSearchForcedOnly?: boolean;
+	/**
+	 * Wire format the upstream's Chat Completions endpoint takes for web search.
+	 * When set, searches are forwarded in this shape, `webSearchForcedOnly` is
+	 * ignored (the model elects its own searches), and a search is billed only
+	 * on evidence in the response.
+	 */
+	webSearchFormat?: WebSearchFormat;
 	/**
 	 * Price per content filter violation in USD (charged additionally when the
 	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's

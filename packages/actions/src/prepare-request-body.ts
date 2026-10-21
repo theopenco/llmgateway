@@ -30,6 +30,7 @@ import {
 	supportsServiceTier,
 	type ToolChoiceType,
 	usesEncryptedReasoning,
+	type WebSearchFormat,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
@@ -65,6 +66,7 @@ import {
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
+import { applyWebSearchFormat } from "./web-search-format.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 type OpenAIImageModeration = "auto" | "low";
@@ -386,6 +388,20 @@ function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.enable_search = true;
 	requestBody.search_options = { forced_search: true };
 }
+
+/** Providers whose `prepareRequestBody` branch builds a Chat Completions body. */
+const OPENAI_CHAT_BODY_PROVIDERS: ReadonlySet<string> = new Set([
+	"zai",
+	"moonshot",
+	"alibaba",
+	"minimax",
+	"inference.net",
+	"together-ai",
+	"cerebras",
+	"xiaomi",
+	"deepseek",
+	"gonka24",
+]);
 
 /**
  * Ensures function-tool parameters form a valid JSON Schema object. Some
@@ -1644,6 +1660,11 @@ export async function prepareRequestBody(
 	reasoning_mode?: ReasoningMode,
 	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
 	parallel_tool_calls?: boolean,
+	/**
+	 * The mapping's declared web search shape. Passed on its own because
+	 * Airside carriers on the OpenAI transport resolve no mapping here.
+	 */
+	webSearchFormat?: WebSearchFormat,
 ): Promise<ProviderRequestBody | FormData> {
 	// Check before provider transforms can strip a caller's markers.
 	const hasCacheMarker = (part: object) =>
@@ -1691,6 +1712,23 @@ export async function prepareRequestBody(
 		usedProvider,
 		usedRegion,
 	);
+	// A forced search maps to `tool_choice: "required"` in the tool shape,
+	// unless the mapping declares it does not take that mode.
+	const formatToolChoices = (
+		resolvedProviderMapping ?? providerMappingForOptions
+	)?.supportedToolChoices;
+	let declaredWebSearchApplied = false;
+	const applyDeclaredWebSearch = (body: Record<string, any>) => {
+		if (webSearchTool && webSearchFormat) {
+			declaredWebSearchApplied = true;
+			applyWebSearchFormat(
+				body,
+				webSearchTool,
+				webSearchFormat,
+				!formatToolChoices?.length || formatToolChoices.includes("required"),
+			);
+		}
+	};
 	const supportedServiceTier =
 		(service_tier === "flex" || service_tier === "priority") &&
 		supportsServiceTier(
@@ -2583,7 +2621,8 @@ export async function prepareRequestBody(
 	// instead of hard-coding per-provider downgrades here.
 	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
 	// via `webSearchTool.forced` and translated into whatever each upstream
-	// understands (DashScope's `search_options.forced_search`). No provider
+	// understands (DashScope's `search_options.forced_search`, or `"required"`
+	// for a mapping declaring the tool `webSearchFormat`). No provider
 	// accepts it under this name in a chat-completions body, so it is never
 	// forwarded verbatim.
 	const isWebSearchToolChoice =
@@ -3070,7 +3109,10 @@ export async function prepareRequestBody(
 				// Add web search for OpenAI Chat Completions
 				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options
 				// For other models that support web search, add web_search tool
-				if (webSearchTool) {
+				// A mapping that declares its format gets exactly that shape.
+				if (webSearchFormat) {
+					applyDeclaredWebSearch(requestBody);
+				} else if (webSearchTool) {
 					if (usedInternalModel.includes("-search-")) {
 						// Search models use web_search_options parameter
 						const webSearchOptions: any = {};
@@ -3177,7 +3219,7 @@ export async function prepareRequestBody(
 
 			// Add web search tool for ZAI
 			// ZAI uses a web_search tool with enable flag and search_engine config
-			if (webSearchTool) {
+			if (webSearchTool && !webSearchFormat) {
 				requestBody.tools ??= [];
 				requestBody.tools.push({
 					type: "web_search",
@@ -3328,7 +3370,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			if (webSearchTool?.forced) {
+			if (webSearchTool?.forced && !webSearchFormat) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -5364,9 +5406,14 @@ export async function prepareRequestBody(
 			// SCX resells Alibaba's Qwen models and passes DashScope's search
 			// parameters straight through, so its Qwen mappings take the same shape
 			// as the `alibaba` case above.
-			if (usedProvider === "scx-ai-gp" && webSearchTool?.forced) {
+			if (
+				usedProvider === "scx-ai-gp" &&
+				webSearchTool?.forced &&
+				!webSearchFormat
+			) {
 				applyDashScopeWebSearch(requestBody);
 			}
+			applyDeclaredWebSearch(requestBody);
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
 			// model field to be partner-prefixed, e.g. "xai/grok-4.20-reasoning".
@@ -5428,6 +5475,16 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+	}
+
+	// A declared format replaces the provider's own search translation on every
+	// branch that builds an OpenAI-compatible chat body. Native APIs (Anthropic,
+	// Bedrock, Gemini, Responses) keep theirs: the format names a chat shape.
+	if (
+		!declaredWebSearchApplied &&
+		OPENAI_CHAT_BODY_PROVIDERS.has(usedProvider)
+	) {
+		applyDeclaredWebSearch(requestBody);
 	}
 
 	// BytePlus only caches a prompt prefix when the request opts in; without the

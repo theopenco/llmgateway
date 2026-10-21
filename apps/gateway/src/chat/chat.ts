@@ -188,6 +188,8 @@ import {
 	isGoogleReasoningDetail,
 	isToolSearchBlock,
 	preserveGoogleResponseText,
+	promptTokensShowSearchContext,
+	reportedWebSearchCount,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -1924,6 +1926,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		verbosity,
 		web_search,
+		web_search_options,
 		plugins,
 		n,
 		user,
@@ -2052,6 +2055,29 @@ chat.openapi(completions, async (c) => {
 		tools.push({
 			type: "web_search" as const,
 		});
+	}
+
+	// OpenAI's `web_search_options` is the same request as a web_search tool;
+	// fold it into one so everything downstream reads a single shape. Fields
+	// the caller set on the tool itself take precedence.
+	if (web_search_options) {
+		const location = web_search_options.user_location?.approximate;
+		const fromOptions = {
+			...(web_search_options.search_context_size && {
+				search_context_size: web_search_options.search_context_size,
+			}),
+			...(location && { user_location: location }),
+		};
+		tools = tools ?? [];
+		const index = tools.findIndex((tool) => tool.type === "web_search");
+		if (index === -1) {
+			tools.push({ type: "web_search" as const, ...fromOptions });
+		} else {
+			tools[index] = {
+				...fromOptions,
+				...tools[index],
+			} as (typeof tools)[number];
+		}
 	}
 
 	// Detect whether the caller marked any content with `cache_control` for an
@@ -6630,6 +6656,9 @@ chat.openapi(completions, async (c) => {
 			applyAirsidePricingMapping(airsideMapping);
 		}
 	}
+	// Set when the mapping declares how its endpoint takes web search. Such a
+	// search is billed only on evidence in the response, never inferred.
+	const usedWebSearchFormat = () => getUsedProviderMapping()?.webSearchFormat;
 	const imageGenProviderMapping = getUsedProviderMapping();
 	let airsideCustomBaseUrl = await resolveAirsideProviderBaseUrl(usedProvider);
 	let transportProvider = getProviderApiTransport(
@@ -8629,6 +8658,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_mode,
 			providerCacheAutoTtl,
 			parallel_tool_calls,
+			usedWebSearchFormat(),
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -9366,7 +9396,9 @@ chat.openapi(completions, async (c) => {
 							0, // No output images
 							undefined,
 							inputImageCount,
-							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							// Bill for web search if it was enabled, except where only
+							// response evidence may count one
+							webSearchTool && !usedWebSearchFormat() ? 1 : null,
 							project.organizationId,
 							undefined, // imageQuality
 							null, // reportedImageInputTokens
@@ -11029,6 +11061,7 @@ chat.openapi(completions, async (c) => {
 				// caller forced it and then always do.
 				let webSearchCount =
 					webSearchTool &&
+					!usedWebSearchFormat() &&
 					(usedProvider === "zai" ||
 						((usedProvider === "alibaba" || usedProvider === "scx-ai-gp") &&
 							webSearchTool.forced))
@@ -12311,7 +12344,12 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (isAnthropicMessagesProvider(transportProvider)) {
+								if (webSearchTool && usedWebSearchFormat()) {
+									webSearchCount = Math.max(
+										webSearchCount,
+										reportedWebSearchCount(data),
+									);
+								} else if (isAnthropicMessagesProvider(transportProvider)) {
 									// For Anthropic, count successful web_search_tool_result
 									// blocks; errored searches carry an object and are not billed
 									if (
@@ -12947,6 +12985,17 @@ chat.openapi(completions, async (c) => {
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 						(!fullContent || fullContent.trim() === "") &&
 						(!streamingToolCalls || streamingToolCalls.length === 0);
+
+					// A declared-format search that left no citation or usage counter
+					// in the stream still shows as a prompt larger than the request.
+					if (
+						webSearchTool &&
+						usedWebSearchFormat() &&
+						webSearchCount === 0 &&
+						promptTokensShowSearchContext(promptTokens, requestBody)
+					) {
+						webSearchCount = 1;
+					}
 
 					let streamingCostsEarly:
 						Awaited<ReturnType<typeof calculateCosts>> | undefined;
@@ -15680,11 +15729,12 @@ chat.openapi(completions, async (c) => {
 		messages,
 		supportsReasoning,
 		splitTaggedReasoning,
-		!!webSearchTool,
-		!!webSearchTool?.forced,
+		// A declared format leaves the count to response evidence below.
+		!!webSearchTool && !usedWebSearchFormat(),
+		!!webSearchTool?.forced && !usedWebSearchFormat(),
 		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
-	let { content, totalTokens } = parsedResponse;
+	let { content, totalTokens, webSearchCount } = parsedResponse;
 	const {
 		reasoningContent,
 		finishReason,
@@ -15703,8 +15753,19 @@ chat.openapi(completions, async (c) => {
 		images,
 		annotations,
 		searchResults,
-		webSearchCount,
 	} = parsedResponse;
+	if (webSearchTool && usedWebSearchFormat()) {
+		const reported = Math.max(
+			webSearchCount ?? 0,
+			reportedWebSearchCount(json),
+		);
+		webSearchCount =
+			reported > 0
+				? reported
+				: promptTokensShowSearchContext(promptTokens, requestBody)
+					? 1
+					: null;
+	}
 
 	const responseHealingEnabled = plugins?.some(
 		(p) => p.id === "response-healing",

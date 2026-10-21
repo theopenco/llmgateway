@@ -1140,6 +1140,7 @@ export async function resolveProviderContext(
 		undefined,
 		options.providerCacheAutoTtl,
 		options.parallel_tool_calls,
+		providerMappingForSelected?.webSearchFormat,
 	);
 
 	// Post-validation of max_tokens in request body

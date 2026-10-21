@@ -14,7 +14,11 @@ import { hasProviderEnvironmentToken } from "@llmgateway/models";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
-import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
+import type {
+	ProviderApiFormat,
+	ToolChoiceMode,
+	WebSearchFormat,
+} from "@llmgateway/models";
 
 export type ModelVerificationRow =
 	typeof tables.providerModelVerification.$inferSelect;
@@ -71,6 +75,7 @@ export interface VerificationTargetInput {
 	reasoningMaxTokens?: boolean | null;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean | null;
+	webSearchFormat?: WebSearchFormat | null;
 	contextSize?: number | null;
 	maxOutput?: number | null;
 	promptCaching?: boolean | null;
@@ -88,6 +93,7 @@ const CAPABILITY_KEYS = [
 	"reasoningMaxTokens",
 	"reasoningEfforts",
 	"webSearch",
+	"webSearchFormat",
 	"contextSize",
 	"maxOutput",
 ] as const;
@@ -148,6 +154,7 @@ export function buildVerificationTarget(
 		reasoningMaxTokens: input.reasoningMaxTokens ?? false,
 		reasoningEfforts: input.reasoningEfforts ?? null,
 		webSearch: input.webSearch ?? false,
+		webSearchFormat: input.webSearchFormat ?? null,
 		contextSize: input.contextSize ?? null,
 		maxOutput: input.maxOutput ?? null,
 		promptCaching: input.promptCaching ?? false,
@@ -219,6 +226,7 @@ export function verificationTargetsMatch(
 		JSON.stringify(left.reasoningEfforts) ===
 			JSON.stringify(right.reasoningEfforts) &&
 		left.webSearch === right.webSearch &&
+		(left.webSearchFormat ?? null) === (right.webSearchFormat ?? null) &&
 		(left.contextSize ?? null) === (right.contextSize ?? null) &&
 		(left.maxOutput ?? null) === (right.maxOutput ?? null) &&
 		(left.promptCaching ?? false) === (right.promptCaching ?? false)
@@ -286,6 +294,10 @@ export function verificationTargetCovers(
 			(required.apiFormat ?? "openai-chat-completions") &&
 		(proven.region ?? null) === (required.region ?? null) &&
 		BOOLEAN_CAPABILITIES.every((key) => proven[key] || !required[key]) &&
+		// Web search proven in one wire format says nothing about another.
+		(!required.webSearch ||
+			(proven.webSearchFormat ?? null) ===
+				(required.webSearchFormat ?? null)) &&
 		toolChoicesCovered(
 			proven.supportedToolChoices,
 			required.supportedToolChoices,

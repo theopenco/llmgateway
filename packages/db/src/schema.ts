@@ -28,6 +28,7 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	WebSearchFormat,
 	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
@@ -3855,6 +3856,9 @@ export const modelProviderMapping = snakeCase.table(
 		webSearch: boolean().default(false).notNull(),
 		webSearchPrice: decimal(),
 		webSearchForcedOnly: boolean(),
+		// Chat Completions web search wire format (see `WebSearchFormat`).
+		// Populated for Airside-materialized mappings only.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})
@@ -5867,6 +5871,7 @@ export interface AirsideModelMetadataChanges {
 	reasoningMaxTokens?: boolean;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean;
+	webSearchFormat?: WebSearchFormat | null;
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
@@ -5931,6 +5936,9 @@ export const providerDraftModel = snakeCase.table(
 		// (subset of ReasoningEffort); null = parameter unsupported.
 		reasoningEfforts: jsonb().$type<string[]>(),
 		webSearch: boolean().notNull().default(false),
+		// Which OpenAI-compatible shape the endpoint takes web search in; null
+		// leaves the provider's built-in translation, if any.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		// Carrier-managed request caps. Admin `rate_limit` rows for the same
 		// provider/model always take precedence over these.
 		maxRpm: integer(),
@@ -6033,6 +6041,8 @@ export interface ProviderModelVerificationTarget {
 	reasoningMaxTokens: boolean;
 	reasoningEfforts: string[] | null;
 	webSearch: boolean;
+	/** Web search wire format; unset on runs queued before it existed. */
+	webSearchFormat?: WebSearchFormat | null;
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;

@@ -554,6 +554,31 @@ export const completionsRequestSchema = z.object({
 			seed: z.number().optional(),
 		})
 		.optional(),
+	// OpenAI Chat Completions web search options
+	web_search_options: z
+		.object({
+			search_context_size: z.enum(["low", "medium", "high"]).optional(),
+			user_location: z
+				.object({
+					type: z.literal("approximate").optional(),
+					approximate: z
+						.object({
+							city: z.string().optional(),
+							region: z.string().optional(),
+							country: z.string().optional(),
+							timezone: z.string().optional(),
+						})
+						.optional(),
+				})
+				.nullable()
+				.optional(),
+		})
+		.optional()
+		.openapi({
+			description:
+				'OpenAI\'s Chat Completions web search parameter. Equivalent to a `{"type": "web_search"}` entry in `tools` with the same `search_context_size` and `user_location`; when both are sent, the tool\'s own fields win. The model decides whether to search; add `tool_choice: {"type": "web_search"}` to demand one.',
+			example: { search_context_size: "low" },
+		}),
 	// Web search enablement
 	web_search: z.boolean().optional().default(false).openapi({
 		description:

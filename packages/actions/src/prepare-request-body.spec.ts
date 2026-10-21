@@ -10053,6 +10053,115 @@ describe("prepareRequestBody - DashScope web search", () => {
 	);
 });
 
+describe("prepareRequestBody - declared web search format", () => {
+	const prepare = (
+		provider: string,
+		webSearchTool: any,
+		webSearchFormat?: "web_search_options" | "web_search_tool",
+		tools?: unknown[],
+	) => {
+		const args: unknown[] = [
+			provider,
+			"qwen3.8-max",
+			null,
+			"qwen3.8-max",
+			[{ role: "user", content: "hi" }],
+			false,
+		];
+		args[12] = tools;
+		args[23] = webSearchTool;
+		args[25] = false;
+		args[40] = webSearchFormat;
+		return (prepareRequestBody as (...a: unknown[]) => Promise<any>)(...args);
+	};
+
+	test.each(["openai", "scx-ai-gp", "custom"])(
+		"%s sends the tool shape, forcing with required",
+		async (provider) => {
+			const body = await prepare(
+				provider,
+				{ type: "web_search", search_context_size: "low", forced: true },
+				"web_search_tool",
+			);
+			expect(body.tools).toEqual([
+				{ type: "web_search", search_context_size: "low" },
+			]);
+			expect(body.tool_choice).toBe("required");
+			expect(body.enable_search).toBeUndefined();
+			expect(body.web_search_options).toBeUndefined();
+		},
+	);
+
+	test.each(["openai", "scx-ai-gp", "custom"])(
+		"%s sends web_search_options for an offered search",
+		async (provider) => {
+			const body = await prepare(
+				provider,
+				{ type: "web_search" },
+				"web_search_options",
+			);
+			expect(body.web_search_options).toEqual({});
+			expect(body.tools).toBeUndefined();
+			expect(body.tool_choice).toBeUndefined();
+		},
+	);
+
+	test.each(["openai", "custom"])(
+		"%s leaves a forced search to the model next to function tools",
+		async (provider) => {
+			const fn = {
+				type: "function",
+				function: {
+					name: "get_weather",
+					parameters: { type: "object", properties: {} },
+				},
+			};
+			const body = await prepare(
+				provider,
+				{ type: "web_search", forced: true },
+				"web_search_tool",
+				[fn],
+			);
+			// "required" could be met by calling get_weather instead of searching.
+			expect(body.tools).toEqual([
+				expect.objectContaining({ type: "function" }),
+				{ type: "web_search" },
+			]);
+			expect(body.tool_choice).toBeUndefined();
+		},
+	);
+
+	test("sends nothing without a web search tool", async () => {
+		const body = await prepare("custom", undefined, "web_search_tool");
+		expect(body.tools).toBeUndefined();
+		expect(body.web_search_options).toBeUndefined();
+	});
+
+	test.each(["zai", "alibaba", "moonshot", "together-ai"])(
+		"%s sends only the declared shape",
+		async (provider) => {
+			const body = await prepare(
+				provider,
+				{ type: "web_search", forced: true },
+				"web_search_tool",
+			);
+			expect(body.tools).toEqual([{ type: "web_search" }]);
+			expect(body.tool_choice).toBe("required");
+			expect(body.enable_search).toBeUndefined();
+			expect(body.search_options).toBeUndefined();
+		},
+	);
+
+	test("leaves alibaba's DashScope translation alone", async () => {
+		const body = await prepare("alibaba", {
+			type: "web_search",
+			forced: true,
+		});
+		expect(body.enable_search).toBe(true);
+		expect(body.search_options).toEqual({ forced_search: true });
+	});
+});
+
 describe("prepareRequestBody - tool_choice with thinking disabled", () => {
 	const tools = [
 		{
