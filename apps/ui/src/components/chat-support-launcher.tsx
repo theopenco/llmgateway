@@ -16,7 +16,12 @@ export function ChatSupportLauncher() {
 		typeof ChatSupportComponent | null
 	>(null);
 	const [loading, setLoading] = useState(false);
-	const { session } = useSessionStatus();
+	// Verification usually happens from the email in another tab, so recheck
+	// on focus until the launcher can show.
+	const { session } = useSessionStatus({
+		refetchOnWindowFocus: (current) =>
+			!!current?.user && !current.user.emailVerified,
+	});
 
 	const prefetch = () => {
 		loadChatSupport().catch((error: unknown) => {
