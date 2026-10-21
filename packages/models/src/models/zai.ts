@@ -1355,6 +1355,8 @@ export const zaiModels = [
 				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.7",
 				// embercloud reasoning requests time out repeatedly in e2e
