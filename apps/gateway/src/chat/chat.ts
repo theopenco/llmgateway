@@ -186,6 +186,7 @@ import {
 	type RoutingMetadata,
 	type GoogleThoughtSignatureState,
 	isGoogleReasoningDetail,
+	isToolSearchBlock,
 	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
@@ -361,10 +362,12 @@ import {
 	isInvalidEncryptedContentError,
 	lookupReasoningPin,
 	reasoningPinBindsModel,
+	rememberRejectedReasoning,
 	type ReasoningCredential,
 	rememberReasoningCredential,
 	resolveReasoningCredentialPin,
 	stripAccountBoundReasoning,
+	stripForeignReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
 	flushTaggedStreamingRemainder,
@@ -2145,6 +2148,31 @@ chat.openapi(completions, async (c) => {
 	// The web_search tool is a special tool that enables native web search for providers that support it
 	let webSearchTool: WebSearchTool | undefined;
 	if (tools && Array.isArray(tools)) {
+		// allowed_domains and blocked_domains are mutually exclusive; providers
+		// accept only one, and silently preferring one would drop the caller's
+		// other filter. Check every entry — only the first web_search tool is
+		// extracted below, so a conflicting duplicate must be rejected here.
+		if (
+			tools.some(
+				(tool) =>
+					tool.type === "web_search" &&
+					tool.allowed_domains?.length &&
+					tool.blocked_domains?.length,
+			)
+		) {
+			return c.json(
+				{
+					error: {
+						message:
+							"The web_search tool cannot specify both allowed_domains and blocked_domains. Use one or the other.",
+						type: "invalid_request_error",
+						param: "tools",
+						code: "unsupported_parameter_combination",
+					},
+				},
+				400,
+			);
+		}
 		const webSearchToolIndex = tools.findIndex(
 			(tool: any) => tool.type === "web_search",
 		);
@@ -3229,9 +3257,9 @@ chat.openapi(completions, async (c) => {
 		mode: project.mode,
 		organizationId: project.organizationId,
 	};
+	const retrySafetyIdentifier = apiKey.safetyIdentifier;
 	const retryOrganizationContext = {
 		id: organization.id,
-		safetyIdentifier: organization.safetyIdentifier,
 		credits: organization.credits,
 		plan: organization.plan,
 		kind: organization.kind,
@@ -7280,7 +7308,11 @@ chat.openapi(completions, async (c) => {
 	// usedToken already holds the selected SA JSON: round-robin no longer
 	// splits a JSON credential on its inner commas, so the selected entry is
 	// used as-is (whether it came from a provider key or the env var).
+	// Keep the SA JSON: the endpoint derives the project from it when the
+	// credential carries no explicit project setting.
+	let vertexOpenaiServiceAccountJson: string | undefined;
 	if (usedProvider === "vertex-openai") {
+		vertexOpenaiServiceAccountJson = usedToken;
 		usedToken = await getGcpServiceAccountAccessToken(usedToken);
 	}
 
@@ -7606,7 +7638,11 @@ chat.openapi(completions, async (c) => {
 				endpointProvider,
 				credentialBaseUrl ?? airsideCustomBaseUrl,
 				upstreamModelName,
-				usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
+				usesGoogleQueryToken(transportProvider)
+					? usedToken
+					: usedProvider === "vertex-openai"
+						? vertexOpenaiServiceAccountJson
+						: undefined,
 				stream,
 				supportsReasoning,
 				hasExistingToolCalls,
@@ -7727,6 +7763,9 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			// /v1/messages replies carry Anthropic-only fields chat completions
+			// replies leave out. Undefined keeps existing keys unchanged.
+			messages_endpoint: apiOrigin === "messages" || undefined,
 			verbosity,
 			effort,
 			image_config,
@@ -7893,7 +7932,7 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -8109,7 +8148,7 @@ chat.openapi(completions, async (c) => {
 					cachedResponse.usage?.reasoning_tokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -8533,6 +8572,20 @@ chat.openapi(completions, async (c) => {
 		region: usedRegion,
 	});
 
+	// Encrypted reasoning another credential produced, or that an account
+	// already rejected, cannot verify here, so it is left out up front rather
+	// than cost a rejected attempt on every turn of the conversation.
+	const initialReplay = usedProviderEncryptsReasoning()
+		? await stripForeignReasoning(
+				project.organizationId,
+				messages,
+				currentReasoningCredential(),
+			)
+		: { messages, stripped: false };
+	if (initialReplay.stripped && routingMetadata) {
+		routingMetadata.encryptedReasoningDropped = true;
+	}
+
 	let requestBody: ProviderRequestBody | FormData;
 	try {
 		requestBody = await prepareRequestBody(
@@ -8540,7 +8593,7 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel,
 			usedRegion ?? null,
 			upstreamModelName,
-			messages as BaseMessage[],
+			initialReplay.messages as BaseMessage[],
 			effectiveStream,
 			temperature,
 			max_tokens,
@@ -8571,7 +8624,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			organization.safetyIdentifier,
+			apiKey.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
@@ -8772,6 +8825,7 @@ chat.openapi(completions, async (c) => {
 				prompt_cache_retention,
 				prompt_cache_options,
 				session_id: sessionId,
+				safetyIdentifier: retrySafetyIdentifier,
 				effort,
 				webSearchTool,
 				image_config,
@@ -8964,11 +9018,17 @@ chat.openapi(completions, async (c) => {
 			retriedWithoutEncryptedReasoning ||
 			!usedProvider ||
 			!isInvalidEncryptedContentError(errorText) ||
-			!stripAccountBoundReasoning(messages).stripped
+			!stripAccountBoundReasoning(initialReplay.messages).stripped
 		) {
 			return null;
 		}
 		retriedWithoutEncryptedReasoning = true;
+		await rememberRejectedReasoning(
+			retryProjectContext.organizationId,
+			initialReplay.messages,
+			currentReasoningCredential(),
+			errorText,
+		);
 		try {
 			const nextContext = await resolveProviderContextForRetry(
 				{
@@ -10959,6 +11019,7 @@ chat.openapi(completions, async (c) => {
 				let cacheCreation1hTokens: number | null = null;
 				let audioInputTokens: number | null = null;
 				let cachedAudioInputTokens: number | null = null;
+				let imageInputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -11442,7 +11503,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -11871,6 +11932,26 @@ chat.openapi(completions, async (c) => {
 									processedLength = eventEnd;
 									searchStart = eventEnd;
 									continue;
+								}
+
+								// Text block boundaries, citations and web search/fetch
+								// blocks only matter to the /v1/messages layer that rebuilds
+								// Anthropic blocks; chat completions clients get annotations.
+								const streamDelta = transformedData.choices?.[0]?.delta;
+								if (apiOrigin !== "messages" && streamDelta) {
+									delete streamDelta.anthropic_text_block_start;
+									delete streamDelta.anthropic_citation;
+									if (Array.isArray(streamDelta.anthropic_native_blocks)) {
+										const toolSearchBlocks =
+											streamDelta.anthropic_native_blocks.filter(
+												isToolSearchBlock,
+											);
+										if (toolSearchBlocks.length > 0) {
+											streamDelta.anthropic_native_blocks = toolSearchBlocks;
+										} else {
+											delete streamDelta.anthropic_native_blocks;
+										}
+									}
 								}
 
 								if (usedProviderEncryptsReasoning()) {
@@ -12442,6 +12523,9 @@ chat.openapi(completions, async (c) => {
 								}
 								if (usage.cachedAudioInputTokens !== null) {
 									cachedAudioInputTokens = usage.cachedAudioInputTokens;
+								}
+								if (usage.imageInputTokens !== null) {
+									imageInputTokens = usage.imageInputTokens;
 								}
 								if (
 									usage.totalTokens === null &&
@@ -13031,7 +13115,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -13088,19 +13172,14 @@ chat.openapi(completions, async (c) => {
 									},
 								],
 								usage: (() => {
-									// Only add image input tokens for providers that
-									// exclude them from upstream usage (Google)
-									const providerExcludesImageInput =
-										isGoogleCompatibleProvider(transportProvider);
-									const imageInputAdj = providerExcludesImageInput
-										? inputImageCount * 560
-										: 0;
+									// costs.promptTokens adds estimated image input tokens
+									// only when upstream usage did not report them.
 									const adjPrompt = Math.max(
 										1,
 										Math.round(
-											promptTokens && promptTokens > 0
-												? promptTokens + imageInputAdj
-												: (calculatedPromptTokens ?? 1) + imageInputAdj,
+											streamingCostsEarly.promptTokens ??
+												calculatedPromptTokens ??
+												1,
 										),
 									);
 									const adjCompletion = Math.round(
@@ -13164,6 +13243,8 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens: calculatedReasoningTokens,
+										imageInputTokens:
+											imageInputTokens ?? streamingCostsEarly.imageInputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -13384,7 +13465,7 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
-									null,
+									imageInputTokens,
 									null,
 									{
 										cacheWriteTokens: cacheCreationTokens,
@@ -15901,7 +15982,7 @@ chat.openapi(completions, async (c) => {
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
-		imageInputTokens,
+		imageInputTokens ?? costs.imageInputTokens,
 		imageOutputTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
@@ -15956,16 +16037,32 @@ chat.openapi(completions, async (c) => {
 		transformedResponse.choices[0].message.message_items =
 			parsedResponse.messageItems;
 	}
-	// Surface Anthropic's server-side tool search blocks so the /v1/messages
-	// layer can hand them back to the client, which replays them on the next
-	// turn — that is what lets Claude reuse an already discovered tool.
+	// Surface Anthropic's server tool blocks so the client can replay them on
+	// the next turn — that is what lets Claude reuse an already discovered tool
+	// or see earlier search results. Chat completions clients get the tool
+	// search pair only; web search results reach them as annotations.
+	const visibleNativeBlocks =
+		apiOrigin === "messages"
+			? parsedResponse.anthropicNativeBlocks
+			: parsedResponse.anthropicNativeBlocks?.filter(isToolSearchBlock);
 	if (
-		parsedResponse.anthropicNativeBlocks &&
-		parsedResponse.anthropicNativeBlocks.length > 0 &&
+		visibleNativeBlocks &&
+		visibleNativeBlocks.length > 0 &&
 		transformedResponse.choices?.[0]?.message
 	) {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
-			parsedResponse.anthropicNativeBlocks;
+			visibleNativeBlocks;
+	}
+	// The Anthropic content array as sent, for turns lowering loses detail of
+	// (server tool blocks, citations). /v1/messages returns it unchanged; chat
+	// completions clients have `content` and `annotations` instead.
+	if (
+		apiOrigin === "messages" &&
+		parsedResponse.anthropicContent &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_content =
+			parsedResponse.anthropicContent;
 	}
 	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
 	// /v1/messages layer hands them back as `safeguard_results`.

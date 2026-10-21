@@ -53,7 +53,7 @@ import {
 	carrierProfilePatchSchema,
 	carrierProfileRegistrationSchema,
 	carrierProfileSchema,
-	catalogueLinkColumns,
+	catalogueProfileColumns,
 	effectiveCarrierProfile,
 	profileColumns,
 	profileDefaults,
@@ -2139,7 +2139,7 @@ airside.openapi(createClaim, async (c) => {
 				logoUrl: logoUrl ?? null,
 				iconUrl: iconUrl ?? null,
 				...(profile
-					? catalogueLinkColumns(staticCarrierProfile(providerId), profile)
+					? catalogueProfileColumns(staticCarrierProfile(providerId), profile)
 					: {}),
 				profileUpdatedAt: profile ? new Date() : null,
 				claimedBy: user.id,
@@ -2474,7 +2474,7 @@ airside.openapi(updateClaimProfile, async (c) => {
 	}
 	const changes =
 		effectiveClaimKind(claim) === "catalogue"
-			? catalogueLinkColumns(effectiveCarrierProfile(claim), body)
+			? catalogueProfileColumns(effectiveCarrierProfile(claim), body)
 			: profileColumns(body);
 	const [updated] = await cdb
 		.update(tables.providerClaim)

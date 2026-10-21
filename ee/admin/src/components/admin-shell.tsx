@@ -30,6 +30,7 @@ import {
 	Sparkles,
 	Wallet,
 	Zap,
+	Stamp,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -169,6 +170,12 @@ const navItems: NavItem[] = [
 		href: "/airside-carriers",
 		label: "Airside Carriers",
 		icon: PlaneLanding,
+		match: "prefix",
+	},
+	{
+		href: "/airside-certification",
+		label: "Airworthy Certification",
+		icon: Stamp,
 		match: "prefix",
 	},
 	{

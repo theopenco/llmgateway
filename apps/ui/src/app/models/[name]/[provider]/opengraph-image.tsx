@@ -168,7 +168,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const ocrPagePrice =
 			selectedMapping?.ocrPagePrice !== undefined &&
 			selectedMapping?.ocrPagePrice !== null
-				? Number(selectedMapping.ocrPagePrice)
+				? Number(selectedMapping.ocrPagePrice) * (1 - discountNum)
 				: undefined;
 		const hasOcrPricing = ocrPagePrice !== undefined && ocrPagePrice > 0;
 		const inputCharacterPrice =

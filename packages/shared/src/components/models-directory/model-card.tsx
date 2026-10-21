@@ -743,6 +743,12 @@ export function ProviderSection({
 	const hasImageCostEstimate = hasEstimatedImageCost(activeMapping);
 	const shouldShowTokenPricing =
 		!isImageGen || showTokenPricing || !hasImageCostEstimate;
+	const ocrPagePrice = parseFloat(activeMapping.ocrPagePrice ?? "0");
+	// OCR is billed per page; its zero token prices would read as "free".
+	const isOcrPagePriced =
+		ocrPagePrice > 0 &&
+		!(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
+		!(parseFloat(activeMapping.outputPrice ?? "0") > 0);
 	const timeBasedPrices = activeMapping.peakPricing?.[timeBasedPricingMode];
 	const displayedInputPrice =
 		timeBasedPrices?.inputPrice ?? activeMapping.inputPrice;
@@ -1187,6 +1193,40 @@ export function ProviderSection({
 							})()}
 						</div>
 					</div>
+				) : isOcrPagePriced ? (
+					(() => {
+						const discountNum = discountFraction(activeMapping.discount);
+						const perThousandPages =
+							ocrPagePrice * 1000 * serviceTierMultiplier;
+						const formatPages = (value: number) => `$${value.toFixed(2)}`;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+									Per Page Pricing
+								</div>
+								<div className="flex justify-between text-sm">
+									<span className="text-muted-foreground">OCR</span>
+									<span className="font-semibold tabular-nums">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													{formatPages(perThousandPages)}
+												</span>
+												<span className="text-green-600">
+													{formatPages(perThousandPages * (1 - discountNum))}
+												</span>
+											</>
+										) : (
+											formatPages(perThousandPages)
+										)}
+										<span className="text-muted-foreground text-xs ml-0.5">
+											/1K pages
+										</span>
+									</span>
+								</div>
+							</div>
+						);
+					})()
 				) : activeMapping.inputAudioHourPrice &&
 				  parseFloat(activeMapping.inputAudioHourPrice) > 0 &&
 				  !(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
@@ -1342,7 +1382,13 @@ export function ProviderSection({
 										OCR
 									</span>
 									<span className="font-mono tabular-nums text-sm">
-										${(Number(activeMapping.ocrPagePrice) * 1000).toFixed(2)}
+										$
+										{(
+											ocrPagePrice *
+											1000 *
+											serviceTierMultiplier *
+											(1 - discountFraction(activeMapping.discount))
+										).toFixed(2)}
 										<span className="text-muted-foreground text-xs">
 											{" "}
 											/1K pages

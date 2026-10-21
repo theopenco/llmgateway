@@ -23,7 +23,7 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
-import { useStripe } from "@/lib/stripe";
+import { loadStripeNow, useStripe } from "@/lib/stripe";
 
 import type React from "react";
 
@@ -193,12 +193,16 @@ function AddPaymentMethodDialog({
 	organizationId: string | undefined;
 }) {
 	const [open, setOpen] = useState(false);
-	const { stripe, isLoading: stripeLoading } = useStripe();
+	// Load Stripe.js only once the dialog opens, like TopUpCreditsDialog.
+	const { stripe, isLoading: stripeLoading } = useStripe(open);
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
-				<Button>
+				<Button
+					onPointerEnter={() => void loadStripeNow()}
+					onFocus={() => void loadStripeNow()}
+				>
 					<Plus className="mr-2 h-4 w-4" />
 					Add Payment Method
 				</Button>

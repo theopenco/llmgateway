@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+import { requestStop, resetShutdown } from "@/shutdown.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
@@ -141,6 +143,7 @@ describe("benchmark run worker", () => {
 	});
 
 	afterEach(async () => {
+		vi.useRealTimers();
 		await clearFixtures();
 		if (originalGatewayKey === undefined) {
 			delete process.env.BENCHMARK_GATEWAY_API_KEY;
@@ -186,6 +189,54 @@ describe("benchmark run worker", () => {
 		expect(row.result?.trials).toEqual([]);
 		expect(row.result?.schemaVersion).toBe(2);
 	});
+
+	test.each([false, true])(
+		"renews a live run beyond the stale lease and stops its heartbeat (shutdown=%s)",
+		async (shutdown) => {
+			resetShutdown();
+			vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+			const queued = await queueRun();
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const execute = vi.fn(async () => {
+				await gate;
+				return fakeResult();
+			});
+			const processing = processNextBenchmarkRun(execute);
+			try {
+				await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+				for (let hour = 0; hour < 3; hour++) {
+					const stepMs = 40 * 60 * 1000;
+					vi.setSystemTime(Date.now() + stepMs);
+					await vi.advanceTimersByTimeAsync(60_000);
+					await vi.waitFor(async () => {
+						const row = await db.query.benchmarkRun.findFirst({
+							where: { id: { eq: queued.id } },
+						});
+						expect(row!.updatedAt.getTime()).toBeGreaterThanOrEqual(
+							Date.now() - 60_000,
+						);
+					});
+					expect(await claimNextBenchmarkRun()).toBeNull();
+				}
+				if (shutdown) {
+					requestStop();
+					expect(vi.getTimerCount()).toBe(0);
+				}
+			} finally {
+				release();
+				await processing;
+				resetShutdown();
+			}
+			expect(vi.getTimerCount()).toBe(0);
+			const row = await db.query.benchmarkRun.findFirst({
+				where: { id: { eq: queued.id } },
+			});
+			expect(row).toMatchObject({ attempts: 1, status: "completed" });
+		},
+	);
 
 	test("records the failure when the run throws", async () => {
 		const queued = await queueRun();

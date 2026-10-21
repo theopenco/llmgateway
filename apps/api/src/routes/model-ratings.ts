@@ -2,6 +2,9 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { invalidatePublicResponse } from "@/lib/public-response-cache.js";
+import { modelRatingsCacheKey } from "@/routes/public-model-ratings.js";
+
 import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { models as modelDefinitions } from "@llmgateway/models";
 
@@ -190,6 +193,7 @@ modelRatings.openapi(upsertRating, async (c) => {
 			},
 		})
 		.returning();
+	await invalidatePublicResponse(modelRatingsCacheKey(modelId));
 
 	return c.json({
 		rating: {
@@ -235,6 +239,7 @@ modelRatings.openapi(deleteRating, async (c) => {
 				eq(tables.modelRating.modelId, modelId),
 			),
 		);
+	await invalidatePublicResponse(modelRatingsCacheKey(modelId));
 
 	return c.json({ message: "ok" });
 });

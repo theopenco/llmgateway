@@ -17,6 +17,7 @@ import {
 } from "vitest";
 
 import { app } from "@/index.js";
+import { createTestUser } from "@/testing.js";
 import {
 	fetchKnowledgePage,
 	getCatalogueSummary,
@@ -78,12 +79,15 @@ function streamReply(res: ServerResponse, text: string): void {
 	);
 }
 
+let token: string;
+
 async function requestSupport(clientId = uniqueId("spec")) {
 	return await app.request("/public/chat-support", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
 			"X-Forwarded-For": `10.250.${randomInt(0, 256)}.${randomInt(0, 256)}`,
+			Cookie: token,
 		},
 		body: JSON.stringify({
 			clientId,
@@ -110,6 +114,7 @@ describe("public chat support diagnostics", () => {
 	});
 
 	beforeAll(async () => {
+		token = await createTestUser();
 		server = createServer((req, res) => {
 			gatewayHeaders = req.headers;
 			gatewayRequestIds.push(req.headers["x-request-id"]);
@@ -137,6 +142,7 @@ describe("public chat support diagnostics", () => {
 			headers: {
 				"Content-Type": "application/json",
 				"X-Forwarded-For": `10.250.${randomInt(0, 256)}.${randomInt(0, 256)}`,
+				Cookie: token,
 			},
 			body: JSON.stringify({
 				clientId: uniqueId("spec"),
@@ -304,6 +310,7 @@ describe("public chat support diagnostics", () => {
 					"Content-Type": "application/json",
 					"X-Client-Ip": "203.0.113.10",
 					"X-Forwarded-For": "203.0.113.20",
+					Cookie: token,
 				},
 				body: JSON.stringify({
 					clientId: uniqueId("spec"),
@@ -398,7 +405,7 @@ describe("public chat support diagnostics", () => {
 		const res = await requestSupport();
 		await res.text();
 		expect(warn).toHaveBeenCalledWith(
-			"Chat support UI stream error",
+			expect.stringMatching(/^Chat support (streaming|UI stream) error$/),
 			expect.objectContaining({
 				statusCode: 429,
 				attempts: 3,

@@ -503,6 +503,12 @@ const ModelTableRow = React.memo(
 		const perThousandChars = getInputCharacterPricePer1K(row.provider);
 		const hasCharacterPricing =
 			(parseStrictPrice(row.provider.inputCharacterPrice) ?? 0) > 0;
+		// OCR bills per page; its zero token prices would read as "free".
+		const ocrPagePrice = parseStrictPrice(row.provider.ocrPagePrice) ?? 0;
+		const ocrPerThousandPages =
+			ocrPagePrice > 0 && !inputTokenPrice && !outputTokenPrice
+				? ocrPagePrice * 1000 * (1 - discountFraction(row.provider.discount))
+				: null;
 		const perSecondPrices = row.provider.perSecondPrice;
 		const perSecondLabel = perSecondPrices
 			? (formatPerSecondPriceLabel(perSecondPrices, row.provider.discount)
@@ -722,6 +728,19 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
+						) : ocrPerThousandPages !== null ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										${ocrPerThousandPages.toFixed(2)}/1K pages
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-page OCR pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
 						) : hasCharacterPricing &&
 						  perThousandChars !== null &&
 						  !inputTokenPrice ? (
@@ -804,16 +823,16 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.outputPrice ||
+						) : ocrPerThousandPages !== null ||
+						  ((!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  ((row.provider.requestPrice &&
-								parseFloat(row.provider.requestPrice) > 0) ||
-								(row.provider.perImagePrice &&
-									Object.keys(row.provider.perImagePrice).length > 0) ||
-								(row.provider.inputCharacterPrice &&
-									parseFloat(row.provider.inputCharacterPrice) > 0) ||
-								(row.provider.inputAudioHourPrice &&
-									parseFloat(row.provider.inputAudioHourPrice) > 0)) ? (
+								((row.provider.requestPrice &&
+									parseFloat(row.provider.requestPrice) > 0) ||
+									(row.provider.perImagePrice &&
+										Object.keys(row.provider.perImagePrice).length > 0) ||
+									(row.provider.inputCharacterPrice &&
+										parseFloat(row.provider.inputCharacterPrice) > 0) ||
+									audioHourPrice !== null)) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)

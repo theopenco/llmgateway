@@ -32,7 +32,7 @@ import { buildProviderTabBranding } from "@/components/models/provider-tab-brand
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
-import { findEffectiveProviderDiscount } from "@/lib/discount";
+import { findEffectiveProviderDiscount, applyDiscount } from "@/lib/discount";
 import { fetchProviders } from "@/lib/fetch-models";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
@@ -81,6 +81,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		}),
 	]);
 	const providerInfoPromise = findProviderInfo(decodedProvider);
+	// Started here so the tab-branding lookup below doesn't add a serial
+	// round trip after the model and ratings fetches. React.cache shares it
+	// with findProviderInfo, and it resolves to [] on failure.
+	const apiProvidersPromise = fetchProviders();
 	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
@@ -151,7 +155,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const allProviderIds = modelDef.providers.map((p) => p.providerId);
 	const providerTabBranding = buildProviderTabBranding(
 		allProviderIds,
-		await fetchProviders(),
+		await apiProvidersPromise,
 	);
 
 	const breadcrumbSchema = {
@@ -185,6 +189,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		],
 	};
 
+	// OCR bills per page; its zero token prices must not advertise a free offer.
+	const ocrPagePrice = Number(providerMapping.ocrPagePrice ?? 0);
+	const offerPrice =
+		ocrPagePrice > 0
+			? applyDiscount(ocrPagePrice, bannerDiscount?.discountPercent)
+			: (providerMapping.inputPrice ?? 0);
+	const offerUnit = ocrPagePrice > 0 ? "per page" : "per 1M input tokens";
+
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
@@ -204,14 +216,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		offers: {
 			"@type": "AggregateOffer",
 			priceCurrency: "USD",
-			lowPrice: providerMapping.inputPrice ?? 0,
-			highPrice: providerMapping.inputPrice ?? 0,
+			lowPrice: offerPrice,
+			highPrice: offerPrice,
 			offerCount: 1,
 			priceSpecification: {
 				"@type": "UnitPriceSpecification",
-				price: providerMapping.inputPrice ?? 0,
+				price: offerPrice,
 				priceCurrency: "USD",
-				unitText: "per 1M input tokens",
+				unitText: offerUnit,
 			},
 			availability: "https://schema.org/InStock",
 			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,
@@ -430,7 +442,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 							})()}
 						</div>
 
-						<ModelRating modelId={decodedName} />
+						<ModelRating
+							modelId={decodedName}
+							initialData={ratingsData ?? undefined}
+						/>
 					</div>
 
 					{bannerDiscount && (

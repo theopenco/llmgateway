@@ -2,6 +2,7 @@
 
 import { keepPreviousData } from "@tanstack/react-query";
 import { Loader2, Search } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -26,13 +27,24 @@ import {
 	MODEL_SEARCH_PAGE_SIZE,
 	searchMatchRanges,
 } from "@llmgateway/shared";
-import {
-	getModelFamilyIcon,
-	getProviderIcon,
-} from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
 import type { ReactNode } from "react";
+
+// The icon maps are heavy inline SVG and only render once the popover is
+// open, so they load as their own chunk instead of shipping with the navbar.
+const ProviderSearchIcon = dynamic(
+	() => import("./model-search-icons").then((m) => m.ProviderSearchIcon),
+	{ ssr: false, loading: () => <div className="h-5 w-5" /> },
+);
+const FamilySearchIcon = dynamic(
+	() => import("./model-search-icons").then((m) => m.FamilySearchIcon),
+	{ ssr: false, loading: () => <div className="h-5 w-5" /> },
+);
+
+const preloadSearchIcons = () => {
+	void import("./model-search-icons");
+};
 
 type ModelSearchResponse =
 	paths["/internal/models/search"]["get"]["responses"][200]["content"]["application/json"];
@@ -90,7 +102,9 @@ export function SearchHighlight({
 	return <>{parts}</>;
 }
 
-export function ModelSearch() {
+// `hotkey: false` opts an instance out of the global ⌘K listener, for pages
+// that mount a second (e.g. mobile) instance — otherwise both open at once.
+export function ModelSearch({ hotkey = true }: { hotkey?: boolean }) {
 	const router = useRouter();
 	const api = useApi();
 	const [open, setOpen] = useState(false);
@@ -128,6 +142,9 @@ export function ModelSearch() {
 	);
 
 	useEffect(() => {
+		if (!hotkey) {
+			return;
+		}
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
 				const target = event.target as HTMLElement | null;
@@ -146,7 +163,7 @@ export function ModelSearch() {
 
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, []);
+	}, [hotkey]);
 
 	useEffect(() => {
 		if (listRef.current) {
@@ -233,6 +250,8 @@ export function ModelSearch() {
 			<PopoverTrigger asChild>
 				<button
 					type="button"
+					onPointerEnter={preloadSearchIcons}
+					onFocus={preloadSearchIcons}
 					className="flex w-full items-center gap-2 rounded-full border border-border bg-background/60 px-3 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 				>
 					<Search className="h-3.5 w-3.5 shrink-0" />
@@ -269,7 +288,6 @@ export function ModelSearch() {
 						{providers.length > 0 && (
 							<CommandGroup heading="Providers">
 								{providers.map((p) => {
-									const ProviderIcon = getProviderIcon(p.id);
 									return (
 										<CommandItem
 											key={`provider-${p.id}`}
@@ -281,13 +299,7 @@ export function ModelSearch() {
 										>
 											<div className="flex items-center gap-3">
 												<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-													{ProviderIcon ? (
-														<ProviderIcon className="h-5 w-5" />
-													) : (
-														<span className="text-xs font-medium uppercase text-muted-foreground">
-															{p.name.charAt(0)}
-														</span>
-													)}
+													<ProviderSearchIcon providerId={p.id} name={p.name} />
 												</div>
 												<div className="flex flex-col items-start">
 													<span className="text-sm font-medium">
@@ -306,8 +318,6 @@ export function ModelSearch() {
 						{groups.map((group) => (
 							<CommandGroup key={group.key} heading={group.heading}>
 								{group.models.map((model) => {
-									const FamilyIcon = getModelFamilyIcon(model.family);
-
 									return (
 										<CommandItem
 											key={model.id}
@@ -319,7 +329,7 @@ export function ModelSearch() {
 										>
 											<div className="flex w-full min-w-0 items-center gap-3">
 												<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-													<FamilyIcon className="h-5 w-5" />
+													<FamilySearchIcon family={model.family} />
 												</div>
 												<div className="flex min-w-0 flex-col items-start">
 													<span className="max-w-full truncate text-sm font-medium">

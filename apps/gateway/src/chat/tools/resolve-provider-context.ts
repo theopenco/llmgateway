@@ -168,6 +168,8 @@ export interface ProviderContextOptions {
 	prompt_cache_retention: PromptCacheRetention | undefined;
 	prompt_cache_options: PromptCacheOptions | undefined;
 	session_id: string | undefined;
+	/** Opaque per-API-key identifier forwarded to providers for abuse attribution. */
+	safetyIdentifier: string;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -211,8 +213,6 @@ interface ProjectInfo {
 
 interface OrgInfo {
 	id: string;
-	/** Opaque per-org identifier forwarded to providers for abuse attribution. */
-	safetyIdentifier: string;
 	credits: string | null;
 	plan: string;
 	kind: string;
@@ -353,6 +353,7 @@ export function assertDevPlanPremiumCapNotExceeded(
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingPremiumWeeklyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanPremiumCreditsUsed,
 		organization.devPlanPremiumWeekStart,
 	);
@@ -445,6 +446,7 @@ export function assertDevPlanDailyCapNotExceeded(
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingDailyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanDailyCreditsUsed,
 		organization.devPlanDayStart,
 	);
@@ -958,6 +960,7 @@ export async function resolveProviderContext(
 				usedProvider === "google-vertex" ||
 				usedProvider === "quartz" ||
 				usedProvider === "vertex-anthropic" ||
+				usedProvider === "vertex-openai" ||
 				transportProvider === "google-vertex"
 				? usedToken
 				: undefined,
@@ -1132,7 +1135,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_options,
 		options.session_id,
 		undefined,
-		organization.safetyIdentifier,
+		options.safetyIdentifier,
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,

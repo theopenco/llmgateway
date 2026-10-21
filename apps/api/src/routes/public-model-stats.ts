@@ -1,11 +1,12 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { cachedPublicResponse } from "@/lib/public-response-cache.js";
 import { floorToHourStart } from "@/utils/history-window.js";
 
 import {
 	and,
-	cdb,
+	db,
 	excludeRegionalMappingRows,
 	gt,
 	gte,
@@ -79,11 +80,9 @@ const listRoute = createRoute({
 	},
 });
 
-// Same rationale as the public provider stats: rankings tolerate several
-// minutes of staleness and the worker only appends rows, so a short
-// read-through cache collapses the heavy full-window aggregations into at
-// most one Postgres round-trip per window value per TTL.
-const STATS_CACHE_TTL_SECONDS = 300;
+// Rankings tolerate minutes of staleness, so the whole response is computed by
+// one caller at most every 5 minutes per window and served from cache.
+const STATS_REFRESH_MS = 5 * 60 * 1000;
 
 // The time-series chart only plots the highest-volume models; everything else
 // still appears in the ranked list.
@@ -108,7 +107,16 @@ function windowToStartDate(window: string, now: Date): Date {
 
 publicModelStats.openapi(listRoute, async (c) => {
 	const { window = "7d" } = c.req.valid("query");
+	return c.json(
+		await cachedPublicResponse(
+			`models-stats:${window}`,
+			{ refreshAfterMs: STATS_REFRESH_MS },
+			async () => await loadModelStats(window),
+		),
+	);
+});
 
+async function loadModelStats(window: string) {
 	// Public rankings only need hourly resolution. The hourly tables are refreshed
 	// every minute, including the current hour, and avoid scanning the much larger
 	// minute tables for the 24h window.
@@ -122,7 +130,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 	const windowMs = now.getTime() - startDate.getTime();
 	const prevStartDate = new Date(startDate.getTime() - windowMs);
 
-	const currentRows = await cdb
+	const currentRows = await db
 		.select({
 			modelId: mh.modelId,
 			totalTokens: sql<string>`COALESCE(SUM(${mh.totalTokens}), 0)`,
@@ -132,17 +140,9 @@ publicModelStats.openapi(listRoute, async (c) => {
 		// `logs_count > 0` changes no sum: it is what lets the planner use the
 		// partial covering index that skips the idle models' zero rows.
 		.where(and(gte(mhTs, startDate), gt(mh.logsCount, 0)))
-		.groupBy(mh.modelId)
-		// Stable window-scoped cache tag; see public-providers-stats for why the
-		// tag is pinned (the ever-moving startDate would otherwise defeat the
-		// cache) and why autoInvalidate is off.
-		.$withCache({
-			tag: `publicModelStats:current:v1:${window}`,
-			autoInvalidate: false,
-			config: { ex: STATS_CACHE_TTL_SECONDS },
-		});
+		.groupBy(mh.modelId);
 
-	const previousRows = await cdb
+	const previousRows = await db
 		.select({
 			modelId: mh.modelId,
 			totalTokens: sql<string>`COALESCE(SUM(${mh.totalTokens}), 0)`,
@@ -151,14 +151,9 @@ publicModelStats.openapi(listRoute, async (c) => {
 		.where(
 			and(gte(mhTs, prevStartDate), lt(mhTs, startDate), gt(mh.logsCount, 0)),
 		)
-		.groupBy(mh.modelId)
-		.$withCache({
-			tag: `publicModelStats:previous:v1:${window}`,
-			autoInvalidate: false,
-			config: { ex: STATS_CACHE_TTL_SECONDS },
-		});
+		.groupBy(mh.modelId);
 
-	const providerRows = await cdb
+	const providerRows = await db
 		.select({
 			providerId: mph.providerId,
 			totalTokens: sql<string>`COALESCE(SUM(${mph.totalTokens}), 0)`,
@@ -174,12 +169,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 				excludeRegionalMappingRows(mph),
 			),
 		)
-		.groupBy(mph.providerId)
-		.$withCache({
-			tag: `publicModelStats:providers:v2:${window}`,
-			autoInvalidate: false,
-			config: { ex: STATS_CACHE_TTL_SECONDS },
-		});
+		.groupBy(mph.providerId);
 
 	// Only catalogue models are public; traffic recorded for anything else
 	// (e.g. custom org models) must not leak into a public ranking. Gateway
@@ -248,7 +238,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 			window === "30d"
 				? sql<Date>`date_trunc('day', ${mhTs})`
 				: sql<Date>`date_trunc('hour', ${mhTs})`;
-		const seriesRows = await cdb
+		const seriesRows = await db
 			.select({
 				modelId: mh.modelId,
 				bucket: seriesBucket,
@@ -257,16 +247,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 			.from(mh)
 			.where(and(gte(mhTs, startDate), inArray(mh.modelId, topModelIds)))
 			.groupBy(mh.modelId, seriesBucket)
-			.orderBy(seriesBucket)
-			// The top-model set can shift within the TTL, so a tag keyed on the
-			// window alone may briefly serve a series for the previous set; that
-			// self-heals when the TTL lapses and is invisible in practice because
-			// the ranked list above it comes from the same cached snapshot.
-			.$withCache({
-				tag: `publicModelStats:series:v2:${window}`,
-				autoInvalidate: false,
-				config: { ex: STATS_CACHE_TTL_SECONDS },
-			});
+			.orderBy(seriesBucket);
 
 		const pointsByModel = new Map<
 			string,
@@ -286,5 +267,5 @@ publicModelStats.openapi(listRoute, async (c) => {
 		}));
 	}
 
-	return c.json({ window, totals, models, providers, series });
-});
+	return { window, totals, models, providers, series };
+}
