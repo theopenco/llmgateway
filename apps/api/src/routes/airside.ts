@@ -43,6 +43,7 @@ import {
 	quantizationValue,
 	REASONING_EFFORT_VALUES,
 	supportedToolChoicesValue,
+	webSearchFormatValue,
 } from "@/lib/airside-metadata.js";
 import {
 	assertNoRequiredCleared,
@@ -250,6 +251,7 @@ const verificationMappingSchema = z.object({
 	reasoningMaxTokens: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),
 	webSearch: z.boolean().optional(),
+	webSearchFormat: webSearchFormatValue.nullish(),
 	contextSize: z.number().int().positive().nullish(),
 	maxOutput: z.number().int().positive().nullish(),
 	// Set when the listing declares a cached input price.
@@ -269,6 +271,7 @@ const proposedCapabilitiesSchema = z.object({
 	reasoningMaxTokens: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),
 	webSearch: z.boolean().optional(),
+	webSearchFormat: webSearchFormatValue.nullish(),
 	contextSize: z.number().int().positive().nullish(),
 	maxOutput: z.number().int().positive().nullish(),
 });
@@ -413,6 +416,7 @@ const modelSchema = z.object({
 	// Supported unified reasoning_effort tiers; null = unsupported.
 	reasoningEfforts: z.array(z.enum(REASONING_EFFORT_VALUES)).nullable(),
 	webSearch: z.boolean(),
+	webSearchFormat: webSearchFormatValue.nullable(),
 	// Carrier-managed request caps; admin rate limits take precedence.
 	maxRpm: z.number().nullable(),
 	maxRpd: z.number().nullable(),
@@ -645,6 +649,10 @@ function draftVerificationTarget(
 			: proposed.reasoningEfforts) ?? null) as
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: proposed.webSearch ?? model.webSearch,
+		webSearchFormat:
+			proposed.webSearchFormat === undefined
+				? model.webSearchFormat
+				: proposed.webSearchFormat,
 		contextSize:
 			proposed.contextSize === undefined
 				? model.contextSize
@@ -719,6 +727,7 @@ function serializeModel(
 		reasoningEfforts: (row.reasoningEfforts ?? null) as
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: row.webSearch,
+		webSearchFormat: row.webSearchFormat ?? null,
 		maxRpm: row.maxRpm,
 		maxRpd: row.maxRpd,
 		rateLimitScope: row.rateLimitScope,
@@ -3103,6 +3112,7 @@ const createModel = createRoute({
 						reasoningMaxTokens: z.boolean().optional(),
 						reasoningEfforts: reasoningEffortsValue.nullish(),
 						webSearch: z.boolean().optional(),
+						webSearchFormat: webSearchFormatValue.nullish(),
 						maxRpm: z.number().int().positive().optional(),
 						maxRpd: z.number().int().positive().optional(),
 						rateLimitScope: z.enum(["global", "per_org"]).optional(),
@@ -3275,6 +3285,7 @@ airside.openapi(createModel, async (c) => {
 					reasoningMaxTokens: body.reasoningMaxTokens ?? false,
 					reasoningEfforts: body.reasoningEfforts ?? null,
 					webSearch: body.webSearch ?? false,
+					webSearchFormat: body.webSearchFormat ?? null,
 					maxRpm: body.maxRpm ?? null,
 					maxRpd: body.maxRpd ?? null,
 					rateLimitScope: body.rateLimitScope ?? "global",
@@ -3472,6 +3483,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					reasoningMaxTokens: mapping.reasoningMaxTokens ?? false,
 					reasoningEfforts: mapping.reasoningEfforts ?? null,
 					webSearch: mapping.webSearch ?? false,
+					webSearchFormat: mapping.webSearchFormat ?? null,
 					catalogueMetadata: catalogueMetadataFromMapping(mapping),
 					status: "active",
 					createdBy: user.id,

@@ -399,6 +399,10 @@ export const responsesRequestSchema = z
 						max_uses: z.number().optional(),
 						allowed_domains: z.array(z.string()).optional(),
 						blocked_domains: z.array(z.string()).optional(),
+						// OpenAI's shape for the domain allow-list.
+						filters: z
+							.object({ allowed_domains: z.array(z.string()).optional() })
+							.optional(),
 					}),
 					z.object({
 						type: z.literal("image_generation"),
@@ -428,9 +432,10 @@ export const responsesRequestSchema = z
 					}),
 				}),
 				// Demands a web search rather than offering one. See the Chat
-				// Completions schema for what this unlocks.
+				// Completions schema for what this unlocks. `web_search_preview` is
+				// OpenAI's earlier name for the same tool.
 				z.object({
-					type: z.literal("web_search"),
+					type: z.enum(["web_search", "web_search_preview"]),
 				}),
 			])
 			.optional(),

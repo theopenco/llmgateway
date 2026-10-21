@@ -85,6 +85,15 @@ Each check lists the upstream requests it actually sent. A check can be more tha
 
 Where a check can tell the difference between a capability and a dialect, it narrows the listing itself. A `tool_choice` mode your endpoint mishandles is dropped while tool calls stay on, and a `reasoning_effort` tier your endpoint rejects outright is retried at another tier — reasoning stays on and only the rejected tiers come off your declared set. If one tier is rejected the check goes on to try the others, since a tier left declared is one the gateway will forward verbatim. So a deployment implementing only a subset of the tiers verifies without losing reasoning, and you do not have to know which subset in advance.
 
+### Web search format
+
+A listing that declares **web search** also picks the shape its Chat Completions endpoint takes a search in:
+
+- **`web_search_options`** — OpenAI's Chat Completions body field, `{"web_search_options": {"search_context_size": "low"}}`. It has no forced mode; the model decides.
+- **`tools: [{type: "web_search"}]`** — a hosted-tool entry, the Responses API's shape, which some chat endpoints accept instead. A request that requires a search sends `tool_choice: "required"`, unless your listing leaves `required` out of its accepted `tool_choice` modes.
+
+The gateway translates every caller's web search — a `web_search` tool, `web_search_options`, or a Responses API tool — into the shape you pick, and passes `url_citation` annotations back. A search is billed only on evidence in your response: `url_citation` annotations, a usage counter (`server_tool_use.web_search_requests` or `num_search_queries`), or `prompt_tokens` beyond what the request could encode to (the retrieved pages you added to the prompt). The **web search** preflight check sends its probe in the chosen shape and passes only on the same evidence, so a shape your endpoint ignores fails it. Changing the shape on a listing with web search needs a passing preflight in the new shape.
+
 ## Price filings
 
 Listed prices are what developers are billed, so pricing never changes silently: it only changes through a reviewed **price filing**.

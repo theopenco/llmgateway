@@ -29,6 +29,7 @@ export * from "./org-spend.js";
 export * from "./org-activity.js";
 export * from "./model-verification.js";
 export * from "./provider-api-format.js";
+export * from "./web-search-format.js";
 
 export { fetchNoRedirect, RedirectError } from "./fetch-no-redirect.js";
 

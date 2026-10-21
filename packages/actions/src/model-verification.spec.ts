@@ -1927,3 +1927,95 @@ describe("model verification", () => {
 		});
 	});
 });
+
+describe("model verification - declared web search format", () => {
+	const searchTarget = (
+		webSearchFormat: "web_search_options" | "web_search_tool",
+	): ProviderModelVerificationTarget => ({
+		...target,
+		providerId: "custom-carrier",
+		apiFormat: "openai-chat-completions",
+		streaming: false,
+		vision: false,
+		audio: false,
+		tools: false,
+		jsonOutput: false,
+		jsonOutputSchema: false,
+		reasoning: false,
+		reasoningMaxTokens: false,
+		reasoningEfforts: null,
+		webSearch: true,
+		webSearchFormat,
+	});
+	const run = async (
+		webSearchFormat: "web_search_options" | "web_search_tool",
+		searchResponse: unknown,
+	) => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json(chatBody({ content: "OK" })))
+			.mockResolvedValueOnce(Response.json(searchResponse));
+		const result = await runProviderModelVerification({
+			target: searchTarget(webSearchFormat),
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+		const payload = JSON.parse(
+			String(fetchImplementation.mock.calls[1][1]?.body),
+		);
+		return { result, payload };
+	};
+
+	it("sends the tool shape and passes on a prompt grown by search results", async () => {
+		// SCX's tool-shape reply: no annotations or search usage, only the
+		// retrieved pages in prompt_tokens.
+		const { result, payload } = await run(
+			"web_search_tool",
+			chatBody({ content: "Today is October 21, 2026." }, "stop", {
+				prompt_tokens: 61_351,
+				completion_tokens: 40,
+				total_tokens: 61_391,
+			}),
+		);
+		expect(payload.tools).toEqual([
+			{ type: "web_search", search_context_size: "low" },
+		]);
+		expect(payload.tool_choice).toBe("required");
+		expect(payload).not.toHaveProperty("web_search_options");
+		expect(result.checks[1]).toMatchObject({
+			id: "web_search",
+			label: "Web search (web_search_tool)",
+			status: "passed",
+		});
+		expect(result.passed).toBe(true);
+	});
+
+	it("fails when the endpoint ignores the declared format", async () => {
+		const { result, payload } = await run(
+			"web_search_options",
+			chatBody({ content: "I cannot browse the web." }, "stop", {
+				prompt_tokens: 81,
+				completion_tokens: 12,
+				total_tokens: 93,
+			}),
+		);
+		expect(payload.web_search_options).toEqual({ search_context_size: "low" });
+		expect(payload).not.toHaveProperty("tools");
+		expect(result.checks[1]).toMatchObject({ status: "failed" });
+		expect(result.passed).toBe(false);
+	});
+
+	it("passes on url_citation annotations", async () => {
+		const { result } = await run(
+			"web_search_options",
+			chatBody({
+				content: "Today.",
+				annotations: [
+					{ type: "url_citation", url_citation: { url: "https://x.test" } },
+				],
+			}),
+		);
+		expect(result.passed).toBe(true);
+	});
+});

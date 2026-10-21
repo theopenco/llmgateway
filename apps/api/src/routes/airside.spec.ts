@@ -23,6 +23,7 @@ import {
 	type ModelDefinition,
 	type ProviderApiFormat,
 	type ToolChoiceMode,
+	type WebSearchFormat,
 } from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
@@ -106,7 +107,10 @@ async function claimProvider(
 
 // A passed preflight proving anything the model could claim, for tests that
 // edit or relist a listing but aren't about the preflight gate itself.
-async function passPreflight(modelId: string) {
+async function passPreflight(
+	modelId: string,
+	overrides: { webSearchFormat?: WebSearchFormat } = {},
+) {
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: modelId } },
 	});
@@ -133,6 +137,7 @@ async function passPreflight(modelId: string) {
 			webSearch: true,
 			contextSize: 100_000_000,
 			maxOutput: 100_000_000,
+			...overrides,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -249,6 +254,10 @@ async function createModel(
 					)
 				: null,
 			webSearch: body.webSearch === true,
+			webSearchFormat:
+				typeof body.webSearchFormat === "string"
+					? (body.webSearchFormat as WebSearchFormat)
+					: null,
 			contextSize:
 				typeof body.contextSize === "number" ? body.contextSize : null,
 			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
@@ -1303,6 +1312,40 @@ describe("airside provider portal", () => {
 			tools: true,
 		});
 		expect(stored?.checks.map((check) => check.id)).toContain("reasoning");
+	});
+
+	it("gates a web search format change behind a preflight in that format", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const created = await createModel(cookie, company.id, {
+			webSearch: true,
+			webSearchFormat: "web_search_options",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model).toMatchObject({
+			webSearch: true,
+			webSearchFormat: "web_search_options",
+		});
+
+		const patch = async () =>
+			await app.request(
+				`/airside/models/${model.id}`,
+				json(cookie, { webSearchFormat: "web_search_tool" }, "PATCH"),
+			);
+		// Web search proven in one shape says nothing about another.
+		await passPreflight(model.id, { webSearchFormat: "web_search_options" });
+		expect((await patch()).status).toBe(409);
+
+		await passPreflight(model.id, { webSearchFormat: "web_search_tool" });
+		const switched = await patch();
+		expect(switched.status).toBe(200);
+		expect((await switched.json()).model.webSearchFormat).toBe(
+			"web_search_tool",
+		);
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
