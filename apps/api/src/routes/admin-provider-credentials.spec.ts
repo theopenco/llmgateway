@@ -3306,8 +3306,73 @@ describe("managed credential Airside listings", () => {
 					externalId: "upstream-airside-chat",
 				}),
 				token: "airside-token",
+				// Managed credentials never inherit the deployment's LLM_* settings.
+				skipEnvVars: true,
+				fetchImplementation: expect.any(Function),
 			}),
 		);
+	});
+
+	test("verify-models probes the listing that replaces a static mapping", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		runProviderKeySmokeTestMock.mockResolvedValueOnce(null);
+		const [staticModel] = await (async () => {
+			const res = await app.request("/admin/provider-credentials/catalog", {
+				headers: { Cookie: cookie },
+			});
+			return (
+				(await res.json()) as { providers: { id: string; models: string[] }[] }
+			).providers.find((provider) => provider.id === "openai")!.models;
+		})();
+		const [provider] = await db
+			.insert(tables.provider)
+			.values({ id: "openai", name: "openai", description: "Test" })
+			.onConflictDoNothing()
+			.returning({ id: tables.provider.id });
+		insertedProvider = provider?.id;
+		const insertedModel = await db
+			.insert(tables.model)
+			.values({ id: staticModel, family: "test" })
+			.onConflictDoNothing()
+			.returning({ id: tables.model.id });
+		await db.insert(tables.modelProviderMapping).values({
+			providerId: "openai",
+			modelId: staticModel,
+			externalId: "airside-owned-upstream",
+			source: "airside",
+			apiFormat: "openai-chat-completions",
+			status: "active",
+		});
+		try {
+			const res = await post("/admin/provider-credentials/verify-models", {
+				provider: "openai",
+				token: "sk-airside-shadow",
+				models: [staticModel],
+			});
+			expect(res.status).toBe(200);
+			expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
+			expect(validateProviderKeyMock).not.toHaveBeenCalled();
+			expect(runProviderKeySmokeTestMock).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					target: expect.objectContaining({
+						modelName: staticModel,
+						externalId: "airside-owned-upstream",
+					}),
+				}),
+			);
+		} finally {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(
+					and(
+						eq(tables.modelProviderMapping.modelId, staticModel),
+						eq(tables.modelProviderMapping.source, "airside"),
+					),
+				);
+			if (insertedModel.length > 0) {
+				await db.delete(tables.model).where(eq(tables.model.id, staticModel));
+			}
+		}
 	});
 
 	test("save-time validation probes an allowed Airside listing", async () => {

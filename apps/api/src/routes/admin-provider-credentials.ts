@@ -556,7 +556,11 @@ async function probeCredentialToken(
 			token,
 			undefined,
 			allowedModels,
-			validationOptions,
+			{
+				providerKeyOptions: validationOptions,
+				skipEnvVars: true,
+				abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
+			},
 		);
 		if (airsideResult) {
 			return airsideResult;
@@ -2490,7 +2494,11 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 					target.token,
 					undefined,
 					null,
-					validationOptions,
+					{
+						providerKeyOptions: validationOptions,
+						skipEnvVars: true,
+						abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+					},
 				)) ??
 		(await validateProviderKey(
 			target.customCarrier ? "custom" : (target.provider as ProviderId),
@@ -2627,14 +2635,16 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			if (isCredentialTestEnv()) {
 				return { model: modelId, inCatalog: true, valid: true };
 			}
-			// Undefined when a static mapping covers the model; the catalogue
-			// probe below handles that case.
 			const result = await validateAirsideKey(
 				target.provider,
 				target.token,
 				undefined,
 				[modelId],
-				validationOptions,
+				{
+					providerKeyOptions: validationOptions,
+					skipEnvVars: true,
+					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				},
 			);
 			if (result) {
 				return {
