@@ -804,6 +804,16 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.providerClaim.providerCompanyId,
 			to: r.providerCompany.id,
 		}),
+		certifications: r.many.providerCertification({
+			from: r.providerClaim.id,
+			to: r.providerCertification.providerClaimId,
+		}),
+	},
+	providerCertification: {
+		providerClaim: r.one.providerClaim({
+			from: r.providerCertification.providerClaimId,
+			to: r.providerClaim.id,
+		}),
 	},
 	providerDraftModel: {
 		providerCompany: r.one.providerCompany({

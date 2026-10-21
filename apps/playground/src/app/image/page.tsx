@@ -184,7 +184,9 @@ export default async function ImagePage({
 				/>
 			) : null}
 			<ImagePageClient
-				models={models}
+				// Pre-filtered server-side (same predicate as the client) so the
+				// multi-MB full catalogue never crosses the RSC boundary.
+				models={models.filter((m) => m.output?.includes("image"))}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

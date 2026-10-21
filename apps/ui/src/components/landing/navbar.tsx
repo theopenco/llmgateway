@@ -640,7 +640,9 @@ export const Navbar = ({
 							{/* Mobile nav */}
 							<div className="nav:hidden">
 								<div className="mb-4">
-									<ModelSearch />
+									{/* The desktop instance above owns the ⌘K hotkey; this
+									    hidden-on-desktop copy must not also open on it. */}
+									<ModelSearch hotkey={false} />
 								</div>
 								<ul className="text-base">
 									<li>

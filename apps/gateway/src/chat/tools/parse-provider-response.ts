@@ -1,6 +1,6 @@
 import {
 	fromConverseReasoningContent,
-	isToolSearchBlock,
+	pairedServerToolBlocks,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
@@ -98,6 +98,7 @@ export function parseProviderResponse(
 	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
+	let anthropicContent: AnthropicNativeBlock[] | null = null;
 	let anthropicSafeguardResults: unknown = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -377,14 +378,28 @@ export function parseProviderResponse(
 						? promptTokens + completionTokens
 						: null;
 			}
-			// Server-side tool search leaves a server_tool_use +
-			// tool_search_tool_result pair in the content. Neither has an
-			// OpenAI-format equivalent, so surface them verbatim for the
-			// /v1/messages layer to replay — Anthropic expands the tool_reference
-			// entries they carry on every later turn.
-			const toolSearchBlocks = contentBlocks.filter(isToolSearchBlock);
-			if (toolSearchBlocks.length > 0) {
-				anthropicNativeBlocks = toolSearchBlocks;
+			// Server tools (tool search, web search, web fetch) leave
+			// server_tool_use + result pairs in the content. None has an
+			// OpenAI-format equivalent, so surface them verbatim for replay: the
+			// tool_reference and encrypted_content they carry are what the model
+			// sees of the result on a later turn.
+			const serverToolBlocks =
+				pairedServerToolBlocks<AnthropicNativeBlock>(contentBlocks);
+			if (serverToolBlocks.length > 0) {
+				anthropicNativeBlocks = serverToolBlocks;
+			}
+			// The /v1/messages layer returns such a turn as Anthropic sent it:
+			// lowering it loses the block order and the text citations.
+			if (
+				serverToolBlocks.length > 0 ||
+				textBlocks.some((block: any) => Array.isArray(block.citations))
+			) {
+				anthropicContent = contentBlocks.map((block: any) =>
+					(block.type === "thinking" && typeof block.signature === "string") ||
+					(block.type === "redacted_thinking" && typeof block.data === "string")
+						? sealAnthropicThinkingBlock(usedProvider, block)
+						: block,
+				);
 			}
 			// Server-side safeguard verdicts, present when the request carried
 			// `safeguards` (Claude Code auto mode). Opaque to the gateway.
@@ -599,6 +614,8 @@ export function parseProviderResponse(
 				for (const detail of json.usageMetadata.promptTokensDetails) {
 					if (detail?.modality === "AUDIO" && detail.tokenCount) {
 						audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+					} else if (detail?.modality === "IMAGE" && detail.tokenCount) {
+						imageInputTokens = (imageInputTokens ?? 0) + detail.tokenCount;
 					}
 				}
 			}
@@ -1552,6 +1569,7 @@ export function parseProviderResponse(
 		cachedAudioInputTokens,
 		toolResults,
 		anthropicNativeBlocks,
+		anthropicContent,
 		anthropicSafeguardResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

@@ -2698,6 +2698,104 @@ adminAirside.openapi(updateCompanySettings, async (c) => {
 	return c.json(updated);
 });
 
+const companyMemberSchema = z.object({
+	id: z.string(),
+	email: z.string(),
+	name: z.string().nullable(),
+	role: z.enum(["owner", "member"]),
+});
+
+const transferCompanyOwnership = createRoute({
+	method: "put",
+	path: "/airside/companies/{id}/owner",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						email: z.string().email().max(320),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						id: z.string(),
+						members: z.array(companyMemberSchema),
+					}),
+				},
+			},
+			description:
+				"The company's crew after the transfer: the named user is the sole owner, previous owners stay on as members.",
+		},
+	},
+});
+
+// Ownership moves to an existing LLM Gateway account. Previous owners are kept
+// as members so the carrier's operators do not lose access to the portal.
+adminAirside.openapi(transferCompanyOwnership, async (c) => {
+	const { id } = c.req.valid("param");
+	const email = c.req.valid("json").email.trim().toLowerCase();
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+		columns: { id: true },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Company not found" });
+	}
+	const nextOwner = await db.query.user.findFirst({
+		where: { email: { eq: email } },
+		columns: { id: true },
+	});
+	if (!nextOwner) {
+		throw new HTTPException(404, {
+			message:
+				"No account exists for that email. The person must sign up first.",
+		});
+	}
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.providerCompanyMember)
+			.set({ role: "member" })
+			.where(
+				and(
+					eq(tables.providerCompanyMember.providerCompanyId, id),
+					eq(tables.providerCompanyMember.role, "owner"),
+					ne(tables.providerCompanyMember.userId, nextOwner.id),
+				),
+			);
+		await tx
+			.insert(tables.providerCompanyMember)
+			.values({ providerCompanyId: id, userId: nextOwner.id, role: "owner" })
+			.onConflictDoUpdate({
+				target: [
+					tables.providerCompanyMember.providerCompanyId,
+					tables.providerCompanyMember.userId,
+				],
+				set: { role: "owner" },
+			});
+	});
+	const members = await db.query.providerCompanyMember.findMany({
+		where: { providerCompanyId: { eq: id } },
+		with: { user: true },
+		orderBy: { createdAt: "asc" },
+	});
+	return c.json({
+		id,
+		members: members.map((member) => ({
+			id: member.id,
+			email: member.user?.email ?? "",
+			name: member.user?.name ?? null,
+			role: member.role,
+		})),
+	});
+});
+
 async function getActiveCarrierClaim(providerId: string) {
 	const claim = await db.query.providerClaim.findFirst({
 		where: { providerId: { eq: providerId }, status: { eq: "active" } },

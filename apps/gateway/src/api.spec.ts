@@ -56,6 +56,23 @@ describe("api", () => {
 		expect(data.health).toHaveProperty("database");
 	});
 
+	test("/livez answers without touching dependencies", async () => {
+		const res = await app.request("/livez");
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ status: "ok" });
+	});
+
+	test("/health/deep checks the database and Redis", async () => {
+		const res = await app.request("/health/deep");
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		expect(data.health).toMatchObject({
+			status: "ok",
+			database: { connected: true },
+			redis: { connected: true },
+		});
+	});
+
 	test("/v1/chat/completions rejects image-output models for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -120,7 +137,7 @@ describe("api", () => {
 		expect(JSON.stringify(json)).toContain("/v1/audio/speech");
 	});
 
-	test("/v1/images/generations is blocked for dev-plan orgs via the chat-completions guard", async () => {
+	test("/v1/images/generations is blocked for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -148,6 +165,311 @@ describe("api", () => {
 		expect(JSON.stringify(json)).toContain(
 			"Image generation is not available for coding plans",
 		);
+	});
+
+	test("/v1/images/edits is blocked for dev-plan orgs", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setDevPlan({ devPlan: "pro" });
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Image generation is not available for coding plans",
+		);
+	});
+
+	test("/v1/images/generations rejects dynamic route models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "dynamic/my-route",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Dynamic routes are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects custom provider model strings", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects catalogue model ids behind custom provider prefixes", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/gemini-3-pro-image",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects region-suffixed text models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini:us-east",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("is a chat model");
+	});
+
+	test("/v1/images/edits rejects custom provider model strings", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/edits rejects dynamic route models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "dynamic/my-route",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Dynamic routes are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/edits rejects unsupported models before fetching source images", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "https://example.invalid/source.png" }],
+			}),
+		});
+
+		// If the source image were fetched first, the unresolvable host would
+		// surface as an image_url error instead of the routing error.
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+		expect(JSON.stringify(json)).not.toContain("image_url is invalid");
+	});
+
+	test("/v1/images/generations resolves llmgateway/auto to the default image model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const originalRequest: typeof app.request = app.request.bind(app);
+		let forwardedModel: unknown;
+
+		const requestSpy = vi
+			.spyOn(app, "request")
+			.mockImplementation(
+				async (...args: Parameters<typeof app.request>): Promise<Response> => {
+					const [input, init] = args;
+					if (input === "/v1/chat/completions") {
+						forwardedModel = JSON.parse(String(init?.body)).model;
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-image-llmgateway-auto",
+								object: "chat.completion",
+								created: 1774549411,
+								model: "gemini-3-pro-image",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: null,
+											images: [
+												{
+													image_url: {
+														url: "data:image/png;base64,aGVsbG8=",
+													},
+												},
+											],
+										},
+										finish_reason: "stop",
+									},
+								],
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalRequest(...args);
+				},
+			);
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/auto",
+					prompt: "A watercolor of a city skyline",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(forwardedModel).toBe("gemini-3-pro-image");
+		} finally {
+			requestSpy.mockRestore();
+		}
 	});
 
 	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
@@ -1057,10 +1379,9 @@ describe("api", () => {
 		}
 	});
 
-	// The gateway emits server_tool_use + web_search_tool_result blocks for
-	// native web search, so SDK clients replay them on the following turn. They
-	// have no OpenAI-format equivalent and must be dropped, not rejected and not
-	// forwarded verbatim.
+	// SDK clients replay server_tool_use + web_search_tool_result blocks on the
+	// following turn. A provider without the Messages API has no equivalent, so
+	// they must be dropped there, not rejected and not forwarded verbatim.
 	test("/v1/messages accepts web-search blocks in conversation history", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -12098,6 +12419,461 @@ describe("api", () => {
 			}
 		});
 
+		// A turn answered with web search / web fetch on Anthropic comes back as
+		// Anthropic sent it — real block ids, queries, encrypted_content,
+		// citations and the API's own thinking signature — so it can be replayed
+		// here or continued on Anthropic directly.
+		test("passes web search, web fetch, citations and signatures through", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const upstreamContent = [
+				{ type: "thinking", thinking: "Search first.", signature: "EqQBsig==" },
+				{
+					type: "server_tool_use",
+					id: "srvtoolu_01new",
+					name: "web_search",
+					input: { query: "example domain" },
+				},
+				{
+					type: "web_search_tool_result",
+					tool_use_id: "srvtoolu_01new",
+					content: [
+						{
+							type: "web_search_result",
+							url: "https://example.com",
+							title: "Example",
+							encrypted_content: "enc-new",
+							page_age: null,
+						},
+					],
+				},
+				{ type: "text", text: "Here is what I found: " },
+				{
+					type: "text",
+					text: "it is a placeholder.",
+					citations: [
+						{
+							type: "web_search_result_location",
+							url: "https://example.com",
+							title: "Example",
+							encrypted_index: "idx",
+							cited_text: "placeholder",
+						},
+					],
+				},
+			];
+
+			let capturedBody: any;
+			let capturedHeaders: Headers | undefined;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						capturedBody = JSON.parse(init?.body as string);
+						capturedHeaders = new Headers(init?.headers);
+						return new Response(
+							JSON.stringify({
+								id: "msg_ws",
+								type: "message",
+								role: "assistant",
+								model: "claude-sonnet-4-6",
+								content: upstreamContent,
+								stop_reason: "end_turn",
+								stop_sequence: null,
+								usage: {
+									input_tokens: 50,
+									output_tokens: 10,
+									server_tool_use: { web_search_requests: 1 },
+								},
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			const previousSearch = [
+				{
+					type: "server_tool_use",
+					id: "srvtoolu_01old",
+					name: "web_search",
+					input: { query: "example" },
+				},
+				{
+					type: "web_search_tool_result",
+					tool_use_id: "srvtoolu_01old",
+					content: [
+						{
+							type: "web_search_result",
+							url: "https://example.com",
+							title: "Example",
+							encrypted_content: "enc-old",
+							page_age: null,
+						},
+					],
+				},
+			];
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 2048,
+						thinking: { type: "enabled", budget_tokens: 1024 },
+						messages: [
+							{ role: "user", content: "What is example.com?" },
+							{
+								role: "assistant",
+								content: [
+									{
+										type: "thinking",
+										thinking: "Look it up.",
+										signature: "EqQBold==",
+									},
+									...previousSearch,
+									{ type: "text", text: "A placeholder domain." },
+								],
+							},
+							{ role: "user", content: "Fetch it and tell me more." },
+						],
+						tools: [
+							{ type: "web_search_20250305", name: "web_search" },
+							{
+								type: "web_fetch_20250910",
+								name: "web_fetch",
+								max_uses: 2,
+							},
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				expect(capturedBody?.tools).toContainEqual({
+					type: "web_fetch_20250910",
+					name: "web_fetch",
+					max_uses: 2,
+				});
+				expect(capturedHeaders?.get("anthropic-beta") ?? "").toContain(
+					"web-fetch-2025-09-10",
+				);
+
+				// The replayed search reaches Anthropic intact, with the thinking
+				// block the client sent.
+				const assistantTurn = capturedBody?.messages?.find(
+					(m: { role: string }) => m.role === "assistant",
+				);
+				expect(assistantTurn?.content?.slice(0, 3)).toEqual([
+					{ type: "thinking", thinking: "Look it up.", signature: "EqQBold==" },
+					...previousSearch,
+				]);
+
+				const json: any = await res.json();
+				expect(json.content).toEqual(upstreamContent);
+				expect(json.usage.server_tool_use).toEqual({ web_search_requests: 1 });
+
+				// Chat completions callers get annotations, not the Anthropic blocks.
+				const chatRes = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						messages: [{ role: "user", content: "What is example.com?" }],
+						tools: [{ type: "web_search" }],
+					}),
+				});
+				expect(chatRes.status).toBe(200);
+				const chatJson: any = await chatRes.json();
+				const message = chatJson.choices[0].message;
+				expect(message.anthropic_content).toBeUndefined();
+				expect(message.anthropic_native_blocks).toBeUndefined();
+				expect(message.annotations?.length).toBeGreaterThan(0);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		test("streams web search blocks, citations and signatures through", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const citation = {
+				type: "web_search_result_location",
+				url: "https://example.com",
+				title: "Example",
+				encrypted_index: "idx",
+				cited_text: "placeholder",
+			};
+			const searchResult = {
+				type: "web_search_tool_result",
+				tool_use_id: "srvtoolu_01stream",
+				content: [
+					{
+						type: "web_search_result",
+						url: "https://example.com",
+						title: "Example",
+						encrypted_content: "enc",
+						page_age: "1 day ago",
+					},
+				],
+			};
+			const event = (data: Record<string, unknown>) =>
+				`event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
+			const sse = [
+				event({
+					type: "message_start",
+					message: {
+						id: "msg_ws_stream",
+						type: "message",
+						role: "assistant",
+						model: "claude-sonnet-4-6",
+						content: [],
+						usage: { input_tokens: 50, output_tokens: 0 },
+					},
+				}),
+				event({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "thinking", thinking: "" },
+				}),
+				event({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "thinking_delta", thinking: "Search." },
+				}),
+				event({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "signature_delta", signature: "EqQBsig==" },
+				}),
+				event({ type: "content_block_stop", index: 0 }),
+				event({
+					type: "content_block_start",
+					index: 1,
+					content_block: {
+						type: "server_tool_use",
+						id: "srvtoolu_01stream",
+						name: "web_search",
+						input: {},
+					},
+				}),
+				event({
+					type: "content_block_delta",
+					index: 1,
+					delta: {
+						type: "input_json_delta",
+						partial_json: '{"query":"example domain"}',
+					},
+				}),
+				event({ type: "content_block_stop", index: 1 }),
+				event({
+					type: "content_block_start",
+					index: 2,
+					content_block: searchResult,
+				}),
+				event({ type: "content_block_stop", index: 2 }),
+				event({
+					type: "content_block_start",
+					index: 3,
+					content_block: { type: "text", text: "" },
+				}),
+				event({
+					type: "content_block_delta",
+					index: 3,
+					delta: { type: "text_delta", text: "Found: " },
+				}),
+				event({ type: "content_block_stop", index: 3 }),
+				event({
+					type: "content_block_start",
+					index: 4,
+					content_block: { type: "text", text: "", citations: [] },
+				}),
+				event({
+					type: "content_block_delta",
+					index: 4,
+					delta: { type: "citations_delta", citation },
+				}),
+				event({
+					type: "content_block_delta",
+					index: 4,
+					delta: { type: "text_delta", text: "a placeholder." },
+				}),
+				event({ type: "content_block_stop", index: 4 }),
+				// A fetch still pending when the turn pauses.
+				event({
+					type: "content_block_start",
+					index: 5,
+					content_block: {
+						type: "server_tool_use",
+						id: "srvtoolu_01fetch",
+						name: "web_fetch",
+						input: {},
+					},
+				}),
+				event({
+					type: "content_block_delta",
+					index: 5,
+					delta: {
+						type: "input_json_delta",
+						partial_json: '{"url":"https://example.com"}',
+					},
+				}),
+				event({ type: "content_block_stop", index: 5 }),
+				event({
+					type: "message_delta",
+					delta: { stop_reason: "pause_turn" },
+					usage: { output_tokens: 12 },
+				}),
+				event({ type: "message_stop" }),
+			].join("");
+
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						return new Response(sse, {
+							status: 200,
+							headers: { "Content-Type": "text/event-stream" },
+						});
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 2048,
+						stream: true,
+						thinking: { type: "enabled", budget_tokens: 1024 },
+						messages: [{ role: "user", content: "What is example.com?" }],
+						tools: [{ type: "web_search_20250305", name: "web_search" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const events = (await res.text())
+					.split("\n")
+					.filter((line) => line.startsWith("data: "))
+					.map((line) => JSON.parse(line.slice(6)));
+
+				// Rebuild the message the way an SDK accumulator does.
+				const blocks: any[] = [];
+				for (const e of events) {
+					if (e.type === "content_block_start") {
+						blocks[e.index] = structuredClone(e.content_block);
+					} else if (e.type === "content_block_delta") {
+						const block = blocks[e.index];
+						if (e.delta.type === "text_delta") {
+							block.text += e.delta.text;
+						} else if (e.delta.type === "thinking_delta") {
+							block.thinking += e.delta.thinking;
+						} else if (e.delta.type === "signature_delta") {
+							block.signature = e.delta.signature;
+						} else if (e.delta.type === "citations_delta") {
+							block.citations = [...(block.citations ?? []), e.delta.citation];
+						}
+					}
+				}
+
+				expect(blocks).toEqual([
+					{ type: "thinking", thinking: "Search.", signature: "EqQBsig==" },
+					{
+						type: "server_tool_use",
+						id: "srvtoolu_01stream",
+						name: "web_search",
+						input: { query: "example domain" },
+					},
+					searchResult,
+					{ type: "text", text: "Found: " },
+					{ type: "text", text: "a placeholder.", citations: [citation] },
+					{
+						type: "server_tool_use",
+						id: "srvtoolu_01fetch",
+						name: "web_fetch",
+						input: { url: "https://example.com" },
+					},
+				]);
+
+				const messageDelta = events.find((e) => e.type === "message_delta");
+				expect(messageDelta?.usage?.server_tool_use).toEqual({
+					web_search_requests: 1,
+				});
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
 		test("still rejects a custom tool missing input_schema", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
@@ -12124,6 +12900,163 @@ describe("api", () => {
 			expect(res.status).toBe(400);
 			const json = await res.json();
 			expect(JSON.stringify(json)).toContain("input_schema");
+		});
+	});
+
+	describe("web_search domain filter validation", () => {
+		// allowed_domains and blocked_domains are mutually exclusive. Without
+		// request-time validation the gateway silently keeps allowed_domains
+		// and drops blocked_domains when preparing the provider request.
+		test("rejects web_search tool with both allowed_domains and blocked_domains", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains",
+				...hashApiKeyForStorage("real-token-ws-domains"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+
+		test("rejects a conflicting duplicate web_search tool entry", async () => {
+			// Only the first web_search entry is extracted; a later conflicting
+			// duplicate must still be rejected, not silently discarded.
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-dup",
+				...hashApiKeyForStorage("real-token-ws-domains-dup"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-dup",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+						},
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+		});
+
+		test("rejects /v1/responses web_search tool with both domain filters", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-resp",
+				...hashApiKeyForStorage("real-token-ws-domains-resp"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-resp",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					input: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+
+		test("rejects /v1/messages web_search server tool with both domain filters", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-msgs",
+				...hashApiKeyForStorage("real-token-ws-domains-msgs"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-msgs",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-4-6",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search_20250305",
+							name: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			// The messages route wraps the inner chat error in Anthropic's
+			// envelope, which carries only type + message (no code/param).
+			const json = await res.json();
+			expect(json.type).toBe("error");
+			expect(json.error?.type).toBe("invalid_request_error");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
 		});
 	});
 

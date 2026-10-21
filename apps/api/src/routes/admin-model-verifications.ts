@@ -98,6 +98,10 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 			mapping.reasoningEfforts ??
 			null,
 		webSearch: mapping.webSearch,
+		webSearchFormat:
+			catalogueMappingFor(mapping)?.webSearchFormat ??
+			mapping.webSearchFormat ??
+			null,
 		contextSize: mapping.contextSize,
 		maxOutput: mapping.maxOutput,
 		promptCaching: mapping.cachedInputPrice !== null,
@@ -127,6 +131,7 @@ function draftModelTarget(
 		reasoningMaxTokens: model.reasoningMaxTokens,
 		reasoningEfforts: model.reasoningEfforts,
 		webSearch: model.webSearch,
+		webSearchFormat: model.webSearchFormat,
 		contextSize: model.contextSize,
 		maxOutput: model.maxOutput,
 		promptCaching,

@@ -50,13 +50,17 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	isStealthProvider,
+	providers,
 	regionEndpointRequiresWorkspaceId,
 } from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	isProviderBaseUrlOverrideAllowed,
+	PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
+	PROVIDER_HOSTNAME_LABEL_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -259,7 +263,7 @@ function assertCustomProviderEnterprise(
 	assertEnterpriseFeature(organization, "Custom providers");
 }
 
-// The custom provider name is the routing segment used in `custom/<name>/<model>`
+// The custom provider name is the routing prefix used in `<name>/<model>`
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
@@ -268,6 +272,13 @@ export const customProviderNameSchema = z
 		(name) =>
 			!(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(name),
 		RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	)
+	// Catalogue provider ids (e.g. "openai", "custom") always win the
+	// `<name>/<model>` prefix in parseModelInput, so a colliding custom
+	// provider would be unaddressable.
+	.refine(
+		(name) => !providers.some((provider) => provider.id === name),
+		"This name matches a built-in provider id and cannot be used as a custom provider name",
 	);
 
 export async function assertCustomProviderNameAvailable(
@@ -369,12 +380,28 @@ export function isValidProviderToken(value: string): boolean {
 	}
 }
 
-// The workspace id becomes a hostname label on the workspace-dedicated
-// endpoint, so it is restricted to what Model Studio issues rather than
-// accepted verbatim.
-const WORKSPACE_ID_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
+// Every option below ends up inside the URL the gateway calls, so each is
+// restricted to the shape the provider itself issues. A resource or workspace
+// id becomes a hostname label — `evil.example.com/` would otherwise smuggle a
+// different host into the endpoint — while a deployment name, model or api
+// version lands in the path or query and must not be able to reshape it.
 const WORKSPACE_ID_MESSAGE =
 	"Workspace ID must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_RESOURCE_MESSAGE =
+	"Azure resource must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_PATH_SEGMENT_MESSAGE =
+	"Must be 1-128 characters of letters, digits, dots, underscores, or hyphens";
+const GCP_PROJECT_ID_MESSAGE =
+	"Project ID must be 6-30 characters: a lowercase letter, then lowercase letters, digits or hyphens";
+const azureResourceSchema = z
+	.string()
+	.regex(PROVIDER_HOSTNAME_LABEL_REGEX, AZURE_RESOURCE_MESSAGE);
+const azurePathSegmentSchema = z
+	.string()
+	.regex(/^[A-Za-z0-9._-]{1,128}$/, AZURE_PATH_SEGMENT_MESSAGE);
+const gcpProjectIdSchema = z
+	.string()
+	.regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, GCP_PROJECT_ID_MESSAGE);
 
 /**
  * A workspace id is optional: a region whose endpoint is workspace-scoped
@@ -429,26 +456,26 @@ const createProviderKeySchema = z.object({
 					"ap-southeast-2",
 				])
 				.optional(),
-			azure_resource: z.string().optional(),
-			azure_api_version: z.string().optional(),
+			azure_resource: azureResourceSchema.optional(),
+			azure_api_version: azurePathSegmentSchema.optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
-			azure_validation_model: z.string().optional(),
-			azure_deployment_name: z.string().min(1).optional(),
-			azure_ai_foundry_resource: z.string().optional(),
-			azure_ai_foundry_api_version: z.string().optional(),
-			azure_anthropic_resource: z.string().optional(),
+			azure_validation_model: azurePathSegmentSchema.optional(),
+			azure_deployment_name: azurePathSegmentSchema.optional(),
+			azure_ai_foundry_resource: azureResourceSchema.optional(),
+			azure_ai_foundry_api_version: azurePathSegmentSchema.optional(),
+			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
 			alibaba_workspace_id: z
 				.string()
-				.regex(WORKSPACE_ID_REGEX, WORKSPACE_ID_MESSAGE)
+				.regex(PROVIDER_HOSTNAME_LABEL_REGEX, WORKSPACE_ID_MESSAGE)
 				.optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
-			google_vertex_project_id: z.string().optional(),
-			vertex_openai_project_id: z.string().optional(),
+			google_vertex_project_id: gcpProjectIdSchema.optional(),
+			vertex_openai_project_id: gcpProjectIdSchema.optional(),
 		})
 		.superRefine(validateWorkspaceScopedRegion)
 		.optional(),
@@ -613,6 +640,15 @@ keysProvider.openapi(create, async (c) => {
 
 	if (baseUrl) {
 		if (provider !== "custom") {
+			// A catalogue provider is reached at its published endpoint, derived from
+			// the key's own settings (an Azure resource, a Bedrock region). A base URL
+			// would replace that endpoint wholesale, which the hosted service does not
+			// offer on any plan; only custom providers are defined by their URL.
+			if (!isProviderBaseUrlOverrideAllowed()) {
+				throw new HTTPException(400, {
+					message: PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
+				});
+			}
 			assertEnterpriseFeature(userOrgs[0]?.organization, "Custom base URLs");
 		}
 		await assertProviderBaseUrlAllowed(baseUrl);

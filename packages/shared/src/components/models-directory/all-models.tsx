@@ -105,6 +105,7 @@ import { applyCategoryFilter } from "./model-category-filters";
 import {
 	compareSortValues,
 	effectiveTokenPrice,
+	getInputAudioHourPrice,
 	getInputCharacterPricePer1K,
 	getMaxPerSecondPrice,
 	getMinPerSecondPrice,
@@ -218,6 +219,13 @@ const PRICE_UNIT_OPTIONS: {
 		iconClass: "text-rose-500",
 		name: "Speech",
 		unit: "$/1K chars",
+	},
+	{
+		field: "inputAudioHourPrice",
+		Icon: Mic,
+		iconClass: "text-sky-500",
+		name: "Transcription",
+		unit: "$/hour",
 	},
 ];
 
@@ -495,12 +503,19 @@ const ModelTableRow = React.memo(
 		const perThousandChars = getInputCharacterPricePer1K(row.provider);
 		const hasCharacterPricing =
 			(parseStrictPrice(row.provider.inputCharacterPrice) ?? 0) > 0;
+		// OCR bills per page; its zero token prices would read as "free".
+		const ocrPagePrice = parseStrictPrice(row.provider.ocrPagePrice) ?? 0;
+		const ocrPerThousandPages =
+			ocrPagePrice > 0 && !inputTokenPrice && !outputTokenPrice
+				? ocrPagePrice * 1000 * (1 - discountFraction(row.provider.discount))
+				: null;
 		const perSecondPrices = row.provider.perSecondPrice;
 		const perSecondLabel = perSecondPrices
 			? (formatPerSecondPriceLabel(perSecondPrices, row.provider.discount)
 					?.value ??
 				(minPerSecond !== null ? formatPerUnitPrice(minPerSecond) : null))
 			: null;
+		const audioHourPrice = getInputAudioHourPrice(row.provider);
 
 		return (
 			<>
@@ -713,6 +728,19 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
+						) : ocrPerThousandPages !== null ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										${ocrPerThousandPages.toFixed(2)}/1K pages
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-page OCR pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
 						) : hasCharacterPricing &&
 						  perThousandChars !== null &&
 						  !inputTokenPrice ? (
@@ -764,6 +792,19 @@ const ModelTableRow = React.memo(
 									</p>
 								</TooltipContent>
 							</Tooltip>
+						) : audioHourPrice !== null && !inputTokenPrice ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										{formatPerUnitPrice(audioHourPrice)}/hour
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Audio transcription per-hour pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
 						) : (
 							formatPrice(row.provider.inputPrice, row.provider.discount)
 						)}
@@ -782,14 +823,16 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.outputPrice ||
+						) : ocrPerThousandPages !== null ||
+						  ((!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  ((row.provider.requestPrice &&
-								parseFloat(row.provider.requestPrice) > 0) ||
-								(row.provider.perImagePrice &&
-									Object.keys(row.provider.perImagePrice).length > 0) ||
-								(row.provider.inputCharacterPrice &&
-									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
+								((row.provider.requestPrice &&
+									parseFloat(row.provider.requestPrice) > 0) ||
+									(row.provider.perImagePrice &&
+										Object.keys(row.provider.perImagePrice).length > 0) ||
+									(row.provider.inputCharacterPrice &&
+										parseFloat(row.provider.inputCharacterPrice) > 0) ||
+									audioHourPrice !== null)) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)
@@ -1105,7 +1148,8 @@ export function AllModels({
 		[models],
 	);
 	// The per-unit toggles only appear when the current category has image,
-	// video or speech pricing; a unit left in the URL is ignored until then.
+	// video, speech or per-hour audio pricing; a unit left in the URL is
+	// ignored until then.
 	const hasPerUnitData = useMemo(() => {
 		const inScope = (model: ApiModel) =>
 			(!categoryFilter ||

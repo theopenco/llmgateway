@@ -116,6 +116,7 @@ export async function materializeAirsideModel(
 			reasoningMaxTokens: model.reasoningMaxTokens,
 			reasoningEfforts: model.reasoningEfforts,
 			webSearch: model.webSearch,
+			webSearchFormat: model.webSearchFormat,
 			...catalogueMetadataColumns(model.catalogueMetadata),
 			status: model.pausedAt ? ("inactive" as const) : ("active" as const),
 			deactivatedAt: null,
@@ -231,6 +232,7 @@ export async function syncAirsideModelMetadata(
 				reasoningMaxTokens: model.reasoningMaxTokens,
 				reasoningEfforts: model.reasoningEfforts,
 				webSearch: model.webSearch,
+				webSearchFormat: model.webSearchFormat,
 			})
 			.where(
 				and(
@@ -301,6 +303,7 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 		jsonOutput: mapping.jsonOutput ?? false,
 		jsonOutputSchema: mapping.jsonOutputSchema ?? false,
 		webSearch: mapping.webSearch ?? false,
+		webSearchFormat: mapping.webSearchFormat ?? null,
 		...catalogueMetadataColumns(catalogueMetadataFromMapping(mapping)),
 		test: mapping.test ?? null,
 		deprecatedAt: mapping.deprecatedAt ?? null,

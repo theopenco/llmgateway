@@ -28,6 +28,11 @@ function imageResponseWithBody(bytes: number): Response {
 }
 
 describe("processImageUrl size limits", () => {
+	it("accepts case-insensitive data URL schemes and media types", async () => {
+		await expect(
+			processImageUrl("DATA:IMAGE/PNG;BASE64,YQ=="),
+		).resolves.toEqual({ data: "YQ==", mimeType: "image/png" });
+	});
 	beforeEach(() => {
 		// The message gains an upsell sentence under HOSTED + PAID_MODE, so pin
 		// both rather than inheriting whatever the developer's shell exports.

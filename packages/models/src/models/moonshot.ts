@@ -182,6 +182,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -329,6 +330,8 @@ export const moonshotModels = [
 				jsonOutput: false,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "kimi-k2.5",
 				inputPrice: "0.405e-6",

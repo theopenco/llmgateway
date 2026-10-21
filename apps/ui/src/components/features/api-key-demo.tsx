@@ -12,11 +12,12 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { mockApiKeys } from "@/lib/mock-feature-data";
+import { getMockApiKeys } from "@/lib/mock-feature-data";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 export function ApiKeyDemo() {
+	const apiKeys = getMockApiKeys();
 	return (
 		<Card>
 			<CardHeader>
@@ -27,7 +28,7 @@ export function ApiKeyDemo() {
 			</CardHeader>
 			<CardContent>
 				<div className="space-y-4">
-					{mockApiKeys.map((apiKey) => (
+					{apiKeys.map((apiKey) => (
 						<div
 							key={apiKey.id}
 							className="flex items-center justify-between p-4 rounded-lg border bg-card hover:shadow-md transition-shadow"

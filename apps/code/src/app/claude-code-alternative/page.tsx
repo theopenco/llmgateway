@@ -3,7 +3,6 @@ import Link from "next/link";
 
 import { BrandTile } from "@/components/brand-logos";
 import { ComparisonTable } from "@/components/ComparisonTable";
-import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
@@ -107,7 +106,7 @@ const faqs = [
 	{
 		question: "Does DevPass have weekly limits?",
 		answer:
-			"Yes. DevPass has a monthly allowance and separate premium weekly fair-use limits. Optional PAYG overflow costs extra. Daily caps and tighter premium weekly limits start October 15, 2026; new subscriptions also begin at a lower monthly allowance from that date.",
+			"Yes. DevPass has a monthly allowance and separate premium weekly fair-use limits. Daily caps pace usage across the cycle, and optional PAYG overflow costs extra.",
 	},
 	{
 		question: "Can Claude users continue after a limit?",
@@ -277,10 +276,6 @@ export default function ClaudeCodeAlternativePage() {
 							features={comparisonFeatures}
 						/>
 					</div>
-				</section>
-
-				<section className="container mx-auto max-w-4xl px-4 py-8">
-					<DevPassPlanChangeNotice />
 				</section>
 
 				{/* The math */}

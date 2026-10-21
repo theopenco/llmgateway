@@ -52,8 +52,14 @@ export async function continueComparison({
 	}
 	let messages = history.messages;
 	const model = history.chat.model;
-	const persist = async (message: ChatMessage, reply: Reply) => {
-		await saveReply(chatId, reply, message.id);
+	const persist = async (
+		message: ChatMessage,
+		reply: Reply,
+		serverSaved = false,
+	) => {
+		if (!serverSaved) {
+			await saveReply(chatId, reply, message.id);
+		}
 		const stored = withReply(message, reply);
 		messages = messages.map((item) => (item.id === stored.id ? stored : item));
 		onStored(stored);
@@ -64,16 +70,21 @@ export async function continueComparison({
 			throw new Error("Reload this comparison before answering the request.");
 		}
 		await answerToolCall({
+			messageId: message.id,
 			parts: message.toolParts ?? [],
 			toolCallId: answer.toolCallId,
 			approved: answer.approved,
 			signal,
-			persist: (parts) =>
-				persist(message, {
-					...messageReply(message, model),
-					tools: parts,
-					toolContinuation: true,
-				}),
+			persist: (parts, serverSaved) =>
+				persist(
+					message,
+					{
+						...messageReply(message, model),
+						tools: parts,
+						toolContinuation: true,
+					},
+					serverSaved,
+				),
 		});
 	}
 	if (messages.some((message) => message.toolParts?.some(pendingTool))) {

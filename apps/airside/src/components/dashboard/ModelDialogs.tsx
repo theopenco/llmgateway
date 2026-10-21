@@ -729,6 +729,59 @@ function toolChoicePayload(
 
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
+// The OpenAI-compatible shapes an endpoint may take a web search in.
+const WEB_SEARCH_FORMATS = [
+	{ value: "web_search_options", label: "web_search_options" },
+	{ value: "web_search_tool", label: 'tools: [{type: "web_search"}]' },
+] as const;
+type WebSearchFormatOption = (typeof WEB_SEARCH_FORMATS)[number]["value"];
+
+function WebSearchFormatPicker({
+	value,
+	onChange,
+	disabled,
+	testIdPrefix,
+}: {
+	value: WebSearchFormatOption | null;
+	onChange: (value: WebSearchFormatOption) => void;
+	disabled: boolean;
+	testIdPrefix: string;
+}) {
+	return (
+		<div className="space-y-1 pt-1">
+			<Label className="text-muted-foreground text-xs">
+				Web search request format
+			</Label>
+			<div className="flex flex-wrap gap-1.5">
+				{WEB_SEARCH_FORMATS.map((format) => {
+					const active = value === format.value;
+					return (
+						<button
+							key={format.value}
+							type="button"
+							aria-pressed={active}
+							disabled={disabled}
+							data-testid={`${testIdPrefix}${format.value}`}
+							onClick={() => onChange(format.value)}
+							className={
+								active
+									? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+									: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+							}
+						>
+							{format.label}
+						</button>
+					);
+				})}
+			</div>
+			<p className="text-muted-foreground text-xs">
+				How your Chat Completions endpoint takes a web search. Preflight sends
+				it in this shape and passes only when the response shows a search ran.
+			</p>
+		</div>
+	);
+}
+
 type RateLimitScope = "global" | "per_org";
 type RateLimitMode = "strict" | "soft";
 
@@ -897,6 +950,8 @@ export function RegisterModelDialog({
 	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>([
 		...TOOL_CHOICE_MODES,
 	]);
+	const [webSearchFormat, setWebSearchFormat] =
+		useState<WebSearchFormatOption>("web_search_options");
 	const sortedProviderIds = [...providerIds].sort();
 	const [providerId, setProviderId] = useState(sortedProviderIds[0] ?? "");
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
@@ -1001,6 +1056,7 @@ export function RegisterModelDialog({
 			capabilities.reasoning && reasoningEfforts.length > 0
 				? reasoningEfforts
 				: undefined,
+		webSearchFormat: capabilities.webSearch ? webSearchFormat : undefined,
 	};
 
 	return (
@@ -1092,6 +1148,9 @@ export function RegisterModelDialog({
 									capabilities.reasoning && reasoningEfforts.length > 0
 										? reasoningEfforts
 										: undefined,
+								webSearchFormat: capabilities.webSearch
+									? webSearchFormat
+									: undefined,
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
 								rateLimitScope,
@@ -1387,6 +1446,17 @@ export function RegisterModelDialog({
 									it fall back to auto instead of reaching the deployment.
 								</p>
 							</div>
+						) : null}
+						{capabilities.webSearch ? (
+							<WebSearchFormatPicker
+								value={webSearchFormat}
+								disabled={verificationInProgress}
+								testIdPrefix="web-search-format-"
+								onChange={(value) => {
+									setWebSearchFormat(value);
+									resetVerification();
+								}}
+							/>
 						) : null}
 						{capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
@@ -1716,7 +1786,7 @@ export function VerifyModelDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Verify {model.modelName}
@@ -1845,6 +1915,8 @@ export function EditModelDialog({
 	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>(
 		toolChoiceSelection(proposed.supportedToolChoices),
 	);
+	const [webSearchFormat, setWebSearchFormat] =
+		useState<WebSearchFormatOption | null>(proposed.webSearchFormat ?? null);
 	const [maxRpm, setMaxRpm] = useState(
 		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
@@ -1880,6 +1952,7 @@ export function EditModelDialog({
 			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
 		setToolChoices(toolChoiceSelection(proposed.supportedToolChoices));
+		setWebSearchFormat(proposed.webSearchFormat ?? null);
 		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
 		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
 		setRateLimitScope(proposed.rateLimitScope);
@@ -1899,6 +1972,9 @@ export function EditModelDialog({
 			capabilities.reasoning && reasoningEfforts.length > 0
 				? reasoningEfforts
 				: null,
+		webSearchFormat: capabilities.webSearch
+			? (webSearchFormat ?? undefined)
+			: undefined,
 	};
 	const [apiKey, setApiKey] = useState("");
 	const [verificationId, setVerificationId] = useState("");
@@ -2038,6 +2114,9 @@ export function EditModelDialog({
 									capabilities.reasoning && reasoningEfforts.length > 0
 										? reasoningEfforts
 										: null,
+								webSearchFormat: capabilities.webSearch
+									? (webSearchFormat ?? undefined)
+									: undefined,
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
 								rateLimitScope,
@@ -2191,6 +2270,17 @@ export function EditModelDialog({
 									it fall back to auto instead of reaching the deployment.
 								</p>
 							</div>
+						) : null}
+						{capabilities.webSearch ? (
+							<WebSearchFormatPicker
+								value={webSearchFormat}
+								disabled={verificationInProgress}
+								testIdPrefix="edit-web-search-format-"
+								onChange={(value) => {
+									setWebSearchFormat(value);
+									resetVerification();
+								}}
+							/>
 						) : null}
 						{capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">

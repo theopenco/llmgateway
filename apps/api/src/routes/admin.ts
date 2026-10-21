@@ -228,9 +228,10 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
-		// Provider abuse reports quote the safety identifier we send upstream;
-		// searching on it is how such a report gets traced back to an org.
+		// Provider abuse reports quote the safety identifier we send upstream:
+		// per API key now, per organization for older reports.
 		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
+		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND ak.safety_identifier = ${trimmed})`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
 }
@@ -760,6 +761,7 @@ const apiKeySchema = z.object({
 	usageLimit: z.string().nullable(),
 	projectId: z.string(),
 	projectName: z.string(),
+	safetyIdentifier: z.string(),
 	createdAt: z.string(),
 	iamRules: z.array(iamRuleAdminSchema),
 });
@@ -3646,6 +3648,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			usageLimit: tables.apiKey.usageLimit,
 			projectId: tables.apiKey.projectId,
 			projectName: tables.project.name,
+			safetyIdentifier: tables.apiKey.safetyIdentifier,
 			createdAt: tables.apiKey.createdAt,
 		})
 		.from(tables.apiKey)
@@ -10692,6 +10695,15 @@ const providerDetailSchema = z.object({
 				claimedAt: z.string(),
 				approvedAt: z.string().nullable(),
 				companyWebsite: z.string().nullable(),
+				// Portal crew; owners can manage members and billing.
+				members: z.array(
+					z.object({
+						id: z.string(),
+						email: z.string(),
+						name: z.string().nullable(),
+						role: z.enum(["owner", "member"]),
+					}),
+				),
 				paymentStatus: z.enum(["unpaid", "paid"]),
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
@@ -10903,34 +10915,44 @@ admin.openapi(getProviderDetail, async (c) => {
 	// to the column defaults so a carrier still renders if it is missing.
 	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
 	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
-	const [carrierDomains, carrierOverrides, carrierFilings, carrierModels] =
-		carrier
-			? await Promise.all([
-					db.query.providerCompanyDomain.findMany({
-						where: { providerCompanyId: { eq: carrier.companyId } },
-						orderBy: { domain: "asc" },
-					}),
-					db.query.providerRoutingSettings.findMany({
-						where: {
-							providerId: { eq: providerId },
-							modelId: { isNotNull: true },
-						},
-						orderBy: { modelId: "asc" },
-					}),
-					db.query.providerRoutingFiling.findMany({
-						where: {
-							providerId: { eq: providerId },
-							status: { eq: "pending" },
-						},
-						orderBy: { createdAt: "asc" },
-					}),
-					db.query.providerDraftModel.findMany({
-						where: { providerId: { eq: providerId }, status: { eq: "active" } },
-						columns: { modelName: true },
-						orderBy: { modelName: "asc" },
-					}),
-				])
-			: [[], [], [], []];
+	const [
+		carrierDomains,
+		carrierOverrides,
+		carrierFilings,
+		carrierModels,
+		carrierMembers,
+	] = carrier
+		? await Promise.all([
+				db.query.providerCompanyDomain.findMany({
+					where: { providerCompanyId: { eq: carrier.companyId } },
+					orderBy: { domain: "asc" },
+				}),
+				db.query.providerRoutingSettings.findMany({
+					where: {
+						providerId: { eq: providerId },
+						modelId: { isNotNull: true },
+					},
+					orderBy: { modelId: "asc" },
+				}),
+				db.query.providerRoutingFiling.findMany({
+					where: {
+						providerId: { eq: providerId },
+						status: { eq: "pending" },
+					},
+					orderBy: { createdAt: "asc" },
+				}),
+				db.query.providerDraftModel.findMany({
+					where: { providerId: { eq: providerId }, status: { eq: "active" } },
+					columns: { modelName: true },
+					orderBy: { modelName: "asc" },
+				}),
+				db.query.providerCompanyMember.findMany({
+					where: { providerCompanyId: { eq: carrier.companyId } },
+					with: { user: true },
+					orderBy: { createdAt: "asc" },
+				}),
+			])
+		: [[], [], [], [], []];
 	const fareFields = (row: {
 		discountPercent: string;
 		marginPercent: string;
@@ -11082,6 +11104,12 @@ admin.openapi(getProviderDetail, async (c) => {
 						claimedAt: carrier.claim.createdAt.toISOString(),
 						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
 						companyWebsite: carrier.companyWebsite,
+						members: carrierMembers.map((member) => ({
+							id: member.id,
+							email: member.user?.email ?? "",
+							name: member.user?.name ?? null,
+							role: member.role,
+						})),
 						paymentStatus: carrier.paymentStatus,
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
@@ -16667,7 +16695,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const marginPct = mrrNum > 0 ? (marginNum / mrrNum) * 100 : null;
 
 		const premiumCreditsLimitNum =
-			tier === "none" ? 0 : getDevPlanPremiumWeeklyLimit(tier as DevPlanTier);
+			tier === "none"
+				? 0
+				: getDevPlanPremiumWeeklyLimit(tier as DevPlanTier, row.creditsLimit);
 		const premiumWeekStart = row.premiumWeekStart
 			? new Date(row.premiumWeekStart).toISOString()
 			: null;
@@ -18118,7 +18148,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const premiumCreditsLimitNum =
 		org.devPlan === "none"
 			? 0
-			: getDevPlanPremiumWeeklyLimit(org.devPlan as DevPlanTier);
+			: getDevPlanPremiumWeeklyLimit(
+					org.devPlan as DevPlanTier,
+					org.devPlanCreditsLimit,
+				);
 
 	const subscriber = {
 		id: org.id,
