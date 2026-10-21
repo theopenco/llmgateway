@@ -14,3 +14,11 @@
 Manual steps before deploy:
 
 ## Verification
+
+<!-- What you ran and what it showed: test command, request and response, screenshot, e2e run. An agent saying it is done is not verification. -->
+
+## Rollback
+
+<!-- How to undo this in production. The person who asked for the change signs this, not the agent that wrote it. -->
+
+- [ ] A plain revert of the squash commit is safe. Otherwise, the steps (flag or env var to flip, contract migration to run first):
