@@ -27,7 +27,26 @@ export interface ApiProvider {
 	airsideIconUrl?: string | null;
 	/** Self-declared public profile of a custom Airside carrier. */
 	airsideProfile?: ApiAirsideProfile | null;
+	/** Airworthy certificate, only while valid and matching the live profile. */
+	airsideCertification?: ApiAirsideCertification | null;
 	status: "active" | "inactive";
+}
+
+export interface ApiAirsideCertification {
+	certificateNumber: string;
+	issuedAt: string;
+	expiresAt: string;
+	/** The claims the certificate attests, frozen at issue time. */
+	attested: {
+		legalEntity: string | null;
+		headquarters: string | null;
+		apiTraining: boolean | null;
+		promptLogging: boolean | null;
+		retentionPeriod: string | null;
+		gdpr: boolean | null;
+		soc2: 0 | 1 | 2 | null;
+		iso27001: boolean | null;
+	};
 }
 
 export interface ApiAirsideProfile {
