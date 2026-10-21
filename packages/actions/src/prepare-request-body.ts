@@ -3802,8 +3802,13 @@ export async function prepareRequestBody(
 						...((requestBody.tools as unknown[]) ?? []),
 					];
 				}
+				// Anthropic does not offer web fetch on Google Cloud.
 				const webFetchTools = tools.filter(isWebFetchTool);
-				if (webFetchTools.length > 0) {
+				if (webFetchTools.length > 0 && usedProvider === "vertex-anthropic") {
+					logger.warn("Dropping Anthropic web fetch on Google Cloud", {
+						usedInternalModel,
+					});
+				} else if (webFetchTools.length > 0) {
 					requestBody.tools = [
 						...((requestBody.tools as unknown[]) ?? []),
 						...webFetchTools.map(toAnthropicWebFetchTool),

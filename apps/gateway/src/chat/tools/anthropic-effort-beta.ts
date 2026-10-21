@@ -32,22 +32,31 @@ export function anthropicRequestNeedsEffortBeta(
 /**
  * Betas the Anthropic API needs for tools the body carries: `strict` rides on
  * structured outputs, `allowed_callers` on programmatic tool calling, and the
- * first web fetch tool version on its own beta. All are ignored, or rejected,
- * without their header.
+ * first web fetch tool version on its own beta, which Microsoft Foundry takes
+ * too. All are ignored, or rejected, without their header.
  */
 export function anthropicToolBetas(
 	usedProvider: string,
 	requestBody: ProviderRequestBody | FormData,
 ): string[] {
-	if (usedProvider !== "anthropic" || requestBody instanceof FormData) {
+	if (
+		(usedProvider !== "anthropic" && usedProvider !== "azure-anthropic") ||
+		requestBody instanceof FormData
+	) {
 		return [];
 	}
 	const tools = (requestBody as AnthropicRequestBody).tools ?? [];
 	const betas: string[] = [];
-	if (tools.some((tool) => tool.strict === true)) {
+	if (
+		usedProvider === "anthropic" &&
+		tools.some((tool) => tool.strict === true)
+	) {
 		betas.push("structured-outputs-2025-11-13");
 	}
-	if (tools.some((tool) => tool.allowed_callers !== undefined)) {
+	if (
+		usedProvider === "anthropic" &&
+		tools.some((tool) => tool.allowed_callers !== undefined)
+	) {
 		betas.push("advanced-tool-use-2025-11-20");
 	}
 	if (

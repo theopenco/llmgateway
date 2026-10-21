@@ -1,6 +1,6 @@
 import {
 	fromConverseReasoningContent,
-	isAnthropicServerToolBlock,
+	pairedServerToolBlocks,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
@@ -383,7 +383,8 @@ export function parseProviderResponse(
 			// OpenAI-format equivalent, so surface them verbatim for replay: the
 			// tool_reference and encrypted_content they carry are what the model
 			// sees of the result on a later turn.
-			const serverToolBlocks = contentBlocks.filter(isAnthropicServerToolBlock);
+			const serverToolBlocks =
+				pairedServerToolBlocks<AnthropicNativeBlock>(contentBlocks);
 			if (serverToolBlocks.length > 0) {
 				anthropicNativeBlocks = serverToolBlocks;
 			}

@@ -14,7 +14,10 @@ import {
 } from "@llmgateway/models";
 
 import { anthropicThinkingBlocksFor } from "./anthropic-thinking.js";
-import { isToolSearchBlock } from "./anthropic-tool-search.js";
+import {
+	isToolSearchBlock,
+	withoutWebFetchBlocks,
+} from "./anthropic-tool-search.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -513,8 +516,14 @@ export async function transformAnthropicMessages(
 		// Anthropic expands the `tool_reference` entries they carry throughout the
 		// history, so keeping them lets Claude reuse a tool it already discovered
 		// instead of searching for it again.
-		const nativeBlocks =
+		// Google Cloud has no web fetch, so a fetch from an earlier turn cannot
+		// be replayed there.
+		const assistantNativeBlocks =
 			m.role === "assistant" ? (m.anthropic_native_blocks ?? []) : [];
+		const nativeBlocks =
+			provider === "vertex-anthropic"
+				? withoutWebFetchBlocks(assistantNativeBlocks)
+				: assistantNativeBlocks;
 
 		// Ensure we have at least some content - if all content was filtered out but we have tool_calls, that's still valid
 		if (

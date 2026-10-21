@@ -213,13 +213,13 @@ Anthropic's server-side web search and web fetch tools work on this endpoint. Pa
 }
 ```
 
-When an Anthropic model on the Anthropic API, Google Cloud, or Microsoft Foundry serves the request, the response carries the content blocks exactly as Anthropic returned them, streamed or not: `server_tool_use` with its input, `web_search_tool_result` and `web_fetch_tool_result` with `encrypted_content`, text blocks with their `citations`, and `usage.server_tool_use`. Replay the assistant turn verbatim on the next request and the blocks reach Anthropic unchanged, so the model sees the earlier results.
+When an Anthropic model on the Anthropic API, Google Cloud, or Microsoft Foundry serves the request, the response carries the content blocks exactly as Anthropic returned them, streamed or not: `server_tool_use` with its input, `web_search_tool_result` and `web_fetch_tool_result` with `encrypted_content`, text blocks with their `citations`, and `usage.server_tool_use`. Replay the assistant turn verbatim on the next request and the blocks reach Anthropic with every field intact, ahead of the turn's text, so the model sees the earlier results.
 
-Web search on other providers works too. The response then carries a `server_tool_use` and `web_search_tool_result` pair rebuilt from the provider's citations, without `encrypted_content`. Those rebuilt blocks are dropped on replay. Web fetch exists only on Anthropic and is dropped for other providers, so pin the provider (`anthropic/claude-sonnet-4-6`) when you rely on it.
+Web search on other providers works too. The response then carries a `server_tool_use` and `web_search_tool_result` pair rebuilt from the provider's citations, without `encrypted_content`. Those rebuilt blocks are dropped on replay. Anthropic does not offer web fetch on Google Cloud, and other providers have no equivalent, so the tool is dropped there. Pin the provider (`anthropic/claude-sonnet-4-6`) when you rely on it.
 
 ### Thinking Signatures
 
-Thinking blocks served by the Anthropic API carry Anthropic's own signatures, so you can continue a conversation started here on Anthropic directly, and the other way round. Other providers serve Claude with their own signatures. Their thinking blocks carry a provider prefix, and the gateway replays a block only to the provider that signed it.
+Thinking blocks served by the Anthropic API carry Anthropic's own signatures, so you can continue a conversation started here on Anthropic directly, and the other way round. Other providers serve Claude with their own signatures. Their thinking blocks carry a provider prefix, and the gateway replays a block only to the provider that signed it. A block without a prefix, such as one from a conversation started elsewhere, is replayed to the Anthropic API.
 
 ### Tool Search
 

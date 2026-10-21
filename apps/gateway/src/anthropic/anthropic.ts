@@ -33,8 +33,8 @@ import {
 	type AnthropicThinkingBlock,
 	exposeAnthropicThinkingBlock,
 	fromAnthropicReasoningDetail,
-	isAnthropicServerToolBlock,
 	leadingAnthropicThinking,
+	pairedServerToolBlocks,
 	toAnthropicReasoningDetail,
 	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
@@ -473,11 +473,12 @@ function isSynthesizedWebSearchResult(block: {
 	);
 }
 
-// The server tool blocks of an assistant turn, as Anthropic returned them.
+// The replayable server tool blocks of an assistant turn, as Anthropic
+// returned them.
 function collectServerToolBlocks(
 	content: Array<{ type: string; content?: unknown }>,
 ): AnthropicNativeBlock[] {
-	const blocks = content.filter(isAnthropicServerToolBlock) as Array<
+	const blocks = pairedServerToolBlocks(content) as Array<
 		AnthropicNativeBlock & { id?: unknown; tool_use_id?: unknown }
 	>;
 	const synthesizedIds = new Set(
@@ -546,20 +547,24 @@ function exposeThinking<T extends { type: string }>(block: T): T {
 	return block;
 }
 
-// Counts the server tool calls in a turn the way Anthropic's
-// `usage.server_tool_use` does.
+// `usage.server_tool_use` for a turn: its successful web search and web fetch
+// results, which is what Anthropic and the gateway's billing count.
 function serverToolUsage(
-	blocks: Array<{ type: string; name?: unknown }>,
+	blocks: Array<{ type: string; content?: unknown }>,
 ): Record<string, number> | undefined {
 	let webSearchRequests = 0;
 	let webFetchRequests = 0;
 	for (const block of blocks) {
-		if (block.type !== "server_tool_use") {
-			continue;
-		}
-		if (block.name === "web_search") {
+		if (
+			block.type === "web_search_tool_result" &&
+			Array.isArray(block.content)
+		) {
 			webSearchRequests++;
-		} else if (block.name === "web_fetch") {
+		} else if (
+			block.type === "web_fetch_tool_result" &&
+			(block.content as { type?: unknown } | undefined)?.type ===
+				"web_fetch_result"
+		) {
 			webFetchRequests++;
 		}
 	}
@@ -1446,6 +1451,8 @@ anthropic.openapi(messages, async (c) => {
 					id?: string;
 					name?: string;
 					input?: string;
+					// Server tool results, for usage.server_tool_use.
+					content?: unknown;
 					// Web-search blocks are emitted complete (start + stop in one
 					// go), so the end-of-stream stop flush must skip them.
 					stopped?: boolean;
@@ -1454,7 +1461,7 @@ anthropic.openapi(messages, async (c) => {
 				const seenCitationKeys = new Set<string>();
 				// Server tool blocks the upstream returned verbatim. Once one
 				// arrives, the annotation-based web search rebuild is redundant.
-				const nativeServerToolBlocks: AnthropicNativeBlock[] = [];
+				let sawNativeServerToolBlocks = false;
 				let usage: {
 					input_tokens: number;
 					output_tokens: number;
@@ -1583,12 +1590,7 @@ anthropic.openapi(messages, async (c) => {
 						return;
 					}
 					messageDeltaSent = true;
-					const serverToolUseUsage = serverToolUsage(
-						contentBlocks.map((block) => ({
-							type: block.type,
-							name: block.name,
-						})),
-					);
+					const serverToolUseUsage = serverToolUsage(contentBlocks);
 					await stream.writeSSE({
 						data: JSON.stringify({
 							type: "message_delta",
@@ -1879,7 +1881,7 @@ anthropic.openapi(messages, async (c) => {
 								if (
 									Array.isArray(delta.annotations) &&
 									delta.annotations.length > 0 &&
-									nativeServerToolBlocks.length === 0 &&
+									!sawNativeServerToolBlocks &&
 									!(
 										Array.isArray(delta.anthropic_native_blocks) &&
 										delta.anthropic_native_blocks.length > 0
@@ -1940,6 +1942,7 @@ anthropic.openapi(messages, async (c) => {
 										const toolResultIndex = contentBlocks.length;
 										contentBlocks.push({
 											type: "web_search_tool_result",
+											content: webSearchResults,
 											stopped: true,
 										});
 										await stream.writeSSE({
@@ -1990,11 +1993,11 @@ anthropic.openapi(messages, async (c) => {
 									}
 
 									for (const block of delta.anthropic_native_blocks) {
-										nativeServerToolBlocks.push(block);
+										sawNativeServerToolBlocks = true;
 										const blockIndex = contentBlocks.length;
 										contentBlocks.push({
 											type: block.type,
-											name: block.name,
+											content: block.content,
 											stopped: true,
 										});
 										await stream.writeSSE({

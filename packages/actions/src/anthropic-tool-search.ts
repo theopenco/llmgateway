@@ -88,6 +88,84 @@ export function isAnthropicServerToolBlock(block: unknown): boolean {
 	);
 }
 
+/** Server tools the gateway forwards to Anthropic. */
+export function isForwardedServerToolName(name: unknown): boolean {
+	return (
+		typeof name === "string" &&
+		(name === "web_search" ||
+			name === "web_fetch" ||
+			name.startsWith(TOOL_SEARCH_TOOL_TYPE_PREFIX))
+	);
+}
+
+/**
+ * The server tool blocks of a turn that can be replayed: calls to a tool the
+ * gateway forwards, and the results paired with them by id. Anything else
+ * (an MCP or code execution result, say) would reach Anthropic orphaned or
+ * without its tool.
+ */
+export function pairedServerToolBlocks<T>(blocks: readonly T[]): T[] {
+	const callIds = new Set<unknown>();
+	for (const block of blocks) {
+		const { type, id, name } = block as {
+			type?: unknown;
+			id?: unknown;
+			name?: unknown;
+		};
+		if (type === "server_tool_use" && isForwardedServerToolName(name)) {
+			callIds.add(id);
+		}
+	}
+	return blocks.filter((block) => {
+		if (!isAnthropicServerToolBlock(block)) {
+			return false;
+		}
+		const {
+			type,
+			id,
+			tool_use_id: toolUseId,
+		} = block as {
+			type?: unknown;
+			id?: unknown;
+			tool_use_id?: unknown;
+		};
+		return callIds.has(type === "server_tool_use" ? id : toolUseId);
+	});
+}
+
+/**
+ * Removes web fetch calls and their results, for an upstream without the tool
+ * (Anthropic does not offer it on Google Cloud).
+ */
+export function withoutWebFetchBlocks<T>(blocks: readonly T[]): T[] {
+	const fetchIds = new Set<unknown>();
+	for (const block of blocks) {
+		const { type, id, name } = block as {
+			type?: unknown;
+			id?: unknown;
+			name?: unknown;
+		};
+		if (type === "server_tool_use" && name === "web_fetch") {
+			fetchIds.add(id);
+		}
+	}
+	return blocks.filter((block) => {
+		const {
+			type,
+			id,
+			tool_use_id: toolUseId,
+		} = block as {
+			type?: unknown;
+			id?: unknown;
+			tool_use_id?: unknown;
+		};
+		return !(
+			type === "web_fetch_tool_result" ||
+			(type === "server_tool_use" ? fetchIds.has(id) : fetchIds.has(toolUseId))
+		);
+	});
+}
+
 export function isWebFetchTool(
 	tool: OpenAIToolInput,
 ): tool is OpenAIWebFetchToolInput {

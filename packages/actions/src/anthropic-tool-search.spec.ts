@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { pairedServerToolBlocks } from "./anthropic-tool-search.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type {
@@ -394,6 +395,50 @@ describe("anthropic web search and web fetch", () => {
 				text: "Example.com is a placeholder domain.",
 			}),
 		]);
+	});
+
+	test("keeps web search but drops web fetch on Google Cloud", async () => {
+		const body = (await prepare(
+			"vertex-anthropic",
+			"claude-sonnet-4-6",
+			history,
+			[WEB_FETCH_TOOL],
+		)) as AnthropicRequestBody;
+
+		expect(JSON.stringify(body.tools ?? [])).not.toContain("web_fetch");
+		expect(body.messages[1]?.content.slice(0, 2)).toEqual([
+			SEARCH_CALL_WEB,
+			SEARCH_RESULT_WEB,
+		]);
+		expect(JSON.stringify(body.messages)).not.toContain("web_fetch");
+	});
+
+	test("pairs replayable server tool blocks by id", () => {
+		const codeResult = {
+			type: "code_execution_tool_result",
+			tool_use_id: "srvtoolu_01code",
+			content: { type: "code_execution_result" },
+		};
+		const mcpResult = {
+			type: "mcp_tool_result",
+			tool_use_id: "mcptoolu_1",
+			content: [],
+		};
+		expect(
+			pairedServerToolBlocks([
+				SEARCH_CALL_WEB,
+				SEARCH_RESULT_WEB,
+				{
+					type: "server_tool_use",
+					id: "srvtoolu_01code",
+					name: "code_execution",
+				},
+				codeResult,
+				mcpResult,
+				FETCH_CALL,
+				{ type: "text", text: "x" },
+			]),
+		).toEqual([SEARCH_CALL_WEB, SEARCH_RESULT_WEB, FETCH_CALL]);
 	});
 
 	test("strips both for providers without the Messages API", async () => {

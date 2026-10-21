@@ -12606,6 +12606,27 @@ describe("api", () => {
 				const json: any = await res.json();
 				expect(json.content).toEqual(upstreamContent);
 				expect(json.usage.server_tool_use).toEqual({ web_search_requests: 1 });
+
+				// Chat completions callers get annotations, not the Anthropic blocks.
+				const chatRes = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						messages: [{ role: "user", content: "What is example.com?" }],
+						tools: [{ type: "web_search" }],
+					}),
+				});
+				expect(chatRes.status).toBe(200);
+				const chatJson: any = await chatRes.json();
+				const message = chatJson.choices[0].message;
+				expect(message.anthropic_content).toBeUndefined();
+				expect(message.anthropic_native_blocks).toBeUndefined();
+				expect(message.annotations?.length).toBeGreaterThan(0);
 			} finally {
 				fetchSpy.mockRestore();
 			}
@@ -12733,9 +12754,29 @@ describe("api", () => {
 					delta: { type: "text_delta", text: "a placeholder." },
 				}),
 				event({ type: "content_block_stop", index: 4 }),
+				// A fetch still pending when the turn pauses.
+				event({
+					type: "content_block_start",
+					index: 5,
+					content_block: {
+						type: "server_tool_use",
+						id: "srvtoolu_01fetch",
+						name: "web_fetch",
+						input: {},
+					},
+				}),
+				event({
+					type: "content_block_delta",
+					index: 5,
+					delta: {
+						type: "input_json_delta",
+						partial_json: '{"url":"https://example.com"}',
+					},
+				}),
+				event({ type: "content_block_stop", index: 5 }),
 				event({
 					type: "message_delta",
-					delta: { stop_reason: "end_turn" },
+					delta: { stop_reason: "pause_turn" },
 					usage: { output_tokens: 12 },
 				}),
 				event({ type: "message_stop" }),
@@ -12816,6 +12857,12 @@ describe("api", () => {
 					searchResult,
 					{ type: "text", text: "Found: " },
 					{ type: "text", text: "a placeholder.", citations: [citation] },
+					{
+						type: "server_tool_use",
+						id: "srvtoolu_01fetch",
+						name: "web_fetch",
+						input: { url: "https://example.com" },
+					},
 				]);
 
 				const messageDelta = events.find((e) => e.type === "message_delta");
