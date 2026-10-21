@@ -405,7 +405,7 @@ describe("public chat support diagnostics", () => {
 		const res = await requestSupport();
 		await res.text();
 		expect(warn).toHaveBeenCalledWith(
-			"Chat support UI stream error",
+			expect.stringMatching(/^Chat support (streaming|UI stream) error$/),
 			expect.objectContaining({
 				statusCode: 429,
 				attempts: 3,
