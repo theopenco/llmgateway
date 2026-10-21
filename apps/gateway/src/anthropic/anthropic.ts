@@ -29,9 +29,12 @@ import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import {
+	adoptAnthropicThinkingBlock,
+	type AnthropicThinkingBlock,
+	exposeAnthropicThinkingBlock,
 	fromAnthropicReasoningDetail,
-	isToolSearchBlock,
 	leadingAnthropicThinking,
+	pairedServerToolBlocks,
 	toAnthropicReasoningDetail,
 	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
@@ -196,7 +199,7 @@ const anthropicToolSearchToolSchema = z.object({
 	name: z.string().optional(),
 });
 
-// Anthropic server-side tools (e.g. web_search_20250305, code_execution_*).
+// Anthropic server-side tools (e.g. web_search_20250305, web_fetch_20250910).
 // These are executed by Anthropic, carry a versioned `type` instead of an
 // `input_schema`, and must not be validated as custom tools.
 const anthropicServerToolSchema = z.object({
@@ -205,6 +208,9 @@ const anthropicServerToolSchema = z.object({
 	max_uses: z.number().optional(),
 	allowed_domains: z.array(z.string()).optional(),
 	blocked_domains: z.array(z.string()).optional(),
+	// web_fetch only
+	citations: z.object({ enabled: z.boolean() }).optional(),
+	max_content_tokens: z.number().int().positive().optional(),
 	user_location: z
 		.object({
 			type: z.literal("approximate").optional(),
@@ -351,12 +357,17 @@ const anthropicContentBlockSchema = z.object({
 		"text",
 		"tool_use",
 		"thinking",
+		"redacted_thinking",
 		"server_tool_use",
 		"web_search_tool_result",
+		"web_fetch_tool_result",
 		"tool_search_tool_result",
 	]),
 	text: z.string().optional(),
+	citations: z.array(z.record(z.unknown())).nullish(),
 	thinking: z.string().optional(),
+	signature: z.string().optional(),
+	data: z.string().optional(),
 	id: z.string().optional(),
 	name: z.string().optional(),
 	input: z.record(z.unknown()).optional(),
@@ -400,6 +411,12 @@ const anthropicResponseSchema = z.object({
 				ephemeral_1h_input_tokens: z.number(),
 			})
 			.optional(),
+		server_tool_use: z
+			.object({
+				web_search_requests: z.number(),
+				web_fetch_requests: z.number().optional(),
+			})
+			.optional(),
 	}),
 	metadata: z.record(z.string(), z.unknown()).optional().openapi({
 		description:
@@ -425,31 +442,59 @@ interface AnthropicWebSearchResult {
 
 // Response-only Anthropic content blocks. Clients replay the assistant turn
 // verbatim on the next request, so these arrive back here; none of them has an
-// OpenAI-format equivalent, so they're dropped from the lowered content. The
-// tool search pair is carried separately on `anthropic_native_blocks` and
-// spliced back in for Anthropic upstreams — see collectToolSearchBlocks.
-// Thinking rides on `reasoning_details` — see collectThinkingDetails.
+// OpenAI-format equivalent, so they're dropped from the lowered content. Server
+// tool blocks are carried separately on `anthropic_native_blocks` and spliced
+// back in for Anthropic upstreams — see collectServerToolBlocks. Thinking
+// rides on `reasoning_details` — see collectThinkingDetails.
 const NON_FORWARDABLE_CONTENT_BLOCK_TYPES = new Set([
 	"thinking",
 	"redacted_thinking",
 	"server_tool_use",
 	"web_search_tool_result",
+	"web_fetch_tool_result",
 	"tool_search_tool_result",
 ]);
 
-// The tool search pair out of an assistant turn. `server_tool_use` is matched
-// on its name because the web-search variant shares the block type and must
-// stay dropped: replaying it needs an `encrypted_content` the gateway cannot
-// reconstruct from url_citation annotations.
-function collectToolSearchBlocks(
-	content: Array<{ type: string; name?: string }>,
-): AnthropicNativeBlock[] {
-	return content.filter(isToolSearchBlock) as AnthropicNativeBlock[];
+// A web search pair rebuilt from a non-Anthropic provider's citations has no
+// `encrypted_content`, and Anthropic rejects one replayed without it.
+function isSynthesizedWebSearchResult(block: {
+	type: string;
+	content?: unknown;
+}): boolean {
+	return (
+		block.type === "web_search_tool_result" &&
+		Array.isArray(block.content) &&
+		block.content.some(
+			(entry) =>
+				!!entry &&
+				typeof entry === "object" &&
+				(entry as { encrypted_content?: unknown }).encrypted_content === "",
+		)
+	);
 }
 
-// Thinking blocks the gateway returned carry provider-sealed signatures.
-// prepareRequestBody replays the ones the serving provider issued, which keeps
-// a thinking-enabled tool loop's cached prefix intact.
+// The replayable server tool blocks of an assistant turn, as Anthropic
+// returned them.
+function collectServerToolBlocks(
+	content: Array<{ type: string; content?: unknown }>,
+): AnthropicNativeBlock[] {
+	const blocks = pairedServerToolBlocks(content) as Array<
+		AnthropicNativeBlock & { id?: unknown; tool_use_id?: unknown }
+	>;
+	const synthesizedIds = new Set(
+		blocks.filter(isSynthesizedWebSearchResult).map((b) => b.tool_use_id),
+	);
+	return blocks.filter((block) =>
+		block.type === "server_tool_use"
+			? !synthesizedIds.has(block.id)
+			: !synthesizedIds.has(block.tool_use_id),
+	);
+}
+
+// Thinking blocks the gateway returned carry provider-sealed signatures,
+// except the Anthropic API's own, which go out as issued and are sealed again
+// here. prepareRequestBody replays the ones the serving provider issued, which
+// keeps a thinking-enabled tool loop's cached prefix intact.
 function collectThinkingDetails(
 	content: Array<{
 		type: string;
@@ -462,11 +507,11 @@ function collectThinkingDetails(
 		if (block.type === "thinking" && block.signature) {
 			return [
 				toAnthropicReasoningDetail(
-					{
+					adoptAnthropicThinkingBlock({
 						type: "thinking",
 						thinking: block.thinking ?? "",
 						signature: block.signature,
-					},
+					}),
 					index,
 				),
 			];
@@ -474,7 +519,10 @@ function collectThinkingDetails(
 		if (block.type === "redacted_thinking" && block.data) {
 			return [
 				toAnthropicReasoningDetail(
-					{ type: "redacted_thinking", data: block.data },
+					adoptAnthropicThinkingBlock({
+						type: "redacted_thinking",
+						data: block.data,
+					}),
 					index,
 				),
 			];
@@ -483,8 +531,55 @@ function collectThinkingDetails(
 	});
 }
 
+// A thinking block or content block the inner response carries, as the
+// Messages API client sees it.
+function exposeThinking<T extends { type: string }>(block: T): T {
+	if (
+		(block.type === "thinking" &&
+			typeof (block as { signature?: unknown }).signature === "string") ||
+		(block.type === "redacted_thinking" &&
+			typeof (block as { data?: unknown }).data === "string")
+	) {
+		return exposeAnthropicThinkingBlock(
+			block as unknown as AnthropicThinkingBlock,
+		) as unknown as T;
+	}
+	return block;
+}
+
+// `usage.server_tool_use` for a turn: its successful web search and web fetch
+// results, which is what Anthropic and the gateway's billing count.
+function serverToolUsage(
+	blocks: Array<{ type: string; content?: unknown }>,
+): Record<string, number> | undefined {
+	let webSearchRequests = 0;
+	let webFetchRequests = 0;
+	for (const block of blocks) {
+		if (
+			block.type === "web_search_tool_result" &&
+			Array.isArray(block.content)
+		) {
+			webSearchRequests++;
+		} else if (
+			block.type === "web_fetch_tool_result" &&
+			(block.content as { type?: unknown } | undefined)?.type ===
+				"web_fetch_result"
+		) {
+			webFetchRequests++;
+		}
+	}
+	if (webSearchRequests === 0 && webFetchRequests === 0) {
+		return undefined;
+	}
+	return {
+		web_search_requests: webSearchRequests,
+		...(webFetchRequests > 0 && { web_fetch_requests: webFetchRequests }),
+	};
+}
+
+// Shaped like Anthropic's ids (no hyphens) for clients that validate them.
 function generateServerToolUseId(): string {
-	return `srvtoolu_${randomUUID()}`;
+	return `srvtoolu_${randomUUID().replaceAll("-", "")}`;
 }
 
 // Anthropic message ids are `msg_`-prefixed and SDK clients key on that prefix.
@@ -800,15 +895,15 @@ anthropic.openapi(messages, async (c) => {
 				.map((block) => block.text)
 				.join("");
 
-			const toolSearchBlocks = collectToolSearchBlocks(message.content);
+			const serverToolBlocks = collectServerToolBlocks(message.content);
 			const thinkingDetails = collectThinkingDetails(message.content);
 
 			openaiMessages.push({
 				role: message.role,
 				content: textContent || "",
 				tool_calls: toolCalls,
-				...(toolSearchBlocks.length > 0 && {
-					anthropic_native_blocks: toolSearchBlocks,
+				...(serverToolBlocks.length > 0 && {
+					anthropic_native_blocks: serverToolBlocks,
 				}),
 				...(thinkingDetails.length > 0 && {
 					reasoning_details: thinkingDetails,
@@ -949,9 +1044,9 @@ anthropic.openapi(messages, async (c) => {
 			const forwardableBlocks = message.content.filter(
 				(block) => !NON_FORWARDABLE_CONTENT_BLOCK_TYPES.has(block.type),
 			);
-			const toolSearchBlocks =
+			const serverToolBlocks =
 				message.role === "assistant"
-					? collectToolSearchBlocks(message.content)
+					? collectServerToolBlocks(message.content)
 					: [];
 			const thinkingDetails =
 				message.role === "assistant"
@@ -964,11 +1059,11 @@ anthropic.openapi(messages, async (c) => {
 			// its blocks still have to reach Anthropic, so it is forwarded with
 			// empty content and dropped again for providers that can't take them.
 			if (forwardableBlocks.length === 0) {
-				if (toolSearchBlocks.length > 0) {
+				if (serverToolBlocks.length > 0) {
 					openaiMessages.push({
 						role: message.role,
 						content: "",
-						anthropic_native_blocks: toolSearchBlocks,
+						anthropic_native_blocks: serverToolBlocks,
 					});
 				}
 				continue;
@@ -993,8 +1088,8 @@ anthropic.openapi(messages, async (c) => {
 				openaiMessages.push({
 					role: message.role,
 					content: textContent,
-					...(toolSearchBlocks.length > 0 && {
-						anthropic_native_blocks: toolSearchBlocks,
+					...(serverToolBlocks.length > 0 && {
+						anthropic_native_blocks: serverToolBlocks,
 					}),
 					...(thinkingDetails.length > 0 && {
 						reasoning_details: thinkingDetails,
@@ -1028,8 +1123,8 @@ anthropic.openapi(messages, async (c) => {
 				openaiMessages.push({
 					role: message.role,
 					content,
-					...(toolSearchBlocks.length > 0 && {
-						anthropic_native_blocks: toolSearchBlocks,
+					...(serverToolBlocks.length > 0 && {
+						anthropic_native_blocks: serverToolBlocks,
 					}),
 					...(thinkingDetails.length > 0 && {
 						reasoning_details: thinkingDetails,
@@ -1115,6 +1210,28 @@ anthropic.openapi(messages, async (c) => {
 						...(searchTool.blocked_domains
 							? { blocked_domains: searchTool.blocked_domains }
 							: {}),
+					};
+				}
+
+				if (tool.type.startsWith("web_fetch_")) {
+					const fetchTool = tool as z.infer<typeof anthropicServerToolSchema>;
+					return {
+						type: "web_fetch",
+						web_fetch_type: fetchTool.type,
+						name: fetchTool.name,
+						...(fetchTool.max_uses !== undefined && {
+							max_uses: fetchTool.max_uses,
+						}),
+						...(fetchTool.allowed_domains && {
+							allowed_domains: fetchTool.allowed_domains,
+						}),
+						...(fetchTool.blocked_domains && {
+							blocked_domains: fetchTool.blocked_domains,
+						}),
+						...(fetchTool.citations && { citations: fetchTool.citations }),
+						...(fetchTool.max_content_tokens !== undefined && {
+							max_content_tokens: fetchTool.max_content_tokens,
+						}),
 					};
 				}
 
@@ -1334,12 +1451,17 @@ anthropic.openapi(messages, async (c) => {
 					id?: string;
 					name?: string;
 					input?: string;
+					// Server tool results, for usage.server_tool_use.
+					content?: unknown;
 					// Web-search blocks are emitted complete (start + stop in one
 					// go), so the end-of-stream stop flush must skip them.
 					stopped?: boolean;
 				}> = [];
 				// Dedupe web-search citations across annotation chunks.
 				const seenCitationKeys = new Set<string>();
+				// Server tool blocks the upstream returned verbatim. Once one
+				// arrives, the annotation-based web search rebuild is redundant.
+				let sawNativeServerToolBlocks = false;
 				let usage: {
 					input_tokens: number;
 					output_tokens: number;
@@ -1408,6 +1530,42 @@ anthropic.openapi(messages, async (c) => {
 					};
 				};
 
+				// The text block new text lands in. Blocks already closed (e.g. a
+				// preamble text block stopped when web-search blocks were
+				// emitted) are skipped — text after the search results must open
+				// a new block.
+				const findOpenTextBlock = (): number | null => {
+					if (currentTextBlockIndex !== null) {
+						return currentTextBlockIndex;
+					}
+					for (let i = contentBlocks.length - 1; i >= 0; i--) {
+						if (contentBlocks[i].type === "text" && !contentBlocks[i].stopped) {
+							return i;
+						}
+					}
+					return null;
+				};
+
+				const ensureTextBlock = async (): Promise<number> => {
+					const openIndex = findOpenTextBlock();
+					if (openIndex !== null) {
+						currentTextBlockIndex = openIndex;
+						return openIndex;
+					}
+					const index = contentBlocks.length;
+					currentTextBlockIndex = index;
+					contentBlocks.push({ type: "text", text: "" });
+					await stream.writeSSE({
+						data: JSON.stringify({
+							type: "content_block_start",
+							index,
+							content_block: { type: "text", text: "" },
+						}),
+						event: "content_block_start",
+					});
+					return index;
+				};
+
 				const sendContentBlockStops = async () => {
 					if (contentBlockStopsSent) {
 						return;
@@ -1432,6 +1590,7 @@ anthropic.openapi(messages, async (c) => {
 						return;
 					}
 					messageDeltaSent = true;
+					const serverToolUseUsage = serverToolUsage(contentBlocks);
 					await stream.writeSSE({
 						data: JSON.stringify({
 							type: "message_delta",
@@ -1442,7 +1601,12 @@ anthropic.openapi(messages, async (c) => {
 									safeguard_results: safeguardResults,
 								}),
 							},
-							usage: usage,
+							usage: {
+								...usage,
+								...(serverToolUseUsage && {
+									server_tool_use: serverToolUseUsage,
+								}),
+							},
 							...(responseMetadata && { metadata: responseMetadata }),
 						}),
 						event: "message_delta",
@@ -1628,9 +1792,10 @@ anthropic.openapi(messages, async (c) => {
 								// prefix.
 								const thinkingBlocks = (
 									(delta.reasoning_details ?? []) as ReasoningDetail[]
-								).flatMap(
-									(detail) => fromAnthropicReasoningDetail(detail) ?? [],
-								);
+								).flatMap((detail) => {
+									const block = fromAnthropicReasoningDetail(detail);
+									return block ? [exposeAnthropicThinkingBlock(block)] : [];
+								});
 								for (const block of thinkingBlocks) {
 									if (block.type === "redacted_thinking") {
 										const index = contentBlocks.length;
@@ -1715,7 +1880,12 @@ anthropic.openapi(messages, async (c) => {
 								// web_search_tool_result content in the start event.
 								if (
 									Array.isArray(delta.annotations) &&
-									delta.annotations.length > 0
+									delta.annotations.length > 0 &&
+									!sawNativeServerToolBlocks &&
+									!(
+										Array.isArray(delta.anthropic_native_blocks) &&
+										delta.anthropic_native_blocks.length > 0
+									)
 								) {
 									const webSearchResults = mapAnnotationsToWebSearchResults(
 										delta.annotations,
@@ -1772,6 +1942,7 @@ anthropic.openapi(messages, async (c) => {
 										const toolResultIndex = contentBlocks.length;
 										contentBlocks.push({
 											type: "web_search_tool_result",
+											content: webSearchResults,
 											stopped: true,
 										});
 										await stream.writeSSE({
@@ -1796,11 +1967,12 @@ anthropic.openapi(messages, async (c) => {
 									}
 								}
 
-								// Handle Anthropic's server-side tool search blocks, which
-								// the inner stream forwards verbatim. Emitted complete
-								// (start + stop) like the web-search pair above, and for
-								// the same reason: they carry no incremental deltas by the
-								// time they reach here.
+								// Handle Anthropic's server tool blocks (tool search, web
+								// search, web fetch), which the inner stream forwards
+								// verbatim. Emitted complete (start + stop) like the
+								// rebuilt web-search pair above, and for the same reason:
+								// they carry no incremental deltas by the time they reach
+								// here.
 								if (
 									Array.isArray(delta.anthropic_native_blocks) &&
 									delta.anthropic_native_blocks.length > 0
@@ -1821,9 +1993,11 @@ anthropic.openapi(messages, async (c) => {
 									}
 
 									for (const block of delta.anthropic_native_blocks) {
+										sawNativeServerToolBlocks = true;
 										const blockIndex = contentBlocks.length;
 										contentBlocks.push({
 											type: block.type,
+											content: block.content,
 											stopped: true,
 										});
 										await stream.writeSSE({
@@ -1844,44 +2018,51 @@ anthropic.openapi(messages, async (c) => {
 									}
 								}
 
+								// Upstream text block boundary after a server tool call:
+								// each block carries its own citations, so close the open
+								// one unless nothing was written to it yet.
+								if (delta.anthropic_text_block_start === true) {
+									const openIndex = findOpenTextBlock();
+									if (
+										openIndex !== null &&
+										(contentBlocks[openIndex].text ?? "").length > 0
+									) {
+										contentBlocks[openIndex].stopped = true;
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index: openIndex,
+											}),
+											event: "content_block_stop",
+										});
+										currentTextBlockIndex = null;
+									}
+								}
+
+								// Anthropic sends a cited text block's citations ahead of
+								// its text.
+								if (
+									delta.anthropic_citation &&
+									typeof delta.anthropic_citation === "object"
+								) {
+									const textIndex = await ensureTextBlock();
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_delta",
+											index: textIndex,
+											delta: {
+												type: "citations_delta",
+												citation: delta.anthropic_citation,
+											},
+										}),
+										event: "content_block_delta",
+									});
+								}
+
 								// Handle content delta
 								if (delta.content) {
-									// Find or create a text block
-									if (currentTextBlockIndex === null) {
-										// Look for existing text block (search from end). Skip
-										// blocks already closed (e.g. a preamble text block
-										// stopped when web-search blocks were emitted) — text
-										// after the search results must open a new block.
-										let lastTextBlockIndex = -1;
-										for (let i = contentBlocks.length - 1; i >= 0; i--) {
-											if (
-												contentBlocks[i].type === "text" &&
-												!contentBlocks[i].stopped
-											) {
-												lastTextBlockIndex = i;
-												break;
-											}
-										}
-
-										if (lastTextBlockIndex !== -1) {
-											currentTextBlockIndex = lastTextBlockIndex;
-										} else {
-											// Create new text block
-											currentTextBlockIndex = contentBlocks.length;
-											contentBlocks.push({ type: "text", text: "" });
-											// Send content_block_start event
-											await stream.writeSSE({
-												data: JSON.stringify({
-													type: "content_block_start",
-													index: currentTextBlockIndex,
-													content_block: { type: "text", text: "" },
-												}),
-												event: "content_block_start",
-											});
-										}
-									}
-
-									const textBlock = contentBlocks[currentTextBlockIndex];
+									const textIndex = await ensureTextBlock();
+									const textBlock = contentBlocks[textIndex];
 									if (textBlock && textBlock.text !== undefined) {
 										textBlock.text += delta.content;
 									}
@@ -1890,7 +2071,7 @@ anthropic.openapi(messages, async (c) => {
 									await stream.writeSSE({
 										data: JSON.stringify({
 											type: "content_block_delta",
-											index: currentTextBlockIndex,
+											index: textIndex,
 											delta: { type: "text_delta", text: delta.content },
 										}),
 										event: "content_block_delta",
@@ -2076,7 +2257,7 @@ anthropic.openapi(messages, async (c) => {
 		openaiResponse.choices?.[0]?.message?.reasoning ??
 		openaiResponse.choices?.[0]?.message?.reasoning_content;
 	if (responseThinkingBlocks.length > 0) {
-		content.push(...responseThinkingBlocks);
+		content.push(...responseThinkingBlocks.map(exposeAnthropicThinkingBlock));
 	} else if (
 		typeof responseReasoning === "string" &&
 		responseReasoning.length > 0
@@ -2093,9 +2274,16 @@ anthropic.openapi(messages, async (c) => {
 	// the response direction dropped the citations entirely and native
 	// Anthropic SDK clients saw no sources. Anthropic places server_tool_use +
 	// web_search_tool_result before the text that cites them.
-	const responseWebSearchResults = mapAnnotationsToWebSearchResults(
-		openaiResponse.choices?.[0]?.message?.annotations,
-	);
+	// Anthropic upstreams return the real blocks on `anthropic_native_blocks`.
+	const responseNativeBlocks =
+		openaiResponse.choices?.[0]?.message?.anthropic_native_blocks;
+	const hasNativeBlocks =
+		Array.isArray(responseNativeBlocks) && responseNativeBlocks.length > 0;
+	const responseWebSearchResults = hasNativeBlocks
+		? []
+		: mapAnnotationsToWebSearchResults(
+				openaiResponse.choices?.[0]?.message?.annotations,
+			);
 	if (responseWebSearchResults.length > 0) {
 		const serverToolUseId = generateServerToolUseId();
 		content.push({
@@ -2111,14 +2299,11 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
-	// Anthropic's server-side tool search blocks come back verbatim from the
-	// inner response. They precede the text and tool_use blocks they led to, and
-	// the client has to replay them for Anthropic to keep expanding the
-	// tool_reference entries they carry.
-	const responseToolSearchBlocks =
-		openaiResponse.choices?.[0]?.message?.anthropic_native_blocks;
-	if (Array.isArray(responseToolSearchBlocks)) {
-		content.push(...responseToolSearchBlocks);
+	// Anthropic's server tool blocks come back verbatim from the inner response.
+	// They precede the text and tool_use blocks they led to, and the client has
+	// to replay them for Anthropic to see the results on a later turn.
+	if (hasNativeBlocks) {
+		content.push(...responseNativeBlocks);
 	}
 
 	if (openaiResponse.choices?.[0]?.message?.content) {
@@ -2171,12 +2356,19 @@ anthropic.openapi(messages, async (c) => {
 		  }
 		| undefined;
 
+	// A turn with server tool blocks or citations comes back as Anthropic sent
+	// it: the rebuild above loses the block order and the citations.
+	const nativeContent = openaiResponse.choices?.[0]?.message?.anthropic_content;
+	const responseContent: Array<{ type: string; name?: unknown }> =
+		Array.isArray(nativeContent) ? nativeContent.map(exposeThinking) : content;
+	const serverToolUseUsage = serverToolUsage(responseContent);
+
 	const anthropicResponse = {
 		id: toAnthropicMessageId(openaiResponse.id),
 		type: "message" as const,
 		role: "assistant" as const,
 		model: openaiResponse.model,
-		content,
+		content: responseContent,
 		stop_reason: determineStopReason(
 			openaiResponse.choices?.[0]?.finish_reason,
 		),
@@ -2201,6 +2393,7 @@ anthropic.openapi(messages, async (c) => {
 							cacheCreationBreakdown.ephemeral_1h_input_tokens ?? 0,
 					},
 				}),
+			...(serverToolUseUsage && { server_tool_use: serverToolUseUsage }),
 		},
 		...(openaiResponse.metadata &&
 			typeof openaiResponse.metadata === "object" && {

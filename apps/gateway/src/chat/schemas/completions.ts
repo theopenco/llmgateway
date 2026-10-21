@@ -172,7 +172,7 @@ export const completionsRequestSchema = z.object({
 				.optional()
 				.openapi({
 					description:
-						"Anthropic content blocks with no OpenAI-format equivalent. On an assistant message these are the server-side tool search blocks (`server_tool_use` + `tool_search_tool_result`), replayed ahead of the message's tool calls; on a tool message they are the `tool_result` content array, which is how a client-side tool search returns `tool_reference` blocks. Replayed on the Anthropic Messages API only and stripped for every other provider.",
+						"Anthropic content blocks with no OpenAI-format equivalent. On an assistant message these are server tool blocks (`server_tool_use` plus its `tool_search_tool_result`, `web_search_tool_result` or `web_fetch_tool_result`) as the response returned them; on a tool message they are the `tool_result` content array, which is how a client-side tool search returns `tool_reference` blocks. Replayed on the Anthropic Messages API only and stripped for every other provider.",
 				}),
 			tool_result_cache_control: z
 				.object({
@@ -375,6 +375,27 @@ export const completionsRequestSchema = z.object({
 					allowed_domains: z.array(z.string()).optional(),
 					blocked_domains: z.array(z.string()).optional(),
 				}),
+				z
+					.object({
+						type: z.literal("web_fetch"),
+						web_fetch_type: z
+							.string()
+							.regex(/^web_fetch_/)
+							.openapi({
+								description:
+									"Anthropic web fetch tool type, e.g. `web_fetch_20250910`.",
+							}),
+						name: z.string().optional(),
+						max_uses: z.number().int().positive().optional(),
+						allowed_domains: z.array(z.string()).optional(),
+						blocked_domains: z.array(z.string()).optional(),
+						citations: z.object({ enabled: z.boolean() }).optional(),
+						max_content_tokens: z.number().int().positive().optional(),
+					})
+					.openapi({
+						description:
+							"Anthropic's server-side web fetch tool. Forwarded to the Anthropic Messages API only and stripped for every other provider.",
+					}),
 			]),
 		)
 		.optional(),
