@@ -16,7 +16,7 @@ export function ChatSupportLauncher() {
 		typeof ChatSupportComponent | null
 	>(null);
 	const [loading, setLoading] = useState(false);
-	const { isAuthenticated } = useSessionStatus();
+	const { session } = useSessionStatus();
 
 	const prefetch = () => {
 		loadChatSupport().catch((error: unknown) => {
@@ -41,9 +41,9 @@ export function ChatSupportLauncher() {
 			.finally(() => setLoading(false));
 	};
 
-	// Anonymous visitors kept spamming the widget, so it only exists for
-	// signed-in users (the API rejects the rest anyway).
-	if (!isAuthenticated) {
+	// Spammers kept abusing the widget, so it only exists for signed-in users
+	// with a verified email (the API rejects the rest anyway).
+	if (!session?.user.emailVerified) {
 		return null;
 	}
 
