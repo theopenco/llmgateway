@@ -37,15 +37,16 @@ jobs:
       github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     # Claude Code and the Anthropic SDK both read these, so every call runs
-    # through LLM Gateway's Anthropic-compatible endpoint on Opus 5.5,
-    # including Claude Code's background and subagent calls.
+    # through LLM Gateway's Anthropic-compatible endpoint on the "smart"
+    # router (the key's project allows it), including Claude Code's
+    # background and subagent calls.
     env:
       ANTHROPIC_BASE_URL: https://api.llmgateway.io
-      CLAUDE_MODEL: claude-opus-5-5
-      ANTHROPIC_DEFAULT_OPUS_MODEL: claude-opus-5-5
-      ANTHROPIC_DEFAULT_SONNET_MODEL: claude-opus-5-5
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-opus-5-5
-      CLAUDE_CODE_SUBAGENT_MODEL: claude-opus-5-5
+      CLAUDE_MODEL: smart
+      ANTHROPIC_DEFAULT_OPUS_MODEL: smart
+      ANTHROPIC_DEFAULT_SONNET_MODEL: smart
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: smart
+      CLAUDE_CODE_SUBAGENT_MODEL: smart
     steps:
       # An LLM Gateway API key. Until the secret is set the job warns and
       # passes, so it can be made a required check without blocking PRs.
@@ -71,7 +72,7 @@ jobs:
       # anthropics/claude-code-security-review, pinned to a commit on main
       # (2026-02-11); it has no tags. It runs from source instead of as an
       # action because the action installs Claude Code on Node 18, which
-      # resolves to a release too old for Opus 5.5.
+      # resolves to a release too old for current models.
       - uses: actions/checkout@v7.0.1
         if: steps.key.outputs.present == 'true'
         with:
