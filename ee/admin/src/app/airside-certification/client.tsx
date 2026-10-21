@@ -71,7 +71,8 @@ const CLAIM_EVIDENCE: Record<AttestedKey, string> = {
 	headquarters: "Registered address confirmed in the registry",
 	apiTraining: "Stated in the DPA or terms of service",
 	promptLogging: "Stated in the DPA or privacy policy",
-	retentionPeriod: "Stated in the DPA; zero retention confirmed in writing",
+	retentionPeriod:
+		"Matches the DPA; a zero-retention claim needs written confirmation",
 	gdpr: "Published DPA with SCCs, or EU establishment",
 	soc2: "Current report reviewed (period end within 12 months)",
 	iso27001: "Valid certificate checked with the issuing body",

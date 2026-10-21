@@ -51,20 +51,20 @@ const DOMAINS = [
 		controls: [
 			{
 				id: "AW-1.D1",
-				claim: "We don't train on your API data.",
+				claim: "Whether API data trains models.",
 				evidence:
 					"The training clause in the signed DPA or the terms of service.",
 			},
 			{
 				id: "AW-1.D2",
-				claim: "We don't log prompts.",
+				claim: "Whether prompts are logged.",
 				evidence: "The logging scope in the DPA or privacy policy.",
 			},
 			{
 				id: "AW-1.D3",
-				claim: "Zero data retention.",
+				claim: "How long prompts are kept.",
 				evidence:
-					"The retention period in the DPA, confirmed in writing by the provider.",
+					"The retention period in the DPA. A zero-retention claim needs written confirmation.",
 			},
 		],
 	},
@@ -76,13 +76,13 @@ const DOMAINS = [
 		controls: [
 			{
 				id: "AW-1.J1",
-				claim: "Operated by a named legal entity.",
+				claim: "Which legal entity operates the API.",
 				evidence:
 					"A corporate registry extract that matches the contracting party.",
 			},
 			{
 				id: "AW-1.J2",
-				claim: "Headquartered in the stated country.",
+				claim: "Where it is headquartered.",
 				evidence: "The registered address in that registry.",
 			},
 		],
@@ -95,18 +95,18 @@ const DOMAINS = [
 		controls: [
 			{
 				id: "AW-1.A1",
-				claim: "SOC 2 Type I or Type II.",
+				claim: "SOC 2 Type I or Type II, if claimed.",
 				evidence:
 					"A current report, with its period ending in the last 12 months.",
 			},
 			{
 				id: "AW-1.A2",
-				claim: "ISO/IEC 27001 certified.",
+				claim: "ISO/IEC 27001, if claimed.",
 				evidence: "The certificate, checked with the body that issued it.",
 			},
 			{
 				id: "AW-1.A3",
-				claim: "GDPR ready.",
+				claim: "GDPR readiness, if claimed.",
 				evidence:
 					"A published DPA with standard contractual clauses, or an EU establishment.",
 			},
@@ -150,11 +150,7 @@ const COMPARISON = {
 		},
 		{
 			label: "Says how long prompts are kept",
-			values: [
-				"Claimed",
-				"Rarely in scope",
-				"Checked, zero retention confirmed",
-			],
+			values: ["Claimed", "Rarely in scope", "Checked against the DPA"],
 		},
 		{
 			label: "Confirms headquarters and entity",
@@ -183,6 +179,10 @@ const FAQ = [
 	{
 		q: "What does Airworthy certify?",
 		a: "That the provider's public claims about AI training on API data, prompt logging, data retention, legal entity, headquarters, GDPR, SOC 2 and ISO 27001 match the evidence LLM Gateway reviewed. Each certificate lists exactly which claims it attests.",
+	},
+	{
+		q: "Does the stamp mean zero retention and no training?",
+		a: "No. The stamp means the provider's stated policy is true, whatever it is. A provider that keeps prompts for 30 days can be certified, as long as 30 days is what it says and what its DPA commits to. The registry and every certificate list the verified values, so check them against your own requirements.",
 	},
 	{
 		q: "Is Airworthy a replacement for SOC 2 or ISO 27001?",
@@ -228,6 +228,10 @@ const JSON_LD = [
 		})),
 	},
 ];
+
+function yesNo(value: boolean | null) {
+	return value === null ? "—" : value ? "Yes" : "No";
+}
 
 function formatValidUntil(iso: string) {
 	return new Date(iso)
@@ -279,10 +283,11 @@ export default async function AirworthyPage() {
 								isn't verified.
 							</h1>
 							<p className="text-muted-foreground mt-6 max-w-xl text-lg text-pretty">
-								Every inference provider says it doesn't train on your prompts.
-								Airworthy tells you which ones proved it. We check each claim on
-								training, retention, headquarters and audits against contracts,
-								registries and reports, then stamp the provider page.
+								Every inference provider publishes claims about training,
+								retention and where it operates. Airworthy tells you which ones
+								are true. We check each claim against contracts, registries and
+								audit reports, then stamp the provider page with exactly what we
+								verified.
 							</p>
 							<div className="mt-8 flex flex-wrap items-center gap-3">
 								<Button asChild size="lg" className="font-semibold">
@@ -400,8 +405,10 @@ export default async function AirworthyPage() {
 								Cleared carriers
 							</h2>
 							<p className="text-muted-foreground mt-3 max-w-xl">
-								Every certificate in force right now. If a carrier isn't on this
-								board, its stamp isn't valid.
+								Every certificate in force right now, with the values we
+								verified. A stamp means the stated policy is true, not that it
+								is zero retention, so check the values against your own
+								requirements.
 							</p>
 						</div>
 						<AirworthyStamp
@@ -410,11 +417,14 @@ export default async function AirworthyPage() {
 						/>
 					</div>
 					<div className="mt-10 overflow-hidden rounded-xl border bg-[oklch(0.17_0.018_252)] font-mono text-[oklch(0.93_0.012_85)] shadow-xl">
-						<div className="grid grid-cols-[1.4fr_1.2fr_0.6fr_1fr] gap-4 border-b border-white/10 px-5 py-3 text-[0.65rem] tracking-[0.25em] text-white/50 uppercase max-sm:grid-cols-[1.4fr_1fr]">
+						<div className="grid grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr_0.5fr_0.9fr] gap-4 max-lg:grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr] max-sm:grid-cols-[1.2fr_1fr] border-b border-white/10 px-5 py-3 text-[0.65rem] tracking-[0.25em] text-white/50 uppercase">
 							<span>Carrier</span>
 							<span>Certificate</span>
-							<span className="max-sm:hidden">HQ</span>
-							<span className="text-right max-sm:hidden">Valid until</span>
+							<span className="max-sm:hidden">Trains on data</span>
+							<span className="max-sm:hidden">Logs prompts</span>
+							<span className="max-sm:hidden">Retention</span>
+							<span className="max-lg:hidden">HQ</span>
+							<span className="text-right max-lg:hidden">Valid until</span>
 						</div>
 						{certified.length === 0 ? (
 							<div className="px-5 py-10 text-center">
@@ -435,7 +445,7 @@ export default async function AirworthyPage() {
 									>
 										<a
 											href={`${config.uiUrl}/providers/${provider.id}`}
-											className="grid grid-cols-[1.4fr_1.2fr_0.6fr_1fr] items-center gap-4 px-5 py-3.5 text-sm tracking-[0.12em] uppercase transition-colors hover:bg-white/5 max-sm:grid-cols-[1.4fr_1fr]"
+											className="grid grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr_0.5fr_0.9fr] gap-4 max-lg:grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr] max-sm:grid-cols-[1.2fr_1fr] items-center px-5 py-3.5 text-sm tracking-[0.12em] uppercase transition-colors hover:bg-white/5"
 										>
 											<span className="truncate font-semibold">
 												{provider.name ?? provider.id}
@@ -444,11 +454,20 @@ export default async function AirworthyPage() {
 												{certification.certificateNumber}
 											</span>
 											<span className="max-sm:hidden">
+												{yesNo(certification.attested.apiTraining)}
+											</span>
+											<span className="max-sm:hidden">
+												{yesNo(certification.attested.promptLogging)}
+											</span>
+											<span className="truncate max-sm:hidden">
+												{certification.attested.retentionPeriod ?? "—"}
+											</span>
+											<span className="max-lg:hidden">
 												{certification.attested.headquarters
 													? `${countryCodeToFlag(certification.attested.headquarters)} ${certification.attested.headquarters}`
 													: "—"}
 											</span>
-											<span className="text-right text-[oklch(0.75_0.16_155)] max-sm:hidden">
+											<span className="text-right text-[oklch(0.75_0.16_155)] max-lg:hidden">
 												{formatValidUntil(certification.expiresAt)}
 											</span>
 										</a>
@@ -538,7 +557,7 @@ export default async function AirworthyPage() {
 							Turn your privacy policy into a selling point.
 						</h3>
 						<p className="text-muted-foreground mt-3 text-sm">
-							You already did the work: the DPA, the zero-retention setup, the
+							You already did the work: the DPA, the retention policy, the
 							audit. Airworthy puts it on your provider page in a form a buyer
 							can trust at a glance.
 						</p>
