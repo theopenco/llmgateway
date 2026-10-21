@@ -11930,6 +11930,14 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								// Text block boundaries and citations only matter to the
+								// /v1/messages layer that rebuilds Anthropic blocks.
+								const streamDelta = transformedData.choices?.[0]?.delta;
+								if (apiOrigin !== "messages" && streamDelta) {
+									delete streamDelta.anthropic_text_block_start;
+									delete streamDelta.anthropic_citation;
+								}
+
 								if (usedProviderEncryptsReasoning()) {
 									await rememberReasoningCredential(
 										project.organizationId,
@@ -16025,8 +16033,10 @@ chat.openapi(completions, async (c) => {
 			parsedResponse.anthropicNativeBlocks;
 	}
 	// The Anthropic content array as sent, for turns lowering loses detail of
-	// (server tool blocks, citations). /v1/messages returns it unchanged.
+	// (server tool blocks, citations). /v1/messages returns it unchanged; chat
+	// completions clients have `content` and `annotations` instead.
 	if (
+		apiOrigin === "messages" &&
 		parsedResponse.anthropicContent &&
 		transformedResponse.choices?.[0]?.message
 	) {
