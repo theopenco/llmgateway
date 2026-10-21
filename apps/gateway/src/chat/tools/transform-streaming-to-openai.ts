@@ -2,9 +2,9 @@ import {
 	buildGoogleReasoningDetails,
 	type AnthropicThinkingBlock,
 	type GoogleThoughtSignatureState,
+	isAnthropicServerToolBlock,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
-	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
@@ -69,10 +69,10 @@ function normalizeAnthropicUsage(usage: any): any {
 }
 
 /**
- * Per-stream accumulator for Anthropic's server-side tool search calls, keyed
- * by content block index. The search input arrives as `input_json_delta`
- * chunks, so the `server_tool_use` block can only be emitted once its
- * `tool_search_tool_result` shows up — which is also when it is useful.
+ * Per-stream accumulator for Anthropic's server tool calls, keyed by content
+ * block index. The call input arrives as `input_json_delta` chunks, so the
+ * `server_tool_use` block can only be emitted once its result block shows up —
+ * which is also when it is useful.
  */
 export type AnthropicToolSearchState = Map<
 	number,
@@ -267,13 +267,12 @@ export function transformStreamingToOpenai(
 				if (serverToolUseIndices && data.index !== undefined) {
 					serverToolUseIndices.add(data.index);
 				}
-				// Tool search calls are replayable, so hold on to this one until
+				// Server tool calls are replayable, so hold on to this one until
 				// its result block arrives and completes the pair.
 				if (
 					toolSearchState &&
 					data.index !== undefined &&
-					typeof data.content_block.name === "string" &&
-					data.content_block.name.startsWith(TOOL_SEARCH_TOOL_TYPE_PREFIX)
+					typeof data.content_block.name === "string"
 				) {
 					toolSearchState.set(data.index, {
 						id: data.content_block.id,
@@ -391,49 +390,14 @@ export function transformStreamingToOpenai(
 				}
 			} else if (
 				data.type === "content_block_start" &&
-				data.content_block?.type === "web_search_tool_result"
+				data.content_block?.type !== "server_tool_use" &&
+				isAnthropicServerToolBlock(data.content_block)
 			) {
-				// Handle web search tool result start - extract citations. A failed
-				// search carries an error object instead of a result array.
-				const content = data.content_block?.content;
-				const webSearchResults = Array.isArray(content) ? content : [];
-				const annotations: Annotation[] = [];
-				for (const result of webSearchResults) {
-					if (result.type === "web_search_result") {
-						annotations.push({
-							type: "url_citation",
-							url_citation: {
-								url: result.url ?? "",
-								title: result.title,
-							},
-						});
-					}
-				}
-				transformedData = {
-					id: data.id ?? `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
-								...(annotations.length > 0 && { annotations }),
-							},
-							finish_reason: null,
-						},
-					],
-					usage: normalizeAnthropicUsage(usage),
-				};
-			} else if (
-				data.type === "content_block_start" &&
-				data.content_block?.type === "tool_search_tool_result"
-			) {
-				// The tool search pair has no OpenAI representation, so forward both
-				// blocks verbatim for the /v1/messages layer to re-emit. The result
-				// block arriving is what tells us the matching server_tool_use call
-				// is complete, so they are emitted together.
+				// A server tool pair (tool search, web search, web fetch) has no
+				// OpenAI representation, so forward both blocks verbatim for the
+				// /v1/messages layer to re-emit. The result block arriving is what
+				// tells us the matching server_tool_use call is complete, so they
+				// are emitted together.
 				const resultBlock = data.content_block;
 				let searchCall: { id: string; name: string; input: string } | undefined;
 				if (toolSearchState) {
@@ -462,11 +426,27 @@ export function transformStreamingToOpenai(
 						input,
 					});
 				}
-				nativeBlocks.push({
-					type: "tool_search_tool_result",
-					tool_use_id: resultBlock.tool_use_id,
-					content: resultBlock.content,
-				});
+				nativeBlocks.push({ ...resultBlock });
+				// Web search results double as url_citation annotations for chat
+				// completions clients. A failed search carries an error object
+				// instead of a result array.
+				const annotations: Annotation[] = [];
+				if (
+					resultBlock.type === "web_search_tool_result" &&
+					Array.isArray(resultBlock.content)
+				) {
+					for (const result of resultBlock.content) {
+						if (result.type === "web_search_result") {
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: result.url ?? "",
+									title: result.title,
+								},
+							});
+						}
+					}
+				}
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -477,7 +457,56 @@ export function transformStreamingToOpenai(
 							index: 0,
 							delta: {
 								role: "assistant",
+								...(annotations.length > 0 && { annotations }),
 								anthropic_native_blocks: nativeBlocks,
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (
+				data.type === "content_block_start" &&
+				data.content_block?.type === "text" &&
+				serverToolUseIndices !== undefined &&
+				serverToolUseIndices.size > 0
+			) {
+				// After a server tool call Anthropic answers in several text blocks,
+				// each with its own citations. Mark where one starts so the
+				// /v1/messages layer keeps them apart.
+				transformedData = {
+					id: data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								anthropic_text_block_start: true,
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (
+				data.type === "content_block_delta" &&
+				data.delta?.type === "citations_delta" &&
+				data.delta.citation
+			) {
+				transformedData = {
+					id: data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								anthropic_citation: data.delta.citation,
 							},
 							finish_reason: null,
 						},

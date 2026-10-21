@@ -197,20 +197,29 @@ Gemini models take tool schemas through Google's typed `parameters` carrier, whi
 
 An `image` block inside a `tool_result` (a screenshot returned by a tool, say) is delivered to Anthropic models as an image block; a result that mixes text and images keeps its order. Other providers receive it as the chat-completions image part their tool message format allows, or as text where there is none.
 
-### Web Search
+### Web Search and Web Fetch
 
-Anthropic's server-side web search tool works on this endpoint. Pass it as usual and the response carries `server_tool_use` and `web_search_tool_result` blocks before the text that cites them, so Anthropic SDK clients surface sources:
+Anthropic's server-side web search and web fetch tools work on this endpoint. Pass them as usual:
 
 ```json
 {
-	"model": "claude-haiku-4-5",
+	"model": "anthropic/claude-haiku-4-5",
 	"max_tokens": 400,
 	"messages": [{ "role": "user", "content": "What shipped in Node 24?" }],
-	"tools": [{ "type": "web_search_20250305", "name": "web_search" }]
+	"tools": [
+		{ "type": "web_search_20250305", "name": "web_search" },
+		{ "type": "web_fetch_20250910", "name": "web_fetch" }
+	]
 }
 ```
 
-Replaying the assistant turn verbatim on the next request is supported: the `server_tool_use` and `web_search_tool_result` blocks are accepted and dropped, since the provider re-runs the search rather than reusing the previous results.
+When an Anthropic model on the Anthropic API, Google Cloud, or Microsoft Foundry serves the request, the response carries the content blocks exactly as Anthropic returned them, streamed or not: `server_tool_use` with its input, `web_search_tool_result` and `web_fetch_tool_result` with `encrypted_content`, text blocks with their `citations`, and `usage.server_tool_use`. Replay the assistant turn verbatim on the next request and the blocks reach Anthropic unchanged, so the model sees the earlier results.
+
+Web search on other providers works too. The response then carries a `server_tool_use` and `web_search_tool_result` pair rebuilt from the provider's citations, without `encrypted_content`. Those rebuilt blocks are dropped on replay. Web fetch exists only on Anthropic and is dropped for other providers, so pin the provider (`anthropic/claude-sonnet-4-6`) when you rely on it.
+
+### Thinking Signatures
+
+Thinking blocks served by the Anthropic API carry Anthropic's own signatures, so you can continue a conversation started here on Anthropic directly, and the other way round. Other providers serve Claude with their own signatures. Their thinking blocks carry a provider prefix, and the gateway replays a block only to the provider that signed it.
 
 ### Tool Search
 

@@ -3,6 +3,7 @@ import type {
 	BaseMessage,
 	OpenAIToolInput,
 	OpenAIToolSearchToolInput,
+	OpenAIWebFetchToolInput,
 	ProviderId,
 } from "@llmgateway/models";
 
@@ -70,6 +71,40 @@ export function isToolSearchBlock(block: unknown): boolean {
 }
 
 /**
+ * Server tool blocks: every `server_tool_use` call and its
+ * `<tool>_tool_result`. They carry what the model needs to see the result on a
+ * later turn (`encrypted_content`, `tool_reference`s), so they travel verbatim.
+ */
+export function isAnthropicServerToolBlock(block: unknown): boolean {
+	if (!block || typeof block !== "object") {
+		return false;
+	}
+	const { type } = block as { type?: unknown };
+	return (
+		type === "server_tool_use" ||
+		(typeof type === "string" &&
+			type.endsWith("_tool_result") &&
+			type !== "tool_result")
+	);
+}
+
+export function isWebFetchTool(
+	tool: OpenAIToolInput,
+): tool is OpenAIWebFetchToolInput {
+	return tool.type === "web_fetch";
+}
+
+/**
+ * Renders the web fetch tool in Anthropic's wire format.
+ */
+export function toAnthropicWebFetchTool(
+	tool: OpenAIWebFetchToolInput,
+): AnthropicNativeBlock {
+	const { type: _type, web_fetch_type: webFetchType, name, ...options } = tool;
+	return { type: webFetchType, name: name ?? "web_fetch", ...options };
+}
+
+/**
  * Renders the tool search tool in Anthropic's wire format.
  */
 export function toAnthropicToolSearchTool(
@@ -93,7 +128,7 @@ export function stripAnthropicToolExtensions(
 		return tools;
 	}
 	return tools
-		.filter((tool) => !isToolSearchTool(tool))
+		.filter((tool) => !isToolSearchTool(tool) && !isWebFetchTool(tool))
 		.map((tool) => {
 			if (
 				tool.type !== "function" ||

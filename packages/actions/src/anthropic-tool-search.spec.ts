@@ -317,3 +317,92 @@ describe("anthropic tool search", () => {
 		]);
 	});
 });
+
+describe("anthropic web search and web fetch", () => {
+	const WEB_FETCH_TOOL: OpenAIToolInput = {
+		type: "web_fetch",
+		web_fetch_type: "web_fetch_20250910",
+		name: "web_fetch",
+		max_uses: 3,
+		citations: { enabled: true },
+	};
+	const FETCH_CALL = {
+		type: "server_tool_use",
+		id: "srvtoolu_01fetch",
+		name: "web_fetch",
+		input: { url: "https://example.com" },
+	};
+	const FETCH_RESULT = {
+		type: "web_fetch_tool_result",
+		tool_use_id: "srvtoolu_01fetch",
+		content: { type: "web_fetch_result", url: "https://example.com" },
+	};
+	const SEARCH_CALL_WEB = {
+		type: "server_tool_use",
+		id: "srvtoolu_01search",
+		name: "web_search",
+		input: { query: "example" },
+	};
+	const SEARCH_RESULT_WEB = {
+		type: "web_search_tool_result",
+		tool_use_id: "srvtoolu_01search",
+		content: [
+			{
+				type: "web_search_result",
+				url: "https://example.com",
+				title: "Example",
+				encrypted_content: "opaque",
+				page_age: null,
+			},
+		],
+	};
+	const history: BaseMessage[] = [
+		{ role: "user", content: "Summarize example.com" },
+		{
+			role: "assistant",
+			content: "Example.com is a placeholder domain.",
+			anthropic_native_blocks: [
+				SEARCH_CALL_WEB,
+				SEARCH_RESULT_WEB,
+				FETCH_CALL,
+				FETCH_RESULT,
+			],
+		},
+		{ role: "user", content: "Thanks" },
+	];
+
+	test("forwards the web fetch tool and replays the server tool blocks ahead of the text", async () => {
+		const body = (await prepare("anthropic", "claude-sonnet-4-6", history, [
+			WEB_FETCH_TOOL,
+		])) as AnthropicRequestBody;
+
+		expect(body.tools).toEqual([
+			{
+				type: "web_fetch_20250910",
+				name: "web_fetch",
+				max_uses: 3,
+				citations: { enabled: true },
+			},
+		]);
+		expect(body.messages[1]?.content).toEqual([
+			SEARCH_CALL_WEB,
+			SEARCH_RESULT_WEB,
+			FETCH_CALL,
+			FETCH_RESULT,
+			expect.objectContaining({
+				type: "text",
+				text: "Example.com is a placeholder domain.",
+			}),
+		]);
+	});
+
+	test("strips both for providers without the Messages API", async () => {
+		const body = await prepare("openai", "gpt-4o-mini", history, [
+			WEB_FETCH_TOOL,
+		]);
+
+		const serialized = JSON.stringify(body);
+		expect(serialized).not.toContain("web_fetch");
+		expect(serialized).not.toContain("encrypted_content");
+	});
+});

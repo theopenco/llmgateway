@@ -30,9 +30,10 @@ export function anthropicRequestNeedsEffortBeta(
 }
 
 /**
- * Betas the Anthropic API needs for tool-level fields the body carries:
- * `strict` rides on structured outputs, `allowed_callers` on programmatic tool
- * calling. Both are ignored, or rejected, without their header.
+ * Betas the Anthropic API needs for tools the body carries: `strict` rides on
+ * structured outputs, `allowed_callers` on programmatic tool calling, and the
+ * first web fetch tool version on its own beta. All are ignored, or rejected,
+ * without their header.
  */
 export function anthropicToolBetas(
 	usedProvider: string,
@@ -48,6 +49,13 @@ export function anthropicToolBetas(
 	}
 	if (tools.some((tool) => tool.allowed_callers !== undefined)) {
 		betas.push("advanced-tool-use-2025-11-20");
+	}
+	if (
+		tools.some(
+			(tool) => (tool as { type?: unknown }).type === "web_fetch_20250910",
+		)
+	) {
+		betas.push("web-fetch-2025-09-10");
 	}
 	return betas;
 }

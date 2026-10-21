@@ -14,6 +14,7 @@ import {
 } from "@llmgateway/models";
 
 import { anthropicThinkingBlocksFor } from "./anthropic-thinking.js";
+import { isToolSearchBlock } from "./anthropic-tool-search.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -506,9 +507,9 @@ export async function transformAnthropicMessages(
 				!(isTextContent(part) && (!part.text || part.text.trim() === "")),
 		);
 
-		// Anthropic-only blocks (the server-side tool search pair) that the client
-		// replayed from a previous assistant turn. They belong immediately before
-		// the tool_use blocks they led to, which is where Anthropic emitted them;
+		// Server tool blocks the client replayed from a previous assistant turn.
+		// A tool search pair belongs immediately before the tool_use blocks it
+		// led to, which is where Anthropic emitted it;
 		// Anthropic expands the `tool_reference` entries they carry throughout the
 		// history, so keeping them lets Claude reuse a tool it already discovered
 		// instead of searching for it again.
@@ -530,20 +531,27 @@ export async function transformAnthropicMessages(
 		const anthropicRole =
 			m.role === "assistant" || m.role === "system" ? m.role : "user";
 
+		// Other server tool calls (web search, web fetch) go first: the text they
+		// were lowered with is the answer built on their results.
+		const toolSearchBlocks = nativeBlocks.filter(isToolSearchBlock);
+		const leadingNativeBlocks = nativeBlocks.filter(
+			(block) => !isToolSearchBlock(block),
+		);
 		let anthropicContent: AnthropicMessage["content"] = filteredContent;
-		if (nativeBlocks.length > 0) {
+		if (toolSearchBlocks.length > 0) {
 			const firstToolUseIdx = filteredContent.findIndex(
 				(part) => part.type === "tool_use",
 			);
 			anthropicContent =
 				firstToolUseIdx === -1
-					? [...filteredContent, ...nativeBlocks]
+					? [...filteredContent, ...toolSearchBlocks]
 					: [
 							...filteredContent.slice(0, firstToolUseIdx),
-							...nativeBlocks,
+							...toolSearchBlocks,
 							...filteredContent.slice(firstToolUseIdx),
 						];
 		}
+		anthropicContent = [...leadingNativeBlocks, ...anthropicContent];
 
 		// Thinking opens the turn, as Anthropic emitted it. Replaying it keeps the
 		// cached prefix of a tool loop intact.

@@ -348,7 +348,98 @@ describe("transformStreamingToOpenai", () => {
 			[],
 		);
 
-		expect(result.choices[0].delta).toEqual({ role: "assistant" });
+		expect(result.choices[0].delta).toEqual({
+			role: "assistant",
+			anthropic_native_blocks: [
+				{
+					type: "web_search_tool_result",
+					tool_use_id: "srvtoolu_1",
+					content: {
+						type: "web_search_tool_result_error",
+						error_code: "max_uses_exceeded",
+					},
+				},
+			],
+		});
+	});
+
+	it("forwards Anthropic server tool pairs, citations and text block starts", () => {
+		const serverToolUseIndices = new Set<number>();
+		const toolSearchState = new Map();
+		const transform = (data: unknown) =>
+			transformStreamingToOpenai(
+				"anthropic",
+				"claude-sonnet-5",
+				data,
+				[],
+				serverToolUseIndices,
+				true,
+				toolSearchState,
+			);
+
+		transform({
+			type: "content_block_start",
+			index: 1,
+			content_block: {
+				type: "server_tool_use",
+				id: "srvtoolu_01abc",
+				name: "web_fetch",
+				input: {},
+			},
+		});
+		transform({
+			type: "content_block_delta",
+			index: 1,
+			delta: {
+				type: "input_json_delta",
+				partial_json: '{"url":"https://example.com"}',
+			},
+		});
+		const result = transform({
+			type: "content_block_start",
+			index: 2,
+			content_block: {
+				type: "web_fetch_tool_result",
+				tool_use_id: "srvtoolu_01abc",
+				content: { type: "web_fetch_result", url: "https://example.com" },
+			},
+		});
+		expect(result.choices[0].delta.anthropic_native_blocks).toEqual([
+			{
+				type: "server_tool_use",
+				id: "srvtoolu_01abc",
+				name: "web_fetch",
+				input: { url: "https://example.com" },
+			},
+			{
+				type: "web_fetch_tool_result",
+				tool_use_id: "srvtoolu_01abc",
+				content: { type: "web_fetch_result", url: "https://example.com" },
+			},
+		]);
+
+		expect(
+			transform({
+				type: "content_block_start",
+				index: 3,
+				content_block: { type: "text", text: "" },
+			}).choices[0].delta,
+		).toEqual({ role: "assistant", anthropic_text_block_start: true });
+
+		const citation = {
+			type: "web_search_result_location",
+			url: "https://example.com",
+			title: "Example",
+			encrypted_index: "abc",
+			cited_text: "Example text",
+		};
+		expect(
+			transform({
+				type: "content_block_delta",
+				index: 3,
+				delta: { type: "citations_delta", citation },
+			}).choices[0].delta,
+		).toEqual({ role: "assistant", anthropic_citation: citation });
 	});
 
 	it("maps Anthropic message_start usage with cache creation details", () => {

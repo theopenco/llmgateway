@@ -41,9 +41,11 @@ import {
 } from "./anthropic-thinking.js";
 import {
 	isToolSearchTool,
+	isWebFetchTool,
 	stripAnthropicNativeBlocks,
 	stripAnthropicToolExtensions,
 	toAnthropicToolSearchTool,
+	toAnthropicWebFetchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
@@ -1669,6 +1671,12 @@ export async function prepareRequestBody(
 				"Dropping Anthropic tool search for a non-Anthropic provider",
 				{ usedProvider, usedInternalModel, toolCount: tools.length },
 			);
+		}
+		if (tools?.some(isWebFetchTool)) {
+			logger.warn("Dropping Anthropic web fetch for a non-Anthropic provider", {
+				usedProvider,
+				usedInternalModel,
+			});
 		}
 		tools = stripAnthropicToolExtensions(tools);
 		messages = stripAnthropicNativeBlocks(messages);
@@ -3792,6 +3800,13 @@ export async function prepareRequestBody(
 					requestBody.tools = [
 						...toolSearchTools.map(toAnthropicToolSearchTool),
 						...((requestBody.tools as unknown[]) ?? []),
+					];
+				}
+				const webFetchTools = tools.filter(isWebFetchTool);
+				if (webFetchTools.length > 0) {
+					requestBody.tools = [
+						...((requestBody.tools as unknown[]) ?? []),
+						...webFetchTools.map(toAnthropicWebFetchTool),
 					];
 				}
 			}

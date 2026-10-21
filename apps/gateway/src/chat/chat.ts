@@ -16024,6 +16024,15 @@ chat.openapi(completions, async (c) => {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
 			parsedResponse.anthropicNativeBlocks;
 	}
+	// The Anthropic content array as sent, for turns lowering loses detail of
+	// (server tool blocks, citations). /v1/messages returns it unchanged.
+	if (
+		parsedResponse.anthropicContent &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_content =
+			parsedResponse.anthropicContent;
+	}
 	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
 	// /v1/messages layer hands them back as `safeguard_results`.
 	if (

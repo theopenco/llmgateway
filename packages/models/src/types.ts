@@ -121,9 +121,9 @@ export interface ToolResultContent {
 }
 
 /**
- * Anthropic content block with no OpenAI-format equivalent — currently the
- * server-side tool search pair (`server_tool_use` + `tool_search_tool_result`)
- * and the `tool_reference` blocks a client-side tool search returns. Carried
+ * Anthropic content block with no OpenAI-format equivalent — server tool
+ * blocks (`server_tool_use` and its `*_tool_result`: tool search, web search,
+ * web fetch) and the `tool_reference` blocks a client-side tool search returns. Carried
  * verbatim between the caller and the Anthropic Messages API and dropped for
  * every other upstream.
  */
@@ -188,8 +188,7 @@ export interface BaseMessage {
 	}>;
 	// Anthropic content blocks that survive a round trip verbatim because the
 	// OpenAI format has no equivalent. On an assistant message these are the
-	// server-side tool search blocks, spliced back in ahead of the tool_use
-	// blocks; on a tool message they are the `tool_result` content array, which
+	// server tool blocks (tool search, web search, web fetch); on a tool message they are the `tool_result` content array, which
 	// is how a client-side tool search returns `tool_reference` blocks. Replayed
 	// on the Anthropic Messages API only and stripped for every other upstream.
 	anthropic_native_blocks?: AnthropicNativeBlock[];
@@ -299,12 +298,29 @@ export interface OpenAIToolSearchToolInput {
 	name?: string;
 }
 
-// Compatible type for API requests - accepts function, web_search and
-// tool_search tools
+/**
+ * Anthropic's server-side web fetch tool, emitted verbatim on the Anthropic
+ * Messages API and dropped everywhere else.
+ */
+export interface OpenAIWebFetchToolInput {
+	type: "web_fetch";
+	/** Anthropic tool type, e.g. `web_fetch_20250910`. */
+	web_fetch_type: string;
+	name?: string;
+	max_uses?: number;
+	allowed_domains?: string[];
+	blocked_domains?: string[];
+	citations?: { enabled: boolean };
+	max_content_tokens?: number;
+}
+
+// Compatible type for API requests - accepts function, web_search,
+// tool_search and web_fetch tools
 export type OpenAIToolInput =
 	| OpenAIFunctionToolInput
 	| OpenAIWebSearchToolInput
-	| OpenAIToolSearchToolInput;
+	| OpenAIToolSearchToolInput
+	| OpenAIWebFetchToolInput;
 
 export interface AnthropicTool {
 	name: string;
