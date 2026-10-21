@@ -34,7 +34,7 @@ Pin the provider and disable fallback, or a healthy provider masks the error:
 ```bash
 curl -N http://localhost:4001/v1/chat/completions \
   -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
-  -d '{"model":"embercloud/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"novita/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 The gateway caches responses, errors included, keyed on the request body; vary

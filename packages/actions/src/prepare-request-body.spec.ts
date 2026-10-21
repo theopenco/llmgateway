@@ -10548,11 +10548,11 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 
 	test("forwards to an OpenAI-compatible mapping that declares it", async () => {
 		const mapping = models
-			.find((m) => m.id === "kimi-k2.5")
-			?.providers.find((p) => p.providerId === "embercloud");
+			.find((m) => m.id === "glm-4.6v-flash")
+			?.providers.find((p) => p.providerId === "zai");
 		expect(mapping?.supportedParameters).toContain("parallel_tool_calls");
 
-		const body = await prepare("embercloud", "kimi-k2.5", {
+		const body = await prepare("zai", "glm-4.6v-flash", {
 			parallel_tool_calls: false,
 		});
 		expect(body.parallel_tool_calls).toBe(false);

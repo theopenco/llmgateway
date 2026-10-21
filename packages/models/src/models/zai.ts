@@ -398,6 +398,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-5.2",
 				// embercloud rate-limits this model on every request (429 even for
@@ -657,6 +659,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-5.1",
 				// embercloud returns 400 "Temporary routing error" on every request
@@ -844,6 +848,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-5",
 				// embercloud reasoning requests time out repeatedly in e2e
@@ -1003,6 +1009,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.5",
 				// embercloud rate-limits this model on every request (429 even for
@@ -1105,6 +1113,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.5-air",
 				// embercloud rate-limits this model on every request (429 even for
@@ -1345,6 +1355,8 @@ export const zaiModels = [
 				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.7",
 				// embercloud reasoning requests time out repeatedly in e2e
@@ -1466,6 +1478,8 @@ export const zaiModels = [
 		releasedAt: new Date("2025-12-22"),
 		providers: [
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.7-flash",
 				// embercloud rate-limits this model on every request (429 even for

@@ -4,8 +4,8 @@ import { AirworthyStamp } from "@llmgateway/shared/components";
 
 const FIELDS: { box: string; label: string; value: string; wide?: boolean }[] =
 	[
-		{ box: "1", label: "Carrier", value: "EMBERCLOUD INFERENCE", wide: true },
-		{ box: "2", label: "Legal entity", value: "Embercloud Labs B.V." },
+		{ box: "1", label: "Carrier", value: "EXAMPLE INFERENCE", wide: true },
+		{ box: "2", label: "Legal entity", value: "Example Inference B.V." },
 		{ box: "3", label: "Headquarters", value: "NL — Netherlands" },
 		{ box: "4", label: "Trains on API data", value: "NO" },
 		{ box: "5", label: "Logs prompts", value: "NO" },

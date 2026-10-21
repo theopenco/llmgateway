@@ -2276,6 +2276,8 @@ export const alibabaModels = [
 		releasedAt: new Date("2026-02-04"),
 		providers: [
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "qwen3-coder-next",
 				inputPrice: "0.108e-6",
