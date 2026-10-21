@@ -654,6 +654,7 @@ describe("transformResponseToOpenai", () => {
 		"bytedance",
 		"xai",
 		"zai",
+		"embercloud",
 		"deepseek",
 	])(
 		"does not overwrite choice 0 content on multi-choice %s responses",

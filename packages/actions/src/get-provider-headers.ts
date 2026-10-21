@@ -147,6 +147,7 @@ export function getProviderHeaders(
 		case "fireworks":
 		case "zai":
 		case "canopywave":
+		case "embercloud":
 		case "consensusprotocol":
 		case "atria":
 		case "deepinfra":
