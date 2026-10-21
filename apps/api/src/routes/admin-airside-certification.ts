@@ -223,6 +223,9 @@ const certifyClaim = createRoute({
 					schema: z.object({
 						// The evidence reviewed: DPA, terms, registry record, audit reports.
 						reviewNote: z.string().trim().min(1).max(4000),
+						// The claim values the reviewer checked. Issuing fails if the
+						// live profile no longer matches them.
+						attested: attestedProfileSchema,
 					}),
 				},
 			},
@@ -244,28 +247,38 @@ const certifyClaim = createRoute({
 adminAirsideCertification.openapi(certifyClaim, async (c) => {
 	const user = c.get("user");
 	const { id } = c.req.valid("param");
-	const { reviewNote } = c.req.valid("json");
-	const claim = await db.query.providerClaim.findFirst({
-		where: { id: { eq: id } },
-	});
-	if (!claim) {
-		throw new HTTPException(404, { message: "Claim not found" });
-	}
-	if (claim.status !== "active") {
-		throw new HTTPException(409, {
-			message: "Only an active carrier can be certified.",
-		});
-	}
-	const profile = effectiveCarrierProfile(claim);
-	const missing = missingAttestedKeys(profile);
-	if (missing.length > 0) {
-		throw new HTTPException(400, {
-			message: `The carrier's profile must state its ${describeAttestedKeys(missing)} before it can be certified.`,
-		});
-	}
+	const { reviewNote, attested: reviewed } = c.req.valid("json");
 	const issuedAt = new Date();
 	const certificateNumber = newCertificateNumber(issuedAt);
 	await db.transaction(async (tx) => {
+		// Lock the claim so a concurrent carrier profile edit either lands
+		// before this check (and is rejected as unreviewed) or waits for it.
+		const [claim] = await tx
+			.select()
+			.from(tables.providerClaim)
+			.where(eq(tables.providerClaim.id, id))
+			.for("update");
+		if (!claim) {
+			throw new HTTPException(404, { message: "Claim not found" });
+		}
+		if (claim.status !== "active") {
+			throw new HTTPException(409, {
+				message: "Only an active carrier can be certified.",
+			});
+		}
+		const profile = effectiveCarrierProfile(claim);
+		const missing = missingAttestedKeys(profile);
+		if (missing.length > 0) {
+			throw new HTTPException(400, {
+				message: `The carrier's profile must state its ${describeAttestedKeys(missing)} before it can be certified.`,
+			});
+		}
+		const changed = driftedKeys(reviewed, profile);
+		if (changed.length > 0) {
+			throw new HTTPException(409, {
+				message: `The carrier changed its ${describeAttestedKeys(changed)} since you opened the review. Reload and review the new values.`,
+			});
+		}
 		await tx
 			.update(tables.providerCertification)
 			.set({
@@ -291,7 +304,7 @@ adminAirsideCertification.openapi(certifyClaim, async (c) => {
 			issuedBy: user?.id ?? null,
 		});
 	});
-	return c.json({ carrier: await loadCandidate(claim.id) });
+	return c.json({ carrier: await loadCandidate(id) });
 });
 
 const revokeCertification = createRoute({

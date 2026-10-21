@@ -52,11 +52,25 @@ async function clearFixtures() {
 describe("Airworthy certification", () => {
 	let cookie: string;
 
-	const certify = (reviewNote = "DPA, registry extract and SOC 2 report") =>
+	const REVIEWED = {
+		legalEntity: COMPLETE_PROFILE.legalEntity,
+		headquarters: COMPLETE_PROFILE.headquarters,
+		apiTraining: COMPLETE_PROFILE.apiTraining,
+		promptLogging: COMPLETE_PROFILE.promptLogging,
+		retentionPeriod: COMPLETE_PROFILE.retentionPeriod,
+		gdpr: COMPLETE_PROFILE.gdpr,
+		soc2: COMPLETE_PROFILE.soc2,
+		iso27001: COMPLETE_PROFILE.iso27001,
+	};
+
+	const certify = (attested: Record<string, unknown> = REVIEWED) =>
 		app.request(`/admin/airside/claims/${CLAIM_ID}/certification`, {
 			method: "POST",
 			headers: { Cookie: cookie, "Content-Type": "application/json" },
-			body: JSON.stringify({ reviewNote }),
+			body: JSON.stringify({
+				reviewNote: "DPA, registry extract and SOC 2 report",
+				attested,
+			}),
 		});
 
 	const revoke = (id: string) =>
@@ -159,6 +173,21 @@ describe("Airworthy certification", () => {
 			certificateNumber: carrier.certification?.certificateNumber,
 			attested: { headquarters: "NL", apiTraining: false, soc2: 2 },
 		});
+	});
+
+	test("refuses to certify values the reviewer never saw", async () => {
+		await db
+			.update(tables.providerClaim)
+			.set({ promptLogging: true, iso27001: true })
+			.where(eq(tables.providerClaim.id, CLAIM_ID));
+
+		const response = await certify();
+		expect(response.status).toBe(409);
+		expect(((await response.json()) as { message: string }).message).toBe(
+			"The carrier changed its prompt logging policy and ISO 27001 status since you opened the review. Reload and review the new values.",
+		);
+		expect((await adminCarrier())?.certification).toBeNull();
+		expect(await publicCertificate()).toBeNull();
 	});
 
 	test("hides the stamp once the carrier changes an attested claim", async () => {

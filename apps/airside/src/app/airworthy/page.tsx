@@ -19,7 +19,7 @@ import { getConfig } from "@/lib/config-server";
 import { countryCodeToFlag } from "@llmgateway/models";
 import {
 	AirworthyStamp,
-	fetchProvidersFromApi,
+	fetchProvidersResultFromApi,
 } from "@llmgateway/shared/components";
 import { JsonLd } from "@llmgateway/shared/json-ld";
 
@@ -133,7 +133,7 @@ const STEPS = [
 	{
 		icon: RefreshCcw,
 		title: "Stays true or comes off",
-		body: "The certificate freezes the claims it attests. Change one on your profile and the stamp comes off on its own until we inspect again. No stale badges.",
+		body: "The certificate freezes the claims it attests. Change one on your profile and the stamp comes off on its own. It only returns if the profile matches the certificate again; new values need a new inspection. No stale badges.",
 	},
 ];
 
@@ -169,7 +169,7 @@ const COMPARISON = {
 			values: [
 				"Edited silently",
 				"Next audit cycle",
-				"Stamp comes off at once",
+				"Stamp comes off within a minute",
 			],
 		},
 	],
@@ -194,7 +194,7 @@ const FAQ = [
 	},
 	{
 		q: "How long is a certificate valid?",
-		a: "Twelve months from issue. It ends sooner if the carrier changes an attested claim or LLM Gateway revokes it, and the stamp disappears from the provider page the moment that happens.",
+		a: "Twelve months from issue, unless LLM Gateway revokes it sooner. While a carrier's profile differs from what the certificate attests, the stamp is hidden from its provider page, within a minute of the change. New values need a new inspection.",
 	},
 	{
 		q: "How do I check a certificate?",
@@ -246,8 +246,8 @@ function formatValidUntil(iso: string) {
 
 export default async function AirworthyPage() {
 	const config = getConfig();
-	const providers = await fetchProvidersFromApi(config.apiBackendUrl);
-	const certified = providers
+	const registry = await fetchProvidersResultFromApi(config.apiBackendUrl);
+	const certified = (registry.ok ? registry.providers : [])
 		.flatMap((provider) =>
 			provider.airsideCertification
 				? [{ provider, certification: provider.airsideCertification }]
@@ -298,8 +298,8 @@ export default async function AirworthyPage() {
 								</Button>
 							</div>
 							<p className="text-muted-foreground mt-4 font-mono text-xs">
-								For carriers listed on Airside. Valid 12 months. Revoked the
-								moment a claim changes.
+								For carriers listed on Airside. Valid 12 months. The stamp comes
+								off when a claim changes.
 							</p>
 						</div>
 						<CertificateSpecimen className="lg:ml-auto" />
@@ -405,9 +405,9 @@ export default async function AirworthyPage() {
 								Cleared carriers
 							</h2>
 							<p className="text-muted-foreground mt-3 max-w-xl">
-								Every certificate in force right now, with the values we
-								verified. A stamp means the stated policy is true, not that it
-								is zero retention, so check the values against your own
+								Certificates in force, with the values we verified, refreshed
+								every minute. A stamp means the stated policy is true, not that
+								it is zero retention, so check the values against your own
 								requirements.
 							</p>
 						</div>
@@ -426,14 +426,25 @@ export default async function AirworthyPage() {
 							<span className="max-lg:hidden">HQ</span>
 							<span className="text-right max-lg:hidden">Valid until</span>
 						</div>
-						{certified.length === 0 ? (
+						{!registry.ok ? (
+							<div className="px-5 py-10 text-center">
+								<div className="text-sm tracking-[0.2em] text-[oklch(0.8_0.15_78)] uppercase">
+									Registry unavailable
+								</div>
+								<p className="mx-auto mt-2 max-w-md font-sans text-sm text-white/60">
+									We could not load the registry just now. A certified carrier's
+									provider page still shows its stamp; try this page again in a
+									minute.
+								</p>
+							</div>
+						) : certified.length === 0 ? (
 							<div className="px-5 py-10 text-center">
 								<div className="text-sm tracking-[0.2em] text-[oklch(0.8_0.15_78)] uppercase">
 									Board opening
 								</div>
 								<p className="mx-auto mt-2 max-w-md font-sans text-sm text-white/60">
 									The first inspections are underway. Certified carriers appear
-									here the moment their certificate is issued.
+									here within a minute of their certificate being issued.
 								</p>
 							</div>
 						) : (

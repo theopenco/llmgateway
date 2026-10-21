@@ -89,6 +89,20 @@ const CLAIM_ORDER: AttestedKey[] = [
 	"iso27001",
 ];
 
+/** The exact values the reviewer saw, so the API can reject a stale review. */
+function reviewedClaims(profile: Carrier["profile"]) {
+	return {
+		legalEntity: profile.legalEntity,
+		headquarters: profile.headquarters,
+		apiTraining: profile.apiTraining,
+		promptLogging: profile.promptLogging,
+		retentionPeriod: profile.retentionPeriod,
+		gdpr: profile.gdpr,
+		soc2: profile.soc2,
+		iso27001: profile.iso27001,
+	};
+}
+
 function formatClaim(
 	key: AttestedKey,
 	profile: Record<AttestedKey, unknown>,
@@ -255,6 +269,8 @@ export function AirsideCertificationClient() {
 			},
 			onError: (error) => {
 				toast.error(apiErrorMessage(error, "Could not issue the certificate"));
+				setCertifying(null);
+				invalidate();
 			},
 		},
 	);
@@ -599,7 +615,10 @@ export function AirsideCertificationClient() {
 								}
 								certifyMutation.mutate({
 									params: { path: { id: certifying.claimId } },
-									body: { reviewNote: reviewNote.trim() },
+									body: {
+										reviewNote: reviewNote.trim(),
+										attested: reviewedClaims(certifying.profile),
+									},
 								});
 							}}
 						>
@@ -624,7 +643,7 @@ export function AirsideCertificationClient() {
 						</DialogTitle>
 						<DialogDescription>
 							The stamp comes off {revoking?.providerName}'s provider page
-							immediately. The carrier keeps its listing.
+							within a minute. The carrier keeps its listing.
 						</DialogDescription>
 					</DialogHeader>
 					<Textarea
