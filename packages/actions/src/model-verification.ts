@@ -1804,6 +1804,17 @@ async function executeCheck(
 		definition.request.tools,
 		definition.request.tool_choice,
 	);
+	// The gateway forces the tool shape with "required"; a listing that does not
+	// take that mode is probed the way it will be served, unforced.
+	const declaredToolChoices = options.target.supportedToolChoices;
+	if (
+		webSearchTool?.forced &&
+		options.target.webSearchFormat === "web_search_tool" &&
+		declaredToolChoices?.length &&
+		!declaredToolChoices.includes("required")
+	) {
+		webSearchTool.forced = false;
+	}
 	let payload = await prepareRequestBody(
 		transportProvider,
 		options.target.modelName,

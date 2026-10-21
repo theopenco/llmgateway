@@ -148,7 +148,11 @@ export function promptTokensShowSearchContext(
 	promptTokens: number | null | undefined,
 	requestBody: unknown,
 ): boolean {
-	if (typeof promptTokens !== "number" || containsMedia(requestBody)) {
+	if (
+		typeof promptTokens !== "number" ||
+		requestBody instanceof FormData ||
+		containsMedia(requestBody)
+	) {
 		return false;
 	}
 	const bytes = new TextEncoder().encode(JSON.stringify(requestBody)).length;

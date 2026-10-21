@@ -10137,6 +10137,21 @@ describe("prepareRequestBody - declared web search format", () => {
 		expect(body.web_search_options).toBeUndefined();
 	});
 
+	test.each(["zai", "alibaba", "moonshot", "together-ai"])(
+		"%s sends only the declared shape",
+		async (provider) => {
+			const body = await prepare(
+				provider,
+				{ type: "web_search", forced: true },
+				"web_search_tool",
+			);
+			expect(body.tools).toEqual([{ type: "web_search" }]);
+			expect(body.tool_choice).toBe("required");
+			expect(body.enable_search).toBeUndefined();
+			expect(body.search_options).toBeUndefined();
+		},
+	);
+
 	test("leaves alibaba's DashScope translation alone", async () => {
 		const body = await prepare("alibaba", {
 			type: "web_search",

@@ -387,6 +387,20 @@ function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.search_options = { forced_search: true };
 }
 
+/** Providers whose `prepareRequestBody` branch builds a Chat Completions body. */
+const OPENAI_CHAT_BODY_PROVIDERS: ReadonlySet<string> = new Set([
+	"zai",
+	"moonshot",
+	"alibaba",
+	"minimax",
+	"inference.net",
+	"together-ai",
+	"cerebras",
+	"xiaomi",
+	"deepseek",
+	"gonka24",
+]);
+
 /**
  * Ensures function-tool parameters form a valid JSON Schema object. Some
  * upstreams (e.g. DeepSeek) reject tools whose parameters omit `type` or set
@@ -1695,8 +1709,10 @@ export async function prepareRequestBody(
 	const formatToolChoices = (
 		resolvedProviderMapping ?? providerMappingForOptions
 	)?.supportedToolChoices;
+	let declaredWebSearchApplied = false;
 	const applyDeclaredWebSearch = (body: Record<string, any>) => {
 		if (webSearchTool && webSearchFormat) {
+			declaredWebSearchApplied = true;
 			applyWebSearchFormat(
 				body,
 				webSearchTool,
@@ -3195,7 +3211,7 @@ export async function prepareRequestBody(
 
 			// Add web search tool for ZAI
 			// ZAI uses a web_search tool with enable flag and search_engine config
-			if (webSearchTool) {
+			if (webSearchTool && !webSearchFormat) {
 				requestBody.tools ??= [];
 				requestBody.tools.push({
 					type: "web_search",
@@ -3346,7 +3362,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			if (webSearchTool?.forced) {
+			if (webSearchTool?.forced && !webSearchFormat) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -5439,6 +5455,16 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+	}
+
+	// A declared format replaces the provider's own search translation on every
+	// branch that builds an OpenAI-compatible chat body. Native APIs (Anthropic,
+	// Bedrock, Gemini, Responses) keep theirs: the format names a chat shape.
+	if (
+		!declaredWebSearchApplied &&
+		OPENAI_CHAT_BODY_PROVIDERS.has(usedProvider)
+	) {
+		applyDeclaredWebSearch(requestBody);
 	}
 
 	// BytePlus only caches a prompt prefix when the request opts in; without the

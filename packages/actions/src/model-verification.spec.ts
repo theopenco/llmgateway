@@ -1991,6 +1991,38 @@ describe("model verification - declared web search format", () => {
 		expect(result.passed).toBe(true);
 	});
 
+	it("leaves tool_choice unset for a listing that does not take required", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json(chatBody({ content: "OK" })))
+			.mockResolvedValueOnce(
+				Response.json(
+					chatBody({ content: "Today." }, "stop", {
+						prompt_tokens: 61_351,
+						completion_tokens: 40,
+						total_tokens: 61_391,
+					}),
+				),
+			);
+		const result = await runProviderModelVerification({
+			target: {
+				...searchTarget("web_search_tool"),
+				supportedToolChoices: ["auto"],
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+		const payload = JSON.parse(
+			String(fetchImplementation.mock.calls[1][1]?.body),
+		);
+		expect(payload.tools).toEqual([
+			{ type: "web_search", search_context_size: "low" },
+		]);
+		expect(payload).not.toHaveProperty("tool_choice");
+		expect(result.passed).toBe(true);
+	});
+
 	it("fails when the endpoint ignores the declared format", async () => {
 		const { result, payload } = await run(
 			"web_search_options",

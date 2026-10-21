@@ -143,6 +143,10 @@ describe("promptTokensShowSearchContext", () => {
 		).toBe(false);
 	});
 
+	test("a multipart body is undecidable", () => {
+		expect(promptTokensShowSearchContext(50_000, new FormData())).toBe(false);
+	});
+
 	test("media makes the bound undecidable", () => {
 		expect(
 			promptTokensShowSearchContext(50_000, {
