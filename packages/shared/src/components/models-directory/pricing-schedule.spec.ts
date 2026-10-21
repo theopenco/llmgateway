@@ -5,11 +5,14 @@ import {
 	effectiveTokenPrice,
 	formatLocalPeakWindows,
 	formatPeakPricingSchedule,
+	getInputAudioHourPrice,
 	getInputCharacterPricePer1K,
 	getMaxPerSecondPrice,
 	getMinPerImagePrice,
 	getMinPerSecondPrice,
 	hasPaidTier,
+	maxUnitPrice,
+	minUnitPrice,
 } from "./pricing-schedule";
 
 import type { ApiModelProviderMapping } from "./api-types";
@@ -181,6 +184,31 @@ describe("getInputCharacterPricePer1K", () => {
 	});
 	test("free 0", () => {
 		expect(getInputCharacterPricePer1K({ inputCharacterPrice: "0" })).toBe(0);
+	});
+});
+
+describe("getInputAudioHourPrice", () => {
+	test("returns the hourly price", () => {
+		expect(getInputAudioHourPrice({ inputAudioHourPrice: "0.27" })).toBe(0.27);
+	});
+	test("discount applied, matches displayed value exactly", () => {
+		expect(
+			getInputAudioHourPrice({ inputAudioHourPrice: "1.02", discount: "0.1" }),
+		).toBe(0.918);
+	});
+	test("missing, empty or invalid is null", () => {
+		expect(getInputAudioHourPrice({})).toBeNull();
+		expect(getInputAudioHourPrice({ inputAudioHourPrice: null })).toBeNull();
+		expect(getInputAudioHourPrice({ inputAudioHourPrice: "" })).toBeNull();
+		expect(getInputAudioHourPrice({ inputAudioHourPrice: "soon" })).toBeNull();
+	});
+	test("free 0 is 0 not null", () => {
+		expect(getInputAudioHourPrice({ inputAudioHourPrice: "0" })).toBe(0);
+	});
+	test("price unit switches resolve the hour field", () => {
+		const mapping = { inputAudioHourPrice: "4.80" };
+		expect(minUnitPrice(mapping, "inputAudioHourPrice")).toBe(4.8);
+		expect(maxUnitPrice(mapping, "inputAudioHourPrice")).toBe(4.8);
 	});
 });
 
