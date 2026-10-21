@@ -186,6 +186,7 @@ import {
 	type RoutingMetadata,
 	type GoogleThoughtSignatureState,
 	isGoogleReasoningDetail,
+	isToolSearchBlock,
 	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
@@ -7762,6 +7763,9 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			// /v1/messages replies carry Anthropic-only fields chat completions
+			// replies leave out. Undefined keeps existing keys unchanged.
+			messages_endpoint: apiOrigin === "messages" || undefined,
 			verbosity,
 			effort,
 			image_config,
@@ -11930,6 +11934,26 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								// Text block boundaries, citations and web search/fetch
+								// blocks only matter to the /v1/messages layer that rebuilds
+								// Anthropic blocks; chat completions clients get annotations.
+								const streamDelta = transformedData.choices?.[0]?.delta;
+								if (apiOrigin !== "messages" && streamDelta) {
+									delete streamDelta.anthropic_text_block_start;
+									delete streamDelta.anthropic_citation;
+									if (Array.isArray(streamDelta.anthropic_native_blocks)) {
+										const toolSearchBlocks =
+											streamDelta.anthropic_native_blocks.filter(
+												isToolSearchBlock,
+											);
+										if (toolSearchBlocks.length > 0) {
+											streamDelta.anthropic_native_blocks = toolSearchBlocks;
+										} else {
+											delete streamDelta.anthropic_native_blocks;
+										}
+									}
+								}
+
 								if (usedProviderEncryptsReasoning()) {
 									await rememberReasoningCredential(
 										project.organizationId,
@@ -16013,16 +16037,32 @@ chat.openapi(completions, async (c) => {
 		transformedResponse.choices[0].message.message_items =
 			parsedResponse.messageItems;
 	}
-	// Surface Anthropic's server-side tool search blocks so the /v1/messages
-	// layer can hand them back to the client, which replays them on the next
-	// turn — that is what lets Claude reuse an already discovered tool.
+	// Surface Anthropic's server tool blocks so the client can replay them on
+	// the next turn — that is what lets Claude reuse an already discovered tool
+	// or see earlier search results. Chat completions clients get the tool
+	// search pair only; web search results reach them as annotations.
+	const visibleNativeBlocks =
+		apiOrigin === "messages"
+			? parsedResponse.anthropicNativeBlocks
+			: parsedResponse.anthropicNativeBlocks?.filter(isToolSearchBlock);
 	if (
-		parsedResponse.anthropicNativeBlocks &&
-		parsedResponse.anthropicNativeBlocks.length > 0 &&
+		visibleNativeBlocks &&
+		visibleNativeBlocks.length > 0 &&
 		transformedResponse.choices?.[0]?.message
 	) {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
-			parsedResponse.anthropicNativeBlocks;
+			visibleNativeBlocks;
+	}
+	// The Anthropic content array as sent, for turns lowering loses detail of
+	// (server tool blocks, citations). /v1/messages returns it unchanged; chat
+	// completions clients have `content` and `annotations` instead.
+	if (
+		apiOrigin === "messages" &&
+		parsedResponse.anthropicContent &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_content =
+			parsedResponse.anthropicContent;
 	}
 	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
 	// /v1/messages layer hands them back as `safeguard_results`.
