@@ -373,8 +373,8 @@ export default async function MigrationOgImage({
 		size,
 	);
 }
-// Renders a checked-in 1536x1024 artwork scaled to the card width and anchored
-// to the top, with a red alert label pinned to the top-right corner.
+// Renders checked-in 1200x630 artwork as the card, with a red alert label
+// pinned to the top-right corner.
 async function labeledImageCard({
 	src,
 	label,
@@ -400,7 +400,7 @@ async function labeledImageCard({
 			<img
 				src={dataUrl}
 				width={size.width}
-				height={Math.round((size.width * 1024) / 1536)}
+				height={size.height}
 				style={{ position: "absolute", top: 0, left: 0 }}
 			/>
 			<div

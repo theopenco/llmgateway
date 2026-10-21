@@ -35,7 +35,7 @@ You are affected if any of these ran anywhere, including laptops, CI runners and
 - the Docker image `litellm/litellm:1.107.0`
 - `litellm/litellm:latest`, `main-latest` or `main-stable` pulled while they pointed at 1.107.0
 
-Check every host and container that may have run it:
+Check every host and container that may have run it. **Do not run `python` or `pip` there to find out.** The payload starts at interpreter startup, so any Python process, including `pip show`, can run the stealer or the trojan again. Inspect the files from a shell instead:
 
 ```bash
 # The credential stealer already ran if this file exists
@@ -44,13 +44,16 @@ ls -la /tmp/.pc_once_72129118c59f5636c0bb
 # The remote access trojan ran, or is still running, if this file exists
 ls -la /tmp/remote_code_loader.lock
 
-# Malicious files dropped into site-packages
-python -c "import site; print(site.getsitepackages())"
-# then look for cook.pth, cook.py and an unexpected sitecustomize.py in those directories
+# Installed version and dropped files, found without starting Python
+find / -type d -name "litellm-1.107.0.dist-info" 2>/dev/null
+find / -path "*site-packages*" \( -name cook.pth -o -name cook.py -o -name sitecustomize.py \) 2>/dev/null
 
-# Installed version
-pip show litellm | grep -i '^version'
+# Docker: local copies of the image and containers started from it
+docker images --digests litellm/litellm
+docker ps -a --filter ancestor=litellm/litellm:1.107.0
 ```
+
+A `sitecustomize.py` can be legitimate, so compare any hit against the SHA-256 hashes in Aikido's post.
 
 On the network side, look for outbound requests to `www.litellm[.]dev/healthcheck` (attacker-controlled, not the LiteLLM project) and to `raw.githubusercontent[.]com/letters9813/pythonclient-test`. The exfiltration requests carry an `X-Token: XWiA8gZNa7NcX2XRoAEb` header and an old Internet Explorer user agent. Aikido's post lists the SHA-256 hashes of every affected wheel and dropped file.
 
@@ -89,9 +92,9 @@ Everything was encrypted with an RSA-4096 key and sent to the attacker. Then the
 
 ## What to do now
 
-1. **Isolate and rebuild.** Treat any host or container that ran 1.107.0 as compromised. Kill the daemon holding `/tmp/remote_code_loader.lock`, but rebuild from a clean image rather than trusting a cleanup, because the attacker could run arbitrary code on it.
-2. **Rotate every provider key the proxy stored.** OpenAI, Anthropic, Google, AWS Bedrock, Azure: if it was in LiteLLM's credentials table, assume it is in the attacker's hands. Then check each provider's usage dashboard for traffic you did not send.
-3. **Rotate everything else the machine could reach.** Cloud credentials, SSH and GPG keys, Git, npm and PyPI tokens, Kubernetes and Vault tokens, CI secrets, and every secret that was in an environment variable.
+1. **Isolate first.** Treat any host or container that ran 1.107.0 as compromised and cut its network access, so the trojan cannot fetch new commands or send more data.
+2. **Rotate credentials right away, from a clean machine.** Do not wait for the rebuild: the attacker can use stolen keys while you work. Start with every provider key the proxy stored (OpenAI, Anthropic, Google, AWS Bedrock, Azure: if it was in LiteLLM's credentials table, assume the attacker has it), then cloud credentials, SSH and GPG keys, Git, npm and PyPI tokens, Kubernetes and Vault tokens, CI secrets, and every secret that was in an environment variable. Check each provider's usage dashboard for traffic you did not send.
+3. **Rebuild in parallel.** Rebuild from a clean image rather than trusting a cleanup, because the attacker could run arbitrary code on the old one.
 4. **Pin by hash, not just by version.** Use `pip install --require-hashes` with a lockfile, and pin container images by digest (`image@sha256:...`), not by tag. A tag like `main-stable` is only as safe as the last thing pushed to it.
 
 ## Why a self-hosted LLM proxy is a high-value target
@@ -113,6 +116,8 @@ Two incidents in seven months is a pattern, not bad luck. Each one forced the sa
 ```
 
 ```python
+import os
+
 from openai import OpenAI
 
 client = OpenAI(
