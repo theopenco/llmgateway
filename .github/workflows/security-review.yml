@@ -21,6 +21,7 @@ on:
       - ee/audit/src/**
       - .github/workflows/**
       - .github/scripts/**
+      - .github/security-review/**
 
 permissions:
   contents: read
@@ -62,7 +63,9 @@ jobs:
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v7.0.1
+      # Actions in this job are pinned to commits: the token can write review
+      # comments.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.key.outputs.present == 'true'
         with:
           persist-credentials: false
@@ -73,7 +76,7 @@ jobs:
       # (2026-02-11); it has no tags. It runs from source instead of as an
       # action because the action installs Claude Code on Node 18, which
       # resolves to a release too old for current models.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.key.outputs.present == 'true'
         with:
           repository: anthropics/claude-code-security-review
@@ -81,7 +84,7 @@ jobs:
           path: .security-review
           persist-credentials: false
 
-      - uses: actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.key.outputs.present == 'true'
         with:
           node-version: 22
@@ -100,8 +103,8 @@ jobs:
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
           npm install -g @anthropic-ai/claude-code@2.1.304
 
-      # The scanner exits non-zero when it finds a high-severity issue; the
-      # findings still get posted, and the next step checks the scan ran.
+      # The scanner exits non-zero when it keeps a high-severity finding; the
+      # findings get posted first, then the job fails on them below.
       - name: Scan
         if: steps.key.outputs.present == 'true'
         working-directory: .security-review
@@ -138,16 +141,34 @@ jobs:
             echo "::error::security review failed: $(jq -r '.error' claudecode-results.json)"
             exit 1
           fi
+          if ! jq -e '.analysis_summary.review_completed == true' claudecode-results.json > /dev/null; then
+            echo "::error::security review did not complete (no parseable analysis)"
+            exit 1
+          fi
           jq '.findings // []' claudecode-results.json > findings.json
           echo "findings: $(jq length findings.json)"
 
+      # The scanner's own comment script skips the whole run once any security
+      # comment exists on the PR, so findings from later commits would never be
+      # posted. This one deduplicates per finding instead.
       - name: Comment findings
         if: steps.key.outputs.present == 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node .security-review/scripts/comment-pr-findings.js
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const { postFindings } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/security-review-comment.mjs`);
+            await postFindings({ github, context, core });
 
-      - uses: actions/upload-artifact@v7
+      - name: Fail on high-severity findings
+        if: steps.key.outputs.present == 'true'
+        run: |
+          high=$(jq '[.[] | select((.severity // "HIGH") | ascii_upcase == "HIGH")] | length' findings.json)
+          if [ "$high" -gt 0 ]; then
+            echo "::error::security review kept $high high-severity finding(s); fix them or resolve the threads with a reason"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && steps.key.outputs.present == 'true'
         with:
           name: security-review-results

@@ -21,6 +21,13 @@ name: pr-risk
 #
 # Fork safety: every job that holds a write token checks out the default
 # branch only (sparse, .github/scripts) and never runs PR code.
+#
+# Trust boundary: `risk-gate` is a commit status, and any workflow on a
+# same-repository branch could post one with the same name. The ruleset
+# should pin the required check's source to GitHub Actions, and write access
+# to this repository must stay limited to the maintainers in TRUSTED_AUTHORS
+# plus bots that never open code PRs. A GitHub App check run would close this
+# gap fully; it is not worth the extra moving part for a two-maintainer repo.
 
 on:
   issue_comment:

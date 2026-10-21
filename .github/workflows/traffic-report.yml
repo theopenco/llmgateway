@@ -69,7 +69,9 @@ jobs:
           DISCORD_TRAFFIC_NOTIFICATION_URL: ${{ secrets.DISCORD_TRAFFIC_NOTIFICATION_URL }}
         run: pnpm --filter @llmgateway/scripts traffic-report --period=${{ steps.period.outputs.period }}
 
+      # Independent of PostHog; still runs when the traffic report fails.
       - name: Send review report (human review cost, revert rate)
+        if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DISCORD_TRAFFIC_NOTIFICATION_URL: ${{ secrets.DISCORD_TRAFFIC_NOTIFICATION_URL }}
