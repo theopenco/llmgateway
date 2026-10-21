@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { ImageResponse } from "next/og";
 
 import {
@@ -197,6 +200,10 @@ export default async function MigrationOgImage({
 		);
 	}
 
+	if (migration.ogImage) {
+		return await labeledImageCard(migration.ogImage);
+	}
+
 	const ProviderIcon = getIconForProvider(migration.fromProvider);
 
 	return new ImageResponse(
@@ -361,6 +368,75 @@ export default async function MigrationOgImage({
 				}}
 			>
 				<span>llmgateway.io</span>
+			</div>
+		</div>,
+		size,
+	);
+}
+// Renders checked-in 1200x630 artwork as the card, with a red alert label
+// pinned to the top-right corner.
+async function labeledImageCard({
+	src,
+	label,
+}: {
+	src: string;
+	label: string;
+}) {
+	const image = await readFile(join(process.cwd(), "public", src));
+	const dataUrl = `data:image/png;base64,${image.toString("base64")}`;
+
+	return new ImageResponse(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				position: "relative",
+				overflow: "hidden",
+				background: "#000000",
+				fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+			}}
+		>
+			<img
+				src={dataUrl}
+				width={size.width}
+				height={size.height}
+				style={{ position: "absolute", top: 0, left: 0 }}
+			/>
+			<div
+				style={{
+					position: "absolute",
+					top: 48,
+					right: 48,
+					display: "flex",
+					alignItems: "center",
+					gap: 14,
+					padding: "14px 26px",
+					borderRadius: 999,
+					background: "#dc2626",
+					boxShadow: "0 0 60px rgba(220,38,38,0.65)",
+					color: "#ffffff",
+					fontSize: 30,
+					fontWeight: 700,
+					textTransform: "uppercase",
+					letterSpacing: "0.02em",
+				}}
+			>
+				<svg width={30} height={30} viewBox="0 0 24 24" fill="none">
+					<path
+						d="M12 3 2 21h20L12 3Z"
+						stroke="#ffffff"
+						strokeWidth="2.2"
+						strokeLinejoin="round"
+					/>
+					<path
+						d="M12 10v5M12 18v.5"
+						stroke="#ffffff"
+						strokeWidth="2.2"
+						strokeLinecap="round"
+					/>
+				</svg>
+				{label}
 			</div>
 		</div>,
 		size,

@@ -5792,6 +5792,62 @@ export const providerClaim = snakeCase.table(
 	],
 );
 
+// The claims an Airworthy certificate attests, frozen at issue time. A live
+// claim whose public profile drifts from this snapshot stops showing the stamp
+// until it is re-certified.
+export interface AirworthyAttestedProfile {
+	legalEntity: string | null;
+	headquarters: string | null;
+	apiTraining: boolean | null;
+	promptLogging: boolean | null;
+	retentionPeriod: string | null;
+	gdpr: boolean | null;
+	soc2: 0 | 1 | 2 | null;
+	iso27001: boolean | null;
+}
+
+// Airworthy: LLM Gateway's certificate that an Airside carrier's declared
+// data handling, jurisdiction and audits were reviewed against evidence.
+// Issued and revoked by admins only; one active certificate per provider.
+export const providerCertification = snakeCase.table(
+	"provider_certification",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerClaimId: text()
+			.notNull()
+			.references(() => providerClaim.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// Public, printed on the stamp and the certificate.
+		certificateNumber: text().notNull(),
+		status: text({ enum: ["active", "revoked"] })
+			.notNull()
+			.default("active"),
+		attested: jsonb().$type<AirworthyAttestedProfile>().notNull(),
+		// Internal review notes: the evidence that was checked.
+		reviewNote: text(),
+		issuedAt: timestamp().notNull().defaultNow(),
+		expiresAt: timestamp().notNull(),
+		issuedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokedAt: timestamp(),
+		revokedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokeReason: text(),
+	},
+	(table) => [
+		uniqueIndex("provider_certification_number_uidx").on(
+			table.certificateNumber,
+		),
+		uniqueIndex("provider_certification_active_provider_uidx")
+			.on(table.providerId)
+			.where(sql`status = 'active'`),
+		index("provider_certification_claim_idx").on(table.providerClaimId),
+	],
+);
+
 // A model listed by a provider company for one of its claimed providers.
 // Non-pricing fields are provider-editable in place; pricing lives in
 // `provider_price_filing` rows and only ever changes through an approved

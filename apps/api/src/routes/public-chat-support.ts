@@ -480,13 +480,20 @@ export const publicChatSupport = new Hono<{
 	};
 }>();
 
-// Signed-in users only. The widget used to be open to anonymous visitors and
-// drew a steady stream of spam; a session is now required on every endpoint
-// and the visitor's identity comes from it rather than the request body.
+// Signed-in users with a verified email only. The widget used to be open to
+// anonymous visitors, then to any account, and drew a steady stream of spam
+// from throwaway signups; the visitor's identity comes from the session rather
+// than the request body.
 publicChatSupport.use("*", async (c, next) => {
 	const session = await apiAuth.api.getSession({ headers: c.req.raw.headers });
 	if (!session?.user) {
 		return c.json({ error: "Please sign in to use chat support." }, 401);
+	}
+	if (!session.user.emailVerified) {
+		return c.json(
+			{ error: "Please verify your email address to use chat support." },
+			403,
+		);
 	}
 	c.set("user", session.user);
 	c.set("session", session.session);
