@@ -416,76 +416,87 @@ export default async function AirworthyPage() {
 							aria-hidden="true"
 						/>
 					</div>
-					<div className="mt-10 overflow-hidden rounded-xl border bg-[oklch(0.17_0.018_252)] font-mono text-[oklch(0.93_0.012_85)] shadow-xl">
-						<div className="grid grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr_0.5fr_0.9fr] gap-4 max-lg:grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr] max-sm:grid-cols-[1.2fr_1fr] border-b border-white/10 px-5 py-3 text-[0.65rem] tracking-[0.25em] text-white/50 uppercase">
-							<span>Carrier</span>
-							<span>Certificate</span>
-							<span className="max-sm:hidden">Trains on data</span>
-							<span className="max-sm:hidden">Logs prompts</span>
-							<span className="max-sm:hidden">Retention</span>
-							<span className="max-lg:hidden">HQ</span>
-							<span className="text-right max-lg:hidden">Valid until</span>
+					<div className="mt-10 overflow-x-auto rounded-xl border bg-[oklch(0.17_0.018_252)] font-mono text-[oklch(0.93_0.012_85)] shadow-xl">
+						<div
+							className={
+								registry.ok && certified.length > 0
+									? "min-w-[880px]"
+									: undefined
+							}
+						>
+							{!registry.ok ? (
+								<div className="px-5 py-10 text-center">
+									<div className="text-sm tracking-[0.2em] text-[oklch(0.8_0.15_78)] uppercase">
+										Registry unavailable
+									</div>
+									<p className="mx-auto mt-2 max-w-md font-sans text-sm text-white/60">
+										We could not load the registry just now. A certified
+										carrier's provider page still shows its stamp; try this page
+										again in a minute.
+									</p>
+								</div>
+							) : certified.length === 0 ? (
+								<div className="px-5 py-10 text-center">
+									<div className="text-sm tracking-[0.2em] text-[oklch(0.8_0.15_78)] uppercase">
+										Board opening
+									</div>
+									<p className="mx-auto mt-2 max-w-md font-sans text-sm text-white/60">
+										The first inspections are underway. Certified carriers
+										appear here within a minute of their certificate being
+										issued.
+									</p>
+								</div>
+							) : (
+								<>
+									<div className="grid grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr_0.5fr_0.9fr] gap-4 border-b border-white/10 px-5 py-3 text-[0.65rem] tracking-[0.25em] text-white/50 uppercase">
+										<span>Carrier</span>
+										<span>Certificate</span>
+										<span>Trains on data</span>
+										<span>Logs prompts</span>
+										<span>Retention</span>
+										<span>HQ</span>
+										<span className="text-right">Valid until</span>
+									</div>
+									<ul>
+										{certified.map(({ provider, certification }) => (
+											<li
+												key={provider.id}
+												className="border-b border-white/5 last:border-b-0"
+											>
+												<a
+													href={`${config.uiUrl}/providers/${provider.id}`}
+													className="grid grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr_0.5fr_0.9fr] gap-4 items-center px-5 py-3.5 text-sm tracking-[0.12em] uppercase transition-colors hover:bg-white/5"
+												>
+													<span className="truncate font-semibold">
+														{provider.name ?? provider.id}
+													</span>
+													<span className="text-[oklch(0.8_0.15_78)]">
+														{certification.certificateNumber}
+													</span>
+													<span>
+														{yesNo(certification.attested.apiTraining)}
+													</span>
+													<span>
+														{yesNo(certification.attested.promptLogging)}
+													</span>
+													<span className="truncate">
+														{certification.attested.retentionPeriod ?? "—"}
+													</span>
+													<span>
+														{certification.attested.headquarters
+															? `${countryCodeToFlag(certification.attested.headquarters)} ${certification.attested.headquarters}`
+															: "—"}
+													</span>
+													<span className="text-right text-[oklch(0.75_0.16_155)]">
+														{formatValidUntil(certification.expiresAt)}
+													</span>
+												</a>
+											</li>
+										))}
+									</ul>
+								</>
+							)}
 						</div>
-						{!registry.ok ? (
-							<div className="px-5 py-10 text-center">
-								<div className="text-sm tracking-[0.2em] text-[oklch(0.8_0.15_78)] uppercase">
-									Registry unavailable
-								</div>
-								<p className="mx-auto mt-2 max-w-md font-sans text-sm text-white/60">
-									We could not load the registry just now. A certified carrier's
-									provider page still shows its stamp; try this page again in a
-									minute.
-								</p>
-							</div>
-						) : certified.length === 0 ? (
-							<div className="px-5 py-10 text-center">
-								<div className="text-sm tracking-[0.2em] text-[oklch(0.8_0.15_78)] uppercase">
-									Board opening
-								</div>
-								<p className="mx-auto mt-2 max-w-md font-sans text-sm text-white/60">
-									The first inspections are underway. Certified carriers appear
-									here within a minute of their certificate being issued.
-								</p>
-							</div>
-						) : (
-							<ul>
-								{certified.map(({ provider, certification }) => (
-									<li
-										key={provider.id}
-										className="border-b border-white/5 last:border-b-0"
-									>
-										<a
-											href={`${config.uiUrl}/providers/${provider.id}`}
-											className="grid grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr_0.5fr_0.9fr] gap-4 max-lg:grid-cols-[1.3fr_1.1fr_0.7fr_0.7fr_0.8fr] max-sm:grid-cols-[1.2fr_1fr] items-center px-5 py-3.5 text-sm tracking-[0.12em] uppercase transition-colors hover:bg-white/5"
-										>
-											<span className="truncate font-semibold">
-												{provider.name ?? provider.id}
-											</span>
-											<span className="text-[oklch(0.8_0.15_78)]">
-												{certification.certificateNumber}
-											</span>
-											<span className="max-sm:hidden">
-												{yesNo(certification.attested.apiTraining)}
-											</span>
-											<span className="max-sm:hidden">
-												{yesNo(certification.attested.promptLogging)}
-											</span>
-											<span className="truncate max-sm:hidden">
-												{certification.attested.retentionPeriod ?? "—"}
-											</span>
-											<span className="max-lg:hidden">
-												{certification.attested.headquarters
-													? `${countryCodeToFlag(certification.attested.headquarters)} ${certification.attested.headquarters}`
-													: "—"}
-											</span>
-											<span className="text-right text-[oklch(0.75_0.16_155)] max-lg:hidden">
-												{formatValidUntil(certification.expiresAt)}
-											</span>
-										</a>
-									</li>
-								))}
-							</ul>
-						)}
 					</div>
 				</section>
 
