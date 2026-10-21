@@ -139,6 +139,12 @@ const migrations = defineCollection({
 		date: z.string(),
 		updatedAt: z.string().optional(),
 		fromProvider: z.string(),
+		ogImage: z
+			.object({
+				src: z.string(),
+				label: z.string(),
+			})
+			.optional(),
 	}),
 	transform: (document) => withRoutingDefaults(document),
 });
