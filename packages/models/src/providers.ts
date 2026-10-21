@@ -1759,33 +1759,6 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
-		id: "embercloud",
-		name: "EmberCloud",
-		forwardsSafetyIdentifier: false,
-		description:
-			"EmberCloud provides access to a variety of large language models via an OpenAI-compatible API",
-		env: {
-			required: {
-				apiKey: "LLM_EMBERCLOUD_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#FF6047",
-		website: "https://www.embercloud.ai",
-		statusPageUrl: "https://www.embercloud.ai/status",
-		announcement: null,
-		termsUrl: "https://www.embercloud.ai/terms",
-		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
-		usagePolicyUrl: "https://www.embercloud.ai/terms",
-		legalEntity: "EmberCloud Systems",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: true,
-			retentionPeriod: null,
-		},
-	},
-	{
 		id: "meta",
 		name: "Meta",
 		forwardsSafetyIdentifier: true,

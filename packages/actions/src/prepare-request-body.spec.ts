@@ -3416,53 +3416,6 @@ describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
 	);
 });
 
-describe("prepareRequestBody - embercloud reasoning shape", () => {
-	// embercloud's documented request body uses a nested `reasoning` object
-	// (reasoning.enabled + reasoning.effort) — the flat OpenAI-style
-	// `reasoning_effort` field is not documented and is silently ignored
-	// (https://embercloud.ai/docs/request-body).
-	async function prepare(
-		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
-	) {
-		return (await prepareRequestBody(
-			"embercloud",
-			"glm-5.2",
-			null,
-			"glm-5.2",
-			[{ role: "user", content: "Hello!" }],
-			false, // stream
-			undefined, // temperature
-			undefined, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			effort, // reasoning_effort
-			true, // supportsReasoning
-		)) as any;
-	}
-
-	test("builds the nested reasoning object instead of flat reasoning_effort", async () => {
-		const requestBody = await prepare("high");
-		expect(requestBody.reasoning).toEqual({
-			enabled: true,
-			effort: "high",
-		});
-		expect(requestBody.reasoning_effort).toBeUndefined();
-	});
-
-	test("forwards the top declared tier through the nested shape", async () => {
-		const requestBody = await prepare("max");
-		expect(requestBody.reasoning).toEqual({
-			enabled: true,
-			effort: "max",
-		});
-		expect(requestBody.reasoning_effort).toBeUndefined();
-	});
-});
-
 describe("prepareRequestBody - Alibaba thinking", () => {
 	async function prepare(options: {
 		model: string;
@@ -10439,11 +10392,11 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 
 	test("forwards to an OpenAI-compatible mapping that declares it", async () => {
 		const mapping = models
-			.find((m) => m.id === "kimi-k2.5")
-			?.providers.find((p) => p.providerId === "embercloud");
+			.find((m) => m.id === "glm-4.6v-flash")
+			?.providers.find((p) => p.providerId === "zai");
 		expect(mapping?.supportedParameters).toContain("parallel_tool_calls");
 
-		const body = await prepare("embercloud", "kimi-k2.5", {
+		const body = await prepare("zai", "glm-4.6v-flash", {
 			parallel_tool_calls: false,
 		});
 		expect(body.parallel_tool_calls).toBe(false);

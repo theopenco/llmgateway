@@ -11962,8 +11962,8 @@ chat.openapi(completions, async (c) => {
 									);
 								}
 
-								// A chunk whose finish_reason signals an upstream failure (e.g.
-								// Embercloud's "error") is not a valid OpenAI completion chunk —
+								// A chunk whose finish_reason signals an upstream failure
+								// ("error") is not a valid OpenAI completion chunk —
 								// "error" is not a valid OpenAI finish_reason. Capture the
 								// terminal finish reason and raw payload for the error event and
 								// logging, but skip this chunk entirely otherwise: it is not
@@ -12914,8 +12914,8 @@ chat.openapi(completions, async (c) => {
 					}
 
 					// A finish_reason that itself signals an upstream failure (e.g.
-					// Embercloud emits finish_reason "error" with a null content delta and
-					// no error event/HTTP error) is a hard error in its own right. Treat it
+					// finish_reason "error" with a null content delta and no error
+					// event/HTTP error) is a hard error in its own right. Treat it
 					// as an upstream error regardless of whether any partial content
 					// arrived, instead of inferring failure from an empty response.
 					const hasUpstreamErrorFinishReason =

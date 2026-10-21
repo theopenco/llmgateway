@@ -233,7 +233,6 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	reve: "https://api.reve.com",
 	xiaomi: "https://api.xiaomimimo.com",
 	canopywave: "https://inference.canopywave.io",
-	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
@@ -1097,7 +1096,6 @@ export function getProviderEndpoint(
 		case "canopywave":
 		case "minimax":
 		case "xiaomi":
-		case "embercloud":
 		case "scx-ai":
 		case "scx-ai-gp":
 		case "ranoai":

@@ -1566,16 +1566,16 @@ describe("getCheapestFromAvailableProviders", () => {
 			).toBe(0.05e-6);
 		});
 
-		// Mirrors the live kimi-k2.5 mappings: embercloud is cheapest on list
-		// prices but charges 55.6% of input for a cache read where deepinfra
-		// charges 15.6%, so a cache-heavy workload is cheaper on deepinfra.
+		// novita is cheapest on list prices but charges 55.6% of input for a
+		// cache read where deepinfra charges 15.6%, so a cache-heavy workload is
+		// cheaper on deepinfra.
 		const kimiLikeModel = {
 			id: "kimi-like-model",
 			name: "Kimi Like Model",
 			family: "moonshot" as const,
 			providers: [
 				{
-					providerId: "embercloud" as const,
+					providerId: "novita" as const,
 					externalId: "kimi-like",
 					inputPrice: "0.405e-6",
 					outputPrice: "1.98e-6",
@@ -1594,7 +1594,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		};
 
 		const equalPriority = resolveRoutingConfig(
-			{ providerPriorities: { embercloud: 1, deepinfra: 1 } },
+			{ providerPriorities: { novita: 1, deepinfra: 1 } },
 			buildProviderPriorityDefaults(),
 			"devpass",
 		);
@@ -1605,7 +1605,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				kimiLikeModel,
 				{ promptTokens: 1000, routingConfig: equalPriority },
 			);
-			expect(result?.provider.providerId).toBe("embercloud");
+			expect(result?.provider.providerId).toBe("novita");
 		});
 
 		it("routes large prompts to the cheapest cached-workload price", async () => {
@@ -1621,7 +1621,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			const listPriceOnly = resolveRoutingConfig(
 				{
 					thresholds: { cacheHitRate: 0, cacheOutputRatio: 1 },
-					providerPriorities: { embercloud: 1, deepinfra: 1 },
+					providerPriorities: { novita: 1, deepinfra: 1 },
 				},
 				buildProviderPriorityDefaults(),
 			);
@@ -1630,7 +1630,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				kimiLikeModel,
 				{ promptTokens: 20_000, routingConfig: listPriceOnly },
 			);
-			expect(result?.provider.providerId).toBe("embercloud");
+			expect(result?.provider.providerId).toBe("novita");
 		});
 	});
 
