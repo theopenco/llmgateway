@@ -12,7 +12,9 @@ const TEMPLATE_TOKEN_ALLOWANCE = 4096;
  * shape the mapping declares. `allowRequiredToolChoice` is false when the
  * mapping does not accept `tool_choice: "required"`, the Chat Completions way
  * to demand a tool call, which is what a forced search maps to in the tool
- * shape. `web_search_options` has no forced mode; the model always decides.
+ * shape. Only while web search is the sole tool: next to the caller's
+ * functions, "required" could be met by calling one of those instead, so the
+ * choice stays with the model. `web_search_options` has no forced mode either.
  */
 export function applyWebSearchFormat(
 	requestBody: Record<string, any>,
@@ -22,6 +24,7 @@ export function applyWebSearchFormat(
 ): void {
 	const { user_location: location, search_context_size: contextSize } =
 		webSearchTool;
+	const otherTools = requestBody.tools?.length > 0;
 	if (format === "web_search_options") {
 		requestBody.web_search_options = {
 			...(contextSize && { search_context_size: contextSize }),
@@ -52,6 +55,7 @@ export function applyWebSearchFormat(
 	if (
 		webSearchTool.forced &&
 		allowRequiredToolChoice &&
+		!otherTools &&
 		requestBody.tool_choice === undefined
 	) {
 		requestBody.tool_choice = "required";

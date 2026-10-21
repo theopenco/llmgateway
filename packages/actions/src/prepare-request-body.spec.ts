@@ -10058,6 +10058,7 @@ describe("prepareRequestBody - declared web search format", () => {
 		provider: string,
 		webSearchTool: any,
 		webSearchFormat?: "web_search_options" | "web_search_tool",
+		tools?: unknown[],
 	) => {
 		const args: unknown[] = [
 			provider,
@@ -10067,6 +10068,7 @@ describe("prepareRequestBody - declared web search format", () => {
 			[{ role: "user", content: "hi" }],
 			false,
 		];
+		args[12] = tools;
 		args[23] = webSearchTool;
 		args[25] = false;
 		args[40] = webSearchFormat;
@@ -10100,6 +10102,31 @@ describe("prepareRequestBody - declared web search format", () => {
 			);
 			expect(body.web_search_options).toEqual({});
 			expect(body.tools).toBeUndefined();
+			expect(body.tool_choice).toBeUndefined();
+		},
+	);
+
+	test.each(["openai", "custom"])(
+		"%s leaves a forced search to the model next to function tools",
+		async (provider) => {
+			const fn = {
+				type: "function",
+				function: {
+					name: "get_weather",
+					parameters: { type: "object", properties: {} },
+				},
+			};
+			const body = await prepare(
+				provider,
+				{ type: "web_search", forced: true },
+				"web_search_tool",
+				[fn],
+			);
+			// "required" could be met by calling get_weather instead of searching.
+			expect(body.tools).toEqual([
+				expect.objectContaining({ type: "function" }),
+				{ type: "web_search" },
+			]);
 			expect(body.tool_choice).toBeUndefined();
 		},
 	);

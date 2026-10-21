@@ -64,6 +64,20 @@ describe("applyWebSearchFormat", () => {
 		applyWebSearchFormat(restricted, forced, "web_search_tool", false);
 		expect(restricted.tool_choice).toBeUndefined();
 	});
+
+	test("a forced search next to function tools leaves tool_choice unset", () => {
+		// "required" could be met by calling the caller's function instead.
+		const fn = { type: "function", function: { name: "get_weather" } };
+		const body: Record<string, any> = { tools: [fn] };
+		applyWebSearchFormat(
+			body,
+			{ type: "web_search", forced: true },
+			"web_search_tool",
+			true,
+		);
+		expect(body.tools).toEqual([fn, { type: "web_search" }]);
+		expect(body.tool_choice).toBeUndefined();
+	});
 });
 
 describe("reportedWebSearchCount", () => {
