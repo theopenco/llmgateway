@@ -22,6 +22,7 @@ import { useState } from "react";
 
 import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
+import { UsageOverviewChart } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import {
 	resolveUsageComparisonRange,
@@ -53,7 +54,6 @@ import {
 	defaultDateRange,
 } from "./controls";
 import { CostBreakdownCard } from "./cost-breakdown";
-import { UsageOverviewChart } from "./usage-overview-chart";
 
 import type { ComponentType } from "react";
 
@@ -240,6 +240,10 @@ export function OverviewView() {
 	const totalOutputTokens = sum(activityData, (day) => day.outputTokens);
 	const totalCachedTokens = sum(activityData, (day) => day.cachedTokens);
 	const totalCachedInputCost = sum(activityData, (day) => day.cachedInputCost);
+	const totalCacheWriteInputCost = sum(
+		activityData,
+		(day) => day.cacheWriteInputCost,
+	);
 	const totalErrors = sum(activityData, (day) => day.errorCount);
 	const totalCached = sum(activityData, (day) => day.cacheCount);
 	const prevRequests = sum(prevActivityData, (day) => day.requestCount);
@@ -434,7 +438,7 @@ export function OverviewView() {
 								icon={Server}
 								label="Cached tokens"
 								value={formatTokens(totalCachedTokens)}
-								sub={`$${totalCachedInputCost.toFixed(2)} • included in input`}
+								sub={`$${totalCachedInputCost.toFixed(2)} spend${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} cache writes` : ""}`}
 							/>
 							<StatCell
 								icon={Crown}
@@ -456,8 +460,8 @@ export function OverviewView() {
 										<CardDescription>
 											{metric === "costs"
 												? costView === "total"
-													? "Daily total inference spend (provider list price)"
-													: "Daily inference spend by token type"
+													? "Daily total spend, including storage"
+													: "Daily spend by cost type"
 												: "Daily request volume"}
 										</CardDescription>
 									</div>
