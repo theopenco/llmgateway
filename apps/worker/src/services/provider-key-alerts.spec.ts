@@ -12,6 +12,7 @@ import {
 	platformTargetId,
 	processProviderKeyAlerts,
 	windowBucketStart,
+	markCooldownSent,
 } from "./provider-key-alerts.js";
 
 import type {
@@ -346,6 +347,20 @@ describe("processProviderKeyAlerts", () => {
 			}),
 		).toHaveLength(1);
 		expect(await redisClient.get(cooldown)).toBe("sent");
+	});
+
+	it("marks a cooldown sent only while its marker still exists", async () => {
+		const cooldown = cooldownKey(ORG, shortRule.id, KEY);
+		await redisClient.del(cooldown);
+		await markCooldownSent(cooldown);
+		expect(await redisClient.exists(cooldown)).toBe(0);
+
+		await redisClient.set(cooldown, "pending:x", "EX", 600);
+		await markCooldownSent(cooldown);
+		expect(await redisClient.get(cooldown)).toBe("sent");
+		const ttl = await redisClient.ttl(cooldown);
+		expect(ttl).toBeGreaterThan(0);
+		expect(ttl).toBeLessThanOrEqual(600);
 	});
 
 	it("drops Slack delivery without enterprise access", async () => {

@@ -72,9 +72,10 @@ export default function PreferencesPage() {
 						<CardHeader>
 							<CardTitle>Provider Key Alerts</CardTitle>
 							<CardDescription>
-								Tell owners and admins when one of your own provider keys starts
-								failing, for example after it was revoked, ran out of quota, or
-								lost access to a model.
+								Tell owners and admins when your own provider keys or the LLM
+								Gateway credentials serving your credit traffic start failing,
+								for example after a key was revoked, ran out of quota, or lost
+								access to a model.
 							</CardDescription>
 						</CardHeader>
 						<CardContent>

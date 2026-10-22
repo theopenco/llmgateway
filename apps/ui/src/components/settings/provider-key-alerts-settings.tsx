@@ -32,6 +32,7 @@ import {
 	type ProviderKeyAlertRule,
 	type ProviderKeyAlertSettings,
 	type ProviderKeyAlertSource,
+	providerKeyAlertSettingsSchema,
 } from "@llmgateway/shared/provider-key-alerts";
 
 const SOURCE_LABELS: Record<ProviderKeyAlertSource, string> = {
@@ -62,13 +63,30 @@ const ruleSwitches: Array<{
 	},
 ];
 
-const numericFields: Array<{ key: NumericField; label: string; min: number }> =
-	[
-		{ key: "windowMinutes", label: "Window (minutes)", min: 5 },
-		{ key: "errorRatePercent", label: "Error rate ≥ (%)", min: 1 },
-		{ key: "minRequests", label: "Min requests", min: 1 },
-		{ key: "cooldownMinutes", label: "Cooldown (minutes)", min: 5 },
-	];
+const numericFields: Array<{
+	key: NumericField;
+	label: string;
+	min: number;
+	max: number;
+	step?: number;
+}> = [
+	{
+		key: "windowMinutes",
+		label: "Window (minutes)",
+		min: 5,
+		max: 1440,
+		step: 1,
+	},
+	{ key: "errorRatePercent", label: "Error rate ≥ (%)", min: 1, max: 100 },
+	{ key: "minRequests", label: "Min requests", min: 1, max: 100_000, step: 1 },
+	{
+		key: "cooldownMinutes",
+		label: "Cooldown (minutes)",
+		min: 5,
+		max: 10_080,
+		step: 1,
+	},
+];
 
 export function ProviderKeyAlertsSettings() {
 	const queryClient = useQueryClient();
@@ -150,17 +168,37 @@ export function ProviderKeyAlertsSettings() {
 		});
 
 	const handleSave = async () => {
-		try {
-			await save.mutateAsync({
-				...params,
-				body: {
-					...settings,
-					channels:
-						settings.channels.includes("slack") && slackEligible
-							? ["slack"]
-							: [],
-				},
+		const parsed = providerKeyAlertSettingsSchema.safeParse({
+			...settings,
+			channels:
+				settings.channels.includes("slack") && slackEligible ? ["slack"] : [],
+		});
+		if (!parsed.success) {
+			const issue = parsed.error.issues[0];
+			const ruleIndex = issue?.path[0] === "rules" ? issue.path[1] : undefined;
+			const ruleField = issue?.path[2];
+			const ruleLabel =
+				typeof ruleIndex === "number"
+					? settings.rules[ruleIndex]?.label
+					: undefined;
+			const fieldLabel =
+				numericFields.find((field) => field.key === ruleField)?.label ??
+				(ruleField === "label" ? "Rule name" : undefined);
+			toast({
+				title: "Check the alert settings",
+				description: [
+					ruleLabel?.trim() || undefined,
+					fieldLabel,
+					issue?.message,
+				]
+					.filter(Boolean)
+					.join(" — "),
+				variant: "destructive",
 			});
+			return;
+		}
+		try {
+			await save.mutateAsync({ ...params, body: parsed.data });
 			toast({
 				title: "Settings saved",
 				description: "Provider key alerts have been updated.",
@@ -346,6 +384,8 @@ export function ProviderKeyAlertsSettings() {
 										id={`${rule.id}-${field.key}`}
 										type="number"
 										min={field.min}
+										max={field.max}
+										step={field.step}
 										value={Number.isNaN(rule[field.key]) ? "" : rule[field.key]}
 										disabled={disabled}
 										onChange={(event) =>

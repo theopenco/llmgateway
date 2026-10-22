@@ -227,6 +227,15 @@ export async function reserveCooldown(
 		: null;
 }
 
+/**
+ * Marks a reserved cooldown as delivered, keeping its TTL. `XX` skips a marker
+ * that expired during the fan-out: without it Redis would create a `sent` key
+ * with no expiry and silence the rule for that target for good.
+ */
+export async function markCooldownSent(cooldown: string): Promise<void> {
+	await redisClient.set(cooldown, COOLDOWN_SENT, "KEEPTTL", "XX");
+}
+
 const errorCountColumns = {
 	requestCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.requestCount}), 0)::bigint`,
 	clientErrorCount: sql<string>`coalesce(sum(${providerKeyHourlyStats.clientErrorCount}), 0)::bigint`,
@@ -484,7 +493,7 @@ async function alertRule(
 				href: targetHref(org, target),
 			},
 		);
-		await redisClient.set(cooldown, COOLDOWN_SENT, "KEEPTTL");
+		await markCooldownSent(cooldown);
 		logger.info("Sent provider key error-rate alert", {
 			organizationId: org.id,
 			targetId: target.id,
