@@ -49,6 +49,10 @@ classify payload, headers are ignored. `internal-content-filter.ts` sends the
 gateway request id and the organization id (never the project, key, or user id —
 audit rows join on organization).
 
+Every classifier fails open. OpenAI moderation retries a network error or 5xx
+once and logs the retried attempt at `warn`. Final failures log at
+`contentFilterErrorLogLevel`: `warn` for a 4xx other than 401/403, else `error`.
+
 ## Logging, streaming, shutdown
 
 - Pass `{ retentionLevel }` to every `insertLog` call; the one-argument form drops payloads for retaining orgs.

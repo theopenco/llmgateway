@@ -684,11 +684,12 @@ describe("checkOpenAIContentFilter", () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
 
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			new Response(
-				"<html><head><title>api.openai.com | 504: Gateway time-out</title></head><body>long</body></html>",
-				{ status: 504, headers: { "Content-Type": "text/html" } },
-			),
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () =>
+				new Response(
+					"<html><head><title>api.openai.com | 504: Gateway time-out</title></head><body>long</body></html>",
+					{ status: 504, headers: { "Content-Type": "text/html" } },
+				),
 		);
 
 		const result = await checkOpenAIContentFilter(
@@ -718,6 +719,153 @@ describe("checkOpenAIContentFilter", () => {
 				response: "api.openai.com | 504: Gateway time-out",
 			}),
 		);
+	});
+
+	describe("transient failures", () => {
+		const CONTEXT = {
+			requestId: "request-id",
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "api-key-id",
+		};
+		const ENVOY_RESET =
+			"upstream connect error or disconnect/reset before headers. reset reason: remote connection failure";
+		const ok = () =>
+			new Response(
+				JSON.stringify({
+					model: "omni-moderation-latest",
+					results: [{ flagged: false, categories: {}, category_scores: {} }],
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		const envoy503 = () =>
+			new Response(ENVOY_RESET, {
+				status: 503,
+				headers: { "Content-Type": "text/plain" },
+			});
+
+		it("retries a 5xx connection reset once and only warns when it recovers", async () => {
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementationOnce(async () => envoy503())
+				.mockImplementationOnce(async () => ok());
+
+			const result = await checkOpenAIContentFilter(
+				[{ role: "user", content: "hello" }],
+				CONTEXT,
+			);
+
+			expect(fetchSpy).toHaveBeenCalledTimes(2);
+			expect(result.errors).toEqual([]);
+			expect(result.results).toHaveLength(1);
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(warnSpy).toHaveBeenCalledWith(
+				"gateway_content_filter_error",
+				expect.objectContaining({
+					status: 503,
+					errorKind: "upstream_5xx",
+					error: ENVOY_RESET,
+					attempt: 1,
+					retrying: true,
+				}),
+			);
+		});
+
+		it("retries a thrown connection reset once", async () => {
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			vi.spyOn(logger, "warn").mockImplementation(() => {});
+			const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockRejectedValueOnce(
+					new TypeError("fetch failed", {
+						cause: Object.assign(new Error("read ECONNRESET"), {
+							code: "ECONNRESET",
+						}),
+					}),
+				)
+				.mockImplementationOnce(async () => ok());
+
+			const result = await checkOpenAIContentFilter(
+				[{ role: "user", content: "hello" }],
+				CONTEXT,
+			);
+
+			expect(fetchSpy).toHaveBeenCalledTimes(2);
+			expect(result.errors).toEqual([]);
+			expect(errorSpy).not.toHaveBeenCalled();
+		});
+
+		it("errors and fails open when the retry fails too", async () => {
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async () => envoy503());
+
+			const result = await checkOpenAIContentFilter(
+				[{ role: "user", content: "hello" }],
+				CONTEXT,
+			);
+
+			expect(fetchSpy).toHaveBeenCalledTimes(2);
+			expect(result.flagged).toBe(false);
+			expect(result.errors).toEqual([
+				{
+					source: "openai",
+					kind: "upstream_5xx",
+					inputType: "text",
+					status: 503,
+					message: ENVOY_RESET,
+				},
+			]);
+			expect(warnSpy).toHaveBeenCalledTimes(1);
+			expect(errorSpy).toHaveBeenCalledTimes(1);
+			expect(errorSpy).toHaveBeenCalledWith(
+				"gateway_content_filter_error",
+				expect.objectContaining({
+					errorKind: "upstream_5xx",
+					attempt: 2,
+					retrying: false,
+				}),
+			);
+		});
+
+		it("does not retry a rejected credential and logs it as an error", async () => {
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+				async () =>
+					new Response(
+						JSON.stringify({
+							error: { code: "invalid_api_key", message: "Incorrect API key" },
+						}),
+						{ status: 401, headers: { "Content-Type": "application/json" } },
+					),
+			);
+
+			const result = await checkOpenAIContentFilter(
+				[{ role: "user", content: "hello" }],
+				CONTEXT,
+			);
+
+			expect(fetchSpy).toHaveBeenCalledTimes(1);
+			expect(result.errors).toHaveLength(1);
+			expect(warnSpy).not.toHaveBeenCalled();
+			expect(errorSpy).toHaveBeenCalledWith(
+				"gateway_content_filter_error",
+				expect.objectContaining({
+					status: 401,
+					errorKind: "upstream_4xx",
+					errorCode: "invalid_api_key",
+				}),
+			);
+		});
 	});
 
 	it("logs nested fetch causes as structured moderation errors", async () => {
