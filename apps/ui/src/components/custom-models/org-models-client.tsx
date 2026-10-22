@@ -326,22 +326,21 @@ export function OrgModelsClient({
 	const toggleMutation = api.useMutation("patch", "/keys/provider/{id}");
 	const deleteMutation = api.useMutation("delete", "/custom-models/{id}");
 
-	const handleToggle = (checked: boolean) => {
+	const updateSelectedKey = (
+		body: { customModelsOnly: boolean } | { forwardCacheControl: boolean },
+		successTitle: string,
+	) => {
 		if (!selectedKey) {
 			return;
 		}
 		toggleMutation.mutate(
 			{
 				params: { path: { id: selectedKey.id } },
-				body: { customModelsOnly: checked },
+				body,
 			},
 			{
 				onSuccess: () => {
-					toast({
-						title: checked
-							? "Restricted to catalog models"
-							: "All custom models allowed",
-					});
+					toast({ title: successTitle });
 					void queryClient.invalidateQueries({
 						queryKey: providerKeysQueryKey,
 					});
@@ -358,6 +357,20 @@ export function OrgModelsClient({
 			},
 		);
 	};
+
+	const handleToggle = (checked: boolean) =>
+		updateSelectedKey(
+			{ customModelsOnly: checked },
+			checked ? "Restricted to catalog models" : "All custom models allowed",
+		);
+
+	const handleForwardCacheControlToggle = (checked: boolean) =>
+		updateSelectedKey(
+			{ forwardCacheControl: checked },
+			checked
+				? "Prompt-cache markers forwarded"
+				: "Prompt-cache markers stripped",
+		);
 
 	const handleDelete = (id: string) => {
 		deleteMutation.mutate(
@@ -534,6 +547,28 @@ export function OrgModelsClient({
 														When on, requests through this provider are limited
 														to the models defined below so cost and context
 														limits are always enforced.
+													</p>
+												</div>
+											</div>
+										)}
+
+										{selectedKey && (
+											<div className="flex items-start gap-3">
+												<Switch
+													id="forward-cache-control"
+													checked={Boolean(selectedKey.forwardCacheControl)}
+													disabled={!canManage || toggleMutation.isPending}
+													onCheckedChange={handleForwardCacheControlToggle}
+												/>
+												<div className="space-y-1">
+													<Label htmlFor="forward-cache-control">
+														Forward prompt-cache markers
+													</Label>
+													<p className="max-w-sm text-xs text-muted-foreground">
+														Sends your requests' <code>cache_control</code>{" "}
+														markers to this provider instead of stripping them.
+														Turn on only if its API accepts them, for example a
+														router serving Claude models.
 													</p>
 												</div>
 											</div>

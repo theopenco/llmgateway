@@ -2188,6 +2188,9 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// When true (custom providers only), caller-supplied Anthropic-style
+		// `cache_control` markers are forwarded upstream instead of stripped.
+		forwardCacheControl: boolean().notNull().default(false),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		// "pending_deletion" is a deleted key inside its teardown grace period:
