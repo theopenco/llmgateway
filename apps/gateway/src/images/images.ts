@@ -28,6 +28,8 @@ import { models, providers } from "@llmgateway/models";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { parseDynamicRouteModel } from "@llmgateway/shared/dynamic-route";
 
+import { isValidBase64ImageDataUrl } from "./data-url.js";
+
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -1074,10 +1076,6 @@ function isValidHttpsUrl(value: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-function isValidBase64ImageDataUrl(value: string): boolean {
-	return /^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(value);
 }
 
 function isSupportedInputImageUrl(value: string): boolean {
