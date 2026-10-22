@@ -10,7 +10,10 @@ import {
 	YAxis,
 } from "recharts";
 
-import { modelKey } from "@/components/analytics/chart-helpers";
+import {
+	currencyFormatter,
+	modelKey,
+} from "@/components/analytics/chart-helpers";
 import {
 	ChartStyleSelector,
 	useChartStyle,
@@ -69,13 +72,6 @@ function formatCost(value: number): string {
 	return currencyFormatter.format(value);
 }
 
-const currencyFormatter = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 2,
-});
-
 const ALL_MODELS = "__all__";
 
 function ModelProviderIcon({ model }: { model: string }) {
@@ -83,6 +79,10 @@ function ModelProviderIcon({ model }: { model: string }) {
 	return <Icon className="h-4 w-4 shrink-0" />;
 }
 
+/**
+ * Pass the unfiltered activity: tokens and their per-type spend are only
+ * tracked blended across billing modes, so the card always covers all traffic.
+ */
 export function TokenUsageCard({
 	activity,
 	loading,

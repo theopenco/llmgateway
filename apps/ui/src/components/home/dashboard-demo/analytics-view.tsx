@@ -113,7 +113,8 @@ export function AnalyticsView() {
 	const [range, setRange] = useState(() => defaultDateRange(anchorDay));
 	const [usageMode, setUsageMode] = useState<UsageMode>("total");
 
-	const activity = sliceHistory(history, range.from, range.to).map((day) =>
+	const rawActivity = sliceHistory(history, range.from, range.to);
+	const activity = rawActivity.map((day) =>
 		applyUsageModeToDaily(day, usageMode),
 	);
 	const rows = toDimensionRows(activity, groupBy);
@@ -213,7 +214,7 @@ export function AnalyticsView() {
 							description={`Compare ${dimensionNoun} usage across the selected range`}
 						/>
 					)}
-					<TokenUsageCard activity={activity} loading={false} />
+					<TokenUsageCard activity={rawActivity} loading={false} />
 					{groupBy === "model" ? (
 						<CostByModelCard activity={activity} />
 					) : (

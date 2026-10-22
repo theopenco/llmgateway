@@ -192,6 +192,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	);
 
 	const usageMode = useUsageMode();
+	const rawActivity = useMemo(() => data?.activity ?? [], [data]);
 	const activity: DailyActivity[] = useMemo(
 		() =>
 			(data?.activity ?? []).map((day) =>
@@ -299,7 +300,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 						description={`Compare ${dimensionNoun} usage across the selected range`}
 					/>
 				)}
-				<TokenUsageCard activity={activity} loading={isLoading} />
+				<TokenUsageCard activity={rawActivity} loading={isLoading} />
 				{groupBy === "model" ? (
 					<CostByModelCard activity={activity} loading={isLoading} />
 				) : (

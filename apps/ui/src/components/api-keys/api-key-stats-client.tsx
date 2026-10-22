@@ -118,6 +118,7 @@ export function ApiKeyStatsClient({
 		},
 	);
 
+	const rawActivity = useMemo(() => data?.activity ?? [], [data]);
 	const activity = useMemo(
 		() =>
 			(data?.activity ?? []).map((day) =>
@@ -223,7 +224,7 @@ export function ApiKeyStatsClient({
 					loading={isLoading}
 					description="Stacked breakdown of the top 10 models used by this API key"
 				/>
-				<TokenUsageCard activity={activity} loading={isLoading} />
+				<TokenUsageCard activity={rawActivity} loading={isLoading} />
 				<CostByModelCard
 					activity={activity}
 					loading={isLoading}
