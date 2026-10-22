@@ -1800,89 +1800,6 @@ describe("handlePaymentIntentFailed — dunning email links", () => {
 	});
 });
 
-describe("webhook route — malformed signature header", () => {
-	const realStripe = new Stripe("sk_test_dummy");
-	const now = Math.floor(Date.now() / 1000);
-
-	afterEach(() => {
-		stripeMock.webhooks.constructEvent.mockReset();
-	});
-
-	// An empty `v1` entry makes the SDK call secureCompare(expected, "") and
-	// throw a plain Error instead of StripeSignatureVerificationError.
-	test.each([`t=${now},v1=`, `t=${now},v1`, `t=${now},v1=,v1=abc`])(
-		"returns 400 and warns for %s",
-		async (header) => {
-			const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
-			process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
-			stripeMock.webhooks.constructEvent.mockImplementation(
-				(body: string, sig: string, secret: string) =>
-					realStripe.webhooks.constructEvent(body, sig, secret),
-			);
-			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
-			const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
-
-			try {
-				const res = await stripeRoutes.request("/webhook", {
-					method: "POST",
-					headers: { "stripe-signature": header },
-					body: JSON.stringify({ type: "checkout.session.completed" }),
-				});
-
-				expect(res.status).toBe(400);
-				expect(await res.text()).toContain("Invalid signature");
-				expect(warnSpy).toHaveBeenCalledWith(
-					"Ignoring Stripe webhook with invalid signature",
-					expect.objectContaining({ message: expect.any(String) }),
-				);
-				expect(errorSpy).not.toHaveBeenCalled();
-			} finally {
-				warnSpy.mockRestore();
-				errorSpy.mockRestore();
-				if (previousSecret === undefined) {
-					delete process.env.STRIPE_WEBHOOK_SECRET;
-				} else {
-					process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
-				}
-			}
-		},
-	);
-
-	test("still accepts a correctly signed event", async () => {
-		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
-		process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
-		stripeMock.webhooks.constructEvent.mockImplementation(
-			(body: string, sig: string, secret: string) =>
-				realStripe.webhooks.constructEvent(body, sig, secret),
-		);
-		const payload = JSON.stringify({
-			id: "evt_test_signed",
-			type: "test.unhandled",
-			data: { object: {} },
-		});
-		const header = realStripe.webhooks.generateTestHeaderString({
-			payload,
-			secret: "whsec_test_secret",
-		});
-
-		try {
-			const res = await stripeRoutes.request("/webhook", {
-				method: "POST",
-				headers: { "stripe-signature": header },
-				body: payload,
-			});
-
-			expect(res.status).toBe(200);
-		} finally {
-			if (previousSecret === undefined) {
-				delete process.env.STRIPE_WEBHOOK_SECRET;
-			} else {
-				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
-			}
-		}
-	});
-});
-
 describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", () => {
 	beforeEach(async () => {
 		await deleteAll();
@@ -2258,43 +2175,70 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 
 describe("webhook route — invalid signature", () => {
 	const realStripe = new Stripe("sk_test_dummy");
+	const secret = "whsec_test_secret";
+	const now = Math.floor(Date.now() / 1000);
+
+	beforeEach(() => {
+		vi.stubEnv("STRIPE_WEBHOOK_SECRET", secret);
+		// Defer to the real Stripe SDK so its actual errors reach the handler.
+		stripeMock.webhooks.constructEvent.mockImplementation(
+			(body: string, sig: string, webhookSecret: string) =>
+				realStripe.webhooks.constructEvent(body, sig, webhookSecret),
+		);
+	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
 		stripeMock.webhooks.constructEvent.mockReset();
 	});
 
-	test("logs a warning and returns 400 for a bogus signature", async () => {
-		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
-		process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
-		// Defer to the real Stripe SDK so an actual
-		// StripeSignatureVerificationError is thrown, exercising the handler's
-		// instanceof branch rather than a hand-rolled error.
-		stripeMock.webhooks.constructEvent.mockImplementation(
-			(body: string, sig: string, secret: string) =>
-				realStripe.webhooks.constructEvent(body, sig, secret),
-		);
+	// The empty, `v1==` and non-ASCII cases make the SDK throw a plain Error or
+	// RangeError rather than StripeSignatureVerificationError.
+	test.each([
+		"fake_signature",
+		`t=${now},v1=abc`,
+		`t=${now},v1=`,
+		`t=${now},v1`,
+		`t=${now},v1==abc`,
+		`t=${now},v1=,v1=abc`,
+		`t=${now},v1=${"é".repeat(64)}`,
+	])("returns 400 and warns for %s", async (header) => {
 		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
 
-		try {
-			const res = await stripeRoutes.request("/webhook", {
-				method: "POST",
-				headers: { "stripe-signature": "fake_signature" },
-				body: JSON.stringify({ type: "checkout.session.completed" }),
-			});
+		const res = await stripeRoutes.request("/webhook", {
+			method: "POST",
+			headers: { "stripe-signature": header },
+			body: JSON.stringify({ type: "checkout.session.completed" }),
+		});
 
-			expect(res.status).toBe(400);
-			expect(await res.text()).toContain("Invalid signature");
-			expect(warnSpy).toHaveBeenCalledWith(
-				"Ignoring Stripe webhook with invalid signature",
-				expect.objectContaining({ message: expect.any(String) }),
-			);
-		} finally {
-			warnSpy.mockRestore();
-			if (previousSecret === undefined) {
-				delete process.env.STRIPE_WEBHOOK_SECRET;
-			} else {
-				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
-			}
-		}
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("Invalid signature");
+		expect(warnSpy).toHaveBeenCalledWith(
+			"Ignoring Stripe webhook with invalid signature",
+			expect.objectContaining({ message: expect.any(String) }),
+		);
+		expect(errorSpy).not.toHaveBeenCalled();
+	});
+
+	test("accepts a correctly signed event", async () => {
+		const payload = JSON.stringify({
+			id: "evt_test_signed",
+			type: "test.unhandled",
+			data: { object: {} },
+		});
+		const header = realStripe.webhooks.generateTestHeaderString({
+			payload,
+			secret,
+		});
+
+		const res = await stripeRoutes.request("/webhook", {
+			method: "POST",
+			headers: { "stripe-signature": header },
+			body: payload,
+		});
+
+		expect(res.status).toBe(200);
 	});
 });

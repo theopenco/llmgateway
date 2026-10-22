@@ -314,17 +314,19 @@ const webhookHandler = createRoute({
 /** A `stripe-signature` header the Stripe SDK cannot verify without crashing. */
 class MalformedStripeSignatureError extends Error {}
 
+const STRIPE_V1_SIGNATURE = /^[0-9a-f]+$/;
+
 /**
- * The SDK compares every `v1=` entry with `secureCompare`, which throws a plain
- * Error (not StripeSignatureVerificationError) on an empty value. Stripe never
- * sends one, so reject such headers before verification.
+ * The SDK's `secureCompare` throws a plain Error on an empty `v1` value and a
+ * RangeError on a non-ASCII one, instead of StripeSignatureVerificationError.
+ * Stripe always sends lowercase hex, so reject anything else before verifying.
  */
 function assertWellFormedSignatureHeader(sig: string): void {
 	for (const item of sig.split(",")) {
-		const [key, value] = item.split("=");
-		if (key === "v1" && !value) {
+		const [key, value = ""] = item.split("=");
+		if (key === "v1" && !STRIPE_V1_SIGNATURE.test(value)) {
 			throw new MalformedStripeSignatureError(
-				"stripe-signature header has an empty v1 signature",
+				"stripe-signature header has a malformed v1 signature",
 			);
 		}
 	}
