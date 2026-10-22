@@ -14,12 +14,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "AI Models for Coding",
 	description:
-		"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
+		"High-performance AI models optimized for coding tasks with tool support, streaming, and prompt caching.",
 	alternates: { canonical: "/coding-models" },
 	openGraph: {
 		title: "AI Models for Coding | DevPass",
 		description:
-			"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
+			"High-performance AI models optimized for coding tasks with tool support, streaming, and prompt caching.",
 		type: "website",
 		url: "https://devpass.llmgateway.io/coding-models",
 	},
@@ -51,7 +51,7 @@ export default function CodingModelsPage() {
 						</h1>
 						<p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
 							High-performance models optimized for coding tasks. All models
-							support tool calling, JSON output, streaming, and prompt caching.
+							support tool calling, streaming, and prompt caching.
 						</p>
 						<div className="flex gap-4 justify-center">
 							<Button size="lg" asChild>
@@ -82,7 +82,8 @@ export default function CodingModelsPage() {
 								</div>
 								<h3 className="font-semibold mb-2">JSON Output</h3>
 								<p className="text-sm text-muted-foreground">
-									Structured responses for seamless integration with your tools.
+									Structured responses on supported models. Check the model’s
+									capabilities before enabling JSON output.
 								</p>
 							</div>
 							<div className="text-center">
