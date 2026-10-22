@@ -11,6 +11,7 @@ import {
 	setMockVideoStatus,
 	setMockVideoAsset,
 	setMockVideoStatusResponse,
+	getMockVideos,
 } from "@/test-utils/mock-openai-server.js";
 import { clearCache } from "@/test-utils/test-helpers.js";
 
@@ -2791,6 +2792,52 @@ describe("videos", () => {
 				where: { id: { eq: created.id } },
 			});
 			expect(guarded?.status).not.toBe("completed");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	test("/v1/videos refuses to create a job on a BYOK base URL on an internal host", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			// Local mock server: a private address once the guard is on, as a
+			// rebound hostname would resolve at connect time.
+			baseUrl: mockServerUrl,
+		});
+		const mockVideosBefore = getMockVideos().length;
+
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		try {
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "atlascloud/kling-v3-0",
+					prompt: "A city street reflected in rain at night",
+					size: "1280x720",
+					seconds: 5,
+					audio: false,
+				}),
+			});
+			expect(createRes.status).not.toBe(200);
+			expect(getMockVideos()).toHaveLength(mockVideosBefore);
 		} finally {
 			vi.unstubAllEnvs();
 		}
