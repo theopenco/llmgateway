@@ -36,7 +36,7 @@ export function ChatSupportLauncher() {
 				"/public/chat-support/eligibility" as never,
 			);
 			if (res.error) {
-				return false;
+				throw new Error("Failed to load chat support eligibility");
 			}
 			return (res.data as unknown as { eligible: boolean }).eligible;
 		},

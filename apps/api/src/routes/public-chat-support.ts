@@ -89,6 +89,9 @@ const ESCALATE_GLOBAL_DAILY_LIMIT_MAX = 50;
 // restore, reactions, ratings) — generous for humans, stops hammering.
 const META_BURST_LIMIT_MAX = 30;
 const META_HOURLY_LIMIT_MAX = 300;
+// Per-user cap on the eligibility lookup every route performs.
+const ELIGIBILITY_BURST_LIMIT_MAX = 40;
+const ELIGIBILITY_HOURLY_LIMIT_MAX = 600;
 const CONVERSATION_TTL_SECONDS = 60 * 60; // 1 hour
 const MAX_CONTEXT_MESSAGES = 30;
 
@@ -564,6 +567,31 @@ publicChatSupport.use("*", async (c, next) => {
 	}
 	c.set("user", session.user);
 	c.set("session", session.session);
+	return await next();
+});
+
+// Every route runs an eligibility lookup, so bound those per user before any
+// DB work. Separate from the support-action buckets and sized above their
+// combined caps so it never blocks normal widget use.
+publicChatSupport.use("*", async (c, next) => {
+	const identifier = `user:${c.get("user")!.id}`;
+	const burstOk = await checkRateLimit(
+		identifier,
+		"eligibility_burst",
+		ELIGIBILITY_BURST_LIMIT_MAX,
+		BURST_LIMIT_WINDOW_SECONDS,
+	);
+	const hourOk =
+		burstOk &&
+		(await checkRateLimit(
+			identifier,
+			"eligibility_hour",
+			ELIGIBILITY_HOURLY_LIMIT_MAX,
+			RATE_LIMIT_WINDOW_SECONDS,
+		));
+	if (!hourOk) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
 	return await next();
 });
 

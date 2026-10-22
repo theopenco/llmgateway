@@ -115,6 +115,18 @@ describe("public chat support eligibility", () => {
 		}
 	});
 
+	it("rate limits eligibility lookups per user", async () => {
+		const key = await seedLimit("eligibility_burst", "user:test-user-id", 40);
+		try {
+			expect((await getEligibility()).status).toBe(429);
+			expect((await sendMessage(uniqueIp(), uniqueClientId())).status).toBe(
+				429,
+			);
+		} finally {
+			await redisClient.del(key);
+		}
+	});
+
 	it("treats a completed payment as paid", async () => {
 		await setPlan("free");
 		const [row] = await db
