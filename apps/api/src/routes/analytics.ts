@@ -963,6 +963,10 @@ const orgActivityRowSchema = z.object({
 	requestCount: z.number(),
 	totalTokens: z.number(),
 	...modeSplitSchema,
+	// Billed on top of `cost`. Absent on the timeseries response shape.
+	dataStorageCost: z.number().optional(),
+	creditsDataStorageCost: z.number().optional(),
+	apiKeysDataStorageCost: z.number().optional(),
 	breakdown: z.array(orgActivityBreakdownSchema),
 });
 
@@ -1073,6 +1077,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 				apiKeysRequestCount: 0,
 				creditsCost: 0,
 				apiKeysCost: 0,
+				dataStorageCost: 0,
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
 				breakdown: [],
 			})),
 			groupBy,
@@ -1096,6 +1103,18 @@ analytics.openapi(getOrgActivity, async (c) => {
 			totalTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
+				),
+			dataStorageCost:
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.dataStorageCost} as double precision)), 0)`.as(
+					"data_storage_cost",
+				),
+			creditsDataStorageCost:
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsDataStorageCost} as double precision)), 0)`.as(
+					"credits_data_storage_cost",
+				),
+			apiKeysDataStorageCost:
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`.as(
+					"api_keys_data_storage_cost",
 				),
 			...modeSplitFields(projectHourlyStats),
 		})
@@ -1328,6 +1347,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 			apiKeysRequestCount: Number(totals?.apiKeysRequestCount ?? 0),
 			creditsCost: Number(totals?.creditsCost ?? 0),
 			apiKeysCost: Number(totals?.apiKeysCost ?? 0),
+			dataStorageCost: Number(totals?.dataStorageCost ?? 0),
+			creditsDataStorageCost: Number(totals?.creditsDataStorageCost ?? 0),
+			apiKeysDataStorageCost: Number(totals?.apiKeysDataStorageCost ?? 0),
 			breakdown: dayMap
 				? Array.from(dayMap.entries()).map(([key, v]) => ({
 						key,

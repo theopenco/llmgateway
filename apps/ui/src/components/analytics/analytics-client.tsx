@@ -65,7 +65,8 @@ const COPY: Record<
 		option: "Breakdown by API key",
 		overTime: "Cost by API key over time",
 		ranked: "Cost by API key",
-		description: "Cost and usage broken down by API key for this project",
+		description:
+			"Cost and usage broken down by API key for this project. Traffic from platform keys is shown as Unattributed.",
 	},
 	user: {
 		option: "Breakdown by user",
@@ -205,7 +206,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	);
 
 	// Totals come from the same rows the charts read. Storage is billed on top of
-	// inference, so the cost card adds it while the per-model charts cannot.
+	// inference; the cards add it and the charts show it as its own series.
 	const totals = useMemo(
 		() =>
 			activity.reduce(
