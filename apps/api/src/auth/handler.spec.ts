@@ -39,6 +39,19 @@ function isOurBlock(status: number, body: unknown): boolean {
 	);
 }
 
+describe("OAuth callback without state", () => {
+	test("redirects to the UI login page with an error code", async () => {
+		const response = await app.request("/auth/callback/github?code=abc", {
+			method: "GET",
+		});
+
+		expect(response.status).toBe(302);
+		const location = new URL(response.headers.get("location") ?? "");
+		expect(location.pathname).toBe("/login");
+		expect(location.searchParams.get("error")).toBe("state_not_found");
+	});
+});
+
 describe("SSO plugin management endpoint blocking", () => {
 	test.each(BLOCKED_PATHS)("blocks POST %s with 404", async (path) => {
 		const response = await app.request(path, {
