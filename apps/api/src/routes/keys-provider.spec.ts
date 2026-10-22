@@ -1368,24 +1368,31 @@ describe("provider keys route", () => {
 			});
 		}
 
-		test("defaults to off on create", async () => {
+		test("defaults to on for new custom keys", async () => {
 			await setPlan("enterprise");
 			const res = await createCustom({});
 			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.providerKey.forwardCacheControl).toBe(false);
+			expect(json.providerKey.forwardCacheControl).toBe(true);
 		});
 
-		test("stores the flag on create", async () => {
+		test("stores an explicit opt-out on create", async () => {
 			await setPlan("enterprise");
-			const res = await createCustom({ forwardCacheControl: true });
+			const res = await createCustom({ forwardCacheControl: false });
 			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.providerKey.forwardCacheControl).toBe(true);
+			expect(json.providerKey.forwardCacheControl).toBe(false);
 			const row = await db.query.providerKey.findFirst({
 				where: { id: { eq: json.providerKey.id } },
 			});
-			expect(row?.forwardCacheControl).toBe(true);
+			expect(row?.forwardCacheControl).toBe(false);
+		});
+
+		test("stays off for catalogue provider keys and pre-existing rows", async () => {
+			const row = await db.query.providerKey.findFirst({
+				where: { id: { eq: "test-provider-key-id" } },
+			});
+			expect(row?.forwardCacheControl).toBe(false);
 		});
 
 		test("rejects the flag on a catalogue provider", async () => {
@@ -1410,7 +1417,7 @@ describe("provider keys route", () => {
 
 		test("PATCH toggles the flag and audits the change", async () => {
 			await setPlan("enterprise");
-			const created = await createCustom({});
+			const created = await createCustom({ forwardCacheControl: false });
 			const { providerKey } = await created.json();
 
 			const on = await patchKey(providerKey.id, true);

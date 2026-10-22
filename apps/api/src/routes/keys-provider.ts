@@ -814,7 +814,10 @@ keysProvider.openapi(create, async (c) => {
 			options: storedOptions,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
-			forwardCacheControl: forwardCacheControl ?? false,
+			// New custom keys forward by default; the column default (false) keeps
+			// keys created before this setting existed on the old behaviour.
+			forwardCacheControl:
+				provider === "custom" ? (forwardCacheControl ?? true) : false,
 			...providerKeyRateLimitUpdates(rateLimitInput),
 		})
 		.returning();
@@ -829,7 +832,7 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
-			...(forwardCacheControl && { forwardCacheControl }),
+			...(providerKey.forwardCacheControl && { forwardCacheControl: true }),
 		},
 	});
 

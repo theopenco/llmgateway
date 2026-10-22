@@ -1684,7 +1684,9 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			tokenMasked: maskToken(token),
 			tokenHash: getApiKeyFingerprint(token),
 			customModelsOnly: customModelsOnly ?? false,
-			forwardCacheControl: forwardCacheControl ?? false,
+			// New keys forward by default; the column default (false) keeps keys
+			// created before this setting existed on the old behaviour.
+			forwardCacheControl: forwardCacheControl ?? true,
 			complianceAttestation: complianceAttestation
 				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
 				: null,
@@ -1700,7 +1702,7 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		metadata: {
 			provider: "custom",
 			resourceName: name,
-			...(forwardCacheControl && { forwardCacheControl }),
+			forwardCacheControl: providerKey.forwardCacheControl,
 		},
 	});
 

@@ -63,7 +63,7 @@ export function CreateProviderKeyDialog({
 	);
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
-	const [forwardCacheControl, setForwardCacheControl] = useState(false);
+	const [forwardCacheControl, setForwardCacheControl] = useState(true);
 	const [token, setToken] = useState("");
 	const [description, setDescription] = useState("");
 	const [azureResource, setAzureResource] = useState("");
@@ -258,8 +258,8 @@ export function CreateProviderKeyDialog({
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
 		}
-		if (selectedProvider === "custom" && forwardCacheControl) {
-			payload.forwardCacheControl = true;
+		if (selectedProvider === "custom") {
+			payload.forwardCacheControl = forwardCacheControl;
 		}
 		// A custom provider's models live in the organization's own catalogue, so
 		// there is nothing for a canonical-id restriction to match; the API rejects
@@ -449,7 +449,7 @@ export function CreateProviderKeyDialog({
 			setSelectedProvider(preselectedProvider ?? "");
 			setBaseUrl("");
 			setCustomName("");
-			setForwardCacheControl(false);
+			setForwardCacheControl(true);
 			setToken("");
 			setDescription("");
 			setAzureResource("");
@@ -863,9 +863,8 @@ export function CreateProviderKeyDialog({
 											</Label>
 											<p className="text-sm text-muted-foreground">
 												Sends your requests' <code>cache_control</code> markers
-												to this provider instead of stripping them. Turn on only
-												if its API accepts them, for example a router serving
-												Claude models.
+												to this provider instead of stripping them. Turn off if
+												its API rejects unknown fields.
 											</p>
 										</div>
 									</div>

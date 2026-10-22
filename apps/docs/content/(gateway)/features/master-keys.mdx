@@ -775,7 +775,7 @@ Body parameters:
 | `baseUrl`               | string             | OpenAI-compatible base URL. Internal/reserved addresses are rejected                         |
 | `token`                 | string             | Upstream API key. Stored server-side, never returned                                         |
 | `customModelsOnly`      | boolean (optional) | Restrict the provider to models defined in your custom catalog. Default `false`              |
-| `forwardCacheControl`   | boolean (optional) | Forward `cache_control` markers to the provider instead of stripping them. Default `false`   |
+| `forwardCacheControl`   | boolean (optional) | Forward `cache_control` markers to the provider instead of stripping them. Default `true`    |
 | `complianceAttestation` | object (optional)  | Self-attested compliance posture. `attestedAt` / `attestedByUserId` are stamped server-side  |
 
 Response (201): the created custom provider.
