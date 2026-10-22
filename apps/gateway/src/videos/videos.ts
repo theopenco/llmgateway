@@ -724,6 +724,8 @@ interface RequestContext {
 interface ProviderContext {
 	providerId: Provider;
 	baseUrl: string;
+	/** BYOK base URL; set means the upstream connection gets the SSRF guard. */
+	tenantBaseUrl: string | null;
 	token: string;
 	requestId: string;
 	usedMode: "api-keys" | "credits";
@@ -1700,6 +1702,7 @@ function resolveByokVideoProviderContext(
 	return {
 		providerId,
 		baseUrl: settings.baseUrl,
+		tenantBaseUrl: providerKey.baseUrl ?? null,
 		token: readProviderKey(providerKey),
 		requestId,
 		usedMode: "api-keys",
@@ -1849,6 +1852,7 @@ async function resolvePlatformVideoProviderContext(
 	return {
 		providerId,
 		baseUrl,
+		tenantBaseUrl: null,
 		token: platformCredential.token,
 		requestId,
 		usedMode: "credits",
@@ -3063,10 +3067,14 @@ function isDebugMode(c: Context): boolean {
 async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
-	providerId: string,
+	providerContext: Pick<ProviderContext, "providerId" | "tenantBaseUrl">,
 ): Promise<Record<string, unknown>> {
-	// SSRF: never follow redirects on a tenant-baseUrl provider request.
-	const response = await fetchProvider(url, init);
+	const { providerId } = providerContext;
+	const response = await fetchProvider(
+		url,
+		init,
+		providerContext.tenantBaseUrl,
+	);
 	const text = await response.text();
 	let body: Record<string, unknown> = {};
 
@@ -3277,7 +3285,7 @@ async function createOpenAIVideoJob(
 			},
 			body: upstreamBody,
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3403,7 +3411,7 @@ async function createGoogleVertexVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 	const upstreamId =
 		typeof rawResponse.name === "string" && rawResponse.name.length > 0
@@ -3480,7 +3488,7 @@ async function uploadAtlasCloudMedia(
 			}),
 			body: formData,
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 	const uploadedUrl = extractAtlasCloudUploadedMediaUrl(response);
 
@@ -3642,7 +3650,7 @@ async function createAtlasCloudVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -3781,7 +3789,7 @@ async function createBytedanceVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -3868,7 +3876,7 @@ async function createMinimaxV2VideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -3944,7 +3952,7 @@ async function createMinimaxVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const baseResp = rawResponse.base_resp as
@@ -4017,7 +4025,7 @@ async function createXaiVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -4080,7 +4088,7 @@ async function createAlibabaVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const output =
