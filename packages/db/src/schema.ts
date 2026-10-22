@@ -3955,6 +3955,7 @@ export const modelProviderMappingHistory = snakeCase.table(
 		totalTokens: integer().notNull().default(0),
 		totalReasoningTokens: integer().notNull().default(0),
 		totalCachedTokens: integer().notNull().default(0),
+		totalCacheWriteTokens: integer().notNull().default(0),
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
@@ -3966,12 +3967,13 @@ export const modelProviderMappingHistory = snakeCase.table(
 		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 		// Per-token-type slices of totalCost, so the admin dashboard can attribute
-		// spend to input/cached/output tokens instead of only showing one lump sum.
-		// They do not necessarily add up to totalCost, which also covers per-request,
-		// image, audio, video and cache-write charges.
+		// spend to input/cached/cache-write/output tokens instead of only showing one
+		// lump sum. They do not necessarily add up to totalCost, which also covers
+		// per-request, image, audio and video charges.
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		totalCacheWriteInputCost: real().notNull().default(0),
 		// Service-tier coverage. `explicit` counts requests that asked for a
 		// premium tier themselves; `implicit` counts the dev-plan default the
 		// gateway applies on the org's behalf, which still narrows routing to
@@ -4078,6 +4080,7 @@ export const modelHistory = snakeCase.table(
 		totalTokens: integer().notNull().default(0),
 		totalReasoningTokens: integer().notNull().default(0),
 		totalCachedTokens: integer().notNull().default(0),
+		totalCacheWriteTokens: integer().notNull().default(0),
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
@@ -4090,6 +4093,7 @@ export const modelHistory = snakeCase.table(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		totalCacheWriteInputCost: real().notNull().default(0),
 		// See model_provider_mapping_history: service-tier coverage counters. These
 		// are the model-level totals, i.e. the denominator for "what share of this
 		// model's traffic carries a service tier".
@@ -4154,6 +4158,7 @@ export const modelProviderMappingHistoryHourly = snakeCase.table(
 		totalTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalReasoningTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalCachedTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalCacheWriteTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
@@ -4166,6 +4171,7 @@ export const modelProviderMappingHistoryHourly = snakeCase.table(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		totalCacheWriteInputCost: real().notNull().default(0),
 		// See model_provider_mapping_history: service-tier coverage counters.
 		serviceTierExplicitCount: integer().notNull().default(0),
 		serviceTierImplicitCount: integer().notNull().default(0),
@@ -4292,6 +4298,7 @@ export const modelHistoryHourly = snakeCase.table(
 		totalTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalReasoningTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalCachedTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalCacheWriteTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
@@ -4304,6 +4311,7 @@ export const modelHistoryHourly = snakeCase.table(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		totalCacheWriteInputCost: real().notNull().default(0),
 		// See model_provider_mapping_history: service-tier coverage counters.
 		serviceTierExplicitCount: integer().notNull().default(0),
 		serviceTierImplicitCount: integer().notNull().default(0),
