@@ -35,7 +35,9 @@ The **Group by** selector switches which dimension the two charts break the proj
 
 **Breakdown by user** answers "what is each person on this team costing us?" in the same view as the project total. It is available to organization owners and admins on the Enterprise plan — see [Member Analytics](/learn/member-analytics).
 
-Spend is attributed to whoever **created** the API key that made each request. Traffic from platform keys has no member behind it, so it is shown as **Unattributed** rather than dropped, keeping the per-member rows summing to the project total.
+Spend is attributed to whoever **created** the API key that made each request. Traffic from platform keys has no member behind it, so the API key and user breakdowns show it as **Unattributed** rather than dropping it.
+
+Every breakdown adds up to the total cost card: data storage, billed on top of inference, appears as a **Storage** entry, and the over-time charts collapse everything past the top 10 into **Other**.
 
 ## Cost by Model
 
