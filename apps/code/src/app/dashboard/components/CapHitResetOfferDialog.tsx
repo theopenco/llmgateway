@@ -20,7 +20,6 @@ import { getCookie, setCookie } from "@/lib/cookies";
 
 import {
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
-	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
 	formatDateTime,
 	getDevPlanCycleUsageFraction,
 	useDisplayTimeZone,
@@ -75,8 +74,7 @@ export default function CapHitResetOfferDialog({
 		cycleCreditsLimit,
 	);
 	const available = includedRemaining + purchased;
-	const canRedeem =
-		available > 0 && cycleUsage <= DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE;
+	const canRedeem = available > 0 && !monthlyExhausted;
 	const canPurchase =
 		price !== null &&
 		cycleUsage <= DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE;

@@ -54,6 +54,7 @@ export function RefundReasonFieldset({
 					<label key={option.value} className="cursor-pointer">
 						<input
 							type="radio"
+							required
 							name={`refund-reason-${idPrefix}`}
 							value={option.value}
 							checked={reason === option.value}
@@ -80,6 +81,7 @@ export function RefundReasonFieldset({
 						id={`refund-comments-${idPrefix}`}
 						value={comments}
 						onChange={(e) => onCommentsChange(e.target.value)}
+						required={refundCommentsRequired(selectedReason.value)}
 						maxLength={REFUND_COMMENTS_MAX_LENGTH}
 						rows={3}
 						placeholder={selectedReason.placeholder}
