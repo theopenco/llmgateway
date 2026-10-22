@@ -13,6 +13,7 @@ import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { createLogger } from "@llmgateway/logger";
 
 import { getSamplerConfig } from "./samplers/config.js";
+import { FinalStatusSpanProcessor } from "./samplers/final-status-processor.js";
 
 const logger = createLogger({ name: "instrumentation" });
 
@@ -32,9 +33,16 @@ export function initializeInstrumentation(
 	});
 
 	// Use BatchSpanProcessor as recommended by Google Cloud documentation
-	const spanProcessor = new BatchSpanProcessor(traceExporter);
+	const batchProcessor = new BatchSpanProcessor(traceExporter);
 
-	const { sampler, description: samplingDescription } = getSamplerConfig();
+	const {
+		sampler,
+		completionSampler,
+		description: samplingDescription,
+	} = getSamplerConfig();
+	const spanProcessor = completionSampler
+		? new FinalStatusSpanProcessor(batchProcessor, completionSampler)
+		: batchProcessor;
 
 	// Configure composite propagator to support both W3C and Google Cloud formats
 	const propagator = new CompositePropagator({
