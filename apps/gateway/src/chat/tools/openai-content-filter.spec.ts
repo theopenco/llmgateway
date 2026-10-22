@@ -683,6 +683,7 @@ describe("checkOpenAIContentFilter", () => {
 	it("logs an upstream 5xx error page by its title", async () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+		vi.spyOn(logger, "warn").mockImplementation(() => {});
 
 		vi.spyOn(globalThis, "fetch").mockImplementation(
 			async () =>
@@ -835,6 +836,50 @@ describe("checkOpenAIContentFilter", () => {
 			);
 		});
 
+		it("rethrows a request abort that lands before the retry", async () => {
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			vi.spyOn(logger, "warn").mockImplementation(() => {});
+			vi.spyOn(logger, "error").mockImplementation(() => {});
+			const controller = new AbortController();
+			const abortError = new DOMException("aborted", "AbortError");
+			vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+				if (init?.signal?.aborted) {
+					throw init.signal.reason;
+				}
+				controller.abort(abortError);
+				return envoy503();
+			});
+
+			await expect(
+				checkOpenAIContentFilter(
+					[{ role: "user", content: "hello" }],
+					CONTEXT,
+					controller.signal,
+				),
+			).rejects.toBe(abortError);
+		});
+
+		it("fails open as a timeout when the budget runs out before the retry", async () => {
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			vi.spyOn(logger, "warn").mockImplementation(() => {});
+			vi.spyOn(logger, "error").mockImplementation(() => {});
+			vi.spyOn(globalThis, "fetch")
+				.mockImplementationOnce(async () => envoy503())
+				.mockRejectedValueOnce(
+					new DOMException("signal timed out", "TimeoutError"),
+				);
+
+			const result = await checkOpenAIContentFilter(
+				[{ role: "user", content: "hello" }],
+				CONTEXT,
+			);
+
+			expect(result.flagged).toBe(false);
+			expect(result.errors).toEqual([
+				expect.objectContaining({ kind: "timeout" }),
+			]);
+		});
+
 		it("does not retry a rejected credential and logs it as an error", async () => {
 			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
@@ -874,6 +919,7 @@ describe("checkOpenAIContentFilter", () => {
 			.spyOn(logger, "error")
 			.mockImplementation(() => {});
 
+		vi.spyOn(logger, "warn").mockImplementation(() => {});
 		vi.spyOn(globalThis, "fetch").mockRejectedValue(
 			new TypeError("fetch failed", {
 				cause: Object.assign(new Error("connect ETIMEDOUT 10.0.0.1:443"), {
@@ -976,6 +1022,7 @@ describe("checkOpenAIContentFilter", () => {
 		const loggerErrorSpy = vi
 			.spyOn(logger, "error")
 			.mockImplementation(() => {});
+		vi.spyOn(logger, "warn").mockImplementation(() => {});
 		const error = Object.assign(new TypeError("fetch failed"), {
 			cause: undefined as unknown,
 		});
