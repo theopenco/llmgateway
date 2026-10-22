@@ -45,13 +45,26 @@ describe("splitCost", () => {
 	it("absorbs rounding noise instead of reporting it as other", () => {
 		const split = splitCost({
 			cost: 400,
-			inputCost: 150.004,
-			outputCost: 249.99,
+			inputCost: 150.002,
+			outputCost: 249.997,
 			cachedInputCost: 0,
 			cacheWriteInputCost: 0,
 		});
 		expect(split.other).toBe(0);
 		expect(segmentSum(split)).toBeCloseTo(400);
+	});
+
+	it("keeps a small real fee on a large total as other", () => {
+		const split = splitCost({
+			cost: 1000,
+			inputCost: 600,
+			outputCost: 399.5,
+			cachedInputCost: 0,
+			cacheWriteInputCost: 0,
+		});
+		expect(split.other).toBeCloseTo(0.5);
+		expect(split.input).toBe(600);
+		expect(segmentSum(split)).toBeCloseTo(1000);
 	});
 
 	it("scales token components down when they exceed cost", () => {

@@ -8,7 +8,7 @@
  * image, audio, video, web search) is reported as "other". When the token
  * components exceed `cost` (discounts, or a billing-mode view where `cost` is
  * the credits/BYOK share but the components are blended) or miss it only by
- * rounding noise, they are scaled proportionally so the stack matches the
+ * float precision noise, they are scaled proportionally so the stack matches the
  * total exactly.
  */
 export interface CostComponents {
@@ -38,9 +38,11 @@ export const COST_SEGMENTS: readonly {
 	{ key: "storage", label: "Storage", color: "#6366f1" },
 ];
 
-// A remainder within 0.1% of cost is rounding noise from summing rollup rows,
-// not real non-token spend.
-const REMAINDER_TOLERANCE = 0.001;
+// Rollup costs are float4 (~7 significant digits), so summing a range of
+// hourly rows drifts by roughly 1e-5 of the total at most. A gap inside that
+// bound is precision noise; anything larger is a real non-token fee.
+const FLOAT_RELATIVE_TOLERANCE = 1e-5;
+const FLOAT_ABSOLUTE_TOLERANCE = 1e-6;
 
 function nonNegative(value: number | null | undefined): number {
 	const n = Number(value);
@@ -58,9 +60,12 @@ export function splitCost(row: CostComponents): CostSplit {
 	};
 	const tokenTotal =
 		tokens.input + tokens.output + tokens.cachedInput + tokens.cacheWrite;
-	const tolerance = cost * REMAINDER_TOLERANCE;
+	const tolerance = Math.max(
+		cost * FLOAT_RELATIVE_TOLERANCE,
+		FLOAT_ABSOLUTE_TOLERANCE,
+	);
 	// Fit the token components to cost exactly when they overshoot it or the
-	// gap is only rounding noise; otherwise the gap is real "other" spend.
+	// gap is only float noise; otherwise the gap is real "other" spend.
 	const fitted = tokenTotal > 0 && cost - tokenTotal <= tolerance;
 	const scale = fitted ? cost / tokenTotal : 1;
 	return {
