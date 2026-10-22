@@ -1920,7 +1920,15 @@ const globalStatsRangeSchema = z.enum([
 	"365d",
 	"all",
 ]);
-const globalStatsGroupBySchema = z.enum(["model", "source", "mode", "kind"]);
+const globalStatsGroupBySchema = z.enum([
+	"model",
+	"source",
+	"mode",
+	"kind",
+	"providerKey",
+]);
+// Breakdown key for traffic no provider key served (env-var credentials).
+const GLOBAL_STATS_NO_PROVIDER_KEY = "none";
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
 // Billing mode filter. "total" blends every mode, including the "unknown"
 // rows that predate per-mode attribution.
@@ -2214,67 +2222,69 @@ admin.openapi(getGlobalStats, async (c) => {
 		startDate = new Date(endDate.getTime() - (days - 1) * dayMs); // eslint-disable-line no-mixed-operators
 	}
 
-	const metricSums = {
+	const metricSumsFor = (table: typeof sourceTable) => ({
 		// Counts are exact (SUM(int) accumulates in bigint) but this endpoint sums
 		// all of history, so the result is carried as float8 rather than narrowed
 		// back to int4 — a cross-tenant all-time request count outgrows 2^31.
 		requestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(${table.requestCount}), 0)::float8`.as(
 				"requestCount",
 			),
 		errorCount:
-			sql<number>`COALESCE(SUM(GREATEST(${sourceTable.errorCount} - ${sourceTable.clientErrorCount}, 0)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(GREATEST(${table.errorCount} - ${table.clientErrorCount}, 0)), 0)::float8`.as(
 				"errorCount",
 			),
-		cacheCount:
-			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::float8`.as(
-				"cacheCount",
-			),
+		cacheCount: sql<number>`COALESCE(SUM(${table.cacheCount}), 0)::float8`.as(
+			"cacheCount",
+		),
 		inputTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.inputTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.inputTokens} AS NUMERIC)), 0)::float8`.as(
 				"inputTokens",
 			),
 		cachedTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.cachedTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.cachedTokens} AS NUMERIC)), 0)::float8`.as(
 				"cachedTokens",
 			),
 		cacheWriteTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.cacheWriteTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.cacheWriteTokens} AS NUMERIC)), 0)::float8`.as(
 				"cacheWriteTokens",
 			),
 		outputTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.outputTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.outputTokens} AS NUMERIC)), 0)::float8`.as(
 				"outputTokens",
 			),
 		reasoningTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.reasoningTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.reasoningTokens} AS NUMERIC)), 0)::float8`.as(
 				"reasoningTokens",
 			),
 		totalTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.totalTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.totalTokens} AS NUMERIC)), 0)::float8`.as(
 				"totalTokens",
 			),
-		cost: sumMoney(sourceTable.cost, "cost"),
-		inputCost: sumMoney(sourceTable.inputCost, "inputCost"),
-		cachedInputCost: sumMoney(sourceTable.cachedInputCost, "cachedInputCost"),
+		cost: sumMoney(table.cost, "cost"),
+		inputCost: sumMoney(table.inputCost, "inputCost"),
+		cachedInputCost: sumMoney(table.cachedInputCost, "cachedInputCost"),
 		cacheWriteInputCost: sumMoney(
-			sourceTable.cacheWriteInputCost,
+			table.cacheWriteInputCost,
 			"cacheWriteInputCost",
 		),
-		outputCost: sumMoney(sourceTable.outputCost, "outputCost"),
-		requestCost: sumMoney(sourceTable.requestCost, "requestCost"),
-		imageInputCost: sumMoney(sourceTable.imageInputCost, "imageInputCost"),
-		imageOutputCost: sumMoney(sourceTable.imageOutputCost, "imageOutputCost"),
-		audioInputCost: sumMoney(sourceTable.audioInputCost, "audioInputCost"),
-		audioOutputCost: sumMoney(sourceTable.audioOutputCost, "audioOutputCost"),
-		videoOutputCost: sumMoney(sourceTable.videoOutputCost, "videoOutputCost"),
-	};
+		outputCost: sumMoney(table.outputCost, "outputCost"),
+		requestCost: sumMoney(table.requestCost, "requestCost"),
+		imageInputCost: sumMoney(table.imageInputCost, "imageInputCost"),
+		imageOutputCost: sumMoney(table.imageOutputCost, "imageOutputCost"),
+		audioInputCost: sumMoney(table.audioInputCost, "audioInputCost"),
+		audioOutputCost: sumMoney(table.audioOutputCost, "audioOutputCost"),
+		videoOutputCost: sumMoney(table.videoOutputCost, "videoOutputCost"),
+	});
+	const metricSums = metricSumsFor(sourceTable);
 
-	const dateExpr = hourly
-		? sql<string>`to_char(${timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.as(
-				"date",
-			)
-		: sql<string>`to_char(${timestamp}, 'YYYY-MM-DD')`.as("date");
+	const dateExprFor = (column: typeof timestamp) =>
+		hourly
+			? sql<string>`to_char(${column}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.as(
+					"date",
+				)
+			: sql<string>`to_char(${column}, 'YYYY-MM-DD')`.as("date");
+	const dateExpr = dateExprFor(timestamp);
 
 	const rangeFilter = and(
 		gte(timestamp, startDate),
@@ -2282,9 +2292,36 @@ admin.openapi(getGlobalStats, async (c) => {
 	);
 	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
+	// The provider-key grouping splits the per-credential table, while the
+	// totals and timeseries keep reading the full table: what no key served
+	// becomes its own row below instead of silently shrinking the page.
+	const byKeyGroup = groupBy === "providerKey";
+	const breakdownTable = byKeyGroup ? keyStats : sourceTable;
+	const breakdownTimestamp =
+		"hourTimestamp" in breakdownTable
+			? breakdownTable.hourTimestamp
+			: breakdownTable.dayTimestamp;
+	const breakdownSums = byKeyGroup ? metricSumsFor(keyStats) : metricSums;
+	const breakdownDateExpr = byKeyGroup
+		? dateExprFor(breakdownTimestamp)
+		: dateExpr;
+	const breakdownFilter = byKeyGroup
+		? and(
+				gte(breakdownTimestamp, startDate),
+				hourly
+					? lt(breakdownTimestamp, endDate)
+					: lte(breakdownTimestamp, endDate),
+				...(mode === "total" ? [] : [eq(keyStats.usedMode, mode)]),
+				...(kind === "all" ? [] : [eq(keyStats.orgKind, kind)]),
+				...(byKey ? [inArray(keyStats.providerKeyId, providerKeyIds)] : []),
+				...(provider ? [eq(keyStats.usedProvider, provider)] : []),
+			)
+		: scopeFilter;
+
 	// Group coarser model views in SQL instead of transferring every mapping.
-	const breakdownColumn =
-		groupBy === "model"
+	const breakdownColumn = byKeyGroup
+		? keyStats.providerKeyId
+		: groupBy === "model"
 			? modelView === "canonical"
 				? sql<string>`split_part(substring(${modelTable.usedModel} from position('/' in ${modelTable.usedModel}) + 1), ':', 1)`
 				: modelView === "provider"
@@ -2314,20 +2351,22 @@ admin.openapi(getGlobalStats, async (c) => {
 			.where(scopeFilter)
 			.groupBy(timestamp),
 		db
-			.select({ dimension: breakdownColumn, ...metricSums })
-			.from(sourceTable)
-			.where(scopeFilter)
+			.select({ dimension: breakdownColumn, ...breakdownSums })
+			.from(breakdownTable)
+			.where(breakdownFilter)
 			.groupBy(breakdownColumn),
 		includeTimeseriesBreakdown
 			? db
 					.select({
-						date: dateExpr,
+						date: breakdownDateExpr,
 						dimension: breakdownColumn,
-						...compositionSums,
+						requestCount: breakdownSums.requestCount,
+						cost: breakdownSums.cost,
+						totalTokens: breakdownSums.totalTokens,
 					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(timestamp, breakdownColumn)
+					.from(breakdownTable)
+					.where(breakdownFilter)
+					.groupBy(breakdownTimestamp, breakdownColumn)
 			: Promise.resolve([]),
 		// Both composition panels share this small mode × kind matrix. Each
 		// panel ignores its own filter while retaining the other dimension.
@@ -2382,15 +2421,11 @@ admin.openapi(getGlobalStats, async (c) => {
 		}
 	}
 
-	const breakdown = breakdownRows
-		.map((row) => ({
-			...toBreakdownMetrics(row),
-			key: row.dimension ?? "unknown",
-			label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
-		}))
-		.sort(
-			(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
-		);
+	const breakdown = breakdownRows.map((row) => ({
+		...toBreakdownMetrics(row),
+		key: row.dimension ?? "unknown",
+		label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
+	}));
 	const timeseriesBreakdown = timeseriesBreakdownRows.map((row) => ({
 		date: row.date,
 		key: row.dimension ?? "unknown",
@@ -2399,6 +2434,47 @@ admin.openapi(getGlobalStats, async (c) => {
 		cost: Number(row.cost),
 		totalTokens: Number(row.totalTokens),
 	}));
+
+	// Env-var credentials carry no provider key, so their traffic is the full
+	// table minus every key. A lagging per-credential rollup briefly inflates it.
+	if (byKeyGroup && !byKey) {
+		const label = globalStatsDimensionLabel(
+			groupBy,
+			GLOBAL_STATS_NO_PROVIDER_KEY,
+		);
+		const rest = subtractGlobalStatsMetrics(
+			GLOBAL_STATS_METRIC_KEYS,
+			totals,
+			breakdown,
+		);
+		if (rest.requestCount > 0) {
+			breakdown.push({ ...rest, key: GLOBAL_STATS_NO_PROVIDER_KEY, label });
+		}
+		const keyedByDate = new Map<string, typeof timeseriesBreakdown>();
+		for (const row of timeseriesBreakdown) {
+			const rows = keyedByDate.get(row.date) ?? [];
+			rows.push(row);
+			keyedByDate.set(row.date, rows);
+		}
+		for (const point of includeTimeseriesBreakdown ? timeseries : []) {
+			const restPoint = subtractGlobalStatsMetrics(
+				["requestCount", "cost", "totalTokens"] as const,
+				point,
+				keyedByDate.get(point.date) ?? [],
+			);
+			if (restPoint.requestCount > 0) {
+				timeseriesBreakdown.push({
+					...restPoint,
+					date: point.date,
+					key: GLOBAL_STATS_NO_PROVIDER_KEY,
+					label,
+				});
+			}
+		}
+	}
+	breakdown.sort(
+		(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
+	);
 
 	const compositionFor = (dimension: "mode" | "kind") => {
 		const rows = new Map<
@@ -2709,7 +2785,30 @@ function globalStatsDimensionLabel(dimension: string, key: string): string {
 	if (dimension === "kind") {
 		return GLOBAL_STATS_KIND_LABELS[key] ?? key;
 	}
+	if (dimension === "providerKey" && key === GLOBAL_STATS_NO_PROVIDER_KEY) {
+		return "No provider key (env-var credentials)";
+	}
 	return key;
+}
+
+// `total` minus every part, per metric, floored at zero against float drift.
+function subtractGlobalStatsMetrics<K extends string>(
+	keys: readonly K[],
+	total: Record<K, number>,
+	parts: readonly Record<K, number>[],
+): Record<K, number> {
+	return Object.fromEntries(
+		keys.map((key) => [
+			key,
+			Decimal.max(
+				parts.reduce(
+					(rest, part) => rest.minus(part[key]),
+					new Decimal(total[key]),
+				),
+				0,
+			).toNumber(),
+		]),
+	) as Record<K, number>;
 }
 
 function toBreakdownMetrics(
