@@ -78,13 +78,11 @@ function chance(p: number) {
 }
 
 function pick<T>(arr: readonly T[]): T {
-	return arr[cryptoRandomInt(0, arr.length - 1)];
+	return arr[cryptoRandomInt(0, arr.length)];
 }
 
 function hoursAgo(hours: number) {
-	const d = new Date();
-	d.setHours(d.getHours() - hours);
-	return d;
+	return new Date(Date.now() - hours * 60 * 60 * 1000);
 }
 
 function daysAgo(days: number) {
@@ -912,7 +910,7 @@ async function seedDemo() {
 	for (const proj of PROJECTS) {
 		for (let h = 0; h < 24 * 90; h++) {
 			const hourTs = hoursAgo(h);
-			hourTs.setMinutes(0, 0, 0);
+			hourTs.setUTCMinutes(0, 0, 0);
 			// Diurnal shape plus a mild upward trend as adoption grows.
 			const hourOfDay = hourTs.getHours();
 			const diurnal = 0.45 + 0.55 * Math.sin(((hourOfDay - 4) / 24) * Math.PI);
@@ -985,7 +983,7 @@ async function seedDemo() {
 	for (const proj of PROJECTS) {
 		for (let h = 0; h < 24 * 30; h++) {
 			const hourTs = hoursAgo(h);
-			hourTs.setMinutes(0, 0, 0);
+			hourTs.setUTCMinutes(0, 0, 0);
 			for (const m of MODELS) {
 				if (chance(0.35)) {
 					continue;
@@ -1055,7 +1053,7 @@ async function seedDemo() {
 	for (const proj of PROJECTS) {
 		for (let h = 0; h < 24 * 14; h++) {
 			const hourTs = hoursAgo(h);
-			hourTs.setMinutes(0, 0, 0);
+			hourTs.setUTCMinutes(0, 0, 0);
 			for (const s of SOURCES) {
 				if (chance(0.4)) {
 					continue;
@@ -1129,7 +1127,7 @@ async function seedDemo() {
 				continue;
 			}
 			const hourTs = hoursAgo(h);
-			hourTs.setMinutes(0, 0, 0);
+			hourTs.setUTCMinutes(0, 0, 0);
 			const reqCount = randomInt(1, 18);
 			const errCount = chance(0.1) ? randomInt(1, 2) : 0;
 			const inputTok = reqCount * randomInt(500, 3000);

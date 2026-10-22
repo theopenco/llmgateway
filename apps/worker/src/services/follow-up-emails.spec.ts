@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	db,
@@ -18,6 +18,14 @@ import {
 	processNoPurchaseEmails,
 	processNoRepurchaseEmails,
 } from "./follow-up-emails.js";
+
+import type * as EmailModule from "@llmgateway/shared/email";
+
+const sendEmail = vi.hoisted(() => vi.fn());
+vi.mock("@llmgateway/shared/email", async (importOriginal) => ({
+	...(await importOriginal<typeof EmailModule>()),
+	getResendClient: () => ({ emails: { send: sendEmail } }),
+}));
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 const TWO_DAYS_AGO = new Date(Date.now() - TWO_DAYS_MS);
@@ -373,6 +381,32 @@ describe("processNoPurchaseEmails opt-outs", () => {
 		// No ledger row: recording one would burn this org's once-ever slot, so a
 		// later resubscribe could never be honoured.
 		expect(await db.select().from(followUpEmail)).toHaveLength(0);
+	});
+
+	it("retries a failed send without retaining a sent ledger entry", async () => {
+		await seedEligibleOrg("retry@example.com");
+		vi.stubEnv("EMAIL_FOLLOW_UPS", "true");
+		try {
+			sendEmail.mockResolvedValueOnce({
+				error: { message: "Temporary failure" },
+				data: null,
+			});
+			await processNoPurchaseEmails();
+			expect(await db.select().from(followUpEmail)).toHaveLength(0);
+			sendEmail.mockResolvedValueOnce({
+				error: null,
+				data: { id: "test-email" },
+			});
+			await processNoPurchaseEmails();
+			expect(await db.select().from(followUpEmail)).toHaveLength(1);
+			expect(sendEmail).toHaveBeenCalledTimes(2);
+			const [first, second] = sendEmail.mock.calls.map((call) => call[1]);
+			expect(first).toEqual({ idempotencyKey: expect.any(String) });
+			expect(second).toEqual(first);
+		} finally {
+			vi.unstubAllEnvs();
+			sendEmail.mockReset();
+		}
 	});
 
 	it("resumes nudging after the recipient resubscribes", async () => {
