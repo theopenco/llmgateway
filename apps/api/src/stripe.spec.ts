@@ -1800,6 +1800,89 @@ describe("handlePaymentIntentFailed — dunning email links", () => {
 	});
 });
 
+describe("webhook route — malformed signature header", () => {
+	const realStripe = new Stripe("sk_test_dummy");
+	const now = Math.floor(Date.now() / 1000);
+
+	afterEach(() => {
+		stripeMock.webhooks.constructEvent.mockReset();
+	});
+
+	// An empty `v1` entry makes the SDK call secureCompare(expected, "") and
+	// throw a plain Error instead of StripeSignatureVerificationError.
+	test.each([`t=${now},v1=`, `t=${now},v1`, `t=${now},v1=,v1=abc`])(
+		"returns 400 and warns for %s",
+		async (header) => {
+			const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+			process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
+			stripeMock.webhooks.constructEvent.mockImplementation(
+				(body: string, sig: string, secret: string) =>
+					realStripe.webhooks.constructEvent(body, sig, secret),
+			);
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+			try {
+				const res = await stripeRoutes.request("/webhook", {
+					method: "POST",
+					headers: { "stripe-signature": header },
+					body: JSON.stringify({ type: "checkout.session.completed" }),
+				});
+
+				expect(res.status).toBe(400);
+				expect(await res.text()).toContain("Invalid signature");
+				expect(warnSpy).toHaveBeenCalledWith(
+					"Ignoring Stripe webhook with invalid signature",
+					expect.objectContaining({ message: expect.any(String) }),
+				);
+				expect(errorSpy).not.toHaveBeenCalled();
+			} finally {
+				warnSpy.mockRestore();
+				errorSpy.mockRestore();
+				if (previousSecret === undefined) {
+					delete process.env.STRIPE_WEBHOOK_SECRET;
+				} else {
+					process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+				}
+			}
+		},
+	);
+
+	test("still accepts a correctly signed event", async () => {
+		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+		process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
+		stripeMock.webhooks.constructEvent.mockImplementation(
+			(body: string, sig: string, secret: string) =>
+				realStripe.webhooks.constructEvent(body, sig, secret),
+		);
+		const payload = JSON.stringify({
+			id: "evt_test_signed",
+			type: "test.unhandled",
+			data: { object: {} },
+		});
+		const header = realStripe.webhooks.generateTestHeaderString({
+			payload,
+			secret: "whsec_test_secret",
+		});
+
+		try {
+			const res = await stripeRoutes.request("/webhook", {
+				method: "POST",
+				headers: { "stripe-signature": header },
+				body: payload,
+			});
+
+			expect(res.status).toBe(200);
+		} finally {
+			if (previousSecret === undefined) {
+				delete process.env.STRIPE_WEBHOOK_SECRET;
+			} else {
+				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+			}
+		}
+	});
+});
+
 describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", () => {
 	beforeEach(async () => {
 		await deleteAll();
