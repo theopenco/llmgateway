@@ -53,18 +53,18 @@ Across the main and DevPass dashboards, full request and token counts use commas
 
 ### Bottom Row
 
-| Card                     | Description                                                         |
-| ------------------------ | ------------------------------------------------------------------- |
-| **Input Tokens & Cost**  | Total prompt tokens sent and their associated cost                  |
-| **Output Tokens & Cost** | Total completion tokens received and their associated cost          |
-| **Cached Tokens & Cost** | Tokens served from cache (if caching is enabled) and the cost saved |
-| **Most Used Model**      | The model with the highest request count, along with its provider   |
+| Card                     | Description                                                               |
+| ------------------------ | ------------------------------------------------------------------------- |
+| **Input Tokens & Cost**  | Total prompt tokens sent and their associated cost                        |
+| **Output Tokens & Cost** | Total completion tokens received and their associated cost                |
+| **Cached Tokens & Cost** | Tokens read from the provider cache, their cost, and any cache-write cost |
+| **Most Used Model**      | The model with the highest request count, along with its provider         |
 
 ## Usage Overview Chart
 
 Below the stat cards, a chart visualizes your usage over time:
 
-- **Costs** — Choose **Total** for daily cost bars or **Breakdown** to split input, output, and cached input costs.
+- **Costs** — Choose **Total** for daily spend, including storage, or **Breakdown** to split it into input, output, cached input, cache write, other (per-request, image, audio, video, and web search fees), and storage. The breakdown always adds up to the total.
 - **Requests** — Shows request volume over time.
 
 The chart is filtered by the currently selected project.

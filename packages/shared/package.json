@@ -225,6 +225,11 @@
 			"import": "./dist/chart-tooltip.js",
 			"default": "./dist/chart-tooltip.js"
 		},
+		"./cost-breakdown": {
+			"types": "./dist/cost-breakdown.d.ts",
+			"import": "./dist/cost-breakdown.js",
+			"default": "./dist/cost-breakdown.js"
+		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
 			"import": "./dist/number-format.js",

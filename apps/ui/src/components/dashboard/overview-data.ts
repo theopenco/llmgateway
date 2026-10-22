@@ -1,22 +1,32 @@
 import { addDays, differenceInCalendarDays, format } from "date-fns";
 
+import { splitCost, COST_SEGMENTS } from "@llmgateway/shared/cost-breakdown";
+
 import type { UsageDateRange } from "./usage-comparison";
 import type { DailyActivity } from "@/types/activity";
+import type { CostSegmentKey } from "@llmgateway/shared/cost-breakdown";
 
-export interface ChartPoint {
+export type Period = "current" | "comparison";
+
+/** Per-period cost of one stacked segment, e.g. `currentCacheWriteCost`. */
+export type SegmentField = `${Period}${Capitalize<CostSegmentKey>}Cost`;
+
+export type ChartPoint = {
 	index: number;
 	currentDate?: string;
 	comparisonDate?: string;
+	/** Total spend: inference cost plus data storage. */
 	currentCost?: number;
 	comparisonCost?: number;
 	currentRequests?: number;
 	comparisonRequests?: number;
-	currentInputCost?: number;
-	comparisonInputCost?: number;
-	currentOutputCost?: number;
-	comparisonOutputCost?: number;
-	currentCachedInputCost?: number;
-	comparisonCachedInputCost?: number;
+} & Partial<Record<SegmentField, number>>;
+
+export function segmentField(
+	period: Period,
+	key: CostSegmentKey,
+): SegmentField {
+	return `${period}${key.charAt(0).toUpperCase()}${key.slice(1)}Cost` as SegmentField;
 }
 
 function dateKeys(range: UsageDateRange): string[] {
@@ -34,7 +44,42 @@ type ChartActivity = Pick<
 	| "inputCost"
 	| "outputCost"
 	| "cachedInputCost"
+	| "cacheWriteInputCost"
+	| "dataStorageCost"
 >;
+
+const SEGMENT_KEYS: CostSegmentKey[] = [
+	"input",
+	"output",
+	"cachedInput",
+	"cacheWrite",
+	"other",
+	"storage",
+];
+
+function periodFields(
+	period: Period,
+	day: ChartActivity | undefined,
+): Partial<ChartPoint> {
+	const split = splitCost(
+		day ?? {
+			cost: 0,
+			inputCost: 0,
+			outputCost: 0,
+			cachedInputCost: 0,
+			cacheWriteInputCost: 0,
+		},
+	);
+	const requests = day?.requestCount ?? 0;
+	const fields: Partial<ChartPoint> =
+		period === "current"
+			? { currentCost: split.total, currentRequests: requests }
+			: { comparisonCost: split.total, comparisonRequests: requests };
+	for (const key of SEGMENT_KEYS) {
+		fields[segmentField(period, key)] = split[key];
+	}
+	return fields;
+}
 
 export function buildUsageChartData(
 	currentRange: UsageDateRange,
@@ -52,39 +97,40 @@ export function buildUsageChartData(
 	return Array.from({ length: pointCount }, (_, index) => {
 		const currentDate = currentKeys[index];
 		const comparisonDate = comparisonKeys[index];
-		const current = currentDate ? currentByDate.get(currentDate) : undefined;
-		const comparison = comparisonDate
-			? comparisonByDate.get(comparisonDate)
-			: undefined;
 		return {
 			index,
 			currentDate,
 			comparisonDate,
-			currentCost: currentDate ? (current?.cost ?? 0) : undefined,
-			comparisonCost:
-				comparisonData && comparisonDate ? (comparison?.cost ?? 0) : undefined,
-			currentRequests: currentDate ? (current?.requestCount ?? 0) : undefined,
-			comparisonRequests:
-				comparisonData && comparisonDate
-					? (comparison?.requestCount ?? 0)
-					: undefined,
-			currentInputCost: currentDate ? (current?.inputCost ?? 0) : undefined,
-			comparisonInputCost:
-				comparisonData && comparisonDate
-					? (comparison?.inputCost ?? 0)
-					: undefined,
-			currentOutputCost: currentDate ? (current?.outputCost ?? 0) : undefined,
-			comparisonOutputCost:
-				comparisonData && comparisonDate
-					? (comparison?.outputCost ?? 0)
-					: undefined,
-			currentCachedInputCost: currentDate
-				? (current?.cachedInputCost ?? 0)
-				: undefined,
-			comparisonCachedInputCost:
-				comparisonData && comparisonDate
-					? (comparison?.cachedInputCost ?? 0)
-					: undefined,
+			...(currentDate
+				? periodFields("current", currentByDate.get(currentDate))
+				: {}),
+			...(comparisonData && comparisonDate
+				? periodFields("comparison", comparisonByDate.get(comparisonDate))
+				: {}),
 		};
 	});
+}
+// Shown even when zero so the breakdown always reads the same; the rest only
+// appear once they carry spend.
+const ALWAYS_SHOWN = new Set<CostSegmentKey>([
+	"input",
+	"output",
+	"cachedInput",
+]);
+
+export function isSegmentShown(key: CostSegmentKey, value: number): boolean {
+	return ALWAYS_SHOWN.has(key) || value > 0;
+}
+
+/** Segments that carry spend anywhere in the chart, in stacking order. */
+export function visibleSegments(points: ChartPoint[]) {
+	return COST_SEGMENTS.filter((segment) =>
+		points.some(
+			(point) =>
+				isSegmentShown(
+					segment.key,
+					point[segmentField("current", segment.key)] ?? 0,
+				) || (point[segmentField("comparison", segment.key)] ?? 0) > 0,
+		),
+	);
 }

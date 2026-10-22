@@ -473,6 +473,10 @@ export function DashboardClient({
 		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) ?? 0;
 	const totalCachedInputCost =
 		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) ?? 0;
+	const totalCacheWriteInputCost = activityData.reduce(
+		(sum, day) => sum + day.cacheWriteInputCost,
+		0,
+	);
 	const totalErrors =
 		activityData.reduce((sum, day) => sum + day.errorCount, 0) ?? 0;
 	const totalCached =
@@ -744,7 +748,7 @@ export function DashboardClient({
 								icon={Server}
 								label="Cached tokens"
 								value={formatTokens(totalCachedTokens)}
-								sub={`$${totalCachedInputCost.toFixed(2)} • included in input`}
+								sub={`$${totalCachedInputCost.toFixed(2)} spend${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} cache writes` : ""}`}
 								isLoading={isLoading}
 							/>
 							<StatCell
@@ -942,8 +946,8 @@ export function DashboardClient({
 											<CardDescription>
 												{metric === "costs"
 													? costView === "total"
-														? "Daily total inference spend (provider list price)"
-														: "Daily inference spend by token type"
+														? "Daily total spend, including storage"
+														: "Daily spend by cost type"
 													: "Daily request volume"}
 											</CardDescription>
 										</div>
