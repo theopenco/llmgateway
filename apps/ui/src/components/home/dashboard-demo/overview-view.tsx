@@ -426,7 +426,7 @@ export function OverviewView() {
 								icon={ArrowDownToLine}
 								label="Input tokens"
 								value={formatTokens(totalInputTokens)}
-								sub={`$${totalInputCost.toFixed(2)} spend`}
+								sub={`$${(totalInputCost + totalCachedInputCost + totalCacheWriteInputCost).toFixed(2)} spend, incl. cache`}
 							/>
 							<StatCell
 								icon={ArrowUpFromLine}
@@ -438,7 +438,7 @@ export function OverviewView() {
 								icon={Server}
 								label="Cached tokens"
 								value={formatTokens(totalCachedTokens)}
-								sub={`$${totalCachedInputCost.toFixed(2)} spend${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} cache writes` : ""}`}
+								sub={`$${totalCachedInputCost.toFixed(2)} reads${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} writes` : ""}`}
 							/>
 							<StatCell
 								icon={Crown}

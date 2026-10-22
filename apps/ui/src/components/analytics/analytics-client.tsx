@@ -204,17 +204,18 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		[activity, groupBy],
 	);
 
-	// Totals come from the same rows the charts read, so the header and the
-	// breakdown can never disagree.
+	// Totals come from the same rows the charts read. Storage is billed on top of
+	// inference, so the cost card adds it while the per-model charts cannot.
 	const totals = useMemo(
 		() =>
 			activity.reduce(
 				(acc, day) => ({
 					cost: acc.cost + day.cost,
+					storageCost: acc.storageCost + day.dataStorageCost,
 					requestCount: acc.requestCount + day.requestCount,
 					totalTokens: acc.totalTokens + day.totalTokens,
 				}),
-				{ cost: 0, requestCount: 0, totalTokens: 0 },
+				{ cost: 0, storageCost: 0, requestCount: 0, totalTokens: 0 },
 			),
 		[activity],
 	);
@@ -258,10 +259,15 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 					<MetricCard
 						label="Total cost"
-						value={currencyFormatter.format(totals.cost)}
+						value={currencyFormatter.format(totals.cost + totals.storageCost)}
+						subtitle={
+							totals.storageCost > 0
+								? `Includes ${currencyFormatter.format(totals.storageCost)} data storage`
+								: undefined
+						}
 						accent="green"
 						icon={<Coins className="h-4 w-4" />}
-						trend={activity.map((day) => day.cost)}
+						trend={activity.map((day) => day.cost + day.dataStorageCost)}
 						isLoading={isLoading}
 					/>
 					<MetricCard

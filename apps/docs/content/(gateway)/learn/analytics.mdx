@@ -62,9 +62,13 @@ The **Mappings / Canonical** toggle is specific to models — the API key and us
 
 ## Token breakdown
 
-**Tokens over time** separates uncached input, cache reads, and output. Input includes cache-write tokens; the note below the chart shows how many were written to cache. Cache reads appear only in the cache series, so the three categories do not double-count input tokens.
+**Tokens over time** separates uncached input, cache writes, cache reads, and output, so no input token is counted twice. Each type shows its token count and its spend; hover a bar to see both for that day. The note below the chart reconciles the four token costs with total spend, listing any fees that are not per token (request, image, audio, web search) and data storage separately.
 
-The model selector above the chart narrows all three series to a single model, so you can see where one model's cache reads or output actually land. It lists the models used in the selected range and is available on the model breakdown.
+The **Total cost** card includes data storage, which is billed on top of inference. The per-model, per-key, and per-user charts show inference spend only.
+
+The same token breakdown appears on each API key's usage page.
+
+The model selector above the chart narrows all four series and their costs to a single model, so you can see where one model's cache reads or output actually land. It lists the models used in the selected range and is available on the model breakdown.
 
 Token counts always include credits and BYOK traffic. The billing-mode selector filters spend and requests, but the historical token counters are combined.
 
