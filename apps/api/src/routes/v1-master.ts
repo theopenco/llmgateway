@@ -1604,6 +1604,7 @@ const createCustomProviderBody = z.object({
 	baseUrl: z.string().url(),
 	token: providerTokenField,
 	customModelsOnly: z.boolean().optional(),
+	forwardCacheControl: z.boolean().optional(),
 	complianceAttestation: complianceAttestationSchema.optional(),
 });
 
@@ -1613,6 +1614,7 @@ const updateCustomProviderBody = z
 		token: providerTokenField.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
 		customModelsOnly: z.boolean().optional(),
+		forwardCacheControl: z.boolean().optional(),
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 	})
 	.refine((v) => Object.keys(v).length > 0, {
@@ -1651,8 +1653,14 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { name, baseUrl, token, customModelsOnly, complianceAttestation } =
-		c.req.valid("json");
+	const {
+		name,
+		baseUrl,
+		token,
+		customModelsOnly,
+		forwardCacheControl,
+		complianceAttestation,
+	} = c.req.valid("json");
 
 	await assertProviderBaseUrlAllowed(baseUrl);
 	await assertCustomProviderNameAvailable(masterKey.organizationId, name);
@@ -1676,6 +1684,7 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			tokenMasked: maskToken(token),
 			tokenHash: getApiKeyFingerprint(token),
 			customModelsOnly: customModelsOnly ?? false,
+			forwardCacheControl: forwardCacheControl ?? false,
 			complianceAttestation: complianceAttestation
 				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
 				: null,
@@ -1800,8 +1809,14 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { baseUrl, token, status, customModelsOnly, complianceAttestation } =
-		c.req.valid("json");
+	const {
+		baseUrl,
+		token,
+		status,
+		customModelsOnly,
+		forwardCacheControl,
+		complianceAttestation,
+	} = c.req.valid("json");
 
 	const existing = await loadCustomProviderKeyForOrg(
 		id,
@@ -1830,6 +1845,9 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
+	}
+	if (forwardCacheControl !== undefined) {
+		updates.forwardCacheControl = forwardCacheControl;
 	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
@@ -1864,6 +1882,15 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		changes.customModelsOnly = {
 			old: existing.customModelsOnly,
 			new: customModelsOnly,
+		};
+	}
+	if (
+		forwardCacheControl !== undefined &&
+		existing.forwardCacheControl !== forwardCacheControl
+	) {
+		changes.forwardCacheControl = {
+			old: existing.forwardCacheControl,
+			new: forwardCacheControl,
 		};
 	}
 	if (complianceAttestation !== undefined) {

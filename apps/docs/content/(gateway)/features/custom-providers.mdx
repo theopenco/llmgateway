@@ -160,6 +160,24 @@ undefined models are rejected with `400`. This guarantees that every request has
 known cost attribution and enforced limits. When disabled, undefined models
 still work but remain unbilled, as before.
 
+## Prompt caching
+
+By default the gateway strips Anthropic-style `cache_control` markers before a
+request reaches a custom provider, because strict OpenAI-compatible APIs reject
+unknown fields. If your provider accepts them — for example a router serving
+Claude models — turn on **Forward prompt-cache markers** when creating the key
+or on the [custom models](#custom-model-catalog) page (`forwardCacheControl` in
+the API). The gateway then forwards your markers on message content parts, and
+a `tool_result` marker from `/v1/messages` (or `tool_result_cache_control` on an
+OpenAI-format `tool` message) is moved onto the tool message's last text part.
+Markers are normalized to `{"type": "ephemeral"}` with an optional `5m` or `1h`
+`ttl`; malformed markers are dropped.
+
+The switch only forwards markers your client sends; the gateway adds none of
+its own for custom providers. A project whose
+[provider cache-write mode](/features/caching/provider-cache-control) is
+**Disabled** still strips every marker.
+
 ### Routing bare model ids
 
 A catalog entry whose model id equals a built-in model id and has a price joins

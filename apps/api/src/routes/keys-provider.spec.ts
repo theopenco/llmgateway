@@ -1344,6 +1344,102 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("forwardCacheControl", () => {
+		async function createCustom(body: Record<string, unknown>) {
+			return await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "custom",
+					token: "custom-test-token",
+					name: "mycustom",
+					baseUrl: "https://api.example.com",
+					organizationId: "test-org-id",
+					...body,
+				}),
+			});
+		}
+
+		async function patchKey(id: string, forwardCacheControl: boolean) {
+			return await app.request(`/keys/provider/${id}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ forwardCacheControl }),
+			});
+		}
+
+		test("defaults to off on create", async () => {
+			await setPlan("enterprise");
+			const res = await createCustom({});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.forwardCacheControl).toBe(false);
+		});
+
+		test("stores the flag on create", async () => {
+			await setPlan("enterprise");
+			const res = await createCustom({ forwardCacheControl: true });
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.forwardCacheControl).toBe(true);
+			const row = await db.query.providerKey.findFirst({
+				where: { id: { eq: json.providerKey.id } },
+			});
+			expect(row?.forwardCacheControl).toBe(true);
+		});
+
+		test("rejects the flag on a catalogue provider", async () => {
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "anthropic",
+					token: "test-token",
+					organizationId: "test-org-id",
+					forwardCacheControl: true,
+				}),
+			});
+			expect(res.status).toBe(400);
+			const patch = await patchKey("test-provider-key-id", true);
+			expect(patch.status).toBe(400);
+			const json = await patch.json();
+			expect(json.message).toContain(
+				"forwardCacheControl can only be set on custom provider keys",
+			);
+		});
+
+		test("PATCH toggles the flag and audits the change", async () => {
+			await setPlan("enterprise");
+			const created = await createCustom({});
+			const { providerKey } = await created.json();
+
+			const on = await patchKey(providerKey.id, true);
+			expect(on.status).toBe(200);
+			expect((await on.json()).providerKey.forwardCacheControl).toBe(true);
+
+			const entries = await db.query.auditLog.findMany({
+				where: {
+					organizationId: { eq: "test-org-id" },
+					action: { eq: "provider_key.update" },
+				},
+			});
+			const change = entries
+				.map(
+					(e) =>
+						(
+							e.metadata as {
+								changes?: Record<string, { old: unknown; new: unknown }>;
+							}
+						)?.changes?.forwardCacheControl,
+				)
+				.find(Boolean);
+			expect(change).toEqual({ old: false, new: true });
+
+			const off = await patchKey(providerKey.id, false);
+			expect((await off.json()).providerKey.forwardCacheControl).toBe(false);
+		});
+	});
+
 	describe("PATCH /keys/provider/{id} rename", () => {
 		async function seedCustomKey(id = "test-custom-key-id", name = "mycustom") {
 			await setPlan("enterprise");

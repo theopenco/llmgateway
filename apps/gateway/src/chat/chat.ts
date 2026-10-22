@@ -8659,6 +8659,7 @@ chat.openapi(completions, async (c) => {
 			providerCacheAutoTtl,
 			parallel_tool_calls,
 			usedWebSearchFormat(),
+			providerKey?.forwardCacheControl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
