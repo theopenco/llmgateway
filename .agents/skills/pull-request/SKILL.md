@@ -37,8 +37,11 @@ Most review happens before the PR exists. Before `gh pr create`:
 
 ## After opening
 
-- `pr-risk` labels the PR `risk: low|medium|high` and requests a maintainer
-  review on `risk: high`.
+- `pr-risk` labels the PR `risk: low|medium|high`. `risk: high`, and any PR
+  from outside the maintainer list, keeps the `risk-gate` check red until a
+  maintainer approves the latest commit; a push after approval needs a fresh
+  one. If the status does not refresh after an approval, add or remove any
+  label to recompute it.
 - CodeRabbit posts findings as threads. Fix each one or resolve it
   with a one-line reason; unresolved threads block the merge.
 - When the same finding comes back on a second PR, fix it at the source
