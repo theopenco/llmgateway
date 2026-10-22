@@ -706,11 +706,11 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
  * "sign in with your original method" message. `Change email is disabled.` is
  * a client calling Better Auth's built-in `/change-email`, which no app uses
  * (email changes go through `PATCH /user/me`). `State not found` and a
- * `state_not_found` parse failure mean the OAuth/SSO callback arrived without a
- * `state` query param (bots, replayed or hand-edited URLs, provider errors
- * without state); cookie problems surface as `state_mismatch` and stay at
- * error. Logging any of these at error severity only trips production
- * alerting.
+ * `state_not_found` parse failure mean the OAuth/SSO callback had no `state`
+ * param at all (bots, hand-built URLs, provider errors without state).
+ * Replayed or expired callbacks still carry `state` and surface as
+ * `state_mismatch`, which stays at error. Logging any of these at error
+ * severity only trips production alerting.
  */
 const clientAuthErrorMessages = new Set([
 	"signup_disabled",
@@ -742,8 +742,13 @@ function extractLogExtra(args: unknown[]): object | undefined {
 	if (errArg) {
 		return errArg as Error;
 	}
-	return args.find((arg) => arg && typeof arg === "object") as
-		object | undefined;
+	const objArg = args.find((arg) => arg && typeof arg === "object");
+	if (objArg) {
+		return objArg as object;
+	}
+	// Keep scalar details such as the provider's `?error=` code.
+	const rest = args.filter((arg) => arg !== undefined && arg !== null);
+	return rest.length ? { details: rest } : undefined;
 }
 
 export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
