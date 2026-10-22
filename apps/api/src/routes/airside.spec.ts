@@ -23,6 +23,7 @@ import {
 	type ModelDefinition,
 	type ProviderApiFormat,
 	type ToolChoiceMode,
+	type WebSearchFormat,
 } from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
@@ -106,7 +107,10 @@ async function claimProvider(
 
 // A passed preflight proving anything the model could claim, for tests that
 // edit or relist a listing but aren't about the preflight gate itself.
-async function passPreflight(modelId: string) {
+async function passPreflight(
+	modelId: string,
+	overrides: { webSearchFormat?: WebSearchFormat } = {},
+) {
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: modelId } },
 	});
@@ -133,6 +137,7 @@ async function passPreflight(modelId: string) {
 			webSearch: true,
 			contextSize: 100_000_000,
 			maxOutput: 100_000_000,
+			...overrides,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -249,6 +254,10 @@ async function createModel(
 					)
 				: null,
 			webSearch: body.webSearch === true,
+			webSearchFormat:
+				typeof body.webSearchFormat === "string"
+					? (body.webSearchFormat as WebSearchFormat)
+					: null,
 			contextSize:
 				typeof body.contextSize === "number" ? body.contextSize : null,
 			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
@@ -556,6 +565,69 @@ describe("airside provider portal", () => {
 			legalEntity: "Mistral AI SAS",
 			headquarters: "FR",
 			dataPolicy: null,
+			compliance: null,
+		});
+	});
+
+	it("lets catalogue carriers declare their own certifications", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const created = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(created.status).toBe(201);
+		const { claim } = await created.json();
+		const reviewed = claim.profile;
+		expect(reviewed).toMatchObject({ gdpr: true, soc2: 2, iso27001: true });
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/claims/${claim.id}/profile`,
+				json(cookie, body, "PATCH"),
+			);
+		await activateClaim();
+		await db
+			.insert(tables.provider)
+			.values({ id: "mistral", name: "Mistral", description: "" })
+			.onConflictDoNothing();
+		const listed = async () =>
+			(await (await app.request("/internal/providers")).json()).providers.find(
+				(p: { id: string }) => p.id === "mistral",
+			);
+		const facts = async () =>
+			(
+				await (await app.request("/internal/provider-facts")).json()
+			).providers.find((p: { id: string }) => p.id === "mistral");
+
+		const declared = await patch({ soc2: 1, iso27001: false });
+		expect(declared.status).toBe(200);
+		expect((await declared.json()).claim.profile).toEqual({
+			...reviewed,
+			soc2: 1,
+			iso27001: false,
+		});
+		expect((await listed()).airsideProfile.compliance).toEqual({
+			gdpr: null,
+			soc2: 1,
+			iso27001: false,
+		});
+		expect((await facts()).dataPolicy).toMatchObject({
+			apiTraining: false,
+			gdpr: true,
+			soc2: 1,
+			iso27001: false,
+		});
+
+		expect((await patch({ soc2: 0 })).status).toBe(200);
+		expect((await facts()).dataPolicy.soc2).toBeNull();
+
+		const restored = await patch({ soc2: null, iso27001: null });
+		expect(restored.status).toBe(200);
+		expect((await restored.json()).claim.profile).toEqual(reviewed);
+		expect((await listed()).airsideProfile.compliance).toBeNull();
+		expect((await facts()).dataPolicy).toMatchObject({
+			soc2: 2,
+			iso27001: true,
 		});
 	});
 
@@ -1240,6 +1312,40 @@ describe("airside provider portal", () => {
 			tools: true,
 		});
 		expect(stored?.checks.map((check) => check.id)).toContain("reasoning");
+	});
+
+	it("gates a web search format change behind a preflight in that format", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const created = await createModel(cookie, company.id, {
+			webSearch: true,
+			webSearchFormat: "web_search_options",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model).toMatchObject({
+			webSearch: true,
+			webSearchFormat: "web_search_options",
+		});
+
+		const patch = async () =>
+			await app.request(
+				`/airside/models/${model.id}`,
+				json(cookie, { webSearchFormat: "web_search_tool" }, "PATCH"),
+			);
+		// Web search proven in one shape says nothing about another.
+		await passPreflight(model.id, { webSearchFormat: "web_search_options" });
+		expect((await patch()).status).toBe(409);
+
+		await passPreflight(model.id, { webSearchFormat: "web_search_tool" });
+		const switched = await patch();
+		expect(switched.status).toBe(200);
+		expect((await switched.json()).model.webSearchFormat).toBe(
+			"web_search_tool",
+		);
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
@@ -5049,6 +5155,7 @@ describe("airside provider portal", () => {
 				soc2: 0,
 				iso27001: null,
 			},
+			compliance: null,
 		});
 	});
 

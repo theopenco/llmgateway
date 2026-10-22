@@ -55,6 +55,7 @@ function makeMapping(
 		realtime: null,
 		realtimeTranscription: null,
 		realtimeTranscriptionTurnDetection: null,
+		speechGenerations: null,
 		supportedVoices: null,
 		discount: null,
 		stability: "beta",

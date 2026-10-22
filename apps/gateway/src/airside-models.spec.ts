@@ -67,6 +67,11 @@ describe("airside-listed models", () => {
 			req.on("data", (chunk) => (body += chunk));
 			req.on("end", () => {
 				const parsed = JSON.parse(body || "{}") as Record<string, unknown>;
+				// An endpoint that searched but reports it only through the pages
+				// it injected into the prompt, as SCX does with the tool shape.
+				const promptTokens = req.url?.startsWith("/search-context/")
+					? 60_000
+					: 1000;
 				captured.push({
 					url: req.url ?? "",
 					headers: req.headers,
@@ -219,7 +224,7 @@ describe("airside-listed models", () => {
 						{
 							choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
 							usage: {
-								prompt_tokens: 1000,
+								prompt_tokens: promptTokens,
 								completion_tokens: 500,
 								total_tokens: 1500,
 							},
@@ -246,7 +251,7 @@ describe("airside-listed models", () => {
 							},
 						],
 						usage: {
-							prompt_tokens: 1000,
+							prompt_tokens: promptTokens,
 							completion_tokens: 500,
 							total_tokens: 1500,
 						},
@@ -2329,6 +2334,102 @@ describe("airside-listed models", () => {
 		});
 		expect(bare.status).toBe(200);
 	});
+
+	test.each([false, true])(
+		"forwards web search in the listing's declared format and bills only on evidence (stream: %s)",
+		async (stream) => {
+			const token = `airside-web-search-${stream}`;
+			const send = async (requestId: string, body: Record<string, unknown>) => {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${token}`,
+						"x-no-fallback": "true",
+						"x-request-id": requestId,
+					},
+					body: JSON.stringify({
+						model: "acme-sky/sky-large",
+						stream,
+						...body,
+					}),
+				});
+				expect(res.status).toBe(200);
+				await res.text();
+				return await waitForLogByRequestId(requestId);
+			};
+			const useBasePath = async (basePath: string) => {
+				await db
+					.update(tables.providerClaim)
+					.set({ customBaseUrl: upstreamUrl + basePath })
+					.where(eq(tables.providerClaim.id, `${token}-claim`));
+				await clearCache();
+			};
+			await setupCustomCarrier(token);
+			await db
+				.update(tables.modelProviderMapping)
+				.set({
+					webSearch: true,
+					webSearchFormat: "web_search_tool",
+					webSearchPrice: "0.01",
+				})
+				.where(
+					and(
+						eq(tables.modelProviderMapping.providerId, "acme-sky"),
+						eq(tables.modelProviderMapping.modelId, "sky-large"),
+					),
+				);
+			await clearCache();
+
+			// OpenAI's web_search_options plus a forced tool_choice arrive as
+			// the tool shape with "required"; nothing in the reply shows a
+			// search, so none is billed.
+			const unsearched = await send(`${token}-1`, {
+				messages: [{ role: "user", content: "What is 2+2?" }],
+				web_search_options: { search_context_size: "low" },
+				tool_choice: { type: "web_search" },
+			});
+			expect(captured.at(-1)?.body).toMatchObject({
+				tools: [{ type: "web_search", search_context_size: "low" }],
+				tool_choice: "required",
+			});
+			expect(captured.at(-1)?.body).not.toHaveProperty("web_search_options");
+			expect(Number(unsearched?.webSearchCost ?? 0)).toBe(0);
+
+			// An offered tool goes out without tool_choice; the injected pages
+			// in the prompt are the evidence that bills it.
+			await useBasePath("/search-context");
+			const searched = await send(`${token}-2`, {
+				messages: [{ role: "user", content: "Bitcoin price today?" }],
+				tools: [{ type: "web_search" }],
+			});
+			expect(captured.at(-1)?.body.tool_choice).toBeUndefined();
+			expect(Number(searched?.webSearchCost)).toBeCloseTo(0.01, 6);
+
+			// Responses API callers reach the same shape.
+			const responses = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "acme-sky/sky-large",
+					stream,
+					input: "Bitcoin price today?",
+					tools: [{ type: "web_search_preview" }],
+					tool_choice: { type: "web_search_preview" },
+				}),
+			});
+			expect(responses.status).toBe(200);
+			await responses.text();
+			expect(captured.at(-1)?.body).toMatchObject({
+				tools: [{ type: "web_search" }],
+				tool_choice: "required",
+			});
+		},
+	);
 
 	test("custom carrier without a managed credential fails with a clear error", async () => {
 		await setupCustomCarrier("airside-nocred-token", {

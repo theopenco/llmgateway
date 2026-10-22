@@ -19,6 +19,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			priority: 1,
 		},
 		{
+			url: `${baseUrl}/airworthy`,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/legal/terms`,
 			changeFrequency: "yearly",
 			priority: 0.3,

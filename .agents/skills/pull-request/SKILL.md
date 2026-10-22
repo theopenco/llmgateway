@@ -19,6 +19,35 @@ run shared-state test files in parallel.
 
 Never open a PR from `main` — branch first if you are on it.
 
+## Self-review before opening
+
+Most review happens before the PR exists. Before `gh pr create`:
+
+1. **Prove it.** Run the thing the change affects — a test, a request against
+   the isolated stack (`verify` skill), a screenshot — and keep the output.
+   It goes under **Verification** in the PR body; "it builds" is not
+   verification.
+2. **Fresh-context review.** Hand `git diff origin/main...HEAD` and the
+   intended behaviour to a subagent (or a new session) that has not seen the
+   work, with `REVIEW.md` as its brief: hunt bugs (root cause on fixes, missed
+   call sites, migration locks, cross-org data), simplify, and report findings
+   as `file:line`. Fix or justify each one before pushing.
+3. **Fill in Rollback.** State whether a plain revert of the squash commit is
+   safe; if not, list the steps.
+
+## After opening
+
+- `pr-risk` labels the PR `risk: low|medium|high`. `risk: high`, and any PR
+  from outside the maintainer list, keeps the `risk-gate` check red until a
+  maintainer approves the latest commit; a push after approval needs a fresh
+  one. If the status does not refresh after an approval, add or remove any
+  label to recompute it.
+- CodeRabbit (every PR) and `security-review` (sensitive paths, branches in
+  this repository only) post findings as threads. Fix each one or resolve it
+  with a one-line reason; unresolved threads block the merge.
+- When the same finding comes back on a second PR, fix it at the source
+  (ESLint rule, skill line, `REVIEW.md`) in that PR.
+
 ## Creating the PR
 
 ```bash
@@ -128,3 +157,21 @@ Use the `verify` skill to launch an isolated stack and capture the screenshot.
 ## CI
 
 The e2e workflow does **not** run automatically on PRs — e2e spends real money on provider API calls. Trigger it on demand by commenting `/e2e` on the PR (maintainers/collaborators only, and only for branches in this repository, not forks), or via `workflow_dispatch`.
+
+## Auto-merge means ship it
+
+When the user explicitly asks to set a PR to auto-merge, enable it
+(`gh pr merge <n> --auto --squash`) and own the PR until it runs in production:
+
+1. Watch the required checks and reviews. On a failing check, a merge conflict,
+   or requested changes, push a fix to the PR branch and keep watching. Never
+   bypass checks (see `AGENTS.md`).
+2. Confirm the PR merged.
+3. Follow the rollout through the deployment repository: the image-bump PR for
+   the merge commit, its merge, and the deploy run it triggers. A later image
+   bump also ships the commit. If the deploy fails for a reason unrelated to the
+   change, report it rather than changing shared infrastructure.
+4. Confirm every deployment runs the merge commit's image, then send a final
+   message saying it is live.
+
+Monitor with a background job instead of polling in the conversation.

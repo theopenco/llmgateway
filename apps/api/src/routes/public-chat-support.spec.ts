@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
+import { createTestUser } from "@/testing.js";
 
 import { logger } from "@llmgateway/logger";
 import { randomInt, uniqueId } from "@llmgateway/shared/random";
@@ -36,6 +37,12 @@ async function seedLimit(
 	return key;
 }
 
+let token: string;
+
+beforeAll(async () => {
+	token = await createTestUser();
+});
+
 async function sendMessage(
 	ip: string,
 	clientId: string,
@@ -46,6 +53,7 @@ async function sendMessage(
 		headers: {
 			"Content-Type": "application/json",
 			"X-Forwarded-For": ip,
+			Cookie: token,
 		},
 		body: JSON.stringify({
 			clientId,
@@ -53,6 +61,56 @@ async function sendMessage(
 		}),
 	});
 }
+
+describe("public chat support authentication", () => {
+	it("rejects anonymous visitors on every endpoint", async () => {
+		const ip = uniqueIp();
+		const clientId = uniqueClientId();
+		const anonymous = await app.request("/public/chat-support", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Forwarded-For": ip,
+			},
+			body: JSON.stringify({
+				clientId,
+				messages: [
+					{ id: "1", role: "user", parts: [{ type: "text", text: "hi" }] },
+				],
+			}),
+		});
+		expect(anonymous.status).toBe(401);
+		expect(await anonymous.json()).toEqual({
+			error: "Please sign in to use chat support.",
+		});
+		// Rejected before validation and rate limiting, so no bucket is spent.
+		expect(
+			await redisClient.get(`chat_support_rate_limit:burst:ip:${ip}`),
+		).toBeNull();
+
+		for (const path of [
+			`/public/chat-support/conversation?clientId=${clientId}`,
+			"/public/chat-support/reaction",
+			"/public/chat-support/resolve",
+			"/public/chat-support/escalate",
+		]) {
+			const res = await app.request(path, {
+				method: path.includes("?") ? "GET" : "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": ip,
+				},
+				body: path.includes("?") ? undefined : JSON.stringify({ clientId }),
+			});
+			expect(res.status, path).toBe(401);
+		}
+	});
+
+	it("lets a signed-in user through", async () => {
+		const res = await sendMessage(uniqueIp(), uniqueClientId());
+		expect(res.status).not.toBe(401);
+	});
+});
 
 describe("public chat support rate limiting", () => {
 	it("blocks messages once the per-IP burst window is exhausted", async () => {
@@ -124,6 +182,7 @@ describe("public chat support rate limiting", () => {
 			headers: {
 				"Content-Type": "application/json",
 				"X-Forwarded-For": ip,
+				Cookie: token,
 			},
 			body: JSON.stringify({ clientId: uniqueClientId() }),
 		});
@@ -144,6 +203,7 @@ describe("public chat support rate limiting", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"X-Forwarded-For": ip,
+					Cookie: token,
 				},
 				body: JSON.stringify({
 					clientId: uniqueClientId(),
@@ -179,7 +239,7 @@ describe("public chat support rate limiting", () => {
 		await seedLimit("meta_burst", `ip:${ip}`, META_BURST_LIMIT_MAX);
 		const blockedGet = await app.request(
 			`/public/chat-support/conversation?clientId=${uniqueClientId()}`,
-			{ headers: { "X-Forwarded-For": ip } },
+			{ headers: { "X-Forwarded-For": ip, Cookie: token } },
 		);
 		expect(blockedGet.status).toBe(429);
 		const blockedPost = await app.request("/public/chat-support/reaction", {
@@ -187,6 +247,7 @@ describe("public chat support rate limiting", () => {
 			headers: {
 				"Content-Type": "application/json",
 				"X-Forwarded-For": ip,
+				Cookie: token,
 			},
 			body: JSON.stringify({}),
 		});

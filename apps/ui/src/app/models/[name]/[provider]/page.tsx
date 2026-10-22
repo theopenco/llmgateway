@@ -6,11 +6,16 @@ import {
 	Wrench,
 	MessageSquare,
 	Sliders,
+	SlidersHorizontal,
 	Braces,
 	FileJson2,
 	Globe,
 	ListOrdered,
 	ImagePlus,
+	Video,
+	Volume2,
+	Mic,
+	Boxes,
 	Search,
 } from "lucide-react";
 import Link from "next/link";
@@ -400,6 +405,61 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										icon: ImagePlus,
 										label: "Image Generation",
 										color: "text-pink-500",
+									});
+								}
+								const hasVideoGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("video")
+									: false;
+								if (hasVideoGen) {
+									items.push({
+										key: "video",
+										icon: Video,
+										label: "Video Generation",
+										color: "text-violet-500",
+									});
+								}
+								const hasAudio = Array.isArray(modelDef.output)
+									? modelDef.output.includes("audio")
+									: false;
+								if (hasAudio) {
+									items.push({
+										key: "audio",
+										icon: Volume2,
+										label: "Speech Generation",
+										color: "text-rose-500",
+									});
+								}
+								const hasTranscription = Array.isArray(modelDef.output)
+									? modelDef.output.includes("transcription")
+									: false;
+								if (hasTranscription) {
+									items.push({
+										key: "transcription",
+										icon: Mic,
+										label: "Transcription",
+										color: "text-sky-500",
+									});
+								}
+								const hasEmbedding = Array.isArray(modelDef.output)
+									? modelDef.output.includes("embedding")
+									: false;
+								if (hasEmbedding) {
+									items.push({
+										key: "embedding",
+										icon: Boxes,
+										label: "Embeddings",
+										color: "text-indigo-500",
+									});
+								}
+								const hasDecision = Array.isArray(modelDef.output)
+									? modelDef.output.includes("decision")
+									: false;
+								if (hasDecision) {
+									items.push({
+										key: "decision",
+										icon: SlidersHorizontal,
+										label: "Decisions",
+										color: "text-teal-500",
 									});
 								}
 								if (

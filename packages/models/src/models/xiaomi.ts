@@ -148,6 +148,8 @@ export const xiaomiModels = [
 			{
 				providerId: "novita",
 				externalId: "xiaomimimo/mimo-v2.5-pro",
+				deprecatedAt: new Date("2026-10-22"),
+				deactivatedAt: new Date("2026-10-23T00:00:00Z"),
 				inputPrice: "0.522e-6",
 				outputPrice: "1.044e-6",
 				cachedInputPrice: "0.0043e-6",
@@ -281,6 +283,8 @@ export const xiaomiModels = [
 			{
 				providerId: "novita",
 				externalId: "xiaomimimo/mimo-v2.5",
+				deprecatedAt: new Date("2026-10-22"),
+				deactivatedAt: new Date("2026-10-23T00:00:00Z"),
 				inputPrice: "0.168e-6",
 				outputPrice: "0.336e-6",
 				cachedInputPrice: "0.0034e-6",

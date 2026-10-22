@@ -27,7 +27,26 @@ export interface ApiProvider {
 	airsideIconUrl?: string | null;
 	/** Self-declared public profile of a custom Airside carrier. */
 	airsideProfile?: ApiAirsideProfile | null;
+	/** Airworthy certificate, only while valid and matching the live profile. */
+	airsideCertification?: ApiAirsideCertification | null;
 	status: "active" | "inactive";
+}
+
+export interface ApiAirsideCertification {
+	certificateNumber: string;
+	issuedAt: string;
+	expiresAt: string;
+	/** The claims the certificate attests, frozen at issue time. */
+	attested: {
+		legalEntity: string | null;
+		headquarters: string | null;
+		apiTraining: boolean | null;
+		promptLogging: boolean | null;
+		retentionPeriod: string | null;
+		gdpr: boolean | null;
+		soc2: 0 | 1 | 2 | null;
+		iso27001: boolean | null;
+	};
 }
 
 export interface ApiAirsideProfile {
@@ -44,6 +63,14 @@ export interface ApiAirsideProfile {
 		retentionPeriod: string | null;
 		gdpr: boolean | null;
 		/** 0 = none, 1 = Type I, 2 = Type II, null = not stated. */
+		soc2: 0 | 1 | 2 | null;
+		iso27001: boolean | null;
+	} | null;
+	/** Certifications a catalogue provider declared over its reviewed policy;
+	 *  null fields keep the reviewed value. Null for custom carriers. */
+	compliance?: {
+		gdpr: boolean | null;
+		/** 0 = none, 1 = Type I, 2 = Type II, null = keep the reviewed value. */
 		soc2: 0 | 1 | 2 | null;
 		iso27001: boolean | null;
 	} | null;
@@ -215,20 +242,31 @@ export async function fetchModelsFromApi(
 	}
 }
 
-export async function fetchProvidersFromApi(
+export type ProvidersFetchResult =
+	{ ok: true; providers: ApiProvider[] } | { ok: false };
+
+/** Like {@link fetchProvidersFromApi}, but tells a failed fetch apart from an empty list. */
+export async function fetchProvidersResultFromApi(
 	apiBackendUrl: string,
-): Promise<ApiProvider[]> {
+): Promise<ProvidersFetchResult> {
 	try {
 		const init: NextFetchInit = { next: { revalidate: 60 } };
 		const response = await fetch(`${apiBackendUrl}/internal/providers`, init);
 		if (!response.ok) {
 			console.error("Failed to fetch providers:", response.statusText);
-			return [];
+			return { ok: false };
 		}
 		const data = await response.json();
-		return data.providers ?? [];
+		return { ok: true, providers: data.providers ?? [] };
 	} catch (error) {
 		console.error("Error fetching providers:", error);
-		return [];
+		return { ok: false };
 	}
+}
+
+export async function fetchProvidersFromApi(
+	apiBackendUrl: string,
+): Promise<ApiProvider[]> {
+	const result = await fetchProvidersResultFromApi(apiBackendUrl);
+	return result.ok ? result.providers : [];
 }

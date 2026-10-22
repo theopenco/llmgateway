@@ -8,6 +8,7 @@ import {
 	Wrench,
 	MessageSquare,
 	Sliders,
+	SlidersHorizontal,
 	ImagePlus,
 	Video,
 	Boxes,
@@ -601,6 +602,9 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasTranscription = Array.isArray(modelDef.output)
 									? modelDef.output.includes("transcription")
 									: false;
+								const hasDecision = Array.isArray(modelDef.output)
+									? modelDef.output.includes("decision")
+									: false;
 
 								if (hasStreaming) {
 									items.push({
@@ -704,6 +708,14 @@ export default async function ModelPage({ params }: PageProps) {
 										icon: ListOrdered,
 										label: "Rerank",
 										color: "text-amber-500",
+									});
+								}
+								if (hasDecision) {
+									items.push({
+										key: "decision",
+										icon: SlidersHorizontal,
+										label: "Decisions",
+										color: "text-teal-500",
 									});
 								}
 								if (hasSearch) {

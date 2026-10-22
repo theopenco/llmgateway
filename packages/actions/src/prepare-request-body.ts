@@ -30,6 +30,7 @@ import {
 	supportsServiceTier,
 	type ToolChoiceType,
 	usesEncryptedReasoning,
+	type WebSearchFormat,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
@@ -41,9 +42,11 @@ import {
 } from "./anthropic-thinking.js";
 import {
 	isToolSearchTool,
+	isWebFetchTool,
 	stripAnthropicNativeBlocks,
 	stripAnthropicToolExtensions,
 	toAnthropicToolSearchTool,
+	toAnthropicWebFetchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
@@ -63,6 +66,7 @@ import {
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
+import { applyWebSearchFormat } from "./web-search-format.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 type OpenAIImageModeration = "auto" | "low";
@@ -384,6 +388,20 @@ function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.enable_search = true;
 	requestBody.search_options = { forced_search: true };
 }
+
+/** Providers whose `prepareRequestBody` branch builds a Chat Completions body. */
+const OPENAI_CHAT_BODY_PROVIDERS: ReadonlySet<string> = new Set([
+	"zai",
+	"moonshot",
+	"alibaba",
+	"minimax",
+	"inference.net",
+	"together-ai",
+	"cerebras",
+	"xiaomi",
+	"deepseek",
+	"gonka24",
+]);
 
 /**
  * Ensures function-tool parameters form a valid JSON Schema object. Some
@@ -1642,6 +1660,11 @@ export async function prepareRequestBody(
 	reasoning_mode?: ReasoningMode,
 	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
 	parallel_tool_calls?: boolean,
+	/**
+	 * The mapping's declared web search shape. Passed on its own because
+	 * Airside carriers on the OpenAI transport resolve no mapping here.
+	 */
+	webSearchFormat?: WebSearchFormat,
 ): Promise<ProviderRequestBody | FormData> {
 	// Check before provider transforms can strip a caller's markers.
 	const hasCacheMarker = (part: object) =>
@@ -1670,6 +1693,12 @@ export async function prepareRequestBody(
 				{ usedProvider, usedInternalModel, toolCount: tools.length },
 			);
 		}
+		if (tools?.some(isWebFetchTool)) {
+			logger.warn("Dropping Anthropic web fetch for a non-Anthropic provider", {
+				usedProvider,
+				usedInternalModel,
+			});
+		}
 		tools = stripAnthropicToolExtensions(tools);
 		messages = stripAnthropicNativeBlocks(messages);
 	}
@@ -1683,6 +1712,23 @@ export async function prepareRequestBody(
 		usedProvider,
 		usedRegion,
 	);
+	// A forced search maps to `tool_choice: "required"` in the tool shape,
+	// unless the mapping declares it does not take that mode.
+	const formatToolChoices = (
+		resolvedProviderMapping ?? providerMappingForOptions
+	)?.supportedToolChoices;
+	let declaredWebSearchApplied = false;
+	const applyDeclaredWebSearch = (body: Record<string, any>) => {
+		if (webSearchTool && webSearchFormat) {
+			declaredWebSearchApplied = true;
+			applyWebSearchFormat(
+				body,
+				webSearchTool,
+				webSearchFormat,
+				!formatToolChoices?.length || formatToolChoices.includes("required"),
+			);
+		}
+	};
 	const supportedServiceTier =
 		(service_tier === "flex" || service_tier === "priority") &&
 		supportsServiceTier(
@@ -1698,12 +1744,24 @@ export async function prepareRequestBody(
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
 	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
 	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
-	// thinking when asked. Every other provider treats the absence of
-	// reasoning_effort as "off" already, so normalize `none` away for them to
+	// thinking when asked. Claude (Anthropic, Vertex, Azure and Bedrock Converse)
+	// receives it as `thinking: { type: "disabled" }` so an explicit disable
+	// reaches the model. Every other provider treats the
+	// absence of reasoning_effort as "off" already, so normalize `none` away for them to
 	// avoid forwarding an unsupported enum value. A mapping that publishes
 	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
 	// it documents that the provider accepts the value, so forward it even
 	// when the provider is not in the allowlist above (#3423).
+	const usesBedrockClaudeConverse =
+		usedProvider === "aws-bedrock" &&
+		providerMappingForOptions?.apiFormat !== "openai-chat-completions" &&
+		modelDef?.family === "anthropic";
+	// Some adaptive-only Claude models (Fable 5, Sonnet 5.5, Opus 5.5) reject
+	// `thinking: { type: "disabled" }`; adaptive mappings that accept it declare
+	// `none` in `reasoningEfforts`. Budget-era Claude models all accept it.
+	const claudeCanDisableThinking =
+		providerMappingForOptions?.reasoningMode !== "adaptive" ||
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1721,6 +1779,10 @@ export async function prepareRequestBody(
 		usedProvider === "together-ai" ||
 		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
+		usedProvider === "anthropic" ||
+		usedProvider === "vertex-anthropic" ||
+		usedProvider === "azure-anthropic" ||
+		usesBedrockClaudeConverse ||
 		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -2559,7 +2621,8 @@ export async function prepareRequestBody(
 	// instead of hard-coding per-provider downgrades here.
 	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
 	// via `webSearchTool.forced` and translated into whatever each upstream
-	// understands (DashScope's `search_options.forced_search`). No provider
+	// understands (DashScope's `search_options.forced_search`, or `"required"`
+	// for a mapping declaring the tool `webSearchFormat`). No provider
 	// accepts it under this name in a chat-completions body, so it is never
 	// forwarded verbatim.
 	const isWebSearchToolChoice =
@@ -3046,7 +3109,10 @@ export async function prepareRequestBody(
 				// Add web search for OpenAI Chat Completions
 				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options
 				// For other models that support web search, add web_search tool
-				if (webSearchTool) {
+				// A mapping that declares its format gets exactly that shape.
+				if (webSearchFormat) {
+					applyDeclaredWebSearch(requestBody);
+				} else if (webSearchTool) {
 					if (usedInternalModel.includes("-search-")) {
 						// Search models use web_search_options parameter
 						const webSearchOptions: any = {};
@@ -3153,7 +3219,7 @@ export async function prepareRequestBody(
 
 			// Add web search tool for ZAI
 			// ZAI uses a web_search tool with enable flag and search_engine config
-			if (webSearchTool) {
+			if (webSearchTool && !webSearchFormat) {
 				requestBody.tools ??= [];
 				requestBody.tools.push({
 					type: "web_search",
@@ -3304,7 +3370,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			if (webSearchTool?.forced) {
+			if (webSearchTool?.forced && !webSearchFormat) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -3461,6 +3527,17 @@ export async function prepareRequestBody(
 				requestBody.metadata = { user_id: safety_identifier };
 			}
 
+			// `none` is an explicit disable: it sends `thinking: { type: "disabled" }`
+			// (unless a budget is also given) and never enables thinking. Models that
+			// cannot disable thinking get no `thinking` field, as without an effort.
+			const thinkingDisabled =
+				supportsReasoning &&
+				claudeCanDisableThinking &&
+				reasoning_effort === "none" &&
+				reasoning_max_tokens === undefined;
+			const thinkingEffort =
+				reasoning_effort === "none" ? undefined : reasoning_effort;
+
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
 			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
 			const getThinkingBudget = (effort?: string) => {
@@ -3472,7 +3549,7 @@ export async function prepareRequestBody(
 					// Anthropic has a minimum of 1024 and maximum of 128000 for thinking budget
 					return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
 				}
-				if (!reasoning_effort) {
+				if (!effort) {
 					return 0;
 				}
 				switch (effort) {
@@ -3488,7 +3565,7 @@ export async function prepareRequestBody(
 						return 2000; // medium or undefined
 				}
 			};
-			const thinkingBudget = getThinkingBudget(reasoning_effort);
+			const thinkingBudget = getThinkingBudget(thinkingEffort);
 			// Anthropic's Messages API requires max_tokens to be set. When the
 			// caller didn't specify one, fall back to the model's full advertised
 			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
@@ -3767,6 +3844,18 @@ export async function prepareRequestBody(
 						...((requestBody.tools as unknown[]) ?? []),
 					];
 				}
+				// Anthropic does not offer web fetch on Google Cloud.
+				const webFetchTools = tools.filter(isWebFetchTool);
+				if (webFetchTools.length > 0 && usedProvider === "vertex-anthropic") {
+					logger.warn("Dropping Anthropic web fetch on Google Cloud", {
+						usedInternalModel,
+					});
+				} else if (webFetchTools.length > 0) {
+					requestBody.tools = [
+						...((requestBody.tools as unknown[]) ?? []),
+						...webFetchTools.map(toAnthropicWebFetchTool),
+					];
+				}
 			}
 
 			// Add web search tool for Anthropic
@@ -3828,8 +3917,12 @@ export async function prepareRequestBody(
 				};
 			}
 
+			if (thinkingDisabled) {
+				requestBody.thinking = { type: "disabled" };
+			}
+
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+			if (supportsReasoning && (thinkingEffort || reasoning_max_tokens)) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
@@ -3838,7 +3931,7 @@ export async function prepareRequestBody(
 					// thinking text — their default flipped to "omitted" (empty thinking,
 					// signature only), unlike Opus 4.6 which defaults to "summarized".
 					requestBody.thinking = { type: "adaptive", display: "summarized" };
-					if (effort === undefined && reasoning_effort) {
+					if (effort === undefined && thinkingEffort) {
 						const mapEffort = (
 							e: typeof reasoning_effort,
 						): "low" | "medium" | "high" | "xhigh" | "max" => {
@@ -3859,7 +3952,7 @@ export async function prepareRequestBody(
 							}
 						};
 						requestBody.output_config ??= {};
-						requestBody.output_config.effort = mapEffort(reasoning_effort);
+						requestBody.output_config.effort = mapEffort(thinkingEffort);
 					}
 				} else {
 					requestBody.thinking = {
@@ -3978,7 +4071,7 @@ export async function prepareRequestBody(
 			delete requestBody.stream; // Will be added to inferenceConfig
 			delete requestBody.messages; // Will be transformed to Bedrock format
 			delete requestBody.tools; // Will be transformed to Bedrock format
-			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
+			delete requestBody.tool_choice; // Converse uses toolConfig.toolChoice
 			delete requestBody.parallel_tool_calls; // No Converse equivalent
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
@@ -4485,10 +4578,27 @@ export async function prepareRequestBody(
 				requestBody.inferenceConfig = inferenceConfig;
 			}
 
+			// `none` explicitly disables Claude's thinking, mirroring the Anthropic
+			// branch; it never enables thinking.
+			const bedrockThinkingEffort =
+				reasoning_effort === "none" ? undefined : reasoning_effort;
+			if (
+				usesBedrockClaudeConverse &&
+				claudeCanDisableThinking &&
+				supportsReasoning &&
+				reasoning_effort === "none" &&
+				reasoning_max_tokens === undefined
+			) {
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.thinking = {
+					type: "disabled",
+				};
+			}
+
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
 			if (
 				supportsReasoning &&
-				(effort || reasoning_effort || reasoning_max_tokens)
+				(effort || bedrockThinkingEffort || reasoning_max_tokens)
 			) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
@@ -4522,7 +4632,9 @@ export async function prepareRequestBody(
 					};
 					const adaptiveEffort =
 						effort ??
-						(reasoning_effort ? mapEffort(reasoning_effort) : undefined);
+						(bedrockThinkingEffort
+							? mapEffort(bedrockThinkingEffort)
+							: undefined);
 					if (adaptiveEffort !== undefined) {
 						requestBody.additionalModelRequestFields.output_config = {
 							effort: adaptiveEffort,
@@ -4549,7 +4661,7 @@ export async function prepareRequestBody(
 								return 2000;
 						}
 					};
-					const thinkingBudget = getThinkingBudget(reasoning_effort);
+					const thinkingBudget = getThinkingBudget(bedrockThinkingEffort);
 					requestBody.additionalModelRequestFields ??= {};
 					requestBody.additionalModelRequestFields.thinking = {
 						type: "enabled",
@@ -4584,6 +4696,28 @@ export async function prepareRequestBody(
 				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
+				}
+			}
+
+			// Converse takes Claude's forced tool choice as `toolConfig.toolChoice`.
+			// Budget thinking rejects it ("Thinking may not be enabled when
+			// tool_choice forces tool use"), so those requests stay on auto, as
+			// before. Converse has no `none`.
+			if (
+				usesBedrockClaudeConverse &&
+				requestBody.toolConfig &&
+				tools?.some(isFunctionTool) &&
+				requestBody.additionalModelRequestFields?.thinking?.type !== "enabled"
+			) {
+				if (resolvedToolChoice === "required") {
+					requestBody.toolConfig.toolChoice = { any: {} };
+				} else if (
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
+				) {
+					requestBody.toolConfig.toolChoice = {
+						tool: { name: resolvedToolChoice.function.name },
+					};
 				}
 			}
 
@@ -5272,9 +5406,14 @@ export async function prepareRequestBody(
 			// SCX resells Alibaba's Qwen models and passes DashScope's search
 			// parameters straight through, so its Qwen mappings take the same shape
 			// as the `alibaba` case above.
-			if (usedProvider === "scx-ai-gp" && webSearchTool?.forced) {
+			if (
+				usedProvider === "scx-ai-gp" &&
+				webSearchTool?.forced &&
+				!webSearchFormat
+			) {
 				applyDashScopeWebSearch(requestBody);
 			}
+			applyDeclaredWebSearch(requestBody);
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
 			// model field to be partner-prefixed, e.g. "xai/grok-4.20-reasoning".
@@ -5336,6 +5475,16 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+	}
+
+	// A declared format replaces the provider's own search translation on every
+	// branch that builds an OpenAI-compatible chat body. Native APIs (Anthropic,
+	// Bedrock, Gemini, Responses) keep theirs: the format names a chat shape.
+	if (
+		!declaredWebSearchApplied &&
+		OPENAI_CHAT_BODY_PROVIDERS.has(usedProvider)
+	) {
+		applyDeclaredWebSearch(requestBody);
 	}
 
 	// BytePlus only caches a prompt prefix when the request opts in; without the

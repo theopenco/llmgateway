@@ -1,0 +1,182 @@
+import { readdirSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+import { lintMigrationsFolder } from "./migration-lint.js";
+import {
+	createdTables,
+	lintMigrationSql,
+	parseIndexOperations,
+	toConcurrentCreateIndex,
+	touchedTables,
+} from "./migration-sql.js";
+
+const BP = "--> statement-breakpoint";
+
+// Shaped like the migration that queued behind long reads on 2026-10-19: three
+// ADD COLUMNs across two live tables, all locks held until commit.
+const MULTI_TABLE = [
+	`ALTER TABLE "organization" ADD COLUMN "provider_key_alerts_enabled" boolean DEFAULT true NOT NULL;`,
+	`ALTER TABLE "provider_key_hourly_stats" ADD COLUMN "error_count" integer DEFAULT 0 NOT NULL;`,
+	`ALTER TABLE "provider_key_hourly_stats" ADD COLUMN "alerted_at" timestamp;`,
+].join(`\n${BP}\n`);
+
+describe("lintMigrationSql", () => {
+	it("flags a migration that locks several existing tables", () => {
+		expect(lintMigrationSql(MULTI_TABLE).map((f) => f.rule)).toEqual([
+			"multi-table-lock",
+		]);
+	});
+
+	it("accepts the same migration with a reviewed reason", () => {
+		const reviewed = `-- migrate:reviewed both tables are tiny on every deployment\n${MULTI_TABLE}`;
+		expect(lintMigrationSql(reviewed)).toEqual([]);
+	});
+
+	it("does not accept a reviewed marker without a reason", () => {
+		expect(
+			lintMigrationSql(`-- migrate:reviewed\n${MULTI_TABLE}`).map(
+				(f) => f.rule,
+			),
+		).toEqual(["multi-table-lock"]);
+	});
+
+	it("requires IF NOT EXISTS / IF EXISTS on index changes to existing tables", () => {
+		const sql = [
+			`CREATE INDEX "log_x_idx" ON "log" USING btree ("x");`,
+			`DROP INDEX "log_y_idx";`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([
+			"create-index-if-not-exists",
+			"drop-index-if-exists",
+		]);
+		expect(
+			lintMigrationSql(
+				`CREATE INDEX IF NOT EXISTS "log_x_idx" ON "log" ("x");\n${BP}\nDROP INDEX IF EXISTS "log_y_idx";`,
+			),
+		).toEqual([]);
+	});
+
+	it("exempts tables created in the same migration", () => {
+		const sql = [
+			`CREATE TABLE "widget" ("id" text PRIMARY KEY NOT NULL, "org_id" text NOT NULL);`,
+			`CREATE INDEX "widget_org_idx" ON "widget" ("org_id");`,
+			`ALTER TABLE "widget" ADD CONSTRAINT "widget_org_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organization"("id");`,
+			`ALTER TABLE "widget" ALTER COLUMN "org_id" SET NOT NULL;`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql)).toEqual([]);
+	});
+
+	it("flags blocking ALTERs on existing tables", () => {
+		const cases: Array<[string, string]> = [
+			[
+				`ALTER TABLE "log" ALTER COLUMN "cost" SET DATA TYPE numeric;`,
+				"alter-column-type",
+			],
+			[
+				`ALTER TABLE "log" ALTER COLUMN "cost" TYPE numeric;`,
+				"alter-column-type",
+			],
+			[`ALTER TABLE "log" ALTER COLUMN "cost" SET NOT NULL;`, "set-not-null"],
+			[
+				`ALTER TABLE "log" ADD CONSTRAINT "log_p_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id");`,
+				"foreign-key-not-valid",
+			],
+			[
+				`ALTER TABLE "log" ADD COLUMN "uid" text DEFAULT gen_random_uuid();`,
+				"volatile-default",
+			],
+		];
+		for (const [sql, rule] of cases) {
+			expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([rule]);
+		}
+		expect(
+			lintMigrationSql(
+				`ALTER TABLE "log" ADD CONSTRAINT "log_p_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") NOT VALID;`,
+			),
+		).toEqual([]);
+		expect(
+			lintMigrationSql(
+				`ALTER TABLE "log" ADD COLUMN "seen_at" timestamp DEFAULT now();`,
+			),
+		).toEqual([]);
+	});
+
+	it("passes every migration created since the lint was introduced", () => {
+		expect(
+			lintMigrationsFolder(new URL("../migrations", import.meta.url).pathname),
+		).toEqual([]);
+		expect(
+			readdirSync(new URL("../migrations", import.meta.url)).length,
+		).toBeGreaterThan(0);
+	});
+});
+
+describe("migration SQL parsing", () => {
+	it("parses index operations", () => {
+		const ops = parseIndexOperations(
+			[
+				`-- migrate:allow-blocking-index\nCREATE UNIQUE INDEX IF NOT EXISTS "a_idx" ON ONLY "public"."a" ("x");`,
+				`DROP INDEX CONCURRENTLY IF EXISTS "b_idx", "c_idx";`,
+			].join(`\n${BP}\n`),
+		);
+		expect(
+			ops.map(({ kind, name, table, ifExists, concurrently }) => ({
+				kind,
+				name,
+				table,
+				ifExists,
+				concurrently,
+			})),
+		).toEqual([
+			{
+				kind: "create",
+				name: `"a_idx"`,
+				table: `"public"."a"`,
+				ifExists: true,
+				concurrently: false,
+			},
+			{
+				kind: "drop",
+				name: `"b_idx"`,
+				table: undefined,
+				ifExists: true,
+				concurrently: true,
+			},
+			{
+				kind: "drop",
+				name: `"c_idx"`,
+				table: undefined,
+				ifExists: true,
+				concurrently: true,
+			},
+		]);
+	});
+
+	it("rewrites CREATE INDEX into its concurrent form", () => {
+		expect(
+			toConcurrentCreateIndex(`CREATE UNIQUE INDEX "a_idx" ON "a" ("x");`),
+		).toBe(
+			`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "a_idx" ON "a" ("x");`,
+		);
+		expect(
+			toConcurrentCreateIndex(`create index if not exists a_idx on a (x)`),
+		).toBe(`CREATE INDEX CONCURRENTLY IF NOT EXISTS a_idx on a (x);`);
+	});
+
+	it("lists created and touched tables", () => {
+		const sql = [
+			`CREATE TABLE "w" ("id" text, "org" text REFERENCES "organization"("id"));`,
+			`ALTER TABLE "Mixed"."Case" ADD COLUMN "x" text;`,
+			`UPDATE "project" SET "x" = 1;`,
+			`CREATE INDEX IF NOT EXISTS "i" ON "log" ("x");`,
+		].join(`\n${BP}\n`);
+		expect([...createdTables(sql)]).toEqual(["w"]);
+		expect([...touchedTables(sql)].sort()).toEqual([
+			"Case",
+			"log",
+			"organization",
+			"project",
+		]);
+	});
+});
