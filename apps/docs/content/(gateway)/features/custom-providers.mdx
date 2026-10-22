@@ -165,9 +165,11 @@ still work but remain unbilled, as before.
 By default the gateway strips Anthropic-style `cache_control` markers before a
 request reaches a custom provider, because strict OpenAI-compatible APIs reject
 unknown fields. If your provider accepts them — for example a router serving
-Claude models — turn on **Forward prompt-cache markers** when creating the key
-or on the [custom models](#custom-model-catalog) page (`forwardCacheControl` in
-the API). The gateway then forwards your markers on text content parts, and a
+Claude models — turn on **Forward prompt-cache markers** when creating the key.
+For an existing key, toggle it from the key's menu on the provider keys page or
+on the [custom models](#custom-model-catalog) page (`forwardCacheControl` in the
+API). It is off by default, so existing keys keep stripping markers until you
+opt in. The gateway then forwards your markers on text content parts, and a
 `tool_result` marker from `/v1/messages` (or `tool_result_cache_control` on an
 OpenAI-format `tool` message) is moved onto the tool message's last text part,
 turning a string tool result into a one-part array. Markers are normalized to
