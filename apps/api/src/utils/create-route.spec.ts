@@ -37,6 +37,24 @@ describe("createRoute", () => {
 		expect(route(schema).request.body.required).toBeUndefined();
 	});
 
+	test("requires a body declared under a +json media type", () => {
+		const r = createRoute({
+			method: "patch",
+			path: "/",
+			request: {
+				body: {
+					content: {
+						"application/merge-patch+json": {
+							schema: z.object({ name: z.string() }),
+						},
+					},
+				},
+			},
+			responses: { 200: { description: "ok" } },
+		});
+		expect((r.request.body as { required?: boolean }).required).toBe(true);
+	});
+
 	test("keeps an explicit required flag", () => {
 		const r = route(z.object({ name: z.string() }), false);
 		expect(r.request.body.required).toBe(false);
