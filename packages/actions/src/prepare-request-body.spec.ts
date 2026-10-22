@@ -10715,3 +10715,287 @@ describe("prepareRequestBody - images inside tool results", () => {
 		]);
 	});
 });
+
+describe("prepareRequestBody - custom provider cache_control forwarding", () => {
+	const messages: BaseMessage[] = [
+		{
+			role: "system",
+			content: [
+				{
+					type: "text",
+					text: "You are a coding agent.",
+					cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+			],
+		},
+		{ role: "user", content: "Read the file." },
+		{
+			role: "assistant",
+			content: "",
+			tool_calls: [
+				{
+					id: "call_1",
+					type: "function",
+					function: { name: "read_file", arguments: "{}" },
+				},
+			],
+		},
+		{
+			role: "tool",
+			tool_call_id: "call_1",
+			content: "file contents",
+			tool_result_cache_control: { type: "ephemeral" },
+		},
+		{
+			role: "user",
+			content: [
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+					cache_control: { type: "ephemeral" },
+				} as never,
+				{
+					type: "text",
+					text: "Now fix it.",
+					cache_control: { type: "ephemeral", ttl: "10m" } as never,
+				},
+			],
+		},
+	];
+
+	async function prepareCustom(
+		forwardCacheControl: boolean | undefined,
+		mode: ProviderCacheControlMode = "auto",
+	) {
+		return (await prepareRequestBody(
+			"custom",
+			"claude-sonnet-router",
+			null,
+			"claude-sonnet-router",
+			messages,
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			mode, // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			forwardCacheControl,
+		)) as OpenAIRequestBody;
+	}
+
+	// Text-part markers only: the pre-existing strip path leaves non-text parts
+	// untouched for every provider that does not take markers.
+	function markers(body: OpenAIRequestBody): unknown[] {
+		return body.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content
+						.filter((part) => part.type === "text")
+						.map((part) => getCacheControl(part))
+				: [],
+		);
+	}
+
+	test("forwards caller markers when the key opts in", async () => {
+		const body = await prepareCustom(true);
+
+		expect(
+			getCacheControl((body.messages[0]!.content as unknown[])[0]),
+		).toEqual({ type: "ephemeral", ttl: "1h" });
+		// The tool_result carrier becomes a marker on a text part.
+		const toolMsg = body.messages[3]!;
+		expect(toolMsg).not.toHaveProperty("tool_result_cache_control");
+		expect(toolMsg.content).toEqual([
+			{
+				type: "text",
+				text: "file contents",
+				cache_control: { type: "ephemeral" },
+			},
+		]);
+		// Non-text parts lose their marker; an unknown ttl is normalized away.
+		const lastContent = body.messages[4]!.content as unknown[];
+		expect(getCacheControl(lastContent[0])).toBeUndefined();
+		expect(getCacheControl(lastContent[1])).toEqual({ type: "ephemeral" });
+	});
+
+	test("drops malformed markers", async () => {
+		const body = (await prepareRequestBody(
+			"custom",
+			"claude-sonnet-router",
+			null,
+			"claude-sonnet-router",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "hi",
+							cache_control: { ttl: "1h" } as never,
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+						},
+					],
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			true, // forwardCacheControl
+		)) as OpenAIRequestBody;
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+		// A tool result with no text part has nowhere to carry its marker.
+		expect(body.messages[1]).not.toHaveProperty("tool_result_cache_control");
+	});
+
+	test("does not inject markers of its own", async () => {
+		const body = await prepareCustom(true);
+		expect(markers(body).filter(Boolean)).toHaveLength(3);
+		expect(body.messages[1]!.content).toBe("Read the file.");
+	});
+
+	test.each([false, undefined])(
+		"strips caller markers when the key has not opted in (%s)",
+		async (forward) => {
+			const body = await prepareCustom(forward);
+
+			expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+			expect(body.messages[3]).not.toHaveProperty("tool_result_cache_control");
+			expect(body.messages[3]!.content).toBe("file contents");
+		},
+	);
+
+	test("strips everything when project cache writes are off", async () => {
+		const body = await prepareCustom(true, "off");
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+		expect(body.messages[3]).not.toHaveProperty("tool_result_cache_control");
+		expect(body.messages[3]!.content).toBe("file contents");
+	});
+
+	test("forwards in passthrough mode", async () => {
+		const body = await prepareCustom(true, "passthrough");
+		expect(markers(body).filter(Boolean)).toHaveLength(3);
+	});
+
+	test("ignores the flag for non-custom providers", async () => {
+		const body = (await prepareRequestBody(
+			"openai",
+			"gpt-4o-mini",
+			null,
+			"gpt-4o-mini",
+			messages,
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			true, // forwardCacheControl
+		)) as OpenAIRequestBody;
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+	});
+});

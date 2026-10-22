@@ -22,6 +22,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
@@ -62,6 +63,7 @@ export function CreateProviderKeyDialog({
 	);
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
+	const [forwardCacheControl, setForwardCacheControl] = useState(true);
 	const [token, setToken] = useState("");
 	const [description, setDescription] = useState("");
 	const [azureResource, setAzureResource] = useState("");
@@ -238,6 +240,7 @@ export function CreateProviderKeyDialog({
 			organizationId: string;
 			usageLimit?: string;
 			allowedModels?: string[];
+			forwardCacheControl?: boolean;
 		} = {
 			provider: selectedProvider,
 			token: trimmedToken,
@@ -254,6 +257,9 @@ export function CreateProviderKeyDialog({
 		}
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
+		}
+		if (selectedProvider === "custom") {
+			payload.forwardCacheControl = forwardCacheControl;
 		}
 		// A custom provider's models live in the organization's own catalogue, so
 		// there is nothing for a canonical-id restriction to match; the API rejects
@@ -443,6 +449,7 @@ export function CreateProviderKeyDialog({
 			setSelectedProvider(preselectedProvider ?? "");
 			setBaseUrl("");
 			setCustomName("");
+			setForwardCacheControl(true);
 			setToken("");
 			setDescription("");
 			setAzureResource("");
@@ -843,6 +850,23 @@ export function CreateProviderKeyDialog({
 											onChange={(e) => setBaseUrl(e.target.value)}
 											required
 										/>
+									</div>
+									<div className="flex items-start gap-3">
+										<Switch
+											id="custom-forward-cache-control"
+											checked={forwardCacheControl}
+											onCheckedChange={setForwardCacheControl}
+										/>
+										<div className="space-y-1">
+											<Label htmlFor="custom-forward-cache-control">
+												Forward prompt-cache markers
+											</Label>
+											<p className="text-sm text-muted-foreground">
+												Sends your requests' <code>cache_control</code> markers
+												to this provider instead of stripping them. Turn off if
+												its API rejects unknown fields.
+											</p>
+										</div>
 									</div>
 								</>
 							)}

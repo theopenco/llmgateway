@@ -280,6 +280,34 @@ export function ProviderKeysList({
 		);
 	};
 
+	const toggleForwardCacheControl = (id: string, current: boolean) => {
+		const forwardCacheControl = !current;
+		toggleMutation.mutate(
+			{
+				params: { path: { id } },
+				body: { forwardCacheControl },
+			},
+			{
+				onSuccess: () => {
+					toast({
+						title: forwardCacheControl
+							? "Prompt-cache markers forwarded"
+							: "Prompt-cache markers stripped",
+					});
+					void queryClient.invalidateQueries({ queryKey });
+				},
+				onError: (error: unknown) =>
+					toast({
+						title: "Error",
+						description:
+							(error as { message?: string } | undefined)?.message ??
+							"Failed to update setting",
+						variant: "destructive",
+					}),
+			},
+		);
+	};
+
 	if (!selectedOrganization) {
 		return (
 			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
@@ -586,6 +614,20 @@ export function ProviderKeysList({
 																						Manage models
 																					</Link>
 																				</DropdownMenuItem>
+																				{!customLocked && (
+																					<DropdownMenuItem
+																						onClick={() =>
+																							toggleForwardCacheControl(
+																								providerKey.id,
+																								providerKey.forwardCacheControl,
+																							)
+																						}
+																					>
+																						{providerKey.forwardCacheControl
+																							? "Stop forwarding cache markers"
+																							: "Forward cache markers"}
+																					</DropdownMenuItem>
+																				)}
 																			</>
 																		)}
 																		{provider.id !== "custom" && (
