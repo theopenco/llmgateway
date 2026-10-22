@@ -115,6 +115,16 @@ describe("public chat support diagnostics", () => {
 
 	beforeAll(async () => {
 		token = await createTestUser();
+		await db.insert(tables.organization).values({
+			id: "chat-support-stream-spec-org",
+			name: "Paid Org",
+			billingEmail: "admin@example.com",
+			plan: "pro",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: "chat-support-stream-spec-org",
+		});
 		server = createServer((req, res) => {
 			gatewayHeaders = req.headers;
 			gatewayRequestIds.push(req.headers["x-request-id"]);

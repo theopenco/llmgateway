@@ -27,7 +27,19 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	desc,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNull,
+	ne,
+	or,
+	tables,
+} from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
@@ -474,6 +486,60 @@ const chatSupportRequestSchema = z.object({
 	clientId: z.string().min(1).max(64),
 });
 
+// Transaction types that mean real money changed hands for the organization.
+const PAID_TRANSACTION_TYPES = [
+	"subscription_start",
+	"credit_topup",
+	"credit_manual_payment",
+	"enterprise_license_fee",
+	"dev_plan_start",
+	"dev_plan_upgrade",
+	"dev_plan_renewal",
+	"dev_plan_reset_pass",
+	"chat_plan_start",
+	"chat_plan_upgrade",
+	"chat_plan_renewal",
+] as const;
+
+// A user is eligible when any active organization they belong to is on a paid
+// or enterprise plan, holds a DevPass or Lounge subscription, or has ever
+// completed a real payment.
+async function isChatSupportEligible(userId: string): Promise<boolean> {
+	const o = tables.organization;
+	const uo = tables.userOrganization;
+	const tx = tables.transaction;
+	const rows = await db
+		.select({ id: o.id })
+		.from(uo)
+		.innerJoin(o, eq(o.id, uo.organizationId))
+		.where(
+			and(
+				eq(uo.userId, userId),
+				or(isNull(o.status), eq(o.status, "active")),
+				or(
+					inArray(o.plan, ["pro", "enterprise"]),
+					ne(o.devPlan, "none"),
+					ne(o.chatPlan, "none"),
+					exists(
+						db
+							.select({ id: tx.id })
+							.from(tx)
+							.where(
+								and(
+									eq(tx.organizationId, o.id),
+									eq(tx.status, "completed"),
+									inArray(tx.type, [...PAID_TRANSACTION_TYPES]),
+									gt(tx.amount, "0"),
+								),
+							),
+					),
+				),
+			),
+		)
+		.limit(1);
+	return rows.length > 0;
+}
+
 export const publicChatSupport = new Hono<{
 	Variables: ServerTypes["Variables"] & {
 		supportDiagnostics: ChatSupportDiagnostics;
@@ -483,7 +549,8 @@ export const publicChatSupport = new Hono<{
 // Signed-in users with a verified email only. The widget used to be open to
 // anonymous visitors, then to any account, and drew a steady stream of spam
 // from throwaway signups; the visitor's identity comes from the session rather
-// than the request body.
+// than the request body. Past this point only paying and enterprise customers
+// get through (see isChatSupportEligible).
 publicChatSupport.use("*", async (c, next) => {
 	const session = await apiAuth.api.getSession({ headers: c.req.raw.headers });
 	if (!session?.user) {
@@ -497,6 +564,26 @@ publicChatSupport.use("*", async (c, next) => {
 	}
 	c.set("user", session.user);
 	c.set("session", session.session);
+	return await next();
+});
+
+// Lets the widget decide whether to render at all. Registered before the
+// eligibility gate so ineligible users get a plain answer instead of a 403.
+publicChatSupport.get("/eligibility", async (c) => {
+	const eligible = await isChatSupportEligible(c.get("user")!.id);
+	return c.json({ eligible });
+});
+
+publicChatSupport.use("*", async (c, next) => {
+	if (!(await isChatSupportEligible(c.get("user")!.id))) {
+		return c.json(
+			{
+				error:
+					"Chat support is available to paid and enterprise customers. Please email contact@llmgateway.io.",
+			},
+			403,
+		);
+	}
 	return await next();
 });
 
