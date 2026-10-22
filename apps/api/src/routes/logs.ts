@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -14,6 +14,7 @@ import {
 	getUserProjectIds,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import { scrubMessagesBase64 } from "@/utils/scrub-messages-base64.js";
 
 import {

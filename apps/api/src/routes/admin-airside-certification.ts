@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -18,6 +18,7 @@ import {
 	effectiveClaimKind,
 } from "@/lib/airside-profile.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 import { providers as catalogueProviders } from "@llmgateway/models";

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -54,6 +54,7 @@ import {
 	utcDayBucketStarts,
 } from "@/lib/series-buckets.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	collectProviderEnvCredentials,

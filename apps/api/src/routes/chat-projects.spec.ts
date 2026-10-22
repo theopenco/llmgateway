@@ -171,6 +171,44 @@ describe("chat-projects", () => {
 		expect(project.chatCount).toBe(0);
 	});
 
+	test.each([
+		["no Content-Type", undefined],
+		["a text/plain Content-Type", "text/plain"],
+	])("POST / rejects a body sent with %s", async (_label, contentType) => {
+		const req = new Request("http://localhost/chat-projects", {
+			method: "POST",
+			headers: { Cookie: token },
+			body: JSON.stringify({ name: "Unparsed" }),
+		});
+		if (contentType) {
+			req.headers.set("Content-Type", contentType);
+		} else {
+			req.headers.delete("Content-Type");
+		}
+		const res = await app.request(req);
+		expect(res.status).toBe(400);
+		expect(await db.query.chatProject.findMany()).toHaveLength(0);
+	});
+
+	test("POST / rejects a blank name", async () => {
+		const res = await app.request("/chat-projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ name: "   " }),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("POST /chats and /projects without a JSON body return 400", async () => {
+		for (const path of ["/chats", "/projects"]) {
+			const res = await app.request(path, {
+				method: "POST",
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(400);
+		}
+	});
+
 	test("GET / lists only the user's projects", async () => {
 		await createProject(token, { name: "Mine" });
 
