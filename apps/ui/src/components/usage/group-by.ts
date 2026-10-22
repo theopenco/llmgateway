@@ -79,6 +79,10 @@ export function toCanonicalModelBreakdown(
 		existing.cacheWriteTokens += row.cacheWriteTokens;
 		existing.totalTokens += row.totalTokens;
 		existing.cost += row.cost;
+		existing.inputCost += row.inputCost;
+		existing.outputCost += row.outputCost;
+		existing.cachedInputCost += row.cachedInputCost;
+		existing.cacheWriteInputCost += row.cacheWriteInputCost;
 		existing.creditsRequestCount += row.creditsRequestCount;
 		existing.apiKeysRequestCount += row.apiKeysRequestCount;
 		existing.creditsCost += row.creditsCost;
