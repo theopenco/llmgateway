@@ -1611,7 +1611,10 @@ function normalizeCacheControl(marker: unknown): CacheControl | undefined {
 		: { type: "ephemeral" };
 }
 
-/** Normalizes (or drops, when malformed) the markers on content parts. */
+/**
+ * Normalizes text-part markers (dropping malformed ones) and removes markers
+ * from every other part type, which OpenAI-compatible upstreams do not take.
+ */
 function normalizeContentCacheControl(message: BaseMessage): BaseMessage {
 	if (!Array.isArray(message.content)) {
 		return message;
@@ -1624,7 +1627,8 @@ function normalizeContentCacheControl(message: BaseMessage): BaseMessage {
 		}
 		mutated = true;
 		const { cache_control: marker, ...rest } = record;
-		const normalized = normalizeCacheControl(marker);
+		const normalized =
+			record.type === "text" ? normalizeCacheControl(marker) : undefined;
 		return (normalized
 			? { ...rest, cache_control: normalized }
 			: rest) as unknown as typeof part;

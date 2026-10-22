@@ -1697,7 +1697,11 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		action: "provider_key.create",
 		resourceType: "provider_key",
 		resourceId: providerKey.id,
-		metadata: { provider: "custom", resourceName: name },
+		metadata: {
+			provider: "custom",
+			resourceName: name,
+			...(forwardCacheControl && { forwardCacheControl }),
+		},
 	});
 
 	return c.json({ customProvider: toPublicProviderKey(providerKey) }, 201);

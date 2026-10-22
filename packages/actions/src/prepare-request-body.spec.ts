@@ -10750,6 +10750,11 @@ describe("prepareRequestBody - custom provider cache_control forwarding", () => 
 			role: "user",
 			content: [
 				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+					cache_control: { type: "ephemeral" },
+				} as never,
+				{
 					type: "text",
 					text: "Now fix it.",
 					cache_control: { type: "ephemeral", ttl: "10m" } as never,
@@ -10808,10 +10813,14 @@ describe("prepareRequestBody - custom provider cache_control forwarding", () => 
 		)) as OpenAIRequestBody;
 	}
 
+	// Text-part markers only: the pre-existing strip path leaves non-text parts
+	// untouched for every provider that does not take markers.
 	function markers(body: OpenAIRequestBody): unknown[] {
 		return body.messages.flatMap((msg) =>
 			Array.isArray(msg.content)
-				? msg.content.map((part) => getCacheControl(part))
+				? msg.content
+						.filter((part) => part.type === "text")
+						.map((part) => getCacheControl(part))
 				: [],
 		);
 	}
@@ -10832,10 +10841,83 @@ describe("prepareRequestBody - custom provider cache_control forwarding", () => 
 				cache_control: { type: "ephemeral" },
 			},
 		]);
-		// An unknown ttl is normalized away rather than forwarded.
-		expect(
-			getCacheControl((body.messages[4]!.content as unknown[])[0]),
-		).toEqual({ type: "ephemeral" });
+		// Non-text parts lose their marker; an unknown ttl is normalized away.
+		const lastContent = body.messages[4]!.content as unknown[];
+		expect(getCacheControl(lastContent[0])).toBeUndefined();
+		expect(getCacheControl(lastContent[1])).toEqual({ type: "ephemeral" });
+	});
+
+	test("drops malformed markers", async () => {
+		const body = (await prepareRequestBody(
+			"custom",
+			"claude-sonnet-router",
+			null,
+			"claude-sonnet-router",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "hi",
+							cache_control: { ttl: "1h" } as never,
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+						},
+					],
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			true, // forwardCacheControl
+		)) as OpenAIRequestBody;
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+		// A tool result with no text part has nowhere to carry its marker.
+		expect(body.messages[1]).not.toHaveProperty("tool_result_cache_control");
 	});
 
 	test("does not inject markers of its own", async () => {
