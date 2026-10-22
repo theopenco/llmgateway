@@ -167,7 +167,7 @@ When the user explicitly asks to set a PR to auto-merge, enable it
    the merge commit, its merge, and the deploy run it triggers. A later image
    bump also ships the commit. If the deploy fails for a reason unrelated to the
    change, report it rather than changing shared infrastructure.
-4. Confirm every deployment runs the merge commit's image, then send a final
-   message saying it is live.
+4. Confirm every deployment runs the merge commit's image (check with
+   `kubectl` when it is set up), then send a final message saying it is live.
 
 Monitor with a background job instead of polling in the conversation.
