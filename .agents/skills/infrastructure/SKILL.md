@@ -20,6 +20,13 @@ production.
 Deploys apply migrations before rolling out new api, gateway, worker, and
 frontend images; new code may rely on new columns and backfills at startup.
 
+Confirm a rollout with `kubectl get deploy -n default` against the production
+GKE context: every `llmgateway-*` deployment should run
+`v0.0.0-<merge sha7>` with ready replicas equal to the desired count. kubectl
+authenticates through `gke-gcloud-auth-plugin` (in `google-cloud-sdk/bin`); if
+it reports the plugin missing, link it into a directory on every shell's
+`PATH`, such as `/opt/homebrew/bin`.
+
 ## Client IP and country
 
 The GCP load balancer is the only edge, so request-origin data comes only from
