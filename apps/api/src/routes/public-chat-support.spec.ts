@@ -4,6 +4,7 @@ import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
 import { createTestUser } from "@/testing.js";
 
+import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { randomInt, uniqueId } from "@llmgateway/shared/random";
 
@@ -39,8 +40,116 @@ async function seedLimit(
 
 let token: string;
 
+const ORG_ID = "chat-support-spec-org";
+
 beforeAll(async () => {
 	token = await createTestUser();
+	await db.insert(tables.organization).values({
+		id: ORG_ID,
+		name: "Paid Org",
+		billingEmail: "admin@example.com",
+		plan: "pro",
+	});
+	await db.insert(tables.userOrganization).values({
+		userId: "test-user-id",
+		organizationId: ORG_ID,
+	});
+});
+
+async function setPlan(plan: "free" | "pro" | "enterprise"): Promise<void> {
+	await db
+		.update(tables.organization)
+		.set({ plan })
+		.where(eq(tables.organization.id, ORG_ID));
+}
+
+async function getEligibility(): Promise<Response> {
+	return await app.request("/public/chat-support/eligibility", {
+		headers: { "X-Forwarded-For": uniqueIp(), Cookie: token },
+	});
+}
+
+describe("public chat support eligibility", () => {
+	it("reports paid and enterprise users as eligible", async () => {
+		for (const plan of ["pro", "enterprise"] as const) {
+			await setPlan(plan);
+			const res = await getEligibility();
+			expect(res.status).toBe(200);
+			expect(await res.json()).toEqual({ eligible: true });
+		}
+	});
+
+	it("blocks free users without a payment on every endpoint", async () => {
+		await setPlan("free");
+		try {
+			const res = await getEligibility();
+			expect(await res.json()).toEqual({ eligible: false });
+
+			const ip = uniqueIp();
+			const clientId = uniqueClientId();
+			const blocked = await sendMessage(ip, clientId);
+			expect(blocked.status).toBe(403);
+			expect(
+				await redisClient.get(`chat_support_rate_limit:burst:ip:${ip}`),
+			).toBeNull();
+
+			for (const path of [
+				`/public/chat-support/conversation?clientId=${clientId}`,
+				"/public/chat-support/reaction",
+				"/public/chat-support/resolve",
+				"/public/chat-support/escalate",
+			]) {
+				const res = await app.request(path, {
+					method: path.includes("?") ? "GET" : "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Forwarded-For": ip,
+						Cookie: token,
+					},
+					body: path.includes("?") ? undefined : JSON.stringify({ clientId }),
+				});
+				expect(res.status, path).toBe(403);
+			}
+		} finally {
+			await setPlan("pro");
+		}
+	});
+
+	it("rate limits eligibility lookups per user", async () => {
+		const key = await seedLimit("eligibility_burst", "user:test-user-id", 40);
+		try {
+			expect((await getEligibility()).status).toBe(429);
+			expect((await sendMessage(uniqueIp(), uniqueClientId())).status).toBe(
+				429,
+			);
+		} finally {
+			await redisClient.del(key);
+		}
+	});
+
+	it("treats a completed payment as paid", async () => {
+		await setPlan("free");
+		const [row] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "10",
+				creditAmount: "10",
+				status: "completed",
+			})
+			.returning({ id: tables.transaction.id });
+		try {
+			expect(await (await getEligibility()).json()).toEqual({
+				eligible: true,
+			});
+		} finally {
+			await db
+				.delete(tables.transaction)
+				.where(eq(tables.transaction.id, row!.id));
+			await setPlan("pro");
+		}
+	});
 });
 
 async function sendMessage(
