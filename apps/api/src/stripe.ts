@@ -59,7 +59,10 @@ import {
 	generateSubscriptionCancelledEmailHtml,
 	sendTransactionalEmail,
 } from "./utils/email.js";
-import { generateAndEmailInvoice } from "./utils/invoice.js";
+import {
+	generateAndEmailInvoice,
+	buildInvoiceDataForTransaction,
+} from "./utils/invoice.js";
 import {
 	resolveChatPlanBillingDetails,
 	resolveDevPassBillingDetails,
@@ -3803,20 +3806,22 @@ export async function handleChargeRefunded(
 		return;
 	}
 
-	// Create refund transaction
-	await db.insert(tables.transaction).values({
-		organizationId: originalTransaction.organizationId,
-		type: "credit_refund",
-		amount: refundAmountInDollars.toString(),
-		creditAmount: (-creditRefundAmount).toString(),
-		currency: originalTransaction.currency,
-		status: "completed",
-		stripePaymentIntentId: payment_intent as string,
-		stripeRefundId: latestRefund.id,
-		relatedTransactionId: originalTransaction.id,
-		refundReason: latestRefund.reason ?? null,
-		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
-	});
+	const [refundTransaction] = await db
+		.insert(tables.transaction)
+		.values({
+			organizationId: originalTransaction.organizationId,
+			type: "credit_refund",
+			amount: refundAmountInDollars.toString(),
+			creditAmount: (-creditRefundAmount).toString(),
+			currency: originalTransaction.currency,
+			status: "completed",
+			stripePaymentIntentId: payment_intent as string,
+			stripeRefundId: latestRefund.id,
+			relatedTransactionId: originalTransaction.id,
+			refundReason: latestRefund.reason ?? null,
+			description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
+		})
+		.returning();
 
 	// Deduct credits from organization (allow negative) — only for credit_topup
 	// refunds, since dev plan / subscription purchases don't add to credits.
@@ -3901,6 +3906,27 @@ export async function handleChargeRefunded(
 				);
 			}
 		}
+	}
+
+	try {
+		const billingDetails =
+			organization.kind === "devpass"
+				? await resolveDevPassBillingDetails(organization)
+				: organization.kind === "chat"
+					? await resolveChatPlanBillingDetails(organization)
+					: organization;
+		await generateAndEmailInvoice(
+			buildInvoiceDataForTransaction(
+				refundTransaction,
+				{ id: organization.id, name: organization.name, ...billingDetails },
+				originalTransaction,
+			),
+		);
+	} catch (e) {
+		logger.error(
+			"Credit note email failed (refund); suppressing failure",
+			e as Error,
+		);
 	}
 
 	// Notify the internal Discord channel, mirroring the purchase notification.

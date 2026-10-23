@@ -1952,6 +1952,57 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 		expect(org?.credits).toBe("0");
 	});
 
+	test("emails the organization a credit note for the refund", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "79",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_devpass_refund",
+		});
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_devpass_refund",
+				customer: "cus_devpass_refund",
+			}),
+		);
+
+		const refund = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: "re_devpass_refund" } },
+		});
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: "billing@acme.test",
+				organizationId: ORG_ID,
+				subject: `Credit note ${refund?.id} - LLMGateway`,
+				html: expect.stringContaining("5–10 business days"),
+				attachments: [
+					expect.objectContaining({
+						filename: `credit-note-${refund?.id}.pdf`,
+					}),
+				],
+			}),
+		);
+	});
+
 	test("cancels the subscription on a full dev plan refund", async () => {
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
