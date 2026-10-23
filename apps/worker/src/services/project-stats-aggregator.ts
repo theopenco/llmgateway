@@ -271,20 +271,55 @@ export function getCommonAggregationFields() {
 }
 
 /**
- * BYOK subset of the gateway/upstream error counts. Only
- * project_hourly_model_stats carries these, for platform-only incident views.
+ * BYOK subset of the error and latency fields, carried by the project and
+ * API key hourly (model) stats so every metric can be split by billing mode.
  */
-function apiKeysErrorFields() {
+export function getApiKeysModeFields() {
+	const byok = sql`${log.usedMode} = 'api-keys'`;
+	const errors = (reason: string, alias: string) =>
+		sql<number>`sum(case when ${byok} and ${log.unifiedFinishReason} = ${reason} then 1 else 0 end)::int`.as(
+			alias,
+		);
+	const total = (column: AnyColumn, alias: string) =>
+		sql<number>`coalesce(sum(${column}) filter (where ${byok}), 0)::bigint`.as(
+			alias,
+		);
+	const samples = (column: AnyColumn, alias: string) =>
+		sql<number>`(count(${column}) filter (where ${byok}))::int`.as(alias);
 	return {
-		apiKeysGatewayErrorCount:
-			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
-				"apiKeysGatewayErrorCount",
-			),
-		apiKeysUpstreamErrorCount:
-			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
-				"apiKeysUpstreamErrorCount",
-			),
+		apiKeysClientErrorCount: errors("client_error", "apiKeysClientErrorCount"),
+		apiKeysGatewayErrorCount: errors(
+			"gateway_error",
+			"apiKeysGatewayErrorCount",
+		),
+		apiKeysUpstreamErrorCount: errors(
+			"upstream_error",
+			"apiKeysUpstreamErrorCount",
+		),
+		apiKeysTotalDuration: total(log.duration, "apiKeysTotalDuration"),
+		apiKeysDurationCount: samples(log.duration, "apiKeysDurationCount"),
+		apiKeysTotalTimeToFirstToken: total(
+			log.timeToFirstToken,
+			"apiKeysTotalTimeToFirstToken",
+		),
+		apiKeysTimeToFirstTokenCount: samples(
+			log.timeToFirstToken,
+			"apiKeysTimeToFirstTokenCount",
+		),
+		apiKeysTotalTimeToFirstReasoningToken: total(
+			log.timeToFirstReasoningToken,
+			"apiKeysTotalTimeToFirstReasoningToken",
+		),
+		apiKeysTimeToFirstReasoningTokenCount: samples(
+			log.timeToFirstReasoningToken,
+			"apiKeysTimeToFirstReasoningTokenCount",
+		),
 	};
+}
+
+/** Aggregation fields of the four tenant tables the BYOK split lives on. */
+function getTenantAggregationFields() {
+	return { ...getCommonAggregationFields(), ...getApiKeysModeFields() };
 }
 
 // Bound aggregation working sets and keep wide INSERTs below the parameter limit.
@@ -351,7 +386,7 @@ async function recalculateProjectHourlyStats(
 	const database = db;
 
 	const rows = await database
-		.select({ projectId: log.projectId, ...getCommonAggregationFields() })
+		.select({ projectId: log.projectId, ...getTenantAggregationFields() })
 		.from(log)
 		.where(
 			and(
@@ -378,7 +413,7 @@ async function recalculateProjectHourlyStats(
 				// The parent timestamp is the stale-bucket watermark, even when totals match.
 				...statsUpdate(
 					getTableColumns(projectHourlyStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					false,
 					window.accumulate,
 				),
@@ -401,8 +436,7 @@ export async function recalculateProjectHourlyModelStats(
 			projectId: log.projectId,
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			...getCommonAggregationFields(),
-			...apiKeysErrorFields(),
+			...getTenantAggregationFields(),
 			providerMarginAmount: providerMarginAmountField(),
 		})
 		.from(log)
@@ -433,8 +467,7 @@ export async function recalculateProjectHourlyModelStats(
 				...statsUpdate(
 					getTableColumns(projectHourlyModelStats),
 					{
-						...getCommonAggregationFields(),
-						...apiKeysErrorFields(),
+						...getTenantAggregationFields(),
 						providerMarginAmount: providerMarginAmountField(),
 					},
 					true,
@@ -658,7 +691,7 @@ async function recalculateApiKeyHourlyStats(
 		.select({
 			projectId: log.projectId,
 			apiKeyId: log.apiKeyId,
-			...getCommonAggregationFields(),
+			...getTenantAggregationFields(),
 		})
 		.from(log)
 		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
@@ -684,7 +717,7 @@ async function recalculateApiKeyHourlyStats(
 				target: [apiKeyHourlyStats.apiKeyId, apiKeyHourlyStats.hourTimestamp],
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -708,7 +741,7 @@ async function recalculateApiKeyHourlyModelStats(
 			apiKeyId: log.apiKeyId,
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			...getCommonAggregationFields(),
+			...getTenantAggregationFields(),
 		})
 		.from(log)
 		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
@@ -739,12 +772,26 @@ async function recalculateApiKeyHourlyModelStats(
 				],
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyModelStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					true,
 					window.accumulate,
 				),
 			});
 	}
+}
+
+/**
+ * Recalculates the four tenant tables that carry the BYOK split, for the
+ * backfill that fills it on hours aggregated before those columns existed.
+ */
+export async function recalculateTenantByokSplitStats(
+	projectIds: string[],
+	hourTimestamp: string,
+) {
+	await recalculateProjectHourlyStats(projectIds, hourTimestamp);
+	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp);
+	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp);
+	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp);
 }
 
 export async function recalculateApiKeyHourlySourceStats(

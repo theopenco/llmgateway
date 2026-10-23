@@ -98,9 +98,9 @@ const METRIC_RANK_LABELS: Record<LoadMetric, string> = {
 	duration: "Average request duration over the selected window.",
 	ttft: "Average time to first token over the selected window.",
 	errors:
-		"Gateway and upstream errors over non-client credits requests, ranked by error count. BYOK traffic is excluded.",
+		"Gateway and upstream errors over non-client requests, ranked by error count.",
 	"client-errors":
-		"Share of credits requests rejected as the caller's own error over the selected window. BYOK traffic is excluded.",
+		"Share of requests rejected as the caller's own error over the selected window.",
 };
 
 const RANK_KEYS: Record<
@@ -358,22 +358,12 @@ function RequestLoadClient() {
 			? `Last completed ${currentSeconds >= 86400 ? "day" : "hour"}`
 			: `Last ${Math.max(1, Math.round(currentSeconds / 60))} minutes`;
 
-	// The tenant rollups carry one blended latency sum with no per-mode split,
-	// and buckets aggregated before the latency columns existed have no samples
-	// at all — both surface as nulls, so say which one it is.
-	const modeBlended =
-		mode !== "total" && data?.summarySource === "project-stats";
-	const latencyHint = modeBlended
-		? "Unavailable for a single billing mode"
-		: data?.summary.avgDurationMs === null
+	// Buckets aggregated before the latency columns existed have no samples.
+	const latencyHint =
+		data?.summary.avgDurationMs === null
 			? "No samples recorded in this window"
 			: `Across the last ${activeWindow}`;
-	// Error figures cover credits traffic only, which the tenant rollups cannot
-	// isolate.
-	const errorHint =
-		data?.summarySource === "project-stats"
-			? "Unavailable with a tenant filter"
-			: `Credits only · excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
+	const errorHint = `Excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
 
 	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =

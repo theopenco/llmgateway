@@ -5,6 +5,7 @@ import {
 	formatUTCTimestamp,
 	recalculateProjectHourlyModelStats,
 	recalculateProjectHourlySourceModelStats,
+	recalculateTenantByokSplitStats,
 } from "./project-stats-aggregator.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -121,4 +122,25 @@ export const runModelStatsByokErrorsBackfillStep =
 		days: 3,
 		label: "model stats BYOK errors",
 		recalculate: recalculateProjectHourlyModelStats,
+	});
+
+const configuredTenantByokDays = Number(
+	process.env.TENANT_STATS_BYOK_BACKFILL_DAYS,
+);
+/** Defaults to the longest admin Gateway Load window. */
+export const TENANT_STATS_BYOK_BACKFILL_DAYS =
+	Number.isFinite(configuredTenantByokDays) && configuredTenantByokDays > 0
+		? configuredTenantByokDays
+		: 365;
+
+/**
+ * Fills the BYOK error and latency columns of the project and API key hourly
+ * (model) stats, so every Gateway Load metric can be split by billing mode.
+ */
+export const runTenantStatsByokSplitBackfillStep =
+	createHourlyStatsBackfillStep({
+		stateId: "tenant-stats-byok-split-backfill",
+		days: TENANT_STATS_BYOK_BACKFILL_DAYS,
+		label: "tenant stats BYOK split",
+		recalculate: recalculateTenantByokSplitStats,
 	});

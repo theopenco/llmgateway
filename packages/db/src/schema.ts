@@ -6296,6 +6296,29 @@ export const providerRoutingFiling = snakeCase.table(
 );
 
 // Project hourly statistics aggregation - used for fast dashboard queries
+/**
+ * BYOK (`used_mode = 'api-keys'`) subset of the error and latency columns on
+ * the tenant hourly rollups. `log.used_mode` is only ever credits or api-keys,
+ * so the credits figure is the total minus this subset.
+ */
+function apiKeysModeColumns() {
+	return {
+		apiKeysClientErrorCount: integer().notNull().default(0),
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		apiKeysTotalDuration: bigint({ mode: "number" }).notNull().default(0),
+		apiKeysDurationCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstTokenCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+	};
+}
+
 export const projectHourlyStats = snakeCase.table(
 	"project_hourly_stats",
 	{
@@ -6372,6 +6395,7 @@ export const projectHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour (also creates implicit index)
@@ -6462,10 +6486,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
-		// BYOK subset of the gateway/upstream error counts, so incident views can
-		// show platform-only error rates.
-		apiKeysGatewayErrorCount: integer().notNull().default(0),
-		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -6731,6 +6752,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour
@@ -6892,6 +6914,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour-model-provider

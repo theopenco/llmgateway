@@ -611,94 +611,110 @@ describe("admin — gateway load", () => {
 	});
 
 	test.each<Record<string, string>>([
-		{ groupBy: "organization" },
-		{ groupBy: "organization", organizationId: ORG_A },
-		{ groupBy: "organization", organizationId: ORG_A, mode: "credits" },
-		{ groupBy: "model", modelView: "mapping", organizationId: ORG_A },
-		{ groupBy: "model", modelView: "mapping", projectId: PROJECT_A },
-		{ groupBy: "model", modelView: "mapping", apiKeyId: API_KEY_A },
-	])("withholds the error rate on the tenant rollup: %j", async (filter) => {
-		// The tenant rollups cannot separate BYOK client errors from credits ones,
-		// so any figure there would mix BYOK failures into the platform rate.
-		const body = await fetchLoad(cookie, { window: "1d", ...filter });
-		expect(body.source).toBe("project-stats");
-		expect(body.breakdown.length).toBeGreaterThan(0);
-		expect(body.breakdown.every((row) => row.errorRate === null)).toBe(true);
-		expect(body.breakdown.every((row) => row.errorCount === null)).toBe(true);
-		expect(body.breakdown.every((row) => row.clientErrorRate === null)).toBe(
-			true,
-		);
-		if (body.summarySource === "project-stats") {
-			expect(body.summary.errorRate).toBeNull();
-			expect(body.summary.errorCount).toBeNull();
-			expect(body.summary.clientErrorRate).toBeNull();
-		}
-	});
+		{ groupBy: "organization", organizationId: ORG_B },
+		{ groupBy: "api-key", apiKeyId: API_KEY_B },
+	])(
+		"splits errors and latency by billing mode on the tenant rollup: %j",
+		async (filter) => {
+			// 900 credits + 900 BYOK requests; the byok* columns are the BYOK
+			// subset, so credits is the total minus them.
+			const split = {
+				clientErrorCount: 30,
+				apiKeysClientErrorCount: 20,
+				gatewayErrorCount: 10,
+				upstreamErrorCount: 100,
+				apiKeysUpstreamErrorCount: 90,
+				totalDuration: 1800 * 1000,
+				durationCount: 1800,
+				apiKeysTotalDuration: 900 * 1500,
+				apiKeysDurationCount: 900,
+				totalTimeToFirstToken: 900 * 300,
+				timeToFirstTokenCount: 900,
+				apiKeysTotalTimeToFirstToken: 300 * 600,
+				apiKeysTimeToFirstTokenCount: 300,
+			};
+			await db
+				.update(tables.projectHourlyStats)
+				.set(split)
+				.where(eq(tables.projectHourlyStats.projectId, PROJECT_B));
+			await db
+				.update(tables.apiKeyHourlyStats)
+				.set(split)
+				.where(eq(tables.apiKeyHourlyStats.apiKeyId, API_KEY_B));
 
-	test("counts only credits traffic in the error rate and error ranking", async () => {
-		const flakyProvider = `${PROVIDER_ID}-flaky`;
-		await db.insert(tables.modelProviderMappingHistory).values([
-			{
-				modelId: MODEL_ID,
-				providerId: flakyProvider,
-				modelProviderMappingId: "load-mapping-flaky",
-				usedMode: "credits",
-				minuteTimestamp: closedMinute,
-				logsCount: 20,
-				errorsCount: 15,
-				upstreamErrorsCount: 15,
-			},
-			// BYOK failures come from the customer's own provider account; counting
-			// them would rank the main provider first with 60 errors.
-			{
-				modelId: MODEL_ID,
-				providerId: PROVIDER_ID,
-				modelProviderMappingId: ROOT_MAPPING_ID,
-				usedMode: "api-keys",
-				minuteTimestamp: closedMinute,
-				logsCount: 50,
-				errorsCount: 50,
-				clientErrorsCount: 5,
-				upstreamErrorsCount: 45,
-			},
-		]);
+			const expected = {
+				total: {
+					errorRate: 110 / 1770,
+					clientErrorRate: 30 / 1800,
+					errorCount: 110,
+					avgDurationMs: 1000,
+					avgTimeToFirstTokenMs: 300,
+				},
+				credits: {
+					errorRate: 20 / 890,
+					clientErrorRate: 10 / 900,
+					errorCount: 20,
+					avgDurationMs: 500,
+					avgTimeToFirstTokenMs: 150,
+				},
+				"api-keys": {
+					errorRate: 90 / 880,
+					clientErrorRate: 20 / 900,
+					errorCount: 90,
+					avgDurationMs: 1500,
+					avgTimeToFirstTokenMs: 600,
+				},
+			};
+			for (const [mode, values] of Object.entries(expected)) {
+				const body = await fetchLoad(cookie, {
+					window: "1d",
+					...filter,
+					mode,
+				});
+				expect(body.source).toBe("project-stats");
+				for (const metrics of [body.summary, body.breakdown[0]]) {
+					expect(metrics.errorRate).toBeCloseTo(values.errorRate, 6);
+					expect(metrics.clientErrorRate).toBeCloseTo(
+						values.clientErrorRate,
+						6,
+					);
+					expect(metrics.errorCount).toBe(values.errorCount);
+					expect(metrics.avgDurationMs).toBeCloseTo(values.avgDurationMs, 6);
+					expect(metrics.avgTimeToFirstTokenMs).toBeCloseTo(
+						values.avgTimeToFirstTokenMs,
+						6,
+					);
+				}
+			}
+		},
+	);
 
-		const body = await fetchLoad(cookie, {
-			window: "1h",
-			groupBy: "provider",
-			rankBy: "errors",
+	test("narrows errors to the billing mode on the mapping history", async () => {
+		await db.insert(tables.modelProviderMappingHistory).values({
+			modelId: MODEL_ID,
+			providerId: PROVIDER_ID,
+			modelProviderMappingId: ROOT_MAPPING_ID,
+			usedMode: "api-keys",
+			minuteTimestamp: closedMinute,
+			logsCount: 50,
+			errorsCount: 50,
+			clientErrorsCount: 5,
+			upstreamErrorsCount: 45,
 		});
-		expect(body.summary.totalRequests).toBe(280);
-		expect(body.summary.errorCount).toBe(25);
-		expect(body.summary.errorRate).toBeCloseTo(25 / 228, 6);
-		expect(body.summary.clientErrorCount).toBe(2);
-		expect(body.summary.clientErrorRate).toBeCloseTo(2 / 230, 6);
-		expect(body.breakdown.map((row) => [row.key, row.errorCount])).toEqual([
-			[flakyProvider, 15],
-			[PROVIDER_ID, 10],
-		]);
-		expect(body.breakdown[0].errorRate).toBeCloseTo(0.75, 6);
-		// Requests still follow the mode filter.
-		expect(body.breakdown[1].requestCount).toBe(260);
+		const query = { window: "1h", groupBy: "model" };
 
-		const byok = await fetchLoad(cookie, {
-			window: "1h",
-			groupBy: "provider",
-			mode: "api-keys",
-		});
-		expect(byok.summary.totalRequests).toBe(50);
-		expect(byok.summary.errorRate).toBeNull();
-		expect(byok.summary.errorCount).toBe(0);
-	});
+		const total = await fetchLoad(cookie, query);
+		expect(total.summary.errorCount).toBe(55);
+		expect(total.summary.errorRate).toBeCloseTo(55 / (260 - 7), 6);
 
-	test("keeps the error rate exact when a mode narrows the mapping history", async () => {
-		// The mapping history keys on `used_mode`, so its error split is per mode.
-		const body = await fetchLoad(cookie, {
-			window: "1h",
-			groupBy: "model",
-			mode: "credits",
-		});
-		expect(body.summary.errorRate).toBeCloseTo(10 / 208, 6);
+		const credits = await fetchLoad(cookie, { ...query, mode: "credits" });
+		expect(credits.summary.errorCount).toBe(10);
+		expect(credits.summary.errorRate).toBeCloseTo(10 / 208, 6);
+
+		const byok = await fetchLoad(cookie, { ...query, mode: "api-keys" });
+		expect(byok.summary.errorCount).toBe(45);
+		expect(byok.summary.errorRate).toBeCloseTo(45 / 45, 6);
+		expect(byok.summary.clientErrorRate).toBeCloseTo(5 / 50, 6);
 	});
 
 	test("reports the error rate per bucket and per series", async () => {
@@ -722,6 +738,68 @@ describe("admin — gateway load", () => {
 		expect(empty?.entries[0].errorRate).toBeNull();
 	});
 
+	test("reports the model error rate under an organization, project or API key filter", async () => {
+		const filters: Record<string, string>[] = [
+			{ organizationId: ORG_A },
+			{ projectId: PROJECT_A },
+			{ apiKeyId: API_KEY_A },
+		];
+		for (const filter of filters) {
+			const body = await fetchLoad(cookie, {
+				window: "1d",
+				groupBy: "model",
+				modelView: "mapping",
+				...filter,
+			});
+			const root = body.breakdown.find(
+				(row) => row.key === `${PROVIDER_ID}/${MODEL_ID}`,
+			);
+			expect(root?.errorRate).toBeCloseTo(54 / (5400 - 6), 6);
+			expect(root?.clientErrorRate).toBeCloseTo(6 / 5400, 6);
+			const regional = body.breakdown.find(
+				(row) => row.key === `${PROVIDER_ID}/${MODEL_ID}:us-east`,
+			);
+			expect(regional?.errorRate).toBe(0);
+		}
+	});
+
+	test("ranks series by error count on request", async () => {
+		const flakyModel = `${PROVIDER_ID}/load-flaky`;
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: PROJECT_A,
+			hourTimestamp: closedHour,
+			usedModel: flakyModel,
+			usedProvider: PROVIDER_ID,
+			requestCount: 100,
+			creditsRequestCount: 100,
+			errorCount: 80,
+			upstreamErrorCount: 80,
+		});
+		const query = {
+			window: "1d",
+			groupBy: "model",
+			modelView: "mapping",
+			organizationId: ORG_A,
+		};
+
+		const byRequests = await fetchLoad(cookie, query);
+		expect(byRequests.breakdown.map((row) => row.key)).toEqual([
+			`${PROVIDER_ID}/${MODEL_ID}`,
+			`${PROVIDER_ID}/${MODEL_ID}:us-east`,
+			flakyModel,
+		]);
+
+		// 80 failures outrank 54 on far more traffic; the error-free regional
+		// mapping falls back to request order behind both.
+		const byErrors = await fetchLoad(cookie, { ...query, rankBy: "errors" });
+		expect(byErrors.breakdown.map((row) => row.key)).toEqual([
+			flakyModel,
+			`${PROVIDER_ID}/${MODEL_ID}`,
+			`${PROVIDER_ID}/${MODEL_ID}:us-east`,
+		]);
+		expect(byErrors.breakdown[0].errorRate).toBeCloseTo(0.8, 6);
+	});
+
 	test("reports average duration and TTFT per organization", async () => {
 		const body = await fetchLoad(cookie, {
 			window: "1d",
@@ -740,23 +818,6 @@ describe("admin — gateway load", () => {
 		const orgB = body.breakdown.find((row) => row.key === ORG_B);
 		expect(orgB?.avgDurationMs).toBeNull();
 		expect(orgB?.avgTimeToFirstTokenMs).toBeNull();
-	});
-
-	test("withholds latency when a mode narrows the tenant rollup", async () => {
-		const body = await fetchLoad(cookie, {
-			window: "1d",
-			groupBy: "organization",
-			organizationId: ORG_A,
-			mode: "credits",
-		});
-
-		// One blended duration sum against a credits-only request count would be
-		// an average of the wrong population.
-		expect(body.summary.avgDurationMs).toBeNull();
-		expect(body.summary.avgTimeToFirstTokenMs).toBeNull();
-		expect(body.breakdown.every((row) => row.avgDurationMs === null)).toBe(
-			true,
-		);
 	});
 
 	test("reports average duration on the mapping-history axis", async () => {

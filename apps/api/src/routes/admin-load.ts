@@ -198,13 +198,8 @@ interface LatencyTotals extends TtftTotals {
  * The unified finish-reason split rather than `log.hasError`, so the error
  * rate here is the same one `deriveStabilityMetrics` reports on every other
  * model stability view.
- *
- * Counted over credits traffic only, whatever the mode filter: BYOK failures
- * come from the customer's own provider account and would skew the platform's
- * error rate. `creditsRequests` is the denominator for that subset.
  */
 interface ErrorTotals {
-	creditsRequests: number;
 	clientErrors: number;
 	gatewayErrors: number;
 	upstreamErrors: number;
@@ -230,7 +225,6 @@ interface KeyBucketRow extends LoadTotals {
 function emptyTotals(): LoadTotals {
 	return {
 		requestCount: 0,
-		creditsRequests: 0,
 		clientErrors: 0,
 		gatewayErrors: 0,
 		upstreamErrors: 0,
@@ -245,7 +239,6 @@ function emptyTotals(): LoadTotals {
 
 function addTotals(into: LoadTotals, from: LoadTotals): void {
 	into.requestCount += from.requestCount;
-	into.creditsRequests += from.creditsRequests;
 	into.clientErrors += from.clientErrors;
 	into.gatewayErrors += from.gatewayErrors;
 	into.upstreamErrors += from.upstreamErrors;
@@ -263,12 +256,12 @@ function addTotals(into: LoadTotals, from: LoadTotals): void {
  * inside float8's exact-integer range.
  */
 function latencySums(table: {
-	totalDuration: AnyColumn;
-	durationCount: AnyColumn;
-	totalTimeToFirstToken: AnyColumn;
-	timeToFirstTokenCount: AnyColumn;
-	totalTimeToFirstReasoningToken: AnyColumn;
-	timeToFirstReasoningTokenCount: AnyColumn;
+	totalDuration: AnyColumn | SQL;
+	durationCount: AnyColumn | SQL;
+	totalTimeToFirstToken: AnyColumn | SQL;
+	timeToFirstTokenCount: AnyColumn | SQL;
+	totalTimeToFirstReasoningToken: AnyColumn | SQL;
+	timeToFirstReasoningTokenCount: AnyColumn | SQL;
 }) {
 	return {
 		totalDuration:
@@ -298,31 +291,22 @@ function latencySums(table: {
 	};
 }
 
-/** Error sums over the rows `credits` selects; see `ErrorTotals`. */
-function errorSums(
-	columns: {
-		requests: AnyColumn;
-		clientErrors: AnyColumn;
-		gatewayErrors: AnyColumn;
-		upstreamErrors: AnyColumn;
-	},
-	credits: SQL,
-) {
+function errorSums(columns: {
+	clientErrors: AnyColumn | SQL;
+	gatewayErrors: AnyColumn | SQL;
+	upstreamErrors: AnyColumn | SQL;
+}) {
 	return {
-		creditsRequests:
-			sql<number>`COALESCE(SUM(${columns.requests}) FILTER (WHERE ${credits}), 0)::float8`.as(
-				"credits_requests",
-			),
 		clientErrors:
-			sql<number>`COALESCE(SUM(${columns.clientErrors}) FILTER (WHERE ${credits}), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(${columns.clientErrors}), 0)::float8`.as(
 				"client_errors",
 			),
 		gatewayErrors:
-			sql<number>`COALESCE(SUM(${columns.gatewayErrors}) FILTER (WHERE ${credits}), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(${columns.gatewayErrors}), 0)::float8`.as(
 				"gateway_errors",
 			),
 		upstreamErrors:
-			sql<number>`COALESCE(SUM(${columns.upstreamErrors}) FILTER (WHERE ${credits}), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(${columns.upstreamErrors}), 0)::float8`.as(
 				"upstream_errors",
 			),
 	};
@@ -331,7 +315,6 @@ function errorSums(
 function readTotals(row: LoadTotals): LoadTotals {
 	return {
 		requestCount: Number(row.requestCount),
-		creditsRequests: Number(row.creditsRequests),
 		clientErrors: Number(row.clientErrors),
 		gatewayErrors: Number(row.gatewayErrors),
 		upstreamErrors: Number(row.upstreamErrors),
@@ -401,15 +384,11 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 	});
 	const totals = {
 		requestCount: requests.as("request_count"),
-		...errorSums(
-			{
-				requests: mph.logsCount,
-				clientErrors: mph.clientErrorsCount,
-				gatewayErrors: mph.gatewayErrorsCount,
-				upstreamErrors: mph.upstreamErrorsCount,
-			},
-			sql`${mph.usedMode} = 'credits'`,
-		),
+		...errorSums({
+			clientErrors: mph.clientErrorsCount,
+			gatewayErrors: mph.gatewayErrorsCount,
+			upstreamErrors: mph.upstreamErrorsCount,
+		}),
 		...latency,
 	};
 
@@ -504,6 +483,14 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 			: scope.mode === "api-keys"
 				? statsTable.apiKeysRequestCount
 				: statsTable.requestCount;
+	// Error and latency columns only carry the BYOK subset; `log.used_mode` is
+	// credits or api-keys, so credits is the total minus that subset.
+	const forMode = (total: AnyColumn, byok: AnyColumn): AnyColumn | SQL =>
+		scope.mode === "credits"
+			? sql`(${total} - ${byok})`
+			: scope.mode === "api-keys"
+				? byok
+				: total;
 
 	let keyExpr: SQL<string>;
 	switch (scope.groupBy) {
@@ -545,18 +532,46 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 	// the response say "unknown" instead of "0 ms".
 	const totals = {
 		requestCount: requests.as("request_count"),
-		// The tenant rollups have no credits-only split of client errors, so no
-		// row qualifies and `hasCreditsErrors` withholds the error figures.
-		...errorSums(
-			{
-				requests: countColumn,
-				clientErrors: statsTable.clientErrorCount,
-				gatewayErrors: statsTable.gatewayErrorCount,
-				upstreamErrors: statsTable.upstreamErrorCount,
-			},
-			sql`false`,
-		),
-		...latencySums(statsTable),
+		...errorSums({
+			clientErrors: forMode(
+				statsTable.clientErrorCount,
+				statsTable.apiKeysClientErrorCount,
+			),
+			gatewayErrors: forMode(
+				statsTable.gatewayErrorCount,
+				statsTable.apiKeysGatewayErrorCount,
+			),
+			upstreamErrors: forMode(
+				statsTable.upstreamErrorCount,
+				statsTable.apiKeysUpstreamErrorCount,
+			),
+		}),
+		...latencySums({
+			totalDuration: forMode(
+				statsTable.totalDuration,
+				statsTable.apiKeysTotalDuration,
+			),
+			durationCount: forMode(
+				statsTable.durationCount,
+				statsTable.apiKeysDurationCount,
+			),
+			totalTimeToFirstToken: forMode(
+				statsTable.totalTimeToFirstToken,
+				statsTable.apiKeysTotalTimeToFirstToken,
+			),
+			timeToFirstTokenCount: forMode(
+				statsTable.timeToFirstTokenCount,
+				statsTable.apiKeysTimeToFirstTokenCount,
+			),
+			totalTimeToFirstReasoningToken: forMode(
+				statsTable.totalTimeToFirstReasoningToken,
+				statsTable.apiKeysTotalTimeToFirstReasoningToken,
+			),
+			timeToFirstReasoningTokenCount: forMode(
+				statsTable.timeToFirstReasoningTokenCount,
+				statsTable.apiKeysTimeToFirstReasoningTokenCount,
+			),
+		}),
 	};
 	// Every tenant rollup keys on projectId only; the organization id lives one
 	// hop up, so the join is unconditional and the org filter and the org
@@ -721,9 +736,8 @@ const latencyShape = {
 	avgDurationMs: z.number().nullable(),
 	avgTimeToFirstTokenMs: z.number().nullable(),
 	// Gateway + upstream errors over non-client requests, as in
-	// `deriveStabilityMetrics`, over credits traffic only (BYOK excluded);
-	// client errors are reported separately so a caller's malformed requests
-	// never read as a model failure.
+	// `deriveStabilityMetrics`; client errors are reported separately so a
+	// caller's malformed requests never read as a model failure.
 	errorRate: z.number().nullable(),
 	clientErrorRate: z.number().nullable(),
 };
@@ -857,70 +871,45 @@ function summaryScopeFor(query: LoadQuery, now: Date): LoadScope {
 	);
 }
 
-/**
- * The per-mode request columns on the tenant rollups have no matching latency
- * split, so a mode-filtered view there would pair credits-only requests with
- * blended latency. The mapping history keys on `used_mode`, so it stays exact.
- */
-function isModeComparable(scope: LoadScope): boolean {
-	return scope.mode === "total" || scope.source === "mapping-history";
-}
-
-/**
- * Only the mapping history can isolate credits traffic for every error class;
- * the tenant rollups would report BYOK failures in the platform error rate.
- */
-function hasCreditsErrors(scope: LoadScope): boolean {
-	return scope.source === "mapping-history";
-}
-
-interface Comparability {
-	latency: boolean;
-	errors: boolean;
-}
-
-function comparabilityFor(scope: LoadScope): Comparability {
-	return {
-		latency: isModeComparable(scope),
-		errors: hasCreditsErrors(scope),
-	};
-}
-
 function stabilityFor(totals: LoadTotals) {
 	return deriveStabilityMetrics({
-		logsCount: totals.creditsRequests,
+		logsCount: totals.requestCount,
 		clientErrorsCount: totals.clientErrors,
 		gatewayErrorsCount: totals.gatewayErrors,
 		upstreamErrorsCount: totals.upstreamErrors,
 	});
 }
 
-function qualityFor(totals: LoadTotals | undefined, comparable: Comparability) {
-	const latency = totals && comparable.latency ? totals : null;
-	const errors = totals && comparable.errors ? totals : null;
-	const errorRate = errors ? stabilityFor(errors).errorRate : null;
+function qualityFor(totals: LoadTotals | undefined) {
+	if (!totals) {
+		return {
+			avgDurationMs: null,
+			avgTimeToFirstTokenMs: null,
+			errorRate: null,
+			clientErrorRate: null,
+		};
+	}
+	const { errorRate } = stabilityFor(totals);
 	return {
 		avgDurationMs:
-			latency && latency.durationCount > 0
-				? latency.totalDuration / latency.durationCount
+			totals.durationCount > 0
+				? totals.totalDuration / totals.durationCount
 				: null,
-		avgTimeToFirstTokenMs: latency ? avgEffectiveTtft(latency) : null,
+		avgTimeToFirstTokenMs: avgEffectiveTtft(totals),
 		errorRate: errorRate === null ? null : errorRate / 100,
 		clientErrorRate:
-			errors && errors.creditsRequests > 0
-				? Math.min(errors.clientErrors, errors.creditsRequests) /
-					errors.creditsRequests
+			totals.requestCount > 0
+				? Math.min(totals.clientErrors, totals.requestCount) /
+					totals.requestCount
 				: null,
 	};
 }
 
-function errorCountsFor(totals: LoadTotals, comparable: Comparability) {
-	return comparable.errors
-		? {
-				errorCount: stabilityFor(totals).errorsCount,
-				clientErrorCount: Math.min(totals.clientErrors, totals.creditsRequests),
-			}
-		: { errorCount: null, clientErrorCount: null };
+function errorCountsFor(totals: LoadTotals) {
+	return {
+		errorCount: stabilityFor(totals).errorsCount,
+		clientErrorCount: Math.min(totals.clientErrors, totals.requestCount),
+	};
 }
 
 interface LoadGrid {
@@ -958,7 +947,6 @@ function sumTotals(rows: LoadTotals[]): LoadTotals {
 
 function summarizeLoad(scope: LoadScope, bucketTotals: BucketTotalRow[]) {
 	const peakBucket = peakBucketFor(scope.bucket);
-	const comparable = comparabilityFor(scope);
 	const { buckets, secondsFor, elapsedSeconds } = loadGrid(scope);
 
 	const requestsByBucket = new Map<string, number>();
@@ -999,8 +987,8 @@ function summarizeLoad(scope: LoadScope, bucketTotals: BucketTotalRow[]) {
 		peakRps: toRps(peakPoint?.requestCount ?? 0, BUCKET_SECONDS[peakBucket]),
 		peakAt: peakPoint && peakPoint.requestCount > 0 ? peakPoint.bucket : null,
 		totalRequests: total.requestCount,
-		...qualityFor(total, comparable),
-		...errorCountsFor(total, comparable),
+		...qualityFor(total),
+		...errorCountsFor(total),
 	};
 }
 
@@ -1025,11 +1013,9 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 		summaryShared ? null : openLoadSource(summaryScope).bucketTotals(),
 	]);
 
-	const comparable = comparabilityFor(scope);
-
 	// Ranked by absolute error count rather than rate, so a key with a single
 	// failed request cannot outrank one failing thousands.
-	const errorRanked = scope.rankBy === "errors" && comparable.errors;
+	const errorRanked = scope.rankBy === "errors";
 	const rankedKeys = keyTotals
 		// A mode filter can leave a key with rows but no requests; ranking it
 		// would pad the legend and the table with empty series.
@@ -1087,7 +1073,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			bucketSeconds: seconds,
 			requestCount,
 			rps: toRps(requestCount, seconds),
-			...qualityFor(bucketTotal, comparable),
+			...qualityFor(bucketTotal),
 			entries: topKeys.map(({ key }) => {
 				const cellTotals = totalsByKeyBucket.get(`${key}\u0000${timestamp}`);
 				const count = cellTotals?.requestCount ?? 0;
@@ -1095,7 +1081,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 					key,
 					requestCount: count,
 					rps: toRps(count, seconds),
-					...qualityFor(cellTotals, comparable),
+					...qualityFor(cellTotals),
 				};
 			}),
 		};
@@ -1135,7 +1121,6 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 				elapsedSeconds,
 				totalRequests: chartRequests,
 				peakRps: peakByKey.get(row.key) ?? 0,
-				comparable,
 			}),
 			label: labelFor(row.key),
 		})),
@@ -1149,7 +1134,6 @@ function breakdownRow(
 		elapsedSeconds: number;
 		totalRequests: number;
 		peakRps: number;
-		comparable: Comparability;
 	},
 ) {
 	return {
@@ -1159,8 +1143,8 @@ function breakdownRow(
 		peakRps: context.peakRps,
 		share:
 			context.totalRequests > 0 ? row.requestCount / context.totalRequests : 0,
-		...qualityFor(row, context.comparable),
-		...errorCountsFor(row, context.comparable),
+		...qualityFor(row),
+		...errorCountsFor(row),
 	};
 }
 
@@ -1243,7 +1227,6 @@ adminLoad.openapi(getLoadBreakdown, async (c) => {
 	const scope = resolveLoadScope(query);
 	const peakBucket = peakBucketFor(scope.bucket);
 	const source = openLoadSource(scope);
-	const comparable = comparabilityFor(scope);
 	const { elapsedSeconds } = loadGrid(scope);
 
 	// Only settled buckets count towards a peak; see `summarizeLoad`.
@@ -1261,7 +1244,6 @@ adminLoad.openapi(getLoadBreakdown, async (c) => {
 				elapsedSeconds,
 				totalRequests,
 				peakRps: toRps(peaks.get(row.key) ?? 0, peakSeconds),
-				comparable,
 			}),
 		);
 
