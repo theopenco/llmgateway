@@ -6,6 +6,34 @@ import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
 
 /**
+ * Deadline for fetching a remote image. Any API-key holder controls the URL
+ * behind `image_url.url`, and this fetch happens before the provider call, so
+ * it is not covered by the provider request timeout.
+ */
+const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
+// Largest delay AbortSignal.timeout accepts; a bigger (or non-finite) value
+// throws and would break the fetch, so we clamp to a safe range.
+const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Resolves the fetch deadline from IMAGE_FETCH_TIMEOUT_MS, guarding against
+ * values that would make AbortSignal.timeout throw. Only a finite integer in
+ * [1, 2_147_483_647] is honoured; anything else (unset, blank, 0, NaN,
+ * negative, fractional, Infinity) falls back to the default. Blank and 0 are
+ * rejected because `Number("")` is 0 and a 0ms deadline aborts every fetch.
+ */
+export function resolveImageFetchTimeoutMs(): number {
+	const value = process.env.IMAGE_FETCH_TIMEOUT_MS?.trim();
+	if (!value) {
+		return DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+	}
+	const raw = Number(value);
+	return Number.isInteger(raw) && raw >= 1 && raw <= MAX_IMAGE_FETCH_TIMEOUT_MS
+		? raw
+		: DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+}
+
+/**
  * Thrown when an image exceeds the caller's size limit. A `RequestError` so the
  * gateway maps it to a 400 and writes a client_error log row: the chat path
  * only preserves `RequestError`, so a plain `Error` here would still reach the
@@ -199,8 +227,13 @@ export async function processImageUrl(
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
 	await assertSafeUserContentUrl(url);
 
+	const timeoutMs = resolveImageFetchTimeoutMs();
 	try {
-		const response = await fetchNoRedirect(url);
+		const response = await fetchNoRedirect(url, {
+			// Bounds the whole download, headers and body. undici's bodyTimeout is
+			// refreshed on every chunk, so a host that trickles bytes never trips it.
+			signal: AbortSignal.timeout(timeoutMs),
+		});
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -260,6 +293,16 @@ export async function processImageUrl(
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
+		}
+
+		// The deadline fired: the caller chose a slow host, so this is a client
+		// outcome (4xx at warn), not a gateway failure.
+		if (error instanceof Error && error.name === "TimeoutError") {
+			logger.warn("Timed out fetching image from URL", {
+				timeoutMs,
+				host: urlHostForLog(url),
+			});
+			throw new RequestError("Timed out fetching image from URL");
 		}
 
 		// Log the full error internally but sanitize the thrown error
