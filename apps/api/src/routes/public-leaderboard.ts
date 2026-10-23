@@ -1,7 +1,8 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { cachedPublicResponse } from "@/lib/public-response-cache.js";
+import { createRoute } from "@/utils/create-route.js";
 import { CODING_AGENT_SOURCES } from "@/utils/profile.js";
 
 import {
