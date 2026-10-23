@@ -81,6 +81,8 @@ export const curatedCategoryModelIds: Record<
 		"gemini-3.5-flash",
 		"grok-build-0-1",
 		"grok-4-3",
+		"kimi-k3.1-pro",
+		"kimi-k3.1-pro-highspeed",
 		"kimi-k3",
 		"kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed",
@@ -228,6 +230,8 @@ export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.3-contributor",
 	// API-only at launch; no open weights published (unlike the K2 family)
 	"kimi-k3",
+	"kimi-k3.1-pro",
+	"kimi-k3.1-pro-highspeed",
 ]);
 
 // Labs whose model lines are open-weight-first. Broader than the strict

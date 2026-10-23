@@ -3115,6 +3115,30 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		expect(requestBody.max_tokens).toBeUndefined();
 	});
 
+	test.each(["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])(
+		"forwards reasoning_effort and max_completion_tokens for %s",
+		async (model) => {
+			const requestBody = await prepare({
+				model,
+				reasoningEffort: "low",
+				maxTokens: 4096,
+			});
+			expect(requestBody.reasoning_effort).toBe("low");
+			expect(requestBody.thinking).toBeUndefined();
+			expect(requestBody.max_completion_tokens).toBe(4096);
+			expect(requestBody.max_tokens).toBeUndefined();
+		},
+	);
+
+	test("collapses disable requests onto the provider default for kimi-k3.1-pro", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3.1-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
 	type Effort = Parameters<typeof prepareRequestBody>[14];
 	const xaiEffortCases: Array<
 		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
