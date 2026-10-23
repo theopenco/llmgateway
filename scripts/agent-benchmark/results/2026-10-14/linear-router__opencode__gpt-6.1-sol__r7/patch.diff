@@ -1,0 +1,40 @@
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..83c5b53 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -65,6 +65,21 @@ describe('LinearRouter', () => {
+     })
+   })
+ 
++  describe('Named parameter', () => {
++    const router = new LinearRouter<string>()
++    router.add('GET', '/u/:id/posts', 'GET /u/:id/posts')
++
++    it('does not match an empty segment in the middle of the path', () => {
++      const [res] = router.match('GET', '/u//posts')
++      expect(res).toEqual([])
++    })
++
++    it('matches a non-empty segment in the middle of the path', () => {
++      const [res] = router.match('GET', '/u/123/posts')
++      expect(res).toEqual([['GET /u/:id/posts', { id: '123' }]])
++    })
++  })
++
+   describe('Skip part', () => {
+     const router = new LinearRouter<string>()
+ 
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..a59c639 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -116,6 +116,9 @@ export class LinearRouter<T> implements Router<T> {
+                   }
+                   endValuePos = path.length
+                 }
++                if (endValuePos === pos + 1) {
++                  continue ROUTES_LOOP
++                }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos
+               }

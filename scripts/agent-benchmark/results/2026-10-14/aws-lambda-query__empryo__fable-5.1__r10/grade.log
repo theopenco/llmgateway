@@ -1,0 +1,10 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/aws-lambda-query__empryo__fable-5.1__r10/repo[39m
+
+ [32m✓[39m [30m[45m main [49m[39m src/adapter/aws-lambda/handler.test.ts [2m([22m[2m46 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m46 passed[39m[22m[90m (46)[39m
+[2m   Start at [22m 22:24:49
+[2m   Duration [22m 400ms[2m (transform 177ms, setup 0ms, import 218ms, tests 32ms, environment 0ms)[22m
+

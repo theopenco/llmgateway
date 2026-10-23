@@ -1,0 +1,37 @@
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..77adef6 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -51,9 +51,29 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+-    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++    if (!pretty || !contentType || !jsonContentTypeRegex.test(contentType)) {
++      return
+     }
++    const res = c.res
++    // Nothing to prettify (e.g. 204/304) or the body was already consumed elsewhere.
++    if (!res.body || res.bodyUsed) {
++      return
++    }
++    let obj: unknown
++    try {
++      // Read from a clone so the original body stays intact if parsing fails.
++      obj = JSON.parse(await res.clone().text())
++    } catch {
++      return
++    }
++    const headers = new Headers(res.headers)
++    headers.delete('Content-Length')
++    // Reset first so the `c.res` setter does not merge the stale Content-Length back in.
++    c.res = undefined
++    c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), {
++      status: res.status,
++      statusText: res.statusText,
++      headers,
++    })
+   }
+ }
