@@ -21,6 +21,7 @@ export {
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
 	getUnknownManagedCredentialKeys,
+	getInvalidManagedCredentialHostnameLabels,
 } from "./managed.js";
 export type { ManagedCredentialRowLike } from "./managed.js";
 export {
