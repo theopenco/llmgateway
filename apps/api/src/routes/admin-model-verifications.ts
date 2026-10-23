@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -18,6 +18,7 @@ import {
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db, desc, eq, inArray, isNotNull, and, tables } from "@llmgateway/db";
 import {

@@ -10,14 +10,20 @@ import {
 	YAxis,
 } from "recharts";
 
-import { modelKey } from "@/components/analytics/chart-helpers";
+import {
+	currencyFormatter,
+	modelKey,
+} from "@/components/analytics/chart-helpers";
 import {
 	ChartStyleSelector,
 	useChartStyle,
 } from "@/components/analytics/chart-style";
 import {
+	addTokenUsage,
+	EMPTY_TOKEN_USAGE,
 	modelTokenBreakdown,
 	tokenBreakdown,
+	type TokenUsage,
 } from "@/components/analytics/token-usage";
 import {
 	Card,
@@ -46,9 +52,25 @@ import type { DailyActivity } from "@/types/activity";
 
 const config = {
 	input: { label: "Input", color: "hsl(221 83% 53%)" },
+	cacheWrites: { label: "Cache writes", color: "hsl(330 81% 60%)" },
 	cache: { label: "Cache reads", color: "hsl(142 71% 45%)" },
 	output: { label: "Output", color: "hsl(262 83% 58%)" },
 };
+
+type Series = keyof typeof config;
+
+const COST_KEY: Record<Series, keyof TokenUsage> = {
+	input: "inputCost",
+	cacheWrites: "cacheWriteCost",
+	cache: "cacheCost",
+	output: "outputCost",
+};
+
+const SERIES = Object.keys(config) as Series[];
+
+function formatCost(value: number): string {
+	return currencyFormatter.format(value);
+}
 
 const ALL_MODELS = "__all__";
 
@@ -57,6 +79,10 @@ function ModelProviderIcon({ model }: { model: string }) {
 	return <Icon className="h-4 w-4 shrink-0" />;
 }
 
+/**
+ * Pass the unfiltered activity: tokens and their per-type spend are only
+ * tracked blended across billing modes, so the card always covers all traffic.
+ */
 export function TokenUsageCard({
 	activity,
 	loading,
@@ -94,15 +120,9 @@ export function TokenUsageCard({
 			? tokenBreakdown(day)
 			: modelTokenBreakdown(day, selectedModel)),
 	}));
-	const totals = data.reduce(
-		(sum, row) => ({
-			input: sum.input + row.input,
-			cache: sum.cache + row.cache,
-			output: sum.output + row.output,
-			cacheWrites: sum.cacheWrites + row.cacheWrites,
-		}),
-		{ input: 0, cache: 0, output: 0, cacheWrites: 0 },
-	);
+	const totals = data.reduce(addTokenUsage, EMPTY_TOKEN_USAGE);
+	const tokenCost = SERIES.reduce((sum, key) => sum + totals[COST_KEY[key]], 0);
+	const totalCost = tokenCost + totals.otherCost + totals.storageCost;
 	return (
 		<Card>
 			<CardHeader className="gap-4">
@@ -111,8 +131,8 @@ export function TokenUsageCard({
 						<CardTitle className="text-base">Tokens over time</CardTitle>
 						<CardDescription>
 							{selectedModel === ALL_MODELS
-								? "Input, cache reads, and output across all traffic"
-								: `Input, cache reads, and output for ${selectedModel}`}
+								? "Tokens and spend by type across all traffic"
+								: `Tokens and spend by type for ${selectedModel}`}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
@@ -137,8 +157,8 @@ export function TokenUsageCard({
 						<ChartStyleSelector />
 					</div>
 				</div>
-				<div className="grid grid-cols-3 gap-4">
-					{(Object.keys(config) as (keyof typeof config)[]).map((key) => (
+				<div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+					{SERIES.map((key) => (
 						<div key={key}>
 							<p className="text-xs text-muted-foreground">
 								<span
@@ -153,6 +173,9 @@ export function TokenUsageCard({
 							>
 								{loading ? "—" : formatCompactNumber(totals[key])}
 							</p>
+							<p className="text-xs tabular-nums text-muted-foreground">
+								{loading ? "—" : formatCost(totals[COST_KEY[key]])}
+							</p>
 						</div>
 					))}
 				</div>
@@ -163,7 +186,9 @@ export function TokenUsageCard({
 						Loading tokens…
 					</div>
 				) : !data.length ||
-				  !data.some((row) => row.input + row.cache + row.output > 0) ? (
+				  !data.some(
+						(row) => row.input + row.cacheWrites + row.cache + row.output > 0,
+				  ) ? (
 					<div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
 						{selectedModel === ALL_MODELS
 							? "No token usage for this time period"
@@ -200,6 +225,27 @@ export function TokenUsageCard({
 							<ChartTooltip
 								content={
 									<ChartTooltipContent
+										formatter={(value, name, item) => {
+											const key = name as Series;
+											const row = item?.payload as TokenUsage | undefined;
+											return (
+												<div className="flex w-full items-center gap-2">
+													<span
+														className="h-2 w-2 shrink-0 rounded-[2px]"
+														style={{ background: config[key]?.color }}
+													/>
+													<span className="text-muted-foreground">
+														{config[key]?.label ?? name}
+													</span>
+													<span className="ml-auto font-mono font-medium tabular-nums">
+														{formatNumber(Number(value))}
+													</span>
+													<span className="w-16 text-right font-mono tabular-nums text-muted-foreground">
+														{formatCost(row?.[COST_KEY[key]] ?? 0)}
+													</span>
+												</div>
+											);
+										}}
 										labelFormatter={(value: string) =>
 											formatBucketLabel(
 												value,
@@ -211,7 +257,7 @@ export function TokenUsageCard({
 									/>
 								}
 							/>
-							{(Object.keys(config) as (keyof typeof config)[]).map((key) =>
+							{SERIES.map((key) =>
 								style === "bar" ? (
 									<Bar
 										key={key}
@@ -236,9 +282,19 @@ export function TokenUsageCard({
 					</ChartContainer>
 				)}
 				<p className="mt-3 text-xs text-muted-foreground">
-					Input excludes cache reads and includes{" "}
-					{formatCompactNumber(totals.cacheWrites)} cache-write tokens. Token
-					counts include both credits and BYOK requests.
+					{loading
+						? null
+						: `${formatCost(totalCost)} total spend: ${formatCost(tokenCost)} on tokens${
+								totals.otherCost > 0
+									? `, ${formatCost(totals.otherCost)} other fees (request, image, audio, web search)`
+									: ""
+							}${
+								totals.storageCost > 0
+									? `, ${formatCost(totals.storageCost)} storage`
+									: ""
+							}. `}
+					Input excludes cache reads and writes. Token counts include both
+					credits and BYOK requests.
 				</p>
 			</CardContent>
 		</Card>

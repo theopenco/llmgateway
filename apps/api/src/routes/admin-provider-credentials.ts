@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -46,6 +46,7 @@ import {
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	collectProviderEnvCredentials,

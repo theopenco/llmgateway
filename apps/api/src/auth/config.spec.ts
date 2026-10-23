@@ -68,6 +68,28 @@ describe("isClientAuthError", () => {
 		expect(isClientAuthError("account_not_linked")).toBe(true);
 	});
 
+	test("matches calls to the disabled built-in change-email endpoint", () => {
+		expect(isClientAuthError("Change email is disabled.")).toBe(true);
+	});
+
+	test("matches OAuth callbacks that arrive without a state param", () => {
+		expect(isClientAuthError("State not found", [undefined])).toBe(true);
+		const missing = Object.assign(
+			new Error("State not found in OAuth callback"),
+			{ code: "state_not_found" },
+		);
+		expect(isClientAuthError("Failed to parse state", [missing])).toBe(true);
+	});
+
+	test("keeps state cookie mismatches at error severity", () => {
+		const mismatch = Object.assign(
+			new Error("State mismatch: auth state cookie not found"),
+			{ code: "state_mismatch" },
+		);
+		expect(isClientAuthError("Failed to parse state", [mismatch])).toBe(false);
+		expect(isClientAuthError("Failed to parse state")).toBe(false);
+	});
+
 	test("does not match genuine server errors", () => {
 		expect(isClientAuthError("Database connection failed")).toBe(false);
 		expect(isClientAuthError("unable_to_create_user")).toBe(false);

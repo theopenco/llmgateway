@@ -335,6 +335,56 @@ describe("admin catalog usage mode", () => {
 		}
 	});
 
+	it("filters mapping detail stats by usage mode", async () => {
+		const expected = {
+			total: { logsCount: 6, totalCost: 0.6, avgTimeToFirstToken: 1000 / 6 },
+			credits: { logsCount: 3, totalCost: 0.3, avgTimeToFirstToken: 100 },
+			"api-keys": { logsCount: 2, totalCost: 0.2, avgTimeToFirstToken: 200 },
+		};
+		for (const [mode, stats] of Object.entries(expected)) {
+			const response = await app.request(
+				`/admin/providers/${PROVIDER_ID}/models/${MODEL_ID}?window=24h&mode=${mode}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as {
+				mapping: {
+					logsCount: number;
+					totalCost: number;
+					avgTimeToFirstToken: number | null;
+				};
+			};
+			expect(body.mapping).toMatchObject({
+				logsCount: stats.logsCount,
+				totalCost: expect.closeTo(stats.totalCost),
+				avgTimeToFirstToken: expect.closeTo(stats.avgTimeToFirstToken),
+			});
+		}
+	});
+
+	it("does not blend lifetime counters into an empty narrowed detail", async () => {
+		await db
+			.delete(tables.modelProviderMappingHistory)
+			.where(
+				and(
+					eq(tables.modelProviderMappingHistory.modelId, MODEL_ID),
+					eq(tables.modelProviderMappingHistory.usedMode, "api-keys"),
+				),
+			);
+		const response = await app.request(
+			`/admin/providers/${PROVIDER_ID}/models/${MODEL_ID}?window=24h&mode=api-keys`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			mapping: { logsCount: number; avgTimeToFirstToken: number | null };
+		};
+		expect(body.mapping).toMatchObject({
+			logsCount: 0,
+			avgTimeToFirstToken: null,
+		});
+	});
+
 	it("keeps history mode buckets unique", async () => {
 		const rows = await db
 			.select({ usedMode: tables.modelHistory.usedMode })

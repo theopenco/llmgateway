@@ -734,7 +734,7 @@ export function DashboardClient({
 								icon={ArrowDownToLine}
 								label="Input tokens"
 								value={formatTokens(totalInputTokens)}
-								sub={`$${totalInputCost.toFixed(2)} spend`}
+								sub={`$${(totalInputCost + totalCachedInputCost + totalCacheWriteInputCost).toFixed(2)} spend, incl. cache`}
 								isLoading={isLoading}
 							/>
 							<StatCell
@@ -748,7 +748,7 @@ export function DashboardClient({
 								icon={Server}
 								label="Cached tokens"
 								value={formatTokens(totalCachedTokens)}
-								sub={`$${totalCachedInputCost.toFixed(2)} spend${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} cache writes` : ""}`}
+								sub={`$${totalCachedInputCost.toFixed(2)} reads${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} writes` : ""}`}
 								isLoading={isLoading}
 							/>
 							<StatCell

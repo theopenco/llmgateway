@@ -1,8 +1,13 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import {
+	costComponentFields,
+	costComponentSchema,
+	mapCostComponents,
+} from "@/lib/cost-components.js";
 import { resolveDateRange } from "@/lib/date-range.js";
 import {
 	mapModeSplit,
@@ -25,6 +30,7 @@ import {
 	isKeyScoped,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import {
 	bucketDate,
 	generateTimeSlots,
@@ -69,6 +75,7 @@ const modelUsageSchema = z.object({
 	cacheWriteTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...costComponentSchema,
 	...modeSplitSchema,
 });
 
@@ -538,6 +545,7 @@ activity.openapi(getActivity, async (c) => {
 					"cost",
 				),
 				...modeSplitFields(apiKeyHourlyModelStats),
+				...costComponentFields(apiKeyHourlyModelStats),
 			})
 			.from(apiKeyHourlyModelStats)
 			.where(
@@ -575,6 +583,7 @@ activity.openapi(getActivity, async (c) => {
 				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapCostComponents(breakdown),
 				...mapModeSplit(breakdown),
 			});
 		}
@@ -924,6 +933,7 @@ activity.openapi(getActivity, async (c) => {
 					"cost",
 				),
 				...modeSplitFields(projectHourlyModelStats),
+				...costComponentFields(projectHourlyModelStats),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -952,6 +962,7 @@ activity.openapi(getActivity, async (c) => {
 				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapCostComponents(breakdown),
 				...mapModeSplit(breakdown),
 			});
 		}

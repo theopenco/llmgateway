@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -36,6 +36,7 @@ import {
 	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
+import { createRoute } from "@/utils/create-route.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
 	claimDevPlanCardFingerprint,

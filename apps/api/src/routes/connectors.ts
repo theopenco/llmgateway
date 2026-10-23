@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
@@ -23,6 +23,7 @@ import {
 	callConnectorTool,
 	listConnectorTools,
 } from "@/lib/connectors/tools.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { and, db, eq, lt, tables } from "@llmgateway/db";
 import {

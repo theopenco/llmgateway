@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
@@ -19,6 +19,7 @@ import {
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { adminTokenCapacity } from "@/routes/admin-token-capacity.js";
+import { createRoute } from "@/utils/create-route.js";
 import { pickMappingHistoryTable } from "@/utils/history-window.js";
 
 import {

@@ -10,9 +10,9 @@ import {
 } from "@/lib/usage-mode";
 
 /** Reads the current billing-mode view from the `mode` URL search param. */
-export function useUsageMode(): UsageMode {
+export function useUsageMode(defaultMode: UsageMode = "total"): UsageMode {
 	const searchParams = useSearchParams();
-	return parseUsageMode(searchParams.get("mode"));
+	return parseUsageMode(searchParams.get("mode"), defaultMode);
 }
 
 /**
@@ -24,16 +24,18 @@ export function UsageModeSelector({
 	className,
 	compact = false,
 	extraParams,
+	defaultMode = "total",
 }: {
 	className?: string;
 	compact?: boolean;
 	extraParams?: Record<string, string | null>;
+	defaultMode?: UsageMode;
 } = {}) {
 	return (
 		<SegmentedUrlSelector
 			param="mode"
-			value={useUsageMode()}
-			defaultValue="total"
+			value={useUsageMode(defaultMode)}
+			defaultValue={defaultMode}
 			options={USAGE_MODE_OPTIONS}
 			className={className}
 			compact={compact}
