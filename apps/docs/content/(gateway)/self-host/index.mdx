@@ -150,6 +150,11 @@ longer ranges or tenant-filtered views. Daily charts retain hourly peaks, so swi
 30 days does not smooth away a spike. Peak timestamps identify the start of the
 interval; the current incomplete interval is excluded.
 
+Error rates and error counts cover credits traffic only, whatever the billing
+mode filter: bring-your-own-key failures are excluded. Views with an
+organization, project, or API-key filter, or grouped by one, show no error
+rate, because their hourly rollups cannot separate BYOK errors.
+
 Switch to **Tokens** for platform, model, or provider throughput over 7 or 30 days.
 Choose total, input, or output tokens and a billing mode. Average TPM includes
 quiet minutes; average tokens/day normalizes the same window to 24 hours. Peak

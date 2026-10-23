@@ -610,26 +610,85 @@ describe("admin — gateway load", () => {
 		expect(body.series).toEqual([]);
 	});
 
-	test("withholds the error rate when a mode narrows the tenant rollup", async () => {
-		const total = await fetchLoad(cookie, {
-			window: "1d",
-			groupBy: "organization",
-			organizationId: ORG_A,
-		});
-		expect(total.summary.errorRate).toBeCloseTo(60 / (7200 - 12), 6);
-		expect(total.summary.clientErrorRate).toBeCloseTo(12 / 7200, 6);
+	test.each<Record<string, string>>([
+		{ groupBy: "organization" },
+		{ groupBy: "organization", organizationId: ORG_A },
+		{ groupBy: "organization", organizationId: ORG_A, mode: "credits" },
+		{ groupBy: "model", modelView: "mapping", organizationId: ORG_A },
+		{ groupBy: "model", modelView: "mapping", projectId: PROJECT_A },
+		{ groupBy: "model", modelView: "mapping", apiKeyId: API_KEY_A },
+	])("withholds the error rate on the tenant rollup: %j", async (filter) => {
+		// The tenant rollups cannot separate BYOK client errors from credits ones,
+		// so any figure there would mix BYOK failures into the platform rate.
+		const body = await fetchLoad(cookie, { window: "1d", ...filter });
+		expect(body.source).toBe("project-stats");
+		expect(body.breakdown.length).toBeGreaterThan(0);
+		expect(body.breakdown.every((row) => row.errorRate === null)).toBe(true);
+		expect(body.breakdown.every((row) => row.errorCount === null)).toBe(true);
+		expect(body.breakdown.every((row) => row.clientErrorRate === null)).toBe(
+			true,
+		);
+		if (body.summarySource === "project-stats") {
+			expect(body.summary.errorRate).toBeNull();
+			expect(body.summary.errorCount).toBeNull();
+			expect(body.summary.clientErrorRate).toBeNull();
+		}
+	});
 
-		const credits = await fetchLoad(cookie, {
-			window: "1d",
-			groupBy: "organization",
-			organizationId: ORG_A,
-			mode: "credits",
+	test("counts only credits traffic in the error rate and error ranking", async () => {
+		const flakyProvider = `${PROVIDER_ID}-flaky`;
+		await db.insert(tables.modelProviderMappingHistory).values([
+			{
+				modelId: MODEL_ID,
+				providerId: flakyProvider,
+				modelProviderMappingId: "load-mapping-flaky",
+				usedMode: "credits",
+				minuteTimestamp: closedMinute,
+				logsCount: 20,
+				errorsCount: 15,
+				upstreamErrorsCount: 15,
+			},
+			// BYOK failures come from the customer's own provider account; counting
+			// them would rank the main provider first with 60 errors.
+			{
+				modelId: MODEL_ID,
+				providerId: PROVIDER_ID,
+				modelProviderMappingId: ROOT_MAPPING_ID,
+				usedMode: "api-keys",
+				minuteTimestamp: closedMinute,
+				logsCount: 50,
+				errorsCount: 50,
+				clientErrorsCount: 5,
+				upstreamErrorsCount: 45,
+			},
+		]);
+
+		const body = await fetchLoad(cookie, {
+			window: "1h",
+			groupBy: "provider",
+			rankBy: "errors",
 		});
-		// The per-mode request columns have no matching error split.
-		expect(credits.summary.errorRate).toBeNull();
-		expect(credits.summary.clientErrorRate).toBeNull();
-		expect(credits.summary.errorCount).toBeNull();
-		expect(credits.breakdown.every((row) => row.errorRate === null)).toBe(true);
+		expect(body.summary.totalRequests).toBe(280);
+		expect(body.summary.errorCount).toBe(25);
+		expect(body.summary.errorRate).toBeCloseTo(25 / 228, 6);
+		expect(body.summary.clientErrorCount).toBe(2);
+		expect(body.summary.clientErrorRate).toBeCloseTo(2 / 230, 6);
+		expect(body.breakdown.map((row) => [row.key, row.errorCount])).toEqual([
+			[flakyProvider, 15],
+			[PROVIDER_ID, 10],
+		]);
+		expect(body.breakdown[0].errorRate).toBeCloseTo(0.75, 6);
+		// Requests still follow the mode filter.
+		expect(body.breakdown[1].requestCount).toBe(260);
+
+		const byok = await fetchLoad(cookie, {
+			window: "1h",
+			groupBy: "provider",
+			mode: "api-keys",
+		});
+		expect(byok.summary.totalRequests).toBe(50);
+		expect(byok.summary.errorRate).toBeNull();
+		expect(byok.summary.errorCount).toBe(0);
 	});
 
 	test("keeps the error rate exact when a mode narrows the mapping history", async () => {
@@ -661,68 +720,6 @@ describe("admin — gateway load", () => {
 		);
 		expect(empty?.errorRate).toBeNull();
 		expect(empty?.entries[0].errorRate).toBeNull();
-	});
-
-	test("reports the model error rate under an organization, project or API key filter", async () => {
-		const filters: Record<string, string>[] = [
-			{ organizationId: ORG_A },
-			{ projectId: PROJECT_A },
-			{ apiKeyId: API_KEY_A },
-		];
-		for (const filter of filters) {
-			const body = await fetchLoad(cookie, {
-				window: "1d",
-				groupBy: "model",
-				modelView: "mapping",
-				...filter,
-			});
-			const root = body.breakdown.find(
-				(row) => row.key === `${PROVIDER_ID}/${MODEL_ID}`,
-			);
-			expect(root?.errorRate).toBeCloseTo(54 / (5400 - 6), 6);
-			expect(root?.clientErrorRate).toBeCloseTo(6 / 5400, 6);
-			const regional = body.breakdown.find(
-				(row) => row.key === `${PROVIDER_ID}/${MODEL_ID}:us-east`,
-			);
-			expect(regional?.errorRate).toBe(0);
-		}
-	});
-
-	test("ranks series by error count on request", async () => {
-		const flakyModel = `${PROVIDER_ID}/load-flaky`;
-		await db.insert(tables.projectHourlyModelStats).values({
-			projectId: PROJECT_A,
-			hourTimestamp: closedHour,
-			usedModel: flakyModel,
-			usedProvider: PROVIDER_ID,
-			requestCount: 100,
-			creditsRequestCount: 100,
-			errorCount: 80,
-			upstreamErrorCount: 80,
-		});
-		const query = {
-			window: "1d",
-			groupBy: "model",
-			modelView: "mapping",
-			organizationId: ORG_A,
-		};
-
-		const byRequests = await fetchLoad(cookie, query);
-		expect(byRequests.breakdown.map((row) => row.key)).toEqual([
-			`${PROVIDER_ID}/${MODEL_ID}`,
-			`${PROVIDER_ID}/${MODEL_ID}:us-east`,
-			flakyModel,
-		]);
-
-		// 80 failures outrank 54 on far more traffic; the error-free regional
-		// mapping falls back to request order behind both.
-		const byErrors = await fetchLoad(cookie, { ...query, rankBy: "errors" });
-		expect(byErrors.breakdown.map((row) => row.key)).toEqual([
-			flakyModel,
-			`${PROVIDER_ID}/${MODEL_ID}`,
-			`${PROVIDER_ID}/${MODEL_ID}:us-east`,
-		]);
-		expect(byErrors.breakdown[0].errorRate).toBeCloseTo(0.8, 6);
 	});
 
 	test("reports average duration and TTFT per organization", async () => {

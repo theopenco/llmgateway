@@ -98,9 +98,9 @@ const METRIC_RANK_LABELS: Record<LoadMetric, string> = {
 	duration: "Average request duration over the selected window.",
 	ttft: "Average time to first token over the selected window.",
 	errors:
-		"Gateway and upstream errors over non-client requests, ranked by error count.",
+		"Gateway and upstream errors over non-client credits requests, ranked by error count. BYOK traffic is excluded.",
 	"client-errors":
-		"Share of requests rejected as the caller's own error over the selected window.",
+		"Share of credits requests rejected as the caller's own error over the selected window. BYOK traffic is excluded.",
 };
 
 const RANK_KEYS: Record<
@@ -368,9 +368,12 @@ function RequestLoadClient() {
 		: data?.summary.avgDurationMs === null
 			? "No samples recorded in this window"
 			: `Across the last ${activeWindow}`;
-	const errorHint = modeBlended
-		? "Unavailable for a single billing mode"
-		: `Excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
+	// Error figures cover credits traffic only, which the tenant rollups cannot
+	// isolate.
+	const errorHint =
+		data?.summarySource === "project-stats"
+			? "Unavailable with a tenant filter"
+			: `Credits only · excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
 
 	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =
