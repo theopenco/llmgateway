@@ -1240,7 +1240,7 @@ async function seedDemo() {
 	}
 	await insertRows(tables.apiKeyHourlyStats, keyStats);
 	await insertRows(tables.apiKeyHourlyModelStats, keyModelStats);
-	await seedByokSplit();
+	await seedByokSplit(PROJECT_IDS);
 
 	// ── Summary ──────────────────────────────────────────────────────────────
 	console.log("\n  Enterprise demo organization seeded\n");

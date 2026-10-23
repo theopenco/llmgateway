@@ -1,4 +1,4 @@
-import { db, sql, tables } from "./index.js";
+import { db, inArray, sql, tables } from "./index.js";
 
 import type { AnyColumn } from "drizzle-orm";
 
@@ -6,8 +6,12 @@ import type { AnyColumn } from "drizzle-orm";
  * Fills the BYOK error and latency subsets of the seeded tenant stats from
  * each row's own BYOK request share, so the admin Gateway Load mode filter
  * has data on every axis without each seed computing the split by hand.
+ * Scoped to the seeded projects so worker-measured rows are left alone.
  */
-export async function seedByokSplit(): Promise<void> {
+export async function seedByokSplit(projectIds: string[]): Promise<void> {
+	if (projectIds.length === 0) {
+		return;
+	}
 	for (const table of [
 		tables.projectHourlyStats,
 		tables.projectHourlyModelStats,
@@ -33,6 +37,8 @@ export async function seedByokSplit(): Promise<void> {
 					table.timeToFirstReasoningTokenCount,
 				),
 			})
-			.where(sql`${table.requestCount} > 0`);
+			.where(
+				sql`${table.requestCount} > 0 and ${inArray(table.projectId, projectIds)}`,
+			);
 	}
 }
