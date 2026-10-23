@@ -3401,11 +3401,11 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "moonshot": {
-			// Kimi K3 has its own parameter surface: output length is capped via
+			// The Kimi K3 family has its own parameter surface: output length is capped via
 			// `max_completion_tokens` (the K2-era `max_tokens` is not documented
 			// for it), and thinking is configured through the native top-level
 			// `reasoning_effort` field instead of the binary `thinking` toggle.
-			const isKimiK3 = usedInternalModel === "kimi-k3";
+			const isKimiK3 = usedInternalModel.startsWith("kimi-k3");
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
