@@ -703,13 +703,38 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
  * with `disableImplicitSignUp: true` — and the UI turns it into a "sign up
  * instead?" prompt. `account_not_linked` is emitted when an OAuth or SSO email
  * matches an existing user that cannot be implicitly linked; the UI shows a
- * "sign in with your original method" message. Logging either at error
+ * "sign in with your original method" message. `Change email is disabled.` is
+ * a client calling Better Auth's built-in `/change-email`, which no app uses
+ * (email changes go through `PATCH /user/me`). `State not found` and a
+ * `state_not_found` parse failure mean the OAuth/SSO callback had no `state`
+ * param at all (bots, hand-built URLs, provider errors without state).
+ * Replayed or expired callbacks still carry `state` and surface as
+ * `state_mismatch`, which stays at error. Logging any of these at error
  * severity only trips production alerting.
  */
-const clientAuthErrorCodes = new Set(["signup_disabled", "account_not_linked"]);
+const clientAuthErrorMessages = new Set([
+	"signup_disabled",
+	"account_not_linked",
+	"Change email is disabled.",
+	"State not found",
+]);
 
-export function isClientAuthError(message: string): boolean {
-	return clientAuthErrorCodes.has(message.trim());
+export function isClientAuthError(
+	message: string,
+	args: unknown[] = [],
+): boolean {
+	const text = message.trim();
+	if (clientAuthErrorMessages.has(text)) {
+		return true;
+	}
+	return (
+		text === "Failed to parse state" &&
+		args.some(
+			(arg) =>
+				arg instanceof Error &&
+				(arg as Error & { code?: unknown }).code === "state_not_found",
+		)
+	);
 }
 
 function extractLogExtra(args: unknown[]): object | undefined {
@@ -717,8 +742,13 @@ function extractLogExtra(args: unknown[]): object | undefined {
 	if (errArg) {
 		return errArg as Error;
 	}
-	return args.find((arg) => arg && typeof arg === "object") as
-		object | undefined;
+	const objArg = args.find((arg) => arg && typeof arg === "object");
+	if (objArg) {
+		return objArg as object;
+	}
+	// Keep scalar details such as the provider's `?error=` code.
+	const rest = args.filter((arg) => arg !== undefined && arg !== null);
+	return rest.length ? { details: rest } : undefined;
 }
 
 export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
@@ -733,7 +763,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					const text = `[Better Auth] ${message}`;
 					const effectiveLevel =
 						level === "error" &&
-						(isClientJsonError(message, args) || isClientAuthError(message))
+						(isClientJsonError(message, args) ||
+							isClientAuthError(message, args))
 							? "warn"
 							: level;
 					switch (effectiveLevel) {
@@ -775,6 +806,13 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			},
 			basePath: "/auth",
 			trustedOrigins: originUrls.split(","),
+			// Callbacks whose state carries no per-flow errorCallbackURL (missing or
+			// unreadable state) land here; the login page shows `?error=` as a
+			// toast. Better Auth's default `/auth/error` redirects to this API's
+			// root in production.
+			onAPIError: {
+				errorURL: `${uiUrl}/login`,
+			},
 			rateLimit: {
 				customStorage: {
 					consume: async (
