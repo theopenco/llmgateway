@@ -780,20 +780,6 @@ async function recalculateApiKeyHourlyModelStats(
 	}
 }
 
-/**
- * Recalculates the four tenant tables that carry the BYOK split, for the
- * backfill that fills it on hours aggregated before those columns existed.
- */
-export async function recalculateTenantByokSplitStats(
-	projectIds: string[],
-	hourTimestamp: string,
-) {
-	await recalculateProjectHourlyStats(projectIds, hourTimestamp);
-	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp);
-	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp);
-	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp);
-}
-
 export async function recalculateApiKeyHourlySourceStats(
 	projectId: string,
 	hourTimestamp: string,
@@ -967,7 +953,7 @@ async function recalculateProviderKeyHourlyStats(
  * backfill) go through this so a newly added stats table cannot be wired into
  * one path and silently forgotten in the others.
  */
-async function recalculateBucket(
+export async function recalculateBucket(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},

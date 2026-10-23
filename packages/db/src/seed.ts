@@ -24,6 +24,7 @@ import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
 import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
+import { seedByokSplit } from "./seed-byok-split.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -3245,6 +3246,7 @@ async function seed() {
 	});
 
 	await seedAirside();
+	await seedByokSplit();
 
 	await closeDatabase();
 	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);

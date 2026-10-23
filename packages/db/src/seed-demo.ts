@@ -25,6 +25,7 @@ import {
 } from "@llmgateway/shared/api-key-hash";
 
 import { closeDatabase, db, tables } from "./index.js";
+import { seedByokSplit } from "./seed-byok-split.js";
 
 import type { PgTable } from "drizzle-orm/pg-core";
 
@@ -1239,6 +1240,7 @@ async function seedDemo() {
 	}
 	await insertRows(tables.apiKeyHourlyStats, keyStats);
 	await insertRows(tables.apiKeyHourlyModelStats, keyModelStats);
+	await seedByokSplit();
 
 	// ── Summary ──────────────────────────────────────────────────────────────
 	console.log("\n  Enterprise demo organization seeded\n");

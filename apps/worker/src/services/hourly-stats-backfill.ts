@@ -4,8 +4,8 @@ import { logger } from "@llmgateway/logger";
 import {
 	formatUTCTimestamp,
 	recalculateProjectHourlyModelStats,
+	recalculateBucket,
 	recalculateProjectHourlySourceModelStats,
-	recalculateTenantByokSplitStats,
 } from "./project-stats-aggregator.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -19,32 +19,40 @@ function floorToHour(date: Date): Date {
  * Builds a backfill step that recalculates one stats table for the last `days`,
  * one hour per call, up to the hour the backfill first ran (the regular stats
  * refresh covers it from then on). The step returns true while hours remain.
+ *
+ * `newestFirst` walks back from that hour instead, so the recent hours views
+ * read most are fixed first. Its state reuses the columns with the bounds
+ * swapped: `lastProcessedHour` is the exclusive upper cursor, `targetHour` the
+ * oldest hour to reach.
  */
 function createHourlyStatsBackfillStep({
 	stateId,
 	days,
 	label,
 	recalculate,
+	newestFirst = false,
 }: {
 	stateId: string;
 	days: number;
 	label: string;
 	recalculate: (projectIds: string[], hourTimestamp: string) => Promise<void>;
+	newestFirst?: boolean;
 }) {
 	return async function runStep(now = new Date()): Promise<boolean> {
 		let state = await db.query.globalAggregationState.findFirst({
 			where: { id: stateId },
 		});
 		if (!state) {
-			const targetHour = floorToHour(now);
+			const startHour = floorToHour(now);
 			const windowMs = days * 24 * ONE_HOUR_MS;
+			const oldestHour = new Date(startHour.getTime() - windowMs);
 			await db
 				.insert(globalAggregationState)
 				.values({
 					id: stateId,
-					// Exclusive cursor: every hour before it is done.
-					lastProcessedHour: new Date(targetHour.getTime() - windowMs),
-					targetHour,
+					// Exclusive cursor: every hour on its done side is processed.
+					lastProcessedHour: newestFirst ? startHour : oldestHour,
+					targetHour: newestFirst ? oldestHour : startHour,
 				})
 				.onConflictDoNothing();
 			state = await db.query.globalAggregationState.findFirst({
@@ -52,11 +60,18 @@ function createHourlyStatsBackfillStep({
 			});
 		}
 
-		const hour = state?.lastProcessedHour;
+		const cursor = state?.lastProcessedHour;
 		const targetHour = state?.targetHour;
-		if (!hour || !targetHour || hour >= targetHour) {
+		if (
+			!cursor ||
+			!targetHour ||
+			(newestFirst ? cursor <= targetHour : cursor >= targetHour)
+		) {
 			return false;
 		}
+		const hour = newestFirst
+			? new Date(cursor.getTime() - ONE_HOUR_MS)
+			: cursor;
 
 		const hourStart = formatUTCTimestamp(hour);
 		const projects = await db
@@ -80,10 +95,12 @@ function createHourlyStatsBackfillStep({
 			);
 		}
 
-		const nextHour = new Date(hour.getTime() + ONE_HOUR_MS);
+		const nextCursor = newestFirst
+			? hour
+			: new Date(hour.getTime() + ONE_HOUR_MS);
 		await db
 			.update(globalAggregationState)
-			.set({ lastProcessedHour: nextHour })
+			.set({ lastProcessedHour: nextCursor })
 			.where(eq(globalAggregationState.id, stateId));
 
 		if (projects.length > 0) {
@@ -92,7 +109,7 @@ function createHourlyStatsBackfillStep({
 				projects: projects.length,
 			});
 		}
-		return nextHour < targetHour;
+		return newestFirst ? nextCursor > targetHour : nextCursor < targetHour;
 	};
 }
 
@@ -136,11 +153,15 @@ export const TENANT_STATS_BYOK_BACKFILL_DAYS =
 /**
  * Fills the BYOK error and latency columns of the project and API key hourly
  * (model) stats, so every Gateway Load metric can be split by billing mode.
+ * Recalculates the whole bucket: rewriting project_hourly_stats bumps the
+ * stale-bucket watermark, which would otherwise hide late logs from the
+ * sibling tables.
  */
 export const runTenantStatsByokSplitBackfillStep =
 	createHourlyStatsBackfillStep({
 		stateId: "tenant-stats-byok-split-backfill",
 		days: TENANT_STATS_BYOK_BACKFILL_DAYS,
 		label: "tenant stats BYOK split",
-		recalculate: recalculateTenantByokSplitStats,
+		recalculate: recalculateBucket,
+		newestFirst: true,
 	});
