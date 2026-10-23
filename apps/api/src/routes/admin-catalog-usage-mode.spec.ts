@@ -335,31 +335,45 @@ describe("admin catalog usage mode", () => {
 		}
 	});
 
-	it("filters mapping detail stats by usage mode", async () => {
+	const detailPaths = [
+		["mapping", `providers/${PROVIDER_ID}/models/${MODEL_ID}`],
+		["model", `models/${MODEL_ID}`],
+		["provider", `providers/${PROVIDER_ID}`],
+	] as const;
+
+	async function fetchDetailStats(path: string, mode: string) {
+		const response = await app.request(
+			`/admin/${path}?window=24h&mode=${mode}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as Record<
+			"mapping" | "model" | "provider",
+			{ logsCount: number; avgTimeToFirstToken: number | null } | undefined
+		>;
+		return body.mapping ?? body.model ?? body.provider;
+	}
+
+	it("filters detail stats by usage mode", async () => {
 		const expected = {
-			total: { logsCount: 6, totalCost: 0.6, avgTimeToFirstToken: 1000 / 6 },
-			credits: { logsCount: 3, totalCost: 0.3, avgTimeToFirstToken: 100 },
-			"api-keys": { logsCount: 2, totalCost: 0.2, avgTimeToFirstToken: 200 },
+			total: { logsCount: 6, avgTimeToFirstToken: 1000 / 6 },
+			credits: { logsCount: 3, avgTimeToFirstToken: 100 },
+			"api-keys": { logsCount: 2, avgTimeToFirstToken: 200 },
 		};
-		for (const [mode, stats] of Object.entries(expected)) {
-			const response = await app.request(
-				`/admin/providers/${PROVIDER_ID}/models/${MODEL_ID}?window=24h&mode=${mode}`,
-				{ headers: { Cookie: cookie } },
-			);
-			expect(response.status).toBe(200);
-			const body = (await response.json()) as {
-				mapping: {
-					logsCount: number;
-					totalCost: number;
-					avgTimeToFirstToken: number | null;
-				};
-			};
-			expect(body.mapping).toMatchObject({
-				logsCount: stats.logsCount,
-				totalCost: expect.closeTo(stats.totalCost),
-				avgTimeToFirstToken: expect.closeTo(stats.avgTimeToFirstToken),
-			});
+		for (const [, path] of detailPaths) {
+			for (const [mode, stats] of Object.entries(expected)) {
+				expect(await fetchDetailStats(path, mode)).toMatchObject({
+					logsCount: stats.logsCount,
+					avgTimeToFirstToken: expect.closeTo(stats.avgTimeToFirstToken),
+				});
+			}
 		}
+		const response = await app.request(
+			`/admin/providers/${PROVIDER_ID}/models/${MODEL_ID}?window=24h&mode=credits`,
+			{ headers: { Cookie: cookie } },
+		);
+		const body = (await response.json()) as { mapping: { totalCost: number } };
+		expect(body.mapping.totalCost).toBeCloseTo(0.3);
 	});
 
 	it("does not blend lifetime counters into an empty narrowed detail", async () => {
@@ -371,18 +385,20 @@ describe("admin catalog usage mode", () => {
 					eq(tables.modelProviderMappingHistory.usedMode, "api-keys"),
 				),
 			);
+		for (const [, path] of detailPaths) {
+			expect(await fetchDetailStats(path, "api-keys")).toMatchObject({
+				logsCount: 0,
+				avgTimeToFirstToken: null,
+			});
+		}
+	});
+
+	it("rejects narrowed project-scoped model detail", async () => {
 		const response = await app.request(
-			`/admin/providers/${PROVIDER_ID}/models/${MODEL_ID}?window=24h&mode=api-keys`,
+			`/admin/models/${MODEL_ID}?projectId=test-project&mode=credits`,
 			{ headers: { Cookie: cookie } },
 		);
-		expect(response.status).toBe(200);
-		const body = (await response.json()) as {
-			mapping: { logsCount: number; avgTimeToFirstToken: number | null };
-		};
-		expect(body.mapping).toMatchObject({
-			logsCount: 0,
-			avgTimeToFirstToken: null,
-		});
+		expect(response.status).toBe(400);
 	});
 
 	it("keeps history mode buckets unique", async () => {

@@ -10,9 +10,14 @@ import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ModelProviderCharts } from "@/components/model-provider-charts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	CatalogDetailUsageMode,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
 import { useHistoryClient } from "@/lib/history-client";
 import { publicModelUrl } from "@/lib/public-urls";
+import { CATALOG_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { ModelDetailResponse, ModelProviderStats } from "@/lib/types";
@@ -41,7 +46,9 @@ export function ModelDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	// The server rendered the stats for the initial window; only refetch for others.
+	const mode = useUsageMode(CATALOG_USAGE_MODE_DEFAULT);
+	// The server renders the stats for the current mode and the initial
+	// window; only refetch for other windows.
 	const [initialWindow] = useState(window);
 	const $api = useApi();
 	const detailQuery = $api.useQuery(
@@ -50,7 +57,7 @@ export function ModelDetailClient({
 		{
 			params: {
 				path: { modelId: encodeURIComponent(modelId) },
-				query: { window },
+				query: { window, mode },
 			},
 		},
 		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
@@ -63,9 +70,9 @@ export function ModelDetailClient({
 	const history = useHistoryClient();
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await history.modelHistory(modelId, w);
+			return await history.modelHistory(modelId, w, mode);
 		},
-		[history, modelId],
+		[history, modelId, mode],
 	);
 
 	const displayName =
@@ -106,6 +113,8 @@ export function ModelDetailClient({
 					</a>
 				</Button>
 			</header>
+
+			<CatalogDetailUsageMode />
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (
@@ -149,6 +158,7 @@ export function ModelDetailClient({
 					modelId={modelId}
 					providers={providers}
 					window={window}
+					mode={mode}
 				/>
 			</section>
 		</>
