@@ -170,6 +170,11 @@
 			"import": "./dist/prompt-template.js",
 			"default": "./dist/prompt-template.js"
 		},
+		"./file-types": {
+			"types": "./dist/file-types.d.ts",
+			"import": "./dist/file-types.js",
+			"default": "./dist/file-types.js"
+		},
 		"./client-ip": {
 			"types": "./dist/client-ip.d.ts",
 			"import": "./dist/client-ip.js",
