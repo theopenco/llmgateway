@@ -311,6 +311,27 @@ const webhookHandler = createRoute({
 	},
 });
 
+/** A `stripe-signature` header the Stripe SDK cannot verify without crashing. */
+class MalformedStripeSignatureError extends Error {}
+
+const STRIPE_V1_SIGNATURE = /^[0-9a-f]+$/;
+
+/**
+ * The SDK's `secureCompare` throws a plain Error on an empty `v1` value and a
+ * RangeError on a non-ASCII one, instead of StripeSignatureVerificationError.
+ * Stripe always sends lowercase hex, so reject anything else before verifying.
+ */
+function assertWellFormedSignatureHeader(sig: string): void {
+	for (const item of sig.split(",")) {
+		const [key, value = ""] = item.split("=");
+		if (key === "v1" && !STRIPE_V1_SIGNATURE.test(value)) {
+			throw new MalformedStripeSignatureError(
+				"stripe-signature header has a malformed v1 signature",
+			);
+		}
+	}
+}
+
 /**
  * Verify a Stripe webhook signature against the live secret, then the sandbox
  * secret. Whichever verifies wins; if both are configured and neither matches,
@@ -320,6 +341,7 @@ function constructWebhookEvent(
 	body: string,
 	sig: string,
 ): { event: Stripe.Event; mode: StripeMode } {
+	assertWellFormedSignatureHeader(sig);
 	const secrets: ReadonlyArray<[StripeMode, string | undefined]> = [
 		["live", process.env.STRIPE_WEBHOOK_SECRET],
 		["test", process.env.STRIPE_WEBHOOK_SECRET_TEST],
@@ -462,7 +484,10 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 		// hitting the public webhook endpoint (e.g. a `fake_signature` header). They
 		// are not actionable, so log at warn level and still return 400 rather than
 		// raising an error alert.
-		if (error instanceof Stripe.errors.StripeSignatureVerificationError) {
+		if (
+			error instanceof Stripe.errors.StripeSignatureVerificationError ||
+			error instanceof MalformedStripeSignatureError
+		) {
 			logger.warn("Ignoring Stripe webhook with invalid signature", {
 				message: error.message,
 			});
