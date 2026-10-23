@@ -480,7 +480,7 @@ claude`,
 			},
 			{
 				title: "Tier-limited accounts",
-				description: "Never trip a provider's token quota",
+				description: "Strict caps keep traffic inside token quotas",
 			},
 			{
 				title: "Long sessions",
