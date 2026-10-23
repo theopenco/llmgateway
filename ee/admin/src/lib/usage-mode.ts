@@ -43,6 +43,9 @@ export function catalogModeParam(
 	return mode === CATALOG_USAGE_MODE_DEFAULT ? "" : `${separator}mode=${mode}`;
 }
 
+/** Gateway Load hides BYOK unless asked, so its error rate is the platform's. */
+export const LOAD_USAGE_MODE_DEFAULT: UsageMode = "credits";
+
 export function parseUsageMode(
 	value: string | null | undefined,
 	fallback: UsageMode = "total",

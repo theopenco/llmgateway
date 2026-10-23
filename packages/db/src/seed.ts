@@ -24,6 +24,7 @@ import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
 import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
+import { seedByokSplit } from "./seed-byok-split.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -35,11 +36,17 @@ import type { PgTable } from "drizzle-orm/pg-core";
  * @param uniqueKey The column name that serves as the unique identifier (usually 'id')
  * @returns The result of the insert operation
  */
+// Every seeded project goes through `upsert`; the BYOK split is scoped to them.
+const seededProjectIds = new Set<string>();
+
 async function upsert<T extends Record<string, any>>(
 	table: PgTable<any>,
 	values: T,
 	uniqueKey = "id",
 ) {
+	if (table === tables.project) {
+		seededProjectIds.add(String(values.id));
+	}
 	return await db
 		.insert(table)
 		.values(values)
@@ -3245,6 +3252,7 @@ async function seed() {
 	});
 
 	await seedAirside();
+	await seedByokSplit([...seededProjectIds]);
 
 	await closeDatabase();
 	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);

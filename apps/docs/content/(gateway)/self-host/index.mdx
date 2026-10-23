@@ -150,6 +150,14 @@ longer ranges or tenant-filtered views. Daily charts retain hourly peaks, so swi
 30 days does not smooth away a spike. Peak timestamps identify the start of the
 interval; the current incomplete interval is excluded.
 
+The **All / Credits / BYOK** filter applies to every value on the page:
+requests, rates, error rates, error counts, duration, and time to first token,
+on every grouping and tenant filter. It defaults to **Credits**, so
+bring-your-own-key traffic is excluded unless you pick All or BYOK. After upgrading, the worker backfills the
+per-mode error and latency split for organization, project, and API-key views
+over the last 365 days (`TENANT_STATS_BYOK_BACKFILL_DAYS`); until it reaches
+an hour, that hour counts its BYOK errors and latency as credits.
+
 Switch to **Tokens** for platform, model, or provider throughput over 7 or 30 days.
 Choose total, input, or output tokens and a billing mode. Average TPM includes
 quiet minutes; average tokens/day normalizes the same window to 24 hours. Peak
