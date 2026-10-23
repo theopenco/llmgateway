@@ -77,7 +77,7 @@
 		"typescript": "5.9.2",
 		"vite": "^7.3.7",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^4.1.11",
+		"vitest": "^4.1.12",
 		"webreel": "0.1.4"
 	},
 	"disabledLinters": [
@@ -111,10 +111,10 @@
 			"browserslist@<4.28.7": "^4.28.7",
 			"fast-xml-builder@<1.1.7": "^1.1.7",
 			"uuid@<11.1.1": "^11.1.1",
-			"dompurify@<3.4.16": "^3.4.16",
+			"dompurify@<3.4.17": "^3.4.17",
 			"fast-xml-parser@<5.10.1": "^5.10.1",
 			"postcss@<8.5.18": "^8.5.18",
-			"ip-address@<10.7.2": "^10.7.2",
+			"ip-address@<10.7.4": "^10.7.4",
 			"qs@<6.16.0": "^6.16.0",
 			"yaml@<2.8.3": "^2.8.3",
 			"valibot@<1.4.2": "^1.4.2",
