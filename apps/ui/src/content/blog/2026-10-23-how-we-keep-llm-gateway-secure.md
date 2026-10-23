@@ -2,7 +2,7 @@
 id: "blog-how-we-keep-llm-gateway-secure"
 slug: "how-we-keep-llm-gateway-secure"
 date: "2026-10-23"
-title: "How We Keep LLM Gateway Secure in the Age of AI"
+title: "AI Gateway Security: How We Keep LLM Gateway Secure"
 summary: "AI makes attackers faster, and supply chain attacks on LLM infrastructure keep landing. Here is how we approach AI gateway security at LLM Gateway: the routines that patch advisories, the monthly AI security audit, layered code review, and the real pull requests behind them."
 categories: ["Engineering"]
 faqs:
@@ -13,7 +13,7 @@ faqs:
   - question: "How fast does LLM Gateway patch security advisories?"
     answer: "Critical and high advisories are fixed in dedicated pull requests, usually within days. When Node.js shipped its October 21, 2026 security releases, the bump to 24.22.1 merged the same day. Since August 1, 2026 we have merged 19 pull requests that patched dependency or runtime advisories."
   - question: "How do I report a security issue in LLM Gateway?"
-    answer: "Use a private GitHub security advisory on the theopenco/llmgateway repository, as described in SECURITY.md. Please do not open a public issue for a vulnerability."
+    answer: "Use a private GitHub security advisory for the `theopenco/llmgateway` repository, as described in SECURITY.md. Please do not open a public issue for a vulnerability."
 image:
   src: "/blog/how-we-keep-llm-gateway-secure.png"
   alt: "A glowing teal shield on the central chip of a dark circuit board, surrounded by a padlock, a key, a magnifying glass over code, a checklist, a git branch and a radar, representing AI gateway security routines"
@@ -27,7 +27,7 @@ So the question we hear most from security teams has changed. It used to be "are
 
 This post answers that with what actually ran in our repository: the routines, the review layers and the pull requests. **LLM Gateway** is open source, so every PR linked here is public.
 
-## What an AI gateway has to protect
+## What AI gateway security has to protect
 
 An AI gateway sits between your application and every model provider you use. That makes AI gateway security a narrow but unforgiving problem. Our review brief, `REVIEW.md`, defines failure per area, and it reads like a threat model:
 
@@ -62,7 +62,7 @@ Install scripts are a second front. pnpm only runs lifecycle scripts for an expl
 
 ## Routine 2: a monthly AI security audit that needs evidence
 
-AI is very good at producing security checklists, and checklists are mostly noise. So our audit is built around evidence.
+AI produces security checklists quickly, and checklists are mostly noise. So our audit is built around evidence.
 
 In October we added a [`security-audit` agent skill](https://github.com/theopenco/llmgateway/pull/4374) to the repository. It merges OpenAI's `security-best-practices` (secure defaults per framework) with Cloudflare's `security-audit` (an evidence-first, six-phase audit workflow). Agents load it whenever they touch auth, sessions, API keys, billing, webhooks, user-supplied URLs or admin routes, and once a month it drives a full audit:
 
@@ -73,7 +73,7 @@ In October we added a [`security-audit` agent skill](https://github.com/theopenc
 
 Two rules keep this safe in a public repository. Findings and reports are never committed, because they describe unfixed vulnerabilities. And a fix PR names each finding by title and severity only, never a working exploit.
 
-One finding fixed this month: [#4494](https://github.com/theopenco/llmgateway/pull/4494): a Vertex service-account JSON is user-supplied, and the server POSTed to whatever `token_uri` it contained. **Fixed finding: SSRF via service-account `token_uri`, high.** The token endpoint is now pinned to Google's, with a regression test that proves a foreign `token_uri` is ignored.
+One finding fixed this month is [#4494](https://github.com/theopenco/llmgateway/pull/4494): a Vertex service-account JSON is user-supplied, and the server POSTed to whatever `token_uri` it contained. **Fixed finding: SSRF via service-account `token_uri`, high.** The token endpoint is now pinned to Google's, with a regression test that proves a foreign `token_uri` is ignored.
 
 ## Routine 3: every pull request gets AI and human review
 
@@ -125,7 +125,7 @@ When a model can call tools, the tool call is the attack surface. When a user ap
 
 - **[SOC 2 Type II](/blog/soc2-type-ii)**, audited over an observation period rather than on a single day.
 - **Audit events and log metadata in your SIEM** through signed HTTPS data streams, on Enterprise.
-- **SSO and SCIM** for your identity provider.
+- **[SSO and SCIM](https://docs.llmgateway.io/features/sso)** on Enterprise, so access follows your identity provider.
 - **Data retention you control**, explained in [LLM data retention](/blog/llm-data-retention).
 - **Private disclosure.** Report vulnerabilities through a private GitHub security advisory, as described in our `SECURITY.md`.
 
@@ -143,5 +143,5 @@ If you are working out how to secure your own codebase in the age of AI, these a
 ## Get started
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** and route your first request in under a minute
-- **[Talk to us about Enterprise](https://llmgateway.io/enterprise)**: SSO, SCIM, data streams and our SOC 2 Type II report
+- **[Audit logs docs](https://docs.llmgateway.io/features/audit-logs)**: who did what, when and to which resource, on the Enterprise plan
 - **[LiteLLM compromised again](/blog/litellm-compromised-again)**: what happened, what to rotate and how to migrate
