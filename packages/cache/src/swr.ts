@@ -11,6 +11,7 @@ import { redisClient } from "./redis.js";
 export const SWR_PREFIX = "swr:v2:";
 export const SWR_TABLE_INDEX_PREFIX = "swr:v2:tables:";
 export const SWR_THROTTLE_PREFIX = "swr:v2:throttle:";
+export const SWR_DROPPED_PREFIX = "swr:v2:dropped:";
 export const SWR_DEFAULT_TTL_SECONDS = 14400;
 export const SWR_BATCH_SIZE = 500;
 
@@ -30,6 +31,21 @@ export const SWR_BATCH_SIZE = 500;
 // is cleared by the same events that drop the mirror, so the next request
 // re-primes immediately.
 export const SWR_MIRROR_WRITE_THROTTLE_SECONDS = 30;
+
+// A dropped key (see invalidateSwrKeys) is fenced for this long: a mirror
+// write for it that started before the drop — in this process or any other —
+// and lands after the unlink is discarded instead of resurrecting the value.
+// Also bounds how long the key stays without a fallback once it is dropped.
+export const SWR_DROP_FENCE_SECONDS = SWR_MIRROR_WRITE_THROTTLE_SECONDS;
+
+// KEYS[1] mirror, KEYS[2] drop fence; ARGV[1] payload, ARGV[2] ttl seconds.
+const FENCED_MIRROR_SET_SCRIPT = `
+if redis.call('EXISTS', KEYS[2]) == 1 then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+return 1
+`;
 
 // Returns true if this caller won the throttle slot and should (re)write the
 // mirror. Uses SET NX so exactly one caller per window per key wins. Fails open
@@ -105,6 +121,10 @@ export function swrThrottleKey(key: string): string {
 	return `${SWR_THROTTLE_PREFIX}${schemaVersion}:${key}`;
 }
 
+export function swrDroppedKey(key: string): string {
+	return `${SWR_DROPPED_PREFIX}${schemaVersion}:${key}`;
+}
+
 function tableIndexKey(table: string): string {
 	return SWR_TABLE_INDEX_PREFIX + table;
 }
@@ -121,7 +141,14 @@ async function writeMirror<T>(
 			value === undefined ? ({ [SWR_NONE_SENTINEL]: true } as const) : value;
 
 		const pipeline = redisClient.pipeline();
-		pipeline.set(cacheKey, JSON.stringify(payload), "EX", ttl);
+		pipeline.eval(
+			FENCED_MIRROR_SET_SCRIPT,
+			2,
+			cacheKey,
+			swrDroppedKey(key),
+			JSON.stringify(payload),
+			String(ttl),
+		);
 		for (const table of tables) {
 			const indexKey = tableIndexKey(table);
 			pipeline.sadd(indexKey, cacheKey);
@@ -306,4 +333,35 @@ export async function invalidateSwrByTables(tables: string[]): Promise<void> {
 			{ tables },
 		);
 	}
+}
+
+/**
+ * Drops the given keys' mirrors. A Postgres outage then fails these reads
+ * instead of serving the dropped value; use when that value must not be served.
+ */
+export async function invalidateSwrKeys(keys: string[]): Promise<void> {
+	if (keys.length === 0) {
+		return;
+	}
+	// The fence is raised in the same transaction as the unlink, so no mirror
+	// write can slip in between them.
+	const multi = redisClient.multi();
+	for (const key of keys) {
+		multi.set(swrDroppedKey(key), "1", "EX", SWR_DROP_FENCE_SECONDS);
+	}
+	multi.unlink(
+		...keys.flatMap((key) => [swrMirrorKey(key), swrThrottleKey(key)]),
+	);
+	await multi.exec();
+}
+
+/**
+ * Lets the next successful read of each key rewrite its mirror at once, while
+ * the current mirror stays available as the outage fallback.
+ */
+export async function refreshSwrKeys(keys: string[]): Promise<void> {
+	if (keys.length === 0) {
+		return;
+	}
+	await redisClient.unlink(...keys.map(swrThrottleKey));
 }

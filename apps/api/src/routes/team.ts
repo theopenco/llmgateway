@@ -17,12 +17,12 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
-	addApiKeyPeriodDuration,
 	and,
 	apiKeyPeriodDurationUnits,
 	cdb,
 	db,
 	eq,
+	getMemberPeriodSpendWindowStart,
 	gte,
 	inArray,
 	isValidApiKeyPeriodDuration,
@@ -359,16 +359,13 @@ async function computeMemberSpend(
 		for (const period of uniquePeriods.values()) {
 			let usage = 0;
 			if (keys?.keyIds.length) {
-				const flooredHour = new Date(now);
-				flooredHour.setMinutes(0, 0, 0);
-				const windowStart = addApiKeyPeriodDuration(
-					flooredHour,
-					-period.durationValue,
-					period.durationUnit,
-				);
-				// Match the gateway's getMemberPeriodSpend window: exactly the
+				// Same window as the gateway's getMemberPeriodSpend: exactly the
 				// period's worth of hourly buckets ending at the current hour.
-				windowStart.setHours(windowStart.getHours() + 1);
+				const { windowStart } = getMemberPeriodSpendWindowStart(
+					period.durationValue,
+					period.durationUnit,
+					now,
+				);
 				const rows = await db
 					// cost is float4; SUM(real) accumulates in float4 too, so cast first.
 					.select({

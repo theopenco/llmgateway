@@ -39,13 +39,13 @@ function chatBody(body: Awaited<ReturnType<typeof prepareRequestBody>>) {
 }
 
 function prepare(
-	provider: ProviderId,
+	provider: string,
 	model: string,
 	history = messages,
 	stream = false,
 ) {
 	return prepareRequestBody(
-		provider,
+		provider as ProviderId,
 		model,
 		null,
 		"vendor/deployment",
@@ -125,7 +125,7 @@ describe("DeepSeek V4 reasoning replay", () => {
 			["deepseek", "deepseek-v4.1-flash"],
 			["deepseek", "deepseek-v3.2"],
 			["moonshot", "kimi-k2.6"],
-		] satisfies [ProviderId, string][])(
+		] satisfies [string, string][])(
 			"moves tool reasoning and preserves other %s %s turns",
 			async (provider, model) => {
 				const history: BaseMessage[] = [
@@ -160,7 +160,7 @@ describe("DeepSeek V4 reasoning replay", () => {
 			["deepseek", "deepseek-v3.2"],
 			["moonshot", "kimi-k2.5"],
 			["moonshot", "kimi-k2.6"],
-		] satisfies [ProviderId, string][])(
+		] satisfies [string, string][])(
 			"drops the reasoning alias beside supplied reasoning_content on %s %s",
 			async (provider, model) => {
 				// Runware rejects a message carrying both aliases.

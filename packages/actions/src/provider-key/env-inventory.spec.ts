@@ -89,6 +89,22 @@ describe("collectProviderEnvCredentials", () => {
 		);
 	});
 
+	it("preserves indices for multiple JSON credentials", () => {
+		for (const variant of ["__ENTERPRISE", "__PLANS"]) {
+			vi.stubEnv(`LLM_GOOGLE_VERTEX_API_KEY${variant}`, "");
+		}
+		const keys = [
+			'{"type":"service_account","project_id":"first","private_key":"a,b"}',
+			'{"type":"service_account","project_id":"second","private_key":"c"}',
+		];
+		vi.stubEnv("LLM_GOOGLE_VERTEX_API_KEY", keys.join(","));
+		expect(
+			collectProviderEnvCredentials("google-vertex").map((entry) => [
+				entry.index,
+				entry.tokenHash,
+			]),
+		).toEqual(keys.map((key, index) => [index, getApiKeyFingerprint(key)]));
+	});
 	it("treats a service-account JSON as one credential, not comma fragments", () => {
 		for (const variant of ["__ENTERPRISE", "__PLANS"]) {
 			vi.stubEnv(`LLM_GOOGLE_VERTEX_API_KEY${variant}`, "");

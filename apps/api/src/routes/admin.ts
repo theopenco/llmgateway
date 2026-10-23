@@ -5348,7 +5348,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 		});
 	}
 
-	const [created] = await db
+	const [created] = await cdb
 		.insert(tables.discount)
 		.values({
 			organizationId: null,
@@ -5366,7 +5366,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 admin.openapi(deleteGlobalDiscount, async (c) => {
 	const { discountId } = c.req.valid("param");
 
-	const [deleted] = await db
+	const [deleted] = await cdb
 		.delete(tables.discount)
 		.where(
 			and(
@@ -5560,7 +5560,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 		});
 	}
 
-	const [created] = await db
+	const [created] = await cdb
 		.insert(tables.discount)
 		.values({
 			organizationId: orgId,
@@ -5595,7 +5595,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 	const user = c.get("user");
 	const { orgId, discountId } = c.req.valid("param");
 
-	const [deleted] = await db
+	const [deleted] = await cdb
 		.delete(tables.discount)
 		.where(
 			and(
@@ -9754,8 +9754,6 @@ async function blockOrganizationById(
 		}
 	});
 
-	await invalidateOrganizationsCache([orgId]);
-
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
 			where: { id: { in: memberUserIds } },
@@ -9783,6 +9781,11 @@ async function blockOrganizationById(
 			source: "admin",
 		},
 	});
+
+	// A blocked org must not be served its pre-block row during an outage. This
+	// throws when the fallback could not be dropped, so it runs after the audit
+	// entry: the block itself has already been applied and must stay recorded.
+	await invalidateOrganizationsCache([orgId], { dropFallback: true });
 
 	return {
 		cancelledSubscriptionIds,

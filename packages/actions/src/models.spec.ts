@@ -5,6 +5,7 @@ import {
 	models,
 	type ModelDefinition,
 	type ProviderModelMapping,
+	type ProviderId,
 	type BaseMessage,
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
@@ -1965,7 +1966,8 @@ describe("getCheapestFromAvailableProviders", () => {
 
 			it("reports cache support for an Airside listing with a cached price", () => {
 				const listingMapping: ProviderModelMapping = {
-					providerId: "runware",
+					// Airside-only carrier, not a catalogue provider.
+					providerId: "runware" as string as ProviderId,
 					externalId: "deepseek-v4-flash",
 					inputPrice: "0.14e-6",
 					outputPrice: "0.28e-6",

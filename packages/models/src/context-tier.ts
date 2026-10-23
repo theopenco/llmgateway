@@ -15,10 +15,12 @@ export const CONTEXT_TIER_TOLERANCE = 0.1;
  */
 export const CONTEXT_TIER_MIN_PROVIDERS = 1;
 
+// Airside listings are keyed by carrier ids outside the static catalogue, so
+// `providerId` is a plain string here rather than `ProviderId`.
 type ContextSizedMapping = Pick<
 	ProviderModelMapping,
-	"providerId" | "contextSize" | "deactivatedAt" | "regions"
->;
+	"contextSize" | "deactivatedAt" | "regions"
+> & { providerId: string };
 
 function isActive(mapping: ContextSizedMapping, now: Date): boolean {
 	return !mapping.deactivatedAt || new Date(mapping.deactivatedAt) > now;
