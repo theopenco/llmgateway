@@ -152,7 +152,8 @@ interval; the current incomplete interval is excluded.
 
 The **All / Credits / BYOK** filter applies to every value on the page:
 requests, rates, error rates, error counts, duration, and time to first token,
-on every grouping and tenant filter. After upgrading, the worker backfills the
+on every grouping and tenant filter. It defaults to **Credits**, so
+bring-your-own-key traffic is excluded unless you pick All or BYOK. After upgrading, the worker backfills the
 per-mode error and latency split for organization, project, and API-key views
 over the last 365 days (`TENANT_STATS_BYOK_BACKFILL_DAYS`); until it reaches
 an hour, that hour counts its BYOK errors and latency as credits.

@@ -32,6 +32,9 @@ export const USAGE_MODE_ALL_TRAFFIC_NOTE =
 /** Mapping pages hide BYOK traffic unless asked: it is not served on our keys. */
 export const MAPPING_USAGE_MODE_DEFAULT: UsageMode = "credits";
 
+/** Gateway Load hides BYOK unless asked, so its error rate is the platform's. */
+export const LOAD_USAGE_MODE_DEFAULT: UsageMode = "credits";
+
 export function parseUsageMode(
 	value: string | null | undefined,
 	fallback: UsageMode = "total",

@@ -53,6 +53,7 @@ import { formatDurationMs } from "@/lib/format-duration";
 import { formatErrorRate } from "@/lib/format-error-rate";
 import { formatRps } from "@/lib/format-rps";
 import { buildLoadChart, type LoadMetric } from "@/lib/load-chart";
+import { LOAD_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -222,7 +223,7 @@ function RequestLoadClient() {
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const modelView: ModelView =
 		searchParams.get("modelView") === "mapping" ? "mapping" : "canonical";
-	const mode = useUsageMode();
+	const mode = useUsageMode(LOAD_USAGE_MODE_DEFAULT);
 	const metric = parseMetric(searchParams.get("metric"));
 	// Stacking averages or rates is meaningless, and the "Other" band a stacked
 	// chart needs cannot be derived from one either, so every metric but req/s
@@ -469,7 +470,7 @@ function RequestLoadClient() {
 					// metric, so selecting any other one drops the pin.
 					extraParams={{ chart: null }}
 				/>
-				<UsageModeSelector compact />
+				<UsageModeSelector compact defaultMode={LOAD_USAGE_MODE_DEFAULT} />
 				<LoadEntitySelector
 					type="organization"
 					param="organizationId"
