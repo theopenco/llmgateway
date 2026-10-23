@@ -18,6 +18,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useHistoryClient } from "@/lib/history-client";
+import { MAPPING_USAGE_MODE_DEFAULT, type UsageMode } from "@/lib/usage-mode";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -25,7 +26,6 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ModelProviderMappingEntry } from "@/lib/types";
-import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -85,7 +85,8 @@ function SortableHeader({
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const modeParam =
+		usageMode === MAPPING_USAGE_MODE_DEFAULT ? "" : `&mode=${usageMode}`;
 	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
@@ -162,7 +163,7 @@ function MappingRow({
 				<TableCell>
 					<div>
 						<Link
-							href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}`}
+							href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${usageMode === MAPPING_USAGE_MODE_DEFAULT ? "" : `?mode=${usageMode}`}`}
 							className="font-medium hover:underline"
 							onClick={(e) => e.stopPropagation()}
 						>
@@ -261,7 +262,7 @@ export function MappingsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
-	usageMode = "total",
+	usageMode = MAPPING_USAGE_MODE_DEFAULT,
 	filterQuery = "",
 }: {
 	mappings: ModelProviderMappingEntry[];

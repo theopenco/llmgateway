@@ -11294,6 +11294,7 @@ const getMappingDetail = createRoute({
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
 			region: z.string().optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -11311,6 +11312,7 @@ admin.openapi(getMappingDetail, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const region = query.region;
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	const mappingRow = await db
@@ -11429,9 +11431,17 @@ admin.openapi(getMappingDetail, async (c) => {
 			...tokenBreakdownSums(mph),
 		})
 		.from(mph)
-		.where(and(eq(mph.modelProviderMappingId, m.id), gte(mphTs, startDate)));
+		.where(
+			and(
+				eq(mph.modelProviderMappingId, m.id),
+				gte(mphTs, startDate),
+				mode === "total" ? undefined : eq(mph.usedMode, mode),
+			),
+		);
 
-	const hasWindowData = Number(aggRow?.logsCount ?? 0) > 0;
+	// The lifetime fallback counters blend every mode, so a narrowed view
+	// reports the window's sums only.
+	const hasWindowData = mode !== "total" || Number(aggRow?.logsCount ?? 0) > 0;
 
 	return c.json({
 		mapping: {
@@ -11474,11 +11484,12 @@ admin.openapi(getMappingDetail, async (c) => {
 			cachedCount: hasWindowData
 				? Number(aggRow?.cachedCount ?? 0)
 				: m.cachedCount,
-			avgTimeToFirstToken: hasWindowData
-				? aggRow?.avgTtft !== undefined && aggRow?.avgTtft !== null
+			avgTimeToFirstToken:
+				aggRow?.avgTtft !== undefined && aggRow?.avgTtft !== null
 					? Number(aggRow.avgTtft)
-					: m.avgTimeToFirstToken
-				: m.avgTimeToFirstToken,
+					: mode === "total"
+						? m.avgTimeToFirstToken
+						: null,
 			totalCost: Number(aggRow?.totalCost ?? 0),
 			...toTokenBreakdown(aggRow),
 			updatedAt: m.updatedAt.toISOString(),

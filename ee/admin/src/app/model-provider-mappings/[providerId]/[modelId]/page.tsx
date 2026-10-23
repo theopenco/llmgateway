@@ -6,13 +6,14 @@ import { MappingDetailClient } from "@/components/mapping-detail-client";
 import { Button } from "@/components/ui/button";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+import { MAPPING_USAGE_MODE_DEFAULT, parseUsageMode } from "@/lib/usage-mode";
 
 export default async function MappingDetailPage({
 	params,
 	searchParams,
 }: {
 	params: Promise<{ providerId: string; modelId: string }>;
-	searchParams?: Promise<{ window?: string; region?: string }>;
+	searchParams?: Promise<{ window?: string; region?: string; mode?: string }>;
 }) {
 	await requireSession();
 
@@ -21,6 +22,10 @@ export default async function MappingDetailPage({
 	const searchParamsData = await searchParams;
 	const window = searchParamsData?.window;
 	const region = searchParamsData?.region;
+	const mode = parseUsageMode(
+		searchParamsData?.mode,
+		MAPPING_USAGE_MODE_DEFAULT,
+	);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -31,6 +36,7 @@ export default async function MappingDetailPage({
 				query: {
 					...(window ? { window } : {}),
 					...(region ? { region } : {}),
+					mode,
 				} as any,
 			},
 		},

@@ -29,8 +29,16 @@ export const USAGE_MODE_OPTIONS: { value: UsageMode; label: string }[] = [
 export const USAGE_MODE_ALL_TRAFFIC_NOTE =
 	"Tokens, errors and cache metrics always include all traffic — per-mode history is only tracked for spend and request counts.";
 
-export function parseUsageMode(value: string | null | undefined): UsageMode {
-	return value === "credits" || value === "api-keys" ? value : "total";
+/** Mapping pages hide BYOK traffic unless asked: it is not served on our keys. */
+export const MAPPING_USAGE_MODE_DEFAULT: UsageMode = "credits";
+
+export function parseUsageMode(
+	value: string | null | undefined,
+	fallback: UsageMode = "total",
+): UsageMode {
+	return value === "total" || value === "credits" || value === "api-keys"
+		? value
+		: fallback;
 }
 
 export function usageModeLabel(mode: UsageMode): string {
