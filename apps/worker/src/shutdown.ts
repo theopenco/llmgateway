@@ -1,21 +1,25 @@
 let shouldStop = false;
 let stopAbortController = new AbortController();
 
+/** Replaces the abort controller used to wake in-flight sleeps. */
 function initStopSignal(): void {
 	stopAbortController = new AbortController();
 }
 
 initStopSignal();
 
+/** Clears a requested stop and starts a fresh abort signal. */
 export function resetShutdown(): void {
 	shouldStop = false;
 	initStopSignal();
 }
 
+/** Reports whether shutdown has been requested. */
 export function isStopRequested(): boolean {
 	return shouldStop;
 }
 
+/** Requests shutdown and wakes every in-flight sleep. */
 export function requestStop(): void {
 	if (shouldStop) {
 		return;
@@ -24,16 +28,19 @@ export function requestStop(): void {
 	stopAbortController.abort();
 }
 
+/** Returns the signal that fires when shutdown is requested. */
 export function getStopSignal(): AbortSignal {
 	return stopAbortController.signal;
 }
 
-// Do not Promise.race this against a promise that only settles on shutdown.
-// The race leaves a reaction on that promise after the timer wins, and the
-// reaction stays until process exit. Idle loops sleep here constantly (the
-// log queue is four loops at 250ms), so the retained reactions grow the heap
-// until V8 OOMs. Subscribe to the abort signal and remove the listener when
-// the timer wins instead.
+/**
+ * Waits for `ms` milliseconds, or until shutdown is requested.
+ *
+ * This must not `Promise.race` a promise that only settles on shutdown. The
+ * race leaves a reaction on that promise after the timer wins, and idle loops
+ * call this often enough for those reactions to grow the heap until V8 runs
+ * out of memory. The abort listener is removed when the timer wins.
+ */
 export async function interruptibleSleep(ms: number): Promise<void> {
 	if (shouldStop || ms <= 0) {
 		return;
@@ -42,6 +49,7 @@ export async function interruptibleSleep(ms: number): Promise<void> {
 	await new Promise<void>((resolve) => {
 		let settled = false;
 		const timer = setTimeout(finish, ms);
+		/** Resolves the sleep once, then drops the timer and abort listener. */
 		function finish(): void {
 			if (settled) {
 				return;
