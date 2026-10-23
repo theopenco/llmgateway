@@ -1253,6 +1253,21 @@ keysProvider.openapi(updateStatus, async (c) => {
 					"This provider key has reached its spend limit. Raise or clear the limit to re-enable it.",
 			});
 		}
+
+		// Keys stored before their options were validated can carry a value the
+		// gateway cannot build an endpoint from; re-enabling one would fail
+		// every request routed to it.
+		const storedOptions = createProviderKeySchema.shape.options.safeParse(
+			providerKey.options ?? undefined,
+		);
+		if (!storedOptions.success) {
+			const issues = storedOptions.error.issues
+				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+				.join("; ");
+			throw new HTTPException(400, {
+				message: `This provider key's settings are invalid (${issues}). Delete it and add it again.`,
+			});
+		}
 	}
 
 	const updates: {

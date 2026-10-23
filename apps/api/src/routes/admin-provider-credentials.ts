@@ -63,6 +63,7 @@ import {
 	readProviderKey,
 	redactToken,
 	validateProviderKey,
+	getInvalidManagedCredentialHostnameLabels,
 } from "@llmgateway/actions";
 import {
 	and,
@@ -92,6 +93,7 @@ import {
 	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
+	PROVIDER_HOSTNAME_LABEL_MESSAGE,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -414,6 +416,13 @@ async function validateConfig(
 	if (exclusiveViolations.length > 0) {
 		throw new HTTPException(400, {
 			message: `Invalid setting(s) for ${provider}: ${exclusiveViolations.join(" ")}`,
+		});
+	}
+
+	const invalidLabels = getInvalidManagedCredentialHostnameLabels(config);
+	if (invalidLabels.length > 0) {
+		throw new HTTPException(400, {
+			message: `Invalid setting(s) for ${provider}: ${invalidLabels.join(", ")} — ${PROVIDER_HOSTNAME_LABEL_MESSAGE.toLowerCase()}`,
 		});
 	}
 

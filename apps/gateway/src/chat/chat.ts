@@ -189,6 +189,7 @@ import {
 	isToolSearchBlock,
 	preserveGoogleResponseText,
 	promptTokensShowSearchContext,
+	ProviderKeyOptionError,
 	reportedWebSearchCount,
 } from "@llmgateway/actions";
 import {
@@ -7719,6 +7720,14 @@ chat.openapi(completions, async (c) => {
 		if (usedProvider === "llmgateway" && usedInternalModel !== "custom") {
 			throw new HTTPException(400, {
 				message: `Invalid model: ${usedInternalModel} for provider: ${usedProvider}`,
+			});
+		}
+
+		// A malformed setting on the organization's own provider key is a
+		// client configuration error, not a gateway fault.
+		if (error instanceof ProviderKeyOptionError) {
+			throw new HTTPException(400, {
+				message: `Could not use provider: ${usedProvider}. ${error.message}. Replace the provider key with one whose settings are valid.`,
 			});
 		}
 

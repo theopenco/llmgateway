@@ -1,4 +1,5 @@
 import { getProviderEnvKeys, providers } from "@llmgateway/models";
+import { isProviderHostnameLabel } from "@llmgateway/shared";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 import type { ProviderDefinition } from "@llmgateway/models";
@@ -105,4 +106,21 @@ export function getUnknownManagedCredentialKeys(
 		getManagedCredentialConfigKeys(provider).map((entry) => entry.key),
 	);
 	return Object.keys(config).filter((key) => !known.has(key));
+}
+
+// Settings the gateway interpolates into an upstream hostname, e.g.
+// https://<resource>.openai.azure.com.
+const HOSTNAME_LABEL_CONFIG_KEYS = ["resource", "workspaceId"];
+
+/**
+ * Settings whose value cannot be used as a hostname label. Checked at save
+ * time so a malformed resource fails the admin form, not every request.
+ */
+export function getInvalidManagedCredentialHostnameLabels(
+	config: Record<string, string> | null | undefined,
+): string[] {
+	return HOSTNAME_LABEL_CONFIG_KEYS.filter((key) => {
+		const value = config?.[key];
+		return value !== undefined && !isProviderHostnameLabel(value);
+	});
 }

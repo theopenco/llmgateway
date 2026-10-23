@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
+	ProviderKeyOptionError,
 } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
@@ -568,6 +569,37 @@ describe("getProviderEndpoint", () => {
 					true, // skipEnvVars
 				),
 			).toThrow(/Azure (resource is invalid|requires a resource)/);
+		});
+
+		it("types an invalid resource from the key's options as a key error", () => {
+			const build = (options: Record<string, unknown>) => () =>
+				getProviderEndpoint(
+					"azure",
+					undefined,
+					"gpt-4o-mini",
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					options,
+					undefined,
+					undefined,
+					undefined,
+					true, // skipEnvVars
+				);
+
+			expect(build({ azure_resource: "evil.example.com" })).toThrow(
+				ProviderKeyOptionError,
+			);
+
+			let configError: unknown;
+			try {
+				build({ env_config: { resource: "evil.example.com" } })();
+			} catch (error) {
+				configError = error;
+			}
+			expect(configError).toBeInstanceOf(Error);
+			expect(configError).not.toBeInstanceOf(ProviderKeyOptionError);
 		});
 	});
 
