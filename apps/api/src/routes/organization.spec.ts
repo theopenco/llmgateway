@@ -52,6 +52,8 @@ const internalOrganizationFields = [
 	"riskFlagged",
 	// Served by GET /orgs/{id}/compliance-alerts.
 	"complianceAlertSettings",
+	// Served by GET /orgs/{id}/provider-key-alerts.
+	"providerKeyAlertSettings",
 ];
 
 async function expectPublicOrganization(
