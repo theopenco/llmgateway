@@ -2109,6 +2109,7 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 		});
 		await handleChargeRefunded(event);
 		await handleChargeRefunded(event);
+		expect(sendEmailMock).toHaveBeenCalledOnce();
 
 		const refunds = await db.query.transaction.findMany({
 			where: { stripeRefundId: { eq: "re_devpass_refund" } },

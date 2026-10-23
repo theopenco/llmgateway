@@ -3823,29 +3823,6 @@ export async function handleChargeRefunded(
 		})
 		.returning();
 
-	// Email right after the insert: a later failure would leave a retry stopped
-	// by the stripeRefundId dedupe above, and the credit note never sent.
-	try {
-		const billingDetails =
-			organization.kind === "devpass"
-				? await resolveDevPassBillingDetails(organization)
-				: organization.kind === "chat"
-					? await resolveChatPlanBillingDetails(organization)
-					: organization;
-		await generateAndEmailInvoice(
-			buildInvoiceDataForTransaction(
-				refundTransaction,
-				{ id: organization.id, name: organization.name, ...billingDetails },
-				originalTransaction,
-			),
-		);
-	} catch (e) {
-		logger.error(
-			"Credit note email failed (refund); suppressing failure",
-			e as Error,
-		);
-	}
-
 	// Deduct credits from organization (allow negative) — only for credit_topup
 	// refunds, since dev plan / subscription purchases don't add to credits.
 	if (isCreditTopup && creditRefundAmount !== 0) {
@@ -3929,6 +3906,28 @@ export async function handleChargeRefunded(
 				);
 			}
 		}
+	}
+
+	// Last, so the credit and Reset Pass side effects never wait on email delivery.
+	try {
+		const billingDetails =
+			organization.kind === "devpass"
+				? await resolveDevPassBillingDetails(organization)
+				: organization.kind === "chat"
+					? await resolveChatPlanBillingDetails(organization)
+					: organization;
+		await generateAndEmailInvoice(
+			buildInvoiceDataForTransaction(
+				refundTransaction,
+				{ id: organization.id, name: organization.name, ...billingDetails },
+				originalTransaction,
+			),
+		);
+	} catch (e) {
+		logger.error(
+			"Credit note email failed (refund); suppressing failure",
+			e as Error,
+		);
 	}
 
 	// Notify the internal Discord channel, mirroring the purchase notification.
