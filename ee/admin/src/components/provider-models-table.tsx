@@ -20,6 +20,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { catalogModeParam, type UsageMode } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -111,11 +112,13 @@ function SortableHeader({
 export function ProviderModelsTable({
 	providerId,
 	models,
+	usageMode,
 	verifications,
 	onVerificationSettled,
 }: {
 	providerId: string;
 	models: ProviderModelStats[];
+	usageMode: UsageMode;
 	verifications?: Map<string, ModelVerification>;
 	onVerificationSettled?: () => void;
 }) {
@@ -194,7 +197,7 @@ export function ProviderModelsTable({
 						<TableRow key={m.mappingId} className="hover:bg-muted/50">
 							<TableCell>
 								<Link
-									href={`/model-provider-mappings/${encodeURIComponent(providerId)}/${encodeURIComponent(m.modelId)}`}
+									href={`/model-provider-mappings/${encodeURIComponent(providerId)}/${encodeURIComponent(m.modelId)}${catalogModeParam(usageMode, "?")}`}
 									className="font-medium hover:underline"
 								>
 									{m.modelId}

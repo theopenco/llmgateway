@@ -8131,10 +8131,13 @@ const getModelDetail = createRoute({
 	path: "/models/{modelId}",
 	request: {
 		params: z.object({ modelId: z.string() }),
-		query: z.object({
-			window: historyWindowSchema.default("4h").optional(),
-			projectId: z.string().optional(),
-		}),
+		query: z
+			.object({
+				window: historyWindowSchema.default("4h").optional(),
+				projectId: z.string().optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+			})
+			.superRefine(rejectProjectScopedCatalogUsageMode),
 	},
 	responses: {
 		200: {
@@ -8151,6 +8154,7 @@ admin.openapi(getModelDetail, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
@@ -8432,6 +8436,7 @@ admin.openapi(getModelDetail, async (c) => {
 				and(
 					eq(mph.modelId, modelId),
 					gte(mphTs, startDate),
+					mode === "total" ? undefined : eq(mph.usedMode, mode),
 					excludeRegionalMappingRows(mph),
 				),
 			)
@@ -8483,7 +8488,8 @@ admin.openapi(getModelDetail, async (c) => {
 			logsCount: stats?.logsCount ?? 0,
 			errorsCount: stats?.errorsCount ?? 0,
 			cachedCount: stats?.cachedCount ?? 0,
-			avgTimeToFirstToken: stats?.avgTtft ?? m.avgTimeToFirstToken,
+			avgTimeToFirstToken:
+				stats?.avgTtft ?? (mode === "total" ? m.avgTimeToFirstToken : null),
 			...(stats?.breakdown ?? EMPTY_TOKEN_BREAKDOWN),
 			updatedAt: m.updatedAt.toISOString(),
 		};
@@ -8530,7 +8536,9 @@ admin.openapi(getModelDetail, async (c) => {
 			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
-	const hasWindowData = agg.logsCount > 0;
+	// The lifetime fallback counters blend every mode, so a narrowed view
+	// reports the window's sums only.
+	const hasWindowData = mode !== "total" || agg.logsCount > 0;
 	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
 		effectiveTtftTotals({
 			totalTimeToFirstToken: agg.totalTtft,
@@ -8567,11 +8575,11 @@ admin.openapi(getModelDetail, async (c) => {
 			canceledCount: agg.canceledCount,
 			unknownFinishCount: agg.unknownFinishCount,
 			cachedCount: hasWindowData ? agg.cachedCount : model.cachedCount,
-			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ??
-					model.avgTimeToFirstReasoningToken ??
-					model.avgTimeToFirstToken)
-				: (model.avgTimeToFirstReasoningToken ?? model.avgTimeToFirstToken),
+			avgTimeToFirstToken:
+				aggAvgTtft ??
+				(mode === "total"
+					? (model.avgTimeToFirstReasoningToken ?? model.avgTimeToFirstToken)
+					: null),
 			providerCount: providerStats.length,
 			...agg.breakdown,
 			updatedAt: model.updatedAt.toISOString(),
@@ -10849,6 +10857,7 @@ const getProviderDetail = createRoute({
 		params: z.object({ providerId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -10865,6 +10874,7 @@ admin.openapi(getProviderDetail, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	const providerRow = await db.query.provider.findFirst({
@@ -10948,6 +10958,7 @@ admin.openapi(getProviderDetail, async (c) => {
 				and(
 					eq(mph.providerId, providerId),
 					gte(mphTs, startDate),
+					mode === "total" ? undefined : eq(mph.usedMode, mode),
 					// Grouped per model, so the mapping's regional rows would be added
 					// on top of the root row that already contains them.
 					excludeRegionalMappingRows(mph),
@@ -11096,7 +11107,8 @@ admin.openapi(getProviderDetail, async (c) => {
 			gatewayErrorsCount: Number(s?.gatewayErrorsCount ?? 0),
 			upstreamErrorsCount: Number(s?.upstreamErrorsCount ?? 0),
 			cachedCount,
-			avgTimeToFirstToken: avgTtft ?? m.avgTimeToFirstToken,
+			avgTimeToFirstToken:
+				avgTtft ?? (mode === "total" ? m.avgTimeToFirstToken : null),
 			totalCost: Number(s?.totalCost ?? 0),
 			...toTokenBreakdown(s),
 			updatedAt: m.updatedAt.toISOString(),
@@ -11132,7 +11144,9 @@ admin.openapi(getProviderDetail, async (c) => {
 			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
-	const hasWindowData = agg.logsCount > 0;
+	// The lifetime fallback counters blend every mode, so a narrowed view
+	// reports the window's sums only.
+	const hasWindowData = mode !== "total" || agg.logsCount > 0;
 	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
 		effectiveTtftTotals({
 			totalTimeToFirstToken: agg.totalTtft,
@@ -11163,12 +11177,12 @@ admin.openapi(getProviderDetail, async (c) => {
 				? agg.upstreamErrorsCount
 				: providerRow.upstreamErrorsCount,
 			cachedCount: hasWindowData ? agg.cachedCount : providerRow.cachedCount,
-			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ??
-					providerRow.avgTimeToFirstReasoningToken ??
-					providerRow.avgTimeToFirstToken)
-				: (providerRow.avgTimeToFirstReasoningToken ??
-					providerRow.avgTimeToFirstToken),
+			avgTimeToFirstToken:
+				aggAvgTtft ??
+				(mode === "total"
+					? (providerRow.avgTimeToFirstReasoningToken ??
+						providerRow.avgTimeToFirstToken)
+					: null),
 			modelCount: mappings.length,
 			...agg.breakdown,
 			updatedAt: providerRow.updatedAt.toISOString(),

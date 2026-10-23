@@ -6,7 +6,7 @@ import { MappingDetailClient } from "@/components/mapping-detail-client";
 import { Button } from "@/components/ui/button";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
-import { MAPPING_USAGE_MODE_DEFAULT, parseUsageMode } from "@/lib/usage-mode";
+import { CATALOG_USAGE_MODE_DEFAULT, parseUsageMode } from "@/lib/usage-mode";
 
 export default async function MappingDetailPage({
 	params,
@@ -24,7 +24,7 @@ export default async function MappingDetailPage({
 	const region = searchParamsData?.region;
 	const mode = parseUsageMode(
 		searchParamsData?.mode,
-		MAPPING_USAGE_MODE_DEFAULT,
+		CATALOG_USAGE_MODE_DEFAULT,
 	);
 
 	const $api = await createServerApiClient();

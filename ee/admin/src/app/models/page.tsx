@@ -27,7 +27,11 @@ import {
 } from "@/lib/page-window";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
-import { parseUsageMode } from "@/lib/usage-mode";
+import {
+	CATALOG_USAGE_MODE_DEFAULT,
+	catalogModeParam,
+	parseUsageMode,
+} from "@/lib/usage-mode";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
@@ -80,7 +84,7 @@ export default async function ModelsPage({
 		params?.window,
 		CATALOG_PAGE_WINDOW_DEFAULT,
 	);
-	const usageMode = parseUsageMode(params?.mode);
+	const usageMode = parseUsageMode(params?.mode, CATALOG_USAGE_MODE_DEFAULT);
 	const { from, to } = windowToFromTo(pageWindow);
 	const filters = parseCatalogFilters(params);
 	const selection = {
@@ -116,7 +120,7 @@ export default async function ModelsPage({
 
 	const totalPages = Math.ceil(data.total / limit);
 
-	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const modeParam = catalogModeParam(usageMode, "&");
 
 	return (
 		<FilterNavigationProvider>
@@ -163,7 +167,11 @@ export default async function ModelsPage({
 					</FilterNavigationResults>
 					<Suspense>
 						<div className="flex flex-wrap items-center gap-2">
-							<UsageModeSelector compact extraParams={{ page: null }} />
+							<UsageModeSelector
+								compact
+								defaultMode={CATALOG_USAGE_MODE_DEFAULT}
+								extraParams={{ page: null }}
+							/>
 							<TimeWindowSelector
 								current={pageWindow}
 								options={pageWindowOptionsWithMinutes}
