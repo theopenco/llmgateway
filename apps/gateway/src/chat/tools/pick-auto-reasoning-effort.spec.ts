@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { pickAutoReasoningEffort } from "./pick-auto-reasoning-effort.js";
+import {
+	pickAutoReasoningEffort,
+	pickFallbackReasoningEffort,
+} from "./pick-auto-reasoning-effort.js";
 
 describe("pickAutoReasoningEffort", () => {
 	it("keeps minimal for gpt-5 mappings that support it", () => {
@@ -89,5 +92,82 @@ describe("pickAutoReasoningEffort", () => {
 	it("keeps the previous default when the mapping declares no efforts", () => {
 		expect(pickAutoReasoningEffort("gpt-5-mini", undefined)).toBe("minimal");
 		expect(pickAutoReasoningEffort("claude-opus-4.5", undefined)).toBe("low");
+	});
+});
+
+describe("pickFallbackReasoningEffort", () => {
+	it("re-picks an auto effort against the fallback mapping", () => {
+		expect(
+			pickFallbackReasoningEffort(
+				"low",
+				{ modelId: "glm-5.3", effortTier: "low" },
+				["xhigh", "max"],
+			),
+		).toBeUndefined();
+		expect(
+			pickFallbackReasoningEffort(
+				"minimal",
+				{ modelId: "gpt-5.4-mini", effortTier: "low" },
+				["none", "low", "medium"],
+			),
+		).toBe("none");
+	});
+
+	it("picks an effort the first mapping could not when the fallback supports it", () => {
+		// The first mapping took only xhigh/max, so no effort was set; the
+		// fallback accepts the tier's preferred effort and must get it.
+		expect(
+			pickFallbackReasoningEffort(
+				undefined,
+				{ modelId: "glm-5.3", effortTier: "low" },
+				["low", "high", "max"],
+			),
+		).toBe("low");
+	});
+
+	it("applies the model default when the fallback declares no efforts", () => {
+		expect(
+			pickFallbackReasoningEffort(
+				"none",
+				{ modelId: "gpt-5-mini", effortTier: "low" },
+				undefined,
+			),
+		).toBe("minimal");
+		expect(
+			pickFallbackReasoningEffort(
+				"medium",
+				{ modelId: "claude-opus-4.5", effortTier: "high" },
+				undefined,
+			),
+		).toBe("high");
+	});
+
+	it("keeps the routed effort tier when re-picking", () => {
+		expect(
+			pickFallbackReasoningEffort(
+				"high",
+				{ modelId: "glm-5.3", effortTier: "high" },
+				["medium", "xhigh"],
+			),
+		).toBe("medium");
+		expect(
+			pickFallbackReasoningEffort(
+				"medium",
+				{ modelId: "glm-5.3", effortTier: "medium" },
+				["low", "medium"],
+			),
+		).toBe("medium");
+	});
+
+	it("keeps an explicit caller effort unchanged", () => {
+		expect(
+			pickFallbackReasoningEffort("low", undefined, ["xhigh", "max"]),
+		).toBe("low");
+		expect(
+			pickFallbackReasoningEffort("xhigh", undefined, ["low", "medium"]),
+		).toBe("xhigh");
+		expect(
+			pickFallbackReasoningEffort(undefined, undefined, ["low"]),
+		).toBeUndefined();
 	});
 });

@@ -110,6 +110,12 @@ export interface ProviderContext {
 	supportsReasoning: boolean;
 	splitTaggedReasoning: boolean;
 	healStreamingJsonOutput: boolean;
+	/**
+	 * The effort the prepared body was built with. A fallback re-picks an
+	 * auto-routed effort per mapping, so the caller mirrors this into the
+	 * value it logs.
+	 */
+	reasoning_effort: ProviderContextOptions["reasoning_effort"];
 	temperature: number | undefined;
 	max_tokens: number | undefined;
 	top_p: number | undefined;
@@ -1229,6 +1235,7 @@ export async function resolveProviderContext(
 		supportsReasoning,
 		splitTaggedReasoning,
 		healStreamingJsonOutput,
+		reasoning_effort: options.reasoning_effort,
 		temperature,
 		max_tokens,
 		top_p,
