@@ -39,21 +39,25 @@ Most review happens before the PR exists. Before `gh pr create`:
 
 - `pr-risk` labels the PR `risk: low|medium|high` and requests a maintainer
   review on `risk: high`.
-- CodeRabbit posts findings as threads. Fix each one or resolve it
-  with a one-line reason; unresolved threads block the merge.
+- CodeRabbit posts a pre-merge checks table and findings as threads. Wait
+  for both (`gh pr checks <n>` shows `CodeRabbit` as completed), fix every
+  failed check (title length, description, rollback) and every finding, or
+  resolve it with a one-line reason; unresolved threads block the merge.
+  Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
 
 ## Creating the PR
 
+Write the body from `.github/pull_request_template.md` into `.context/pr-body.md`:
+Summary, Verification, Rollback (tick the plain-revert box or list the steps),
+and Database migration only when the PR adds one.
+
 ```bash
-gh pr create --base main --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
-...
-EOF
-)"
+gh pr create --base main --title "<type>(<scope>): <summary>" --body-file .context/pr-body.md
 ```
 
-- Title uses conventional-commit format and is **max 50 characters**.
+- Title uses conventional-commit format and is **max 50 characters**, `type(scope): ` included. Count it (`printf %s "<title>" | wc -c`) before creating or editing the PR.
 - Always **ready-for-review**, never a draft, unless the user explicitly asks for a draft.
 - Always write both a title **and** a description. If later commits change the scope, update both before handing the PR off — a stale description is worse than none.
 - A good description states the problem first, then the approach, then anything a reviewer would otherwise have to reverse-engineer (non-obvious constraints, deliberate omissions, verification performed).

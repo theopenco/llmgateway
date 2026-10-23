@@ -115,13 +115,15 @@ NEVER put internal or private information into anything published to this public
 
 ### Git and pull requests
 
-- Use conventional commit format for commits and PR titles, max 50 characters.
+- Use conventional commit format for commits and PR titles. Count the PR title before creating or editing it: at most 50 characters, `type(scope): ` included.
 - Do not `--amend` commits after pushing. Force-push only feature branches, never main.
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).
 - Sync a feature branch with main via a merge commit; rebase only when required or clearly better, and say why.
 - Resolve `pnpm-lock.yaml` conflicts by running `pnpm install`.
 - Never force-merge a PR (`gh pr merge --admin`, bypassing required checks or reviews). Merge only when every required check is green, or enable auto-merge and let it land.
-- Use the `pull-request` skill for opening and updating PRs. PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
+- Load the `pull-request` skill before every `gh pr create` or `gh pr edit`; do not write a PR from memory. The body follows `.github/pull_request_template.md`: Summary, Verification and a filled-in Rollback, with Database migration deleted when there is none.
+- After opening or pushing to a PR, wait for CodeRabbit, then fix every failed pre-merge check and every finding, or resolve it with a one-line reason, before handing off. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
 - Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR, a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
 
 ## License
