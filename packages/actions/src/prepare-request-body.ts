@@ -4398,11 +4398,22 @@ export async function prepareRequestBody(
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls?.length) {
-					// Add text content if present
-					if (msg.content) {
-						bedrockMessage.content.push({
-							text: msg.content,
-						});
+					// Add text content if present. The OpenAI schema also allows an array
+					// of text parts here, which Converse takes as one text block per part.
+					if (typeof msg.content === "string") {
+						if (msg.content) {
+							bedrockMessage.content.push({
+								text: msg.content,
+							});
+						}
+					} else if (Array.isArray(msg.content)) {
+						for (const part of msg.content as any[]) {
+							if (part.type === "text" && part.text?.trim()) {
+								bedrockMessage.content.push({
+									text: part.text,
+								});
+							}
+						}
 					}
 
 					// Add tool use blocks
