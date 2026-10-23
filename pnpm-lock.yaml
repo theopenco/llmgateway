@@ -135,6 +135,9 @@ importers:
       concurrently:
         specifier: ^10.0.4
         version: 10.0.4
+      decimal.js:
+        specifier: 10.5.0
+        version: 10.5.0
       dotenv:
         specifier: 17.4.2
         version: 17.4.2
