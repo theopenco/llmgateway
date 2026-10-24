@@ -34,6 +34,6 @@
 		"@json-render/core": "0.11.0",
 		"@json-render/react": "0.11.0",
 		"@json-render/shadcn": "0.11.0",
-		"zod": "4.3.6"
+		"zod": "4.6.7"
 	}
 }
