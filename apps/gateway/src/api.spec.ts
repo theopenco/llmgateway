@@ -2425,7 +2425,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-devpass-no-training",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-pro",
+					model: "deepseek-v4.1-flash-1017",
 					messages: [{ role: "user", content: "Hello compliance!" }],
 				}),
 			});
