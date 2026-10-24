@@ -65,7 +65,7 @@
 		"unpdf": "1.6.2",
 		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
 		"yaml": "2.8.3",
-		"zod": "3.25.76",
+		"zod": "4.6.6",
 		"zod-openapi": "^5.4.3"
 	},
 	"devDependencies": {

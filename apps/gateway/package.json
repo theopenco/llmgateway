@@ -48,7 +48,7 @@
 		"undici": "8.12.3",
 		"worker": "workspace:*",
 		"ws": "8.21.0",
-		"zod": "3.25.76",
+		"zod": "4.6.6",
 		"zod-openapi": "^5.4.3"
 	},
 	"devDependencies": {
