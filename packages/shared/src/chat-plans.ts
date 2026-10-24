@@ -1,3 +1,7 @@
+import { models } from "@llmgateway/models";
+
+import type { ModelDefinition } from "@llmgateway/models";
+
 export const CHAT_PLAN_PRICES = {
 	starter: 9,
 	plus: 19,
@@ -110,34 +114,74 @@ export function estimateChatPlanMessages(
 }
 
 /**
- * Premium models that are gated on the Starter tier. Plus and Pro tiers
- * have access to everything. Matched by substring against the requested
- * model id, so this covers all variants (e.g. "claude-opus-4-7" matches
- * "opus" → premium).
+ * Frontier flagships gated on the Starter tier, matched by substring against
+ * the requested model id so every dated or regional variant is covered
+ * (e.g. "claude-opus-4-7" matches "opus"). Plus and Pro reach everything.
  *
- * The wedge for chat plans is multi-model access; we keep the catalogue
- * wide on Starter and only block frontier models so the upgrade path is
- * obvious without crippling the entry tier.
+ * Price alone can't draw this line: some flagships (GPT-6.1 Sol at $2/$10,
+ * Gemini 3 Pro) undercut Claude Sonnet, which Starter includes. Expensive
+ * newcomers are still caught automatically by the Sonnet price ceiling below.
  */
 export const CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS = [
 	"opus",
+	"fable",
+	"astra",
+	"-sol",
 	"gpt-5",
 	"o3",
 	"o1",
 	"gemini-2.5-pro",
 	"gemini-3",
+	"gemini-4",
 	"grok-4",
 ] as const;
+
+/**
+ * Starter's price ceiling, anchored to Claude Sonnet ($3/M input, $15/M
+ * output) — the most capable model Starter advertises. A catalogue text model
+ * priced above it on any provider is frontier-class and needs Plus.
+ */
+const CHAT_PLAN_STARTER_MAX_PRICE = { input: 3e-6, output: 15e-6 } as const;
+
+const catalogueById = new Map<string, ModelDefinition>(
+	(models as readonly ModelDefinition[]).map((model) => [model.id, model]),
+);
+
+function exceedsStarterPriceCeiling(model: ModelDefinition): boolean {
+	return model.providers.some((mapping) => {
+		const input = parseFloat(mapping.inputPrice ?? "");
+		const output = parseFloat(mapping.outputPrice ?? "");
+		return (
+			input > CHAT_PLAN_STARTER_MAX_PRICE.input ||
+			output > CHAT_PLAN_STARTER_MAX_PRICE.output
+		);
+	});
+}
+
+/**
+ * The cheapest Lounge membership that includes a model: "starter" when every
+ * tier can use it, "plus" when it needs Plus or Pro. Image, video and audio
+ * models are always "starter": every tier gets the media studios.
+ */
+export function getChatPlanMinimumTier(
+	modelId: string,
+): Extract<ChatPlanTier, "starter" | "plus"> {
+	const model = catalogueById.get(modelId);
+	if (model?.output?.some((kind) => kind !== "text")) {
+		return "starter";
+	}
+	const lower = modelId.toLowerCase();
+	const blocked =
+		CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS.some((pattern) =>
+			lower.includes(pattern),
+		) ||
+		(model !== undefined && exceedsStarterPriceCeiling(model));
+	return blocked ? "plus" : "starter";
+}
 
 export function isChatPlanModelAllowed(
 	tier: ChatPlanTier,
 	modelId: string,
 ): boolean {
-	if (tier !== "starter") {
-		return true;
-	}
-	const lower = modelId.toLowerCase();
-	return !CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS.some((pattern) =>
-		lower.includes(pattern),
-	);
+	return tier !== "starter" || getChatPlanMinimumTier(modelId) === "starter";
 }

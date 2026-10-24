@@ -198,6 +198,37 @@ export default async function ModelsPage() {
 									</div>
 								</div>
 							</section>
+							<section className="container mx-auto px-4 pb-16">
+								<h2 className="text-2xl font-bold mb-4">
+									Which models each Lounge plan includes
+								</h2>
+								<p className="text-muted-foreground leading-relaxed max-w-3xl">
+									<a
+										href="https://lounge.llmgateway.io/pricing"
+										className="text-foreground underline underline-offset-4"
+									>
+										Lounge Starter
+									</a>{" "}
+									includes every image, video, and audio model, and every text
+									model except the frontier flagships and text models priced
+									above Claude Sonnet. Plus and Pro include everything. Set the
+									Lounge Plan filter, or open the{" "}
+									<Link
+										href="/models?lounge=starter&filters=1"
+										className="text-foreground underline underline-offset-4"
+									>
+										Starter list
+									</Link>{" "}
+									or the{" "}
+									<Link
+										href="/models?lounge=plus&filters=1"
+										className="text-foreground underline underline-offset-4"
+									>
+										Plus &amp; Pro only list
+									</Link>
+									. Models that need Plus carry a Plus badge in the table.
+								</p>
+							</section>
 						</>
 					}
 				>
