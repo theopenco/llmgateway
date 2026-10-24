@@ -139,18 +139,15 @@ export const CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS = [
 /**
  * Starter's price ceiling, anchored to Claude Sonnet ($3/M input, $15/M
  * output) — the most capable model Starter advertises. A catalogue text model
- * priced above it on any provider is frontier-class and needs Plus. Image,
- * video and audio models are exempt: every tier gets the media studios.
+ * priced above it on any provider is frontier-class and needs Plus.
  */
 const CHAT_PLAN_STARTER_MAX_PRICE = { input: 3e-6, output: 15e-6 } as const;
 
-function exceedsStarterPriceCeiling(modelId: string): boolean {
-	const model = (models as readonly ModelDefinition[]).find(
-		(entry) => entry.id === modelId,
-	);
-	if (!model || model.output?.some((kind) => kind !== "text")) {
-		return false;
-	}
+const catalogueById = new Map<string, ModelDefinition>(
+	(models as readonly ModelDefinition[]).map((model) => [model.id, model]),
+);
+
+function exceedsStarterPriceCeiling(model: ModelDefinition): boolean {
 	return model.providers.some((mapping) => {
 		const input = parseFloat(mapping.inputPrice ?? "");
 		const output = parseFloat(mapping.outputPrice ?? "");
@@ -163,16 +160,22 @@ function exceedsStarterPriceCeiling(modelId: string): boolean {
 
 /**
  * The cheapest Lounge membership that includes a model: "starter" when every
- * tier can use it, "plus" when it needs Plus or Pro.
+ * tier can use it, "plus" when it needs Plus or Pro. Image, video and audio
+ * models are always "starter": every tier gets the media studios.
  */
 export function getChatPlanMinimumTier(
 	modelId: string,
 ): Extract<ChatPlanTier, "starter" | "plus"> {
+	const model = catalogueById.get(modelId);
+	if (model?.output?.some((kind) => kind !== "text")) {
+		return "starter";
+	}
 	const lower = modelId.toLowerCase();
 	const blocked =
 		CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS.some((pattern) =>
 			lower.includes(pattern),
-		) || exceedsStarterPriceCeiling(modelId);
+		) ||
+		(model !== undefined && exceedsStarterPriceCeiling(model));
 	return blocked ? "plus" : "starter";
 }
 

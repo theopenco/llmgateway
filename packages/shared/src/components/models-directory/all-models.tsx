@@ -702,13 +702,19 @@ const ModelTableRow = React.memo(
 							{showLoungePlan && row.model.loungePlan === "plus" && (
 								<Tooltip>
 									<TooltipTrigger asChild>
-										<span className="shrink-0 cursor-help">
+										<span
+											tabIndex={0}
+											className="shrink-0 cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										>
 											<Badge
 												variant="outline"
 												className="px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
 											>
 												Plus
 											</Badge>
+											<span className="sr-only">
+												: needs a Lounge Plus or Pro membership
+											</span>
 										</span>
 									</TooltipTrigger>
 									<TooltipContent>
@@ -1164,6 +1170,25 @@ export function AllModels({
 			})(),
 		};
 	});
+
+	// Same-page links (e.g. the Lounge plan lists on /models) change the query
+	// without remounting, so follow the URL for the Lounge plan and panel.
+	const urlLoungePlan = showLoungePlanFilter
+		? (searchParams.get("lounge") ?? "all")
+		: "all";
+	const urlShowFilters = searchParams.get("filters") === "1";
+	useEffect(() => {
+		setFilters((prev) =>
+			prev.loungePlan === urlLoungePlan
+				? prev
+				: { ...prev, loungePlan: urlLoungePlan },
+		);
+	}, [urlLoungePlan]);
+	useEffect(() => {
+		if (urlShowFilters) {
+			setShowFilters(true);
+		}
+	}, [urlShowFilters]);
 
 	// Org-directory extensions: the Source and Eligibility filters only appear
 	// when the surface actually mixes in custom models or compliance data.

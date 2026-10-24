@@ -209,11 +209,10 @@ export default async function ModelsPage() {
 									>
 										Lounge Starter
 									</a>{" "}
-									includes Claude Sonnet, the fast models, and every image,
-									video, and audio model. Plus and Pro add the frontier
-									flagships: Claude Opus and Fable, GPT-5 and the GPT-6 Astra
-									and Sol models, Gemini Pro, Grok 4, and any text model priced
-									above Claude Sonnet. Set the Lounge Plan filter, or open the{" "}
+									includes every image, video, and audio model, and every text
+									model except the frontier flagships and text models priced
+									above Claude Sonnet. Plus and Pro include everything. Set the
+									Lounge Plan filter, or open the{" "}
 									<Link
 										href="/models?lounge=starter&filters=1"
 										className="text-foreground underline underline-offset-4"

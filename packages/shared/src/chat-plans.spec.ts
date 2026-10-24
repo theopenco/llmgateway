@@ -26,6 +26,8 @@ describe("getChatPlanMinimumTier", () => {
 		"claude-haiku-4-5",
 		"gpt-6-luna",
 		"gemini-2.5-flash-image",
+		"gemini-3.1-flash-lite-image",
+		"gpt-image-2",
 	])("includes %s on Starter", (modelId) => {
 		expect(getChatPlanMinimumTier(modelId)).toBe("starter");
 	});
