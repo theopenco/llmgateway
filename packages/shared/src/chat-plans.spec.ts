@@ -7,8 +7,6 @@ import {
 
 describe("getChatPlanMinimumTier", () => {
 	it.each([
-		"gpt-6.1-sol",
-		"gpt-6-sol",
 		"gpt-5.6-sol",
 		"gpt-6-astra",
 		"claude-fable-5-1",
@@ -24,6 +22,8 @@ describe("getChatPlanMinimumTier", () => {
 		"claude-sonnet-4-6",
 		"claude-sonnet-5-5",
 		"claude-haiku-4-5",
+		"gpt-6.1-sol",
+		"gpt-6-sol",
 		"gpt-6-luna",
 		"gemini-2.5-flash-image",
 		"gemini-3.1-flash-lite-image",
@@ -43,9 +43,14 @@ describe("getChatPlanMinimumTier", () => {
 });
 
 describe("isChatPlanModelAllowed", () => {
-	it("blocks GPT-6.1 Sol on Starter only", () => {
-		expect(isChatPlanModelAllowed("starter", "gpt-6.1-sol")).toBe(false);
+	it("blocks GPT-6 Astra on Starter only", () => {
+		expect(isChatPlanModelAllowed("starter", "gpt-6-astra")).toBe(false);
+		expect(isChatPlanModelAllowed("plus", "gpt-6-astra")).toBe(true);
+		expect(isChatPlanModelAllowed("pro", "gpt-6-astra")).toBe(true);
+	});
+
+	it("allows GPT-6.1 Sol on every tier", () => {
+		expect(isChatPlanModelAllowed("starter", "gpt-6.1-sol")).toBe(true);
 		expect(isChatPlanModelAllowed("plus", "gpt-6.1-sol")).toBe(true);
-		expect(isChatPlanModelAllowed("pro", "gpt-6.1-sol")).toBe(true);
 	});
 });

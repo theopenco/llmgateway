@@ -118,15 +118,15 @@ export function estimateChatPlanMessages(
  * the requested model id so every dated or regional variant is covered
  * (e.g. "claude-opus-4-7" matches "opus"). Plus and Pro reach everything.
  *
- * Price alone can't draw this line: some flagships (GPT-6.1 Sol at $2/$10,
- * Gemini 3 Pro) undercut Claude Sonnet, which Starter includes. Expensive
- * newcomers are still caught automatically by the Sonnet price ceiling below.
+ * Price alone can't draw this line: some flagships (Gemini 3 Pro at $2/$12)
+ * undercut Claude Sonnet, which Starter includes. Expensive newcomers are
+ * still caught automatically by the Sonnet price ceiling below. Sonnet-class
+ * models such as GPT-6 Sol and GPT-6.1 Sol stay on Starter.
  */
 export const CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS = [
 	"opus",
 	"fable",
 	"astra",
-	"-sol",
 	"gpt-5",
 	"o3",
 	"o1",
@@ -139,7 +139,8 @@ export const CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS = [
 /**
  * Starter's price ceiling, anchored to Claude Sonnet ($3/M input, $15/M
  * output) — the most capable model Starter advertises. A catalogue text model
- * priced above it on any provider is frontier-class and needs Plus.
+ * whose base rate on any provider exceeds it is frontier-class and needs Plus;
+ * long-context pricing tiers are ignored.
  */
 const CHAT_PLAN_STARTER_MAX_PRICE = { input: 3e-6, output: 15e-6 } as const;
 
