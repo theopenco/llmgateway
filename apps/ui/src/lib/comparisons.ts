@@ -12,6 +12,7 @@ export interface Comparison {
 	keyDifference: string;
 	betterForThem: string;
 	migrationSlug?: string;
+	checkedOn?: string;
 }
 
 export const comparisons: Comparison[] = [
@@ -77,8 +78,9 @@ export const comparisons: Comparison[] = [
 		keyDifference:
 			"LLM Gateway offers managed hosting and prepaid inference; LiteLLM gives you a Python SDK and a gateway you operate with your own providers.",
 		betterForThem:
-			"Your team wants Python-level extensibility and can operate the gateway, database, monitoring and upgrades.",
+			"Your team wants Python-level extensibility and can operate the gateway, database, monitoring, upgrades and supply-chain response.",
 		migrationSlug: "litellm",
+		checkedOn: "October 24, 2026",
 		sources: [
 			{ label: "Pricing and editions", href: "https://www.litellm.ai/pricing" },
 			{
@@ -92,6 +94,14 @@ export const comparisons: Comparison[] = [
 			{
 				label: "Model playground",
 				href: "https://docs.litellm.ai/docs/proxy/model_compare_ui",
+			},
+			{
+				label: "March 2026 incident report",
+				href: "https://docs.litellm.ai/blog/security-update-march-2026",
+			},
+			{
+				label: "October 2026 incident report",
+				href: "https://docs.litellm.ai/blog/security-incident-oct-21-2026",
 			},
 		],
 	},

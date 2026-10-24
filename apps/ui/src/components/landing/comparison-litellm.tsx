@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react";
+import { Check, X, ExternalLink, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
 import { AuthLink } from "@/components/shared/auth-link";
@@ -14,6 +14,12 @@ const comparisonData = [
 				description: "Fully managed, production-ready deployment",
 				llmgateway: true,
 				litellm: false,
+			},
+			{
+				title: "Time to first request",
+				description: "What you set up before the first API call",
+				llmgateway: "Sign up and create a key",
+				litellm: "Deploy the gateway and Postgres",
 			},
 			{
 				title: "Self-hosting option",
@@ -33,11 +39,70 @@ const comparisonData = [
 				llmgateway: "Enterprise",
 				litellm: "Enterprise support SLAs",
 			},
+		],
+	},
+	{
+		category: "Security & Supply Chain",
+		features: [
+			{
+				title: "Compromised releases in 2026",
+				description: "Malicious versions published to official registries",
+				llmgateway: "None",
+				litellm: "2 (March and October)",
+			},
+			{
+				title: "Gateway code on your hosts",
+				description: "A package or container that runs next to your secrets",
+				llmgateway: "None with the hosted API",
+				litellm: "Python package or proxy container",
+			},
+			{
+				title: "Where provider keys live",
+				description: "Where stored provider credentials sit",
+				llmgateway: "Encrypted, off your hosts",
+				litellm: "Your proxy database",
+			},
 			{
 				title: "Patching & supply-chain upkeep",
-				description: "Who tracks releases, pins versions, and applies fixes",
+				description:
+					"Who pins versions, applies fixes and responds to a bad release",
 				llmgateway: "Managed hosting; self-hosters own updates",
 				litellm: "You own it",
+			},
+			{
+				title: "SOC 2 Type II",
+				description: "Independently audited security controls",
+				llmgateway: true,
+				litellm: true,
+			},
+		],
+	},
+	{
+		category: "Billing & Plans",
+		features: [
+			{
+				title: "One balance for every provider",
+				description: "Prepaid credits for 200+ models, no provider accounts",
+				llmgateway: true,
+				litellm: "Bring your own provider accounts",
+			},
+			{
+				title: "Pricing model",
+				description: "How the gateway itself is paid for",
+				llmgateway: "5% on credits; BYOK free",
+				litellm: "OSS free; Enterprise annual quote",
+			},
+			{
+				title: "Coding agent plan",
+				description: "Monthly subscription for coding agents",
+				llmgateway: "DevPass",
+				litellm: false,
+			},
+			{
+				title: "Billing integration",
+				description: "Built-in billing with Stripe integration",
+				llmgateway: true,
+				litellm: false,
 			},
 		],
 	},
@@ -92,12 +157,6 @@ const comparisonData = [
 				litellm: "Teams & virtual keys",
 			},
 			{
-				title: "Billing integration",
-				description: "Built-in billing with Stripe integration",
-				llmgateway: true,
-				litellm: false,
-			},
-			{
 				title: "Priority support",
 				description: "Dedicated support for paid plans",
 				llmgateway: "Enterprise",
@@ -107,7 +166,7 @@ const comparisonData = [
 				title: "SSO integration",
 				description: "Enterprise single sign-on support",
 				llmgateway: "Enterprise",
-				litellm: "Enterprise",
+				litellm: "Free up to 5 users, then Enterprise",
 			},
 		],
 	},
@@ -148,6 +207,72 @@ const comparisonData = [
 	},
 ];
 
+const incidents = [
+	{
+		date: "March 24, 2026",
+		title: "litellm 1.82.7 and 1.82.8 on PyPI",
+		summary:
+			"An attacker published two releases with a maintainer's PyPI credentials, linked to the Trivy CI compromise. A credential stealer harvested environment variables, SSH keys, cloud credentials and Kubernetes tokens.",
+		exposure:
+			"Live for about 40 minutes. The official proxy Docker image was not affected.",
+		sources: [
+			{
+				label: "LiteLLM incident report",
+				href: "https://docs.litellm.ai/blog/security-update-march-2026",
+			},
+			{
+				label: "FutureSearch analysis",
+				href: "https://futuresearch.ai/blog/litellm-pypi-supply-chain-attack/",
+			},
+		],
+	},
+	{
+		date: "October 21, 2026",
+		title: "litellm 1.107.0 on PyPI and Docker",
+		summary:
+			"The release pipeline was compromised. All seven wheels and the official Docker images shipped an infostealer that read the provider keys stored in the proxy database, plus a remote access trojan that ran attacker code every hour.",
+		exposure:
+			"About 2 hours on PyPI and 2.5 hours on Docker, including the latest, main-latest and main-stable tags.",
+		sources: [
+			{
+				label: "LiteLLM incident report",
+				href: "https://docs.litellm.ai/blog/security-incident-oct-21-2026",
+			},
+			{
+				label: "Aikido analysis",
+				href: "https://www.aikido.dev/blog/litellm-compromised-infostealer-rat",
+			},
+		],
+	},
+];
+
+const reasons = [
+	{
+		title: "Managed infrastructure",
+		detail: "with an Enterprise SLA option",
+	},
+	{
+		title: "No proxy to patch",
+		detail: "or rebuild and re-key after a bad release",
+	},
+	{
+		title: "One balance",
+		detail: "for 200+ models, or BYOK with no platform fee",
+	},
+	{
+		title: "Advanced analytics",
+		detail: "with cost optimization insights",
+	},
+	{
+		title: "Enterprise-ready",
+		detail: "with team collaboration and SSO",
+	},
+	{
+		title: "SOC 2 Type II",
+		detail: "audited, with built-in monitoring",
+	},
+];
+
 export function ComparisonLiteLLM() {
 	const renderFeatureValue = (value: boolean | string) => {
 		if (typeof value === "boolean") {
@@ -180,34 +305,81 @@ export function ComparisonLiteLLM() {
 						Why choose LLM Gateway?
 					</h3>
 					<div className="grid md:grid-cols-2 gap-4 text-sm">
-						<div className="flex items-start gap-2">
-							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-							<span className="text-foreground">
-								<strong>Managed infrastructure</strong> with an Enterprise SLA
-								option
-							</span>
-						</div>
-						<div className="flex items-start gap-2">
-							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-							<span className="text-foreground">
-								<strong>Advanced analytics</strong> with cost optimization
-								insights
-							</span>
-						</div>
-						<div className="flex items-start gap-2">
-							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-							<span className="text-foreground">
-								<strong>Enterprise-ready</strong> with team collaboration &amp;
-								SSO
-							</span>
-						</div>
-						<div className="flex items-start gap-2">
-							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-							<span className="text-foreground">
-								<strong>Production-tested</strong> with built-in monitoring
-							</span>
-						</div>
+						{reasons.map((reason) => (
+							<div key={reason.title} className="flex items-start gap-2">
+								<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+								<span className="text-foreground">
+									<strong>{reason.title}</strong> {reason.detail}
+								</span>
+							</div>
+						))}
 					</div>
+				</div>
+
+				<div className="mb-8">
+					<div className="flex items-center gap-2 mb-2">
+						<ShieldAlert className="h-5 w-5 text-red-600 dark:text-red-400" />
+						<h3 className="font-bold text-lg text-foreground">
+							LiteLLM was compromised twice in 2026
+						</h3>
+					</div>
+					<p className="text-sm text-muted-foreground mb-4">
+						A self-hosted proxy holds every provider key you have. Each incident
+						left teams to find every install, rebuild and rotate their keys.
+					</p>
+					<div className="grid md:grid-cols-2 gap-4">
+						{incidents.map((incident) => (
+							<div
+								key={incident.date}
+								className="rounded-lg border border-red-600/20 bg-red-600/5 p-5 dark:border-red-400/20 dark:bg-red-400/5"
+							>
+								<p className="text-xs font-medium uppercase tracking-wide text-red-600 dark:text-red-400">
+									{incident.date}
+								</p>
+								<h4 className="mt-1 font-semibold text-foreground">
+									{incident.title}
+								</h4>
+								<p className="mt-2 text-sm text-foreground">
+									{incident.summary}
+								</p>
+								<p className="mt-2 text-sm text-muted-foreground">
+									{incident.exposure}
+								</p>
+								<ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+									{incident.sources.map((source) => (
+										<li key={source.href}>
+											<a
+												href={source.href}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="inline-flex items-center gap-1 underline underline-offset-4 text-muted-foreground hover:text-foreground"
+											>
+												{source.label}
+												<ExternalLink className="h-3 w-3" />
+											</a>
+										</li>
+									))}
+								</ul>
+							</div>
+						))}
+					</div>
+					<p className="text-sm text-muted-foreground mt-4">
+						What to check and rotate:{" "}
+						<Link
+							href={"/blog/litellm-compromised-again" as any}
+							className="underline underline-offset-4 hover:text-foreground"
+						>
+							LiteLLM compromised again
+						</Link>
+						. How we handle it:{" "}
+						<Link
+							href={"/blog/how-we-keep-llm-gateway-secure" as any}
+							className="underline underline-offset-4 hover:text-foreground"
+						>
+							How we keep LLM Gateway secure
+						</Link>
+						.
+					</p>
 				</div>
 
 				<div className="bg-card rounded-lg border border-border overflow-hidden shadow-sm">
