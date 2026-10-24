@@ -19,7 +19,7 @@ const comparisonData = [
 				title: "Time to first request",
 				description: "What you set up before the first API call",
 				llmgateway: "Sign up and create a key",
-				litellm: "Deploy the gateway and Postgres",
+				litellm: "Deploy the gateway; Postgres for keys and UI",
 			},
 			{
 				title: "Self-hosting option",
@@ -60,7 +60,7 @@ const comparisonData = [
 				title: "Where provider keys live",
 				description: "Where stored provider credentials sit",
 				llmgateway: "Encrypted, off your hosts",
-				litellm: "Your proxy database",
+				litellm: "Your hosts: env vars or proxy database",
 			},
 			{
 				title: "Patching & supply-chain upkeep",
@@ -217,12 +217,12 @@ const incidents = [
 			"Live for about 40 minutes. The official proxy Docker image was not affected.",
 		sources: [
 			{
-				label: "LiteLLM incident report",
-				href: "https://docs.litellm.ai/blog/security-update-march-2026",
-			},
-			{
 				label: "FutureSearch analysis",
 				href: "https://futuresearch.ai/blog/litellm-pypi-supply-chain-attack/",
+			},
+			{
+				label: "The Hacker News",
+				href: "https://thehackernews.com/2026/03/teampcp-backdoors-litellm-versions.html",
 			},
 		],
 	},
@@ -235,12 +235,12 @@ const incidents = [
 			"About 2 hours on PyPI and 2.5 hours on Docker, including the latest, main-latest and main-stable tags.",
 		sources: [
 			{
-				label: "LiteLLM incident report",
-				href: "https://docs.litellm.ai/blog/security-incident-oct-21-2026",
-			},
-			{
 				label: "Aikido analysis",
 				href: "https://www.aikido.dev/blog/litellm-compromised-infostealer-rat",
+			},
+			{
+				label: "JFrog analysis",
+				href: "https://research.jfrog.com/post/litellm-hijacked-again/",
 			},
 		],
 	},
@@ -366,14 +366,14 @@ export function ComparisonLiteLLM() {
 					<p className="text-sm text-muted-foreground mt-4">
 						What to check and rotate:{" "}
 						<Link
-							href={"/blog/litellm-compromised-again" as any}
+							href="/blog/litellm-compromised-again"
 							className="underline underline-offset-4 hover:text-foreground"
 						>
 							LiteLLM compromised again
 						</Link>
 						. How we handle it:{" "}
 						<Link
-							href={"/blog/how-we-keep-llm-gateway-secure" as any}
+							href="/blog/how-we-keep-llm-gateway-secure"
 							className="underline underline-offset-4 hover:text-foreground"
 						>
 							How we keep LLM Gateway secure
@@ -452,7 +452,7 @@ export function ComparisonLiteLLM() {
 							<AuthLink href="/signup">Start Free with LLM Gateway</AuthLink>
 						</Button>
 						<Button size="lg" variant="outline">
-							<Link href={"/pricing" as any}>View Pricing Details</Link>
+							<Link href="/pricing">View Pricing Details</Link>
 						</Button>
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">
@@ -462,7 +462,7 @@ export function ComparisonLiteLLM() {
 					<p className="text-sm text-muted-foreground mt-3">
 						Weighing more options? See the{" "}
 						<Link
-							href={"/blog/litellm-alternatives" as any}
+							href="/blog/litellm-alternatives"
 							className="underline underline-offset-4 hover:text-foreground"
 						>
 							8 best LiteLLM alternatives in 2026

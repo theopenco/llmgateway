@@ -15,7 +15,7 @@ const liteLlmFaqs: CompareFaqItem[] = [
 	{
 		question: "Has LiteLLM been compromised?",
 		answer:
-			"Yes, twice in 2026. On March 24, litellm 1.82.7 and 1.82.8 on PyPI carried a credential stealer for about 40 minutes. On October 21, litellm 1.107.0 on PyPI and the official Docker images shipped an infostealer that read stored provider keys, plus a remote access trojan. LiteLLM's incident reports list the affected artifacts and what to rotate.",
+			"Yes, twice in 2026. On March 24, litellm 1.82.7 and 1.82.8 on PyPI carried a credential stealer for about 40 minutes. On October 21, litellm 1.107.0 on PyPI and the official Docker images shipped an infostealer that read stored provider keys, plus a remote access trojan. Security researchers at FutureSearch, Aikido and JFrog published the affected artifacts and what to rotate.",
 	},
 	{
 		question: "How does LiteLLM pricing work?",

@@ -82,26 +82,21 @@ export const comparisons: Comparison[] = [
 		migrationSlug: "litellm",
 		checkedOn: "October 24, 2026",
 		sources: [
-			{ label: "Pricing and editions", href: "https://www.litellm.ai/pricing" },
 			{
-				label: "Enterprise controls",
-				href: "https://docs.litellm.ai/docs/enterprise",
+				label: "March 2026 compromise (FutureSearch)",
+				href: "https://futuresearch.ai/blog/litellm-pypi-supply-chain-attack/",
 			},
 			{
-				label: "Admin UI quickstart",
-				href: "https://docs.litellm.ai/docs/proxy/docker_quick_start",
+				label: "March 2026 compromise (The Hacker News)",
+				href: "https://thehackernews.com/2026/03/teampcp-backdoors-litellm-versions.html",
 			},
 			{
-				label: "Model playground",
-				href: "https://docs.litellm.ai/docs/proxy/model_compare_ui",
+				label: "October 2026 compromise (Aikido)",
+				href: "https://www.aikido.dev/blog/litellm-compromised-infostealer-rat",
 			},
 			{
-				label: "March 2026 incident report",
-				href: "https://docs.litellm.ai/blog/security-update-march-2026",
-			},
-			{
-				label: "October 2026 incident report",
-				href: "https://docs.litellm.ai/blog/security-incident-oct-21-2026",
+				label: "October 2026 compromise (JFrog)",
+				href: "https://research.jfrog.com/post/litellm-hijacked-again/",
 			},
 		],
 	},
