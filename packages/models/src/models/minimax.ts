@@ -91,6 +91,7 @@ export const minimaxModels = [
 			{
 				providerId: "together-ai",
 				externalId: "MiniMaxAI/MiniMax-M3",
+				deactivatedAt: new Date("2026-11-06"),
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
