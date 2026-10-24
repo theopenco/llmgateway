@@ -62,4 +62,4 @@ scripts/*.png
 # Agent scratch space (PR bodies, logs, audit runs)
 /.context/
 
-directory/
+/.worktrees/
