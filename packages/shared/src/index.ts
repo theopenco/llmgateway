@@ -100,6 +100,7 @@ export {
 	getChatPlanCreditsLimit,
 	getChatPlanCreditsMultiplier,
 	getChatPlanCreditsMultipliers,
+	getChatPlanMinimumTier,
 	isChatPlanModelAllowed,
 } from "./chat-plans.js";
 

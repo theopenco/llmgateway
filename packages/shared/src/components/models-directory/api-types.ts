@@ -1,3 +1,4 @@
+import { getChatPlanMinimumTier } from "@/chat-plans.js";
 import { isPremiumModel } from "@/model-categories.js";
 
 export interface TimeBasedTokenPrices {
@@ -189,6 +190,12 @@ export interface ApiModel {
 	 */
 	premium: boolean;
 	/**
+	 * Cheapest Lounge membership that includes the model, computed with the
+	 * same function the gateway uses to gate the Starter tier. Set by
+	 * fetchModelsFromApi; absent on surfaces that build models locally.
+	 */
+	loungePlan?: "starter" | "plus";
+	/**
 	 * Org directory only: distinguishes catalogue models from models defined in
 	 * the organization's own custom-model catalog. Absent on public surfaces
 	 * (treated as "catalog").
@@ -226,10 +233,12 @@ export async function fetchModelsFromApi(
 			return memo?.data ?? [];
 		}
 		const data = await response.json();
-		const models: Omit<ApiModel, "premium">[] = data.models ?? [];
+		const models: Omit<ApiModel, "premium" | "loungePlan">[] =
+			data.models ?? [];
 		const withPremium = models.map((model) => ({
 			...model,
 			premium: isPremiumModel(model.id),
+			loungePlan: getChatPlanMinimumTier(model.id),
 		}));
 		modelsMemo.set(apiBackendUrl, {
 			data: withPremium,
