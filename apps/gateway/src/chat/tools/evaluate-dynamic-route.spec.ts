@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { dynamicRouteGraphSchema } from "@llmgateway/shared/dynamic-route";
+import {
+	dynamicRouteGraphSchema,
+	getDynamicRouteReasoningEfforts,
+} from "@llmgateway/shared/dynamic-route";
 
 import {
 	DynamicRouteEvaluationError,
@@ -713,5 +716,80 @@ describe("dynamicRouteGraphSchema review-hardening rules", () => {
 				}),
 			).toMatchObject({ status: "model", model: "gpt-4o" });
 		});
+	});
+});
+
+describe("dynamic route reasoning effort override", () => {
+	const graphWithEffort = (
+		effort: string,
+		nearest?: boolean,
+		model = "gpt-5-nano",
+	) => ({
+		entry: "m",
+		nodes: [
+			{
+				id: "m",
+				type: "model",
+				model,
+				reasoningEffort: effort,
+				...(nearest === undefined ? {} : { reasoningEffortNearest: nearest }),
+			},
+		],
+	});
+
+	it("returns the node's effort from evaluation", () => {
+		const graph = dynamicRouteGraphSchema.parse(graphWithEffort("xhigh", true));
+		expect(evaluateDynamicRoute(graph, makeContext())).toMatchObject({
+			status: "model",
+			model: "gpt-5-nano",
+			reasoningEffort: "xhigh",
+			reasoningEffortNearest: true,
+		});
+	});
+
+	it("lists the efforts the model's mappings declare", () => {
+		expect(getDynamicRouteReasoningEfforts("gpt-5-nano")).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+		expect(getDynamicRouteReasoningEfforts("gpt-4o-mini")).toEqual([]);
+		expect(
+			getDynamicRouteReasoningEfforts("private-provider/private-model"),
+		).toBeUndefined();
+	});
+
+	it("rejects an unsupported effort unless nearest is enabled", () => {
+		expect(
+			dynamicRouteGraphSchema.safeParse(graphWithEffort("high")).success,
+		).toBe(true);
+		expect(
+			dynamicRouteGraphSchema.safeParse(graphWithEffort("xhigh")).success,
+		).toBe(false);
+		expect(
+			dynamicRouteGraphSchema.safeParse(graphWithEffort("xhigh", true)).success,
+		).toBe(true);
+	});
+
+	it("rejects an effort on a non-reasoning model and nearest without an effort", () => {
+		expect(
+			dynamicRouteGraphSchema.safeParse(
+				graphWithEffort("low", true, "gpt-4o-mini"),
+			).success,
+		).toBe(false);
+		expect(
+			dynamicRouteGraphSchema.safeParse({
+				entry: "m",
+				nodes: [
+					{
+						id: "m",
+						type: "model",
+						model: "gpt-5-nano",
+						reasoningEffortNearest: true,
+					},
+				],
+			}).success,
+		).toBe(false);
 	});
 });

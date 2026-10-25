@@ -31,6 +31,7 @@ import {
 	getVariantEnvVarNameFor,
 	hasMaxTokens,
 	type ModelDefinition,
+	nearestReasoningEffort,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
 	type PromptCacheOptions,
@@ -163,6 +164,8 @@ export interface ProviderContextOptions {
 		| "xhigh"
 		| "max"
 		| undefined;
+	/** Clamp reasoning_effort to what the selected mapping declares. */
+	reasoning_effort_nearest?: boolean;
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
@@ -1114,7 +1117,12 @@ export async function resolveProviderContext(
 		options.response_format,
 		options.tools,
 		options.tool_choice,
-		options.reasoning_effort,
+		options.reasoning_effort_nearest && options.reasoning_effort
+			? nearestReasoningEffort(
+					options.reasoning_effort,
+					providerMappingForSelected?.reasoningEfforts,
+				)
+			: options.reasoning_effort,
 		supportsReasoning,
 		process.env.NODE_ENV === "production",
 		options.maxImageSizeMB,

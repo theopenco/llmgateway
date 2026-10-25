@@ -136,6 +136,18 @@ Terminates evaluation and routes the request to a catalog model (see the [models
 
 A `model` node can also target one of your organization's [custom catalog models](/features/custom-providers#custom-model-catalog) as `<customProviderName>/<modelName>`. Such a node must not set `providers` (the custom model already fixes its provider), and the referenced custom model must be active in your organization when the route is saved or published.
 
+Optional `reasoningEffort` (`none` through `max`) replaces the caller's reasoning effort for requests that resolve to this node. The effort must be one the model's mappings (narrowed to `providers`, when set) declare; the visual editor only offers those. Set `reasoningEffortNearest: true` to accept any effort: each provider then receives the closest effort it declares, preferring the higher one on a tie and never switching reasoning off unless `none` was set. Without it, the effort is forwarded as-is.
+
+```json
+{
+	"id": "deep",
+	"type": "model",
+	"model": "gpt-5-nano",
+	"reasoningEffort": "xhigh",
+	"reasoningEffortNearest": true
+}
+```
+
 ### `end`
 
 Terminates evaluation and rejects the request with a `400`. Useful as an explicit deny branch — for example, refusing traffic that doesn't carry a required header.
@@ -147,6 +159,7 @@ Graphs are validated when you save a draft and again when you publish:
 - every referenced node must exist and be reachable from `entry`
 - cycles are rejected — evaluation is deterministic per request, so a revisited node would loop forever
 - model ids and provider ids must exist in the catalog, and each listed provider must actually serve the model
+- a `model` node's `reasoningEffort` must be supported by the model unless `reasoningEffortNearest` is set
 - operator/value mismatches (e.g. `gt` with a non-numeric value) are rejected
 - a `classifier` node's case values must be valid for its `on` answer, and must not repeat
 

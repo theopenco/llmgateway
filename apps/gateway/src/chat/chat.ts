@@ -226,6 +226,8 @@ import {
 	type ModelDefinition,
 	type Model,
 	models,
+	nearestReasoningEffort,
+	type ReasoningEffort,
 	type EnvVarVariant,
 	type Provider,
 	type ProviderDefinition,
@@ -3590,6 +3592,8 @@ chat.openapi(completions, async (c) => {
 				version: number;
 				model: string;
 				providers?: string[];
+				reasoningEffort?: ReasoningEffort;
+				reasoningEffortNearest?: boolean;
 				path: string[];
 		  }
 		| undefined;
@@ -3668,8 +3672,13 @@ chat.openapi(completions, async (c) => {
 			version: publishedRoute.version,
 			model: evaluation.model,
 			providers: evaluation.providers,
+			reasoningEffort: evaluation.reasoningEffort,
+			reasoningEffortNearest: evaluation.reasoningEffortNearest,
 			path: evaluation.path,
 		};
+		if (evaluation.reasoningEffort) {
+			reasoning_effort = evaluation.reasoningEffort;
+		}
 		routingBaselineCandidates.push(
 			...prefetchRoutingBaselineDiscounts(
 				getDynamicRouteBaselineCandidates(publishedRoute.graph),
@@ -6679,6 +6688,15 @@ chat.openapi(completions, async (c) => {
 		usedRegion,
 	); // Store in LLMGateway format
 
+	// A dynamic route that opted into the nearest effort clamps its override to
+	// what the selected mapping declares; retries clamp per provider.
+	if (dynamicRouteSelection?.reasoningEffortNearest && reasoning_effort) {
+		reasoning_effort = nearestReasoningEffort(
+			reasoning_effort,
+			getUsedProviderMapping()?.reasoningEfforts,
+		);
+	}
+
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
 	if (
@@ -8850,7 +8868,10 @@ chat.openapi(completions, async (c) => {
 				response_format,
 				tools,
 				tool_choice,
-				reasoning_effort,
+				reasoning_effort: dynamicRouteSelection?.reasoningEffortNearest
+					? dynamicRouteSelection.reasoningEffort
+					: reasoning_effort,
+				reasoning_effort_nearest: dynamicRouteSelection?.reasoningEffortNearest,
 				reasoning_max_tokens,
 				prompt_cache_key,
 				prompt_cache_retention,

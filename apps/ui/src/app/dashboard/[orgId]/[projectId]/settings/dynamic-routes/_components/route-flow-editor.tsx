@@ -26,6 +26,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { Switch } from "@/lib/components/switch";
 import { useApi } from "@/lib/fetch-client";
 
 import {
@@ -33,6 +34,7 @@ import {
 	models as modelCatalog,
 	type ProviderDefinition,
 	providers as providerDefinitions,
+	REASONING_EFFORTS,
 } from "@llmgateway/models";
 import {
 	MultiProviderSelector,
@@ -45,6 +47,7 @@ import {
 	type DynamicRouteCondition,
 	type DynamicRouteGraph,
 	type DynamicRouteNode,
+	getDynamicRouteReasoningEfforts,
 } from "@llmgateway/shared/dynamic-route";
 
 import {
@@ -75,6 +78,9 @@ const SELECTABLE_MODELS = models.filter(
 		m.id !== "custom" &&
 		(!m.output || m.output.includes("text")),
 );
+
+// Radix Select cannot hold an empty value.
+const DEFAULT_EFFORT_VALUE = "__default__";
 
 const NODE_TYPE_LABELS: Record<DynamicRouteNode["type"], string> = {
 	model: "Model",
@@ -168,6 +174,12 @@ function ModelFlowNode({
 			) : (
 				<div className="mt-1 text-[10px] text-muted-foreground">
 					all providers, smart routing
+				</div>
+			)}
+			{node.reasoningEffort && (
+				<div className="mt-1 text-[10px] text-muted-foreground">
+					reasoning: {node.reasoningEffort}
+					{node.reasoningEffortNearest ? " (or nearest)" : ""}
 				</div>
 			)}
 		</div>
@@ -795,7 +807,13 @@ function ModelInspector({
 								: withoutProvider.slice(0, lastColon);
 						onChange((n) =>
 							n.type === "model"
-								? { ...n, model: modelId, providers: undefined }
+								? {
+										...n,
+										model: modelId,
+										providers: undefined,
+										reasoningEffort: undefined,
+										reasoningEffortNearest: undefined,
+									}
 								: n,
 						);
 					}}
@@ -835,6 +853,95 @@ function ModelInspector({
 					restrict routing and are tried in the order selected.
 				</p>
 			</div>
+			{modelDef && <ReasoningEffortInspector node={node} onChange={onChange} />}
+		</div>
+	);
+}
+
+function ReasoningEffortInspector({
+	node,
+	onChange,
+}: {
+	node: Extract<DynamicRouteNode, { type: "model" }>;
+	onChange: (updater: (node: DynamicRouteNode) => DynamicRouteNode) => void;
+}) {
+	// Unknown support (custom or undeclared mappings) offers every tier.
+	const supported =
+		getDynamicRouteReasoningEfforts(node.model, node.providers) ??
+		REASONING_EFFORTS;
+	if (supported.length === 0 && !node.reasoningEffort) {
+		return (
+			<p className="text-[10px] text-muted-foreground">
+				This model does not support reasoning.
+			</p>
+		);
+	}
+	// Keep a stored value visible after the provider list narrows support.
+	const options = REASONING_EFFORTS.filter(
+		(effort) => supported.includes(effort) || effort === node.reasoningEffort,
+	);
+	return (
+		<div className="space-y-1">
+			<Label className="text-xs">Reasoning effort (optional)</Label>
+			<Select
+				value={node.reasoningEffort ?? DEFAULT_EFFORT_VALUE}
+				onValueChange={(value: string) =>
+					onChange((n) => {
+						if (n.type !== "model") {
+							return n;
+						}
+						const effort = REASONING_EFFORTS.find((e) => e === value);
+						return {
+							...n,
+							reasoningEffort: effort,
+							reasoningEffortNearest: effort
+								? n.reasoningEffortNearest
+								: undefined,
+						};
+					})
+				}
+			>
+				<SelectTrigger className="h-7 text-xs">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value={DEFAULT_EFFORT_VALUE}>
+						Caller&apos;s effort
+					</SelectItem>
+					{options.map((effort) => (
+						<SelectItem key={effort} value={effort}>
+							{effort}
+							{supported.includes(effort) ? "" : " (unsupported)"}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			{node.reasoningEffort && (
+				<div className="flex items-center gap-2">
+					<Switch
+						id={`${node.id}-nearest-effort`}
+						size="sm"
+						checked={node.reasoningEffortNearest === true}
+						onCheckedChange={(checked) =>
+							onChange((n) =>
+								n.type === "model"
+									? { ...n, reasoningEffortNearest: checked || undefined }
+									: n,
+							)
+						}
+					/>
+					<Label
+						htmlFor={`${node.id}-nearest-effort`}
+						className="text-[11px] font-normal"
+					>
+						Use the nearest supported effort
+					</Label>
+				</div>
+			)}
+			<p className="text-[10px] text-muted-foreground">
+				Overrides the request&apos;s reasoning effort. With nearest enabled, a
+				provider without this effort gets the closest one it supports.
+			</p>
 		</div>
 	);
 }

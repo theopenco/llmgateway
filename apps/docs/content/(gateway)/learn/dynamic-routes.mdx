@@ -30,7 +30,7 @@ The route list shows each route's state at a glance: the published version badge
 
 ## The Visual Editor
 
-The **Visual** tab is a drag-and-drop canvas. Add nodes from the palette (drag onto the canvas or click), wire branches by connecting the round handles, and select any node to edit its settings in the inspector — conditions, split weights, the target model (with a searchable catalog picker), and an ordered provider fallback list.
+The **Visual** tab is a drag-and-drop canvas. Add nodes from the palette (drag onto the canvas or click), wire branches by connecting the round handles, and select any node to edit its settings in the inspector — conditions, split weights, the target model (with a searchable catalog picker), an ordered provider fallback list, and an optional reasoning effort override limited to the efforts the selected model supports, with an opt-in to fall back to the nearest supported effort per provider.
 
 Every flow starts at the **Start** node and ends at either a **Model** node (route the request) or an **End** node (reject the request with a `400`):
 

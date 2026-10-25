@@ -5,6 +5,7 @@ import {
 	type DynamicRouteNode,
 } from "@llmgateway/shared/dynamic-route";
 
+import type { ReasoningEffort } from "@llmgateway/models";
 import type { RequestClassification } from "@llmgateway/shared/smart-routing";
 
 export interface DynamicRouteEvaluationContext {
@@ -40,6 +41,8 @@ export type DynamicRouteEvaluation =
 			status: "model";
 			model: string;
 			providers?: string[];
+			reasoningEffort?: ReasoningEffort;
+			reasoningEffortNearest?: boolean;
 			/** Node ids traversed, for routing metadata / observability. */
 			path: string[];
 	  }
@@ -182,6 +185,8 @@ export function evaluateDynamicRoute(
 					status: "model",
 					model: node.model,
 					providers: node.providers,
+					reasoningEffort: node.reasoningEffort,
+					reasoningEffortNearest: node.reasoningEffortNearest,
 					path,
 				};
 			case "end":

@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-import { models, providers } from "@llmgateway/models";
+import {
+	models,
+	providers,
+	REASONING_EFFORTS,
+	type ProviderModelMapping,
+	type ReasoningEffort,
+} from "@llmgateway/models";
 
 import {
 	CUSTOM_PROVIDER_NAME_REGEX,
@@ -78,13 +84,50 @@ const nodeIdSchema = z
  * is set, provider selection is restricted to (and ordered fallback happens
  * across) exactly those providers; when omitted, all providers serving the
  * model are candidates and normal weighted scoring applies.
+ *
+ * `reasoningEffort` replaces the caller's reasoning effort. With
+ * `reasoningEffortNearest`, a provider that does not declare that effort gets
+ * the nearest one it does; without it the effort is forwarded as-is.
  */
 const modelNodeSchema = z.object({
 	id: nodeIdSchema,
 	type: z.literal("model"),
 	model: z.string().min(1),
 	providers: z.array(z.string().min(1)).min(1).optional(),
+	reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
+	reasoningEffortNearest: z.boolean().optional(),
 });
+
+/**
+ * Reasoning efforts a model node can set, in ascending order: the union of
+ * what the static catalogue mappings (narrowed to `providerIds`) declare.
+ * Empty when none of them reason. Undefined when that is unknown: a custom or
+ * Airside-only target, or a reasoning mapping that declares no efforts.
+ */
+export function getDynamicRouteReasoningEfforts(
+	model: string,
+	providerIds?: readonly string[],
+): ReasoningEffort[] | undefined {
+	const modelDef = models.find((m) => m.id === model);
+	if (!modelDef) {
+		return undefined;
+	}
+	const mappings = (modelDef.providers as ProviderModelMapping[]).filter(
+		(mapping) => !providerIds || providerIds.includes(mapping.providerId),
+	);
+	if (
+		providerIds?.some((id) => !mappings.some((m) => m.providerId === id)) ||
+		mappings.length === 0
+	) {
+		return undefined;
+	}
+	const reasoning = mappings.filter((mapping) => mapping.reasoning === true);
+	if (reasoning.some((mapping) => !mapping.reasoningEfforts?.length)) {
+		return undefined;
+	}
+	const declared = new Set(reasoning.flatMap((m) => m.reasoningEfforts ?? []));
+	return REASONING_EFFORTS.filter((effort) => declared.has(effort));
+}
 
 export const DYNAMIC_ROUTE_METADATA_PATHS = [
 	"orgId",
@@ -366,6 +409,34 @@ export function createDynamicRouteGraphSchema(
 					}
 				}
 				if (node.type === "model") {
+					if (node.reasoningEffortNearest && !node.reasoningEffort) {
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: `Node "${node.id}": nearest reasoning effort needs a reasoning effort`,
+							path: ["nodes", index, "reasoningEffortNearest"],
+						});
+					}
+					const supportedEfforts = node.reasoningEffort
+						? getDynamicRouteReasoningEfforts(node.model, node.providers)
+						: undefined;
+					if (node.reasoningEffort && supportedEfforts) {
+						if (supportedEfforts.length === 0) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": model "${node.model}" does not support reasoning`,
+								path: ["nodes", index, "reasoningEffort"],
+							});
+						} else if (
+							!node.reasoningEffortNearest &&
+							!supportedEfforts.includes(node.reasoningEffort)
+						) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": model "${node.model}" does not support reasoning effort "${node.reasoningEffort}" (${supportedEfforts.join(", ")}); pick one of those or enable nearest effort`,
+								path: ["nodes", index, "reasoningEffort"],
+							});
+						}
+					}
 					const modelDef = models.find((m) => m.id === node.model);
 					if (!modelDef) {
 						if (!parseCustomDynamicRouteModelRef(node.model)) {
