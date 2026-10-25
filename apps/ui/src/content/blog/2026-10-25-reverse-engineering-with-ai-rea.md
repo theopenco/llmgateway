@@ -72,15 +72,15 @@ Why now is speculation. Kotaku's writer pointed at the wave of AI-assisted game 
 
 Open-weight models from Chinese labs carry no cyber-specific refusal layer, and the current generation is strong enough at code reasoning to replace Opus for most RE work. The [reverse engineering models page](/models/reverse-engineering) tracks live prices; every model on it supports tool calling, which REA needs for its MCP tools.
 
-| Model               | Input / output per 1M tokens | Context | Why it fits                                                      |
-| ------------------- | ---------------------------: | ------: | ---------------------------------------------------------------- |
-| DeepSeek V4 Pro     |                $0.43 / $0.87 |      1M | Best open-weight reasoning over pseudocode; whole-binary context |
-| Kimi K3.1 Pro       |               $2.00 / $10.00 |      1M | Strongest agentic behaviour in long tool loops                   |
-| GLM-5.2             |                $1.40 / $4.40 |      1M | Reliable function naming and cross-reference following           |
-| Qwen3.7 Max         |                $2.50 / $7.50 |    983K | Strong on obfuscated JavaScript and .NET                         |
-| MiniMax M3          |                $0.60 / $2.40 |    512K | Good value for Electron and web app analysis                     |
-| Qwen3 Coder Next    |                $0.11 / $0.68 |    262K | Cheapest tool-calling coder for reimplementation passes          |
-| DeepSeek V4.1 Flash |                $0.15 / $0.60 |      1M | Bulk naming and string classification for cents                  |
+| Model               | Input / output per 1M tokens | Context | Why it fits                                                       |
+| ------------------- | ---------------------------: | ------: | ----------------------------------------------------------------- |
+| DeepSeek V4 Pro     |                $0.43 / $0.87 |      1M | Best open-weight reasoning over pseudocode; whole-binary context  |
+| Kimi K3.1 Pro       |               $2.00 / $10.00 |      1M | Strongest agentic behaviour in long tool loops                    |
+| GLM-5.2             |                $1.40 / $4.40 |      1M | Reliable function naming and cross-reference following            |
+| Qwen3.7 Max         |                $2.50 / $7.50 |    983K | Strong on obfuscated JavaScript and .NET                          |
+| MiniMax M3          |                $0.60 / $2.40 |    512K | Good value for Electron and web app analysis                      |
+| Qwen3.7 Plus        |                $0.40 / $1.60 |    983K | Budget Qwen with the same long window for reimplementation passes |
+| DeepSeek V4.1 Flash |                $0.15 / $0.60 |      1M | Bulk naming and string classification for cents                   |
 
 Among Western models, Grok 4.3 and Gemini 3.1 Pro complete most RE tasks, GPT-5.3 Codex still does well on decompilation when the refusal layer lets it through, and Claude Opus 4.8 is the model Anthropic's own benchmarks fell back to. Claude Opus 5.5 is the one to avoid until Anthropic says otherwise.
 

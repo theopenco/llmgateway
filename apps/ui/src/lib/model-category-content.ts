@@ -209,7 +209,7 @@ export const modelCategoryContent = {
 			{
 				question: "Which models will not refuse malware analysis or CTF work?",
 				answer:
-					"Open-weight models served through API providers — DeepSeek V4 Pro and V4.1 Flash, Kimi K3.1 Pro and K2.7 Code, GLM-5.2, Qwen3.7 Max and Qwen3 Coder Next, MiniMax M3, and MiMo V2.6 Pro — carry no cyber-specific classifier and complete sandboxed malware analysis, CTF challenges, and exploit triage. All of them support tool calling, so they work inside agents that drive Ghidra, Hopper, or a sandbox through MCP. Stay within the law: analyse systems you own or are authorised to test.",
+					"Open-weight models served through API providers — DeepSeek V4 Pro and V4.1 Flash, Kimi K3.1 Pro and K2.7 Code, GLM-5.2, Qwen3.7 Max and Qwen3.7 Plus, MiniMax M3, and MiMo V2.6 Pro — carry no cyber-specific classifier and complete sandboxed malware analysis, CTF challenges, and exploit triage. All of them support tool calling, so they work inside agents that drive Ghidra, Hopper, or a sandbox through MCP. Stay within the law: analyse systems you own or are authorised to test.",
 			},
 			{
 				question: "How much does an AI security review cost?",
