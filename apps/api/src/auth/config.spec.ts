@@ -81,6 +81,26 @@ describe("isClientAuthError", () => {
 		expect(isClientAuthError("Failed to parse state", [missing])).toBe(true);
 	});
 
+	test("matches untrusted redirect targets rejected by the origin check", () => {
+		expect(
+			isClientAuthError("Invalid callbackURL: https://evil.example.com/pwn"),
+		).toBe(true);
+		expect(
+			isClientAuthError(
+				"Invalid redirectURL: https://llmgateway.io.evil.example",
+			),
+		).toBe(true);
+		expect(
+			isClientAuthError("Invalid newUserCallbackURL: https://evil.example"),
+		).toBe(true);
+	});
+
+	test("keeps untrusted origins at error severity", () => {
+		expect(isClientAuthError("Invalid origin: https://evil.example")).toBe(
+			false,
+		);
+	});
+
 	test("keeps state cookie mismatches at error severity", () => {
 		const mismatch = Object.assign(
 			new Error("State mismatch: auth state cookie not found"),
