@@ -31,7 +31,7 @@ describe("summarizeZodIssues", () => {
 
 		expect(JSON.stringify(summary)).not.toContain("top secret prompt");
 		expect(summary).toEqual([
-			{ code: "invalid_enum_value", path: "messages.0.role" },
+			{ code: "invalid_value", path: "messages.0.role" },
 			{
 				code: "invalid_type",
 				path: "messages.0.content",

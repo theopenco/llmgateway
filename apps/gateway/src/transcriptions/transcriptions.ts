@@ -287,15 +287,11 @@ const createTranscription = createRoute({
 	},
 });
 
-// Promise<any> like the OCR route: the handler passes upstream JSON through
-// with runtime-determined status codes, which cannot satisfy OpenAPIHono's
-// RouteConfigToTypedResponse union derived from the declared schemas.
-transcriptions.openapi(createTranscription, async (c): Promise<any> => {
-	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
-	c.header("x-request-id", requestId);
-
+// @hono/zod-openapi 1.x rejects a mismatched Content-Type with a bare 415
+// before the handler runs; keep answering with the OpenAI-shaped 400 instead.
+transcriptions.use("/", async (c, next) => {
 	const contentType = c.req.header("Content-Type") ?? "";
-	if (!contentType.includes("multipart/form-data")) {
+	if (c.req.method === "POST" && !contentType.includes("multipart/form-data")) {
 		return c.json(
 			{
 				error: {
@@ -309,6 +305,15 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			400,
 		);
 	}
+	return await next();
+});
+
+// Promise<any> like the OCR route: the handler passes upstream JSON through
+// with runtime-determined status codes, which cannot satisfy OpenAPIHono's
+// RouteConfigToTypedResponse union derived from the declared schemas.
+transcriptions.openapi(createTranscription, async (c): Promise<any> => {
+	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+	c.header("x-request-id", requestId);
 
 	let formBody: Record<string, string | File | (string | File)[]>;
 	try {

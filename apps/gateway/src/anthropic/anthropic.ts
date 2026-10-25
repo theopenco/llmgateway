@@ -89,19 +89,22 @@ function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
 	for (const issue of issues) {
 		if (issue.code === "invalid_union" && depth < 3) {
 			// zod 4 branch issues carry paths relative to the union's position;
-			// prefix the union's own path so locations stay absolute.
-			for (const unionIssues of issue.errors) {
-				flattened.push(
-					...flattenZodIssues(
-						unionIssues.map((i) => ({
-							...i,
-							path: [...issue.path, ...i.path],
-						})),
-						depth + 1,
-					),
-				);
+			// prefix the union's own path so locations stay absolute. A
+			// discriminated union rejecting an unknown discriminator reports no
+			// branch issues; fall through to the union issue itself then.
+			const nested = issue.errors.flatMap((unionIssues) =>
+				flattenZodIssues(
+					unionIssues.map((i) => ({
+						...i,
+						path: [...issue.path, ...i.path],
+					})),
+					depth + 1,
+				),
+			);
+			if (nested.length > 0) {
+				flattened.push(...nested);
+				continue;
 			}
-			continue;
 		}
 		flattened.push(`${issue.path.join(".")}: ${issue.message}`);
 	}

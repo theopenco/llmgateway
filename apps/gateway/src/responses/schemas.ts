@@ -29,6 +29,11 @@ function expandIssues(issues: z.ZodIssue[]): z.ZodIssue[] {
 				unionIssues.map((i) => ({ ...i, path: [...issue.path, ...i.path] })),
 			),
 		);
+		if (nested.length === 0) {
+			// A discriminated union rejecting an unknown discriminator reports
+			// no branch issues; keep the union issue itself.
+			return [issue];
+		}
 		const deepest = Math.max(0, ...nested.map((i) => i.path.length));
 		return nested.filter((i) => i.path.length === deepest);
 	});
