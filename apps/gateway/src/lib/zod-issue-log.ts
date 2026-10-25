@@ -12,7 +12,17 @@ export function summarizeZodIssues(issues: ZodIssue[]) {
 		path: issue.path.join("."),
 		...(issue.code === "invalid_type" && {
 			expected: issue.expected,
-			received: issue.received,
+			received: typeNameOf(issue.input),
 		}),
 	}));
+}
+
+function typeNameOf(input: unknown): string {
+	if (input === null) {
+		return "null";
+	}
+	if (Array.isArray(input)) {
+		return "array";
+	}
+	return typeof input;
 }

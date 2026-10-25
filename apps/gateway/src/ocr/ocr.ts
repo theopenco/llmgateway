@@ -128,8 +128,8 @@ const ocrRequestSchema = z
 		}),
 		image_limit: z.number().int().optional(),
 		image_min_size: z.number().int().optional(),
-		bbox_annotation_format: z.record(z.unknown()).optional(),
-		document_annotation_format: z.record(z.unknown()).optional(),
+		bbox_annotation_format: z.record(z.string(), z.unknown()).optional(),
+		document_annotation_format: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
 
@@ -137,8 +137,8 @@ const ocrPageSchema = z
 	.object({
 		index: z.number().int().optional(),
 		markdown: z.string().optional(),
-		images: z.array(z.record(z.unknown())).optional(),
-		dimensions: z.record(z.unknown()).nullable().optional(),
+		images: z.array(z.record(z.string(), z.unknown())).optional(),
+		dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
 	})
 	.passthrough();
 

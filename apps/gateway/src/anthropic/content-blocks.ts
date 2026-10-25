@@ -8,7 +8,7 @@ export const anthropicCustomToolSchema = z.object({
 	type: z.literal("custom").optional(),
 	name: z.string(),
 	description: z.string().optional(),
-	input_schema: z.record(z.unknown()),
+	input_schema: z.record(z.string(), z.unknown()),
 	cache_control: z
 		.object({
 			type: z.enum(["ephemeral"]),
@@ -43,7 +43,7 @@ const anthropicKnownContentBlockSchema = z.union([
 		type: z.literal("tool_use"),
 		id: z.string(),
 		name: z.string(),
-		input: z.record(z.unknown()),
+		input: z.record(z.string(), z.unknown()),
 	}),
 	z.object({
 		type: z.literal("tool_result"),
@@ -83,7 +83,7 @@ const anthropicKnownContentBlockSchema = z.union([
 			type: z.literal("server_tool_use"),
 			id: z.string(),
 			name: z.string(),
-			input: z.record(z.unknown()).optional(),
+			input: z.record(z.string(), z.unknown()).optional(),
 		})
 		.passthrough(),
 	z
@@ -92,7 +92,7 @@ const anthropicKnownContentBlockSchema = z.union([
 			tool_use_id: z.string(),
 			// Either an array of web_search_result entries or an error object.
 			content: z
-				.union([z.array(z.unknown()), z.record(z.unknown())])
+				.union([z.array(z.unknown()), z.record(z.string(), z.unknown())])
 				.optional(),
 		})
 		.passthrough(),
@@ -100,14 +100,14 @@ const anthropicKnownContentBlockSchema = z.union([
 		.object({
 			type: z.literal("web_fetch_tool_result"),
 			tool_use_id: z.string(),
-			content: z.record(z.unknown()).optional(),
+			content: z.record(z.string(), z.unknown()).optional(),
 		})
 		.passthrough(),
 	z
 		.object({
 			type: z.literal("tool_search_tool_result"),
 			tool_use_id: z.string(),
-			content: z.record(z.unknown()).optional(),
+			content: z.record(z.string(), z.unknown()).optional(),
 		})
 		.passthrough(),
 ]);
