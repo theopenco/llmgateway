@@ -95,14 +95,12 @@ export const curatedCategoryModelIds: Record<
 		"kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed",
 		"kimi-k2.6",
-		"qwen3-coder-plus",
 		"qwen3-coder-next",
 		"qwen3-coder-480b-a35b-instruct",
 		"qwen3-coder-30b-a3b-instruct",
 		"qwen3-coder-flash",
 		"codestral-2508",
 		"devstral-2512",
-		"devstral-small-2507",
 		"deepseek-v4-pro",
 		"deepseek-v4.1-flash",
 		"deepseek-v4.1-flash-1017",
@@ -125,7 +123,6 @@ export const curatedCategoryModelIds: Record<
 		"kimi-k2",
 		"gpt-5.6-sol",
 		"gpt-5.5",
-		"gpt-5-chat-latest",
 		"gemini-pro-latest",
 		"gemini-3.1-pro-preview",
 		"deepseek-v4-pro",
@@ -166,7 +163,6 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.5",
 		"gpt-5.4-pro",
 		"gpt-5.2-pro",
-		"o4-mini",
 		"claude-opus-4-8",
 		"claude-opus-5-5",
 		"claude-fable-5-1",
@@ -175,15 +171,14 @@ export const curatedCategoryModelIds: Record<
 		"gemini-pro-latest",
 		"deepseek-v4-pro",
 		"qwen3-235b-a22b-thinking-2507",
-		"qwen3.6-max-preview",
 		"glm-5.2",
-		"kimi-k2-thinking",
 		"minimax-m3",
 		"grok-4-20-reasoning",
 		"grok-4-3",
 		"mimo-v2.6-pro",
 	]),
-	// Security work splits into two jobs: defensive review (code audit, log
+	// Every entry supports tool calling (security agents drive scanners,
+	// sandboxes and REA through MCP). Security work splits into two jobs: defensive review (code audit, log
 	// triage, threat modelling) where every frontier model performs, and
 	// offensive-adjacent analysis (malware in a sandbox, CTFs, exploit
 	// triage) where open-weight models are the ones that reliably finish.
@@ -211,8 +206,6 @@ export const curatedCategoryModelIds: Record<
 		"qwen3-coder-next",
 		"minimax-m3",
 		"mimo-v2.6-pro",
-		"mistral-large-2512",
-		"devstral-2512",
 	]),
 	// Every entry supports tool calling: reverse-engineering agents drive
 	// Ghidra, Hopper and IDA through MCP (REA), so a model without tools is
@@ -231,7 +224,6 @@ export const curatedCategoryModelIds: Record<
 		"qwen3.7-max",
 		"qwen3.7-plus",
 		"qwen3-coder-next",
-		"qwen3-coder-plus",
 		"minimax-m3",
 		"minimax-m2.7",
 		"mimo-v2.6-pro",

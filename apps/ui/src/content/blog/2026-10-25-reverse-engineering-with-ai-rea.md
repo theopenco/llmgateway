@@ -16,9 +16,9 @@ faqs:
     answer: "REA registers an MCP server with your agent and does not care which model the agent talks to. For Claude Code, export ANTHROPIC_BASE_URL=https://api.llmgateway.io, ANTHROPIC_AUTH_TOKEN with your LLM Gateway key, and ANTHROPIC_MODEL=deepseek-v4-pro. For Codex, add an llmgateway model provider with base_url https://api.llmgateway.io/v1 and wire_api responses in ~/.codex/config.toml. Ghidra, Hopper and IDA keep running locally."
 image:
   src: "/blog/reverse-engineering-with-ai-rea.png"
-  alt: "LLM Gateway blog card: Reverse engineering with AI, REA setup when Claude refuses"
-  width: 1200
-  height: 630
+  alt: "A microchip lifted open on a dark circuit board revealing glowing internal layers, with a magnifying glass, binary digits and a wrench around it, representing AI-assisted reverse engineering with REA"
+  width: 1536
+  height: 1024
 ---
 
 Reverse engineering with AI used to mean pasting Hex-Rays output into a chat window and hoping. [REA](https://github.com/morluto/rea), short for Reverse Engineer Anything, replaced that with an agent workflow: an MCP server that lets Claude Code, Codex, Cursor, Gemini CLI, OpenCode or Qwen Code open a binary, trace a feature through Ghidra or Hopper, and come back with evidence. It has 380,000+ GitHub stars and a Discord full of people recompiling games and porting apps.

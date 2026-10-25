@@ -19,9 +19,9 @@ faqs:
     answer: "Use a strong agentic coding model for the build (the original run used Claude Opus 5.5) and a cheap model for the hundreds of search, naming and summarising calls an agent makes along the way. Routing those through LLM Gateway to DeepSeek V4.1 Flash at $0.15 per million input tokens kept 893 calls under four dollars. If your builder model refuses firmware work, the reverse engineering models page lists open-weight models that will not."
 image:
   src: "/blog/hack-samsung-tv-home-screen-with-ai.png"
-  alt: "LLM Gateway blog card: Hack Your Samsung TV, replace Smart Hub with an AI agent"
-  width: 1200
-  height: 630
+  alt: "A glowing television showing a minimal app dock mounted on the central chip of a dark circuit board, with a remote, a key and a house icon around it, representing an AI agent replacing a Samsung TV home screen"
+  width: 1536
+  height: 1024
 ---
 
 My Samsung TV boots into Smart Hub: a wall of promoted shows, a Bixby banner, a "Samsung TV Plus" row I never asked for, and six tiles of apps I never open. Every press of the Home button goes back there. I wanted the Apple TV experience instead: a clock, a dock with Netflix, YouTube, Prime Video, my PS5, my Switch and my gaming PC, and nothing else.
