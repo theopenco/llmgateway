@@ -19,6 +19,8 @@ export type ModelCategoryFilter =
 	| "creative-writing"
 	| "translation"
 	| "math"
+	| "cyber-security"
+	| "reverse-engineering"
 	| "long-context"
 	| "cheapest"
 	| "open-source"
@@ -29,7 +31,13 @@ export const CHEAPEST_MAX_INPUT_PRICE_PER_M = 0.2;
 export const CHEAPEST_MAX_OUTPUT_PRICE_PER_M = 1.5;
 
 export const curatedCategoryModelIds: Record<
-	"roleplay" | "coding" | "creative-writing" | "translation" | "math",
+	| "roleplay"
+	| "coding"
+	| "creative-writing"
+	| "translation"
+	| "math"
+	| "cyber-security"
+	| "reverse-engineering",
 	ReadonlySet<string>
 > = {
 	roleplay: new Set([
@@ -175,6 +183,65 @@ export const curatedCategoryModelIds: Record<
 		"grok-4-3",
 		"mimo-v2.6-pro",
 	]),
+	// Security work splits into two jobs: defensive review (code audit, log
+	// triage, threat modelling) where every frontier model performs, and
+	// offensive-adjacent analysis (malware in a sandbox, CTFs, exploit
+	// triage) where open-weight models are the ones that reliably finish.
+	"cyber-security": new Set([
+		"claude-opus-4-8",
+		"claude-sonnet-5-5",
+		"claude-haiku-5-5",
+		"gpt-5.5",
+		"gpt-6-sol",
+		"gpt-5.3-codex",
+		"gemini-3.1-pro-preview",
+		"gemini-3.5-flash",
+		"grok-4-3",
+		"grok-build-0-1",
+		"deepseek-v4-pro",
+		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
+		"kimi-k3.1-pro",
+		"kimi-k3",
+		"kimi-k2.7-code",
+		"glm-5.2",
+		"glm-5.1",
+		"qwen3.7-max",
+		"qwen3.7-plus",
+		"qwen3-coder-next",
+		"minimax-m3",
+		"mimo-v2.6-pro",
+		"mistral-large-2512",
+		"devstral-2512",
+	]),
+	// Every entry supports tool calling: reverse-engineering agents drive
+	// Ghidra, Hopper and IDA through MCP (REA), so a model without tools is
+	// useless here regardless of how well it reads assembly.
+	"reverse-engineering": new Set([
+		"deepseek-v4-pro",
+		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
+		"deepseek-v3.2",
+		"kimi-k3.1-pro",
+		"kimi-k3",
+		"kimi-k2.7-code",
+		"kimi-k2.6",
+		"glm-5.2",
+		"glm-5.1",
+		"qwen3.7-max",
+		"qwen3.7-plus",
+		"qwen3-coder-next",
+		"qwen3-coder-plus",
+		"minimax-m3",
+		"minimax-m2.7",
+		"mimo-v2.6-pro",
+		"seed-1-8-251228",
+		"grok-4-3",
+		"grok-build-0-1",
+		"gemini-3.1-pro-preview",
+		"gpt-5.3-codex",
+		"claude-opus-4-8",
+	]),
 };
 
 export const OPEN_SOURCE_FAMILIES: ReadonlySet<string> = new Set([
@@ -301,6 +368,8 @@ export function applyCategoryFilter(
 		case "creative-writing":
 		case "translation":
 		case "math":
+		case "cyber-security":
+		case "reverse-engineering":
 			return curatedCategoryModelIds[categoryFilter].has(model.id);
 		case "long-context":
 			return (

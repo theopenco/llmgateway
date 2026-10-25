@@ -33,9 +33,20 @@
 - [Best models for creative writing](https://llmgateway.io/models/creative-writing): LLMs with strong long-form prose and narrative consistency.
 - [Best models for translation](https://llmgateway.io/models/translation): Multilingual models for document and string translation.
 - [Best models for math](https://llmgateway.io/models/math): Reasoning models for competition math and quantitative work.
+- [Best models for cyber security](https://llmgateway.io/models/cyber-security): LLMs for code audits, log triage, CTFs, and sandboxed malware analysis, including open-weight models with no cyber refusal layer.
+- [Best models for reverse engineering](https://llmgateway.io/models/reverse-engineering): Tool-calling models that read decompiler output and drive Ghidra, Hopper, and IDA through REA (Reverse Engineer Anything) without stopping mid-task.
 - [Long context models](https://llmgateway.io/models/long-context): Models with 200K to 2M token context windows.
 - [Cheapest models](https://llmgateway.io/models/cheapest): Models at or under $0.20 per million input tokens.
 - [Open source models](https://llmgateway.io/models/open-source): Open-weight LLMs served via API, with current pricing and capabilities.
+
+## Use cases
+
+- [Coding agents](https://llmgateway.io/use-cases/coding-agents): One key behind Claude Code, Cursor, Cline and custom agents, with fallback and per-agent cost tracking.
+- [AI customer support](https://llmgateway.io/use-cases/ai-customer-support): Support assistants on one API with model fallback and cost analytics.
+- [RAG and document Q&A](https://llmgateway.io/use-cases/rag-document-qa): Long-context and embedding models for retrieval pipelines.
+- [Cost optimization](https://llmgateway.io/use-cases/cost-optimization): Route by task, cache prompts, and see spend per key.
+- [Cyber security](https://llmgateway.io/use-cases/cyber-security): Code audits, log triage, CTFs and sandboxed malware analysis; frontier models for defensive work, open-weight models for tasks Claude and GPT refuse.
+- [Reverse engineering](https://llmgateway.io/use-cases/reverse-engineering): Run REA, Ghidra and Hopper agents (Claude Code, Codex, OpenCode) on models that do not stop mid-analysis.
 
 ## Developer resources
 
