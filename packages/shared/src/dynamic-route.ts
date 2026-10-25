@@ -99,9 +99,9 @@ const modelNodeSchema = z.object({
 });
 
 /**
- * Reasoning efforts a model node can set, in ascending order: the union of
- * what the static catalogue mappings (narrowed to `providerIds`) declare.
- * Empty when none of them reason. Undefined when that is unknown: a custom or
+ * Reasoning efforts a model node can set, in ascending order: "none" plus the
+ * union of what the static catalogue mappings (narrowed to `providerIds`)
+ * declare. Empty when none of them reason. Undefined when that is unknown: a custom or
  * Airside-only target, or a reasoning mapping that declares no efforts.
  */
 export function getDynamicRouteReasoningEfforts(
@@ -125,7 +125,13 @@ export function getDynamicRouteReasoningEfforts(
 	if (reasoning.some((mapping) => !mapping.reasoningEfforts?.length)) {
 		return undefined;
 	}
-	const declared = new Set(reasoning.flatMap((m) => m.reasoningEfforts ?? []));
+	if (reasoning.length === 0) {
+		return [];
+	}
+	const declared = new Set<ReasoningEffort>([
+		"none",
+		...reasoning.flatMap((m) => m.reasoningEfforts ?? []),
+	]);
 	return REASONING_EFFORTS.filter((effort) => declared.has(effort));
 }
 

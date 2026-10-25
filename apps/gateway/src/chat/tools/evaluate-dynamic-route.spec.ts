@@ -749,6 +749,7 @@ describe("dynamic route reasoning effort override", () => {
 
 	it("lists the efforts the model's mappings declare", () => {
 		expect(getDynamicRouteReasoningEfforts("gpt-5-nano")).toEqual([
+			"none",
 			"minimal",
 			"low",
 			"medium",

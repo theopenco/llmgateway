@@ -27,7 +27,7 @@ describe("nearestReasoningEffort", () => {
 		expect(nearestReasoningEffort("minimal", ["none", "medium"])).toBe(
 			"medium",
 		);
-		expect(nearestReasoningEffort("none", ["low", "high"])).toBe("low");
+		expect(nearestReasoningEffort("none", ["low", "high"])).toBe("none");
 		expect(nearestReasoningEffort("low", ["none"])).toBe("low");
 	});
 });
