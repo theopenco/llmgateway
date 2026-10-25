@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -8,6 +7,7 @@ import {
 	getAdminOrganizationIds,
 } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -15,7 +15,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 
 import type { ServerTypes } from "@/vars.js";
 
-export const customModels = new OpenAPIHono<ServerTypes>();
+export const customModels = createRouter<ServerTypes>();
 
 // The gateway reads custom models through a cached select (cdb) wrapped in an
 // SWR fallback mirror, both keyed on the custom_model table. Mutations below

@@ -11,19 +11,23 @@ import { parsePromptModelReference } from "@llmgateway/shared/prompt-template";
  * Flatten a Zod error into `path: message` pairs a client can act on.
  *
  * Union failures report a single issue at the union's own path ("Invalid
- * input"), burying the reason in `unionErrors`. That is useless on a schema
- * whose `input` is a union of unions: a request rejected for one bad item in a
- * 200-item array reports only "input: Invalid input". Each union is expanded to
- * the branch that got furthest into the value, which is the branch the client
- * meant.
+ * input"), burying the reason in nested branch issues. That is useless on a
+ * schema whose `input` is a union of unions: a request rejected for one bad
+ * item in a 200-item array reports only "input: Invalid input". Each union is
+ * expanded to the branch that got furthest into the value, which is the branch
+ * the client meant.
  */
 function expandIssues(issues: z.ZodIssue[]): z.ZodIssue[] {
 	return issues.flatMap((issue) => {
 		if (issue.code !== "invalid_union") {
 			return [issue];
 		}
+		// zod 4 branch issues carry paths relative to the union's position;
+		// prefix the union's own path so locations stay absolute.
 		const nested = issue.errors.flatMap((unionIssues) =>
-			expandIssues(unionIssues),
+			expandIssues(
+				unionIssues.map((i) => ({ ...i, path: [...issue.path, ...i.path] })),
+			),
 		);
 		const deepest = Math.max(0, ...nested.map((i) => i.path.length));
 		return nested.filter((i) => i.path.length === deepest);

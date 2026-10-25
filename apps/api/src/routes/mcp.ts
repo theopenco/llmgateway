@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { getMcpUsage, getMcpUsageBreakdown } from "@/lib/mcp-usage.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, getApiKeyCurrentPeriodState } from "@llmgateway/db";
 import {
@@ -18,7 +18,7 @@ import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { z } from "zod";
 
-export const mcp = new OpenAPIHono<{
+export const mcp = createRouter<{
 	Variables: { mcpAccount: z.infer<typeof mcpAccountSchema> };
 }>();
 

@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { cachedPublicResponse } from "@/lib/public-response-cache.js";
@@ -7,6 +6,7 @@ import {
 	floorToHourStart,
 	pickMappingHistoryTable,
 } from "@/utils/history-window.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -23,7 +23,7 @@ import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicProvidersStats = new OpenAPIHono<ServerTypes>();
+export const publicProvidersStats = createRouter<ServerTypes>();
 
 const providerStatRowSchema = z.object({
 	providerId: z.string(),

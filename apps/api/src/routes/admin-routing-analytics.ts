@@ -1,10 +1,10 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	getDiscountedProviderSelectionPrice,
@@ -54,7 +54,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const adminRoutingAnalytics = new OpenAPIHono<ServerTypes>();
+export const adminRoutingAnalytics = createRouter<ServerTypes>();
 
 adminRoutingAnalytics.use("/*", adminMiddleware);
 

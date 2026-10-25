@@ -1,14 +1,15 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 
 import { createRoute } from "@/utils/create-route.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, tables, eq, isNull, and, desc } from "@llmgateway/db";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
-const publicChatShares = new OpenAPIHono<ServerTypes>();
+const publicChatShares = createRouter<ServerTypes>();
 
 // Both endpoints are public and unauthenticated, and every call joins
 // chatShare to chat in Postgres — without a limit a single address can turn

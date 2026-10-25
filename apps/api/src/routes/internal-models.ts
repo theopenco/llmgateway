@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
@@ -14,6 +13,7 @@ import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	getEffectiveProviders,
@@ -50,7 +50,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const internalModels = new OpenAPIHono<ServerTypes>();
+export const internalModels = createRouter<ServerTypes>();
 
 // Provider schema
 const providerSchema = z.object({

@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, inArray, sql, tables } from "@llmgateway/db";
 
@@ -15,7 +15,7 @@ import type { ServerTypes } from "@/vars.js";
  * end-users with wallet balances and lifetime spend, and drill into one
  * customer's usage ledger.
  */
-export const platformCustomers = new OpenAPIHono<ServerTypes>();
+export const platformCustomers = createRouter<ServerTypes>();
 
 platformCustomers.use("*", platformSecretAuth);
 

@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -27,7 +27,7 @@ import type { ServerTypes } from "@/vars.js";
  * organization. Read-only.
  */
 
-export const adminSdk = new OpenAPIHono<ServerTypes>();
+export const adminSdk = createRouter<ServerTypes>();
 
 adminSdk.use("/*", adminMiddleware);
 

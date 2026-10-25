@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { createRouter } from "@/lib/router.js";
 
 import { rerank } from "./rerank.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const rerankRoute = new OpenAPIHono<ServerTypes>();
+export const rerankRoute = createRouter<ServerTypes>();
 
 rerankRoute.route("/", rerank);

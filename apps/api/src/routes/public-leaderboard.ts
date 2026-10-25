@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { cachedPublicResponse } from "@/lib/public-response-cache.js";
 import { createRoute } from "@/utils/create-route.js";
 import { CODING_AGENT_SOURCES } from "@/utils/profile.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -25,7 +25,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicLeaderboard = new OpenAPIHono<ServerTypes>();
+export const publicLeaderboard = createRouter<ServerTypes>();
 
 const leaderboardEntrySchema = z.object({
 	rank: z.number(),

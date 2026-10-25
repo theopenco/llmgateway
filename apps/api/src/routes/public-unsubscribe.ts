@@ -1,7 +1,8 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 
 import { redisClient } from "@/auth/config.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -22,7 +23,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicUnsubscribe = new OpenAPIHono<ServerTypes>();
+export const publicUnsubscribe = createRouter<ServerTypes>();
 
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;

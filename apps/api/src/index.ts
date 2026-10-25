@@ -2,13 +2,13 @@
 import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { APICallError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db } from "@llmgateway/db";
 import {
@@ -81,7 +81,7 @@ export const config = {
 	},
 };
 
-export const app = new OpenAPIHono<ServerTypes>();
+export const app = createRouter<ServerTypes>();
 
 const honoRequestLogger = createHonoRequestLogger({ service: "api" });
 

@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { createRouter } from "@/lib/router.js";
 
 import { speech } from "./speech.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const speechRoute = new OpenAPIHono<ServerTypes>();
+export const speechRoute = createRouter<ServerTypes>();
 
 speechRoute.route("/", speech);

@@ -1,15 +1,15 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { and, db, eq, sql, tables } from "@llmgateway/db";
 import { getLevel, isValidLevelId } from "@llmgateway/shared/sandbox-escape";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicEscape = new OpenAPIHono<ServerTypes>();
+export const publicEscape = createRouter<ServerTypes>();
 
 const leaderboardEntrySchema = z.object({
 	rank: z.number(),

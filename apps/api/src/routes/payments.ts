@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
@@ -15,6 +14,7 @@ import {
 } from "@/lib/topup-velocity.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
@@ -61,7 +61,7 @@ export function getStripe(mode: StripeMode = "live"): Stripe {
 	return client;
 }
 
-export const payments = new OpenAPIHono<ServerTypes>();
+export const payments = createRouter<ServerTypes>();
 
 // How long a hosted Checkout link stays payable. Stripe's minimum is 30
 // minutes; keeping it short lets the top-up velocity reservation cover the

@@ -1,4 +1,4 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { createRouter } from "@/utils/router.js";
 
 import { hasDeploymentEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
@@ -7,7 +7,7 @@ import { apiAuth } from "./config.js";
 import type { ServerTypes } from "@/vars.js";
 
 // Create a Hono app for auth routes
-export const authHandler = new OpenAPIHono<ServerTypes>();
+export const authHandler = createRouter<ServerTypes>();
 
 // Better Auth's sso() plugin mounts its own provider-management endpoints under
 // the /auth/* catch-all. They only require a session (any authenticated user),

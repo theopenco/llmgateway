@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import {
 	APICallError,
 	convertToModelMessages,
@@ -14,6 +14,7 @@ import { HTTPException } from "hono/http-exception";
 import { listConnectorTools } from "@/lib/connectors/tools.js";
 import { createRoute } from "@/utils/create-route.js";
 import { resolvePlaygroundToken } from "@/utils/playground-key.js";
+import { createRouter } from "@/utils/router.js";
 import { isUpstreamError } from "@/utils/upstream-error.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
@@ -33,7 +34,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { GatewaySourceCitation } from "@llmgateway/shared/lounge-stream";
 import type { ToolSet, UIMessageChunk } from "ai";
 
-export const loungeChat = new OpenAPIHono<ServerTypes>();
+export const loungeChat = createRouter<ServerTypes>();
 
 const errorResponse = {
 	description: "Chat request failed",

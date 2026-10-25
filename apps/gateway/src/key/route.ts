@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { createRouter } from "@/lib/router.js";
 
 import { key } from "./key.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const keyRoute = new OpenAPIHono<ServerTypes>();
+export const keyRoute = createRouter<ServerTypes>();
 
 keyRoute.route("/", key);

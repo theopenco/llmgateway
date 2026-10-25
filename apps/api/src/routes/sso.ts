@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { APIError } from "better-auth/api";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -10,6 +9,7 @@ import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
 import { recomputeTeamForGroupName } from "@/lib/sso-teams.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
@@ -21,7 +21,7 @@ import { maskToken } from "@llmgateway/shared/mask-token";
 import type { ServerTypes } from "@/vars.js";
 import type { SSOOptions, SSOPlugin } from "@better-auth/sso";
 
-export const sso = new OpenAPIHono<ServerTypes>();
+export const sso = createRouter<ServerTypes>();
 
 const apiUrl = getApiBaseUrl();
 

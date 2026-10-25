@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { posthog } from "@/posthog.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -21,7 +21,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const modelSurvey = new OpenAPIHono<ServerTypes>();
+export const modelSurvey = createRouter<ServerTypes>();
 
 // The yearly DevPass model survey only asks about models a member genuinely
 // uses: their DevPass org must have made at least this many requests on a

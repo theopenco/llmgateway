@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getApiKeyScope, getUserProjectIds } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -32,7 +32,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const notifications = new OpenAPIHono<ServerTypes>();
+export const notifications = createRouter<ServerTypes>();
 /**
  * One row of the combined preferences screen. `inApp` and `budgetThreshold`
  * are null for the email-only categories, which have no notification feed

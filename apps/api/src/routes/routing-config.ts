@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -35,7 +35,7 @@ import type {
 	RoutingWeightsConfig,
 } from "@llmgateway/db";
 
-export const routingConfig = new OpenAPIHono<ServerTypes>();
+export const routingConfig = createRouter<ServerTypes>();
 
 export async function checkProjectEnterpriseAccess(
 	userId: string,

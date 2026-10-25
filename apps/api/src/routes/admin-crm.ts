@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -14,6 +13,7 @@ import {
 } from "@/lib/crm.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -39,7 +39,7 @@ import type { ServerTypes } from "@/vars.js";
  * inbound leads merged per company, with sales-owned fields, contacts,
  * activities and follow-up tasks layered on top.
  */
-export const adminCrm = new OpenAPIHono<ServerTypes>();
+export const adminCrm = createRouter<ServerTypes>();
 
 adminCrm.use("/*", adminMiddleware);
 

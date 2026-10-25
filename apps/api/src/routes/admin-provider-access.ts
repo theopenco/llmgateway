@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, invalidateOrganizationsCache, tables } from "@llmgateway/db";
@@ -20,7 +20,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const adminProviderAccess = new OpenAPIHono<ServerTypes>();
+export const adminProviderAccess = createRouter<ServerTypes>();
 
 adminProviderAccess.use("/*", adminMiddleware);
 

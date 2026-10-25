@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { generateText, tool } from "ai";
 import { HTTPException } from "hono/http-exception";
 
@@ -13,6 +13,7 @@ import {
 	getGatewayUrl,
 	resolvePlaygroundToken,
 } from "@/utils/playground-key.js";
+import { createRouter } from "@/utils/router.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and, count, desc, asc } from "@llmgateway/db";
@@ -21,7 +22,7 @@ import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const chatProjects = new OpenAPIHono<ServerTypes>();
+export const chatProjects = createRouter<ServerTypes>();
 
 const MAX_FILES_PER_PROJECT = 20;
 const MAX_FILE_CONTENT_CHARS = 500_000;

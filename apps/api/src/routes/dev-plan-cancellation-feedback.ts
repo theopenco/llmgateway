@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -8,12 +7,13 @@ import {
 	refineCancellationComments,
 } from "@/lib/dev-plan-cancellation.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const devPlanCancellationFeedback = new OpenAPIHono<ServerTypes>();
+export const devPlanCancellationFeedback = createRouter<ServerTypes>();
 
 const reasonEnum = devPlanCancellationReasonSchema;
 

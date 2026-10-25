@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
@@ -11,12 +11,13 @@ import {
 } from "@/lib/organization-skills.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db } from "@llmgateway/db";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
-export const cliSkills = new OpenAPIHono<{
+export const cliSkills = createRouter<{
 	Variables: { skillOrganizationId: string };
 }>();
 

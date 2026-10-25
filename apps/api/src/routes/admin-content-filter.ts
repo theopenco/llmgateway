@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -14,6 +13,7 @@ import {
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
 	firstRowPerInvoiceFilter,
 } from "@/utils/devpass-filter.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	aliasedTable,
@@ -37,7 +37,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const adminContentFilter = new OpenAPIHono<ServerTypes>();
+export const adminContentFilter = createRouter<ServerTypes>();
 
 adminContentFilter.use("/*", adminMiddleware);
 

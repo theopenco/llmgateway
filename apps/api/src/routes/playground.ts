@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
@@ -15,6 +15,7 @@ import {
 	PLAYGROUND_KEY_COOKIE_NAME,
 	setPlaygroundKeyCookie,
 } from "@/utils/playground-key.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, tables, desc, eq, and, sql } from "@llmgateway/db";
 import { mergeVideoModelResults } from "@llmgateway/shared/video-generation-config";
@@ -22,7 +23,7 @@ import { mergeVideoModelResults } from "@llmgateway/shared/video-generation-conf
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 
-const playground = new OpenAPIHono<ServerTypes>();
+const playground = createRouter<ServerTypes>();
 
 const ensureKey = createRoute({
 	method: "post",

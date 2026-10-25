@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { getActiveSystemBanner } from "@/lib/system-banner.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { SYSTEM_BANNER_SEVERITIES } from "@llmgateway/shared";
 
@@ -12,7 +12,7 @@ import type { ServerTypes } from "@/vars.js";
  * Public, unauthenticated announcement banner rendered by the main UI,
  * DevPass, docs and Airside. Toggled from the admin dashboard.
  */
-export const publicBanner = new OpenAPIHono<ServerTypes>();
+export const publicBanner = createRouter<ServerTypes>();
 
 const getBanner = createRoute({
 	method: "get",

@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -19,6 +18,7 @@ import {
 } from "@/lib/model-verification.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, desc, eq, inArray, isNotNull, and, tables } from "@llmgateway/db";
 import {
@@ -36,7 +36,7 @@ import type { ProviderModelMapping } from "@llmgateway/models";
  * run against the upstream deployment, so an admin can spot-check a live
  * catalogue mapping or a carrier's proposed listing before approving it.
  */
-export const adminModelVerifications = new OpenAPIHono<ServerTypes>();
+export const adminModelVerifications = createRouter<ServerTypes>();
 
 adminModelVerifications.use("/*", adminMiddleware);
 

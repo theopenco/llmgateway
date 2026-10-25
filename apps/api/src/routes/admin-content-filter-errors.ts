@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -18,7 +18,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const adminContentFilterErrors = new OpenAPIHono<ServerTypes>();
+export const adminContentFilterErrors = createRouter<ServerTypes>();
 
 adminContentFilterErrors.use("/*", adminMiddleware);
 

@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { preserveAnsweredToolCalls } from "@/lib/connectors/tool-approval.js";
@@ -7,6 +7,7 @@ import { userHasOrganizationAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	db,
@@ -26,7 +27,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-const chats = new OpenAPIHono<ServerTypes>();
+const chats = createRouter<ServerTypes>();
 
 // Schemas
 const chatSchema = z.object({

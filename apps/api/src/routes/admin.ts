@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -114,6 +113,7 @@ import {
 	pickMappingHistoryTable,
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
+import { createRouter } from "@/utils/router.js";
 
 import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -282,7 +282,7 @@ function buildOrganizationOwnerSubquery(organizationIds?: string[]) {
 		.as("owner_sub");
 }
 
-export const admin = new OpenAPIHono<ServerTypes>();
+export const admin = createRouter<ServerTypes>();
 
 admin.use("/*", adminMiddleware);
 

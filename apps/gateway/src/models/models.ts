@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
@@ -7,6 +7,7 @@ import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { createRouter } from "@/lib/router.js";
 import {
 	filterAccessibleModels,
 	getModelsAccess,
@@ -24,7 +25,7 @@ import {
 import type { ServerTypes } from "@/vars.js";
 import type { RouteConfig } from "@hono/zod-openapi";
 
-export const modelsApi = new OpenAPIHono<ServerTypes>();
+export const modelsApi = createRouter<ServerTypes>();
 
 const modelSchema = z.object({
 	id: z.string(),

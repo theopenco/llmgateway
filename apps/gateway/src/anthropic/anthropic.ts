@@ -88,8 +88,18 @@ function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
 	const flattened: string[] = [];
 	for (const issue of issues) {
 		if (issue.code === "invalid_union" && depth < 3) {
+			// zod 4 branch issues carry paths relative to the union's position;
+			// prefix the union's own path so locations stay absolute.
 			for (const unionIssues of issue.errors) {
-				flattened.push(...flattenZodIssues(unionIssues, depth + 1));
+				flattened.push(
+					...flattenZodIssues(
+						unionIssues.map((i) => ({
+							...i,
+							path: [...issue.path, ...i.path],
+						})),
+						depth + 1,
+					),
+				);
 			}
 			continue;
 		}

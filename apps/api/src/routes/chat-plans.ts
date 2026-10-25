@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -9,6 +8,7 @@ import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { createRoute } from "@/utils/create-route.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, and } from "@llmgateway/db";
@@ -23,7 +23,7 @@ import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const chatPlans = new OpenAPIHono<ServerTypes>();
+export const chatPlans = createRouter<ServerTypes>();
 
 function getChatPlanPriceId(tier: ChatPlanTier): string | undefined {
 	const monthlyKeys: Record<ChatPlanTier, string> = {

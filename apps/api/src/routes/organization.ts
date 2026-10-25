@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -35,6 +34,7 @@ import {
 	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
 } from "@/utils/provider-cache-control.js";
+import { createRouter } from "@/utils/router.js";
 import { serializeOrganization } from "@/utils/serialize-organization.js";
 import {
 	smartRoutingConfigInputSchema,
@@ -92,7 +92,7 @@ import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 import type { ServerTypes } from "@/vars.js";
 import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
-export const organization = new OpenAPIHono<ServerTypes>();
+export const organization = createRouter<ServerTypes>();
 
 // Closed sets for the compliance policy's fine-grained restriction lists.
 // Custom providers are addressed as `custom:<name>` and their models as

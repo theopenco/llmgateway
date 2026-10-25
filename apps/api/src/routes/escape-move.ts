@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { APICallError, generateText } from "ai";
 import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
@@ -10,6 +10,7 @@ import {
 	PLAYGROUND_KEY_COOKIE_NAME,
 	setPlaygroundKeyCookie,
 } from "@/utils/playground-key.js";
+import { createRouter } from "@/utils/router.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db } from "@llmgateway/db";
@@ -80,7 +81,7 @@ const gatewayUsage = z.object({
 		.optional(),
 });
 
-export const escapeMove = new OpenAPIHono<ServerTypes>();
+export const escapeMove = createRouter<ServerTypes>();
 escapeMove.openapi(
 	createRoute({
 		method: "post",

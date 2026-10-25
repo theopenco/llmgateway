@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -7,10 +6,11 @@ import {
 	computeLoungeStats,
 	loungeStatsSchema,
 } from "@/utils/lounge-points.js";
+import { createRouter } from "@/utils/router.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const lounge = new OpenAPIHono<ServerTypes>();
+export const lounge = createRouter<ServerTypes>();
 
 const getPointsMe = createRoute({
 	method: "get",

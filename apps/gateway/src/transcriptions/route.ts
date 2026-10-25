@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { createRouter } from "@/lib/router.js";
 
 import { transcriptions } from "./transcriptions.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const transcriptionsRoute = new OpenAPIHono<ServerTypes>();
+export const transcriptionsRoute = createRouter<ServerTypes>();
 
 transcriptionsRoute.route("/", transcriptions);

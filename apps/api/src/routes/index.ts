@@ -1,6 +1,5 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
-
 import { apiAuth as auth } from "@/auth/config.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db } from "@llmgateway/db";
 import { accountBlockMessage } from "@llmgateway/shared/account-block";
@@ -64,7 +63,7 @@ import { video } from "./video.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const routes = new OpenAPIHono<ServerTypes>();
+export const routes = createRouter<ServerTypes>();
 
 // Middleware to verify authentication
 routes.use("/*", async (c, next) => {

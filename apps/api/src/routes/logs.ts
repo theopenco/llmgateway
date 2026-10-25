@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -15,6 +14,7 @@ import {
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 import { scrubMessagesBase64 } from "@/utils/scrub-messages-base64.js";
 
 import {
@@ -49,7 +49,7 @@ import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-a
 import type { ServerTypes } from "@/vars.js";
 import type { LogErrorType } from "@llmgateway/shared";
 
-export const logs = new OpenAPIHono<ServerTypes>();
+export const logs = createRouter<ServerTypes>();
 
 // Admin-only columns are omitted: public log queries never select them.
 type LogRecord = Omit<

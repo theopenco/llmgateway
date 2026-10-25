@@ -1,15 +1,15 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicProfile = new OpenAPIHono<ServerTypes>();
+export const publicProfile = createRouter<ServerTypes>();
 
 const getPublicProfile = createRoute({
 	method: "get",

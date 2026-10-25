@@ -1,7 +1,7 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -17,7 +17,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-const publicModelSurvey = new OpenAPIHono<ServerTypes>();
+const publicModelSurvey = createRouter<ServerTypes>();
 
 // Models need at least this many responses before their scores are published,
 // so no individual respondent's answers can be inferred from the report.

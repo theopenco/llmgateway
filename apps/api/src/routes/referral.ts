@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db } from "@llmgateway/db";
 
@@ -11,7 +11,7 @@ import type { ServerTypes } from "@/vars.js";
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const isProduction = process.env.NODE_ENV === "production";
 
-export const referral = new OpenAPIHono<ServerTypes>();
+export const referral = createRouter<ServerTypes>();
 
 const REFERRAL_COOKIE_NAME = "llmgateway_referral";
 const REFERRAL_COOKIE_DAYS = 30;

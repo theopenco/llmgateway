@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -6,6 +5,7 @@ import { endUserSessionAuth } from "@/lib/end-user-session-auth.js";
 import { getStripe } from "@/routes/payments.js";
 import { ensureEndCustomerStripeCustomer } from "@/stripe.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	apiKeyPeriodDurationUnits,
@@ -26,7 +26,7 @@ import type { ServerTypes } from "@/vars.js";
  * **ephemeral session token** (`es_…`). These let the end-user check their
  * balance and buy credits in-app. The session is bound to exactly one wallet.
  */
-export const platformWallet = new OpenAPIHono<ServerTypes>();
+export const platformWallet = createRouter<ServerTypes>();
 
 platformWallet.use("*", endUserSessionAuth);
 

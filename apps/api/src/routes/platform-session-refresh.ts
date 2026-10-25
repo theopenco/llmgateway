@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { endUserSessionAuth } from "@/lib/end-user-session-auth.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, eq, shortid, tables } from "@llmgateway/db";
 import { hashTokenForStorage } from "@llmgateway/shared/api-key-hash";
@@ -17,7 +17,7 @@ import type { ServerTypes } from "@/vars.js";
  * token so it can't be replayed. The browser client calls this automatically
  * shortly before expiry.
  */
-export const platformSessionRefresh = new OpenAPIHono<ServerTypes>();
+export const platformSessionRefresh = createRouter<ServerTypes>();
 
 const EPHEMERAL_PREFIX = "es_";
 const DEFAULT_TTL_SECONDS = 15 * 60;

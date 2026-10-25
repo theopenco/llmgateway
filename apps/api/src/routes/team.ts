@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -15,6 +14,7 @@ import { resolveSeatLimit } from "@/lib/seat-limit.js";
 import { recomputeUserTeam } from "@/lib/sso-teams.js";
 import { createRoute } from "@/utils/create-route.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -37,7 +37,7 @@ import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const team = new OpenAPIHono<ServerTypes>();
+export const team = createRouter<ServerTypes>();
 
 const roleSchema = z.enum(["owner", "admin", "project_admin", "developer"]);
 

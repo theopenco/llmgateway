@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	buildDataStreamTestEvent,
@@ -29,7 +29,7 @@ import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const dataStreams = new OpenAPIHono<ServerTypes>();
+export const dataStreams = createRouter<ServerTypes>();
 
 const MAX_STREAMS_PER_ORG = 20;
 const MAX_REPLAY_DAYS = 30;

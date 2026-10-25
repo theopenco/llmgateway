@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -10,6 +9,7 @@ import {
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
+import { createRouter } from "@/utils/router.js";
 import {
 	smartRoutingConfigInputSchema,
 	normalizeSmartRoutingConfig,
@@ -30,7 +30,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
 import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
-export const projects = new OpenAPIHono<ServerTypes>();
+export const projects = createRouter<ServerTypes>();
 
 // Default billing mode for a newly created project. Members below admin/owner
 // may only create projects in this mode (see createProjectForOrg).

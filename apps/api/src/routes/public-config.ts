@@ -1,7 +1,7 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -10,7 +10,7 @@ import type { ServerTypes } from "@/vars.js";
  * client/elements fetch LLM Gateway's Stripe publishable key (safe to expose) so
  * developers don't have to hardcode it.
  */
-export const publicConfig = new OpenAPIHono<ServerTypes>();
+export const publicConfig = createRouter<ServerTypes>();
 
 const getConfig = createRoute({
 	method: "get",

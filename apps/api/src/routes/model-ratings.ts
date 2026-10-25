@@ -1,17 +1,17 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { invalidatePublicResponse } from "@/lib/public-response-cache.js";
 import { modelRatingsCacheKey } from "@/routes/public-model-ratings.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const modelRatings = new OpenAPIHono<ServerTypes>();
+export const modelRatings = createRouter<ServerTypes>();
 
 // Users must have made at least this many requests on a model before they are
 // allowed to rate it, to keep ratings tied to genuine usage.

@@ -1,10 +1,11 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 
 import { handleDecisionRequest } from "@/decisions/handle-decision-request.js";
 import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { createRouter } from "@/lib/router.js";
 
 import { shortid } from "@llmgateway/db";
 
@@ -158,7 +159,7 @@ function summarizeState(state: unknown): string {
 	return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
 }
 
-export const systemone = new OpenAPIHono<ServerTypes>();
+export const systemone = createRouter<ServerTypes>();
 
 const createSystemOne = createRoute({
 	operationId: "v1_systemone",

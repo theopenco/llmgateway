@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { APIError } from "better-auth/api";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
@@ -22,6 +21,7 @@ import { getAdminRole } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
+import { createRouter } from "@/utils/router.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
@@ -29,7 +29,7 @@ import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-licens
 import type { AdminRole } from "@/middleware/admin.js";
 import type { ServerTypes } from "@/vars.js";
 
-export const user = new OpenAPIHono<ServerTypes>();
+export const user = createRouter<ServerTypes>();
 
 const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
 

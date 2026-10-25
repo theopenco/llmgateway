@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
@@ -19,6 +19,7 @@ import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { ExpectedHTTPException } from "@/lib/expected-http-exception.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { createRouter } from "@/lib/router.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
@@ -820,7 +821,7 @@ async function forwardToChatCompletions(
 	}
 }
 
-export const images = new OpenAPIHono<ServerTypes>();
+export const images = createRouter<ServerTypes>();
 
 images.openapi(generations, async (c): Promise<any> => {
 	const startedAt = Date.now();

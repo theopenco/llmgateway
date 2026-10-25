@@ -1,15 +1,15 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicNewsletter = new OpenAPIHono<ServerTypes>();
+export const publicNewsletter = createRouter<ServerTypes>();
 
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
