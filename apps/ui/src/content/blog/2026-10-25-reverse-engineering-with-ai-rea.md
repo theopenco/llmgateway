@@ -3,7 +3,7 @@ id: "blog-reverse-engineering-with-ai-rea"
 slug: "reverse-engineering-with-ai-rea"
 date: "2026-10-25"
 title: "Reverse Engineering With AI: REA Setup When Claude Refuses"
-summary: "A guide to reverse engineering with AI agents using REA (Reverse Engineer Anything): what it inspects, how to set it up with Claude Code, Codex or OpenCode, why Claude Opus 5.5 and ChatGPT now stop mid-analysis, and which open-weight models (DeepSeek V4, Kimi K3.1, GLM-5.2, Qwen3.7) finish the job through one API key."
+summary: "A guide to reverse engineering with AI agents using REA (Reverse Engineer Anything): what it inspects, how to set it up with Claude Code, Codex or OpenCode, why Claude Opus 5.5 and ChatGPT now stop mid-analysis, and which Chinese-lab models (DeepSeek V4, Kimi K3.1, GLM-5.2, Qwen3.7) finish the job through one API key."
 categories: ["Guides", "Engineering"]
 faqs:
   - question: "What is REA (Reverse Engineer Anything)?"
@@ -11,7 +11,7 @@ faqs:
   - question: "Why does Claude refuse reverse engineering requests?"
     answer: "Since October 21, 2026, users on r/Claude have reported that Claude Opus 5.5 starts analysing a target, then a safety guardrail halts the response mid-sentence and it will not reproduce the write-up when reworded. Anthropic has not announced a change. Opus 5.5 launched on September 22, 2026 with safeguards covering cybersecurity, and Anthropic's launch notes state that cyber benchmark tasks the safeguards interrupted were completed by Claude Opus 4.8 instead. Reverse engineering overlaps with security research, which those safeguards cover."
   - question: "Which AI models work best for reverse engineering?"
-    answer: "DeepSeek V4 Pro and Kimi K3.1 Pro are the strongest open-weight choices: both reason well over decompiler pseudocode, support tool calling for Ghidra and Hopper bridges, and hold a 1M-token context. GLM-5.2, Qwen3.7 Max and MiniMax M3 are close behind, and DeepSeek V4.1 Flash at $0.15 per million input tokens is the budget pick for bulk function naming. None of them carry a cyber-specific refusal layer."
+    answer: "DeepSeek V4 Pro and Kimi K3.1 Pro are the strongest Chinese-lab choices: both reason well over decompiler pseudocode, support tool calling for Ghidra and Hopper bridges, and hold a 1M-token context. GLM-5.2, Qwen3.7 Max and MiniMax M3 are close behind, and DeepSeek V4.1 Flash at $0.15 per million input tokens is the budget pick for bulk function naming. None of them carry a cyber-specific refusal layer."
   - question: "How do I use REA with a non-Anthropic model?"
     answer: "REA registers an MCP server with your agent and does not care which model the agent talks to. For Claude Code, export ANTHROPIC_BASE_URL=https://api.llmgateway.io, ANTHROPIC_AUTH_TOKEN with your LLM Gateway key, and ANTHROPIC_MODEL=deepseek-v4-pro. For Codex, add an llmgateway model provider with base_url https://api.llmgateway.io/v1 and wire_api responses in ~/.codex/config.toml. Ghidra, Hopper and IDA keep running locally."
 image:
@@ -70,17 +70,17 @@ Why now is speculation. Kotaku's writer pointed at the wave of AI-assisted game 
 
 ## Models that finish the job
 
-Open-weight models from Chinese labs carry no cyber-specific refusal layer, and the current generation is strong enough at code reasoning to replace Opus for most RE work. The [reverse engineering models page](/models/reverse-engineering) tracks live prices; every model on it supports tool calling, which REA needs for its MCP tools.
+Models from Chinese labs — DeepSeek, Moonshot (Kimi), Z.ai (GLM), Alibaba (Qwen), MiniMax, Xiaomi — carry no cyber-specific refusal layer, and the current generation is strong enough at code reasoning to replace Opus for most RE work. Some are open-weight (DeepSeek, GLM, MiniMax), others API-only (Kimi K3.1 Pro, Qwen3.7 Max); what they share is that they finish. The [reverse engineering models page](/models/reverse-engineering) tracks live prices, context windows and provider coverage; every model on it supports tool calling, which REA needs for its MCP tools.
 
-| Model               | Input / output per 1M tokens | Context | Why it fits                                                       |
-| ------------------- | ---------------------------: | ------: | ----------------------------------------------------------------- |
-| DeepSeek V4 Pro     |                $0.43 / $0.87 |      1M | Best open-weight reasoning over pseudocode; whole-binary context  |
-| Kimi K3.1 Pro       |               $2.00 / $10.00 |      1M | Strongest agentic behaviour in long tool loops                    |
-| GLM-5.2             |                $1.40 / $4.40 |      1M | Reliable function naming and cross-reference following            |
-| Qwen3.7 Max         |                $2.50 / $7.50 |    983K | Strong on obfuscated JavaScript and .NET                          |
-| MiniMax M3          |                $0.60 / $2.40 |    512K | Good value for Electron and web app analysis                      |
-| Qwen3.7 Plus        |                $0.40 / $1.60 |    983K | Budget Qwen with the same long window for reimplementation passes |
-| DeepSeek V4.1 Flash |                $0.15 / $0.60 |      1M | Bulk naming and string classification for cents                   |
+| Model               | Why it fits                                                        |
+| ------------------- | ------------------------------------------------------------------ |
+| DeepSeek V4 Pro     | Best reasoning over pseudocode; million-token whole-binary context |
+| Kimi K3.1 Pro       | Strongest agentic behaviour in long tool loops                     |
+| GLM-5.2             | Reliable function naming and cross-reference following             |
+| Qwen3.7 Max         | Strong on obfuscated JavaScript and .NET                           |
+| MiniMax M3          | Good value for Electron and web app analysis                       |
+| Qwen3.7 Plus        | Budget Qwen with the same long window for reimplementation passes  |
+| DeepSeek V4.1 Flash | Bulk naming and string classification for cents                    |
 
 Among Western models, Grok 4.3 and Gemini 3.1 Pro complete most RE tasks, GPT-5.3 Codex still does well on decompilation when the refusal layer lets it through, and Claude Opus 4.8 is the model Anthropic's own benchmarks fell back to. Claude Opus 5.5 is the one to avoid until Anthropic says otherwise.
 
@@ -113,7 +113,7 @@ wire_api = "responses"
 
 OpenCode, Cursor and Qwen Code take an OpenAI-compatible base URL of `https://api.llmgateway.io/v1` in their provider settings. Then run the same REA prompt that stopped yesterday.
 
-Two gateway features matter for long RE sessions. Prompt caching means the fiftieth question about the same Ghidra export does not pay full price for the export again. And a model ID without a provider prefix gets automatic fallback, so a provider outage three hours into a trace does not end the session.
+Two gateway features matter for long RE sessions. Prompt caching means the fiftieth question about the same Ghidra export does not pay full price for the export again. And a model ID without a provider prefix can retry on another eligible provider during an outage, which only helps for models served by more than one provider, so check provider coverage on the models page before planning an overnight trace.
 
 ## Keep the bulk pass cheap
 
@@ -121,7 +121,7 @@ Most of an RE session is bulk work: naming functions, classifying strings, summa
 
 ## Stay on the right side of the line
 
-REA's maintainers published a [plain-language guide](https://github.com/morluto/rea/discussions/2304) to what is fine and what needs permission, and it is worth reading before you publish anything. Your own code, open-source software, malware in a sandbox and CTF challenges are generally fine. Interoperability and security research carry explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or probing systems you do not own is where it stops being legal, and publishers are already filing DMCA takedowns over AI-assisted game decompilations.
+A community member in REA's discussions wrote a [plain-language guide](https://github.com/morluto/rea/discussions/2304) to what is fine and what needs permission; it is not legal advice, but it is worth reading before you publish anything. Your own code, open-source software, malware in a sandbox and CTF challenges are generally fine. Interoperability and security research carry explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or probing systems you do not own is where it stops being legal, and publishers are already filing DMCA takedowns over AI-assisted game decompilations.
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)**: one key for DeepSeek, Kimi, GLM, Qwen and 200+ models, with a cost ledger for every call.
 - **[Best models for reverse engineering](/models/reverse-engineering)** and **[best models for cyber security](/models/cyber-security)**, with live prices and tool support.

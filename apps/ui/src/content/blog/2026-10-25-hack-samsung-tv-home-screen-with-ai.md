@@ -16,7 +16,7 @@ faqs:
   - question: "How much did it cost to hack the TV with an AI agent?"
     answer: "$173.85 across 2,306 model calls over two days, about 14 hours of active agent time. Claude Opus 5.5 did the building (1,242 calls, $118.51) and Claude Fable 5.1 reviewed plans ($48.58). The other 920 calls, $6.76 in total, went through LLM Gateway: 893 calls to DeepSeek V4.1 Flash for cheap lookups ($3.53), Gemini 3.1 Flash Lite for web lookups ($0.21), and two GPT-6 second opinions ($3.02). 98% of input tokens were cache hits."
   - question: "Which AI model should I use to hack my TV?"
-    answer: "Use a strong agentic coding model for the build (the original run used Claude Opus 5.5) and a cheap model for the hundreds of search, naming and summarising calls an agent makes along the way. Routing those through LLM Gateway to DeepSeek V4.1 Flash at $0.15 per million input tokens kept 893 calls under four dollars. If your builder model refuses firmware work, the reverse engineering models page lists open-weight models that will not."
+    answer: "Use a strong agentic coding model for the build (the original run used Claude Opus 5.5) and a cheap model for the hundreds of search, naming and summarising calls an agent makes along the way. Routing those through LLM Gateway to DeepSeek V4.1 Flash at $0.15 per million input tokens kept 893 calls under four dollars. If your builder model refuses firmware work, the reverse engineering models page lists Chinese-lab models that will not."
 image:
   src: "/blog/hack-samsung-tv-home-screen-with-ai.png"
   alt: "A glowing television showing a minimal app dock mounted on the central chip of a dark circuit board, with a remote, a key and a house icon around it, representing an AI agent replacing a Samsung TV home screen"
@@ -126,5 +126,6 @@ export OPENAI_API_KEY=$LLM_GATEWAY_API_KEY
 The remote still works for everything else: inputs, settings, volume, the guide. Only the Home button changed its mind.
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)**: one key for DeepSeek, Gemini, GPT and 200+ models, with a cost ledger for every call.
-- **[Best models for reverse engineering](/models/reverse-engineering)**: open-weight models for firmware and binary work, with live prices.
+- **[Quick start](https://docs.llmgateway.io/quick-start)**: point any OpenAI-compatible agent at `https://api.llmgateway.io/v1` in two environment variables.
+- **[Best models for reverse engineering](/models/reverse-engineering)**: models that finish firmware and binary work, with live prices.
 - **Related: [Reverse engineering with AI when Claude and GPT refuse](/blog/reverse-engineering-with-ai-rea)**.

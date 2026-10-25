@@ -9,7 +9,7 @@ headline: "Keep your REA, Claude Code or Codex setup. Swap the model behind it f
 summary: "Point your reverse-engineering agent at one endpoint and choose a model that reads decompiler output, calls Ghidra and Hopper tools, and does not halt halfway through a binary."
 benefits:
   - title: Models that finish the job
-    description: "DeepSeek V4 Pro, Kimi K3.1 Pro, GLM-5.2, Qwen3.7 Max, MiniMax M3 and more — open-weight models with no cyber refusal layer, all with tool calling for MCP-driven Ghidra, Hopper and IDA sessions."
+    description: "DeepSeek V4 Pro, Kimi K3.1 Pro, GLM-5.2, Qwen3.7 Max, MiniMax M3 and more — Chinese-lab models with no cyber refusal layer, all with tool calling for MCP-driven Ghidra, Hopper and IDA sessions."
   - title: Drop-in for Claude Code and Codex
     description: "An Anthropic-compatible /v1/messages endpoint and an OpenAI-compatible /v1 endpoint. Set a base URL and a key; REA's MCP server and skill stay exactly as they are."
   - title: Million-token context
@@ -18,9 +18,9 @@ benefits:
     description: "Name 2,000 functions on DeepSeek V4.1 Flash at $0.15 per million input tokens, then hand the final write-up to a frontier model. Every request is logged with its exact cost."
 faqs:
   - question: Which AI models are best for reverse engineering?
-    answer: "DeepSeek V4 Pro and Kimi K3.1 Pro lead the open-weight field: strong reasoning over pseudocode, reliable tool calling, 1M-token context. GLM-5.2, Qwen3.7 Max and MiniMax M3 are close behind, and DeepSeek V4.1 Flash is the budget pick for bulk function naming. The full list with live prices is on the reverse engineering models page at /models/reverse-engineering."
+    answer: "DeepSeek V4 Pro and Kimi K3.1 Pro lead the Chinese-lab field: strong reasoning over pseudocode, reliable tool calling, 1M-token context. GLM-5.2, Qwen3.7 Max and MiniMax M3 are close behind, and DeepSeek V4.1 Flash is the budget pick for bulk function naming. The full list with live prices is on the reverse engineering models page at /models/reverse-engineering."
   - question: Why not just use Claude Opus 5.5?
-    answer: "Since October 21, 2026, users have reported that Claude Opus 5.5 stops reverse-engineering responses mid-answer and will not reproduce them when reworded. Anthropic has not confirmed a change, but Opus 5.5 shipped on September 22, 2026 with safeguards covering cybersecurity, and Anthropic's own launch notes say interrupted cyber tasks were completed by Claude Opus 4.8. Open-weight models have no such classifier."
+    answer: "Since October 21, 2026, users have reported that Claude Opus 5.5 stops reverse-engineering responses mid-answer and will not reproduce them when reworded. Anthropic has not confirmed a change, but Opus 5.5 shipped on September 22, 2026 with safeguards covering cybersecurity, and Anthropic's own launch notes say interrupted cyber tasks were completed by Claude Opus 4.8. Chinese-lab models have no such classifier."
   - question: Does REA work through LLM Gateway?
     answer: "Yes. REA registers an MCP server with your agent (npx rea-agents setup); it does not care which model the agent talks to. Export ANTHROPIC_BASE_URL=https://api.llmgateway.io and ANTHROPIC_AUTH_TOKEN for Claude Code, or add an llmgateway model provider with base_url https://api.llmgateway.io/v1 for Codex, then pick a model ID such as deepseek-v4-pro. Ghidra, Hopper and IDA run locally as before."
   - question: Is reverse engineering with AI legal?
@@ -40,6 +40,9 @@ Then the model stops. Since October 21, 2026, users have reported Claude Opus 5.
 Claude Code reads the Anthropic-compatible endpoint; everything else reads the OpenAI-compatible one. REA's MCP registration and skill are untouched.
 
 ```bash
+# Create a key in the dashboard, then in the shell you launch the agent from:
+export LLM_GATEWAY_API_KEY=llmgtwy_your_api_key_here
+
 # Claude Code + REA on DeepSeek V4 Pro
 export ANTHROPIC_BASE_URL=https://api.llmgateway.io
 export ANTHROPIC_AUTH_TOKEN=$LLM_GATEWAY_API_KEY
@@ -67,11 +70,11 @@ A Ghidra export of a mid-sized native binary — pseudocode, strings, cross-refe
 
 ## Run the cheap pass cheap
 
-Most of an RE session is bulk work: naming functions, classifying strings, summarising what each module imports. That belongs on DeepSeek V4.1 Flash at $0.15 per million input tokens, not on a frontier model. Route the bulk pass to a budget model, escalate the final explanation or reimplementation to a stronger one, and read the per-request ledger to see exactly what the binary cost you. A model ID without a provider prefix also gets automatic fallback, so a provider outage three hours into a trace does not end the session.
+Most of an RE session is bulk work: naming functions, classifying strings, summarising what each module imports. That belongs on DeepSeek V4.1 Flash at $0.15 per million input tokens, not on a frontier model. Route the bulk pass to a budget model, escalate the final explanation or reimplementation to a stronger one, and read the per-request ledger to see exactly what the binary cost you. A model ID without a provider prefix can also retry on another eligible provider during an outage; that only helps for models served by more than one provider, so check the provider count on the models page before planning an overnight trace.
 
 ## Stay on the right side of the line
 
-Analysing your own code, open-source software, malware in a sandbox and CTF challenges is generally legal, and interoperability and security research carry explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or poking at systems you do not own is not. REA's maintainers published a [plain-language guide](https://github.com/morluto/rea/discussions/2304) to what needs permission; read it before you publish.
+Analysing your own code, open-source software, malware in a sandbox and CTF challenges is generally legal, and interoperability and security research carry explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or poking at systems you do not own is not. A community member in REA's discussions wrote a [plain-language guide](https://github.com/morluto/rea/discussions/2304) to what needs permission; it is not legal advice, but read it before you publish.
 
 ## Get started
 
