@@ -1,9 +1,9 @@
-import { createRouter } from "@/lib/router.js";
+import { OpenAPIHono } from "@hono/zod-openapi";
 
 import { moderations } from "./moderations.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const moderationsRoute = createRouter<ServerTypes>();
+export const moderationsRoute = new OpenAPIHono<ServerTypes>();
 
 moderationsRoute.route("/", moderations);
