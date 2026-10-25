@@ -24,7 +24,7 @@ faqs:
   - question: Does REA work through LLM Gateway?
     answer: "Yes. REA registers an MCP server with your agent (npx rea-agents setup); it does not care which model the agent talks to. Export ANTHROPIC_BASE_URL=https://api.llmgateway.io and ANTHROPIC_AUTH_TOKEN for Claude Code, or add an llmgateway model provider with base_url https://api.llmgateway.io/v1 for Codex, then pick a model ID such as deepseek-v4-pro. Ghidra, Hopper and IDA run locally as before."
   - question: Is reverse engineering with AI legal?
-    answer: "Often, within limits. Your own code, open-source software, malware in a sandbox and CTF challenges are generally fine, and interoperability and security research have explicit exemptions in many jurisdictions. Copying closed-source code into a product, breaking DRM or probing systems you do not own is where it stops being legal. Check the licence and local law before you publish."
+    answer: "Often, within limits. Your own code, open-source software, malware in a sandbox and CTF challenges are generally fine, and interoperability and security research have explicit exemptions in many jurisdictions. Copying closed-source code into a product, breaking DRM or probing systems you do not own is usually where it stops being legal. Check the licence and local law before you publish."
 ---
 
 ## The agent is fine. The model is the problem.
@@ -74,7 +74,7 @@ Most of an RE session is bulk work: naming functions, classifying strings, summa
 
 ## Stay on the right side of the line
 
-Analysing your own code, open-source software, malware in a sandbox and CTF challenges is generally legal, and interoperability and security research carry explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or poking at systems you do not own is not. A community member in REA's discussions wrote a [plain-language guide](https://github.com/morluto/rea/discussions/2304) to what needs permission; it is not legal advice, but read it before you publish.
+Analysing your own code, open-source software, malware in a sandbox and CTF challenges is generally legal, and interoperability and security research carry explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or poking at systems you do not own usually is not, and the answer depends on your jurisdiction and the licence. A community member in REA's discussions wrote a [plain-language guide](https://github.com/morluto/rea/discussions/2304) to what needs permission; it is not legal advice, but read it before you publish.
 
 ## Get started
 

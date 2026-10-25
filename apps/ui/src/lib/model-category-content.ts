@@ -248,7 +248,7 @@ export const modelCategoryContent = {
 			{
 				question: "Is AI-assisted reverse engineering legal?",
 				answer:
-					"Often, within limits. Analysing your own code, open-source software, malware in a sandbox, and CTF challenges is generally permitted; interoperability and security research have explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or probing systems you do not own is where it stops being legal. Check the licence and the law where you are before you publish results.",
+					"Often, within limits. Analysing your own code, open-source software, malware in a sandbox, and CTF challenges is generally permitted; interoperability and security research have explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or probing systems you do not own is usually where it stops being legal. Check the licence and the law where you are before you publish results.",
 			},
 		],
 	},
