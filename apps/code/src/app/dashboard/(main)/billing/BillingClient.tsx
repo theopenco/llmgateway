@@ -131,6 +131,9 @@ export default function BillingClient({
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [cancelOpen, setCancelOpen] = useState(false);
+	// Mounted on first open so the dialog's chunk isn't fetched on every
+	// billing view; stays mounted afterwards to keep the close animation.
+	const [cancelMounted, setCancelMounted] = useState(false);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
 	const [isCancellingDowngrade, setIsCancellingDowngrade] = useState(false);
@@ -510,7 +513,10 @@ export default function BillingClient({
 								size="sm"
 								disabled={isCancelling}
 								className="text-muted-foreground"
-								onClick={() => setCancelOpen(true)}
+								onClick={() => {
+									setCancelMounted(true);
+									setCancelOpen(true);
+								}}
 								data-testid="cancel-plan-open"
 							>
 								{isCancelling && (
@@ -518,24 +524,26 @@ export default function BillingClient({
 								)}
 								Cancel subscription
 							</Button>
-							<CancelPlanDialog
-								open={cancelOpen}
-								onOpenChange={setCancelOpen}
-								tier={activeTier}
-								creditsUsed={parseFloat(
-									devPlanStatus.devPlanCreditsUsed ?? "0",
-								)}
-								creditsLimit={parseFloat(
-									devPlanStatus.devPlanCreditsLimit ?? "0",
-								)}
-								renewWhen={renewWhen}
-								pendingTier={pendingTier}
-								organizationId={devPlanStatus.organizationId ?? null}
-								isCancelling={isCancelling}
-								isDowngrading={subscribingTier !== null}
-								onCancel={handleCancel}
-								onDowngrade={handleDowngrade}
-							/>
+							{cancelMounted && (
+								<CancelPlanDialog
+									open={cancelOpen}
+									onOpenChange={setCancelOpen}
+									tier={activeTier}
+									creditsUsed={parseFloat(
+										devPlanStatus.devPlanCreditsUsed ?? "0",
+									)}
+									creditsLimit={parseFloat(
+										devPlanStatus.devPlanCreditsLimit ?? "0",
+									)}
+									renewWhen={renewWhen}
+									pendingTier={pendingTier}
+									organizationId={devPlanStatus.organizationId ?? null}
+									isCancelling={isCancelling}
+									isDowngrading={subscribingTier !== null}
+									onCancel={handleCancel}
+									onDowngrade={handleDowngrade}
+								/>
+							)}
 						</>
 					)}
 				</div>

@@ -274,8 +274,10 @@ function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
 }
 
 function RequestRow({ log }: { log: ApiLog }) {
+	// content-visibility skips layout/paint for off-screen rows; the list grows
+	// unbounded as infinite scroll appends pages.
 	return (
-		<div className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
+		<div className="flex items-center justify-between gap-4 px-4 py-3 text-sm [contain-intrinsic-size:auto_57px] [content-visibility:auto]">
 			<div className="min-w-0 flex-1">
 				<p className="truncate font-mono text-xs text-muted-foreground">
 					{log.usedModel ?? log.requestedModel ?? "—"}
