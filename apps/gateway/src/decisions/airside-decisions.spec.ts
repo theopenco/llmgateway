@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
+import { estimateInputTokens } from "@/decisions/handle-decision-request.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import {
 	clearCache,
@@ -246,6 +247,28 @@ describe("airside decision listings", () => {
 		expect(log?.estimatedCost).toBe(true);
 		expect(Number(log?.promptTokens)).toBeGreaterThan(0);
 		expect(Number(log?.cost)).toBeGreaterThan(0);
+	});
+
+	test("estimates images at a flat rate, not by their base64 length", () => {
+		const withImage = (bytes: number) =>
+			estimateInputTokens({
+				model: "decide-fast-2",
+				input: [
+					{
+						role: "user",
+						content: [
+							{ type: "input_text", text: "Inspect this photo." },
+							{
+								type: "input_image",
+								image_url: `data:image/png;base64,${"A".repeat(bytes)}`,
+							},
+						],
+					},
+				],
+				questions: [QUESTIONS[0]],
+			});
+		expect(withImage(10)).toBe(withImage(4_000_000));
+		expect(withImage(10)).toBeGreaterThan(765);
 	});
 
 	test("is not served on chat completions or /v1/systemone", async () => {

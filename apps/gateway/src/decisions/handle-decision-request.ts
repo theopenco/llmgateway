@@ -242,6 +242,27 @@ export async function resolveDecisionMapping(
 	);
 }
 
+/** Flat token estimate per input image: one high-detail 512px tile. */
+const ESTIMATED_TOKENS_PER_IMAGE = 765;
+
+/**
+ * Input tokens for a request whose response reported no usable count: about
+ * four characters per token of text, plus a flat amount per image so a large
+ * inline image is not billed by its base64 length.
+ */
+export function estimateInputTokens(body: Record<string, unknown>): number {
+	let images = 0;
+	const text = JSON.stringify(body, (key, value: unknown) => {
+		if (key === "image_url" && typeof value === "string") {
+			images++;
+			return "";
+		}
+		return value;
+	});
+	const imageTokens = images * ESTIMATED_TOKENS_PER_IMAGE;
+	return Math.ceil(text.length / 4) + imageTokens;
+}
+
 /** Reports a misconfigured Azure resource as a 400 rather than a bare 500. */
 function toAzureFoundryBaseUrl(resource: string): string {
 	try {
@@ -1137,11 +1158,10 @@ export async function handleDecisionRequest(
 				wireFormat,
 			);
 			const { outputTokens } = normalized;
-			// Without a usable count the request is billed on an estimate of
-			// its body (about four characters per token) rather than for free.
+			// Without a usable count the request is billed on an estimate rather
+			// than for free.
 			const inputTokens =
-				normalized.inputTokens ??
-				Math.ceil(JSON.stringify(attempt.requestBody).length / 4);
+				normalized.inputTokens ?? estimateInputTokens(attempt.requestBody);
 			const estimatedInput = normalized.inputTokens === null;
 
 			// Decisions are billed on input tokens only; output tokens are free.
