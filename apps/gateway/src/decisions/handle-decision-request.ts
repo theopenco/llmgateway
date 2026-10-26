@@ -183,24 +183,6 @@ function staticDecisionCandidates(
 }
 
 /**
- * Resolves a requested decision model to its static catalogue mapping.
- * `unsupported` reports a decision model that exists but is only served by
- * providers the calling endpoint can't speak to, so the caller can point at
- * the right one.
- */
-export function findDecisionMapping(
-	modelId: string,
-	supportsProvider: SupportsDecisionProvider = () => true,
-): { match: DecisionMappingMatch | null; unsupported: boolean } {
-	const { requestedProvider, modelKey } = splitRequestedModel(modelId);
-	return pickDecisionMatch(
-		staticDecisionCandidates(modelKey),
-		requestedProvider,
-		supportsProvider,
-	);
-}
-
-/**
  * Resolves a requested decision model across the static catalogue and
  * approved Airside decision listings. A listing owns its pair: a paused or
  * delisted one keeps the static mapping of the same pair out of service too.
@@ -225,8 +207,13 @@ export async function resolveDecisionMapping(
 			(listed) => `${listed.mapping.modelId}:${listed.mapping.providerId}`,
 		),
 	]);
+	const now = new Date();
 	const airsideCandidates = owned.listings
-		.filter((listed) => listed.mapping.decisions)
+		.filter(
+			(listed) =>
+				listed.mapping.decisions &&
+				(!listed.mapping.deactivatedAt || listed.mapping.deactivatedAt > now),
+		)
 		.map((listed) => {
 			const { mapping, modelInfo } = airsideListingToModelDefinition(listed);
 			return {

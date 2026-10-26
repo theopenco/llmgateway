@@ -55,10 +55,12 @@ export async function assertListingKind(
 			});
 		}
 	}
+	// Only listings in service fix a model's kind; drafts are checked again
+	// when their initial filing is approved.
 	const conflicting = await db.query.providerDraftModel.findFirst({
 		where: {
 			modelName: { eq: modelName },
-			status: { ne: "delisted" },
+			status: { eq: "active" },
 			decisions: { eq: !decisions },
 		},
 		columns: { id: true },

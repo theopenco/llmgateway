@@ -2657,6 +2657,7 @@ airside.openapi(submitProviderKey, async (c) => {
 			modelName: listing.modelName,
 			externalId: listing.externalId,
 			apiFormat: listing.apiFormat,
+			decisions: listing.decisions,
 		}),
 	);
 	const pendingProviderKey = await cdb.transaction(

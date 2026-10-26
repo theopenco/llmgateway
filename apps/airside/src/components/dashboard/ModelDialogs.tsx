@@ -1590,7 +1590,7 @@ export function RegisterModelDialog({
 						<div className="text-primary font-mono text-[0.65rem] tracking-[0.25em] uppercase">
 							Initial tariff — requires approval
 						</div>
-						{canonicalModel && (
+						{canonicalModel && !decisions && (
 							<CataloguePriceButton
 								model={canonicalModel}
 								providerId={effectiveProviderId}
@@ -2581,20 +2581,28 @@ export function FileFareDialog({
 						e.preventDefault();
 						fileFare.mutate({
 							params: { path: { id: model.id } },
-							body: {
-								inputPrice: perMillionToPerToken(inputPrice),
-								outputPrice: perMillionToPerToken(outputPrice),
-								cachedInputPrice: cachedInputPrice
-									? perMillionToPerToken(cachedInputPrice)
-									: undefined,
-								requestPrice: requestPrice || undefined,
-								regionPrices: regionFaresToBody(regionFares),
-								note: note || undefined,
-							},
+							// Decision models bill input tokens and requests only.
+							body: model.decisions
+								? {
+										inputPrice: perMillionToPerToken(inputPrice),
+										outputPrice: "0",
+										requestPrice: requestPrice || undefined,
+										note: note || undefined,
+									}
+								: {
+										inputPrice: perMillionToPerToken(inputPrice),
+										outputPrice: perMillionToPerToken(outputPrice),
+										cachedInputPrice: cachedInputPrice
+											? perMillionToPerToken(cachedInputPrice)
+											: undefined,
+										requestPrice: requestPrice || undefined,
+										regionPrices: regionFaresToBody(regionFares),
+										note: note || undefined,
+									},
 						});
 					}}
 				>
-					{canonicalModel && (
+					{canonicalModel && !model.decisions && (
 						<CataloguePriceButton
 							model={canonicalModel}
 							providerId={model.providerId}
@@ -2620,31 +2628,35 @@ export function FileFareDialog({
 								required
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="fare-output">Output $/1M tokens</Label>
-							<Input
-								id="fare-output"
-								data-testid="fare-output-price"
-								value={outputPrice}
-								onChange={(e) => setOutputPrice(e.target.value)}
-								placeholder="6"
-								required
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="fare-cached">Cached input $/1M tokens</Label>
-							<Input
-								id="fare-cached"
-								data-testid="fare-cached-input-price"
-								value={cachedInputPrice}
-								onChange={(e) => setCachedInputPrice(e.target.value)}
-								placeholder="0.5"
-							/>
-							<CachedPriceWarning
-								inputPrice={inputPrice}
-								cachedInputPrice={cachedInputPrice}
-							/>
-						</div>
+						{model.decisions ? null : (
+							<>
+								<div className="space-y-2">
+									<Label htmlFor="fare-output">Output $/1M tokens</Label>
+									<Input
+										id="fare-output"
+										data-testid="fare-output-price"
+										value={outputPrice}
+										onChange={(e) => setOutputPrice(e.target.value)}
+										placeholder="6"
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="fare-cached">Cached input $/1M tokens</Label>
+									<Input
+										id="fare-cached"
+										data-testid="fare-cached-input-price"
+										value={cachedInputPrice}
+										onChange={(e) => setCachedInputPrice(e.target.value)}
+										placeholder="0.5"
+									/>
+									<CachedPriceWarning
+										inputPrice={inputPrice}
+										cachedInputPrice={cachedInputPrice}
+									/>
+								</div>
+							</>
+						)}
 						<div className="space-y-2">
 							<Label htmlFor="fare-request">Per-request $</Label>
 							<Input
@@ -2656,11 +2668,13 @@ export function FileFareDialog({
 							/>
 						</div>
 					</div>
-					<RegionFaresEditor
-						idPrefix="fare"
-						rows={regionFares}
-						onChange={setRegionFares}
-					/>
+					{model.decisions ? null : (
+						<RegionFaresEditor
+							idPrefix="fare"
+							rows={regionFares}
+							onChange={setRegionFares}
+						/>
+					)}
 					<div className="space-y-2">
 						<Label htmlFor="fare-note">Note</Label>
 						<Textarea

@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { and, desc, eq, ne, tables } from "@llmgateway/db";
 
 import { materializeAirsideModel } from "./airside-catalogue.js";
+import { assertListingKind } from "./airside-decisions.js";
 
 import type { CatalogueTransaction } from "./airside-catalogue.js";
 
@@ -57,6 +58,7 @@ export async function lockRelistableListing(
 		});
 	}
 	await verify?.(locked);
+	await assertListingKind(locked.modelName, locked.decisions);
 	const [fare] = await tx
 		.select()
 		.from(tables.providerPriceFiling)

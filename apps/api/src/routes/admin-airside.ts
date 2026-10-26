@@ -17,6 +17,7 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { referenceContextSizes } from "@/lib/airside-context-size.js";
+import { assertListingKind } from "@/lib/airside-decisions.js";
 import { delistAirsideListing } from "@/lib/airside-delist.js";
 import {
 	airsideModelMetadataSchema,
@@ -576,6 +577,9 @@ adminAirside.openapi(approveFiling, async (c) => {
 			.$withCache(false);
 		if (!model) {
 			throw new HTTPException(404, { message: "Model not found" });
+		}
+		if (filing.kind === "initial") {
+			await assertListingKind(model.modelName, model.decisions);
 		}
 		// Guard on status inside the UPDATE so two concurrent reviews cannot
 		// both apply — the loser sees zero rows and conflicts.
