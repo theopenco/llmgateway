@@ -65,6 +65,9 @@ export function InternalClassifierCheckExport() {
 				`internal-classifier-checks-${decision}-${query.from}_to_${query.to}.csv`,
 				data,
 			);
+		} catch (thrown) {
+			// A failed page errors the response stream, rejecting the body read.
+			toast.error(apiErrorMessage(thrown, "Export failed"));
 		} finally {
 			setPending(false);
 		}

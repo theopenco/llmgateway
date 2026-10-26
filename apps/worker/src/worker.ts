@@ -1016,7 +1016,14 @@ export async function cleanupExpiredInternalClassifierChecks(): Promise<void> {
 			const deleted = await db
 				.delete(table)
 				.where(
-					sql`${table.id} IN (SELECT ${table.id} FROM ${table} WHERE ${table.createdAt} < ${cutoffDate} LIMIT ${INTERNAL_CLASSIFIER_CHECK_CLEANUP_BATCH_SIZE})`,
+					inArray(
+						table.id,
+						db
+							.select({ id: table.id })
+							.from(table)
+							.where(lt(table.createdAt, cutoffDate))
+							.limit(INTERNAL_CLASSIFIER_CHECK_CLEANUP_BATCH_SIZE),
+					),
 				)
 				.returning({ id: table.id });
 			totalDeleted += deleted.length;

@@ -168,6 +168,22 @@ describe("admin internal classifier check export", () => {
 		expect(new Set(requestIds).size).toBe(10_004);
 	});
 
+	test("neutralizes formula triggers but keeps negative hashes", async () => {
+		await db
+			.insert(tables.internalClassifierCheck)
+			.values({ ...check(30, "allow", "formula"), requestId: "=HYPERLINK(1)" });
+
+		const res = await app.request(exportUrl(window), {
+			headers: { Cookie: cookie },
+		});
+
+		const line = (await res.text())
+			.split("\n")
+			.find((l) => l.includes("HYPERLINK"));
+		expect(line?.split(",")[15]).toBe("'=HYPERLINK(1)");
+		expect(line?.split(",")[9]).toBe("-121594583441436065");
+	});
+
 	test("rejects a full export longer than a day", async () => {
 		const res = await app.request(
 			exportUrl({

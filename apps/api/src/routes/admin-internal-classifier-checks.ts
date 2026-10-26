@@ -83,13 +83,16 @@ type CheckRow = {
 	id: string;
 } & Omit<typeof table.$inferSelect, "id" | "createdAt">;
 
-// Quote-only escaping: values are classifier slugs, hashes and our ids, and a
-// spreadsheet formula guard would rewrite negative band keys.
+// Request ids can come from the client, so formula triggers are neutralized;
+// "-" is not among them, which keeps negative hashes and band keys intact.
 function csvField(value: unknown): string {
 	if (value === null || value === undefined) {
 		return "";
 	}
-	const text = String(value);
+	let text = String(value);
+	if (/^[=+@\t\r]/.test(text)) {
+		text = `'${text}`;
+	}
 	return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
