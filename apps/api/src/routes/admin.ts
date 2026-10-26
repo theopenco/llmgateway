@@ -10746,6 +10746,9 @@ const providerModelStatsSchema = z.object({
 	mappingId: z.string(),
 	region: z.string().nullable(),
 	status: z.string(),
+	// Set while the carrier has paused its Airside listing of this model, which
+	// takes the mapping out of service.
+	airsidePausedAt: z.string().nullable(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
@@ -11054,7 +11057,7 @@ admin.openapi(getProviderDetail, async (c) => {
 				}),
 				db.query.providerDraftModel.findMany({
 					where: { providerId: { eq: providerId }, status: { eq: "active" } },
-					columns: { modelName: true },
+					columns: { modelName: true, pausedAt: true },
 					orderBy: { modelName: "asc" },
 				}),
 				db.query.providerCompanyMember.findMany({
@@ -11080,6 +11083,11 @@ admin.openapi(getProviderDetail, async (c) => {
 		};
 	};
 
+	const pausedAtByModel = new Map(
+		carrierModels.flatMap((m) =>
+			m.pausedAt ? [[m.modelName, m.pausedAt.toISOString()] as const] : [],
+		),
+	);
 	const modelsOut = mappings.map((m) => {
 		const s = statsByModel.get(m.modelId);
 		const logsCount = Number(s?.logsCount ?? 0);
@@ -11101,6 +11109,7 @@ admin.openapi(getProviderDetail, async (c) => {
 			mappingId: m.id,
 			region: m.region,
 			status: m.status,
+			airsidePausedAt: pausedAtByModel.get(m.modelId) ?? null,
 			logsCount,
 			errorsCount: Number(s?.errorsCount ?? 0),
 			clientErrorsCount: Number(s?.clientErrorsCount ?? 0),

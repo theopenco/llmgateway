@@ -2877,6 +2877,27 @@ describe("airside provider portal", () => {
 		expect(pausedModel.pausedAt).toEqual(expect.any(String));
 		expect(pausedModel.currentPricing).not.toBeNull();
 		expect(await mappingStatus()).toEqual(["inactive"]);
+		// Admin sees why the listing is out of service.
+		const adminListings = await app.request(
+			"/admin/airside/listings?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await adminListings.json()).listings[0]).toMatchObject({
+			status: "active",
+			pausedAt: pausedModel.pausedAt,
+		});
+		const providerDetail = await app.request("/admin/providers/mistral", {
+			headers: { Cookie: cookie },
+		});
+		expect(providerDetail.status).toBe(200);
+		expect(
+			(await providerDetail.json()).models.find(
+				(row: { modelId: string }) => row.modelId === "mistral-large-3",
+			),
+		).toMatchObject({
+			status: "inactive",
+			airsidePausedAt: pausedModel.pausedAt,
+		});
 		const pausedAgain = await app.request(
 			`/airside/models/${model.id}/pause`,
 			json(cookie),
