@@ -1,9 +1,10 @@
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
-import { db } from "@llmgateway/db";
+import { and, db, eq, ne, tables } from "@llmgateway/db";
 import { models as catalogueModels } from "@llmgateway/models";
 
+import type { CatalogueTransaction } from "./airside-catalogue.js";
 import type { ModelDefinition } from "@llmgateway/models";
 
 /**
@@ -40,10 +41,13 @@ function kindLabel(decisions: boolean): string {
 /**
  * A model id serves one endpoint: every listing under it, and the catalogue
  * entry of the same id, must agree on whether it is a decision model.
+ * Inside an activation transaction, every live listing under the name is
+ * locked first, so two activations of opposite kinds cannot both pass.
  */
 export async function assertListingKind(
 	modelName: string,
 	decisions: boolean,
+	tx?: CatalogueTransaction,
 ): Promise<void> {
 	const catalogueModel = catalogueModelFor(modelName);
 	if (catalogueModel) {
@@ -57,14 +61,33 @@ export async function assertListingKind(
 	}
 	// Only listings in service fix a model's kind; drafts are checked again
 	// when their initial filing is approved.
-	const conflicting = await db.query.providerDraftModel.findFirst({
-		where: {
-			modelName: { eq: modelName },
-			status: { eq: "active" },
-			decisions: { eq: !decisions },
-		},
-		columns: { id: true },
-	});
+	const listings = tx
+		? await tx
+				.select({
+					status: tables.providerDraftModel.status,
+					decisions: tables.providerDraftModel.decisions,
+				})
+				.from(tables.providerDraftModel)
+				.where(
+					and(
+						eq(tables.providerDraftModel.modelName, modelName),
+						ne(tables.providerDraftModel.status, "delisted"),
+					),
+				)
+				.orderBy(tables.providerDraftModel.id)
+				.for("update")
+				// A cached read would skip the row locks entirely.
+				.$withCache(false)
+		: await db.query.providerDraftModel.findMany({
+				where: {
+					modelName: { eq: modelName },
+					status: { eq: "active" },
+				},
+				columns: { status: true, decisions: true },
+			});
+	const conflicting = listings.some(
+		(listing) => listing.status === "active" && listing.decisions !== decisions,
+	);
 	if (conflicting) {
 		throw new HTTPException(409, {
 			message: `${modelName} is already listed as ${kindLabel(!decisions)} and cannot be listed as ${kindLabel(decisions)}.`,

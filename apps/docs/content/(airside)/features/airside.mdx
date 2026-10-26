@@ -96,7 +96,7 @@ The gateway translates every caller's web search — a `web_search` tool, `web_s
 
 ### Decision models
 
-Set **Model type** to **Typed decisions** to list a decision model: one that answers typed questions with probabilities instead of generating text. Developers call it on LLM Gateway's [`/v1/decisions`](/features/decisions) endpoint, and the gateway forwards the request unchanged to `<base URL>/v1/decisions` on your API, so your endpoint must implement OpenAI's Decisions API:
+Set **Model type** to **Typed decisions** to list a decision model: one that answers typed questions with probabilities instead of generating text. Developers call it on LLM Gateway's [`/v1/decisions`](/features/decisions) endpoint, and the gateway forwards the request to `<base URL>/v1/decisions` on your API with `input` and `questions` as sent, `model` set to your upstream model ID, and no `safety_identifier`. Your endpoint must implement OpenAI's Decisions API:
 
 - Accept `POST /v1/decisions` with `model` (your upstream model ID), `input` (a string, or user messages with `input_text` and `input_image` parts), and `questions` (`predicate`, `choice`, and `score`).
 - Return one answer per question in question order, echoing each `name`: a `probability` from 0 to 1 for `predicate`; a `choice` from the offered values with one entry in `probabilities` per value for `choice`; a `score` from 0 to the highest level index with one entry in `probabilities` per level for `score`.

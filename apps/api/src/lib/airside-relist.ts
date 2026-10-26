@@ -58,7 +58,7 @@ export async function lockRelistableListing(
 		});
 	}
 	await verify?.(locked);
-	await assertListingKind(locked.modelName, locked.decisions);
+	await assertListingKind(locked.modelName, locked.decisions, tx);
 	const [fare] = await tx
 		.select()
 		.from(tables.providerPriceFiling)

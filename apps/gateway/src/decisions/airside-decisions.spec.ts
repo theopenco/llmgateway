@@ -253,10 +253,15 @@ describe("airside decision listings", () => {
 			body: JSON.stringify({
 				model: "decide-fast",
 				state: "hi",
-				questions: { q: { type: "noul" } },
+				questions: {
+					q: { type: "noul", instructions: "Is this an outage?" },
+				},
 			}),
 		});
 		expect(systemOne.status).toBe(400);
+		expect(await systemOne.text()).toContain(
+			"Use /v1/decisions for this model.",
+		);
 		expect(captured).toHaveLength(0);
 	});
 

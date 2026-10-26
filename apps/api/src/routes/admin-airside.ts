@@ -579,7 +579,7 @@ adminAirside.openapi(approveFiling, async (c) => {
 			throw new HTTPException(404, { message: "Model not found" });
 		}
 		if (filing.kind === "initial") {
-			await assertListingKind(model.modelName, model.decisions);
+			await assertListingKind(model.modelName, model.decisions, tx);
 		}
 		// Guard on status inside the UPDATE so two concurrent reviews cannot
 		// both apply — the loser sees zero rows and conflicts.

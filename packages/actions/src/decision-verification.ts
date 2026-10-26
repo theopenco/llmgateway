@@ -298,10 +298,11 @@ function decisionsEndpoint(options: RunDecisionVerificationOptions): {
 			`Provider ${options.target.providerId} has no registered endpoint.`,
 		);
 	}
-	return {
-		url: `${baseUrl.replace(/\/+$/, "")}${DECISIONS_UPSTREAM_PATH}`,
-		provider,
-	};
+	let root = baseUrl;
+	while (root.endsWith("/")) {
+		root = root.slice(0, -1);
+	}
+	return { url: `${root}${DECISIONS_UPSTREAM_PATH}`, provider };
 }
 
 async function sendDecisionRequest(
