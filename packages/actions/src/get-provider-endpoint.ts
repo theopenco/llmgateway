@@ -53,6 +53,11 @@ function getBedrockMantleBaseUrl(
 	if (url.includes("/openai/v1")) {
 		return url.replace("/openai/v1", basePath);
 	}
+	// A base URL that already carries the `/v1` base path (AWS documents it
+	// that way for gpt-oss) is used as-is.
+	if (basePath === "/v1" && /\/v1\/?$/.test(new URL(url).pathname)) {
+		return url.replace(/\/$/, "");
+	}
 	if (url.includes("bedrock-mantle.")) {
 		return appendPath(url, basePath);
 	}

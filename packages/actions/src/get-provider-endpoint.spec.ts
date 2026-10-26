@@ -1331,12 +1331,36 @@ describe("getProviderEndpoint", () => {
 				endpoint:
 					"https://bedrock-mantle.eu-west-2.api.aws/v1/chat/completions",
 			},
+			{
+				model: "gpt-oss-20b",
+				region: "us-east-1",
+				baseUrl: "https://bedrock-mantle.us-east-1.api.aws/v1",
+				endpoint:
+					"https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions",
+			},
+			{
+				model: "gpt-oss-120b",
+				region: "us-east-1",
+				baseUrl: "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
+				endpoint:
+					"https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions",
+			},
 		])(
 			"routes $model through the Bedrock Mantle /v1 endpoint in $region",
-			({ model, region, endpoint: expectedEndpoint }) => {
+			({
+				model,
+				region,
+				baseUrl,
+				endpoint: expectedEndpoint,
+			}: {
+				model: string;
+				region: string;
+				baseUrl?: string;
+				endpoint: string;
+			}) => {
 				const endpoint = getProviderEndpoint(
 					"aws-bedrock",
-					undefined,
+					baseUrl,
 					model,
 					undefined,
 					false,
