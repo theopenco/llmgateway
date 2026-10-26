@@ -62,42 +62,55 @@ const LOCKING_TABLE_RES = [
 	new RegExp(String.raw`^\s*insert\s+into\s+(${QUALIFIED})`, "i"),
 	CREATE_INDEX_RE,
 ];
-/** Changes the previous release cannot run against; see CONTRACT_MARKER. */
+/** Blanks string literals and quoted identifiers so keywords in names don't match. */
+function bareSql(sql: string): string {
+	return sql.replace(/'(?:[^']|'')*'/g, "''").replace(/"(?:[^"]|"")*"/g, '""');
+}
+
+/**
+ * Changes the previous release cannot run against; see CONTRACT_MARKER. Tests
+ * receive the statement with names blanked (bareSql) and as written.
+ */
 const CONTRACT_RULES: {
 	rule: LintFinding["rule"];
-	test: (sql: string) => boolean;
+	test: (bare: string, sql: string) => boolean;
 	message: string;
 }[] = [
 	{
 		rule: "drop-column",
-		test: (sql) => /\bdrop\s+column\b/i.test(sql),
+		test: (bare) => /\bdrop\s+column\b/i.test(bare),
 		message:
 			"DROP COLUMN breaks the previous release, which still selects and inserts the column.",
 	},
 	{
 		rule: "rename",
-		test: (sql) => /\brename\b/i.test(sql),
+		test: (bare) => /\brename\b/i.test(bare),
 		message:
 			"RENAME breaks the previous release, which still uses the old name. Add the new column, dual-write, backfill, then drop the old one.",
 	},
 	{
 		rule: "drop-constraint",
-		test: (sql) => /\bdrop\s+constraint\b/i.test(sql),
+		// Foreign key drops (Drizzle names them *_fk) only relax the schema.
+		test: (bare, sql) =>
+			/\bdrop\s+constraint\b/i.test(bare) &&
+			!/\bdrop\s+constraint\s+(?:if\s+exists\s+)?"?[\w$]*_fk"?\s*;?\s*$/i.test(
+				sql,
+			),
 		message:
-			"DROP CONSTRAINT can break the previous release's ON CONFLICT targets. Add the new constraint or index first and drop the old one once nothing targets it.",
+			"DROP CONSTRAINT can break the previous release's ON CONFLICT targets. Add the new constraint or index first and drop the old one once nothing targets it; a CHECK drop is safe to mark.",
 	},
 	{
 		rule: "add-not-null-without-default",
-		test: (sql) =>
-			/\badd\s+column\b/i.test(sql) &&
-			/\bnot\s+null\b/i.test(sql) &&
-			!/\bdefault\b/i.test(sql),
+		test: (bare) =>
+			/\badd\s+column\b/i.test(bare) &&
+			/\bnot\s+null\b/i.test(bare) &&
+			!/\b(?:default|generated)\b/i.test(bare),
 		message:
 			"ADD COLUMN ... NOT NULL without a DEFAULT fails the previous release's inserts, which do not set it. Add a DEFAULT or make it nullable.",
 	},
 	{
 		rule: "drop-default",
-		test: (sql) => /\balter\s+column\s+\S+\s+drop\s+default\b/i.test(sql),
+		test: (bare) => /\balter\s+column\s+\S+\s+drop\s+default\b/i.test(bare),
 		message:
 			"DROP DEFAULT can fail the previous release's inserts, which rely on the default.",
 	},
@@ -138,7 +151,8 @@ export interface LintFinding {
 		| "rename"
 		| "drop-constraint"
 		| "add-not-null-without-default"
-		| "drop-default";
+		| "drop-default"
+		| "drop-index";
 	message: string;
 	statement?: string;
 }
@@ -367,6 +381,7 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 			continue;
 		}
 
+		const contracted = hasMarkerReason([statement], CONTRACT_MARKER);
 		const drop = DROP_INDEX_RE.exec(sql);
 		if (drop) {
 			if (!drop[2]) {
@@ -377,10 +392,16 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 					statement: sql,
 				});
 			}
+			if (!contracted) {
+				findings.push({
+					rule: "drop-index",
+					message: `Dropping a unique index breaks the previous release's ON CONFLICT targets. Create the replacement first and drop the old one once nothing targets it, or mark a non-unique index. ${CONTRACT_HINT}`,
+					statement: sql,
+				});
+			}
 			continue;
 		}
 
-		const contracted = hasMarkerReason([statement], CONTRACT_MARKER);
 		const dropTable = DROP_TABLE_RE.exec(sql);
 		if (dropTable) {
 			if (!isNew(dropTable[1]) && !contracted) {
@@ -399,8 +420,9 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 		}
 		lockedExisting.add(relationName(alter[1]));
 		if (!contracted) {
+			const bare = bareSql(sql);
 			for (const { rule, test, message } of CONTRACT_RULES) {
-				if (test(sql)) {
+				if (test(bare, sql)) {
 					findings.push({
 						rule,
 						message: `${message} ${CONTRACT_HINT}`,

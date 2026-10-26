@@ -58,25 +58,27 @@ migrations created since the lint was added:
 
 ## Backward compatibility
 
-Migrations run before rollout and a failed rollout's `kubectl rollout undo`
-never reverts them, so the previous release runs on the new schema during every
-rollout and indefinitely after a rollback. Drizzle names every `schema.ts`
-column in each SELECT, RETURNING, and INSERT, so a column the previous release
-still declares must still exist. Additive changes (new tables, nullable columns,
-columns with a DEFAULT) are safe.
+Migrations run before rollout and are never reverted, so the previous release
+runs on the new schema during every rollout and after any rollback. Drizzle
+names every `schema.ts` column in each SELECT, RETURNING, and INSERT, so a
+column the previous release still declares must still exist. Additive changes
+(new tables, nullable columns, columns with a DEFAULT) are safe.
 
 Remove a column or table in two deployed PRs:
 
 1. Remove every use and the field from `schema.ts`, without a migration.
 2. After step 1 is deployed, run `pnpm migrations --name drop_<table>_<column>`
-   and put `-- migrate:contract #<step 1 PR>` above the DROP.
+   and put `-- migrate:contract #<step 1 PR>` above the DROP. Until it merges,
+   every `pnpm migrations` run emits that DROP.
 
 Rename by adding the new column, writing both, backfilling, switching reads,
-then dropping the old one. Change a unique constraint by adding the new one
-first and dropping the old one once no deployed `onConflict` targets it.
-`pnpm migrations:lint` flags DROP TABLE/COLUMN, RENAME, DROP CONSTRAINT, DROP
-DEFAULT, and ADD COLUMN NOT NULL without DEFAULT unless the statement carries
-`-- migrate:contract <reason>`.
+then dropping the old one. Change a unique constraint or index by adding the new
+one first and dropping the old one once no deployed `onConflict` targets it.
+`pnpm migrations:lint` flags DROP TABLE/COLUMN/INDEX, RENAME, DROP CONSTRAINT
+(except `*_fk`), DROP DEFAULT, and ADD COLUMN NOT NULL without DEFAULT unless
+the statement carries `-- migrate:contract <reason>`. A `-- migrate:reviewed`
+reason on SET NOT NULL or a type change must also cover what the previous
+release writes.
 
 ## Editing generated migrations
 

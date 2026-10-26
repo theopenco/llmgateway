@@ -80,6 +80,23 @@ describe("lintMigrationSql", () => {
 		).toEqual(["drop-column"]);
 	});
 
+	it("ignores keywords inside names, foreign key drops, and generated columns", () => {
+		const sql = [
+			`ALTER TABLE "project" ADD COLUMN "rename_mode" text DEFAULT 'drop column';`,
+			`ALTER TABLE "project" DROP CONSTRAINT "project_org_id_organization_id_fk";`,
+			`ALTER TABLE "project" ADD COLUMN "total" integer GENERATED ALWAYS AS (1) STORED NOT NULL;`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql)).toEqual([]);
+	});
+
+	it("flags dropping an index the previous release may target", () => {
+		const sql = `DROP INDEX IF EXISTS "rate_limit_org_provider_model_unique";`;
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual(["drop-index"]);
+		expect(lintMigrationSql(`-- migrate:contract not unique\n${sql}`)).toEqual(
+			[],
+		);
+	});
+
 	it("allows additive changes and contract changes on new tables", () => {
 		const sql = [
 			`CREATE TABLE "feature" ("id" text PRIMARY KEY NOT NULL, "x" text);`,
@@ -97,10 +114,11 @@ describe("lintMigrationSql", () => {
 		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([
 			"create-index-if-not-exists",
 			"drop-index-if-exists",
+			"drop-index",
 		]);
 		expect(
 			lintMigrationSql(
-				`CREATE INDEX IF NOT EXISTS "log_x_idx" ON "log" ("x");\n${BP}\nDROP INDEX IF EXISTS "log_y_idx";`,
+				`CREATE INDEX IF NOT EXISTS "log_x_idx" ON "log" ("x");\n${BP}\n-- migrate:contract not unique\nDROP INDEX IF EXISTS "log_y_idx";`,
 			),
 		).toEqual([]);
 	});
