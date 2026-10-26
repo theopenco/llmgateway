@@ -1,9 +1,14 @@
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
+import {
+	airsideListingToModelDefinition,
+	resolveAirsideProviderBaseUrl,
+} from "@/chat/tools/resolve-airside-model.js";
 import {
 	getCredentialSetting,
 	resolvePlatformCredential,
@@ -28,7 +33,9 @@ import {
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
+	findAirsidePairsByBareName,
 	findApiKeyByToken,
+	findEffectiveDiscount,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
@@ -50,6 +57,8 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
+import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -78,30 +87,74 @@ import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
+/**
+ * The wire format a decision mapping speaks upstream. OpenAI and every Airside
+ * carrier serve the OpenAI-compatible `POST /v1/decisions`; TypeSafe and Azure
+ * (Microsoft-Decision-1) speak TypeSafe's System One.
+ */
+export type DecisionWireFormat = "openai" | "system-one";
+
 interface DecisionMappingMatch {
 	mapping: ProviderModelMapping;
 	modelDef: ModelDefinition;
 	modelDefId: string;
 	explicitProvider: boolean;
+	wireFormat: DecisionWireFormat;
+	/** Served by an approved Airside listing rather than the static catalogue. */
+	airside: boolean;
 }
 
-/**
- * Resolves a requested decision model to its provider mapping. `unsupported`
- * reports a decision model that exists but is only served by providers the
- * calling endpoint can't speak to, so the caller can point at the right one.
- */
-export function findDecisionMapping(
-	modelId: string,
-	supportsProvider: (providerId: string) => boolean = () => true,
+type SupportsDecisionProvider = (
+	providerId: string,
+	wireFormat: DecisionWireFormat,
+) => boolean;
+
+function splitRequestedModel(modelId: string): {
+	requestedProvider: string | undefined;
+	modelKey: string;
+} {
+	const slashIdx = modelId.indexOf("/");
+	return slashIdx > 0
+		? {
+				requestedProvider: modelId.slice(0, slashIdx),
+				modelKey: modelId.slice(slashIdx + 1),
+			}
+		: { requestedProvider: undefined, modelKey: modelId };
+}
+
+function pickDecisionMatch(
+	candidates: Omit<DecisionMappingMatch, "explicitProvider">[],
+	requestedProvider: string | undefined,
+	supportsProvider: SupportsDecisionProvider,
 ): { match: DecisionMappingMatch | null; unsupported: boolean } {
 	let unsupported = false;
-	let requestedProvider: string | undefined;
-	let modelKey = modelId;
-	const slashIdx = modelId.indexOf("/");
-	if (slashIdx > 0) {
-		requestedProvider = modelId.slice(0, slashIdx);
-		modelKey = modelId.slice(slashIdx + 1);
+	for (const candidate of candidates) {
+		if (
+			requestedProvider &&
+			candidate.mapping.providerId !== requestedProvider
+		) {
+			continue;
+		}
+		if (!supportsProvider(candidate.mapping.providerId, candidate.wireFormat)) {
+			unsupported = true;
+			continue;
+		}
+		return {
+			match: {
+				...candidate,
+				explicitProvider: requestedProvider !== undefined,
+			},
+			unsupported: false,
+		};
 	}
+	return { match: null, unsupported };
+}
+
+function staticDecisionCandidates(
+	modelKey: string,
+	airsideOwnedPairs: ReadonlySet<string> = new Set(),
+): Omit<DecisionMappingMatch, "explicitProvider">[] {
+	const candidates: Omit<DecisionMappingMatch, "explicitProvider">[] = [];
 	for (const model of modelDefinitions as ModelDefinition[]) {
 		// The provider's own moving aliases (`jev-latest`) resolve to the pinned
 		// catalogue entry, so a request is always billed and logged against the
@@ -111,28 +164,103 @@ export function findDecisionMapping(
 		}
 		for (const mapping of model.providers) {
 			const candidate = mapping as ProviderModelMapping;
-			if (!candidate.decisions) {
+			if (
+				!candidate.decisions ||
+				airsideOwnedPairs.has(`${model.id}:${candidate.providerId}`)
+			) {
 				continue;
 			}
-			if (requestedProvider && candidate.providerId !== requestedProvider) {
-				continue;
-			}
-			if (!supportsProvider(candidate.providerId)) {
-				unsupported = true;
-				continue;
-			}
-			return {
-				match: {
-					mapping: candidate,
-					modelDef: model,
-					modelDefId: model.id,
-					explicitProvider: requestedProvider !== undefined,
-				},
-				unsupported: false,
-			};
+			candidates.push({
+				mapping: candidate,
+				modelDef: model,
+				modelDefId: model.id,
+				wireFormat: candidate.providerId === "openai" ? "openai" : "system-one",
+				airside: false,
+			});
 		}
 	}
-	return { match: null, unsupported };
+	return candidates;
+}
+
+/**
+ * Resolves a requested decision model across the static catalogue and
+ * approved Airside decision listings. A listing owns its pair: a paused or
+ * delisted one keeps the static mapping of the same pair out of service too.
+ */
+export async function resolveDecisionMapping(
+	modelId: string,
+	supportsProvider: SupportsDecisionProvider = () => true,
+): Promise<{ match: DecisionMappingMatch | null; unsupported: boolean }> {
+	const { requestedProvider, modelKey } = splitRequestedModel(modelId);
+	let owned = await findAirsidePairsByBareName(modelKey);
+	if (owned.listings.length === 0 && owned.unlisted.length === 0) {
+		const canonical = (modelDefinitions as ModelDefinition[]).find((model) =>
+			model.aliases?.includes(modelKey),
+		);
+		if (canonical) {
+			owned = await findAirsidePairsByBareName(canonical.id);
+		}
+	}
+	const airsideOwnedPairs = new Set([
+		...owned.unlisted.map((pair) => `${pair.modelId}:${pair.providerId}`),
+		...owned.listings.map(
+			(listed) => `${listed.mapping.modelId}:${listed.mapping.providerId}`,
+		),
+	]);
+	const now = new Date();
+	// Static mappings win a bare id; among carriers the cheapest listing does,
+	// with the provider id as a stable tie-break.
+	const airsideCandidates = [...owned.listings]
+		.sort(
+			(left, right) =>
+				new Decimal(left.mapping.inputPrice ?? "0").comparedTo(
+					right.mapping.inputPrice ?? "0",
+				) || left.mapping.providerId.localeCompare(right.mapping.providerId),
+		)
+		.filter(
+			(listed) =>
+				listed.mapping.decisions &&
+				(!listed.mapping.deactivatedAt || listed.mapping.deactivatedAt > now),
+		)
+		.map((listed) => {
+			const { mapping, modelInfo } = airsideListingToModelDefinition(listed);
+			return {
+				mapping,
+				modelDef: modelInfo,
+				modelDefId: modelInfo.id,
+				wireFormat: "openai" as const,
+				airside: true,
+			};
+		});
+	return pickDecisionMatch(
+		[
+			...staticDecisionCandidates(modelKey, airsideOwnedPairs),
+			...airsideCandidates,
+		],
+		requestedProvider,
+		supportsProvider,
+	);
+}
+
+/** Flat token estimate per input image: one high-detail 512px tile. */
+const ESTIMATED_TOKENS_PER_IMAGE = 765;
+
+/**
+ * Input tokens for a request whose response reported no usable count: about
+ * four characters per token of text, plus a flat amount per image so a large
+ * inline image is not billed by its base64 length.
+ */
+export function estimateInputTokens(body: Record<string, unknown>): number {
+	let images = 0;
+	const text = JSON.stringify(body, (key, value: unknown) => {
+		if (key === "image_url" && typeof value === "string") {
+			images++;
+			return "";
+		}
+		return value;
+	});
+	const imageTokens = images * ESTIMATED_TOKENS_PER_IMAGE;
+	return Math.ceil(text.length / 4) + imageTokens;
 }
 
 /** Reports a misconfigured Azure resource as a 400 rather than a bare 500. */
@@ -194,9 +322,11 @@ export interface DecisionEndpoint {
 	requestedModel: string;
 	/** One-line request summary stored as the log's user message. */
 	logSummary: string;
-	supportsProvider?: (providerId: string) => boolean;
+	supportsProvider?: SupportsDecisionProvider;
 	/** Hint appended when the model exists but this endpoint can't serve it. */
 	unsupportedModelHint?: string;
+	/** The request carries image input. */
+	hasImageInput?: boolean;
 	/**
 	 * Throw an HTTPException(400) for input the provider can't take.
 	 * `safetyIdentifier` is the authenticating API key's abuse-attribution id.
@@ -205,11 +335,13 @@ export interface DecisionEndpoint {
 		providerId: string,
 		upstreamModel: string,
 		safetyIdentifier: string,
+		wireFormat: DecisionWireFormat,
 	) => DecisionUpstreamRequest;
 	normalizeResponse: (
 		providerId: string,
 		upstream: Record<string, unknown>,
 		responseModel: string,
+		wireFormat: DecisionWireFormat,
 	) => NormalizedDecisionResponse;
 }
 
@@ -283,7 +415,7 @@ export async function handleDecisionRequest(
 
 	const retentionLevel = getEffectiveRetentionLevel(organization);
 
-	const { match, unsupported } = findDecisionMapping(
+	const { match, unsupported } = await resolveDecisionMapping(
 		requestedModel,
 		endpoint.supportsProvider,
 	);
@@ -312,6 +444,8 @@ export async function handleDecisionRequest(
 		modelDef,
 		modelDefId,
 		explicitProvider,
+		wireFormat,
+		airside,
 	} = match;
 	const providerId = decisionMapping.providerId;
 	const upstreamModel = decisionMapping.externalId;
@@ -353,13 +487,60 @@ export async function handleDecisionRequest(
 		model: requestedModel,
 	});
 
+	if (
+		endpoint.hasImageInput &&
+		wireFormat === "openai" &&
+		!decisionMapping.vision
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} accepts text input only; remove the input_image parts.`,
+		});
+	}
+
 	// Translate only once the caller is allowed to use the model, so a denied
 	// caller sees the access error rather than an input error.
 	const upstreamRequest = endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
 		apiKey.safetyIdentifier,
+		wireFormat,
 	);
+
+	// Carrier-set and admin caps for the pair apply as they do on chat.
+	const rateLimit = await checkProviderRateLimit(
+		project.organizationId,
+		providerId,
+		modelDefId,
+	);
+	if (!rateLimit.allowed) {
+		if (rateLimit.retryAfter) {
+			c.header("Retry-After", rateLimit.retryAfter.toString());
+		}
+		const blockedLimits = rateLimit.blockedBy
+			.map(
+				(window) =>
+					`${rateLimit.limits[window].limit} ${providerRateLimitWindows[window].label}`,
+			)
+			.join(" and ");
+		throw new HTTPException(429, {
+			message: `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`,
+		});
+	}
+
+	const discount = new Decimal(
+		(
+			await findEffectiveDiscount(
+				project.organizationId,
+				providerId,
+				modelDefId,
+			)
+		).discount,
+	);
+	// An Airside carrier without a catalogue entry is reached at the endpoint
+	// registered on its approved claim.
+	const airsideBaseUrl = airside
+		? await resolveAirsideProviderBaseUrl(providerId)
+		: undefined;
 
 	const failedKeys = createFailedKeyTracker();
 	const routingAttempts: RoutingAttempt[] = [];
@@ -509,6 +690,7 @@ export async function handleDecisionRequest(
 		const resolvedBaseUrl =
 			(azureResource ? toAzureFoundryBaseUrl(azureResource) : undefined) ??
 			providerKeyInner?.baseUrl ??
+			airsideBaseUrl ??
 			getCredentialSetting(providerId as Provider, "baseUrl", credential, {
 				configIndex,
 				variant: envVariant,
@@ -527,7 +709,7 @@ export async function handleDecisionRequest(
 			configIndex,
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}${upstreamRequest.path}`,
-			tenantBaseUrl: providerKeyInner?.baseUrl ?? null,
+			tenantBaseUrl: providerKeyInner?.baseUrl ?? airsideBaseUrl ?? null,
 			requestBody: upstreamRequest.body,
 		};
 	}
@@ -973,22 +1155,30 @@ export async function handleDecisionRequest(
 				providerId,
 				upstream,
 				responseModel,
+				wireFormat,
 			);
-			const { inputTokens, outputTokens } = normalized;
+			const { outputTokens } = normalized;
+			// Without a usable count the request is billed on an estimate rather
+			// than for free.
+			const inputTokens =
+				normalized.inputTokens ?? estimateInputTokens(attempt.requestBody);
+			const estimatedInput = normalized.inputTokens === null;
 
 			// Decisions are billed on input tokens only; output tokens are free.
 			// Long-context tiers reprice the whole request once input crosses them.
-			const pricingTier =
-				inputTokens !== null
-					? decisionMapping.pricingTiers?.find(
-							(tier) => inputTokens <= tier.upToTokens,
-						)
-					: undefined;
+			const pricingTier = decisionMapping.pricingTiers?.find(
+				(tier) => inputTokens <= tier.upToTokens,
+			);
 			const inputPrice = pricingTier?.inputPrice ?? decisionMapping.inputPrice;
-			const inputCost =
-				inputTokens !== null ? Number(inputPrice ?? "0") * inputTokens : 0;
-			const requestCostNum = Number(decisionMapping.requestPrice ?? "0");
-			const cost = inputCost + requestCostNum;
+			const priceMultiplier = new Decimal(1).minus(discount);
+			const inputCost = new Decimal(inputPrice ?? "0")
+				.times(inputTokens)
+				.times(priceMultiplier)
+				.toNumber();
+			const requestCostNum = new Decimal(decisionMapping.requestPrice ?? "0")
+				.times(priceMultiplier)
+				.toNumber();
+			const cost = new Decimal(inputCost).plus(requestCostNum).toNumber();
 
 			routingAttempts.push(
 				buildRoutingAttempt(
@@ -1023,13 +1213,10 @@ export async function handleDecisionRequest(
 					content: JSON.stringify(normalized.logContent ?? null).slice(0, 1000),
 					reasoningContent: null,
 					finishReason: "stop",
-					promptTokens: inputTokens !== null ? inputTokens.toString() : null,
+					promptTokens: inputTokens.toString(),
 					completionTokens:
 						outputTokens !== null ? outputTokens.toString() : null,
-					totalTokens:
-						inputTokens !== null
-							? (inputTokens + (outputTokens ?? 0)).toString()
-							: null,
+					totalTokens: (inputTokens + (outputTokens ?? 0)).toString(),
 					reasoningTokens: null,
 					cachedTokens: null,
 					hasError: false,
@@ -1046,8 +1233,8 @@ export async function handleDecisionRequest(
 					imageInputCost: null,
 					imageOutputCost: null,
 					cost,
-					estimatedCost: inputTokens === null,
-					discount: null,
+					estimatedCost: estimatedInput,
+					discount: discount.isZero() ? null : discount.toNumber(),
 					pricingTier: pricingTier?.name ?? null,
 					dataStorageCost: calculateDataStorageCost(
 						inputTokens,

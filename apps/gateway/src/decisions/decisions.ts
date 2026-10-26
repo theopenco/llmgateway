@@ -5,11 +5,15 @@ import {
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
 
-import { getDecisionsUpstreamPath } from "@llmgateway/actions";
+import {
+	DECISIONS_UPSTREAM_PATH,
+	getDecisionsUpstreamPath,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import { handleDecisionRequest } from "./handle-decision-request.js";
 import {
+	decisionInputHasImages,
 	fromTypeSafeResponse,
 	toTypeSafeRequest,
 	type DecisionInput,
@@ -179,25 +183,22 @@ function summarizeInput(input: DecisionInput): string {
 	return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
 }
 
+/** A billable token count: a non-negative safe integer, else unknown. */
+function tokenCount(value: unknown): number | null {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: null;
+}
+
 function readUsage(upstream: Record<string, unknown>) {
 	const usage =
 		upstream.usage && typeof upstream.usage === "object"
 			? (upstream.usage as Record<string, unknown>)
 			: {};
 	return {
-		inputTokens:
-			typeof usage.input_tokens === "number" ? usage.input_tokens : null,
-		outputTokens:
-			typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+		inputTokens: tokenCount(usage.input_tokens),
+		outputTokens: tokenCount(usage.output_tokens),
 	};
-}
-
-/**
- * OpenAI serves its own Decisions API. TypeSafe and Azure (Microsoft-Decision-1)
- * speak TypeSafe's System One format, so their requests are translated.
- */
-function speaksOpenAIDecisions(providerId: string): boolean {
-	return providerId === "openai";
 }
 
 // Schema failures use the OpenAI error envelope, like every other error on
@@ -303,28 +304,44 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 		requestId,
 		rawBody,
 		requestedModel: request.model,
+		hasImageInput: decisionInputHasImages(request.input),
 		logSummary: `input: ${summarizeInput(request.input)}\nquestions: ${request.questions
 			.map(
 				(question, index) =>
 					`${question.name ?? `#${index + 1}`} (${question.type})`,
 			)
 			.join(", ")}`,
-		buildUpstreamRequest: (providerId, upstreamModel, safetyIdentifier) => ({
-			path: getDecisionsUpstreamPath(providerId as ProviderId),
-			body: speaksOpenAIDecisions(providerId)
-				? {
-						model: upstreamModel,
-						input: request.input,
-						questions: request.questions,
-						// The client's value is replaced so abuse reports map to a key.
-						safety_identifier: safetyIdentifier,
-					}
-				: toTypeSafeRequest(upstreamModel, request),
+		// System One providers get a translated request; OpenAI and Airside
+		// carriers take the OpenAI-compatible body as-is.
+		buildUpstreamRequest: (
+			providerId,
+			upstreamModel,
+			safetyIdentifier,
+			wireFormat,
+		) => ({
+			path:
+				wireFormat === "openai"
+					? DECISIONS_UPSTREAM_PATH
+					: getDecisionsUpstreamPath(providerId as ProviderId),
+			body:
+				wireFormat === "openai"
+					? {
+							model: upstreamModel,
+							input: request.input,
+							questions: request.questions,
+							// OpenAI attributes abuse to it, so the client's value is
+							// replaced by the API key's; Airside carriers get none.
+							...(providerId === "openai"
+								? { safety_identifier: safetyIdentifier }
+								: {}),
+						}
+					: toTypeSafeRequest(upstreamModel, request),
 		}),
-		normalizeResponse: (providerId, upstream, responseModel) => {
-			const body = speaksOpenAIDecisions(providerId)
-				? { ...upstream, model: responseModel }
-				: fromTypeSafeResponse(upstream, request, responseModel);
+		normalizeResponse: (_providerId, upstream, responseModel, wireFormat) => {
+			const body =
+				wireFormat === "openai"
+					? { ...upstream, model: responseModel }
+					: fromTypeSafeResponse(upstream, request, responseModel);
 			return {
 				body,
 				...readUsage(upstream),

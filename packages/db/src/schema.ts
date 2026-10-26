@@ -3822,6 +3822,9 @@ export const modelProviderMapping = snakeCase.table(
 			],
 		}).$type<ProviderApiFormat>(),
 		region: text(),
+		// Airside decision listings, served on `/v1/decisions`. Static rows
+		// keep their catalogue definition.
+		decisions: boolean().notNull().default(false),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
 			.default("catalogue"),
@@ -5916,6 +5919,9 @@ export const providerDraftModel = snakeCase.table(
 			.$type<ProviderApiFormat>()
 			.notNull()
 			.default("provider-native"),
+		// Serves typed decisions on the carrier's OpenAI-compatible
+		// `/v1/decisions` instead of chat; set once at registration.
+		decisions: boolean().notNull().default(false),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -6030,6 +6036,8 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** A decision listing, probed on `/v1/decisions` instead of chat. */
+	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */
 	region?: string | null;
 	streaming: boolean;
