@@ -71,7 +71,8 @@ comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Push
 first: `/e2e` refuses a head pushed after the comment. Use it
 for complex gateway or backend changes affecting routing, stability, uptime, or
 provider integration. Never `/e2e` for model-mapping PRs; run those locally with
-`TEST_MODELS`, or dispatch with `test_models` and `full_mode` set.
+`TEST_MODELS`, or, only without local credentials, dispatch with
+`test_models` and `full_mode` set.
 
 ## Writing tests
 
