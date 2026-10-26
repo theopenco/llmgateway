@@ -41,6 +41,12 @@ const CancelPlanDialog = dynamic(
 	() => import("@/app/dashboard/components/CancelPlanDialog"),
 );
 
+// The dialog only mounts on first open; preloading on hover/focus hides the
+// chunk download behind the user's intent.
+function preloadCancelPlanDialog() {
+	void import("@/app/dashboard/components/CancelPlanDialog");
+}
+
 const DevPassPaymentMethod = dynamic(
 	() => import("@/app/dashboard/components/DevPassPaymentMethod"),
 );
@@ -513,6 +519,8 @@ export default function BillingClient({
 								size="sm"
 								disabled={isCancelling}
 								className="text-muted-foreground"
+								onMouseEnter={preloadCancelPlanDialog}
+								onFocus={preloadCancelPlanDialog}
 								onClick={() => {
 									setCancelMounted(true);
 									setCancelOpen(true);
