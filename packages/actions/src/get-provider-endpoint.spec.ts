@@ -1320,6 +1320,42 @@ describe("getProviderEndpoint", () => {
 
 		it.each([
 			{
+				model: "gpt-oss-120b",
+				region: "us-east-1",
+				endpoint:
+					"https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions",
+			},
+			{
+				model: "gpt-oss-20b",
+				region: "eu-west-2",
+				endpoint:
+					"https://bedrock-mantle.eu-west-2.api.aws/v1/chat/completions",
+			},
+		])(
+			"routes $model through the Bedrock Mantle /v1 endpoint in $region",
+			({ model, region, endpoint: expectedEndpoint }) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					undefined,
+					model,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					region,
+					true,
+					model,
+				);
+
+				expect(endpoint).toBe(expectedEndpoint);
+			},
+		);
+
+		it.each([
+			{
 				region: undefined,
 				endpoint:
 					"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions",

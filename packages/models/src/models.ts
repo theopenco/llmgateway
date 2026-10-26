@@ -569,6 +569,18 @@ export interface ProviderModelMapping {
 	 */
 	crossRegionProfiles?: boolean;
 	/**
+	 * AWS Bedrock OpenAI-format mappings only: the Mantle base path. Partner
+	 * models are served under `/openai/v1` (the default); gpt-oss only under
+	 * `/v1`.
+	 */
+	mantleBasePath?: "/v1";
+	/**
+	 * AWS Bedrock only: the mapping and region prices are AWS's in-region rates
+	 * as published, so the default 10% uplift for non-global regions is not
+	 * applied.
+	 */
+	inRegionPricing?: boolean;
+	/**
 	 * Route this Perplexity mapping to the Agent API (`POST /v1/agent`,
 	 * Responses-shaped) instead of Sonar's chat/completions, which Perplexity
 	 * retires on 2026-09-27. Per mapping rather than per provider so the

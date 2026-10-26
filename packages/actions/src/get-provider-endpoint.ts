@@ -45,21 +45,25 @@ function isChatCompletionsUrl(url: string): boolean {
 	);
 }
 
-function getBedrockMantleBaseUrl(url: string, region?: string): string {
+function getBedrockMantleBaseUrl(
+	url: string,
+	region?: string,
+	basePath: "/openai/v1" | "/v1" = "/openai/v1",
+): string {
 	if (url.includes("/openai/v1")) {
-		return url;
+		return url.replace("/openai/v1", basePath);
 	}
 	if (url.includes("bedrock-mantle.")) {
-		return appendPath(url, "/openai/v1");
+		return appendPath(url, basePath);
 	}
 	if (url.includes("bedrock-runtime.")) {
 		const mantleRegion =
 			region === "global" || region === "us"
 				? "us-west-2"
 				: (region ?? "us-west-2");
-		return `https://bedrock-mantle.${mantleRegion}.api.aws/openai/v1`;
+		return `https://bedrock-mantle.${mantleRegion}.api.aws${basePath}`;
 	}
-	return appendPath(url, "/openai/v1");
+	return appendPath(url, basePath);
 }
 
 /**
@@ -675,7 +679,7 @@ export function getProviderEndpoint(
 			);
 		}
 		return appendPath(
-			getBedrockMantleBaseUrl(url, region),
+			getBedrockMantleBaseUrl(url, region, providerMapping?.mantleBasePath),
 			"/chat/completions",
 		);
 	}

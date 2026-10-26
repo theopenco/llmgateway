@@ -65,3 +65,38 @@ describe("expandProviderRegions with peakPricing", () => {
 		});
 	});
 });
+
+describe("expandProviderRegions AWS Bedrock regional uplift", () => {
+	const mapping: ProviderModelMapping = {
+		providerId: "aws-bedrock",
+		externalId: "openai.gpt-oss-120b",
+		streaming: true,
+		inputPrice: "0.15e-6",
+		outputPrice: "0.6e-6",
+		regions: [
+			{ id: "us-east-1" },
+			{ id: "eu-west-2", inputPrice: "0.23e-6", outputPrice: "0.93e-6" },
+		],
+	};
+
+	it("uplifts non-global regions by 10% by default", () => {
+		const [, usEast1, euWest2] = expandProviderRegions(mapping);
+		expect(Number(usEast1.inputPrice)).toBeCloseTo(0.165e-6, 15);
+		expect(Number(euWest2.outputPrice)).toBeCloseTo(1.023e-6, 15);
+	});
+
+	it("keeps published in-region rates as-is with inRegionPricing", () => {
+		const [, usEast1, euWest2] = expandProviderRegions({
+			...mapping,
+			inRegionPricing: true,
+		});
+		expect(usEast1).toMatchObject({
+			inputPrice: "0.15e-6",
+			outputPrice: "0.6e-6",
+		});
+		expect(euWest2).toMatchObject({
+			inputPrice: "0.23e-6",
+			outputPrice: "0.93e-6",
+		});
+	});
+});
