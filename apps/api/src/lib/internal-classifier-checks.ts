@@ -3,10 +3,10 @@ import { z } from "zod";
 import { logger } from "@llmgateway/logger";
 import { INTERNAL_CLASSIFIER_MODEL } from "@llmgateway/shared";
 
-import type { internalClassifierCheck, LogInsertData } from "@llmgateway/db";
-
-export type InternalClassifierCheckInsert =
-	typeof internalClassifierCheck.$inferInsert;
+import type {
+	GatewayContentFilterEvaluation,
+	GatewayContentFilterResponse,
+} from "@llmgateway/db";
 
 // Hashes arrive as signed int64 strings; a JSON number would already have
 // lost precision, so only strings are accepted.
@@ -33,29 +33,67 @@ const verdictSchema = z.object({
 	fingerprint: fingerprintSchema.nullish(),
 });
 
+export interface ContentFilteredLogRow {
+	ts: string;
+	requestId: string;
+	organizationId: string;
+	projectId: string;
+	apiKeyId: string;
+	usedModel: string;
+	usedProvider: string;
+	evaluation: GatewayContentFilterEvaluation | null;
+	response: GatewayContentFilterResponse | null;
+}
+
+export interface InternalClassifierCheck {
+	ts: string;
+	requestId: string;
+	// Position among the verdicts of the check, newest text first.
+	chunkIndex: number;
+	organizationId: string;
+	projectId: string;
+	apiKeyId: string;
+	usedModel: string;
+	usedProvider: string;
+	internalScope: string;
+	tier: number | null;
+	level: string | null;
+	action: string | null;
+	decision: string;
+	rule: string;
+	reasons: string[];
+	tags: string[];
+	score: number | null;
+	saltId: string | null;
+	algoVersion: number | null;
+	fpStatus: string | null;
+	promptBytes: number | null;
+	simhash: string | null;
+	simhashGlobal: string | null;
+	exactHash: string | null;
+	conversationKey: string | null;
+	minhashB64: string | null;
+	bandKeys: string[] | null;
+}
+
 /**
- * One row per internal classifier verdict stored on the log. Verdicts from
+ * One check per internal classifier verdict stored on a log. Verdicts from
  * classifier versions that predate `decision`/`rule` derive them the way the
  * audit CSV does: a block's rule is its first reason.
  */
-export function buildInternalClassifierCheckRows(
-	logData: LogInsertData,
-): InternalClassifierCheckInsert[] {
-	// A failed attempt that is retried logs the same verdicts as the attempt
-	// that ends the request; record them once, with the final model.
-	if (logData.retried) {
-		return [];
-	}
-	const evaluation = logData.gatewayContentFilterEvaluation;
-	const verdicts = (logData.gatewayContentFilterResponse ?? [])
+export function internalClassifierChecksFromLog(
+	row: ContentFilteredLogRow,
+): InternalClassifierCheck[] {
+	const evaluation = row.evaluation;
+	const verdicts = (row.response ?? [])
 		.filter((response) => response.model === INTERNAL_CLASSIFIER_MODEL)
 		.flatMap((response) => response.results ?? []);
-	const rows: InternalClassifierCheckInsert[] = [];
+	const checks: InternalClassifierCheck[] = [];
 	for (const [chunkIndex, result] of verdicts.entries()) {
 		const parsed = verdictSchema.safeParse(result);
 		if (!parsed.success) {
 			logger.warn("Skipping malformed internal classifier verdict", {
-				requestId: logData.requestId,
+				requestId: row.requestId,
 				chunkIndex,
 				issues: parsed.error.issues.map((issue) => issue.path.join(".")),
 			});
@@ -65,14 +103,15 @@ export function buildInternalClassifierCheckRows(
 		const block = verdict.block === true;
 		const reasons = verdict.reasons ?? [];
 		const fingerprint = verdict.fingerprint;
-		rows.push({
-			requestId: logData.requestId,
+		checks.push({
+			ts: row.ts,
+			requestId: row.requestId,
 			chunkIndex,
-			organizationId: logData.organizationId,
-			projectId: logData.projectId,
-			apiKeyId: logData.apiKeyId,
-			usedModel: logData.usedModel ?? "",
-			usedProvider: logData.usedProvider ?? "",
+			organizationId: row.organizationId,
+			projectId: row.projectId,
+			apiKeyId: row.apiKeyId,
+			usedModel: row.usedModel,
+			usedProvider: row.usedProvider,
 			internalScope: evaluation?.internalScope ?? "",
 			tier: evaluation?.tier ?? null,
 			level: evaluation?.level ?? null,
@@ -94,5 +133,5 @@ export function buildInternalClassifierCheckRows(
 			bandKeys: fingerprint?.band_keys ?? null,
 		});
 	}
-	return rows;
+	return checks;
 }

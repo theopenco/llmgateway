@@ -79,7 +79,6 @@ import {
 	runSourceModelStatsBackfillStep,
 	runTenantStatsByokSplitBackfillStep,
 } from "./services/hourly-stats-backfill.js";
-import { buildInternalClassifierCheckRows } from "./services/internal-classifier-checks.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
@@ -141,8 +140,6 @@ const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const SPEND_FUSE_STATUSES = ["active", "pending_deletion"] as const;
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
-const INTERNAL_CLASSIFIER_CHECK_RETENTION_LOCK_KEY =
-	"internal_classifier_check_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
 const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
@@ -985,64 +982,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		);
 	} finally {
 		await releaseLock(DATA_RETENTION_LOCK_KEY);
-	}
-}
-
-const INTERNAL_CLASSIFIER_CHECK_CLEANUP_BATCH_SIZE = 10000;
-// ~27 bind parameters per row, well under the 65,535 limit.
-const INTERNAL_CLASSIFIER_CHECK_INSERT_CHUNK_SIZE = 1000;
-const INTERNAL_CLASSIFIER_CHECK_MAX_BATCHES_PER_RUN = 50;
-
-// Delete internal classifier checks once log payloads expire. Not gated on
-// ENABLE_DATA_RETENTION_CLEANUP: the table is short-lived by design.
-export async function cleanupExpiredInternalClassifierChecks(): Promise<void> {
-	const lockAcquired = await acquireLock(
-		INTERNAL_CLASSIFIER_CHECK_RETENTION_LOCK_KEY,
-	);
-	if (!lockAcquired) {
-		return;
-	}
-
-	try {
-		const table = tables.internalClassifierCheck;
-		const cutoffDate = getLogRetentionCutoff();
-		let totalDeleted = 0;
-		for (
-			let batch = 0;
-			batch < INTERNAL_CLASSIFIER_CHECK_MAX_BATCHES_PER_RUN &&
-			!isStopRequested();
-			batch++
-		) {
-			const deleted = await db
-				.delete(table)
-				.where(
-					inArray(
-						table.id,
-						db
-							.select({ id: table.id })
-							.from(table)
-							.where(lt(table.createdAt, cutoffDate))
-							.limit(INTERNAL_CLASSIFIER_CHECK_CLEANUP_BATCH_SIZE),
-					),
-				)
-				.returning({ id: table.id });
-			totalDeleted += deleted.length;
-			if (deleted.length < INTERNAL_CLASSIFIER_CHECK_CLEANUP_BATCH_SIZE) {
-				break;
-			}
-		}
-		if (totalDeleted > 0) {
-			logger.info(
-				`Deleted ${totalDeleted} internal classifier checks (older than ${LOG_RETENTION_DAYS} days)`,
-			);
-		}
-	} catch (error) {
-		logger.error(
-			"Error during internal classifier check retention cleanup",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	} finally {
-		await releaseLock(INTERNAL_CLASSIFIER_CHECK_RETENTION_LOCK_KEY);
 	}
 }
 
@@ -2267,48 +2206,13 @@ export async function processLogQueue(): Promise<number> {
 			}
 			return data;
 		});
-		const checkRows = logData.flatMap(buildInternalClassifierCheckRows);
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
 				const insertStart = Date.now();
-				// Same transaction, so a retried batch never duplicates checks.
-				await db.transaction(async (tx) => {
-					await tx.insert(log).values(logData);
-					if (checkRows.length === 0) {
-						return;
-					}
-					// A savepoint: failed checks must not hold up log ingestion,
-					// and their verdicts stay on the log rows.
-					try {
-						await tx.transaction(async (savepoint) => {
-							for (
-								let i = 0;
-								i < checkRows.length;
-								i += INTERNAL_CLASSIFIER_CHECK_INSERT_CHUNK_SIZE
-							) {
-								await savepoint
-									.insert(tables.internalClassifierCheck)
-									.values(
-										checkRows.slice(
-											i,
-											i + INTERNAL_CLASSIFIER_CHECK_INSERT_CHUNK_SIZE,
-										),
-									)
-									.onConflictDoNothing();
-							}
-						});
-					} catch (checkError) {
-						logger.error(
-							`Failed to insert ${checkRows.length} internal classifier checks`,
-							checkError instanceof Error
-								? checkError
-								: new Error(String(checkError)),
-						);
-					}
-				});
+				await db.insert(log).values(logData);
 				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
@@ -2854,7 +2758,6 @@ async function runDataRetentionLoop() {
 			try {
 				await enforceRetentionPlanGating();
 				await cleanupExpiredLogData();
-				await cleanupExpiredInternalClassifierChecks();
 
 				await interruptibleSleep(interval);
 			} catch (error) {

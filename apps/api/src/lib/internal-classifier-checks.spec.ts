@@ -1,30 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import { buildInternalClassifierCheckRows } from "./internal-classifier-checks.js";
+import { internalClassifierChecksFromLog } from "./internal-classifier-checks.js";
 
-import type { LogInsertData } from "@llmgateway/db";
+import type { ContentFilteredLogRow } from "./internal-classifier-checks.js";
 
-const baseLog: LogInsertData = {
+const baseLog: ContentFilteredLogRow = {
+	ts: "2026-10-20T12:00:00.000000Z",
 	requestId: "req-1",
 	organizationId: "org-1",
 	projectId: "project-1",
 	apiKeyId: "key-1",
-	duration: 100,
-	requestedModel: "gpt-4o-mini",
 	usedModel: "openai/gpt-4o-mini",
 	usedProvider: "openai",
-	responseSize: 0,
-	mode: "credits",
-	usedMode: "credits",
+	evaluation: null,
+	response: null,
 };
 
-describe("buildInternalClassifierCheckRows", () => {
+describe("internalClassifierChecksFromLog", () => {
 	it("returns nothing without internal classifier verdicts", () => {
-		expect(buildInternalClassifierCheckRows(baseLog)).toEqual([]);
+		expect(internalClassifierChecksFromLog(baseLog)).toEqual([]);
 		expect(
-			buildInternalClassifierCheckRows({
+			internalClassifierChecksFromLog({
 				...baseLog,
-				gatewayContentFilterResponse: [
+				response: [
 					{ model: "omni-moderation-latest", results: [{ flagged: true }] },
 				],
 			}),
@@ -32,9 +30,9 @@ describe("buildInternalClassifierCheckRows", () => {
 	});
 
 	it("derives decision and rule for verdicts without them, like the audit CSV", () => {
-		const rows = buildInternalClassifierCheckRows({
+		const rows = internalClassifierChecksFromLog({
 			...baseLog,
-			gatewayContentFilterEvaluation: {
+			evaluation: {
 				sampled: true,
 				provider: "openai",
 				tier: 2,
@@ -50,7 +48,7 @@ describe("buildInternalClassifierCheckRows", () => {
 				classifier: "internal",
 				internalScope: "latest_turn",
 			},
-			gatewayContentFilterResponse: [
+			response: [
 				{
 					model: "internal-classifier",
 					results: [
@@ -88,9 +86,9 @@ describe("buildInternalClassifierCheckRows", () => {
 	});
 
 	it("reads null fields as absent", () => {
-		const rows = buildInternalClassifierCheckRows({
+		const rows = internalClassifierChecksFromLog({
 			...baseLog,
-			gatewayContentFilterResponse: [
+			response: [
 				{
 					model: "internal-classifier",
 					results: [
@@ -110,9 +108,9 @@ describe("buildInternalClassifierCheckRows", () => {
 	});
 
 	it("skips a malformed verdict and keeps the rest", () => {
-		const rows = buildInternalClassifierCheckRows({
+		const rows = internalClassifierChecksFromLog({
 			...baseLog,
-			gatewayContentFilterResponse: [
+			response: [
 				{
 					model: "internal-classifier",
 					results: [

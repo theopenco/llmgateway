@@ -392,7 +392,7 @@ export async function checkInternalContentFilter(
 	const flagged = results.some((result) => result.flagged === true);
 	// The raw verdicts (tags, score, reasons, fingerprint) ride along on the
 	// stored response so reviewers see what fired, not just the block
-	// decision; the worker copies them into internal_classifier_check.
+	// decision; the admin classifier export reads them from there.
 	const responses: ModerationApiPayload[] = [
 		{
 			model: INTERNAL_CLASSIFIER_MODEL,

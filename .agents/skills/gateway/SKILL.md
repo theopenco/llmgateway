@@ -48,10 +48,10 @@ CSV from the request body only: `request_id` and `account_id` come from the
 classify payload, headers are ignored. `internal-content-filter.ts` sends the
 gateway request id and the organization id (never the project, key, or user id —
 audit rows join on organization).
-Every verdict, passes included, is stored on the log's content filter response
-and copied by the worker into `internal_classifier_check` (all audit CSV
-columns, 30-day retention, admin CSV export). Fingerprints arrive only when the
-classifier runs with `VECTORAL_SAFETY_HASH_ALL`.
+Every verdict, passes included, is stored on the log's content filter response,
+which the admin export reads as the audit CSV's columns (fingerprints only when
+the classifier runs with `VECTORAL_SAFETY_HASH_ALL`). The content filter log
+columns never leave the admin surface: customer-facing log APIs omit them.
 
 Every classifier fails open. OpenAI moderation retries a network error or 5xx
 once and logs the retried attempt at `warn`. Final failures log at

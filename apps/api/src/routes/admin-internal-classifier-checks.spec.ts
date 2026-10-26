@@ -12,40 +12,77 @@ const BASE = new Date("2026-10-20T12:00:00.000Z");
 const MINUTE_MS = 60_000;
 const DAY_AND_HOUR_MS = 25 * 3_600_000;
 
+const FINGERPRINT = {
+	salt_id: "default",
+	algo_version: 1,
+	fp_status: "ok",
+	prompt_bytes: 113,
+	simhash: "-121594583441436065",
+	simhash_global: "-2619368671083822859",
+	exact_hash: "-4277168721033277467",
+	conversation_key: "c_65f685b18ecceb9c",
+	minhash_b64: "5KR9+jFd/w==",
+	band_keys: ["-4189572804323252917", "7653213509540500479"],
+};
+
+// A content-filtered log row whose internal classifier returned one verdict.
 function check(minutes: number, decision: "allow" | "block", id: string) {
 	const offsetMs = minutes * MINUTE_MS;
+	const block = decision === "block";
 	return {
 		id,
 		createdAt: new Date(BASE.getTime() + offsetMs),
 		requestId: `req-${id}`,
-		chunkIndex: 0,
 		organizationId: "org-1",
 		projectId: "project-1",
 		apiKeyId: "key-1",
+		duration: 100,
+		requestedModel: "gpt-4o-mini",
 		usedModel: "openai/gpt-4o-mini",
 		usedProvider: "openai",
-		internalScope: "latest_turn",
-		tier: 2,
-		level: "strict",
-		action: decision === "block" ? "logged" : "passed",
-		decision,
-		rule: decision === "block" ? "minor_plus_sexual_conjunction" : "",
-		reasons:
-			decision === "block"
-				? ["minor_plus_sexual_conjunction", "signal:minor_age"]
-				: [],
-		tags: decision === "block" ? ["child_exploitation", "sexual_content"] : [],
-		score: decision === "block" ? 0.9 : 0,
-		saltId: "default",
-		algoVersion: 1,
-		fpStatus: "ok",
-		promptBytes: 113,
-		simhash: "-121594583441436065",
-		simhashGlobal: "-2619368671083822859",
-		exactHash: "-4277168721033277467",
-		conversationKey: "c_65f685b18ecceb9c",
-		minhashB64: "5KR9+jFd/w==",
-		bandKeys: ["-4189572804323252917", "7653213509540500479"],
+		responseSize: 0,
+		mode: "credits" as const,
+		usedMode: "credits" as const,
+		gatewayContentFilterEvaluation: {
+			sampled: true as const,
+			provider: "openai",
+			tier: 2,
+			overridden: false,
+			level: "strict" as const,
+			violation: block,
+			action: block ? ("logged" as const) : ("passed" as const),
+			enforced: false,
+			flagged: block,
+			matchedCategories: [],
+			categoryScores: {},
+			moderationFailed: false,
+			classifier: "internal" as const,
+			internalScope: "latest_turn" as const,
+		},
+		gatewayContentFilterResponse: [
+			{
+				model: "internal-classifier",
+				results: [
+					{
+						flagged: block,
+						block,
+						decision,
+						...(block
+							? {
+									rule: "minor_plus_sexual_conjunction",
+									reasons: [
+										"minor_plus_sexual_conjunction",
+										"signal:minor_age",
+									],
+								}
+							: {}),
+						tags: block ? ["child_exploitation", "sexual_content"] : [],
+						score: block ? 0.9 : 0,
+						fingerprint: FINGERPRINT,
+					},
+				],
+			},
+		],
 	};
 }
 
@@ -60,7 +97,7 @@ describe("admin internal classifier check export", () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await db
-			.insert(tables.internalClassifierCheck)
+			.insert(tables.log)
 			.values([
 				check(1, "allow", "a"),
 				check(2, "block", "b"),
@@ -144,15 +181,13 @@ describe("admin internal classifier check export", () => {
 	});
 
 	test("pages through rows that share a timestamp without gaps or repeats", async () => {
-		// Two pages of 5000, most rows on one microsecond.
+		// Several pages of 2000, most rows on one microsecond.
 		const tied = Array.from({ length: 10_001 }, (_, i) => ({
 			...check(10, "allow", `tied-${String(i).padStart(5, "0")}`),
 			createdAt: new Date(BASE.getTime() + (i < 7_000 ? 600_000 : 660_000)),
 		}));
 		for (let i = 0; i < tied.length; i += 2_000) {
-			await db
-				.insert(tables.internalClassifierCheck)
-				.values(tied.slice(i, i + 2_000));
+			await db.insert(tables.log).values(tied.slice(i, i + 2_000));
 		}
 
 		const res = await app.request(exportUrl(window), {
@@ -170,7 +205,7 @@ describe("admin internal classifier check export", () => {
 
 	test("neutralizes formula triggers but keeps negative hashes", async () => {
 		await db
-			.insert(tables.internalClassifierCheck)
+			.insert(tables.log)
 			.values({ ...check(30, "allow", "formula"), requestId: "=HYPERLINK(1)" });
 
 		const res = await app.request(exportUrl(window), {
@@ -182,6 +217,25 @@ describe("admin internal classifier check export", () => {
 			.find((l) => l.includes("HYPERLINK"));
 		expect(line?.split(",")[15]).toBe("'=HYPERLINK(1)");
 		expect(line?.split(",")[9]).toBe("-121594583441436065");
+	});
+
+	test("skips retried attempts and logs without a content filter response", async () => {
+		await db.insert(tables.log).values([
+			{ ...check(20, "block", "retried"), retried: true },
+			{
+				...check(21, "allow", "unfiltered"),
+				gatewayContentFilterEvaluation: null,
+				gatewayContentFilterResponse: null,
+			},
+		]);
+
+		const res = await app.request(exportUrl(window), {
+			headers: { Cookie: cookie },
+		});
+
+		const text = await res.text();
+		expect(text).not.toContain("req-retried");
+		expect(text).not.toContain("req-unfiltered");
 	});
 
 	test("rejects a full export longer than a day", async () => {

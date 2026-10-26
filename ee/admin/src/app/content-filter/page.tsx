@@ -279,7 +279,8 @@ export default async function ContentFilterPage({
 					<CardTitle>Internal classifier checks</CardTitle>
 					<CardDescription>
 						Every internal classifier verdict, passes included, with the audit
-						CSV&apos;s columns and prompt fingerprints. Kept for 30 days.
+						CSV&apos;s columns and prompt fingerprints, read from request logs.
+						Up to 24 hours per export; logs keep them for 30 days.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>

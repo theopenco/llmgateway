@@ -26,7 +26,6 @@ import {
 	eq,
 	errorDetails,
 	LOG_ERROR_CATEGORIES,
-	gatewayContentFilterResponseSchema,
 	getTableColumns,
 	gt,
 	gte,
@@ -54,16 +53,22 @@ export const logs = new OpenAPIHono<ServerTypes>();
 // Admin-only columns are omitted: public log queries never select them.
 type LogRecord = Omit<
 	InferSelectModel<typeof tables.log>,
-	"internalErrorDetails" | "gatewayContentFilterEvaluation"
+	| "internalErrorDetails"
+	| "gatewayContentFilterEvaluation"
+	| "gatewayContentFilterResponse"
+	| "internalContentFilter"
 >;
 
-// internalErrorDetails holds the raw upstream error for stealth providers and
-// gatewayContentFilterEvaluation records the admin-set content filter pin and
-// exemption state; neither may leave the internal admin surface, so strip
-// them from the columns served by the public logs endpoints.
+// internalErrorDetails holds the raw upstream error for stealth providers.
+// The gateway content filter columns hold our moderation verdicts (scores,
+// classifier rules and prompt fingerprints), the admin-set pin and exemption
+// state, and whether the filter flagged the request. None may leave the
+// internal admin surface, so strip them from the public logs endpoints.
 const {
 	internalErrorDetails: _internalErrorDetails,
 	gatewayContentFilterEvaluation: _gatewayContentFilterEvaluation,
+	gatewayContentFilterResponse: _gatewayContentFilterResponse,
+	internalContentFilter: _internalContentFilter,
 	...publicLogColumns
 } = getTableColumns(tables.log);
 
@@ -320,9 +325,6 @@ const logSchema = z.object({
 	usedServiceTier: z.string().nullable().optional(),
 	retried: z.boolean().nullable().optional(),
 	retriedByLogId: z.string().nullable().optional(),
-	gatewayContentFilterResponse: gatewayContentFilterResponseSchema
-		.nullable()
-		.optional(),
 });
 
 // GET /logs/:id - Fetch a single log by ID

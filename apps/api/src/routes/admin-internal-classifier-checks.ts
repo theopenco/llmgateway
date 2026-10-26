@@ -2,6 +2,11 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	internalClassifierChecksFromLog,
+	type ContentFilteredLogRow,
+	type InternalClassifierCheck,
+} from "@/lib/internal-classifier-checks.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 
@@ -15,11 +20,12 @@ export const adminInternalClassifierChecks = new OpenAPIHono<ServerTypes>();
 adminInternalClassifierChecks.use("/*", adminMiddleware);
 
 const HOUR_MS = 60 * 60 * 1000;
-const PAGE_SIZE = 5000;
+// Log rows per page; each holds one verdict per chunk of text read.
+const PAGE_SIZE = 2000;
 const SETTLE_MS = 60_000;
-// Every check is ~20k rows an hour, so the full export is capped at a day;
-// blocks are a small share and span the whole retention window.
-const MAX_RANGE_HOURS = { all: 24, block: 31 * 24 } as const;
+// ~20k content-filtered requests an hour; blocks are filtered from the same
+// index scan, so both share the cap.
+const MAX_RANGE_HOURS = 24;
 
 // The classifier's audit CSV columns, in its order, then ours.
 export const INTERNAL_CLASSIFIER_CHECK_CSV_HEADERS = [
@@ -68,20 +74,15 @@ const exportChecks = createRoute({
 				"text/csv": { schema: z.string() },
 			},
 			description:
-				"Internal classifier checks created in [from, to) as CSV, every check or blocks only: the classifier's audit CSV columns (fingerprints included) followed by the request's project, key, model and content filter outcome.",
+				"Internal classifier verdicts of requests logged in [from, to) as CSV, every verdict or blocks only: the classifier's audit CSV columns (fingerprints included) followed by the request's project, key, model and content filter outcome. Read from the log's content filter response, so only the 30-day payload retention window has data.",
 		},
 	},
 });
 
-const table = tables.internalClassifierCheck;
+const log = tables.log;
 // Microsecond ISO text: the export's ts and the keyset cursor, which a JS
 // Date would round to milliseconds.
-const createdAtText = sql<string>`to_char(${table.createdAt}, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
-
-type CheckRow = {
-	ts: string;
-	id: string;
-} & Omit<typeof table.$inferSelect, "id" | "createdAt">;
+const createdAtText = sql<string>`to_char(${log.createdAt}, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 // Request ids can come from the client, so formula triggers are neutralized;
 // "-" is not among them, which keeps negative hashes and band keys intact.
@@ -96,7 +97,9 @@ function csvField(value: unknown): string {
 	return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-export function internalClassifierCheckCsvLine(row: CheckRow): string {
+export function internalClassifierCheckCsvLine(
+	row: InternalClassifierCheck,
+): string {
 	return [
 		row.ts,
 		row.rule,
@@ -138,15 +141,12 @@ adminInternalClassifierChecks.openapi(exportChecks, async (c) => {
 	if (to <= from) {
 		throw new HTTPException(400, { message: "to must be after from" });
 	}
-	if (to.getTime() - from.getTime() > MAX_RANGE_HOURS[decision] * HOUR_MS) {
+	if (to.getTime() - from.getTime() > MAX_RANGE_HOURS * HOUR_MS) {
 		throw new HTTPException(400, {
-			message: `Range exceeds ${MAX_RANGE_HOURS[decision]} hours for decision=${decision}`,
+			message: `Range exceeds ${MAX_RANGE_HOURS} hours`,
 		});
 	}
 
-	// Literal predicate so the planner can use the partial block index.
-	const decisionFilter =
-		decision === "block" ? sql`${table.decision} = 'block'` : undefined;
 	// created_at is the inserting transaction's start; one that commits after
 	// a page was read would land behind the cursor, so recent rows wait.
 	const until = new Date(Math.min(to.getTime(), Date.now() - SETTLE_MS));
@@ -154,54 +154,46 @@ adminInternalClassifierChecks.openapi(exportChecks, async (c) => {
 	let headerSent = false;
 	let done = false;
 
-	const readPage = async (): Promise<CheckRow[]> =>
+	// Only the content filter columns: prompts and completions are never read.
+	// The literal IS NOT NULL matches the partial index's predicate.
+	const readPage = async () =>
 		await db
 			.select({
+				id: log.id,
 				ts: createdAtText,
-				id: table.id,
-				requestId: table.requestId,
-				chunkIndex: table.chunkIndex,
-				organizationId: table.organizationId,
-				projectId: table.projectId,
-				apiKeyId: table.apiKeyId,
-				usedModel: table.usedModel,
-				usedProvider: table.usedProvider,
-				internalScope: table.internalScope,
-				tier: table.tier,
-				level: table.level,
-				action: table.action,
-				decision: table.decision,
-				rule: table.rule,
-				reasons: table.reasons,
-				tags: table.tags,
-				score: table.score,
-				saltId: table.saltId,
-				algoVersion: table.algoVersion,
-				fpStatus: table.fpStatus,
-				promptBytes: table.promptBytes,
-				simhash: table.simhash,
-				simhashGlobal: table.simhashGlobal,
-				exactHash: table.exactHash,
-				conversationKey: table.conversationKey,
-				minhashB64: table.minhashB64,
-				bandKeys: table.bandKeys,
+				requestId: log.requestId,
+				organizationId: log.organizationId,
+				projectId: log.projectId,
+				apiKeyId: log.apiKeyId,
+				usedModel: log.usedModel,
+				usedProvider: log.usedProvider,
+				evaluation: log.gatewayContentFilterEvaluation,
+				response: log.gatewayContentFilterResponse,
 			})
-			.from(table)
+			.from(log)
 			.where(
 				and(
-					gte(table.createdAt, from),
-					lt(table.createdAt, until),
-					decisionFilter,
+					sql`gateway_content_filter_response IS NOT NULL`,
+					gte(log.createdAt, from),
+					lt(log.createdAt, until),
+					// A retried attempt logs the same verdicts as the attempt that
+					// ends the request; keep the latter, with the model that served it.
+					sql`${log.retried} IS NOT TRUE`,
 					cursor
 						? and(
-								sql`${table.createdAt} >= ${cursor.ts}::timestamp`,
-								sql`(${table.createdAt}, ${table.id}) > (${cursor.ts}::timestamp, ${cursor.id})`,
+								sql`${log.createdAt} >= ${cursor.ts}::timestamp`,
+								sql`(${log.createdAt}, ${log.id}) > (${cursor.ts}::timestamp, ${cursor.id})`,
 							)
 						: undefined,
 				),
 			)
-			.orderBy(asc(table.createdAt), asc(table.id))
+			.orderBy(asc(log.createdAt), asc(log.id))
 			.limit(PAGE_SIZE);
+
+	const toChecks = (row: ContentFilteredLogRow) =>
+		internalClassifierChecksFromLog(row).filter(
+			(check) => decision === "all" || check.decision === "block",
+		);
 
 	const encoder = new TextEncoder();
 	// A failed page errors the stream, so the download fails instead of
@@ -229,10 +221,11 @@ adminInternalClassifierChecks.openapi(exportChecks, async (c) => {
 					const last = rows[rows.length - 1]!;
 					cursor = { ts: last.ts, id: last.id };
 				}
-				if (rows.length > 0) {
+				const checks = rows.flatMap(toChecks);
+				if (checks.length > 0) {
 					controller.enqueue(
 						encoder.encode(
-							`${rows.map(internalClassifierCheckCsvLine).join("\n")}\n`,
+							`${checks.map(internalClassifierCheckCsvLine).join("\n")}\n`,
 						),
 					);
 				}

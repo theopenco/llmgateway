@@ -105,8 +105,8 @@ export function InternalClassifierCheckExport() {
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value="all">All (up to 24h)</SelectItem>
-						<SelectItem value="block">Blocks only (up to 31d)</SelectItem>
+						<SelectItem value="all">All</SelectItem>
+						<SelectItem value="block">Blocks only</SelectItem>
 					</SelectContent>
 				</Select>
 			</div>
