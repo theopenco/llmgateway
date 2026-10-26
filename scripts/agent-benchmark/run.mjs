@@ -52,6 +52,7 @@ const scratchRoot = join(workRoot, "runs", opts.suite);
 const empryoBin =
 	process.env.EMPRYO_BIN ?? join(homedir(), ".empryo", "bin", "empryo");
 const empryoRuntime = dirname(dirname(empryoBin));
+const empryoConfig = { cache: { ttl: "5m" } };
 
 const sh = (cmd, args, cwd) =>
 	execFileSync(cmd, args, {
@@ -203,6 +204,10 @@ function agentCommand(agent, model, prompt, workdir, home) {
 	if (agent === "empryo") {
 		const empryoHome = join(home, ".empryo");
 		mkdirSync(empryoHome, { recursive: true });
+		writeFileSync(
+			join(empryoHome, "config.json"),
+			JSON.stringify(empryoConfig, null, 2),
+		);
 		for (const dir of [
 			"bin",
 			"native",
@@ -347,6 +352,7 @@ async function runOne({ task, agent, modelKey, rep }) {
 	}
 	sh("cp", ["-c", "-R", join(workRoot, "bases", task.id), workdir]);
 	sh("git", ["init", "-q"], workdir);
+	writeFileSync(join(workdir, ".git", "info", "exclude"), ".empryo/\n");
 	sh("git", ["add", "-A"], workdir);
 	sh(
 		"git",
