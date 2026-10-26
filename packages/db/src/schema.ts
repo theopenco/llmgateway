@@ -4701,6 +4701,59 @@ export const contentFilterHourlyErrorStats = snakeCase.table(
 	],
 );
 
+// One row per internal classifier call (one per chunk of the text it read),
+// passes included, carrying every column of the classifier's audit CSV. The
+// worker writes it with the log row the verdict came from; rows expire with
+// log payload retention. Hash columns stay text: the classifier returns
+// signed int64 strings, exported verbatim.
+export const internalClassifierCheck = snakeCase.table(
+	"internal_classifier_check",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		requestId: text().notNull(),
+		// Position among the verdicts of the check, newest text first.
+		chunkIndex: integer().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		apiKeyId: text().notNull(),
+		usedModel: text().notNull().default(""),
+		usedProvider: text().notNull().default(""),
+		// From the log's content filter evaluation.
+		internalScope: text().notNull().default(""),
+		tier: integer(),
+		level: text(),
+		action: text(),
+		// The classifier's verdict.
+		decision: text().notNull(),
+		rule: text().notNull().default(""),
+		reasons: text().array().notNull(),
+		tags: text().array().notNull(),
+		score: real(),
+		// The prompt fingerprint; null when the classifier returned none.
+		saltId: text(),
+		algoVersion: integer(),
+		fpStatus: text(),
+		promptBytes: integer(),
+		simhash: text(),
+		simhashGlobal: text(),
+		exactHash: text(),
+		conversationKey: text(),
+		minhashB64: text("minhash_b64"),
+		bandKeys: text().array(),
+	},
+	(table) => [
+		unique("internal_classifier_check_request_chunk_unique").on(
+			table.requestId,
+			table.chunkIndex,
+		),
+		index("internal_classifier_check_created_at_idx").on(table.createdAt),
+		index("internal_classifier_check_block_created_at_idx")
+			.on(table.createdAt)
+			.where(sql`${table.decision} = 'block'`),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization

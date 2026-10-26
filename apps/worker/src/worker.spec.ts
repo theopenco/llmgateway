@@ -13,6 +13,7 @@ import { db, eq, inArray, tables } from "@llmgateway/db";
 import {
 	acquireLease,
 	acquireLock,
+	cleanupExpiredInternalClassifierChecks,
 	cleanupExpiredLogData,
 	cleanupExpiredModelHistory,
 	processAutoTopUp,
@@ -791,6 +792,48 @@ describe("worker", () => {
 
 			expect(mappingRows.map((r) => r.id)).toEqual(["mph-recent"]);
 			expect(modelRows.map((r) => r.id)).toEqual(["mh-recent"]);
+		});
+	});
+
+	describe("cleanupExpiredInternalClassifierChecks", () => {
+		test("deletes checks older than the log retention window", async () => {
+			const check = {
+				chunkIndex: 0,
+				organizationId: "org",
+				projectId: "project",
+				apiKeyId: "key",
+				decision: "allow",
+				reasons: [],
+				tags: [],
+			};
+			await db.insert(tables.internalClassifierCheck).values([
+				{
+					...check,
+					id: "icc-old",
+					requestId: "icc-old",
+					// eslint-disable-next-line no-mixed-operators
+					createdAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+				},
+				{ ...check, id: "icc-recent", requestId: "icc-recent" },
+			]);
+
+			try {
+				await cleanupExpiredInternalClassifierChecks();
+
+				const rows = await db.query.internalClassifierCheck.findMany({
+					where: { id: { in: ["icc-old", "icc-recent"] } },
+				});
+				expect(rows.map((r) => r.id)).toEqual(["icc-recent"]);
+			} finally {
+				await db
+					.delete(tables.internalClassifierCheck)
+					.where(
+						inArray(tables.internalClassifierCheck.id, [
+							"icc-old",
+							"icc-recent",
+						]),
+					);
+			}
 		});
 	});
 

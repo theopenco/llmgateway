@@ -1,6 +1,7 @@
 import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { logger } from "@llmgateway/logger";
+import { INTERNAL_CLASSIFIER_MODEL } from "@llmgateway/shared";
 
 import {
 	classifyContentFilterError,
@@ -20,7 +21,6 @@ import type {
 import type { BaseMessage } from "@llmgateway/models";
 import type { ContentFilterInternalScope } from "@llmgateway/shared";
 
-export const INTERNAL_MODERATION_MODEL = "internal-classifier";
 const INTERNAL_CLASSIFY_PATH = "/v1/classify";
 // In-cluster and CPU-bound (a few ms per prompt), so a slow answer means the
 // service is unhealthy; fail open quickly instead of holding the request.
@@ -295,7 +295,7 @@ function emptyResult(
 ): InternalContentFilterCheckResult {
 	return {
 		flagged: false,
-		model: INTERNAL_MODERATION_MODEL,
+		model: INTERNAL_CLASSIFIER_MODEL,
 		upstreamRequestId: null,
 		results: [],
 		responses: [],
@@ -390,11 +390,12 @@ export async function checkInternalContentFilter(
 
 	const results = succeeded.map(toInternalModerationResult);
 	const flagged = results.some((result) => result.flagged === true);
-	// The raw verdicts (tags, score, reasons) ride along on the stored
-	// response so reviewers see what fired, not just the block decision.
+	// The raw verdicts (tags, score, reasons, fingerprint) ride along on the
+	// stored response so reviewers see what fired, not just the block
+	// decision; the worker copies them into internal_classifier_check.
 	const responses: ModerationApiPayload[] = [
 		{
-			model: INTERNAL_MODERATION_MODEL,
+			model: INTERNAL_CLASSIFIER_MODEL,
 			results: results.map((result, index) => ({
 				...result,
 				...succeeded[index],
@@ -411,7 +412,7 @@ export async function checkInternalContentFilter(
 		apiKeyId: context.apiKeyId,
 		durationMs: Date.now() - startTime,
 		flagged,
-		model: INTERNAL_MODERATION_MODEL,
+		model: INTERNAL_CLASSIFIER_MODEL,
 		scope,
 		requestCount: prompts.length,
 		failedCount: prompts.length - succeeded.length,
@@ -420,7 +421,7 @@ export async function checkInternalContentFilter(
 
 	return {
 		flagged,
-		model: INTERNAL_MODERATION_MODEL,
+		model: INTERNAL_CLASSIFIER_MODEL,
 		upstreamRequestId: null,
 		results,
 		responses,
