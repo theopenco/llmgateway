@@ -29,6 +29,31 @@ function streamResponse(): Response {
 }
 
 describe("runBenchmarkCli", () => {
+	it("rejects an invalid report format before requesting a benchmark", async () => {
+		vi.stubEnv("BENCHMARK_TEST_KEY", "key");
+		const request = vi.fn(async () => streamResponse());
+		vi.stubGlobal("fetch", request);
+		await expect(
+			runBenchmarkCli([
+				"--model",
+				"deepseek-v4.1-flash-1017",
+				"--mapping",
+				"deepseek",
+				"--suite",
+				"performance",
+				"--runs",
+				"1",
+				"--warmup",
+				"0",
+				"--api-key-env",
+				"BENCHMARK_TEST_KEY",
+				"--format",
+				"invalid",
+				"--quiet",
+			]),
+		).rejects.toThrow("Unknown output format");
+		expect(request).not.toHaveBeenCalled();
+	});
 	it.each([
 		["report.md", "# Model benchmark"],
 		["report.html", "<!doctype html>"],
@@ -42,7 +67,7 @@ describe("runBenchmarkCli", () => {
 
 		const exitCode = await runBenchmarkCli([
 			"--model",
-			"deepseek-v4.1-flash",
+			"deepseek-v4.1-flash-1017",
 			"--mapping",
 			"deepseek",
 			"--suite",
@@ -81,7 +106,7 @@ describe("runBenchmarkCli", () => {
 
 		const exitCode = await runBenchmarkCli([
 			"--model",
-			"deepseek-v4.1-flash",
+			"deepseek-v4.1-flash-1017",
 			"--mapping",
 			"deepseek",
 			"--external",

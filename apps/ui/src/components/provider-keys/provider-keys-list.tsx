@@ -34,6 +34,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import { isStealthProvider, providers } from "@llmgateway/models";
 import {
+	formatProviderKeyRateLimits,
 	getProviderIcon,
 	ReorderableItem,
 	ReorderableList,
@@ -279,6 +280,34 @@ export function ProviderKeysList({
 		);
 	};
 
+	const toggleForwardCacheControl = (id: string, current: boolean) => {
+		const forwardCacheControl = !current;
+		toggleMutation.mutate(
+			{
+				params: { path: { id } },
+				body: { forwardCacheControl },
+			},
+			{
+				onSuccess: () => {
+					toast({
+						title: forwardCacheControl
+							? "Prompt-cache markers forwarded"
+							: "Prompt-cache markers stripped",
+					});
+					void queryClient.invalidateQueries({ queryKey });
+				},
+				onError: (error: unknown) =>
+					toast({
+						title: "Error",
+						description:
+							(error as { message?: string } | undefined)?.message ??
+							"Failed to update setting",
+						variant: "destructive",
+					}),
+			},
+		);
+	};
+
 	if (!selectedOrganization) {
 		return (
 			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
@@ -492,6 +521,15 @@ export function ProviderKeysList({
 																			{formatUsd(providerKey.usageLimit)}
 																		</Badge>
 																	)}
+																	{formatProviderKeyRateLimits(providerKey) && (
+																		<Badge
+																			variant="outline"
+																			className="text-xs tabular-nums"
+																			title="Rate limits for this key. While it is at any cap, other keys serve the request."
+																		>
+																			{formatProviderKeyRateLimits(providerKey)}
+																		</Badge>
+																	)}
 																	{providerKey.baseUrl && (
 																		<Badge
 																			variant="outline"
@@ -576,6 +614,20 @@ export function ProviderKeysList({
 																						Manage models
 																					</Link>
 																				</DropdownMenuItem>
+																				{!customLocked && (
+																					<DropdownMenuItem
+																						onClick={() =>
+																							toggleForwardCacheControl(
+																								providerKey.id,
+																								providerKey.forwardCacheControl,
+																							)
+																						}
+																					>
+																						{providerKey.forwardCacheControl
+																							? "Stop forwarding cache markers"
+																							: "Forward cache markers"}
+																					</DropdownMenuItem>
+																				)}
 																			</>
 																		)}
 																		{provider.id !== "custom" && (
@@ -601,13 +653,17 @@ export function ProviderKeysList({
 																				providerKeyId={providerKey.id}
 																				currentLimit={providerKey.usageLimit}
 																				currentUsage={providerKey.usage}
+																				currentRateLimits={providerKey}
 																			>
 																				<DropdownMenuItem
 																					onSelect={(e) => e.preventDefault()}
 																				>
-																					{providerKey.usageLimit !== null
-																						? "Edit spend limit"
-																						: "Set spend limit"}
+																					{providerKey.usageLimit !== null ||
+																					formatProviderKeyRateLimits(
+																						providerKey,
+																					)
+																						? "Edit limits"
+																						: "Set limits"}
 																				</DropdownMenuItem>
 																			</ProviderKeyLimitDialog>
 																		)}

@@ -402,7 +402,7 @@ Response (200):
 			"projectName": null,
 			"apiKeyId": null,
 			"apiKeyName": null,
-			"model": "gpt-5.6",
+			"model": "gpt-5.6-sol",
 			"provider": "openai",
 			"requestCount": 128,
 			"errorCount": 2,
@@ -522,7 +522,7 @@ Response (200):
 			"apiKeyId": "ak_...",
 			"ruleType": "allow_models",
 			"ruleValue": {
-				"models": ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
+				"models": ["openai/gpt-4o", "anthropic/claude-sonnet-4-6"]
 			},
 			"status": "active",
 			"createdAt": "...",
@@ -543,7 +543,7 @@ curl -X POST https://internal.llmgateway.io/v1/master/keys/ak_.../iam \
   -d '{
     "ruleType": "allow_models",
     "ruleValue": {
-      "models": ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
+      "models": ["openai/gpt-4o", "anthropic/claude-sonnet-4-6"]
     }
   }'
 ```
@@ -775,6 +775,7 @@ Body parameters:
 | `baseUrl`               | string             | OpenAI-compatible base URL. Internal/reserved addresses are rejected                         |
 | `token`                 | string             | Upstream API key. Stored server-side, never returned                                         |
 | `customModelsOnly`      | boolean (optional) | Restrict the provider to models defined in your custom catalog. Default `false`              |
+| `forwardCacheControl`   | boolean (optional) | Forward `cache_control` markers to the provider instead of stripping them. Default `true`    |
 | `complianceAttestation` | object (optional)  | Self-attested compliance posture. `attestedAt` / `attestedByUserId` are stamped server-side  |
 
 Response (201): the created custom provider.
@@ -803,6 +804,7 @@ Body parameters (all optional, at least one required):
 | `token`                 | string                   | Rotate the upstream API key                    |
 | `status`                | `"active" \| "inactive"` | Disable the provider without deleting it       |
 | `customModelsOnly`      | boolean                  | Toggle the custom-catalog restriction          |
+| `forwardCacheControl`   | boolean                  | Toggle forwarding of `cache_control` markers   |
 | `complianceAttestation` | object \| null           | Replace the attestation, or `null` to clear it |
 
 The provider `name` cannot be changed through the master API — it is the routing segment your model strings reference. Owners and admins can rename a custom provider from the dashboard, which changes the `<name>/<model>` prefix clients must use.

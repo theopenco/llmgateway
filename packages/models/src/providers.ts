@@ -112,6 +112,48 @@ export interface ProviderDataPolicy {
 	gdpr?: boolean | null;
 }
 
+/**
+ * Certifications a provider declares itself in Airside. A null field keeps
+ * the catalogue's reviewed value; SOC 2 `0` declares no certification.
+ */
+export interface DeclaredCompliance {
+	gdpr: boolean | null;
+	soc2: number | null;
+	iso27001: boolean | null;
+}
+
+/** `policy` with the provider's own declared certifications layered on top. */
+export function applyDeclaredCompliance<
+	T extends ProviderDataPolicy | null | undefined,
+>(
+	policy: T,
+	declared: DeclaredCompliance | null | undefined,
+): T | ProviderDataPolicy {
+	if (
+		!declared ||
+		(declared.gdpr === null &&
+			declared.soc2 === null &&
+			declared.iso27001 === null)
+	) {
+		return policy;
+	}
+	const base: ProviderDataPolicy = policy ?? {
+		apiTraining: null,
+		promptLogging: null,
+	};
+	return {
+		...base,
+		gdpr: declared.gdpr ?? base.gdpr,
+		iso27001: declared.iso27001 ?? base.iso27001,
+		soc2:
+			declared.soc2 === null
+				? base.soc2
+				: declared.soc2 === 1 || declared.soc2 === 2
+					? declared.soc2
+					: null,
+	};
+}
+
 export interface ProviderAdditionalLink {
 	desc: string;
 	link: string;
@@ -203,7 +245,7 @@ export interface ProviderDefinition {
 	name: string;
 	description: string;
 	/**
-	 * Whether LLM Gateway forwards its opaque per-organization safety identifier
+	 * Whether LLM Gateway forwards its opaque per-API-key safety identifier
 	 * to this provider. Informational only; request preparation does not use it.
 	 */
 	forwardsSafetyIdentifier: boolean;
@@ -443,7 +485,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -456,6 +498,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://business.safety.google/processorterms/",
+			},
+		],
 	},
 	{
 		id: "glacier",
@@ -521,7 +569,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -534,6 +582,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-openai",
@@ -566,7 +620,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -579,6 +633,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-anthropic",
@@ -613,7 +673,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -626,6 +686,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "quartz",
@@ -1722,7 +1788,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta",
 		name: "Meta",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
@@ -1765,7 +1831,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta-contributor",
 		name: "Meta Contributor",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's discounted, training-eligible Model API tier for Muse models",
 		env: {
@@ -1950,37 +2016,6 @@ export const providers: ProviderDefinition[] = [
 			soc2: 2,
 			iso27001: false,
 			gdpr: true,
-		},
-	},
-	{
-		id: "runware",
-		managedInAirside: true,
-		name: "Runware",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Runware provides fast, cost-efficient inference for open and frontier LLMs through an OpenAI-compatible API.",
-		env: {
-			required: {
-				apiKey: "LLM_RUNWARE_API_KEY",
-			},
-			optional: {
-				baseUrl: "LLM_RUNWARE_BASE_URL",
-			},
-		},
-		cancellation: false,
-		color: "#a8f399",
-		website: "https://runware.ai",
-		statusPageUrl: "https://status.runware.ai/",
-		announcement: "Launch offer: 30% off all Runware models until September 9",
-		termsUrl: "https://runware.ai/terms",
-		privacyPolicyUrl: "https://runware.ai/privacy",
-		usagePolicyUrl: "https://runware.ai/terms",
-		legalEntity: "Runware Ltd",
-		headquarters: "GB",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -2692,7 +2727,6 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	JP: "Japan",
 	KZ: "Kazakhstan",
 	AU: "Australia",
-	GB: "United Kingdom",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

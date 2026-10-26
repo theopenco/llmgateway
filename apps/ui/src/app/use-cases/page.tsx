@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { JsonLd } from "@/components/seo/json-ld";
 
 import { allUseCases } from "content-collections";
 
@@ -12,12 +13,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Use Cases — What You Can Build",
 	description:
-		"Coding agents, AI support, RAG, and cost optimization — build on one API for 200+ models with fallback, caching, and analytics.",
+		"Coding agents, AI support, RAG, cost optimization, cyber security, and reverse engineering — build on one API for 200+ models with fallback, caching, and analytics.",
 	alternates: { canonical: "/use-cases" },
 	openGraph: {
 		title: "Use Cases — What You Can Build with LLM Gateway",
 		description:
-			"Coding agents, AI support, RAG, and cost optimization on one API for 200+ models with fallback, caching, and analytics.",
+			"Coding agents, AI support, RAG, cost optimization, cyber security, and reverse engineering on one API for 200+ models with fallback, caching, and analytics.",
 		type: "website",
 		url: "https://llmgateway.io/use-cases",
 	},
@@ -31,8 +32,46 @@ export default function UseCasesIndexPage() {
 				new Date(b.date).getTime() - new Date(a.date).getTime(),
 		);
 
+	const collectionSchema = {
+		"@context": "https://schema.org",
+		"@type": "CollectionPage",
+		name: "LLM Gateway use cases",
+		description: metadata.description,
+		url: "https://llmgateway.io/use-cases",
+		mainEntity: {
+			"@type": "ItemList",
+			numberOfItems: entries.length,
+			itemListElement: entries.map((entry: UseCase, index: number) => ({
+				"@type": "ListItem",
+				position: index + 1,
+				name: entry.title,
+				url: `https://llmgateway.io/use-cases/${entry.slug}`,
+			})),
+		},
+	};
+
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Use Cases",
+				item: "https://llmgateway.io/use-cases",
+			},
+		],
+	};
+
 	return (
 		<>
+			<JsonLd data={[collectionSchema, breadcrumbSchema]} />
 			<HeroRSC />
 			<div className="min-h-screen bg-background text-foreground pt-30">
 				<main className="container mx-auto px-4 py-8">

@@ -289,7 +289,10 @@ export function ProfilePageClient({
 						Preview
 					</h2>
 					<div className="rounded-2xl border bg-background/40 p-5 sm:p-8">
-						<ProfileView profile={initialProfile} />
+						<ProfileView
+							profile={initialProfile}
+							shareEnabled={profilePublic}
+						/>
 					</div>
 				</div>
 			)}

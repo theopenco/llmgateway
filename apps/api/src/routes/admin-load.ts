@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
@@ -19,6 +19,7 @@ import {
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { adminTokenCapacity } from "@/routes/admin-token-capacity.js";
+import { createRoute } from "@/utils/create-route.js";
 import { pickMappingHistoryTable } from "@/utils/history-window.js";
 
 import {
@@ -255,12 +256,12 @@ function addTotals(into: LoadTotals, from: LoadTotals): void {
  * inside float8's exact-integer range.
  */
 function latencySums(table: {
-	totalDuration: AnyColumn;
-	durationCount: AnyColumn;
-	totalTimeToFirstToken: AnyColumn;
-	timeToFirstTokenCount: AnyColumn;
-	totalTimeToFirstReasoningToken: AnyColumn;
-	timeToFirstReasoningTokenCount: AnyColumn;
+	totalDuration: AnyColumn | SQL;
+	durationCount: AnyColumn | SQL;
+	totalTimeToFirstToken: AnyColumn | SQL;
+	timeToFirstTokenCount: AnyColumn | SQL;
+	totalTimeToFirstReasoningToken: AnyColumn | SQL;
+	timeToFirstReasoningTokenCount: AnyColumn | SQL;
 }) {
 	return {
 		totalDuration:
@@ -291,9 +292,9 @@ function latencySums(table: {
 }
 
 function errorSums(columns: {
-	clientErrors: AnyColumn;
-	gatewayErrors: AnyColumn;
-	upstreamErrors: AnyColumn;
+	clientErrors: AnyColumn | SQL;
+	gatewayErrors: AnyColumn | SQL;
+	upstreamErrors: AnyColumn | SQL;
 }) {
 	return {
 		clientErrors:
@@ -482,6 +483,14 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 			: scope.mode === "api-keys"
 				? statsTable.apiKeysRequestCount
 				: statsTable.requestCount;
+	// Error and latency columns only carry the BYOK subset; `log.used_mode` is
+	// credits or api-keys, so credits is the total minus that subset.
+	const forMode = (total: AnyColumn, byok: AnyColumn): AnyColumn | SQL =>
+		scope.mode === "credits"
+			? sql`(${total} - ${byok})`
+			: scope.mode === "api-keys"
+				? byok
+				: total;
 
 	let keyExpr: SQL<string>;
 	switch (scope.groupBy) {
@@ -524,11 +533,45 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 	const totals = {
 		requestCount: requests.as("request_count"),
 		...errorSums({
-			clientErrors: statsTable.clientErrorCount,
-			gatewayErrors: statsTable.gatewayErrorCount,
-			upstreamErrors: statsTable.upstreamErrorCount,
+			clientErrors: forMode(
+				statsTable.clientErrorCount,
+				statsTable.apiKeysClientErrorCount,
+			),
+			gatewayErrors: forMode(
+				statsTable.gatewayErrorCount,
+				statsTable.apiKeysGatewayErrorCount,
+			),
+			upstreamErrors: forMode(
+				statsTable.upstreamErrorCount,
+				statsTable.apiKeysUpstreamErrorCount,
+			),
 		}),
-		...latencySums(statsTable),
+		...latencySums({
+			totalDuration: forMode(
+				statsTable.totalDuration,
+				statsTable.apiKeysTotalDuration,
+			),
+			durationCount: forMode(
+				statsTable.durationCount,
+				statsTable.apiKeysDurationCount,
+			),
+			totalTimeToFirstToken: forMode(
+				statsTable.totalTimeToFirstToken,
+				statsTable.apiKeysTotalTimeToFirstToken,
+			),
+			timeToFirstTokenCount: forMode(
+				statsTable.timeToFirstTokenCount,
+				statsTable.apiKeysTimeToFirstTokenCount,
+			),
+			totalTimeToFirstReasoningToken: forMode(
+				statsTable.totalTimeToFirstReasoningToken,
+				statsTable.apiKeysTotalTimeToFirstReasoningToken,
+			),
+			timeToFirstReasoningTokenCount: forMode(
+				statsTable.timeToFirstReasoningTokenCount,
+				statsTable.apiKeysTimeToFirstReasoningTokenCount,
+			),
+		}),
 	};
 	// Every tenant rollup keys on projectId only; the organization id lives one
 	// hop up, so the join is unconditional and the org filter and the org
@@ -828,16 +871,6 @@ function summaryScopeFor(query: LoadQuery, now: Date): LoadScope {
 	);
 }
 
-/**
- * The per-mode request columns on the tenant rollups have no matching error
- * or latency split, so a mode-filtered view there would pair credits-only
- * requests with blended errors and blended latency. The mapping history keys
- * on `used_mode`, so both stay exact there.
- */
-function isModeComparable(scope: LoadScope): boolean {
-	return scope.mode === "total" || scope.source === "mapping-history";
-}
-
 function stabilityFor(totals: LoadTotals) {
 	return deriveStabilityMetrics({
 		logsCount: totals.requestCount,
@@ -847,8 +880,8 @@ function stabilityFor(totals: LoadTotals) {
 	});
 }
 
-function qualityFor(totals: LoadTotals | undefined, modeComparable: boolean) {
-	if (!totals || !modeComparable) {
+function qualityFor(totals: LoadTotals | undefined) {
+	if (!totals) {
 		return {
 			avgDurationMs: null,
 			avgTimeToFirstTokenMs: null,
@@ -872,13 +905,11 @@ function qualityFor(totals: LoadTotals | undefined, modeComparable: boolean) {
 	};
 }
 
-function errorCountsFor(totals: LoadTotals, modeComparable: boolean) {
-	return modeComparable
-		? {
-				errorCount: stabilityFor(totals).errorsCount,
-				clientErrorCount: Math.min(totals.clientErrors, totals.requestCount),
-			}
-		: { errorCount: null, clientErrorCount: null };
+function errorCountsFor(totals: LoadTotals) {
+	return {
+		errorCount: stabilityFor(totals).errorsCount,
+		clientErrorCount: Math.min(totals.clientErrors, totals.requestCount),
+	};
 }
 
 interface LoadGrid {
@@ -916,7 +947,6 @@ function sumTotals(rows: LoadTotals[]): LoadTotals {
 
 function summarizeLoad(scope: LoadScope, bucketTotals: BucketTotalRow[]) {
 	const peakBucket = peakBucketFor(scope.bucket);
-	const modeComparable = isModeComparable(scope);
 	const { buckets, secondsFor, elapsedSeconds } = loadGrid(scope);
 
 	const requestsByBucket = new Map<string, number>();
@@ -957,8 +987,8 @@ function summarizeLoad(scope: LoadScope, bucketTotals: BucketTotalRow[]) {
 		peakRps: toRps(peakPoint?.requestCount ?? 0, BUCKET_SECONDS[peakBucket]),
 		peakAt: peakPoint && peakPoint.requestCount > 0 ? peakPoint.bucket : null,
 		totalRequests: total.requestCount,
-		...qualityFor(total, modeComparable),
-		...errorCountsFor(total, modeComparable),
+		...qualityFor(total),
+		...errorCountsFor(total),
 	};
 }
 
@@ -983,11 +1013,9 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 		summaryShared ? null : openLoadSource(summaryScope).bucketTotals(),
 	]);
 
-	const modeComparable = isModeComparable(scope);
-
 	// Ranked by absolute error count rather than rate, so a key with a single
 	// failed request cannot outrank one failing thousands.
-	const errorRanked = scope.rankBy === "errors" && modeComparable;
+	const errorRanked = scope.rankBy === "errors";
 	const rankedKeys = keyTotals
 		// A mode filter can leave a key with rows but no requests; ranking it
 		// would pad the legend and the table with empty series.
@@ -1045,7 +1073,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			bucketSeconds: seconds,
 			requestCount,
 			rps: toRps(requestCount, seconds),
-			...qualityFor(bucketTotal, modeComparable),
+			...qualityFor(bucketTotal),
 			entries: topKeys.map(({ key }) => {
 				const cellTotals = totalsByKeyBucket.get(`${key}\u0000${timestamp}`);
 				const count = cellTotals?.requestCount ?? 0;
@@ -1053,7 +1081,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 					key,
 					requestCount: count,
 					rps: toRps(count, seconds),
-					...qualityFor(cellTotals, modeComparable),
+					...qualityFor(cellTotals),
 				};
 			}),
 		};
@@ -1093,7 +1121,6 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 				elapsedSeconds,
 				totalRequests: chartRequests,
 				peakRps: peakByKey.get(row.key) ?? 0,
-				modeComparable,
 			}),
 			label: labelFor(row.key),
 		})),
@@ -1107,7 +1134,6 @@ function breakdownRow(
 		elapsedSeconds: number;
 		totalRequests: number;
 		peakRps: number;
-		modeComparable: boolean;
 	},
 ) {
 	return {
@@ -1117,8 +1143,8 @@ function breakdownRow(
 		peakRps: context.peakRps,
 		share:
 			context.totalRequests > 0 ? row.requestCount / context.totalRequests : 0,
-		...qualityFor(row, context.modeComparable),
-		...errorCountsFor(row, context.modeComparable),
+		...qualityFor(row),
+		...errorCountsFor(row),
 	};
 }
 
@@ -1201,7 +1227,6 @@ adminLoad.openapi(getLoadBreakdown, async (c) => {
 	const scope = resolveLoadScope(query);
 	const peakBucket = peakBucketFor(scope.bucket);
 	const source = openLoadSource(scope);
-	const modeComparable = isModeComparable(scope);
 	const { elapsedSeconds } = loadGrid(scope);
 
 	// Only settled buckets count towards a peak; see `summarizeLoad`.
@@ -1219,7 +1244,6 @@ adminLoad.openapi(getLoadBreakdown, async (c) => {
 				elapsedSeconds,
 				totalRequests,
 				peakRps: toRps(peaks.get(row.key) ?? 0, peakSeconds),
-				modeComparable,
 			}),
 		);
 

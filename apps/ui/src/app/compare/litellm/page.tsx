@@ -13,6 +13,11 @@ const liteLlmFaqs: CompareFaqItem[] = [
 			"LiteLLM provides a Python SDK and self-hosted gateway with an Admin UI, virtual keys, budgets, logging, routing and a model playground. LLM Gateway offers managed hosting as well as a self-hosted core. The main choice is how much infrastructure and configuration your team wants to operate.",
 	},
 	{
+		question: "Has LiteLLM been compromised?",
+		answer:
+			"Yes, twice in 2026. On March 24, litellm 1.82.7 and 1.82.8 on PyPI carried a credential stealer for about 40 minutes. On October 21, litellm 1.107.0 on PyPI and the official Docker images shipped an infostealer that read stored provider keys, plus a remote access trojan. Security researchers at FutureSearch, Aikido and JFrog published the affected artifacts and what to rotate.",
+	},
+	{
 		question: "How does LiteLLM pricing work?",
 		answer:
 			"LiteLLM OSS has no license fee for self-hosting, including production use. You still pay for infrastructure and inference. Enterprise is quoted annually based on gateway request capacity, deployment architecture and support, rather than token markup.",
@@ -47,12 +52,12 @@ export default function CompareLiteLLMPage() {
 					content={{
 						heading: "Why Choose LLM Gateway Over LiteLLM?",
 						description:
-							"Compare our production-ready managed gateway with advanced analytics, routing, and enterprise features against LiteLLM's self-hosted proxy solution.",
+							"Compare our managed gateway with prepaid credits, analytics, routing and enterprise features against LiteLLM's self-hosted proxy, which shipped compromised releases twice in 2026.",
 						badges: [
 							"Managed Infrastructure",
+							"No Proxy to Patch",
 							"Advanced Analytics",
 							"Enterprise Support",
-							"Production Ready",
 						],
 						cta: {
 							primary: {
@@ -84,12 +89,12 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs LiteLLM — Feature Comparison",
 		description:
-			"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy. See why teams pick a production-ready gateway.",
+			"Compare managed hosting, supply-chain security and billing vs LiteLLM's self-hosted proxy, compromised twice in 2026. See why teams pick LLM Gateway.",
 		alternates: { canonical: "/compare/litellm" },
 		openGraph: {
 			title: "LLM Gateway vs LiteLLM — Feature Comparison",
 			description:
-				"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy.",
+				"Compare managed hosting, supply-chain security and billing vs LiteLLM's self-hosted proxy.",
 			type: "website",
 			url: "https://llmgateway.io/compare/litellm",
 		},
@@ -97,7 +102,7 @@ export async function generateMetadata() {
 			card: "summary_large_image",
 			title: "LLM Gateway vs LiteLLM — Feature Comparison",
 			description:
-				"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy.",
+				"Compare managed hosting, supply-chain security and billing vs LiteLLM's self-hosted proxy.",
 		},
 	};
 }

@@ -29,6 +29,8 @@ interface RateLimitMatch {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
 	enforcement: "per_org" | "global";
 	mode: RateLimitMode;
 }
@@ -49,6 +51,10 @@ interface RateLimitMatch {
  *
  * `rpmMode`/`rpdMode` preserve soft/lax exemptions per window and are unset
  * for strict limits, including when an admin cap is zero.
+ *
+ * The `tpm`/`tpd` fields carry the same information for the token windows
+ * (prompt + completion tokens). They are optional so an absent window reads as
+ * unconfigured; carrier caps never set them.
  */
 export interface EffectiveRateLimit {
 	maxRpm: number;
@@ -65,6 +71,20 @@ export interface EffectiveRateLimit {
 	rpmModel?: string | null;
 	rpdProvider?: string | null;
 	rpdModel?: string | null;
+	maxTpm?: number;
+	maxTpd?: number;
+	tpmSource?: RateLimitSource;
+	tpdSource?: RateLimitSource;
+	tpmMode?: RateLimitMode;
+	tpdMode?: RateLimitMode;
+	tpmRateLimitId?: string;
+	tpdRateLimitId?: string;
+	tpmShared?: boolean;
+	tpdShared?: boolean;
+	tpmProvider?: string | null;
+	tpmModel?: string | null;
+	tpdProvider?: string | null;
+	tpdModel?: string | null;
 }
 
 const rateLimitPrecedence: Array<{
@@ -141,7 +161,7 @@ function pickRateLimitByPrecedence(
 	for (const precedence of rateLimitPrecedence) {
 		const match = rateLimits.find(
 			(rateLimit) =>
-				getLimitValue(rateLimit) !== null &&
+				typeof getLimitValue(rateLimit) === "number" &&
 				precedence.matches(rateLimit, organizationId, provider, model),
 		);
 		if (match) {
@@ -235,6 +255,8 @@ async function queryEffectiveRateLimit(
 			model: rateLimitTable.model,
 			maxRpm: rateLimitTable.maxRpm,
 			maxRpd: rateLimitTable.maxRpd,
+			maxTpm: rateLimitTable.maxTpm,
+			maxTpd: rateLimitTable.maxTpd,
 			enforcement: rateLimitTable.enforcement,
 			mode: rateLimitTable.mode,
 		})
@@ -268,6 +290,20 @@ async function queryEffectiveRateLimit(
 		provider,
 		model,
 		(rateLimit) => rateLimit.maxRpd,
+	);
+	const tpm = pickRateLimitByPrecedence(
+		rateLimits,
+		organizationId,
+		provider,
+		model,
+		(rateLimit) => rateLimit.maxTpm,
+	);
+	const tpd = pickRateLimitByPrecedence(
+		rateLimits,
+		organizationId,
+		provider,
+		model,
+		(rateLimit) => rateLimit.maxTpd,
 	);
 
 	// Carrier-managed caps on Airside listings fill only the windows no admin
@@ -328,5 +364,19 @@ async function queryEffectiveRateLimit(
 		rpmModel: rpm.shared ? rpm.model : undefined,
 		rpdProvider: rpd.shared ? rpd.provider : undefined,
 		rpdModel: rpd.shared ? rpd.model : undefined,
+		maxTpm: tpm.limit,
+		maxTpd: tpd.limit,
+		tpmSource: tpm.source,
+		tpdSource: tpd.source,
+		tpmMode: tpm.mode !== "strict" ? tpm.mode : undefined,
+		tpdMode: tpd.mode !== "strict" ? tpd.mode : undefined,
+		tpmRateLimitId: tpm.rateLimitId,
+		tpdRateLimitId: tpd.rateLimitId,
+		tpmShared: tpm.shared,
+		tpdShared: tpd.shared,
+		tpmProvider: tpm.shared ? tpm.provider : undefined,
+		tpmModel: tpm.shared ? tpm.model : undefined,
+		tpdProvider: tpd.shared ? tpd.provider : undefined,
+		tpdModel: tpd.shared ? tpd.model : undefined,
 	};
 }

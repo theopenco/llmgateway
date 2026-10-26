@@ -2,11 +2,13 @@
 import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { APICallError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+
+import { createRoute } from "@/utils/create-route.js";
 
 import { db } from "@llmgateway/db";
 import {
@@ -240,6 +242,10 @@ app.onError((error, c) => {
 		500,
 	);
 });
+
+// Liveness: the process serves HTTP. Never touches the database, so a slow or
+// locked database cannot get healthy pods restarted (use `/` for readiness).
+app.get("/livez", (c) => c.json({ status: "ok" }));
 
 const root = createRoute({
 	method: "get",

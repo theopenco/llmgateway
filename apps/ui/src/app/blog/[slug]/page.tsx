@@ -41,7 +41,9 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 		params,
 	]);
 
-	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);
+	const entry = allBlogs.find(
+		(entry: Blog) => entry.slug === slug && !entry.draft,
+	);
 
 	if (!entry) {
 		notFound();
@@ -273,9 +275,11 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 export async function generateStaticParams() {
 	const { allBlogs } = await import("content-collections");
 
-	return allBlogs.map((entry: Blog) => ({
-		slug: entry.slug,
-	}));
+	return allBlogs
+		.filter((entry: Blog) => !entry.draft)
+		.map((entry: Blog) => ({
+			slug: entry.slug,
+		}));
 }
 
 export async function generateMetadata({
@@ -286,7 +290,9 @@ export async function generateMetadata({
 		params,
 	]);
 
-	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);
+	const entry = allBlogs.find(
+		(entry: Blog) => entry.slug === slug && !entry.draft,
+	);
 
 	if (!entry) {
 		return {};
@@ -298,10 +304,15 @@ export async function generateMetadata({
 			? [entry.author]
 			: [{ name: "LLM Gateway", url: "https://llmgateway.io" }],
 		description: entry.summary ?? "LLM Gateway blog post",
+		alternates: { canonical: `/blog/${entry.slug}` },
 		openGraph: {
 			title: entry.title,
 			description: entry.summary ?? "LLM Gateway blog post",
 			type: "article",
+			url: `https://llmgateway.io/blog/${entry.slug}`,
+			publishedTime: entry.date,
+			modifiedTime: entry.updatedAt ?? entry.date,
+			authors: entry.author?.url ? [entry.author.url] : undefined,
 			images: entry.image
 				? [
 						{

@@ -10,24 +10,34 @@ import { getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { ModelProviderStats } from "@/lib/types";
+import type { UsageMode } from "@/lib/usage-mode";
 
 function ProviderSection({
 	modelId,
 	provider,
 	window,
+	mode,
 }: {
 	modelId: string;
 	provider: ModelProviderStats;
 	window: HistoryWindow;
+	mode: UsageMode;
 }) {
 	const ProviderIcon = getProviderIcon(provider.providerId);
 
 	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (w: HistoryWindow) => {
-			return await history.mappingHistory(provider.providerId, modelId, w);
+			return await history.mappingHistory(
+				provider.providerId,
+				modelId,
+				w,
+				undefined,
+				undefined,
+				mode,
+			);
 		},
-		[history, provider.providerId, modelId],
+		[history, provider.providerId, modelId, mode],
 	);
 
 	return (
@@ -53,10 +63,12 @@ export function ModelProviderCharts({
 	modelId,
 	providers,
 	window,
+	mode,
 }: {
 	modelId: string;
 	providers: ModelProviderStats[];
 	window: HistoryWindow;
+	mode: UsageMode;
 }) {
 	if (providers.length === 0) {
 		return (
@@ -74,6 +86,7 @@ export function ModelProviderCharts({
 					modelId={modelId}
 					provider={provider}
 					window={window}
+					mode={mode}
 				/>
 			))}
 		</div>

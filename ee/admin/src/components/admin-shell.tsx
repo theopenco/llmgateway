@@ -30,6 +30,7 @@ import {
 	Sparkles,
 	Wallet,
 	Zap,
+	Stamp,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -172,6 +173,12 @@ const navItems: NavItem[] = [
 		match: "prefix",
 	},
 	{
+		href: "/airside-certification",
+		label: "Airworthy Certification",
+		icon: Stamp,
+		match: "prefix",
+	},
+	{
 		href: "/chat-support-logs",
 		label: "Chat Support Logs",
 		icon: MessageCircle,
@@ -269,7 +276,7 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 	const router = useRouter();
 	const { signOut } = useAuth();
 	const queryClient = useQueryClient();
-	const { user, isLoading, error, data } = useUser();
+	const { user, isLoading, error, sessionRejected, data } = useUser();
 	const adminRole = useAdminRole();
 	const visibleNavItems =
 		adminRole === "admin"
@@ -279,7 +286,15 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 	// Visitors without an admin session never see the navigation: the section
 	// list would suggest there is something reachable behind it, and a sign out
 	// button makes no sense when nobody is signed in.
-	const showNav = user ? !!user.adminRole : isLoading && !error && signedIn;
+	//
+	// The cookie fallback covers the first load only. A stale cookie makes
+	// `/user/me` 401; hiding the navigation then moves the page to a different
+	// tree, which remounts it, and its fresh `useUser` refetches. The refetch
+	// clears `error` while in flight, so without `sessionRejected` the
+	// navigation would flash back, remount the page again, and loop forever.
+	const showNav = user
+		? !!user.adminRole
+		: isLoading && !error && !sessionRejected && signedIn;
 	const license = data?.enterpriseLicense;
 	const licenseTerm = getEnterpriseLicenseTerm(license?.expiresAt);
 	const whiteLabelExpiryTerm =

@@ -2,6 +2,7 @@ import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	isStealthProvider,
+	type DeclaredCompliance,
 	type ModelDefinition,
 } from "@llmgateway/models";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
@@ -110,6 +111,17 @@ export function customCarrierGridProviders(
 					: null,
 			};
 		});
+}
+
+/** Certifications each claimed catalogue provider declared in Airside. */
+export function declaredComplianceByProvider(
+	apiProviders: ApiProvider[],
+): Record<string, DeclaredCompliance> {
+	return Object.fromEntries(
+		apiProviders.flatMap((p) =>
+			p.airsideProfile?.compliance ? [[p.id, p.airsideProfile.compliance]] : [],
+		),
+	);
 }
 
 /** Distinct models routable through at least one of the given providers. */

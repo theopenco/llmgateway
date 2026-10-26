@@ -135,5 +135,9 @@ export {
 	recordRequestCompleted,
 	getMetrics,
 	getMetricsContentType,
+	setMetricsServiceName,
+	registerDbPoolMetrics,
+	startMetricsServer,
 	type ChatCompletionMetrics,
+	type DbPoolStats,
 } from "./metrics.js";

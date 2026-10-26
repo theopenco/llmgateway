@@ -34,7 +34,7 @@ Pin the provider and disable fallback, or a healthy provider masks the error:
 ```bash
 curl -N http://localhost:4001/v1/chat/completions \
   -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
-  -d '{"model":"embercloud/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"novita/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 The gateway caches responses, errors included, keyed on the request body; vary
@@ -54,6 +54,7 @@ Options:
 - `FULL_MODE` — include free models and per-effort cases.
 - `LOG_MODE` — log responses.
 - `TEST_WEB_SEARCH` — run `chat-websearch.e2e.ts`; each case bills a real search, so scope it with `TEST_MODELS`.
+- `CONTEXT_ROUTING_TEST` — run `chat-context-routing.e2e.ts`: ~350k-token prompts against every keyed deployment of its models, and bare-id routing past short-window deployments. Costs several dollars per run; run that file directly rather than the whole suite.
 
 For mapping-only changes, the only relevant result is a run scoped to those
 mappings (`TEST_MODELS="alibaba/glm-5.2" FULL_MODE=true pnpm test:e2e`). Run the

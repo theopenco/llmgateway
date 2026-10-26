@@ -181,7 +181,8 @@ export function Feedback({ githubUrl }: { githubUrl: string }) {
 							placeholder="Leave your feedback..."
 							onKeyDown={(e) => {
 								if (!e.shiftKey && e.key === "Enter") {
-									submit(e);
+									e.preventDefault();
+									e.currentTarget.form?.requestSubmit();
 								}
 							}}
 						/>

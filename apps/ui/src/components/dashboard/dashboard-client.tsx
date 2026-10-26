@@ -50,6 +50,7 @@ import {
 	useUsageMode,
 } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -226,6 +227,12 @@ export function DashboardClient({
 
 	// Get date range from URL params
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
@@ -252,15 +259,23 @@ export function DashboardClient({
 
 	// If no from/to params exist, add them to the URL immediately
 	useEffect(() => {
-		if (!searchParams.get("from") || !searchParams.get("to")) {
+		if (shouldApplyDefaults(new URLSearchParams(searchParams.toString()))) {
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("days");
-			const today = new Date();
-			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params.set("to", format(today, "yyyy-MM-dd"));
+			params.set("from", defaultFrom);
+			params.set("to", defaultTo);
+			markGenerated(params);
 			router.replace(`${buildUrl()}?${params.toString()}`);
 		}
-	}, [searchParams, router, buildUrl]);
+	}, [
+		searchParams,
+		router,
+		buildUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
 	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
@@ -458,6 +473,10 @@ export function DashboardClient({
 		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) ?? 0;
 	const totalCachedInputCost =
 		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) ?? 0;
+	const totalCacheWriteInputCost = activityData.reduce(
+		(sum, day) => sum + day.cacheWriteInputCost,
+		0,
+	);
 	const totalErrors =
 		activityData.reduce((sum, day) => sum + day.errorCount, 0) ?? 0;
 	const totalCached =
@@ -715,7 +734,7 @@ export function DashboardClient({
 								icon={ArrowDownToLine}
 								label="Input tokens"
 								value={formatTokens(totalInputTokens)}
-								sub={`$${totalInputCost.toFixed(2)} spend`}
+								sub={`$${(totalInputCost + totalCachedInputCost + totalCacheWriteInputCost).toFixed(2)} spend, incl. cache`}
 								isLoading={isLoading}
 							/>
 							<StatCell
@@ -729,7 +748,7 @@ export function DashboardClient({
 								icon={Server}
 								label="Cached tokens"
 								value={formatTokens(totalCachedTokens)}
-								sub={`$${totalCachedInputCost.toFixed(2)} • included in input`}
+								sub={`$${totalCachedInputCost.toFixed(2)} reads${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} writes` : ""}`}
 								isLoading={isLoading}
 							/>
 							<StatCell
@@ -927,8 +946,8 @@ export function DashboardClient({
 											<CardDescription>
 												{metric === "costs"
 													? costView === "total"
-														? "Daily total inference spend (provider list price)"
-														: "Daily inference spend by token type"
+														? "Daily total spend, including storage"
+														: "Daily spend by cost type"
 													: "Daily request volume"}
 											</CardDescription>
 										</div>

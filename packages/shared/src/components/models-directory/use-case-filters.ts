@@ -7,7 +7,14 @@ import type { ApiModel, ApiModelProviderMapping } from "./api-types";
 import type { ModelCategoryFilter } from "./model-category-filters";
 
 export type UseCaseCategory =
-	"all" | "code" | "chat" | "reasoning" | "creative" | "image" | "multimodal";
+	| "all"
+	| "code"
+	| "chat"
+	| "reasoning"
+	| "creative"
+	| "image"
+	| "multimodal"
+	| "decisions";
 
 export const useCaseCategories: readonly UseCaseCategory[] = [
 	"all",
@@ -17,6 +24,7 @@ export const useCaseCategories: readonly UseCaseCategory[] = [
 	"creative",
 	"image",
 	"multimodal",
+	"decisions",
 ];
 
 export function isUseCaseCategory(
@@ -40,6 +48,7 @@ const IMPLIED_CAPABILITY_KEYS_BY_USE_CASE: Partial<
 	creative: ["streaming"],
 	image: ["imageGeneration"],
 	multimodal: ["vision"],
+	decisions: ["decisions"],
 };
 
 // Same idea for the category pages (`categoryFilter` prop): entries only for
@@ -52,6 +61,7 @@ const IMPLIED_CAPABILITY_KEYS_BY_CATEGORY_FILTER: Partial<
 	"image-to-image": ["imageGeneration", "vision"],
 	video: ["videoGeneration"],
 	embedding: ["embedding"],
+	decisions: ["decisions"],
 	"web-search": ["webSearch"],
 	vision: ["vision"],
 	reasoning: ["reasoning"],
@@ -129,6 +139,8 @@ export function applyUseCaseFilter(
 		case "multimodal":
 			// Multimodal: vision capability
 			return mappings.some((p) => p.vision);
+		case "decisions":
+			return model.output?.includes("decision") === true;
 		default:
 			return true;
 	}

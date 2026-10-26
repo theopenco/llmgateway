@@ -89,6 +89,16 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 			"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z M7 16.5l-4.74-2.85 M7 16.5l5-3 M7 16.5v5.17 M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z M17 16.5l-5-3 M17 16.5l4.74-2.85 M17 16.5v5.17 M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z M12 8L7.26 5.15 M12 8l4.74-2.85 M12 8v5.5",
 		countFilter: (m) => m.output?.includes("embedding") === true,
 	},
+	decisions: {
+		title: "Decisions",
+		subtitle: "Typed, probabilistic answers for routing and classification",
+		accentColor: "#14B8A6",
+		accentColorDim: "#134E4A",
+		// Lucide "SlidersHorizontal" icon path
+		iconSvgPath:
+			"M21 4h-7 M10 4H3 M21 12h-9 M8 12H3 M21 20h-5 M12 20H3 M14 2v4 M8 10v4 M16 18v4",
+		countFilter: (m) => m.output?.includes("decision") === true,
+	},
 	"web-search": {
 		title: "Web Search",
 		subtitle: "Real-time internet-grounded responses",
@@ -190,6 +200,27 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		iconSvgPath:
 			"M4 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z M8 6h8 M16 14v4 M16 10h.01 M12 10h.01 M8 10h.01 M12 14h.01 M8 14h.01 M12 18h.01 M8 18h.01",
 		countFilter: (m) => curatedCategoryModelIds.math.has(m.id),
+	},
+	"cyber-security": {
+		title: "Cyber Security",
+		subtitle: "Models for code audits, log triage, and CTFs",
+		accentColor: "#EF4444",
+		accentColorDim: "#7F1D1D",
+		// Lucide "ShieldCheck" icon path
+		iconSvgPath:
+			"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M9 12l2 2 4-4",
+		countFilter: (m) => curatedCategoryModelIds["cyber-security"].has(m.id),
+	},
+	"reverse-engineering": {
+		title: "Reverse Engineering",
+		subtitle: "Models that read binaries and finish the job",
+		accentColor: "#A855F7",
+		accentColorDim: "#4C1D95",
+		// Lucide "Cpu" icon path
+		iconSvgPath:
+			"M12 20v2 M12 2v2 M17 20v2 M17 2v2 M2 12h2 M2 17h2 M2 7h2 M20 12h2 M20 17h2 M20 7h2 M7 20v2 M7 2v2 M4 4h16v16H4z M9 9h6v6H9z",
+		countFilter: (m) =>
+			curatedCategoryModelIds["reverse-engineering"].has(m.id),
 	},
 	"long-context": {
 		title: "Long Context",

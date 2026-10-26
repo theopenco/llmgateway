@@ -2,6 +2,156 @@ import type { ModelDefinition } from "@/models.js";
 
 export const minimaxModels = [
 	{
+		id: "minimax-m3.1-flash",
+		name: "MiniMax M3.1 Flash",
+		description:
+			"MiniMax M3.1 Flash is a multimodal M-series model for agentic reasoning, tool use, coding, and long-context tasks, with a 1M token context window and tunable thinking depth.",
+		family: "minimax",
+		releasedAt: new Date("2026-10-19"),
+		providers: [
+			{
+				providerId: "minimax",
+				externalId: "MiniMax-M3.1-Flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.015e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 524288,
+				streaming: true,
+				reasoning: true,
+				// Adaptive thinking skips reasoning on simple tool calls, so
+				// reasoning content is not guaranteed in every response.
+				reasoningOutput: "omit",
+				// Thinking cannot be disabled; the effort tier is forwarded as
+				// `reasoning_effort`.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				// tool_choice "none", "required" and named functions are accepted
+				// and then ignored.
+				supportedToolChoices: ["auto"],
+				// response_format is accepted and then ignored.
+				jsonOutput: false,
+				supportedParameters: [
+					"messages",
+					"model",
+					"stream",
+					"stream_options",
+					"temperature",
+					"top_p",
+					"max_tokens",
+					"max_completion_tokens",
+					"frequency_penalty",
+					"presence_penalty",
+					"seed",
+					"stop",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "inference.net",
+				externalId: "minimax-m3.1-flash",
+				inputPrice: "0.1e-6",
+				cachedInputPrice: "0.005e-6",
+				outputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 524288,
+				streaming: true,
+				reasoning: true,
+				// Adaptive thinking skips reasoning on simple tool calls.
+				reasoningOutput: "omit",
+				// Thinking cannot be disabled: `none` and the `thinking` switch are
+				// accepted but reasoning stays on.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				// json_schema output often degenerates into runaway or nonsense values.
+				jsonOutputSchema: false,
+			},
+			{
+				providerId: "novita",
+				externalId: "minimax/minimax-m3.1-flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.015e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 524288,
+				streaming: true,
+				reasoning: true,
+				// Adaptive thinking skips reasoning on simple tool calls.
+				reasoningOutput: "omit",
+				// Thinking cannot be disabled; `none` is rejected with a 400.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				// tool_choice "required" and named functions are accepted and then
+				// ignored.
+				supportedToolChoices: ["auto", "none"],
+				// json_object is accepted and then ignored; json_schema is rejected.
+				jsonOutput: false,
+			},
+			{
+				providerId: "nebius",
+				externalId: "MiniMaxAI/MiniMax-M3.1-Flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.015e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				// Adaptive thinking skips reasoning on simple tool calls.
+				reasoningOutput: "omit",
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				// json_object intermittently returns `{}`, and json_schema output runs
+				// away into invalid JSON or nonsense values.
+				jsonOutput: false,
+				supportsDeveloperRole: false,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "MiniMaxAI/MiniMax-M3.1-Flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.015e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				// Adaptive thinking skips reasoning on simple tool calls.
+				reasoningOutput: "omit",
+				// Any reasoning_effort string is accepted without changing the
+				// reasoning length; only `thinking: {type: "disabled"}` turns it off.
+				reasoningEfforts: ["none"],
+				requiresDisableThinkingParam: true,
+				vision: true,
+				tools: true,
+				// json_object intermittently returns `{}`, and json_schema output runs
+				// away into invalid JSON or nonsense values.
+				jsonOutput: false,
+			},
+		],
+	},
+	{
 		id: "minimax-m3",
 		name: "MiniMax M3",
 		description:
@@ -39,6 +189,7 @@ export const minimaxModels = [
 			{
 				providerId: "together-ai",
 				externalId: "MiniMaxAI/MiniMax-M3",
+				deactivatedAt: new Date("2026-11-06"),
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",

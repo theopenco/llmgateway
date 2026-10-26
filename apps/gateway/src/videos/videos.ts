@@ -1,10 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
-import {
-	isContentFilterClassifierCompliant,
-	evaluateContentFilterWithClassifiers,
-} from "@/chat/tools/content-filter-classifier.js";
+import { isContentFilterClassifierCompliant } from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
@@ -17,10 +14,8 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
-import {
-	resolveTieredContentFilterPlan,
-	type TieredContentFilterPlan,
-} from "@/chat/tools/tiered-content-filter.js";
+import { startTieredContentFilter } from "@/chat/tools/run-tiered-content-filter.js";
+import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -56,7 +51,7 @@ import {
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
-import { fetchProvider } from "@/lib/fetch-provider.js";
+import { fetchProvider, fetchProviderIssuedUrl } from "@/lib/fetch-provider.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
@@ -81,7 +76,6 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
 	managedCredentialOptions,
-	fetchNoRedirect,
 	processImageUrl,
 	providerKeyLabel,
 	readProviderKey,
@@ -730,6 +724,8 @@ interface RequestContext {
 interface ProviderContext {
 	providerId: Provider;
 	baseUrl: string;
+	/** BYOK base URL; set means the upstream connection gets the SSRF guard. */
+	tenantBaseUrl: string | null;
 	token: string;
 	requestId: string;
 	usedMode: "api-keys" | "credits";
@@ -1706,6 +1702,7 @@ function resolveByokVideoProviderContext(
 	return {
 		providerId,
 		baseUrl: settings.baseUrl,
+		tenantBaseUrl: providerKey.baseUrl ?? null,
 		token: readProviderKey(providerKey),
 		requestId,
 		usedMode: "api-keys",
@@ -1855,6 +1852,7 @@ async function resolvePlatformVideoProviderContext(
 	return {
 		providerId,
 		baseUrl,
+		tenantBaseUrl: null,
 		token: platformCredential.token,
 		requestId,
 		usedMode: "credits",
@@ -2801,17 +2799,35 @@ async function getVideoSourceUrlFromCacheOrJob(
 	return sourceUrl;
 }
 
+/**
+ * Map a failed content fetch (unreachable host, refused SSRF target, redirect)
+ * to a 502 instead of an unhandled 500.
+ */
+async function fetchVideoContent(
+	fetchContent: () => Promise<Response>,
+): Promise<Response> {
+	try {
+		return await fetchContent();
+	} catch (error) {
+		logger.warn("Failed to fetch video content", {
+			error: toError(error).message,
+		});
+		throw new HTTPException(502, {
+			message: "Failed to fetch video content",
+		});
+	}
+}
+
 async function streamVideoFromUrl(
 	contentUrl: string,
 	requestHeaders: Headers,
 	contentType?: string | null,
 ): Promise<Response> {
-	// SSRF: refuse redirects so a tenant-controlled content URL cannot 3xx the
-	// gateway onward to an internal host whose body would then be streamed back.
-	const upstreamResponse = await fetchNoRedirect(contentUrl, {
-		redirect: "error",
-		headers: videoRangeHeaders(requestHeaders),
-	});
+	const upstreamResponse = await fetchVideoContent(() =>
+		fetchProviderIssuedUrl(contentUrl, {
+			headers: videoRangeHeaders(requestHeaders),
+		}),
+	);
 	return videoProxyResponse(upstreamResponse, contentType);
 }
 
@@ -2828,6 +2844,8 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 	baseUrl: string;
 	token: string;
 	requestId: string;
+	/** Set when the base URL may be tenant-supplied (BYOK). */
+	tenantBaseUrl: string | null;
 }> {
 	const providerId = job.usedProvider as Provider;
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
@@ -2861,6 +2879,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			baseUrl,
 			token: readProviderKey(providerKey),
 			requestId: job.requestId,
+			tenantBaseUrl: baseUrl,
 		};
 	}
 
@@ -2889,6 +2908,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			baseUrl,
 			token: readProviderKey(managedKey),
 			requestId: job.requestId,
+			tenantBaseUrl: null,
 		};
 	}
 
@@ -2918,6 +2938,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		baseUrl,
 		token: env.token,
 		requestId: job.requestId,
+		tenantBaseUrl: null,
 	};
 }
 
@@ -2926,8 +2947,13 @@ async function streamDirectUpstreamVideoContent(
 	requestHeaders: Headers,
 ): Promise<Response> {
 	const providerContext = await resolveVideoJobProviderContext(job);
+	const headers = {
+		...getProviderHeaders(providerContext.providerId, providerContext.token, {
+			requestId: providerContext.requestId,
+		}),
+		...videoRangeHeaders(requestHeaders),
+	};
 
-	let contentUrl: string;
 	if (providerContext.providerId === "minimax") {
 		const statusResponse =
 			job.upstreamStatusResponse &&
@@ -2950,15 +2976,19 @@ async function streamDirectUpstreamVideoContent(
 			providerContext.baseUrl,
 			`/v1/files/retrieve?file_id=${fileId}`,
 		);
-		const retrieveResponse = await fetchNoRedirect(retrieveUrl, {
-			// SSRF: never follow redirects on a tenant-baseUrl provider request.
-			redirect: "error",
-			headers: getProviderHeaders(
-				providerContext.providerId,
-				providerContext.token,
-				{ requestId: providerContext.requestId },
+		const retrieveResponse = await fetchVideoContent(() =>
+			fetchProvider(
+				retrieveUrl,
+				{
+					headers: getProviderHeaders(
+						providerContext.providerId,
+						providerContext.token,
+						{ requestId: providerContext.requestId },
+					),
+				},
+				providerContext.tenantBaseUrl,
 			),
-		});
+		);
 		if (!retrieveResponse.ok) {
 			throw new HTTPException(502, {
 				message: "Failed to retrieve MiniMax video download URL",
@@ -2967,31 +2997,29 @@ async function streamDirectUpstreamVideoContent(
 		const retrieveBody = (await retrieveResponse.json()) as {
 			file?: { download_url?: string };
 		};
-		contentUrl = retrieveBody.file?.download_url ?? "";
-		if (!contentUrl) {
+		const downloadUrl = retrieveBody.file?.download_url;
+		if (!downloadUrl) {
 			throw new HTTPException(502, {
 				message:
 					"MiniMax file retrieve response did not include a download_url",
 			});
 		}
-	} else {
-		contentUrl = joinUrl(
-			providerContext.baseUrl,
-			`/v1/videos/${job.upstreamId}/content`,
+		const downloadResponse = await fetchVideoContent(() =>
+			// Presigned URL on another host: never forward the provider credential.
+			fetchProviderIssuedUrl(downloadUrl, {
+				headers: videoRangeHeaders(requestHeaders),
+			}),
 		);
+		return videoProxyResponse(downloadResponse, job.contentType);
 	}
 
-	const upstreamResponse = await fetchNoRedirect(contentUrl, {
-		// SSRF: never follow redirects on a tenant-controlled content/baseUrl
-		// request; the followed body would be streamed back to the caller.
-		redirect: "error",
-		headers: {
-			...getProviderHeaders(providerContext.providerId, providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
-			...videoRangeHeaders(requestHeaders),
-		},
-	});
+	const contentUrl = joinUrl(
+		providerContext.baseUrl,
+		`/v1/videos/${job.upstreamId}/content`,
+	);
+	const upstreamResponse = await fetchVideoContent(() =>
+		fetchProvider(contentUrl, { headers }, providerContext.tenantBaseUrl),
+	);
 	return videoProxyResponse(upstreamResponse, job.contentType);
 }
 
@@ -3039,10 +3067,14 @@ function isDebugMode(c: Context): boolean {
 async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
-	providerId: string,
+	providerContext: Pick<ProviderContext, "providerId" | "tenantBaseUrl">,
 ): Promise<Record<string, unknown>> {
-	// SSRF: never follow redirects on a tenant-baseUrl provider request.
-	const response = await fetchProvider(url, init);
+	const { providerId } = providerContext;
+	const response = await fetchProvider(
+		url,
+		init,
+		providerContext.tenantBaseUrl,
+	);
 	const text = await response.text();
 	let body: Record<string, unknown> = {};
 
@@ -3253,7 +3285,7 @@ async function createOpenAIVideoJob(
 			},
 			body: upstreamBody,
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3379,7 +3411,7 @@ async function createGoogleVertexVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 	const upstreamId =
 		typeof rawResponse.name === "string" && rawResponse.name.length > 0
@@ -3456,7 +3488,7 @@ async function uploadAtlasCloudMedia(
 			}),
 			body: formData,
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 	const uploadedUrl = extractAtlasCloudUploadedMediaUrl(response);
 
@@ -3618,7 +3650,7 @@ async function createAtlasCloudVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -3757,7 +3789,7 @@ async function createBytedanceVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -3844,7 +3876,7 @@ async function createMinimaxV2VideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -3920,7 +3952,7 @@ async function createMinimaxVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const baseResp = rawResponse.base_resp as
@@ -3993,7 +4025,7 @@ async function createXaiVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
@@ -4056,7 +4088,7 @@ async function createAlibabaVideoJob(
 			},
 			body: JSON.stringify(upstreamRequest),
 		},
-		providerContext.providerId,
+		providerContext,
 	);
 
 	const output =
@@ -4367,58 +4399,6 @@ function buildVideoModerationMessages(
 			],
 		},
 	];
-}
-
-async function evaluateVideoContentFilter(options: {
-	plan: TieredContentFilterPlan;
-	request: z.infer<typeof createVideoRequestSchema>;
-	requestId: string;
-	apiKey: GatewayApiKey;
-	project: InferSelectModel<typeof tables.project>;
-	organization: InferSelectModel<typeof tables.organization>;
-	providerId: string;
-	compliancePolicy: ReturnType<typeof getActiveCompliancePolicy>;
-	images: Array<ProcessedVideoImageInput | null>;
-	signal: AbortSignal | undefined;
-}): Promise<GatewayContentFilterEvaluation | null> {
-	const { plan } = options;
-	// Prompts must never reach a classifier's provider when the org's compliance
-	// policy excludes it.
-	const classifierAllowed = (classifier: ContentFilterClassifier) =>
-		isContentFilterClassifierCompliant(classifier, options.compliancePolicy);
-	const tiered = await evaluateContentFilterWithClassifiers({
-		plan,
-		messages: buildVideoModerationMessages(
-			options.request.prompt,
-			options.images,
-		),
-		context: {
-			requestId: options.requestId,
-			organizationId: options.organization.id,
-			projectId: options.project.id,
-			apiKeyId: options.apiKey.id,
-		},
-		signal: options.signal,
-		imagesAllowed: classifierAllowed("openai"),
-		classifierAllowed,
-	});
-	if (!tiered) {
-		return null;
-	}
-	const evaluation = tiered.evaluation;
-	if (evaluation.violation) {
-		logger.debug("gateway_content_filter_tier", {
-			requestId: options.requestId,
-			organizationId: options.organization.id,
-			provider: options.providerId,
-			tier: plan.tier,
-			level: plan.level,
-			classifier: plan.classifier,
-			action: evaluation.action,
-			matchedCategories: evaluation.matchedCategories,
-		});
-	}
-	return evaluation;
 }
 
 /**
@@ -4823,44 +4803,33 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		await getContentFilterSettings(),
 	);
 	if (contentFilterPlan) {
-		const runContentFilter = (signal: AbortSignal | undefined) =>
-			evaluateVideoContentFilter({
-				plan: contentFilterPlan,
-				request,
+		// Prompts must never reach a classifier's provider when the org's
+		// compliance policy excludes it.
+		const classifierAllowed = (classifier: ContentFilterClassifier) =>
+			isContentFilterClassifierCompliant(classifier, videoCompliancePolicy);
+		const started = await startTieredContentFilter({
+			plan: contentFilterPlan,
+			messages: buildVideoModerationMessages(request.prompt, [
+				processedFirstFrame,
+				processedLastFrameInput,
+				...processedReferenceImages,
+			]),
+			context: {
 				requestId,
-				apiKey,
-				project,
-				organization,
-				providerId: selectedProviderContext.providerId,
-				compliancePolicy: videoCompliancePolicy,
-				images: [
-					processedFirstFrame,
-					processedLastFrameInput,
-					...processedReferenceImages,
-				],
-				signal,
-			});
-		if (contentFilterPlan.enforce) {
-			contentFilterEvaluation = await runContentFilter(c.req.raw.signal);
-		} else {
-			// Detached from the client's signal so a hang-up does not cancel the
-			// observation; each classifier's own timeout bounds it.
-			pendingContentFilterEvaluation = trackPendingWork(
-				runContentFilter(undefined).then(
-					(evaluation) => {
-						contentFilterEvaluation = evaluation;
-						return evaluation;
-					},
-					(error: unknown) => {
-						logger.warn("Background gateway content filter failed", {
-							requestId,
-							error: toError(error),
-						});
-						return null;
-					},
-				),
-			);
-		}
+				organizationId: organization.id,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+			},
+			signal: c.req.raw.signal,
+			imagesAllowed: classifierAllowed("openai"),
+			classifierAllowed,
+		});
+		contentFilterEvaluation = started.outcome?.evaluation ?? null;
+		pendingContentFilterEvaluation =
+			started.pending?.then((outcome) => {
+				contentFilterEvaluation = outcome?.evaluation ?? null;
+				return contentFilterEvaluation;
+			}) ?? null;
 	}
 	if (contentFilterEvaluation?.action === "blocked") {
 		await insertVideoClientErrorLog({

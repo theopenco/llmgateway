@@ -16,6 +16,8 @@ export const anthropicCustomToolSchema = z.object({
 		})
 		.nullish(),
 	defer_loading: z.boolean().optional(),
+	strict: z.boolean().optional(),
+	allowed_callers: z.array(z.string()).optional(),
 });
 
 function blockType(entry: unknown): string | undefined {
@@ -99,34 +101,44 @@ const anthropicKnownContentBlockSchema = z.union([
 		type: z.literal("redacted_thinking"),
 		data: z.string(),
 	}),
-	// Anthropic server-tool blocks (web search) echoed back in
-	// conversation history. The gateway emits them on responses, so
-	// native SDK clients replay them on the next turn; they carry no
-	// representation in the internal OpenAI-format request (the
-	// `encrypted_content` Anthropic requires is not reconstructible from
-	// url_citation annotations), so they're accepted here and stripped
-	// during transformation.
-	z.object({
-		type: z.literal("server_tool_use"),
-		id: z.string(),
-		name: z.string(),
-		input: z.record(z.unknown()).optional(),
-	}),
-	z.object({
-		type: z.literal("web_search_tool_result"),
-		tool_use_id: z.string(),
-		// Either an array of web_search_result entries or an error object.
-		content: z.union([z.array(z.unknown()), z.record(z.unknown())]).optional(),
-	}),
-	// Server-side tool search results. Unlike the web-search blocks
-	// above these ARE forwarded: Anthropic expands the tool_reference
-	// entries they carry throughout the history, which is what lets
-	// Claude reuse a discovered tool without searching again.
-	z.object({
-		type: z.literal("tool_search_tool_result"),
-		tool_use_id: z.string(),
-		content: z.record(z.unknown()).optional(),
-	}),
+	// Anthropic server tool blocks echoed back in conversation history. They
+	// have no representation in the internal OpenAI-format request, so they
+	// ride along verbatim and are replayed on Anthropic upstreams only: the
+	// `encrypted_content` and `tool_reference` entries they carry are what the
+	// model sees of the result. `.passthrough()` keeps every field Anthropic
+	// sent.
+	z
+		.object({
+			type: z.literal("server_tool_use"),
+			id: z.string(),
+			name: z.string(),
+			input: z.record(z.unknown()).optional(),
+		})
+		.passthrough(),
+	z
+		.object({
+			type: z.literal("web_search_tool_result"),
+			tool_use_id: z.string(),
+			// Either an array of web_search_result entries or an error object.
+			content: z
+				.union([z.array(z.unknown()), z.record(z.unknown())])
+				.optional(),
+		})
+		.passthrough(),
+	z
+		.object({
+			type: z.literal("web_fetch_tool_result"),
+			tool_use_id: z.string(),
+			content: z.record(z.unknown()).optional(),
+		})
+		.passthrough(),
+	z
+		.object({
+			type: z.literal("tool_search_tool_result"),
+			tool_use_id: z.string(),
+			content: z.record(z.unknown()).optional(),
+		})
+		.passthrough(),
 ]);
 
 // Claude Code's mid-conversation-tool-changes beta announces MCP tools that
@@ -159,6 +171,7 @@ const KNOWN_CONTENT_BLOCK_TYPES = new Set([
 	"redacted_thinking",
 	"server_tool_use",
 	"web_search_tool_result",
+	"web_fetch_tool_result",
 	"tool_search_tool_result",
 	"tool_addition",
 	"tool_removal",

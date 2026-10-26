@@ -338,7 +338,7 @@ describe("activity endpoint", () => {
 		expect(modelData).toHaveProperty("cost");
 	});
 
-	test("GET /activity splits cache tokens per model", async () => {
+	test("GET /activity splits cache tokens and costs per model", async () => {
 		await db.delete(tables.log);
 
 		const today = new Date();
@@ -363,6 +363,10 @@ describe("activity endpoint", () => {
 				cacheWriteTokens: "100",
 				totalTokens: "1200",
 				cost: 0.5,
+				inputCost: 0.1,
+				outputCost: 0.2,
+				cachedInputCost: 0.06,
+				cacheWriteInputCost: 0.14,
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -407,6 +411,10 @@ describe("activity endpoint", () => {
 			inputTokens: 1000,
 			cachedTokens: 600,
 			cacheWriteTokens: 100,
+			inputCost: expect.closeTo(0.1, 6),
+			outputCost: expect.closeTo(0.2, 6),
+			cachedInputCost: expect.closeTo(0.06, 6),
+			cacheWriteInputCost: expect.closeTo(0.14, 6),
 		});
 		expect(models.find((m: any) => m.id === "claude-3-sonnet")).toMatchObject({
 			inputTokens: 300,

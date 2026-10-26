@@ -16,6 +16,8 @@ We're excited to announce our partnership with **Alibaba Cloud** — one of the 
 
 Starting today, every Alibaba Cloud model on LLM Gateway comes with a **20% discount** applied automatically. No promo codes, no special configuration. Just lower prices on 26 Qwen models across chat, coding, reasoning, vision, and image generation.
 
+_Update (October 2026): Many of the models listed below have since been retired, and prices may have changed. See [Alibaba Cloud models](/models?provider=alibaba) for current availability and pricing._
+
 ## Why Qwen Models
 
 Alibaba Cloud's Qwen series has quickly become one of the most competitive model families in the AI space. With context windows up to **1 million tokens**, built-in tool calling, vision capabilities, and dedicated coding models, Qwen offers a strong alternative to models from OpenAI, Anthropic, and Google — often at a fraction of the cost.
@@ -105,7 +107,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "alibaba/qwen3-max-2026-01-23",
+    "model": "alibaba/qwen-max",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -122,6 +124,6 @@ If you have questions, reach out on [GitHub](https://github.com/theopenco/llmgat
 
 ---
 
-**[Browse all discounted models](/models?discounted=true)** | **[Try Qwen3 Max in the Playground](https://lounge.llmgateway.io/?model=alibaba/qwen3-max-2026-01-23)** | **[Get started](/signup)**
+**[Browse all discounted models](/models?discounted=true)** | **[Try Qwen Max in the Playground](https://lounge.llmgateway.io/?model=alibaba/qwen-max)** | **[Get started](/signup)**
 
 <BlogCta variant="gateway" location="bottom" />
