@@ -40,6 +40,10 @@ resource in LLMGateway. The gateway calls the resource's Foundry host
 Browse all decision models on the
 [models page](https://llmgateway.io/models?filters=1).
 
+Providers list their own decision models through
+[Airside](/features/airside#decision-models); those models are served on
+`/v1/decisions` like any other and billed at their approved fares.
+
 ## Endpoint
 
 `POST https://api.llmgateway.io/v1/decisions`

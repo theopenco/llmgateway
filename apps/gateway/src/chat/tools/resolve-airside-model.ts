@@ -356,6 +356,7 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 			listed.mapping.apiFormat === "provider-native"
 				? undefined
 				: (listed.mapping.apiFormat ?? undefined),
+		decisions: listed.mapping.decisions || undefined,
 		inputPrice: listed.mapping.inputPrice ?? undefined,
 		outputPrice: listed.mapping.outputPrice ?? undefined,
 		cachedInputPrice: listed.mapping.cachedInputPrice ?? undefined,

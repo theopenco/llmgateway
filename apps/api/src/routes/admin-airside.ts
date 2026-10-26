@@ -147,6 +147,8 @@ const adminFilingSchema = z.object({
 		modelName: z.string(),
 		externalId: z.string(),
 		apiFormat: z.enum(PROVIDER_API_FORMATS),
+		// Served on the carrier's `/v1/decisions` instead of chat.
+		decisions: z.boolean(),
 		displayName: z.string().nullable(),
 		status: z.enum(["draft", "active", "rejected", "delisted"]),
 		// The name matches an existing catalogue model (id or alias): approving
@@ -375,6 +377,7 @@ function serializeAdminFiling(
 			modelName: row.draftModel.modelName,
 			externalId: row.draftModel.externalId,
 			apiFormat: row.draftModel.apiFormat,
+			decisions: row.draftModel.decisions,
 			displayName: row.draftModel.displayName,
 			status: row.draftModel.status,
 			sharesCatalogueModelName,

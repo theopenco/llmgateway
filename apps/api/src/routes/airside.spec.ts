@@ -265,6 +265,7 @@ async function createModel(
 				verifiedPromptCaching ??
 				(body.pricing as { cachedInputPrice?: string }).cachedInputPrice !==
 					undefined,
+			...(body.decisions === true ? { decisions: true } : {}),
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -4280,6 +4281,121 @@ describe("airside provider portal", () => {
 			where: { id: { eq: model.id } },
 		});
 		expect(stored?.apiFormat).toBe("openai-responses");
+	});
+
+	it("lists a decision model for /v1/decisions and keeps it decisions-only", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const decisionListing = {
+			modelName: "mistral-decide-1",
+			decisions: true,
+			streaming: false,
+			tools: false,
+			vision: true,
+			contextSize: 8000,
+		};
+
+		// Preflight probes only what a decision model can claim.
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				...decisionListing,
+				tools: true,
+				reasoning: true,
+				apiKey: "provider-secret-for-test",
+			}),
+		);
+		expect(queued.status).toBe(202);
+		const { verification } = await queued.json();
+		expect(
+			verification.checks.map((check: { id: string }) => check.id),
+		).toEqual(["basic", "vision"]);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verification.id } },
+		});
+		expect(stored?.target).toMatchObject({
+			decisions: true,
+			vision: true,
+			tools: false,
+			reasoning: false,
+			streaming: false,
+		});
+
+		// Decisions bill input tokens only.
+		const priced = await createModel(cookie, company.id, {
+			...decisionListing,
+			pricing: { inputPrice: "8e-8", outputPrice: "1e-6" },
+		});
+		expect(priced.status).toBe(400);
+		expect((await priced.json()).message).toContain("output price of 0");
+
+		const created = await createModel(cookie, company.id, {
+			...decisionListing,
+			pricing: { inputPrice: "8e-8", outputPrice: "0" },
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model).toMatchObject({
+			decisions: true,
+			streaming: false,
+			tools: false,
+			vision: true,
+		});
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: "mistral-decide-1" } },
+		});
+		expect(mapping).toMatchObject({
+			decisions: true,
+			source: "airside",
+			status: "active",
+		});
+		const catalogueModel = await db.query.model.findFirst({
+			where: { id: { eq: "mistral-decide-1" } },
+		});
+		expect(catalogueModel?.output).toEqual(["decision"]);
+
+		// A decision listing cannot pick up chat capabilities.
+		const edited = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: true }, "PATCH"),
+		);
+		expect(edited.status).toBe(400);
+		expect((await edited.json()).message).toContain("tools");
+
+		// Or file cached or output fares.
+		const refiled = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, {
+				inputPrice: "9e-8",
+				outputPrice: "0",
+				cachedInputPrice: "1e-8",
+			}),
+		);
+		expect(refiled.status).toBe(400);
+
+		// A catalogue chat model cannot be listed as a decision model.
+		const chatModel = (catalogueModels as ModelDefinition[]).find(
+			(entry) =>
+				!entry.output?.includes("decision") &&
+				!entry.providers.some((mapping) => mapping.providerId === "mistral"),
+		)!;
+		const shadow = await createModel(cookie, company.id, {
+			...decisionListing,
+			modelName: chatModel.id,
+			pricing: { inputPrice: "8e-8", outputPrice: "0" },
+		});
+		expect(shadow.status).toBe(409);
+		expect((await shadow.json()).message).toContain("a chat model");
 	});
 
 	it("stores reasoning efforts and audio on a listing", async () => {

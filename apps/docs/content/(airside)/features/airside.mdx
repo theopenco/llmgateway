@@ -94,6 +94,16 @@ A listing that declares **web search** also picks the shape its Chat Completions
 
 The gateway translates every caller's web search — a `web_search` tool, `web_search_options`, or a Responses API tool — into the shape you pick, and passes `url_citation` annotations back. A search is billed only on evidence in your response: `url_citation` annotations, a usage counter (`server_tool_use.web_search_requests` or `num_search_queries`), or `prompt_tokens` beyond what the request could encode to (the retrieved pages you added to the prompt). The **web search** preflight check sends its probe in the chosen shape and passes only on the same evidence, so a shape your endpoint ignores fails it. Changing the shape on a listing with web search needs a passing preflight in the new shape.
 
+### Decision models
+
+Set **Model type** to **Typed decisions** to list a decision model: one that answers typed questions with probabilities instead of generating text. Developers call it on LLM Gateway's [`/v1/decisions`](/features/decisions) endpoint, and the gateway forwards the request unchanged to `<base URL>/v1/decisions` on your API, so your endpoint must implement OpenAI's Decisions API:
+
+- Accept `POST /v1/decisions` with `model` (your upstream model ID), `input` (a string, or user messages with `input_text` and `input_image` parts), and `questions` (`predicate`, `choice`, and `score`).
+- Return one answer per question in question order, echoing each `name`: a `probability` from 0 to 1 for `predicate`; a `choice` from the offered values with one entry in `probabilities` per value for `choice`; a `score` from 0 to the highest level index with one entry in `probabilities` per level for `score`.
+- Report `usage.input_tokens`. Decisions are billed on input tokens only, plus an optional per-request price, so a decision listing files an output price of 0 and takes no cached or regional fares.
+
+A decision listing declares only **image input** and its maximum input tokens; chat capabilities do not apply. Preflight sends one request per question type, and one with an `input_image` part when image input is declared, and fails unless each response has that shape. The model type is fixed once listed, and a model ID is either a chat model or a decision model across the catalogue and every carrier.
+
 ## Price filings
 
 Listed prices are what developers are billed, so pricing never changes silently: it only changes through a reviewed **price filing**.
