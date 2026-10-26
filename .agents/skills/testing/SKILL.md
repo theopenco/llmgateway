@@ -70,7 +70,8 @@ CI e2e (`.github/workflows/e2e.yml`) spends real money and runs on demand only:
 comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Push
 first: `/e2e` refuses a head pushed after the comment. Use it
 for complex gateway or backend changes affecting routing, stability, uptime, or
-provider integration.
+provider integration. Never for model-mapping PRs; run those locally with
+`TEST_MODELS`.
 
 ## Writing tests
 
