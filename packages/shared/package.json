@@ -91,6 +91,11 @@
 			"import": "./dist/email-unsubscribe.js",
 			"default": "./dist/email-unsubscribe.js"
 		},
+		"./security-txt": {
+			"types": "./dist/security-txt.d.ts",
+			"import": "./dist/security-txt.js",
+			"default": "./dist/security-txt.js"
+		},
 		"./mask-token": {
 			"types": "./dist/mask-token.d.ts",
 			"import": "./dist/mask-token.js",
