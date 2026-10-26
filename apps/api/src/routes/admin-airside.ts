@@ -1299,6 +1299,9 @@ const adminListingSchema = z.object({
 	company: z.object({ id: z.string(), name: z.string() }),
 	delistedAt: z.string().nullable(),
 	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
+	// Set while the carrier has paused an active listing: it stays listed but
+	// its mappings are out of service until resumed.
+	pausedAt: z.string().nullable(),
 	// Set while the carrier's request to relist awaits review.
 	relistRequestedAt: z.string().nullable(),
 });
@@ -1390,6 +1393,7 @@ async function adminListings(filter: {
 			},
 			delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
 			delistReason: row.delistReason,
+			pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
 			relistRequestedAt: row.relistRequestedAt
 				? row.relistRequestedAt.toISOString()
 				: null,
