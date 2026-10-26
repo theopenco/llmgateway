@@ -2,14 +2,24 @@ import { expect, test } from "vitest";
 
 import { app } from "./index.js";
 
-test("/", async () => {
+test("/ answers without touching dependencies", async () => {
 	const res = await app.request("/");
 	expect(res.status).toBe(200);
 	const data = await res.json();
 	expect(data).toHaveProperty("message", "OK");
-	expect(data).toHaveProperty("health");
-	expect(data.health).toHaveProperty("status");
-	expect(data.health).toHaveProperty("database");
+	expect(data).toHaveProperty("version");
+	expect(data).not.toHaveProperty("health");
+});
+
+test("/health/deep checks the database and Redis", async () => {
+	const res = await app.request("/health/deep");
+	expect(res.status).toBe(200);
+	const data = await res.json();
+	expect(data.health).toMatchObject({
+		status: "ok",
+		database: { connected: true },
+		redis: { connected: true },
+	});
 });
 
 test("/livez", async () => {

@@ -1,3 +1,7 @@
+export function getAppVersion(): string {
+	return process.env.APP_VERSION ?? "v0.0.0-unknown";
+}
+
 export interface HealthCheckResult {
 	status: "ok" | "error";
 	redis: {
@@ -11,7 +15,6 @@ export interface HealthCheckResult {
 }
 
 export interface HealthCheckOptions {
-	skipChecks?: string[];
 	timeoutMs?: number;
 }
 
@@ -53,7 +56,7 @@ export class HealthChecker {
 	public async performHealthChecks(
 		options: HealthCheckOptions = {},
 	): Promise<HealthCheckResult> {
-		const { skipChecks = [], timeoutMs = 3000 } = options;
+		const { timeoutMs = 3000 } = options;
 		const { redisClient, db, logger } = this.dependencies;
 
 		const health: HealthCheckResult = {
@@ -62,75 +65,34 @@ export class HealthChecker {
 			database: { connected: false, error: undefined },
 		};
 
-		// Run health checks in parallel
-		const healthChecks = await Promise.allSettled([
-			// Redis check
-			skipChecks.includes("redis")
-				? Promise.resolve({ type: "redis" as const, skipped: true })
-				: this.withTimeout(
-						redisClient
-							.ping()
-							.then(() => ({ type: "redis" as const, success: true })),
-						timeoutMs,
-					),
-			// Database check
-			skipChecks.includes("database")
-				? Promise.resolve({ type: "database" as const, skipped: true })
-				: this.withTimeout(
-						db.query.user
-							.findFirst({})
-							.then(() => ({ type: "database" as const, success: true })),
-						timeoutMs,
-					),
+		const [redis, database] = await Promise.allSettled([
+			this.withTimeout(redisClient.ping(), timeoutMs),
+			// One column, so the check tests connectivity, not the row shape the
+			// running release expects.
+			this.withTimeout(
+				db.query.user.findFirst({ columns: { id: true } }),
+				timeoutMs,
+			),
 		]);
 
-		// Process results
-		for (const result of healthChecks) {
-			if (result.status === "fulfilled") {
-				const check = result.value;
-				if ("skipped" in check && check.skipped) {
-					// Set as connected when skipped
-					if (check.type === "redis") {
-						health.redis.connected = true;
-					}
-					if (check.type === "database") {
-						health.database.connected = true;
-					}
-				} else if ("success" in check && check.success) {
-					// Set as connected when successful
-					if (check.type === "redis") {
-						health.redis.connected = true;
-					}
-					if (check.type === "database") {
-						health.database.connected = true;
-					}
-				}
-			} else {
-				// Handle failures
-				const errorMessage =
-					result.reason instanceof Error
-						? result.reason.message
-						: String(result.reason);
+		if (redis.status === "fulfilled") {
+			health.redis.connected = true;
+		} else {
+			health.status = "error";
+			health.redis.error = isTimeout(redis.reason)
+				? "Redis check timed out"
+				: "Redis connection failed";
+			logger.error("Redis healthcheck failed", redis.reason);
+		}
 
-				// Determine which check failed based on the error or order
-				// Since we know the order: [redis, database]
-				const checkIndex = healthChecks.indexOf(result);
-				if (checkIndex === 0) {
-					// Redis check failed
-					health.status = "error";
-					health.redis.error = errorMessage.includes("timed out")
-						? "Redis check timed out"
-						: "Redis connection failed";
-					logger.error("Redis healthcheck failed", result.reason);
-				} else if (checkIndex === 1) {
-					// Database check failed
-					health.status = "error";
-					health.database.error = errorMessage.includes("timed out")
-						? "Database check timed out"
-						: "Database connection failed";
-					logger.error("Database healthcheck failed", result.reason);
-				}
-			}
+		if (database.status === "fulfilled") {
+			health.database.connected = true;
+		} else {
+			health.status = "error";
+			health.database.error = isTimeout(database.reason)
+				? "Database check timed out"
+				: "Database connection failed";
+			logger.error("Database healthcheck failed", database.reason);
 		}
 
 		return health;
@@ -163,10 +125,14 @@ export class HealthChecker {
 		return {
 			response: {
 				message,
-				version: version ?? process.env.APP_VERSION ?? "v0.0.0-unknown",
+				version: version ?? getAppVersion(),
 				health,
 			},
 			statusCode,
 		};
 	}
+}
+function isTimeout(reason: unknown): boolean {
+	const message = reason instanceof Error ? reason.message : String(reason);
+	return message.includes("timed out");
 }

@@ -79,10 +79,11 @@ which identifies it in `pg_stat_activity`.
 | `DATABASE_APPLICATION_NAME`               | `<service>/<hostname>`             | Overrides the session's `application_name`                               |
 | `METRICS_PORT`                            | gateway `9090`; API and worker off | Port serving Prometheus `/metrics`, including `db_pool_*` pool occupancy |
 
-Point liveness probes at `/livez` on the gateway and API: it never touches
-Postgres or Redis, so a database incident does not restart healthy pods. Use
-`/` for readiness. For external monitoring, the gateway's `/health/deep`
-checks Postgres and Redis; its `/` skips Postgres by default.
+On the gateway and API, `/` and `/livez` never touch Postgres or Redis: point
+readiness at `/` and liveness at `/livez`, so a database or Redis incident
+neither restarts healthy pods nor removes them all from the load balancer. For
+external monitoring, `/health/deep` checks Postgres and Redis and returns 503
+when either is unreachable.
 
 ## Admin dashboard access
 
