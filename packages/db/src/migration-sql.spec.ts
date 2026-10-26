@@ -41,6 +41,54 @@ describe("lintMigrationSql", () => {
 		).toEqual(["multi-table-lock"]);
 	});
 
+	// The previous release keeps running against the migrated schema during the
+	// rollout and after a rollback; #4552 dropped user.time_zone while the
+	// deployed schema.ts still had it, and old pods failed user reads until the
+	// rollout finished.
+	it("flags changes the previous release cannot run against", () => {
+		const sql = [
+			`ALTER TABLE "user" DROP COLUMN "time_zone";`,
+			`ALTER TABLE "project" RENAME COLUMN "name" TO "title";`,
+			`ALTER TABLE "stats" DROP CONSTRAINT "stats_bucket_unique";`,
+			`ALTER TABLE "project" ADD COLUMN "region" text NOT NULL;`,
+			`ALTER TABLE "project" ALTER COLUMN "mode" DROP DEFAULT;`,
+			`DROP TABLE "old_feature";`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([
+			"drop-column",
+			"rename",
+			"drop-constraint",
+			"add-not-null-without-default",
+			"drop-default",
+			"drop-table",
+			"multi-table-lock",
+		]);
+	});
+
+	it("accepts contract changes acknowledged on the statement", () => {
+		const sql = `-- migrate:contract #4551 removed it from schema.ts and is deployed\nALTER TABLE "user" DROP COLUMN "time_zone";`;
+		expect(lintMigrationSql(sql)).toEqual([]);
+		expect(
+			lintMigrationSql(
+				`-- migrate:reviewed tiny table\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
+		expect(
+			lintMigrationSql(
+				`-- migrate:contract\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
+	});
+
+	it("allows additive changes and contract changes on new tables", () => {
+		const sql = [
+			`CREATE TABLE "feature" ("id" text PRIMARY KEY NOT NULL, "x" text);`,
+			`ALTER TABLE "feature" DROP COLUMN "x";`,
+			`ALTER TABLE "project" ADD COLUMN "mode" text DEFAULT 'strict' NOT NULL;`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql)).toEqual([]);
+	});
+
 	it("requires IF NOT EXISTS / IF EXISTS on index changes to existing tables", () => {
 		const sql = [
 			`CREATE INDEX "log_x_idx" ON "log" USING btree ("x");`,

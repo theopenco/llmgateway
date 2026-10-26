@@ -1,7 +1,8 @@
 /**
  * Static analysis of Drizzle migration SQL: the index operations the
  * prebuilt-index guard checks, the tables a migration locks, and the lint rules
- * that keep a migration from taking long ACCESS EXCLUSIVE locks on live tables.
+ * that keep a migration from taking long ACCESS EXCLUSIVE locks on live tables
+ * or breaking the previous release, which runs on the migrated schema.
  */
 
 export const STATEMENT_BREAKPOINT = "--> statement-breakpoint";
@@ -14,6 +15,17 @@ export const ALLOW_BLOCKING_INDEX_MARKER = "-- migrate:allow-blocking-index";
  * `-- migrate:reviewed table has < 1k rows` or the manual step to run first.
  */
 export const REVIEWED_MARKER = "-- migrate:reviewed";
+
+/**
+ * Acknowledges a change the previous release cannot run against, e.g.
+ * `-- migrate:contract #1234 removed it from schema.ts and is deployed`.
+ * Migrations run before rollout and a rollback never reverts them, so the
+ * previous release runs on this schema during every rollout and after any
+ * rollback. Drizzle names every schema column in SELECT and INSERT.
+ */
+export const CONTRACT_MARKER = "-- migrate:contract";
+
+const CONTRACT_HINT = `Ship the code and schema.ts removal in an earlier deployed PR, then acknowledge with ${CONTRACT_MARKER} <that PR>.`;
 
 const IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)`;
 const QUALIFIED = String.raw`${IDENT}(?:\s*\.\s*${IDENT})?`;
@@ -34,12 +46,13 @@ const ALTER_TABLE_RE = new RegExp(
 	String.raw`^\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(${QUALIFIED})`,
 	"i",
 );
+const DROP_TABLE_RE = new RegExp(
+	String.raw`^\s*drop\s+table\s+(?:if\s+exists\s+)?(${QUALIFIED})`,
+	"i",
+);
 const LOCKING_TABLE_RES = [
 	ALTER_TABLE_RE,
-	new RegExp(
-		String.raw`^\s*drop\s+table\s+(?:if\s+exists\s+)?(${QUALIFIED})`,
-		"i",
-	),
+	DROP_TABLE_RE,
 	new RegExp(
 		String.raw`^\s*truncate\s+(?:table\s+)?(?:only\s+)?(${QUALIFIED})`,
 		"i",
@@ -48,6 +61,46 @@ const LOCKING_TABLE_RES = [
 	new RegExp(String.raw`^\s*delete\s+from\s+(?:only\s+)?(${QUALIFIED})`, "i"),
 	new RegExp(String.raw`^\s*insert\s+into\s+(${QUALIFIED})`, "i"),
 	CREATE_INDEX_RE,
+];
+/** Changes the previous release cannot run against; see CONTRACT_MARKER. */
+const CONTRACT_RULES: {
+	rule: LintFinding["rule"];
+	test: (sql: string) => boolean;
+	message: string;
+}[] = [
+	{
+		rule: "drop-column",
+		test: (sql) => /\bdrop\s+column\b/i.test(sql),
+		message:
+			"DROP COLUMN breaks the previous release, which still selects and inserts the column.",
+	},
+	{
+		rule: "rename",
+		test: (sql) => /\brename\b/i.test(sql),
+		message:
+			"RENAME breaks the previous release, which still uses the old name. Add the new column, dual-write, backfill, then drop the old one.",
+	},
+	{
+		rule: "drop-constraint",
+		test: (sql) => /\bdrop\s+constraint\b/i.test(sql),
+		message:
+			"DROP CONSTRAINT can break the previous release's ON CONFLICT targets. Add the new constraint or index first and drop the old one once nothing targets it.",
+	},
+	{
+		rule: "add-not-null-without-default",
+		test: (sql) =>
+			/\badd\s+column\b/i.test(sql) &&
+			/\bnot\s+null\b/i.test(sql) &&
+			!/\bdefault\b/i.test(sql),
+		message:
+			"ADD COLUMN ... NOT NULL without a DEFAULT fails the previous release's inserts, which do not set it. Add a DEFAULT or make it nullable.",
+	},
+	{
+		rule: "drop-default",
+		test: (sql) => /\balter\s+column\s+\S+\s+drop\s+default\b/i.test(sql),
+		message:
+			"DROP DEFAULT can fail the previous release's inserts, which rely on the default.",
+	},
 ];
 const REFERENCES_RE = new RegExp(String.raw`references\s+(${QUALIFIED})`, "gi");
 const VOLATILE_DEFAULT_RE =
@@ -79,7 +132,13 @@ export interface LintFinding {
 		| "set-not-null"
 		| "foreign-key-not-valid"
 		| "volatile-default"
-		| "multi-table-lock";
+		| "multi-table-lock"
+		| "drop-table"
+		| "drop-column"
+		| "rename"
+		| "drop-constraint"
+		| "add-not-null-without-default"
+		| "drop-default";
 	message: string;
 	statement?: string;
 }
@@ -173,16 +232,23 @@ export function hasMarker(
 		.some((line) => line.trim().toLowerCase().startsWith(marker));
 }
 
-function hasReviewedReason(statements: MigrationStatement[]): boolean {
+function hasMarkerReason(
+	statements: MigrationStatement[],
+	marker: string,
+): boolean {
 	return statements.some((statement) =>
 		statement.raw.split("\n").some((line) => {
 			const trimmed = line.trim();
 			return (
-				trimmed.toLowerCase().startsWith(REVIEWED_MARKER) &&
-				trimmed.slice(REVIEWED_MARKER.length).replace(/^[:\s]+/, "").length > 0
+				trimmed.toLowerCase().startsWith(marker) &&
+				trimmed.slice(marker.length).replace(/^[:\s]+/, "").length > 0
 			);
 		}),
 	);
+}
+
+function hasReviewedReason(statements: MigrationStatement[]): boolean {
+	return hasMarkerReason(statements, REVIEWED_MARKER);
 }
 
 export function parseIndexOperations(migrationSql: string): IndexOperation[] {
@@ -274,7 +340,8 @@ export function toConcurrentDropIndex(name: string): string {
  * tables for longer than a catalog update. Statements on tables the migration
  * creates itself are exempt. Findings other than the IF [NOT] EXISTS rules are
  * acknowledged with a `-- migrate:reviewed <reason>` comment on the statement
- * (or, for multi-table-lock, anywhere in the migration).
+ * (or, for multi-table-lock, anywhere in the migration). Changes the previous
+ * release cannot run against need `-- migrate:contract <reason>` instead.
  */
 export function lintMigrationSql(migrationSql: string): LintFinding[] {
 	const statements = splitStatements(migrationSql);
@@ -313,11 +380,35 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 			continue;
 		}
 
+		const contracted = hasMarkerReason([statement], CONTRACT_MARKER);
+		const dropTable = DROP_TABLE_RE.exec(sql);
+		if (dropTable) {
+			if (!isNew(dropTable[1]) && !contracted) {
+				findings.push({
+					rule: "drop-table",
+					message: `DROP TABLE breaks the previous release if it still uses the table. ${CONTRACT_HINT}`,
+					statement: sql,
+				});
+			}
+			continue;
+		}
+
 		const alter = ALTER_TABLE_RE.exec(sql);
 		if (!alter || isNew(alter[1])) {
 			continue;
 		}
 		lockedExisting.add(relationName(alter[1]));
+		if (!contracted) {
+			for (const { rule, test, message } of CONTRACT_RULES) {
+				if (test(sql)) {
+					findings.push({
+						rule,
+						message: `${message} ${CONTRACT_HINT}`,
+						statement: sql,
+					});
+				}
+			}
+		}
 		if (reviewed) {
 			continue;
 		}
