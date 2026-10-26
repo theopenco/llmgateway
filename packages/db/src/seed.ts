@@ -209,7 +209,7 @@ const MODELS = [
 		outputPrice: 0.006,
 	},
 	{
-		model: "deepseek-chat",
+		model: "deepseek-v3.2",
 		provider: "deepseek",
 		inputPrice: 0.00014,
 		outputPrice: 0.00028,
@@ -1765,7 +1765,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.7 },
 				{ model: "gpt-4o", provider: "openai", weight: 0.2 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.1 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.1 },
 			],
 		},
 		{
@@ -1792,7 +1792,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.55 },
 				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.15 },
 			],
 		},
 		{
@@ -1801,7 +1801,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.5 },
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.3 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.2 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.2 },
 			],
 		},
 		{
@@ -1826,7 +1826,7 @@ async function seed() {
 			source: "kilo-code",
 			weight: 0.03,
 			models: [
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.6 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.6 },
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.25 },
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
 			],
@@ -1871,7 +1871,7 @@ async function seed() {
 			source: "autohand",
 			weight: 0.02,
 			models: [
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.55 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.55 },
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
 			],
@@ -1882,7 +1882,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
 				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.15 },
 			],
 		},
 		{
