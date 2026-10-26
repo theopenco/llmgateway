@@ -32,11 +32,19 @@ const MODEL = "openai/gpt-6.1-sol";
  */
 describe("reasoning credential pinning", () => {
 	const harness = createGatewayApiTestHarness();
-	let previousEnvKey: string | undefined;
+	// Env credentials would add routes these tests do not model.
+	const envKeys = [
+		"LLM_OPENAI_API_KEY",
+		"LLM_AZURE_API_KEY",
+		"LLM_AWS_MANTLE_API_KEY",
+	];
+	const previousEnv: Record<string, string | undefined> = {};
 
 	beforeEach(async () => {
-		previousEnvKey = process.env.LLM_OPENAI_API_KEY;
-		delete process.env.LLM_OPENAI_API_KEY;
+		for (const key of envKeys) {
+			previousEnv[key] = process.env[key];
+			Reflect.deleteProperty(process.env, key);
+		}
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -48,10 +56,13 @@ describe("reasoning credential pinning", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
-		if (previousEnvKey === undefined) {
-			delete process.env.LLM_OPENAI_API_KEY;
-		} else {
-			process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+		for (const key of envKeys) {
+			const value = previousEnv[key];
+			if (value === undefined) {
+				Reflect.deleteProperty(process.env, key);
+			} else {
+				process.env[key] = value;
+			}
 		}
 	});
 

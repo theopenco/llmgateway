@@ -2665,6 +2665,7 @@ describe("prepareRequestBody - reasoning summaries", () => {
 	test.each([
 		{ region: "global", prefix: "global." },
 		{ region: "us", prefix: "us." },
+		{ region: "us-east-1", prefix: "" },
 		{ region: "us-west-2", prefix: "" },
 	])("routes Astra through the $region profile", async ({ region, prefix }) => {
 		const requestBody = (await prepareOpenAITextRequest({
@@ -2684,6 +2685,7 @@ describe("prepareRequestBody - reasoning summaries", () => {
 
 	test.each([
 		{ region: "global", prefix: "global." },
+		{ region: "us", prefix: "us." },
 		{ region: "us-east-1", prefix: "" },
 		{ region: "us-east-2", prefix: "" },
 	])(
@@ -2703,9 +2705,8 @@ describe("prepareRequestBody - reasoning summaries", () => {
 
 	test.each([
 		{ provider: "aws-mantle", model: "gpt-6-astra", summary: "auto" },
-		// AWS rejects `detailed` for GPT-5.6 on both the Mantle and the
-		// cross-region Runtime route.
 		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "auto" },
+		{ provider: "aws-mantle", model: "gpt-6-sol", summary: "auto" },
 		{ provider: "openai", model: "gpt-6-astra", summary: "detailed" },
 	] as const)(
 		"uses the summary mode for $provider/$model",
@@ -2722,6 +2723,21 @@ describe("prepareRequestBody - reasoning summaries", () => {
 			});
 		},
 	);
+
+	test.each([
+		{ model: "gpt-5.4", region: "us-east-2" },
+		{ model: "gpt-5.5", region: "us-east-1" },
+	])("requests no summary for aws-mantle/$model", async ({ model, region }) => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "aws-mantle",
+			model,
+			region,
+			useResponsesApi: true,
+		})) as OpenAIResponsesRequestBody;
+
+		expect(requestBody.model).toBe(`openai.${model}`);
+		expect(requestBody.reasoning).not.toHaveProperty("summary");
+	});
 });
 
 describe("prepareRequestBody - verbosity", () => {

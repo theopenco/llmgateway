@@ -2858,6 +2858,11 @@ export async function prepareRequestBody(
 							: "high"
 						: (reasoning_effort ?? defaultEffort);
 
+				const reasoningSummary =
+					providerMappingForOptions?.reasoningSummary ?? "detailed";
+				const reasoningSummaryField =
+					reasoningSummary === "omit" ? {} : { summary: reasoningSummary };
+
 				// Muse Spark reasons adaptively when effort is omitted and rejects
 				// "none", so only forward an effort the caller explicitly set.
 				const responsesBody: OpenAIResponsesRequestBody = {
@@ -2869,13 +2874,11 @@ export async function prepareRequestBody(
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
 									}),
-									summary:
-										providerMappingForOptions?.reasoningSummary ?? "detailed",
+									...reasoningSummaryField,
 								}
 							: {
 									effort: responsesReasoningEffort,
-									summary:
-										providerMappingForOptions?.reasoningSummary ?? "detailed",
+									...reasoningSummaryField,
 									// reasoning.context is only documented on OpenAI's
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.

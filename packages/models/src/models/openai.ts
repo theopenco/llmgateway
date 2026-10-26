@@ -1606,6 +1606,58 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.4",
+				// Requests carrying a reasoning summary never complete on several of
+				// these routes, so none is requested.
+				reasoningSummary: "omit",
+				regions: [
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+				],
+				inputPrice: "2.75e-6",
+				outputPrice: "16.5e-6",
+				cachedInputPrice: "0.275e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.75e-6",
+						outputPrice: "16.5e-6",
+						cachedInputPrice: "0.275e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "5.5e-6",
+						outputPrice: "24.75e-6",
+						cachedInputPrice: "0.55e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 921600,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -1849,6 +1901,54 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.5",
+				// Requests carrying a reasoning summary never complete on several of
+				// these routes, so none is requested.
+				reasoningSummary: "omit",
+				regions: [{ id: "us-east-1" }, { id: "us-east-2" }],
+				inputPrice: "5.5e-6",
+				outputPrice: "33.0e-6",
+				cachedInputPrice: "0.55e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "5.5e-6",
+						outputPrice: "33.0e-6",
+						cachedInputPrice: "0.55e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "11.0e-6",
+						outputPrice: "49.5e-6",
+						cachedInputPrice: "1.1e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 921600,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -2008,16 +2108,8 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-sol",
-				// Global cross-region inference (global.openai.gpt-5.6-sol)
-				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
-				// data-residency premium below applies to the in-region Mantle
-				// deployments only. Both are promotional through at least
-				// 2026-11-21; the standard rates are 5.0/30.0 global and
-				// 5.5/33.0 in-region. In-region pricing is identical across the
-				// concrete regions, so those entries carry no overrides.
-				// Sol is the one family member AWS has not deployed to us-west-2 —
-				// that region 404s with "The model 'openai.gpt-5.6-sol' does not
-				// exist".
+				// Promotional rates through at least 2026-11-21; the standard rates
+				// are 5.0/30.0 global and 5.5/33.0 in-region and US cross-region.
 				regions: [
 					{
 						id: "global",
@@ -2044,6 +2136,7 @@ export const openaiModels = [
 							},
 						],
 					},
+					{ id: "us" },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 				],
@@ -2084,8 +2177,6 @@ export const openaiModels = [
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
-				// AWS rejects the explicit `detailed` and `concise` summary modes
-				// with `unsupported_parameter` on both routes; `auto` is accepted.
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -2219,11 +2310,6 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-terra",
-				// Global cross-region inference (global.openai.gpt-5.6-terra)
-				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
-				// data-residency premium below applies to the in-region Mantle
-				// deployments only. In-region pricing is identical across the
-				// concrete regions, so those entries carry no overrides.
 				regions: [
 					{
 						id: "global",
@@ -2250,6 +2336,7 @@ export const openaiModels = [
 							},
 						],
 					},
+					{ id: "us" },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
@@ -2291,8 +2378,6 @@ export const openaiModels = [
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
-				// AWS rejects the explicit `detailed` and `concise` summary modes
-				// with `unsupported_parameter` on both routes; `auto` is accepted.
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -2425,11 +2510,6 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-luna",
-				// Global cross-region inference (global.openai.gpt-5.6-luna)
-				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
-				// data-residency premium below applies to the in-region Mantle
-				// deployments only. In-region pricing is identical across the
-				// concrete regions, so those entries carry no overrides.
 				regions: [
 					{
 						id: "global",
@@ -2456,6 +2536,7 @@ export const openaiModels = [
 							},
 						],
 					},
+					{ id: "us" },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
@@ -2497,8 +2578,6 @@ export const openaiModels = [
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
-				// AWS rejects the explicit `detailed` and `concise` summary modes
-				// with `unsupported_parameter` on both routes; `auto` is accepted.
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -2629,82 +2708,59 @@ export const openaiModels = [
 				externalId: "openai.gpt-6-astra",
 				reasoningSummary: "auto",
 				regions: [
-					{ id: "global" },
 					{
-						id: "us",
-						inputPrice: "11.0e-6",
-						outputPrice: "55.0e-6",
-						cachedInputPrice: "1.1e-6",
-						cacheWriteInputPrice: "13.75e-6",
-						pricingTiers: [
-							{
-								name: "Up to 272K",
-								upToTokens: 272000,
-								inputPrice: "11.0e-6",
-								outputPrice: "55.0e-6",
-								cachedInputPrice: "1.1e-6",
-								cacheWriteInputPrice: "13.75e-6",
-							},
-							{
-								name: "Over 272K",
-								upToTokens: Infinity,
-								inputPrice: "22.0e-6",
-								outputPrice: "82.5e-6",
-								cachedInputPrice: "2.2e-6",
-								cacheWriteInputPrice: "27.5e-6",
-							},
-						],
-					},
-					{
-						id: "us-west-2",
-						inputPrice: "11.0e-6",
-						outputPrice: "55.0e-6",
-						cachedInputPrice: "1.1e-6",
-						cacheWriteInputPrice: "13.75e-6",
-						pricingTiers: [
-							{
-								name: "Up to 272K",
-								upToTokens: 272000,
-								inputPrice: "11.0e-6",
-								outputPrice: "55.0e-6",
-								cachedInputPrice: "1.1e-6",
-								cacheWriteInputPrice: "13.75e-6",
-							},
-							{
-								name: "Over 272K",
-								upToTokens: Infinity,
-								inputPrice: "22.0e-6",
-								outputPrice: "82.5e-6",
-								cachedInputPrice: "2.2e-6",
-								cacheWriteInputPrice: "27.5e-6",
-							},
-						],
-					},
-				],
-				inputPrice: "10.0e-6",
-				outputPrice: "50.0e-6",
-				cachedInputPrice: "1.0e-6",
-				cacheWriteInputPrice: "12.5e-6",
-				pricingTiers: [
-					{
-						name: "Up to 272K",
-						upToTokens: 272000,
+						id: "global",
 						inputPrice: "10.0e-6",
 						outputPrice: "50.0e-6",
 						cachedInputPrice: "1.0e-6",
 						cacheWriteInputPrice: "12.5e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "10.0e-6",
+								outputPrice: "50.0e-6",
+								cachedInputPrice: "1.0e-6",
+								cacheWriteInputPrice: "12.5e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "20.0e-6",
+								outputPrice: "75.0e-6",
+								cachedInputPrice: "2.0e-6",
+								cacheWriteInputPrice: "25.0e-6",
+							},
+						],
+					},
+					{ id: "us" },
+					{ id: "us-east-1" },
+					{ id: "us-west-2" },
+				],
+				inputPrice: "11.0e-6",
+				outputPrice: "55.0e-6",
+				cachedInputPrice: "1.1e-6",
+				cacheWriteInputPrice: "13.75e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "11.0e-6",
+						outputPrice: "55.0e-6",
+						cachedInputPrice: "1.1e-6",
+						cacheWriteInputPrice: "13.75e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "20.0e-6",
-						outputPrice: "75.0e-6",
-						cachedInputPrice: "2.0e-6",
-						cacheWriteInputPrice: "25.0e-6",
+						inputPrice: "22.0e-6",
+						outputPrice: "82.5e-6",
+						cachedInputPrice: "2.2e-6",
+						cacheWriteInputPrice: "27.5e-6",
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1050000,
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				vision: true,
@@ -2837,6 +2893,83 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-6-sol",
+				reasoningSummary: "auto",
+				regions: [
+					{
+						id: "global",
+						inputPrice: "2.0e-6",
+						outputPrice: "10.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "2.5e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "2.0e-6",
+								outputPrice: "10.0e-6",
+								cachedInputPrice: "0.2e-6",
+								cacheWriteInputPrice: "2.5e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "4.0e-6",
+								outputPrice: "15.0e-6",
+								cachedInputPrice: "0.4e-6",
+								cacheWriteInputPrice: "5.0e-6",
+							},
+						],
+					},
+					{ id: "us" },
+					{ id: "us-east-1" },
+				],
+				inputPrice: "2.2e-6",
+				outputPrice: "11.0e-6",
+				cachedInputPrice: "0.22e-6",
+				cacheWriteInputPrice: "2.75e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.2e-6",
+						outputPrice: "11.0e-6",
+						cachedInputPrice: "0.22e-6",
+						cacheWriteInputPrice: "2.75e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.4e-6",
+						outputPrice: "16.5e-6",
+						cachedInputPrice: "0.44e-6",
+						cacheWriteInputPrice: "5.5e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 921600,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -2933,6 +3066,83 @@ export const openaiModels = [
 				supportedToolChoices: ["auto", "none", "required", "function"],
 				webSearch: true,
 				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-6.1-sol",
+				reasoningSummary: "auto",
+				regions: [
+					{
+						id: "global",
+						inputPrice: "2.0e-6",
+						outputPrice: "10.0e-6",
+						cachedInputPrice: "0.1e-6",
+						cacheWriteInputPrice: "2.5e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "2.0e-6",
+								outputPrice: "10.0e-6",
+								cachedInputPrice: "0.1e-6",
+								cacheWriteInputPrice: "2.5e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "4.0e-6",
+								outputPrice: "15.0e-6",
+								cachedInputPrice: "0.2e-6",
+								cacheWriteInputPrice: "5.0e-6",
+							},
+						],
+					},
+					{ id: "us" },
+					{ id: "us-east-1" },
+				],
+				inputPrice: "2.2e-6",
+				outputPrice: "11.0e-6",
+				cachedInputPrice: "0.11e-6",
+				cacheWriteInputPrice: "2.75e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.2e-6",
+						outputPrice: "11.0e-6",
+						cachedInputPrice: "0.11e-6",
+						cacheWriteInputPrice: "2.75e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.4e-6",
+						outputPrice: "16.5e-6",
+						cachedInputPrice: "0.22e-6",
+						cacheWriteInputPrice: "5.5e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 921600,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
 				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -3045,6 +3255,83 @@ export const openaiModels = [
 				supportedToolChoices: ["auto", "none", "required", "function"],
 				webSearch: true,
 				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-6-luna",
+				reasoningSummary: "auto",
+				regions: [
+					{
+						id: "global",
+						inputPrice: "0.1e-6",
+						outputPrice: "0.5e-6",
+						cachedInputPrice: "0.01e-6",
+						cacheWriteInputPrice: "0.125e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "0.1e-6",
+								outputPrice: "0.5e-6",
+								cachedInputPrice: "0.01e-6",
+								cacheWriteInputPrice: "0.125e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "0.2e-6",
+								outputPrice: "0.75e-6",
+								cachedInputPrice: "0.02e-6",
+								cacheWriteInputPrice: "0.25e-6",
+							},
+						],
+					},
+					{ id: "us" },
+					{ id: "us-east-1" },
+				],
+				inputPrice: "0.11e-6",
+				outputPrice: "0.55e-6",
+				cachedInputPrice: "0.011e-6",
+				cacheWriteInputPrice: "0.1375e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.11e-6",
+						outputPrice: "0.55e-6",
+						cachedInputPrice: "0.011e-6",
+						cacheWriteInputPrice: "0.1375e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.22e-6",
+						outputPrice: "0.825e-6",
+						cachedInputPrice: "0.022e-6",
+						cacheWriteInputPrice: "0.275e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 921600,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
