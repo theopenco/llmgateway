@@ -44,13 +44,16 @@ export class HealthChecker {
 	public constructor(private dependencies: HealthCheckDependencies) {}
 
 	private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+		let timer: ReturnType<typeof setTimeout> | undefined;
 		const timeoutPromise = new Promise<T>((_, reject) => {
-			setTimeout(
+			timer = setTimeout(
 				() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)),
 				timeoutMs,
 			);
 		});
-		return Promise.race([promise, timeoutPromise]);
+		return Promise.race([promise, timeoutPromise]).finally(() =>
+			clearTimeout(timer),
+		);
 	}
 
 	public async performHealthChecks(
