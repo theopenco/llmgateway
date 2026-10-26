@@ -1,6 +1,15 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -102,5 +111,67 @@ if (!existsSync(join(certs, "leaf.crt"))) {
 		join(certs, "leaf.ext"),
 	]);
 	console.log(`generated a local CA in ${certs}`);
+}
+const empryoBin =
+	process.env.EMPRYO_BIN ?? join(homedir(), ".empryo", "bin", "empryo");
+const empryoRuntime = dirname(dirname(empryoBin));
+for (const task of tasks) {
+	const base = join(workRoot, "bases", task.id);
+	const index = join(base, ".empryo");
+	if (!existsSync(empryoBin) || existsSync(join(index, "genome.db"))) {
+		continue;
+	}
+	const home = mkdtempSync(join(tmpdir(), "empryo-index-"));
+	const empryoHome = join(home, ".empryo");
+	mkdirSync(empryoHome, { recursive: true });
+	for (const dir of [
+		"bin",
+		"native",
+		"wasm",
+		"engines",
+		"installs",
+		"deps",
+		"opentui-assets",
+		"locales",
+	]) {
+		if (existsSync(join(empryoRuntime, dir))) {
+			symlinkSync(join(empryoRuntime, dir), join(empryoHome, dir));
+		}
+	}
+	spawnSync(
+		empryoBin,
+		[
+			"--headless",
+			"--json",
+			"--mode",
+			"auto",
+			"--model",
+			"llmgateway/claude-opus-5-5",
+			"--cwd",
+			base,
+			"index",
+		],
+		{
+			cwd: base,
+			env: {
+				PATH: process.env.PATH,
+				HOME: home,
+				EMPRYO_HOME: empryoHome,
+				EMPRYO_TELEMETRY: "0",
+				LLM_GATEWAY_API_KEY: "index-only",
+			},
+			stdio: "ignore",
+		},
+	);
+	rmSync(home, { recursive: true, force: true });
+	if (!existsSync(join(index, "genome.db"))) {
+		throw new Error(`Empryo did not index ${task.id}`);
+	}
+	for (const entry of readdirSync(index)) {
+		if (!entry.startsWith("genome.db")) {
+			rmSync(join(index, entry), { recursive: true, force: true });
+		}
+	}
+	console.log(`indexed ${task.id} for Empryo`);
 }
 console.log(`ready: ${workRoot}`);

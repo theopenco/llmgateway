@@ -18,7 +18,11 @@ real bugs with the same models, all billed through LLM Gateway.
     Haiku, subagents) set to the model under test.
   - OpenCode: `opencode run --auto --format json` with the built-in `llmgateway`
     provider. `small_model` is set to the model under test.
-  - Empryo: `empryo --headless --json --mode auto` with the built-in `llmgateway` provider.
+  - Empryo: `empryo --headless --json --mode auto` with the built-in `llmgateway` provider,
+    version 3.11.0-beta or later (`empryo update`). Its fresh config sets the Anthropic
+    prompt cache to five minutes (`cache.ttl: "5m"`), the same lifetime Claude Code and
+    OpenCode use. Older builds asked for a one-hour cache, which costs 1.6x more per write
+    and never pays off on runs that finish in a minute or two.
 
 Each run gets a fresh `HOME` (and a fresh `EMPRYO_HOME`), so no user-level
 instructions, memory, plugins, skills or MCP servers leak in. The project files are
@@ -51,6 +55,11 @@ node scripts/agent-benchmark/report.mjs my-run
 
 `setup.mjs` clones hono, installs each task's base commit, saves the hidden tests and
 generates the local CA under `~/agent-benchmark-work` (override with `BENCH_HOME`).
+It also builds Empryo's code index once per task base, outside the timed run, the way a
+project you already work in is indexed. Building the index needs no model: Empryo indexes
+before its first request, and setup runs it with a placeholder key so that request is
+refused and nothing is billed. Each run copies the base with its index, and `.empryo/` is
+excluded from git so the index never shows up in the patch or the grade.
 `run.mjs` takes `--agents`, `--models`, `--tasks`, `--reps`, `--concurrency` and
 `--timeout-min`, and skips runs that already have a `result.json`, so an interrupted suite
 resumes where it stopped. Before each run it checks the key and organization balance and stops
