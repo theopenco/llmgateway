@@ -6161,7 +6161,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6197,7 +6197,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should rewrite parameters with type: null to type: object", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6238,7 +6238,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 		};
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
