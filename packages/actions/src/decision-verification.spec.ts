@@ -133,6 +133,33 @@ describe("decision listing verification", () => {
 		});
 	});
 
+	it("fails image input when the model ignores the image", async () => {
+		const result = await runProviderModelVerification({
+			target: { ...target, vision: true },
+			token: "carrier-key",
+			baseUrl: "https://api.acme-decide.ai",
+			fetchImplementation: decisionsUpstream((body, request) =>
+				Response.json(
+					request.questions[0].name === "is_red"
+						? {
+								...body,
+								answers: [
+									{ type: "predicate", name: "is_red", probability: 0.1 },
+								],
+							}
+						: body,
+				),
+			),
+		});
+
+		expect(result.passed).toBe(false);
+		expect(result.checks[0].status).toBe("passed");
+		expect(result.checks[1]).toMatchObject({
+			status: "failed",
+			feedback: expect.stringContaining("does not appear to read"),
+		});
+	});
+
 	it("explains a missing /v1/decisions route and skips the rest", async () => {
 		const result = await runProviderModelVerification({
 			target: { ...target, vision: true },

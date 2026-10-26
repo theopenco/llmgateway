@@ -120,6 +120,8 @@ interface DecisionCheckDefinition {
 	id: "basic" | "vision";
 	label: string;
 	requests: DecisionVerificationRequest[];
+	/** Judges a well-formed response on what the model concluded. */
+	judge?: (body: unknown) => string | null;
 }
 
 function decisionCheckDefinitions(
@@ -137,6 +139,7 @@ function decisionCheckDefinitions(
 			id: "vision",
 			label: "Image input",
 			requests: [createDecisionVisionVerificationRequest(target.externalId)],
+			judge: visionDefect,
 		});
 	}
 	return definitions;
@@ -278,6 +281,20 @@ export function decisionResponseDefect(
 	return null;
 }
 
+/**
+ * The vision probe is a solid red image: a model that reads it answers "is it
+ * red" well above even odds, and one that ignores the image cannot tell.
+ */
+function visionDefect(body: unknown): string | null {
+	const answers =
+		isRecord(body) && Array.isArray(body.answers) ? body.answers : [];
+	const [answer] = answers as unknown[];
+	const probability = isRecord(answer) ? answer.probability : undefined;
+	return typeof probability === "number" && probability >= 0.5
+		? null
+		: `The model answered ${JSON.stringify(probability)} for a solid red image being red; it does not appear to read input_image parts.`;
+}
+
 const CHECK_TIMEOUT_ATTEMPTS = 3;
 
 function decisionsEndpoint(options: RunDecisionVerificationOptions): {
@@ -308,6 +325,7 @@ function decisionsEndpoint(options: RunDecisionVerificationOptions): {
 async function sendDecisionRequest(
 	request: DecisionVerificationRequest,
 	options: RunDecisionVerificationOptions,
+	judge?: (body: unknown) => string | null,
 ): Promise<string | null> {
 	for (let attempt = 1; ; attempt++) {
 		try {
@@ -340,7 +358,7 @@ async function sendDecisionRequest(
 			} catch {
 				return "Response is not JSON.";
 			}
-			return decisionResponseDefect(request, body);
+			return decisionResponseDefect(request, body) ?? judge?.(body) ?? null;
 		} catch (error) {
 			const timedOut = error instanceof Error && error.name === "TimeoutError";
 			if (timedOut && attempt < CHECK_TIMEOUT_ATTEMPTS) {
@@ -372,7 +390,11 @@ async function runDecisionCheck(
 	const probes: ProviderModelVerificationProbe[] = [];
 	let failure: string | null = null;
 	for (const request of definition.requests) {
-		const defect = await sendDecisionRequest(request, options);
+		const defect = await sendDecisionRequest(
+			request,
+			options,
+			definition.judge,
+		);
 		probes.push(
 			defect
 				? {

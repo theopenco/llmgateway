@@ -208,7 +208,15 @@ export async function resolveDecisionMapping(
 		),
 	]);
 	const now = new Date();
-	const airsideCandidates = owned.listings
+	// Static mappings win a bare id; among carriers the cheapest listing does,
+	// with the provider id as a stable tie-break.
+	const airsideCandidates = [...owned.listings]
+		.sort(
+			(left, right) =>
+				new Decimal(left.mapping.inputPrice ?? "0").comparedTo(
+					right.mapping.inputPrice ?? "0",
+				) || left.mapping.providerId.localeCompare(right.mapping.providerId),
+		)
 		.filter(
 			(listed) =>
 				listed.mapping.decisions &&
@@ -1128,25 +1136,25 @@ export async function handleDecisionRequest(
 				responseModel,
 				wireFormat,
 			);
-			const { inputTokens, outputTokens } = normalized;
+			const { outputTokens } = normalized;
+			// Without a usable count the request is billed on an estimate of
+			// its body (about four characters per token) rather than for free.
+			const inputTokens =
+				normalized.inputTokens ??
+				Math.ceil(JSON.stringify(attempt.requestBody).length / 4);
+			const estimatedInput = normalized.inputTokens === null;
 
 			// Decisions are billed on input tokens only; output tokens are free.
 			// Long-context tiers reprice the whole request once input crosses them.
-			const pricingTier =
-				inputTokens !== null
-					? decisionMapping.pricingTiers?.find(
-							(tier) => inputTokens <= tier.upToTokens,
-						)
-					: undefined;
+			const pricingTier = decisionMapping.pricingTiers?.find(
+				(tier) => inputTokens <= tier.upToTokens,
+			);
 			const inputPrice = pricingTier?.inputPrice ?? decisionMapping.inputPrice;
 			const priceMultiplier = new Decimal(1).minus(discount);
-			const inputCost =
-				inputTokens !== null
-					? new Decimal(inputPrice ?? "0")
-							.times(inputTokens)
-							.times(priceMultiplier)
-							.toNumber()
-					: 0;
+			const inputCost = new Decimal(inputPrice ?? "0")
+				.times(inputTokens)
+				.times(priceMultiplier)
+				.toNumber();
 			const requestCostNum = new Decimal(decisionMapping.requestPrice ?? "0")
 				.times(priceMultiplier)
 				.toNumber();
@@ -1185,13 +1193,10 @@ export async function handleDecisionRequest(
 					content: JSON.stringify(normalized.logContent ?? null).slice(0, 1000),
 					reasoningContent: null,
 					finishReason: "stop",
-					promptTokens: inputTokens !== null ? inputTokens.toString() : null,
+					promptTokens: inputTokens.toString(),
 					completionTokens:
 						outputTokens !== null ? outputTokens.toString() : null,
-					totalTokens:
-						inputTokens !== null
-							? (inputTokens + (outputTokens ?? 0)).toString()
-							: null,
+					totalTokens: (inputTokens + (outputTokens ?? 0)).toString(),
 					reasoningTokens: null,
 					cachedTokens: null,
 					hasError: false,
@@ -1208,7 +1213,7 @@ export async function handleDecisionRequest(
 					imageInputCost: null,
 					imageOutputCost: null,
 					cost,
-					estimatedCost: inputTokens === null,
+					estimatedCost: estimatedInput,
 					discount: discount.isZero() ? null : discount.toNumber(),
 					pricingTier: pricingTier?.name ?? null,
 					dataStorageCost: calculateDataStorageCost(

@@ -1,7 +1,7 @@
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
-import { and, db, eq, ne, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { models as catalogueModels } from "@llmgateway/models";
 
 import type { CatalogueTransaction } from "./airside-catalogue.js";
@@ -41,8 +41,11 @@ function kindLabel(decisions: boolean): string {
 /**
  * A model id serves one endpoint: every listing under it, and the catalogue
  * entry of the same id, must agree on whether it is a decision model.
- * Inside an activation transaction, every live listing under the name is
- * locked first, so two activations of opposite kinds cannot both pass.
+ *
+ * Inside an activation transaction, every listing row under the name — the
+ * one being activated included, whatever its status — is locked in id order
+ * first, so two activations of opposite kinds serialize on a row both hold.
+ * Call it before locking the activated row itself to keep that order.
  */
 export async function assertListingKind(
 	modelName: string,
@@ -68,12 +71,7 @@ export async function assertListingKind(
 					decisions: tables.providerDraftModel.decisions,
 				})
 				.from(tables.providerDraftModel)
-				.where(
-					and(
-						eq(tables.providerDraftModel.modelName, modelName),
-						ne(tables.providerDraftModel.status, "delisted"),
-					),
-				)
+				.where(eq(tables.providerDraftModel.modelName, modelName))
 				.orderBy(tables.providerDraftModel.id)
 				.for("update")
 				// A cached read would skip the row locks entirely.
@@ -91,6 +89,52 @@ export async function assertListingKind(
 	if (conflicting) {
 		throw new HTTPException(409, {
 			message: `${modelName} is already listed as ${kindLabel(!decisions)} and cannot be listed as ${kindLabel(decisions)}.`,
+		});
+	}
+}
+
+/**
+ * The kind check for activating one listing, run before that listing's own
+ * row lock. Name and kind never change after registration, so the unlocked
+ * read is safe.
+ */
+export async function assertActivationKind(
+	tx: CatalogueTransaction,
+	draftModelId: string,
+): Promise<void> {
+	const [listing] = await tx
+		.select({
+			modelName: tables.providerDraftModel.modelName,
+			decisions: tables.providerDraftModel.decisions,
+		})
+		.from(tables.providerDraftModel)
+		.where(eq(tables.providerDraftModel.id, draftModelId))
+		.$withCache(false);
+	if (listing) {
+		await assertListingKind(listing.modelName, listing.decisions, tx);
+	}
+}
+
+/**
+ * Catalogue providers whose decision API is TypeSafe's System One rather than
+ * `/v1/decisions`. Airside listings are always called on `/v1/decisions`, so
+ * these providers cannot list decision models there.
+ */
+const SYSTEM_ONE_DECISION_PROVIDERS = new Set(
+	(catalogueModels as readonly ModelDefinition[]).flatMap((model) =>
+		model.providers
+			.filter((mapping) => mapping.decisions && mapping.providerId !== "openai")
+			.map((mapping) => mapping.providerId as string),
+	),
+);
+
+export function assertDecisionProvider(
+	providerId: string,
+	decisions: boolean,
+): void {
+	if (decisions && SYSTEM_ONE_DECISION_PROVIDERS.has(providerId)) {
+		throw new HTTPException(400, {
+			message: `${providerId} serves decision models over System One, not /v1/decisions, so they cannot be listed in Airside.`,
 		});
 	}
 }

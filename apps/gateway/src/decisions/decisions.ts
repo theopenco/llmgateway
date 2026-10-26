@@ -183,16 +183,21 @@ function summarizeInput(input: DecisionInput): string {
 	return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
 }
 
+/** A billable token count: a non-negative safe integer, else unknown. */
+function tokenCount(value: unknown): number | null {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: null;
+}
+
 function readUsage(upstream: Record<string, unknown>) {
 	const usage =
 		upstream.usage && typeof upstream.usage === "object"
 			? (upstream.usage as Record<string, unknown>)
 			: {};
 	return {
-		inputTokens:
-			typeof usage.input_tokens === "number" ? usage.input_tokens : null,
-		outputTokens:
-			typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+		inputTokens: tokenCount(usage.input_tokens),
+		outputTokens: tokenCount(usage.output_tokens),
 	};
 }
 

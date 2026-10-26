@@ -17,7 +17,7 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { referenceContextSizes } from "@/lib/airside-context-size.js";
-import { assertListingKind } from "@/lib/airside-decisions.js";
+import { assertActivationKind } from "@/lib/airside-decisions.js";
 import { delistAirsideListing } from "@/lib/airside-delist.js";
 import {
 	airsideModelMetadataSchema,
@@ -567,6 +567,34 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const filing = await getPendingFiling(id);
 	// cdb: approval flips a model live — the gateway's cached lookup must see it.
 	await cdb.transaction(async (tx) => {
+		if (filing.kind === "initial") {
+			// Claim before listing rows, the order relists take.
+			const [draft] = await tx
+				.select({
+					providerId: tables.providerDraftModel.providerId,
+					providerCompanyId: tables.providerDraftModel.providerCompanyId,
+				})
+				.from(tables.providerDraftModel)
+				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+				.$withCache(false);
+			if (draft) {
+				await tx
+					.select({ id: tables.providerClaim.id })
+					.from(tables.providerClaim)
+					.where(
+						and(
+							eq(tables.providerClaim.providerId, draft.providerId),
+							eq(
+								tables.providerClaim.providerCompanyId,
+								draft.providerCompanyId,
+							),
+						),
+					)
+					.for("update")
+					.$withCache(false);
+			}
+			await assertActivationKind(tx, filing.draftModelId);
+		}
 		// Lock and re-read the model so a concurrent pause/resume serializes
 		// with this approval and its pausedAt decides the mapping status.
 		const [model] = await tx
@@ -577,9 +605,6 @@ adminAirside.openapi(approveFiling, async (c) => {
 			.$withCache(false);
 		if (!model) {
 			throw new HTTPException(404, { message: "Model not found" });
-		}
-		if (filing.kind === "initial") {
-			await assertListingKind(model.modelName, model.decisions, tx);
 		}
 		// Guard on status inside the UPDATE so two concurrent reviews cannot
 		// both apply — the loser sees zero rows and conflicts.

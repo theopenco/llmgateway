@@ -2209,7 +2209,9 @@ export function EditModelDialog({
 							</div>
 						)}
 						<div className="space-y-2">
-							<Label htmlFor="edit-context">Context size</Label>
+							<Label htmlFor="edit-context">
+								{model.decisions ? "Max input tokens" : "Context size"}
+							</Label>
 							<Input
 								id="edit-context"
 								value={contextSize}

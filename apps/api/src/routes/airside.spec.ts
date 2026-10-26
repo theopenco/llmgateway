@@ -4398,6 +4398,74 @@ describe("airside provider portal", () => {
 		expect((await shadow.json()).message).toContain("a chat model");
 	});
 
+	it("relists only one kind when opposite-kind relists race", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const listings = [
+			{ suffix: "chat", decisions: false },
+			{ suffix: "decide", decisions: true },
+		];
+		for (const { suffix, decisions } of listings) {
+			await db.insert(tables.providerCompany).values({
+				id: `race-company-${suffix}`,
+				name: `Race ${suffix}`,
+			});
+			await db.insert(tables.providerClaim).values({
+				id: `race-claim-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				providerId: `race-${suffix}`,
+				kind: "custom",
+				matchedDomain: `race-${suffix}.ai`,
+				customName: `Race ${suffix}`,
+				customBaseUrl: `https://api.race-${suffix}.ai`,
+				status: "active",
+			});
+			await db.insert(tables.providerDraftModel).values({
+				id: `race-model-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				providerId: `race-${suffix}`,
+				modelName: "race-contested-1",
+				externalId: "race-contested-1",
+				family: "race",
+				decisions,
+				streaming: !decisions,
+				status: "delisted",
+				delistedAt: new Date(),
+				delistReason: "removed",
+				relistRequestedAt: new Date(),
+			});
+			await db.insert(tables.providerPriceFiling).values({
+				draftModelId: `race-model-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				kind: "initial",
+				inputPrice: "1e-7",
+				outputPrice: decisions ? "0" : "2e-7",
+				status: "approved",
+			});
+		}
+
+		const results = await Promise.all(
+			listings.map(({ suffix }) =>
+				app.request(
+					`/admin/airside/listings/race-model-${suffix}/relist/approve`,
+					json(cookie),
+				),
+			),
+		);
+		expect(results.map((res) => res.status).sort()).toEqual([200, 409]);
+		const live = await db.query.providerDraftModel.findMany({
+			where: {
+				modelName: { eq: "race-contested-1" },
+				status: { eq: "active" },
+			},
+		});
+		expect(live).toHaveLength(1);
+		const model = await db.query.model.findFirst({
+			where: { id: { eq: "race-contested-1" } },
+		});
+		expect(model?.output).toEqual(live[0].decisions ? ["decision"] : ["text"]);
+	});
+
 	it("stores reasoning efforts and audio on a listing", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

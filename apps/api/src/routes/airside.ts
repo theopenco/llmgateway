@@ -27,6 +27,7 @@ import { assertListingContextSize } from "@/lib/airside-context-size.js";
 import {
 	assertDecisionMetadataEdit,
 	assertDecisionPricing,
+	assertDecisionProvider,
 	assertListingKind,
 	DECISION_LISTING_CHAT_FIELDS,
 } from "@/lib/airside-decisions.js";
@@ -2820,6 +2821,7 @@ airside.openapi(queueNewModelVerification, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	assertDecisionProvider(body.providerId, body.decisions ?? false);
 	await assertListingKind(body.modelName, body.decisions ?? false);
 	const target = verificationTarget(body);
 	const credential = await resolveVerificationCredential(
@@ -3199,6 +3201,7 @@ airside.openapi(createModel, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	assertDecisionProvider(body.providerId, body.decisions ?? false);
 	await assertListingKind(body.modelName, body.decisions ?? false);
 	assertDecisionPricing(body.decisions ?? false, body.pricing);
 	await assertListingContextSize(

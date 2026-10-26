@@ -71,7 +71,9 @@ describe("airside decision listings", () => {
 								],
 							},
 						],
-						usage: { input_tokens: 400, output_tokens: 0, total_tokens: 400 },
+						usage: JSON.stringify(parsed).includes("negative usage")
+							? { input_tokens: -5 }
+							: { input_tokens: 400, output_tokens: 0, total_tokens: 400 },
 					}),
 				);
 			});
@@ -227,6 +229,25 @@ describe("airside decision listings", () => {
 		expect(bare.status).toBe(200);
 	});
 
+	test("bills an estimate when the carrier reports no usable usage", async () => {
+		await setupDecisionCarrier("airside-decide-usage-token");
+		const requestId = "airside-decide-usage-req";
+		const res = await postDecision(
+			"airside-decide-usage-token",
+			{
+				model: "acme-decide/decide-fast",
+				input: "negative usage please",
+				questions: [QUESTIONS[0]],
+			},
+			requestId,
+		);
+		expect(res.status).toBe(200);
+		const log = await waitForLogByRequestId(requestId);
+		expect(log?.estimatedCost).toBe(true);
+		expect(Number(log?.promptTokens)).toBeGreaterThan(0);
+		expect(Number(log?.cost)).toBeGreaterThan(0);
+	});
+
 	test("is not served on chat completions or /v1/systemone", async () => {
 		await setupDecisionCarrier("airside-decide-chat-token");
 
@@ -313,14 +334,18 @@ describe("airside decision listings", () => {
 		expect(captured).toHaveLength(0);
 	});
 
-	test("applies the carrier's rate limit", async () => {
+	test("applies the carrier's own rate limit", async () => {
 		await setupDecisionCarrier("airside-decide-rate-token");
-		await db.insert(tables.rateLimit).values({
-			organizationId: null,
-			provider: "acme-decide",
-			model: "decide-fast",
+		await db.insert(tables.providerDraftModel).values({
+			id: "airside-decide-rate-token-model",
+			providerCompanyId: "airside-decide-rate-token-company",
+			providerId: "acme-decide",
+			modelName: "decide-fast",
+			externalId: "decide-fast-2",
+			decisions: true,
+			streaming: false,
 			maxRpm: 1,
-			enforcement: "global",
+			status: "active",
 		});
 		await clearCache();
 

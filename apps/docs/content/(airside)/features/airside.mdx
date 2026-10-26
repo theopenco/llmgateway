@@ -96,13 +96,15 @@ The gateway translates every caller's web search — a `web_search` tool, `web_s
 
 ### Decision models
 
-Set **Model type** to **Typed decisions** to list a decision model: one that answers typed questions with probabilities instead of generating text. Developers call it on LLM Gateway's [`/v1/decisions`](/features/decisions) endpoint, and the gateway forwards the request to `<base URL>/v1/decisions` on your API with `input` and `questions` as sent, `model` set to your upstream model ID, and no `safety_identifier`. Your endpoint must implement OpenAI's Decisions API:
+Set **Model type** to **Typed decisions** to list a decision model: one that answers typed questions with probabilities instead of generating text. Developers call it on LLM Gateway's [`/v1/decisions`](/features/decisions) endpoint, and the gateway forwards the request to `<base URL>/v1/decisions` on your API with `input` and `questions` as sent and `model` set to your upstream model ID. Your endpoint must implement OpenAI's Decisions API:
 
 - Accept `POST /v1/decisions` with `model` (your upstream model ID), `input` (a string, or user messages with `input_text` and `input_image` parts), and `questions` (`predicate`, `choice`, and `score`).
 - Return one answer per question in question order, echoing each `name`: a `probability` from 0 to 1 for `predicate`; a `choice` from the offered values with one entry in `probabilities` per value for `choice`; a `score` from 0 to the highest level index with one entry in `probabilities` per level for `score`.
-- Report `usage.input_tokens`. Decisions are billed on input tokens only, plus an optional per-request price, so a decision listing files an output price of 0 and takes no cached or regional fares.
+- Report `usage.input_tokens` as a non-negative integer. Decisions are billed on input tokens only, plus an optional per-request price, so a decision listing files an output price of 0 and takes no cached or regional fares. A response without a usable count is billed on an estimate of the request size.
 
-A decision listing declares only **image input** and its maximum input tokens; chat capabilities do not apply. Preflight sends one request per question type, and one with an `input_image` part when image input is declared, and fails unless each response has that shape. The model type is fixed once listed, and a model ID is either a chat model or a decision model across the catalogue and every carrier.
+A decision listing declares only **image input** and its maximum input tokens; chat capabilities do not apply. Preflight sends one request per question type and fails unless each response has that shape and reports a positive `usage.input_tokens`. With image input declared, it also sends a solid red image and fails unless your model answers that it is red with a probability of at least 0.5. Carriers whose catalogue decision API is not `/v1/decisions` cannot list decision models.
+
+The model type is fixed once listed. While any listing of a model ID is in service, the ID stays a chat model or a decision model, and a catalogue model keeps its catalogue type. A model ID without a provider prefix goes to the catalogue mapping when there is one, otherwise to the listing with the lowest input price.
 
 ## Price filings
 
