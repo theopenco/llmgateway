@@ -224,15 +224,15 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		},
 		{
 			question: "Are there limits on premium models?",
-			answer: `Premium models — any model priced at $${premiumInputPerM}+ per million input tokens or $${premiumOutputPerM}+ per million output tokens after any active discount — are subject to a weekly fair-use allowance in addition to your monthly allowance and its daily pacing: ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite)}% of your monthly credits on Lite, ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro)}% on Pro, and ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max)}% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.`,
+			answer: `Premium models — any model priced at $${premiumInputPerM}+ per million input tokens or $${premiumOutputPerM}+ per million output tokens after any active public discount — are subject to a weekly fair-use allowance in addition to your monthly allowance and its daily pacing: ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite)}% of your monthly credits on Lite, ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro)}% on Pro, and ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max)}% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.`,
 			content: (
 				<>
 					<p>
 						Premium models — any model priced at ${premiumInputPerM}+ per
 						million input tokens or ${premiumOutputPerM}+ per million output
-						tokens after any active discount — are subject to a weekly fair-use
-						allowance in addition to your monthly allowance and its daily
-						pacing:
+						tokens after any active public discount — are subject to a weekly
+						fair-use allowance in addition to your monthly allowance and its
+						daily pacing:
 					</p>
 					<ul className="list-disc pl-6 mt-2 space-y-1">
 						<li>

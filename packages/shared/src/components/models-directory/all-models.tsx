@@ -693,7 +693,7 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier / $5+/M input or $15+/M output after
+											Premium tier / $5+/M input or $15+/M output after public
 											discounts. Subject to the weekly fair-use allowance on
 											DevPass plans.
 										</p>
