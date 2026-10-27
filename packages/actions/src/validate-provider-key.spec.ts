@@ -817,6 +817,31 @@ describe("web search permission probe", () => {
 		expect(body.tool_choice).toBe("required");
 	});
 
+	// The probe model can be refused although the key works, e.g. when the
+	// account has not enabled it.
+	it("keeps the key when the probe model is refused for another reason", async () => {
+		vi.spyOn(logger, "warn").mockImplementation(() => {});
+		vi.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(respond(200))
+			.mockResolvedValueOnce(
+				respond(401, {
+					error: {
+						message: "openai.gpt-6-luna is not available for this account.",
+					},
+				}),
+			);
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+			{ aws_mantle_region: "us-east-1" },
+		);
+
+		expect(result.valid).toBe(true);
+	});
+
 	it("keeps the key when the probe fails for another reason", async () => {
 		vi.spyOn(logger, "warn").mockImplementation(() => {});
 		vi.spyOn(globalThis, "fetch")

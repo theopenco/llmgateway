@@ -14,6 +14,7 @@ export {
 export type { ProviderKeyLabelRowLike, ProviderKeyRowLike } from "./read.js";
 export { redactToken } from "./redact.js";
 export { describeNetworkFailure } from "./network-error.js";
+export { hasFeatureAccessDeniedError } from "./feature-access.js";
 export type { NetworkFailure } from "./network-error.js";
 export {
 	managedCredentialOptions,

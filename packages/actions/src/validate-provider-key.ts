@@ -23,6 +23,7 @@ import {
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 import { getUpstreamModelId } from "./provider-api-format.js";
+import { hasFeatureAccessDeniedError } from "./provider-key/feature-access.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
@@ -933,6 +934,17 @@ async function probeWebSearchAccess(
 			errorJson.error?.message ?? errorJson.message ?? upstreamMessage;
 	} catch {}
 	const safeMessage = redactToken(upstreamMessage, token);
+	// The probe model can be refused for other reasons, e.g. not enabled on
+	// the account; only a web search denial says the key lacks permissions.
+	if (!hasFeatureAccessDeniedError(safeMessage)) {
+		logger.warn("Web search key probe was refused for another reason", {
+			provider,
+			model: probe.modelId,
+			statusCode: response.status,
+			error: safeMessage,
+		});
+		return null;
+	}
 	logger.warn("Provider key cannot use web search", {
 		provider,
 		model: probe.modelId,

@@ -1,12 +1,10 @@
+import { hasFeatureAccessDeniedError } from "@llmgateway/actions";
 import {
 	calculateUptimePenalty as calculateRoutingUptimePenalty,
 	DEFAULT_ROUTING_THRESHOLDS,
 } from "@llmgateway/shared/routing-config";
 
-import {
-	hasInvalidProviderCredentialError,
-	hasFeatureAccessDeniedError,
-} from "./provider-auth-errors.js";
+import { hasInvalidProviderCredentialError } from "./provider-auth-errors.js";
 import { hasExhaustedProviderAccountError } from "./provider-funding-errors.js";
 
 /**
