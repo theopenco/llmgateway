@@ -92,6 +92,8 @@ describe("Models API", () => {
 		expect(firstModel).toHaveProperty("family");
 		expect(firstModel).toHaveProperty("json_output");
 		expect(firstModel).toHaveProperty("structured_outputs");
+		expect(firstModel).toHaveProperty("web_search");
+		expect(firstProvider).toHaveProperty("web_search");
 	});
 
 	// Claude Code populates its /model picker from GET /v1/models?limit=1000 when
@@ -584,6 +586,87 @@ describe("Models API", () => {
 			expect(m27).toBeDefined();
 			expect(m27!.json_output).toBe(true);
 			expect(m27!.structured_outputs).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("GET /v1/models exposes native web search support per mapping and per model", async () => {
+		const frozenNow = new Date("2026-08-11T00:00:00Z");
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(frozenNow);
+		try {
+			const [aggregatedRes, mappedRes] = await Promise.all([
+				app.request("/v1/models"),
+				app.request("/v1/models?mapped=true"),
+			]);
+			expect(aggregatedRes.status).toBe(200);
+			expect(mappedRes.status).toBe(200);
+
+			const aggregated = await aggregatedRes.json();
+			const mapped = await mappedRes.json();
+			const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+			const isServable = (p: ProviderModelMapping) =>
+				!(p.deactivatedAt && frozenNow > p.deactivatedAt);
+
+			let aggregatedWithSearch = 0;
+			for (const model of aggregated.data) {
+				const definition = definitionById.get(model.id);
+				expect(definition).toBeDefined();
+				const mappings = definition!.providers as ProviderModelMapping[];
+				// Every mapping reports a boolean, true only where the catalogue
+				// sets webSearch (the same flag the web_search tool is gated on).
+				for (const entry of model.providers) {
+					const mapping = mappings.find(
+						(p) =>
+							p.providerId === entry.providerId &&
+							p.externalId === entry.externalId,
+					);
+					expect(mapping).toBeDefined();
+					expect(
+						entry.web_search,
+						`providers[].web_search for ${model.id} via ${entry.providerId}`,
+					).toBe(mapping!.webSearch === true);
+				}
+				// The model-level flag is a rollup over servable mappings.
+				expect(model.web_search, `web_search for ${model.id}`).toBe(
+					mappings.filter(isServable).some((p) => p.webSearch === true),
+				);
+				if (model.web_search) {
+					aggregatedWithSearch++;
+				}
+			}
+			expect(aggregatedWithSearch).toBeGreaterThan(0);
+			expect(aggregatedWithSearch).toBeLessThan(aggregated.data.length);
+
+			// Support differs per provider for the same model: gpt-5 searches on
+			// OpenAI but not on Azure.
+			const gpt5 = aggregated.data.find(
+				(m: { id: string }) => m.id === "gpt-5",
+			);
+			const providerFlag = (providerId: string) =>
+				gpt5.providers.find(
+					(p: { providerId: string }) => p.providerId === providerId,
+				)?.web_search;
+			expect(gpt5.web_search).toBe(true);
+			expect(providerFlag("openai")).toBe(true);
+			expect(providerFlag("azure")).toBe(false);
+
+			// The mapped view reports each mapping on its own entry, both at the
+			// model level and inside providers[].
+			for (const entry of mapped.data) {
+				expect(entry.providers).toHaveLength(1);
+				expect(typeof entry.web_search).toBe("boolean");
+				expect(entry.web_search).toBe(
+					(entry.providers[0] as { web_search: boolean }).web_search,
+				);
+			}
+			expect(
+				mapped.data.some((entry: { web_search: boolean }) => entry.web_search),
+			).toBe(true);
+			expect(
+				mapped.data.some((entry: { web_search: boolean }) => !entry.web_search),
+			).toBe(true);
 		} finally {
 			vi.useRealTimers();
 		}
