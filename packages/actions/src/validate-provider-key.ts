@@ -763,6 +763,7 @@ export async function validateProviderKey(
 		const webSearchDenied = await probeWebSearchAccess(
 			provider,
 			token,
+			baseUrl,
 			providerKeyOptions,
 			pinnedModelId,
 			abortSignal,
@@ -835,6 +836,7 @@ export async function validateProviderKey(
 async function probeWebSearchAccess(
 	provider: ProviderId,
 	token: string,
+	baseUrl: string | undefined,
 	providerKeyOptions: ProviderKeyOptions | undefined,
 	pinnedModelId: string | undefined,
 	abortSignal: AbortSignal | undefined,
@@ -849,7 +851,7 @@ async function probeWebSearchAccess(
 	}
 	const endpoint = getProviderEndpoint(
 		provider,
-		undefined,
+		baseUrl,
 		probe.modelId,
 		undefined,
 		false,
@@ -924,10 +926,9 @@ async function probeWebSearchAccess(
 		return null;
 	}
 
-	const errorText = await response.text();
 	let upstreamMessage = `${response.status} ${response.statusText}`;
 	try {
-		const errorJson = JSON.parse(errorText);
+		const errorJson = JSON.parse(await response.text());
 		upstreamMessage =
 			errorJson.error?.message ?? errorJson.message ?? upstreamMessage;
 	} catch {}
