@@ -2126,6 +2126,7 @@ export interface ProviderKeyOptions {
 	vertex_openai_project_id?: string;
 	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
+	cloudflare_account_id?: string;
 	/**
 	 * Managed (platform-owned) credential settings, keyed by the logical env
 	 * keys a provider declares in its catalogue `env` block (`baseUrl`,

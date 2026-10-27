@@ -150,6 +150,7 @@ export function getProviderHeaders(
 		case "embercloud":
 		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "deepinfra":
 		case "custom":
 		default:

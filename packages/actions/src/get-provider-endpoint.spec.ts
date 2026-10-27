@@ -648,6 +648,44 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 
+	describe("cloudflare", () => {
+		const accountId = "0123456789abcdef0123456789abcdef";
+		const endpointFor = (cloudflare_account_id?: string) =>
+			getProviderEndpoint(
+				"cloudflare",
+				undefined,
+				"glm-5.3-flash",
+				undefined,
+				false,
+				true,
+				false,
+				cloudflare_account_id ? { cloudflare_account_id } : undefined,
+				undefined,
+				false,
+				undefined,
+				true,
+			);
+
+		it("builds the account-scoped Workers AI endpoint from key options", () => {
+			expect(endpointFor(accountId)).toBe(
+				`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+			);
+		});
+
+		it("throws when no account id is configured", () => {
+			expect(() => endpointFor()).toThrow(/Cloudflare requires an account ID/);
+		});
+
+		it.each(["../evil", "0123456789ABCDEF0123456789ABCDEF", "abc", "a/b"])(
+			"rejects an invalid account id (%s)",
+			(id) => {
+				expect(() => endpointFor(id)).toThrow(
+					/Cloudflare account ID is invalid/,
+				);
+			},
+		);
+	});
+
 	describe("azure-anthropic", () => {
 		it("builds the Microsoft Foundry Anthropic Messages endpoint", () => {
 			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "llmg-us-east-2";

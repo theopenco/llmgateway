@@ -2243,6 +2243,40 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 	},
+	{
+		id: "cloudflare",
+		name: "Cloudflare",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Cloudflare Workers AI runs open-weight models on Cloudflare's global GPU network through an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_CLOUDFLARE_API_KEY",
+				accountId: "LLM_CLOUDFLARE_ACCOUNT_ID",
+			},
+		},
+		cancellation: true,
+		color: "#F38020",
+		website: "https://developers.cloudflare.com/workers-ai",
+		statusPageUrl: "https://www.cloudflarestatus.com",
+		announcement: null,
+		apiKeyInstructions:
+			"Use a Cloudflare API token with Workers AI permissions, plus the 32-character account ID from your Cloudflare dashboard.",
+		termsUrl: "https://www.cloudflare.com/terms/",
+		privacyPolicyUrl: "https://www.cloudflare.com/privacypolicy/",
+		usagePolicyUrl:
+			"https://www.cloudflare.com/service-specific-terms-developer-platform/",
+		legalEntity: "Cloudflare, Inc.",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

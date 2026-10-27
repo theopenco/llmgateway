@@ -1552,6 +1552,9 @@ function providerEnvOptionsForTests(
 			azure_anthropic_resource: process.env.LLM_AZURE_ANTHROPIC_RESOURCE,
 		};
 	}
+	if (providerId === "cloudflare" && process.env.LLM_CLOUDFLARE_ACCOUNT_ID) {
+		return { cloudflare_account_id: process.env.LLM_CLOUDFLARE_ACCOUNT_ID };
+	}
 	return undefined;
 }
 

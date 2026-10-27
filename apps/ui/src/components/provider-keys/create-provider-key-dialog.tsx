@@ -34,6 +34,8 @@ import {
 	type ProviderDefinition,
 } from "@llmgateway/models";
 import {
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	getProviderModelIds,
 	isProviderHostnameLabel,
 	PROVIDER_HOSTNAME_LABEL_MESSAGE,
@@ -75,6 +77,7 @@ export function CreateProviderKeyDialog({
 		useState("gpt-4o-mini");
 	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
 	const [azureAnthropicResource, setAzureAnthropicResource] = useState("");
+	const [cloudflareAccountId, setCloudflareAccountId] = useState("");
 	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
 		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
@@ -377,6 +380,22 @@ export function CreateProviderKeyDialog({
 			payload.options = {
 				...payload.options,
 				azure_anthropic_resource: azureAnthropicResource,
+			};
+		}
+
+		if (selectedProvider === "cloudflare") {
+			const accountId = cloudflareAccountId.trim();
+			if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
+				toast({
+					title: "Error",
+					description: CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				cloudflare_account_id: accountId,
 			};
 		}
 
@@ -716,6 +735,23 @@ export function CreateProviderKeyDialog({
 									<p className="text-sm text-muted-foreground">
 										Your Microsoft Foundry resource name from the base URL:
 										https://&lt;resource-name&gt;.services.ai.azure.com
+									</p>
+								</div>
+							)}
+
+							{selectedProvider === "cloudflare" && (
+								<div className="space-y-2">
+									<Label htmlFor="cloudflare-account-id">Account ID</Label>
+									<Input
+										id="cloudflare-account-id"
+										type="text"
+										placeholder="0123456789abcdef0123456789abcdef"
+										value={cloudflareAccountId}
+										onChange={(e) => setCloudflareAccountId(e.target.value)}
+										required
+									/>
+									<p className="text-sm text-muted-foreground">
+										The 32-character account ID from your Cloudflare dashboard.
 									</p>
 								</div>
 							)}

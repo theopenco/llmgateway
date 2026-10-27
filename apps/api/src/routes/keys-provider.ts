@@ -62,6 +62,8 @@ import {
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 	PROVIDER_HOSTNAME_LABEL_REGEX,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -145,6 +147,7 @@ export const providerKeySchema = z.object({
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
 			vertex_openai_project_id: z.string().optional(),
+			cloudflare_account_id: z.string().optional(),
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -480,6 +483,10 @@ const createProviderKeySchema = z.object({
 				.optional(),
 			google_vertex_project_id: gcpProjectIdSchema.optional(),
 			vertex_openai_project_id: gcpProjectIdSchema.optional(),
+			cloudflare_account_id: z
+				.string()
+				.regex(CLOUDFLARE_ACCOUNT_ID_REGEX, CLOUDFLARE_ACCOUNT_ID_MESSAGE)
+				.optional(),
 		})
 		.superRefine(validateWorkspaceScopedRegion)
 		.optional(),

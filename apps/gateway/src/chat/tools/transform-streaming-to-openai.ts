@@ -1828,6 +1828,7 @@ export function transformStreamingToOpenai(
 		case "baidu":
 		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":
