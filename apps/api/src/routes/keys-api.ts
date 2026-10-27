@@ -8,6 +8,10 @@ import {
 	getApiKeyUsageStats,
 } from "@/lib/api-key-usage-stats.js";
 import {
+	CLI_CODE_CHALLENGE_PATTERN,
+	issueCliAuthCode,
+} from "@/lib/cli-auth-code.js";
+import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
 	iamRuleStatusEnum,
@@ -403,26 +407,20 @@ const apiKeySchema = z.object({
 });
 
 // Schema for creating a new API key
-const createApiKeySchema = z
-	.object({
-		description: z.string().trim().min(1).max(255),
-		projectId: z.string().trim().min(1),
-		usageLimit: createNullableLimitSchema("Usage limit")
-			.optional()
-			.default(null),
-		expiresAt: z
-			.string()
-			.datetime()
-			.nullable()
-			.optional()
-			.default(null)
-			.openapi({
-				description:
-					"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
-			}),
-		...createApiKeyPeriodConfigFieldsSchema,
-	})
-	.superRefine(validateApiKeyPeriodConfig);
+const createApiKeyFieldsSchema = z.object({
+	description: z.string().trim().min(1).max(255),
+	projectId: z.string().trim().min(1),
+	usageLimit: createNullableLimitSchema("Usage limit").optional().default(null),
+	expiresAt: z.string().datetime().nullable().optional().default(null).openapi({
+		description:
+			"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
+	}),
+	...createApiKeyPeriodConfigFieldsSchema,
+});
+
+const createApiKeySchema = createApiKeyFieldsSchema.superRefine(
+	validateApiKeyPeriodConfig,
+);
 
 const memberBudgetConstraintsSchema = z.object({
 	usageLimit: z.string().nullable(),
@@ -1319,6 +1317,63 @@ keysApi.openapi(create, async (c) => {
 			token,
 		},
 	});
+});
+
+// Create an API key for a coding CLI's browser login. The response carries a
+// one-time code, not the key; the CLI redeems it at /public/cli-auth/token.
+const createCliCode = createRoute({
+	method: "post",
+	path: "/cli-code",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createApiKeyFieldsSchema
+						.extend({
+							codeChallenge: z.string().regex(CLI_CODE_CHALLENGE_PATTERN),
+						})
+						.superRefine(validateApiKeyPeriodConfig),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						code: z.string(),
+					}),
+				},
+			},
+			description: "API key created; redeem the code from the CLI.",
+		},
+	},
+});
+
+keysApi.openapi(createCliCode, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, codeChallenge, ...rest } = c.req.valid("json");
+
+	const { apiKey, token } = await createApiKeyForProject(
+		projectId,
+		user.id,
+		rest,
+	);
+	const code = await issueCliAuthCode({
+		token,
+		codeChallenge,
+		expiresAt: apiKey.expiresAt,
+	});
+
+	return c.json({ apiKeyId: apiKey.id, code });
 });
 
 // List all API keys
