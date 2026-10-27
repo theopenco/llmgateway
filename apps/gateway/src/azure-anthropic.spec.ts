@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -193,5 +193,33 @@ describe("azure-anthropic", () => {
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toBe("/anthropic/v1/messages");
 		expect(captured[0].body.stream).toBe(true);
+	});
+
+	test("reports an invalid resource on the provider key as a client error", async () => {
+		await setup("azure-anthropic-bad-resource-token");
+		await db
+			.update(tables.providerKey)
+			.set({
+				baseUrl: null,
+				options: { azure_anthropic_resource: "evil.example.com" },
+			})
+			.where(eq(tables.providerKey.id, "azure-anthropic-key-id"));
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer azure-anthropic-bad-resource-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "azure-anthropic/claude-opus-4-8",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("resource is invalid");
+		expect(captured).toHaveLength(0);
 	});
 });

@@ -956,6 +956,32 @@ describe("provider keys route", () => {
 		});
 	});
 
+	test("refuses to re-enable a key whose stored options are invalid", async () => {
+		// A row stored before the Azure resource was validated on create.
+		await db
+			.update(tables.providerKey)
+			.set({
+				provider: "azure",
+				status: "inactive",
+				options: { azure_resource: "my-resource.openai.azure.com" },
+			})
+			.where(eq(tables.providerKey.id, "test-provider-key-id"));
+
+		const patchKey = async (body: Record<string, unknown>) =>
+			await app.request("/keys/provider/test-provider-key-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify(body),
+			});
+
+		const rejected = await patchKey({ status: "active" });
+		expect(rejected.status).toBe(400);
+		expect(await rejected.text()).toContain("azure_resource");
+
+		// Other edits, including deactivation, stay possible.
+		expect((await patchKey({ status: "inactive" })).status).toBe(200);
+	});
+
 	describe("rate limits", () => {
 		async function patchKey(body: Record<string, unknown>) {
 			return await app.request("/keys/provider/test-provider-key-id", {

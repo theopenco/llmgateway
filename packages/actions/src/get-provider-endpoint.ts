@@ -23,6 +23,24 @@ import { getBedrockProfilePrefix } from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
+/**
+ * Endpoint failure caused by a setting stored on an organization's own provider
+ * key (BYOK) rather than deployment config, so callers can report it as a
+ * client error instead of a server fault.
+ */
+export class ProviderKeyOptionError extends Error {}
+
+/** Error for an unusable hostname label, typed by where the value came from. */
+function invalidHostnameLabelError(
+	message: string,
+	credentialValue: string | undefined,
+	keyOptionValue: string | undefined,
+): Error {
+	return credentialValue === undefined && keyOptionValue !== undefined
+		? new ProviderKeyOptionError(message)
+		: new Error(message);
+}
+
 function appendPath(url: string, path: string): string {
 	let urlEnd = url.length;
 	while (urlEnd > 0 && url[urlEnd - 1] === "/") {
@@ -574,8 +592,10 @@ export function getProviderEndpoint(
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureEnv = getProviderEnvConfig("azure");
-					throw new Error(
+					throw invalidHostnameLabelError(
 						`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
+						credentialConfig?.resource,
+						providerKeyOptions?.azure_resource,
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
@@ -603,8 +623,10 @@ export function getProviderEndpoint(
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new Error(
+					throw invalidHostnameLabelError(
 						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
+						credentialConfig?.resource,
+						providerKeyOptions?.azure_ai_foundry_resource,
 					);
 				}
 				url = `https://${resource}.services.ai.azure.com`;
@@ -632,8 +654,10 @@ export function getProviderEndpoint(
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
-					throw new Error(
+					throw invalidHostnameLabelError(
 						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
+						credentialConfig?.resource,
+						providerKeyOptions?.azure_anthropic_resource,
 					);
 				}
 				url = `https://${resource}.services.ai.azure.com`;

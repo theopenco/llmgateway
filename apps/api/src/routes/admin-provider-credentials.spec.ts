@@ -231,6 +231,17 @@ describe("admin provider credentials", () => {
 		expect(await res.text()).toContain("projeckt");
 	});
 
+	test("rejects a resource that is not a hostname label", async () => {
+		const res = await create({
+			provider: "azure",
+			token: "azure-key",
+			config: { resource: "my-resource.openai.azure.com" },
+			skipValidation: true,
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("resource");
+	});
+
 	test("rejects an unknown provider", async () => {
 		const res = await create({ provider: "not-a-provider", token: "x" });
 		expect(res.status).toBe(400);

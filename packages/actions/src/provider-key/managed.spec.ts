@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	getInvalidManagedCredentialHostnameLabels,
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
 	getUnknownManagedCredentialKeys,
@@ -63,6 +64,26 @@ describe("getUnknownManagedCredentialKeys", () => {
 		expect(getUnknownManagedCredentialKeys("openai", { apiKey: "sk" })).toEqual(
 			["apiKey"],
 		);
+	});
+});
+
+describe("getInvalidManagedCredentialHostnameLabels", () => {
+	it("flags a resource or workspace id that is not a hostname label", () => {
+		expect(
+			getInvalidManagedCredentialHostnameLabels({
+				resource: "my-resource.openai.azure.com",
+				workspaceId: "ws/../x",
+			}),
+		).toEqual(["resource", "workspaceId"]);
+	});
+
+	it("accepts plain labels and ignores other settings", () => {
+		expect(
+			getInvalidManagedCredentialHostnameLabels({
+				resource: "my-resource",
+				baseUrl: "https://example.com/v1",
+			}),
+		).toEqual([]);
 	});
 });
 
