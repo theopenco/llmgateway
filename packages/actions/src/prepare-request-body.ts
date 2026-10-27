@@ -13,6 +13,7 @@ import {
 	type BaseMessage,
 	type CacheControl,
 	type FunctionParameter,
+	isInputAudioContent,
 	isTextContent,
 	type OpenAIFunctionToolInput,
 	type OpenAIRequestBody,
@@ -2569,6 +2570,34 @@ export async function prepareRequestBody(
 				return { ...m, content };
 			}),
 		);
+	}
+
+	// DashScope reads `input_audio.data` as a URL and 400s on the bare base64
+	// OpenAI sends, so inline audio goes up as a data URL.
+	if (usedProvider === "alibaba") {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const content = m.content.map((part) => {
+				if (
+					!isInputAudioContent(part) ||
+					/^(data:|https?:\/\/)/i.test(part.input_audio.data)
+				) {
+					return part;
+				}
+				mutated = true;
+				return {
+					...part,
+					input_audio: {
+						...part.input_audio,
+						data: `data:;base64,${part.input_audio.data}`,
+					},
+				};
+			});
+			return mutated ? { ...m, content } : m;
+		});
 	}
 
 	const messagesWithGoogleSignatures = processedMessages;
