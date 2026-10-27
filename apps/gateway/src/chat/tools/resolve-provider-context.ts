@@ -1110,6 +1110,13 @@ export async function resolveProviderContext(
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
 	// --- Request body preparation ---
+	const reasoningEffort =
+		options.reasoning_effort_nearest && options.reasoning_effort
+			? nearestReasoningEffort(
+					options.reasoning_effort,
+					providerMappingForSelected?.reasoningEfforts,
+				)
+			: options.reasoning_effort;
 	const requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
 		transportProvider,
 		usedInternalModel,
@@ -1125,12 +1132,7 @@ export async function resolveProviderContext(
 		options.response_format,
 		options.tools,
 		options.tool_choice,
-		options.reasoning_effort_nearest && options.reasoning_effort
-			? nearestReasoningEffort(
-					options.reasoning_effort,
-					providerMappingForSelected?.reasoningEfforts,
-				)
-			: options.reasoning_effort,
+		reasoningEffort,
 		supportsReasoning,
 		process.env.NODE_ENV === "production",
 		options.maxImageSizeMB,
@@ -1245,7 +1247,7 @@ export async function resolveProviderContext(
 		supportsReasoning,
 		splitTaggedReasoning,
 		healStreamingJsonOutput,
-		reasoning_effort: options.reasoning_effort,
+		reasoning_effort: reasoningEffort,
 		temperature,
 		max_tokens,
 		top_p,

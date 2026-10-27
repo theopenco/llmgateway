@@ -5,6 +5,7 @@ import {
 	describe,
 	expect,
 	test,
+	vi,
 } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -13,6 +14,7 @@ import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import { resetKeyHealth } from "./lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { requestLogs, waitForLogs } from "./test-utils/test-helpers.js";
 
@@ -622,5 +624,84 @@ describe("dynamic routes request path", () => {
 
 		const log = (await waitForLogs(1))[0];
 		expect(log?.routingMetadata?.dynamicRoute?.classifier).toBeUndefined();
+	});
+
+	test("logs the nearest effort each fallback provider received", async () => {
+		// glm-5.3: zai declares low, fireworks only xhigh/max. A nearest `low`
+		// override reaches fireworks as xhigh once zai fails, and the logged
+		// effort has to follow the body that was sent.
+		const model = "glm-5.3";
+		const token = await seedBase("effort-fallback", []);
+		for (const provider of ["zai", "fireworks"]) {
+			const id = `pk-dyn-${provider}-effort-fallback`;
+			await db.insert(tables.providerKey).values({
+				id,
+				provider,
+				organizationId: "org-id",
+				...encryptProviderKeyForStorage(
+					`sk-${provider}-test-key`,
+					id,
+					"org-id",
+				),
+				baseUrl: `https://${provider}.example.com`,
+			});
+			await harness.setRoutingMetrics(model, provider, { uptime: 100 });
+		}
+		const routeName = await seedRoute("effort-fallback", {
+			entry: "m",
+			nodes: [
+				{
+					...modelNode("m", model, ["zai", "fireworks"]),
+					reasoningEffort: "low",
+					reasoningEffortNearest: true,
+				},
+			],
+		} as DynamicRouteGraph);
+
+		const attempts: string[] = [];
+		const efforts: unknown[] = [];
+		const realFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url = new URL(
+					input instanceof Request ? input.url : input.toString(),
+				);
+				if (!url.hostname.endsWith(".example.com")) {
+					return await realFetch(input, init);
+				}
+				attempts.push(url.hostname.split(".")[0]);
+				efforts.push(
+					typeof init?.body === "string"
+						? JSON.parse(init.body).reasoning_effort
+						: undefined,
+				);
+				if (url.hostname.startsWith("zai")) {
+					return Response.json(
+						{ error: { message: "Rate limit exceeded" } },
+						{ status: 429 },
+					);
+				}
+				return await realFetch(`${mockServerUrl}/v1/chat/completions`, init);
+			});
+		try {
+			const res = await chatCompletion(token, {
+				model: `dynamic/${routeName}`,
+				max_tokens: 1024,
+				messages: [{ role: "user", content: "Hello!" }],
+			});
+			expect(res.status).toBe(200);
+		} finally {
+			fetchSpy.mockRestore();
+			resetKeyHealth();
+		}
+		expect(attempts).toEqual(["zai", "fireworks"]);
+		expect(efforts).toEqual(["low", "xhigh"]);
+
+		const logs = await waitForLogs(2);
+		const byProvider = Object.fromEntries(
+			logs.map((log) => [log.usedProvider, log.reasoningEffort]),
+		);
+		expect(byProvider).toEqual({ zai: "low", fireworks: "xhigh" });
 	});
 });
