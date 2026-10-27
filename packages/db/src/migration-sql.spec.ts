@@ -115,6 +115,14 @@ describe("lintMigrationSql", () => {
 			`CREATE TABLE "project" ("id" text PRIMARY KEY NOT NULL);`,
 		].join(`\n${BP}\n`);
 		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual(["drop-table"]);
+		expect(
+			lintMigrationSql(
+				[
+					`CREATE TABLE IF NOT EXISTS "project" ("id" text PRIMARY KEY NOT NULL);`,
+					`ALTER TABLE "project" DROP COLUMN "name";`,
+				].join(`\n${BP}\n`),
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
 	});
 
 	it("requires a separator between a marker and its reason", () => {

@@ -400,7 +400,10 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 		const { sql } = statement;
 		const createTable = CREATE_TABLE_RE.exec(sql);
 		if (createTable) {
-			created.add(relationName(createTable[1]));
+			// IF NOT EXISTS creates nothing when the table already exists.
+			if (!/\bif\s+not\s+exists\b/i.test(sql.slice(0, createTable[0].length))) {
+				created.add(relationName(createTable[1]));
+			}
 			continue;
 		}
 		const reviewed = hasReviewedReason([statement]);
