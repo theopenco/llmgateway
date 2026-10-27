@@ -1263,7 +1263,7 @@ describe("api", () => {
 		}
 	});
 
-	test("/v1/messages lowers a tool_result image to text for non-Anthropic upstreams", async () => {
+	test("/v1/messages forwards a tool_result image as an image part for non-Anthropic upstreams", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -1353,13 +1353,19 @@ describe("api", () => {
 			expect(res.status).toBe(200);
 			expect(upstreamBody).toBeTruthy();
 
-			// An OpenAI-format tool message only takes a string, and strict
-			// upstreams reject unknown fields, so the block carrier must be gone
-			// and the lowered string is what goes out.
+			// Non-Anthropic upstreams take chat-completions content parts, so the
+			// screenshot travels as an image_url data URL instead of being
+			// retyped as text, and the Anthropic-only carrier block stays off the
+			// wire.
 			const toolMsg = upstreamBody.messages.find((m: any) => m.role === "tool");
 			expect(toolMsg.tool_call_id).toBe("toolu_1");
-			expect(typeof toolMsg.content).toBe("string");
-			expect(toolMsg.content).toContain("Rendered.");
+			expect(toolMsg.content).toEqual([
+				{ type: "text", text: "Rendered." },
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+				},
+			]);
 			expect(toolMsg).not.toHaveProperty("anthropic_native_blocks");
 		} finally {
 			fetchSpy.mockRestore();
@@ -1435,6 +1441,74 @@ describe("api", () => {
 
 		const logs = await waitForLogs(1);
 		expect(logs[0].finishReason).toBe("client_error");
+	});
+
+	test("/v1/messages rejects a tool_result image missing its base64 payload", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// The nested block is replayed verbatim, so a base64 source without
+		// `data` would reach the provider as an empty image. Top-level image
+		// blocks already require both fields, so nested ones must too.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "anthropic/claude-opus-4-8",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "Chart the data." },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "tool_use",
+								id: "toolu_1",
+								name: "render_chart",
+								input: {},
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: "toolu_1",
+								content: [
+									{
+										type: "image",
+										source: {
+											type: "base64",
+											media_type: "image/png",
+										},
+									},
+								],
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain(
+			"must use a base64 source with string media_type and data",
+		);
 	});
 
 	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {

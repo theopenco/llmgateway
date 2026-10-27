@@ -38,12 +38,24 @@ const toolResultContentBlocksSchema = z
 			if (blockType(block) !== "image") {
 				return;
 			}
-			const source = (block as { source?: { type?: unknown } }).source;
-			if (source?.type !== "base64") {
+			const source = (
+				block as {
+					source?: { type?: unknown; media_type?: unknown; data?: unknown };
+				}
+			).source;
+			// A base64 source without both fields replays as an empty image at
+			// the provider, so hold nested blocks to the same requirement as the
+			// top-level image schema above.
+			if (
+				source?.type !== "base64" ||
+				typeof source.media_type !== "string" ||
+				typeof source.data !== "string"
+			) {
 				ctx.addIssue({
 					code: z.ZodIssueCode.custom,
 					path: [index, "source", "type"],
-					message: "tool_result image blocks must use a base64 source",
+					message:
+						"tool_result image blocks must use a base64 source with string media_type and data",
 				});
 			}
 		});
