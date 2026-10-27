@@ -107,8 +107,8 @@ importers:
         specifier: ^7.1.0
         version: 7.1.0(semantic-release@24.2.9(typescript@5.9.2))
       '@semantic-release/npm':
-        specifier: ^13.1.5
-        version: 13.1.5(semantic-release@24.2.9(typescript@5.9.2))
+        specifier: ^13.2.0
+        version: 13.2.0(semantic-release@24.2.9(typescript@5.9.2))
       '@steebchen/commitlint-config':
         specifier: ^1.7.0
         version: 1.7.0
@@ -6654,8 +6654,8 @@ packages:
     peerDependencies:
       semantic-release: '>=20.1.0'
 
-  '@semantic-release/npm@13.1.5':
-    resolution: {integrity: sha512-Hq5UxzoatN3LHiq2rTsWS54nCdqJHlsssGERCo8WlvdfFA9LoN0vO+OuKVSjtNapIc/S8C2LBj206wKLHg62mg==}
+  '@semantic-release/npm@13.2.0':
+    resolution: {integrity: sha512-Uz4JGafLoEGiheLKEs1orockCWP6liY9D2YnvKHYbqo9hCHAw9fuAHcU53q29SXVCtkvDhs/QVUg7Vvuyfp4Jg==}
     engines: {node: ^22.14.0 || >= 24.10.0}
     peerDependencies:
       semantic-release: '>=20.1.0'
@@ -13590,11 +13590,6 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  semver@7.7.4:
-    resolution: {integrity: sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA==}
-    engines: {node: '>=10'}
-    hasBin: true
-
   semver@7.8.5:
     resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
     engines: {node: '>=10'}
@@ -20439,7 +20434,7 @@ snapshots:
       semver: 7.8.5
       tempy: 3.1.1
 
-  '@semantic-release/npm@13.1.5(semantic-release@24.2.9(typescript@5.9.2))':
+  '@semantic-release/npm@13.2.0(semantic-release@24.2.9(typescript@5.9.2))':
     dependencies:
       '@actions/core': 3.0.1
       '@semantic-release/error': 4.0.0
@@ -20455,7 +20450,7 @@ snapshots:
       read-pkg: 10.1.0
       registry-auth-token: 5.1.1
       semantic-release: 24.2.9(typescript@5.9.2)
-      semver: 7.7.4
+      semver: 7.8.5
       tempy: 3.1.1
 
   '@semantic-release/release-notes-generator@14.1.0(semantic-release@24.2.9(typescript@5.9.2))':
@@ -28811,8 +28806,6 @@ snapshots:
   semver@6.3.1: {}
 
   semver@7.7.3: {}
-
-  semver@7.7.4: {}
 
   semver@7.8.5: {}
 
