@@ -28,7 +28,7 @@ When you include the `web_search` tool in your request, the model can search the
 
 Native web search is available on select models. See all models with native web search support on our [models page](https://llmgateway.io/models?filters=1&webSearch=true).
 
-To check programmatically, read `web_search` on each model and on each entry of its `providers` array in [`GET /v1/models`](https://api.llmgateway.io/v1/models). The model-level value is `true` when at least one provider that can still serve requests supports native web search.
+To check programmatically, read `web_search` on each model and on each entry of its `providers` array in [`GET /v1/models`](https://api.llmgateway.io/v1/models). The model-level value is `true` when at least one provider that can still serve requests supports native web search. A provider entry with `web_search_forced_only: true` only searches when the request [requires a search](#requiring-a-search).
 
 <Callout type="warn">
 	**Perplexity Sonar changed on September 25, 2026.** Perplexity retired its

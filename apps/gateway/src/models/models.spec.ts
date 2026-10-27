@@ -94,6 +94,7 @@ describe("Models API", () => {
 		expect(firstModel).toHaveProperty("structured_outputs");
 		expect(firstModel).toHaveProperty("web_search");
 		expect(firstProvider).toHaveProperty("web_search");
+		expect(firstProvider).toHaveProperty("web_search_forced_only");
 	});
 
 	// Claude Code populates its /model picker from GET /v1/models?limit=1000 when
@@ -627,6 +628,13 @@ describe("Models API", () => {
 						entry.web_search,
 						`providers[].web_search for ${model.id} via ${entry.providerId}`,
 					).toBe(mapping!.webSearch === true);
+					expect(
+						entry.web_search_forced_only,
+						`providers[].web_search_forced_only for ${model.id} via ${entry.providerId}`,
+					).toBe(
+						mapping!.webSearch === true &&
+							mapping!.webSearchForcedOnly === true,
+					);
 				}
 				// The model-level flag is a rollup over servable mappings.
 				expect(model.web_search, `web_search for ${model.id}`).toBe(
@@ -651,6 +659,22 @@ describe("Models API", () => {
 			expect(gpt5.web_search).toBe(true);
 			expect(providerFlag("openai")).toBe(true);
 			expect(providerFlag("azure")).toBe(false);
+			expect(
+				gpt5.providers.find(
+					(p: { providerId: string }) => p.providerId === "openai",
+				)?.web_search_forced_only,
+			).toBe(false);
+
+			// DashScope Qwen only searches when the request forces it, so the
+			// mapping says so instead of looking like any other search provider.
+			const qwen = aggregated.data.find(
+				(m: { id: string }) => m.id === "qwen3.8-max",
+			);
+			const alibaba = qwen.providers.find(
+				(p: { providerId: string }) => p.providerId === "alibaba",
+			);
+			expect(alibaba.web_search).toBe(true);
+			expect(alibaba.web_search_forced_only).toBe(true);
 
 			// The mapped view reports each mapping on its own entry, both at the
 			// model level and inside providers[].

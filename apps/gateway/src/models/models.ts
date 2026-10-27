@@ -99,6 +99,10 @@ const modelSchema = z.object({
 				description:
 					"Whether this mapping supports native web search through the web_search tool.",
 			}),
+			web_search_forced_only: z.boolean().openapi({
+				description:
+					'Whether this mapping only searches when the request forces it with tool_choice: {"type": "web_search"}. A web_search tool that is merely offered is not routed to it, and is dropped when no other mapping can choose to search on its own.',
+			}),
 			reasoning_efforts: z
 				.array(
 					z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
@@ -600,6 +604,8 @@ function serializeProviderMapping(
 		parallelToolCalls: provider.parallelToolCalls ?? false,
 		reasoning: provider.reasoning ?? false,
 		web_search: provider.webSearch === true,
+		web_search_forced_only:
+			provider.webSearch === true && provider.webSearchForcedOnly === true,
 		reasoning_efforts: provider.reasoningEfforts,
 		reasoning_modes: provider.reasoningModes,
 		min_cacheable_tokens: provider.minCacheableTokens,
