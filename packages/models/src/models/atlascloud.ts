@@ -132,6 +132,7 @@ export const atlascloudModels = [
 			"VEED Fabric 1.0 talking-video generation. Animates one image with a face into a lip-synced video driven by one speech audio track; the output is as long as the audio.",
 		family: "atlascloud",
 		output: ["video"],
+		maxVideoDurationSeconds: 300,
 		stability: "beta",
 		releasedAt: new Date("2025-09-15"),
 		providers: [
@@ -167,6 +168,7 @@ export const atlascloudModels = [
 			"VEED Fabric 1.0 Fast talking-video generation. Animates one image with a face into a lip-synced video driven by one speech audio track; the output is as long as the audio.",
 		family: "atlascloud",
 		output: ["video"],
+		maxVideoDurationSeconds: 300,
 		stability: "beta",
 		releasedAt: new Date("2025-09-15"),
 		providers: [

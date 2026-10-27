@@ -3721,6 +3721,14 @@ async function getAtlasCloudImageUrl(
 ): Promise<string> {
 	const imageUrl = getVideoImageUrl(videoImage);
 	if (/^https:\/\//i.test(imageUrl)) {
+		// AtlasCloud fetches the image itself; still refuse internal targets.
+		try {
+			await assertSafeUserContentUrl(imageUrl);
+		} catch (error) {
+			throw new HTTPException(400, {
+				message: `Invalid image URL: ${toError(error).message}`,
+			});
+		}
 		return imageUrl;
 	}
 
@@ -4912,15 +4920,20 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		modelInfo,
 		request.seconds,
 	);
-	// An edit keeps the source's length (up to the model maximum), so reserve
-	// against the longest output it can produce.
-	const estimatedDurationSeconds =
-		sourceVideoInput?.task === "edit"
-			? Math.max(
-					videoDurationSeconds,
-					(modelInfo as ModelDefinition).maxVideoDurationSeconds ?? 0,
-				)
-			: videoDurationSeconds;
+	// An edit keeps the source's length and a lip-sync video follows its audio
+	// (up to the model maximum), so reserve against the longest output.
+	const outputLengthFollowsInput =
+		sourceVideoInput?.task === "edit" ||
+		modelInfo.providers.some(
+			(provider) =>
+				(provider as ProviderModelMapping).videoDurationFollowsAudio,
+		);
+	const estimatedDurationSeconds = outputLengthFollowsInput
+		? Math.max(
+				videoDurationSeconds,
+				(modelInfo as ModelDefinition).maxVideoDurationSeconds ?? 0,
+			)
+		: videoDurationSeconds;
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,

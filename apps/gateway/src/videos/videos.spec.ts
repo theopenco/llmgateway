@@ -815,6 +815,61 @@ describe("videos", () => {
 		expect(log?.cost).toBeCloseTo(7.3 * 0.088, 6);
 	});
 
+	test("/v1/videos bills VEED Fabric's requested seconds when the output length cannot be measured", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/veed-fabric-1-0-fast",
+				prompt: "A presenter reads the script",
+				size: "1280x720",
+				seconds: 6,
+				reference_images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+				reference_audios: [{ audio_url: "https://example.com/speech.mp3" }],
+			}),
+		});
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+
+		// Without a mock asset the content is not a range-readable mp4.
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const finished = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(finished?.status).toBe("completed");
+		const log = await db.query.log.findFirst({
+			where: { usedModel: { eq: "atlascloud/veed-fabric-1-0-fast" } },
+		});
+		expect(log?.videoOutputCost).toBeCloseTo(6 * 0.22, 6);
+	});
+
 	test("/v1/videos requires one image and one audio clip for VEED Fabric", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

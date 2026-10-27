@@ -67,7 +67,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | KLING v3.0 Turbo      | `atlascloud`       | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `5`, `10`           |
 | KLING v3.0 Pro        | `atlascloud`       | `1920x1080`, `1080x1920`                                                                         | `5`, `10`           |
 | MiniMax H3 Max        | `minimax`          | `848x480`, `854x480`, `480x854`, `1366x768`, `768x1366`                                          | `5`–`15`            |
-| VEED Fabric 1.0, Fast | `atlascloud`       | `854x480`, `480x854`, `1280x720`, `720x1280`                                                     | length of the audio |
+| VEED Fabric 1.0, Fast | `atlascloud`       | `854x480`, `480x854`, `1280x720`, `720x1280`                                                     | audio length, ≤ 300 |
 
 Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance and KLING v3.0 derive `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
 
@@ -210,7 +210,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 `veed-fabric-1-0` and `veed-fabric-1-0-fast` animate one image with a face into a lip-synced video of it speaking an audio track. Send exactly one image as `input_reference` (or `reference_images`; HTTPS URL or base64 data URL) and exactly one speech clip as `reference_audios` (HTTPS URL only). Other inputs and `audio: false` return a `400`.
 
 - `size` only selects the resolution (480p or 720p); the output keeps the image's aspect ratio.
-- The video is as long as the audio. `seconds` is still required and sets the up-front credit reservation, so set it to the audio's length; billing uses the measured length of the generated video.
+- The video is as long as the audio, up to 300 seconds. Credits are reserved for the 300-second maximum and settled to the measured length of the generated video. `seconds` is still required (up to `300`); set it to the audio's length, since it is billed only when the output length cannot be measured.
 - `prompt` is required but does not steer the output; it is still checked by the content filter.
 
 ```bash
@@ -308,7 +308,7 @@ KLING (AtlasCloud):
 | `kling-v3-0-turbo` | `atlascloud` | 720p       | `$0.168 / second` | n/a (audio only)  |
 | `kling-v3-0-turbo` | `atlascloud` | 1080p      | `$0.21 / second`  | n/a (audio only)  |
 
-VEED Fabric (AtlasCloud), billed per second of generated video:
+VEED Fabric (AtlasCloud), billed per second of generated video; the reservation assumes the 300-second maximum:
 
 | Model                  | Provider     | 480p              | 720p              |
 | ---------------------- | ------------ | ----------------- | ----------------- |

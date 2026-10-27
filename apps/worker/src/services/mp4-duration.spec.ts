@@ -60,7 +60,7 @@ describe("readMp4DurationSeconds", () => {
 		const { read, reads } = reader(file);
 
 		await expect(readMp4DurationSeconds(read)).resolves.toBe(4.24);
-		expect(reads.every(([, length]) => length <= 40)).toBe(true);
+		expect(reads.every(([, length]) => length <= 48)).toBe(true);
 		expect(reads).toHaveLength(5);
 	});
 

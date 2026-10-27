@@ -1245,11 +1245,13 @@ function extractVideoDurationSeconds(job: VideoJobRecord): number | null {
 			status && typeof status === "object" && !Array.isArray(status)
 				? (status as Record<string, unknown>).llmgateway_output_duration_seconds
 				: undefined;
-		return typeof measured === "number" &&
+		if (
+			typeof measured === "number" &&
 			Number.isFinite(measured) &&
 			measured > 0
-			? measured
-			: null;
+		) {
+			return measured;
+		}
 	}
 
 	return getRequestedVideoDurationSeconds(job);
@@ -1865,15 +1867,27 @@ async function fetchAtlasCloudStatus(
 			.find((url) => url !== null) ?? null;
 
 	// The output follows the input audio, so bill its measured length.
-	const outputDurationSeconds =
+	let outputDurationSeconds: number | null = null;
+	if (
 		status === "completed" &&
 		outputUrl &&
 		getVideoMapping(job)?.videoDurationFollowsAudio
-			? await readRemoteMp4DurationSeconds(
-					outputUrl,
-					providerContext.tenantControlled,
-				)
-			: null;
+	) {
+		try {
+			outputDurationSeconds = await readRemoteMp4DurationSeconds(
+				outputUrl,
+				providerContext.tenantControlled,
+			);
+		} catch (error) {
+			// Failing the poll would eventually fail a finished, paid-for video;
+			// bill the requested seconds instead.
+			logger.error("Could not measure video output duration for billing", {
+				videoJobId: job.id,
+				upstreamId: job.upstreamId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
 
 	return addRequestedVideoMetadata(job, {
 		...body,

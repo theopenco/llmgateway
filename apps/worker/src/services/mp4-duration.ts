@@ -1,7 +1,7 @@
 export type ReadByteRange = (start: number, length: number) => Promise<Buffer>;
 
 // Enough for a 64-bit box header plus a version 1 mvhd up to its duration.
-const BOX_READ_BYTES = 40;
+const BOX_READ_BYTES = 48;
 const MAX_BOXES_PER_LEVEL = 64;
 
 interface BoxHeader {
