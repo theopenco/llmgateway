@@ -212,13 +212,9 @@ async function classifyPrompt(
 				"Content-Type": "application/json",
 				"X-Request-Id": context.requestId,
 			},
-			body: JSON.stringify({
-				prompt,
-				// The audit log only fills these two columns from the body; a
-				// header is ignored, leaving its rows unattributable.
-				request_id: context.requestId,
-				account_id: context.organizationId,
-			}),
+			// Prompt only: the classifier keeps no audit log, so it needs no
+			// request or organization ids.
+			body: JSON.stringify({ prompt }),
 			signal,
 		});
 		const text = await response.text();
