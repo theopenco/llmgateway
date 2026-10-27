@@ -350,7 +350,11 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
-import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
+import {
+	type AutoReasoningEffortPick,
+	pickAutoReasoningEffort,
+	pickFallbackReasoningEffort,
+} from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -6641,15 +6645,15 @@ chat.openapi(completions, async (c) => {
 	// Check if this is an image generation model. Identify the routed mapping
 	// by (providerId, region) — externalId is upstream-only and no longer
 	// participates in mapping selection.
+	const findFinalProviderMapping = (
+		providerId: string | undefined,
+		region: string | undefined,
+	) =>
+		finalModelInfo
+			? selectProviderMapping(finalModelInfo.providers, providerId, region)
+			: undefined;
 	const getUsedProviderMapping = () =>
-		finalModelInfo?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				(p.region ?? null) === (usedRegion ?? null),
-		) ??
-		finalModelInfo?.providers.find(
-			(p) => p.providerId === usedProvider && p.region === undefined,
-		);
+		findFinalProviderMapping(usedProvider, usedRegion);
 	if (usedProvider !== "custom") {
 		const airsideMapping = await resolveAirsidePricingMapping();
 		if (airsideResolution || airsideMapping) {
@@ -6681,6 +6685,7 @@ chat.openapi(completions, async (c) => {
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
+	let autoReasoningEffortPick: AutoReasoningEffortPick | undefined;
 	if (
 		(requestedModel === "auto" || requestedModel === "smart") &&
 		reasoning_effort === undefined &&
@@ -6721,6 +6726,10 @@ chat.openapi(completions, async (c) => {
 			) {
 				effortTier = "low";
 			}
+			autoReasoningEffortPick = {
+				modelId: usedInternalModel,
+				effortTier,
+			};
 			const autoEffort = pickAutoReasoningEffort(
 				usedInternalModel,
 				getUsedProviderMapping()?.reasoningEfforts,
@@ -6910,7 +6919,7 @@ chat.openapi(completions, async (c) => {
 		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
-		assertDevPlanPremiumCapNotExceeded(
+		await assertDevPlanPremiumCapNotExceeded(
 			organization,
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
@@ -7094,7 +7103,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 			// Check regular credits, dev plan credits, and chat plan credits.
-			assertDevPlanPremiumCapNotExceeded(
+			await assertDevPlanPremiumCapNotExceeded(
 				organization,
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
@@ -8659,6 +8668,7 @@ chat.openapi(completions, async (c) => {
 			providerCacheAutoTtl,
 			parallel_tool_calls,
 			usedWebSearchFormat(),
+			providerKey?.forwardCacheControl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8849,7 +8859,14 @@ chat.openapi(completions, async (c) => {
 				response_format,
 				tools,
 				tool_choice,
-				reasoning_effort,
+				reasoning_effort: pickFallbackReasoningEffort(
+					reasoning_effort,
+					autoReasoningEffortPick,
+					findFinalProviderMapping(
+						providerMapping.providerId,
+						providerMapping.region,
+					)?.reasoningEfforts,
+				),
 				reasoning_max_tokens,
 				prompt_cache_key,
 				prompt_cache_retention,
@@ -8966,6 +8983,15 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
+		// An auto-routed effort is re-picked per fallback mapping, so the logged
+		// effort has to follow what the new body carries. The header only lands
+		// on non-streaming responses: a stream has already sent its headers, and
+		// setting one then rebuilds a response whose body is already being read.
+		// An undefined effort clears the header the first attempt set.
+		reasoning_effort = ctx.reasoning_effort;
+		if (smartRoutingDecision && !stream) {
+			c.header("x-llmgateway-smart-effort", reasoning_effort);
+		}
 		temperature = ctx.temperature;
 		max_tokens = ctx.max_tokens;
 		top_p = ctx.top_p;

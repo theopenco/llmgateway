@@ -42,21 +42,25 @@ Most review happens before the PR exists. Before `gh pr create`:
   maintainer approves the latest commit; a push after approval needs a fresh
   one. If the status does not refresh after an approval, add or remove any
   label to recompute it.
-- CodeRabbit posts findings as threads. Fix each one or resolve it
-  with a one-line reason; unresolved threads block the merge.
+- CodeRabbit posts a pre-merge checks table and findings as threads. Wait
+  for both (`gh pr checks <n>` shows `CodeRabbit` as completed), fix every
+  failed check (title length, description, rollback) and every finding, or
+  resolve it with a one-line reason; unresolved threads block the merge.
+  Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
 
 ## Creating the PR
 
+Write the body from `.github/pull_request_template.md` into `.context/pr-body.md`:
+Summary, Verification, Rollback (tick the plain-revert box or list the steps),
+and Database migration only when the PR adds one.
+
 ```bash
-gh pr create --base main --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
-...
-EOF
-)"
+gh pr create --base main --title "<type>(<scope>): <summary>" --body-file .context/pr-body.md
 ```
 
-- Title uses conventional-commit format and is **max 50 characters**.
+- Title uses conventional-commit format and is **max 50 characters**, `type(scope): ` included. Count it (`printf %s "<title>" | wc -c`) before creating or editing the PR.
 - Always **ready-for-review**, never a draft, unless the user explicitly asks for a draft.
 - Always write both a title **and** a description. If later commits change the scope, update both before handing the PR off — a stale description is worse than none.
 - A good description states the problem first, then the approach, then anything a reviewer would otherwise have to reverse-engineer (non-obvious constraints, deliberate omissions, verification performed).
@@ -155,7 +159,10 @@ Use the `verify` skill to launch an isolated stack and capture the screenshot.
 
 ## CI
 
-The e2e workflow does **not** run automatically on PRs — e2e spends real money on provider API calls. Trigger it on demand by commenting `/e2e` on the PR (maintainers/collaborators only, and only for branches in this repository, not forks), or via `workflow_dispatch`.
+The e2e workflow does **not** run automatically on PRs — e2e spends real money on provider API calls. Trigger it on demand by commenting `/e2e` on the PR (maintainers/collaborators only, and only for branches in this repository, not forks), or via `workflow_dispatch`. Use it only for generic gateway code changes whose
+effect across models needs checking. NEVER comment `/e2e` on PRs that add or
+edit model mappings: run those locally scoped with `TEST_MODELS`, or dispatch
+with `test_models` and `full_mode` when local credentials are missing (`add-model` skill).
 
 ## Auto-merge means ship it
 
@@ -170,7 +177,7 @@ When the user explicitly asks to set a PR to auto-merge, enable it
    the merge commit, its merge, and the deploy run it triggers. A later image
    bump also ships the commit. If the deploy fails for a reason unrelated to the
    change, report it rather than changing shared infrastructure.
-4. Confirm every deployment runs the merge commit's image, then send a final
-   message saying it is live.
+4. Confirm every deployment runs the merge commit's image (check with
+   `kubectl` when it is set up), then send a final message saying it is live.
 
 Monitor with a background job instead of polling in the conversation.

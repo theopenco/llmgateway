@@ -43,11 +43,17 @@ raise the misclassification risk and confirm first.
 
 ## Content filter
 
-The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) writes its audit
-CSV from the request body only: `request_id` and `account_id` come from the
-classify payload, headers are ignored. `internal-content-filter.ts` sends the
-gateway request id and the organization id (never the project, key, or user id —
-audit rows join on organization).
+The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) is stateless and
+receives only the prompt. Every verdict, passes included, comes back with the
+prompt fingerprint (`VECTORAL_SAFETY_HASH_ALL`) and is stored on the log's
+content filter response; the admin export
+(`/admin/content-filter/internal-checks/export`) is the only record. The
+content filter log columns never leave the admin surface: customer-facing log
+APIs omit them.
+
+Every classifier fails open. OpenAI moderation retries a network error or 5xx
+once and logs the retried attempt at `warn`. Final failures log at
+`contentFilterErrorLogLevel`: `warn` for a 4xx other than 401/403, else `error`.
 
 ## Logging, streaming, shutdown
 

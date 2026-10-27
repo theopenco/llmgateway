@@ -89,6 +89,8 @@ export function hasServiceTierEligibleEnvCredential(
 
 interface GetProviderEnvOptions {
 	advanceRoundRobin?: boolean;
+	/** Use this credential index instead of round-robin selection. */
+	configIndex?: number;
 	excludedIndices?: ReadonlySet<number>;
 	selectionScope?: string;
 	variant?: EnvVarVariant;
@@ -135,6 +137,20 @@ export function getProviderEnv(
 				});
 			}
 		}
+	}
+
+	if (options.configIndex !== undefined) {
+		const token = parseCommaSeparatedEnv(envValue)[options.configIndex];
+		if (!token) {
+			throw new HTTPException(500, {
+				message: `No API key at index ${options.configIndex} for provider: ${usedProvider}`,
+			});
+		}
+		return {
+			token,
+			configIndex: options.configIndex,
+			envVarName: effectiveEnvVar,
+		};
 	}
 
 	const advanceRoundRobin = options.advanceRoundRobin ?? true;

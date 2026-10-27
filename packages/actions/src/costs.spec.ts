@@ -309,6 +309,76 @@ describe("calculateCosts", () => {
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
+	it.each([
+		{
+			model: "gpt-5.4",
+			provider: "openai",
+			input: 5e-6,
+			cached: 0.5e-6,
+			output: 22.5e-6,
+		},
+		{
+			model: "gpt-5.4",
+			provider: "azure",
+			input: 5e-6,
+			cached: 0.5e-6,
+			output: 22.5e-6,
+		},
+		{
+			model: "gpt-5.5",
+			provider: "openai",
+			input: 10e-6,
+			cached: 1e-6,
+			output: 45e-6,
+		},
+		{
+			model: "gpt-5.5",
+			provider: "azure",
+			input: 10e-6,
+			cached: 1e-6,
+			output: 45e-6,
+		},
+	])(
+		"applies $model long-context pricing on $provider above 272K prompt tokens",
+		async ({ model, provider, input, cached, output }) => {
+			const result = await calculateCosts(
+				model,
+				provider,
+				null,
+				300000,
+				1000,
+				100000,
+			);
+
+			expect(result.inputCost).toBeCloseTo(200000 * input, 6);
+			expect(result.cachedInputCost).toBeCloseTo(100000 * cached, 6);
+			expect(result.outputCost).toBeCloseTo(1000 * output, 6);
+			expect(result.pricingTier).toBe("Over 272K");
+		},
+	);
+
+	it.each([
+		{ model: "gpt-5.4-pro", provider: "openai" },
+		{ model: "gpt-5.4-pro", provider: "azure" },
+		{ model: "gpt-5.5-pro", provider: "openai" },
+	])(
+		"applies $model long-context pricing on $provider above 272K prompt tokens",
+		async ({ model, provider }) => {
+			const result = await calculateCosts(
+				model,
+				provider,
+				null,
+				272001,
+				1000,
+				null,
+			);
+
+			expect(result.inputCost).toBeCloseTo(272001 * 60e-6, 6);
+			expect(result.outputCost).toBeCloseTo(1000 * 270e-6, 6);
+			expect(result.pricingTier).toBe("Over 272K");
+		},
+	);
+
 	it("bills GPT-6 Astra cache writes at the short-context rate", async () => {
 		const result = await calculateCosts(
 			"gpt-6-astra",

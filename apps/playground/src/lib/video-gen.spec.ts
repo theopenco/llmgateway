@@ -6,6 +6,7 @@ import {
 	getSupportedVideoSizesForSelection,
 	getNormalizedVideoRequestSelection,
 	isPendingVideoModel,
+	requiresVideoLipSyncInputs,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
@@ -298,6 +299,46 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(options.durations).toHaveLength(0);
 	});
 
+	test("VEED Fabric takes reference image and audio inputs on AtlasCloud only", () => {
+		for (const modelId of [
+			"veed-fabric-1-0",
+			"atlascloud/veed-fabric-1-0-fast",
+		]) {
+			expect(requiresVideoLipSyncInputs(modelId)).toBe(true);
+			expect(supportsVideoReferenceInput(modelId)).toBe(true);
+			expect(supportsVideoReferenceAudioInput(modelId)).toBe(true);
+			expect(supportsVideoReferenceVideoInput(modelId)).toBe(false);
+			expect(supportsVideoFrameInput(modelId)).toBe(false);
+		}
+		expect(supportsVideoReferenceAudioInput("bytedance/veed-fabric-1-0")).toBe(
+			false,
+		);
+		expect(requiresVideoLipSyncInputs("seedance-2-0")).toBe(false);
+
+		const model = makeModel(
+			[
+				makeMapping({
+					modelId: "veed-fabric-1-0",
+					providerId: "atlascloud",
+					externalId: "veed/fabric-1.0",
+					supportedVideoSizes: ["854x480", "480x854", "1280x720", "720x1280"],
+					supportedVideoDurationsSeconds: null,
+					supportedVideoDurationsSecondsImageToVideo: null,
+					supportsVideoWithoutAudio: false,
+				}),
+			],
+			"veed-fabric-1-0",
+		);
+		expect(
+			getSupportedVideoRequestOptions([model], ["veed-fabric-1-0"], "reference")
+				.sizes,
+		).toEqual(["854x480", "480x854", "1280x720", "720x1280"]);
+		expect(
+			getSupportedVideoRequestOptions([model], ["veed-fabric-1-0"], "frames")
+				.sizes,
+		).toHaveLength(0);
+	});
+
 	test("Seedance 2.5 gets the same reference/frame capabilities as Seedance 2.0", () => {
 		expect(supportsVideoFrameInput("seedance-2-5")).toBe(true);
 		expect(supportsVideoFrameInput("bytedance/seedance-2-5")).toBe(true);
@@ -388,8 +429,10 @@ describe("AtlasCloud KLING v3.0 frame capabilities", () => {
 
 	test("supportsVideoFrameInput is true for AtlasCloud Kling", () => {
 		expect(supportsVideoFrameInput("kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("kling-v3-0-pro")).toBe(true);
 		expect(supportsVideoFrameInput("kling-v3-0-turbo")).toBe(true);
 		expect(supportsVideoFrameInput("atlascloud/kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-pro")).toBe(true);
 		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-turbo")).toBe(true);
 		expect(supportsVideoFrameInput("openai/kling-v3-0")).toBe(false);
 	});

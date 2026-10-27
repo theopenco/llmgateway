@@ -1,9 +1,10 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { APICallError, generateText } from "ai";
 import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
 import { userHasProjectAccess } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import {
 	getOrCreatePlaygroundApiKey,
 	PLAYGROUND_KEY_COOKIE_NAME,
@@ -202,6 +203,12 @@ escapeMove.openapi(
 				throw new HTTPException(429, {
 					message: "Too many model requests. Try again shortly.",
 				});
+			}
+			if (
+				APICallError.isInstance(error) &&
+				(error.statusCode === 400 || error.statusCode === 404)
+			) {
+				throw new HTTPException(400, { message: error.message });
 			}
 			if (
 				error instanceof Error &&

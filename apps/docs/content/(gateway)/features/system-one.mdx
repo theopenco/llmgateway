@@ -50,7 +50,7 @@ curl -X POST "https://api.llmgateway.io/v1/systemone" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "jev-1.13.0",
+    "model": "jev-1.14.0",
     "state": "Help! My payouts have been failing for 3 days.",
     "questions": {
       "department": {
@@ -77,7 +77,7 @@ curl -X POST "https://api.llmgateway.io/v1/systemone" \
 
 ```json
 {
-	"model": "typesafe/jev-1.13.0",
+	"model": "typesafe/jev-1.14.0",
 	"answers": {
 		"department": {
 			"type": "choice",
@@ -125,7 +125,7 @@ const res = await fetch("https://api.llmgateway.io/v1/systemone", {
 		"Content-Type": "application/json",
 	},
 	body: JSON.stringify({
-		model: "jev-1.13.0",
+		model: "jev-1.14.0",
 		state: ticket,
 		questions: {
 			department: {

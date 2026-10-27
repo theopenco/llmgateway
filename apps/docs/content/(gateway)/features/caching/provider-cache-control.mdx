@@ -46,6 +46,8 @@ The mode applies to every upstream that takes an explicit cache marker, whicheve
 
 Where the upstream takes per-block markers, they are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded. Put the breakpoint on an adjacent text block instead. For an OpenAI-format `tool` message, set `tool_result_cache_control` on the message. It becomes a marker on the Anthropic `tool_result` block or a Bedrock `cachePoint` after the tool result. Markers on text parts of the tool message are also accepted; the last marked text part wins. The message-level field takes precedence. Other upstreams strip the message-level field.
 
+Custom providers receive markers only when their key has [forwarding prompt-cache markers](/features/custom-providers#prompt-caching) turned on, the default for new keys. Automatic mode never injects markers for a custom provider.
+
 Changes saved through the dashboard or API take effect immediately — the gateway's cached project settings are invalidated on write.
 
 To take advantage of automatic caching:

@@ -34,6 +34,9 @@ export const CONTENT_FILTER_INTERNAL_SCOPES = ["full", "latest_turn"] as const;
 export type ContentFilterInternalScope =
 	(typeof CONTENT_FILTER_INTERNAL_SCOPES)[number];
 
+/** Model name on the internal classifier's stored moderation responses. */
+export const INTERNAL_CLASSIFIER_MODEL = "internal-classifier";
+
 export const contentFilterSettingsSchema = z.object({
 	// Master switch for sampling requests through the moderation API.
 	enabled: z.boolean().default(true),

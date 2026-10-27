@@ -7,6 +7,10 @@ import { useMemo } from "react";
 
 import { ContactSalesButton } from "@/components/contact-sales";
 import { getDateRangeFromParams } from "@/components/date-range-picker";
+import {
+	toApiGroupBy,
+	type ModelUsageGroupBy,
+} from "@/components/usage/group-by";
 import { Badge } from "@/lib/components/badge";
 import { useApi } from "@/lib/fetch-client";
 
@@ -14,7 +18,6 @@ import { resolveUsageBucket } from "@llmgateway/shared/prompt-cache";
 import { UsageTimeseriesChart } from "@llmgateway/shared/usage-timeseries";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
-import type { GroupBy } from "@/components/usage/group-by";
 import type {
 	UsageBucket,
 	UsageTimeseries,
@@ -94,7 +97,7 @@ function buildSampleTimeseries(bucket: UsageBucket): UsageTimeseries {
 interface PromptCacheRatePanelProps {
 	projectId: string;
 	isEnterprise: boolean;
-	groupBy: GroupBy;
+	groupBy: ModelUsageGroupBy;
 	apiKeyId?: string;
 	timeRange?: TimeRangeValue;
 	timeZone: string;
@@ -134,7 +137,8 @@ export function PromptCacheRatePanel({
 					...(range.timeRange
 						? { timeRange: range.timeRange }
 						: { from: range.from, to: range.to }),
-					groupBy,
+					groupBy: toApiGroupBy(groupBy),
+					modelView: groupBy === "mapping" ? "mapping" : "canonical",
 					bucket,
 					timezone: timeZone,
 					...(apiKeyId ? { apiKeyId } : {}),

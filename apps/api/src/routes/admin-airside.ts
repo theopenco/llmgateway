@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -17,6 +17,7 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { referenceContextSizes } from "@/lib/airside-context-size.js";
+import { assertActivationKind } from "@/lib/airside-decisions.js";
 import { delistAirsideListing } from "@/lib/airside-delist.js";
 import {
 	airsideModelMetadataSchema,
@@ -54,6 +55,7 @@ import {
 	utcDayBucketStarts,
 } from "@/lib/series-buckets.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	collectProviderEnvCredentials,
@@ -146,6 +148,8 @@ const adminFilingSchema = z.object({
 		modelName: z.string(),
 		externalId: z.string(),
 		apiFormat: z.enum(PROVIDER_API_FORMATS),
+		// Served on the carrier's `/v1/decisions` instead of chat.
+		decisions: z.boolean(),
 		displayName: z.string().nullable(),
 		status: z.enum(["draft", "active", "rejected", "delisted"]),
 		// The name matches an existing catalogue model (id or alias): approving
@@ -374,6 +378,7 @@ function serializeAdminFiling(
 			modelName: row.draftModel.modelName,
 			externalId: row.draftModel.externalId,
 			apiFormat: row.draftModel.apiFormat,
+			decisions: row.draftModel.decisions,
 			displayName: row.draftModel.displayName,
 			status: row.draftModel.status,
 			sharesCatalogueModelName,
@@ -562,6 +567,34 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const filing = await getPendingFiling(id);
 	// cdb: approval flips a model live — the gateway's cached lookup must see it.
 	await cdb.transaction(async (tx) => {
+		if (filing.kind === "initial") {
+			// Claim before listing rows, the order relists take.
+			const [draft] = await tx
+				.select({
+					providerId: tables.providerDraftModel.providerId,
+					providerCompanyId: tables.providerDraftModel.providerCompanyId,
+				})
+				.from(tables.providerDraftModel)
+				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+				.$withCache(false);
+			if (draft) {
+				await tx
+					.select({ id: tables.providerClaim.id })
+					.from(tables.providerClaim)
+					.where(
+						and(
+							eq(tables.providerClaim.providerId, draft.providerId),
+							eq(
+								tables.providerClaim.providerCompanyId,
+								draft.providerCompanyId,
+							),
+						),
+					)
+					.for("update")
+					.$withCache(false);
+			}
+			await assertActivationKind(tx, filing.draftModelId);
+		}
 		// Lock and re-read the model so a concurrent pause/resume serializes
 		// with this approval and its pausedAt decides the mapping status.
 		const [model] = await tx
@@ -1298,6 +1331,9 @@ const adminListingSchema = z.object({
 	company: z.object({ id: z.string(), name: z.string() }),
 	delistedAt: z.string().nullable(),
 	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
+	// Set while the carrier has paused an active listing: it stays listed but
+	// its mappings are out of service until resumed.
+	pausedAt: z.string().nullable(),
 	// Set while the carrier's request to relist awaits review.
 	relistRequestedAt: z.string().nullable(),
 });
@@ -1389,6 +1425,7 @@ async function adminListings(filter: {
 			},
 			delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
 			delistReason: row.delistReason,
+			pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
 			relistRequestedAt: row.relistRequestedAt
 				? row.relistRequestedAt.toISOString()
 				: null,
