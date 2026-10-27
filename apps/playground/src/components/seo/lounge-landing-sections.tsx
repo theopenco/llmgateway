@@ -255,7 +255,7 @@ export function LoungeLandingSections() {
 				<section className="mt-20">
 					<Kicker>Inside the Lounge</Kicker>
 					<h2 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-						Six studios, one seat
+						Seven studios, one seat
 					</h2>
 					<div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
 						{STUDIOS.map((studio) => (

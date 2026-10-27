@@ -18,11 +18,11 @@ Trying a decision model has meant writing a request by hand: a JSON body with ty
 
 Paste the input, then add up to 10 questions of three kinds:
 
-| Type         | You define                               | Answer                                      |
-| ------------ | ---------------------------------------- | ------------------------------------------- |
-| **Yes / no** | Instructions                             | Probability the condition holds             |
-| **Pick one** | 2 to 12 options, each with a description | The chosen option and a probability per one |
-| **Rate**     | 2 to 10 ordered levels                   | The most likely level and a weighted score  |
+| Type         | You define                             | Answer                                      |
+| ------------ | -------------------------------------- | ------------------------------------------- |
+| **Yes / no** | Instructions                           | Probability the condition holds             |
+| **Pick one** | 2 to 12 options, descriptions optional | The chosen option and a probability per one |
+| **Rate**     | 2 to 10 ordered levels                 | The most likely level and a weighted score  |
 
 Those counts are the studio's limits; the API accepts up to 255 options per question.
 
@@ -61,7 +61,7 @@ curl -X POST "https://api.llmgateway.io/v1/decisions" \
   }'
 ```
 
-Runs are saved to your decision history with their input, questions and answers. Opening one loads it back into the editor so you can change a question or try another model, and each saved run earns Lounge points like the other studios.
+Runs are saved to your decision history with their input, questions and answers. Opening one loads it back into the editor so you can change a question or try another model, and saved runs earn Lounge points like the other studios (10 per run, up to 100 a day).
 
 Decision models are billed on input tokens only, at the model's catalogue price: `gpt-6-luna-decisions` at $0.10 per million, `microsoft-decision-1` and `jev-1.14.0` at $0.042 per million. The studio draws on the same credit balance or membership allowance as chat.
 

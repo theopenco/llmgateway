@@ -97,7 +97,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 		bullets: [
 			"Build predicate, choice, and score questions in the browser and run them on gpt-6-luna-decisions, Microsoft-Decision-1, and more.",
 			"Compare up to three decision models on the same input and see how their probabilities differ.",
-			"Copy the exact /v1/decisions request to reproduce any run with the LLM Gateway API.",
+			"Copy any text run as a /v1/decisions request and reproduce it with the LLM Gateway API; image runs get placeholders for the attached images.",
 		],
 		related: [
 			{ href: "/", label: "Lounge AI chat" },

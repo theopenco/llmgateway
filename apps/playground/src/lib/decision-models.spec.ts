@@ -49,6 +49,12 @@ describe("initialDecisionModels", () => {
 	it("drops unknown ids from a saved comparison", () => {
 		expect(initialDecisionModels(["a,zzz"], offered)).toEqual(["a"]);
 	});
+
+	it("deduplicates and caps a user-edited selection", () => {
+		const many = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+		expect(initialDecisionModels(["a,a,b"], many)).toEqual(["a", "b"]);
+		expect(initialDecisionModels(["a,b,c,d"], many)).toEqual(["a", "b", "c"]);
+	});
 });
 
 describe("decisionModelAcceptsImages", () => {
@@ -61,5 +67,22 @@ describe("decisionModelAcceptsImages", () => {
 		expect(decisionModelAcceptsImages("vision", models)).toBe(true);
 		expect(decisionModelAcceptsImages("text", models)).toBe(false);
 		expect(decisionModelAcceptsImages("missing", models)).toBe(false);
+	});
+
+	it("resolves provider-pinned ids against that provider's mapping", () => {
+		const mixed = [
+			{
+				id: "luna",
+				output: ["decision"],
+				mappings: [
+					{ providerId: "openai", vision: true },
+					{ providerId: "azure", vision: false, region: "eu" },
+				],
+			} as unknown as ApiModel,
+		];
+		expect(decisionModelAcceptsImages("openai/luna", mixed)).toBe(true);
+		expect(decisionModelAcceptsImages("azure/luna", mixed)).toBe(false);
+		expect(decisionModelAcceptsImages("azure/luna:eu", mixed)).toBe(false);
+		expect(decisionModelAcceptsImages("other/luna", mixed)).toBe(false);
 	});
 });

@@ -29,11 +29,11 @@ What was missing was a way to try one. Chat models have had a chat window since 
 
 The studio has two parts: the input and the questions. Paste anything a decision model should judge, such as a support ticket, a comment, a lead, a review, a chat message, or a résumé, then add up to ten questions. Each has one of three types:
 
-| Type         | Ask                            | You define                               | Answer                                     |
-| ------------ | ------------------------------ | ---------------------------------------- | ------------------------------------------ |
-| **Yes / no** | Whether a condition is true    | Instructions                             | Probability that it holds                  |
-| **Pick one** | One option from a set          | 2 to 12 options, each with a description | The chosen option and a probability each   |
-| **Rate**     | A rating across ordered levels | 2 to 10 levels, lowest first             | The most likely level and a weighted score |
+| Type         | Ask                            | You define                             | Answer                                     |
+| ------------ | ------------------------------ | -------------------------------------- | ------------------------------------------ |
+| **Yes / no** | Whether a condition is true    | Instructions                           | Probability that it holds                  |
+| **Pick one** | One option from a set          | 2 to 12 options, descriptions optional | The chosen option and a probability each   |
+| **Rate**     | A rating across ordered levels | 2 to 10 levels, lowest first           | The most likely level and a weighted score |
 
 The option and level counts are the studio's limits, chosen to keep a question readable; the API accepts up to 255 options. Questions take an optional name like `is_urgent` or `department`. It is echoed back in the answer, so the names you settle on in the studio are the fields your code reads later. Blank names are filled in as `q1`, `q2` and so on. The studio validates as you type, with the same rules the gateway applies, so a blank option or a duplicate level disables the run instead of surfacing a 400.
 
@@ -95,7 +95,7 @@ Models with image input accept up to four pasted, dropped or picked images next 
 
 ## Runs are saved, named and reusable
 
-Each run lands in your decision history with its input, questions and answers. Opening a past run loads it back into the editor, so the loop is: change one question, pick another model, run again. Rename a run from its menu; the evaluated input itself never changes. Runs count toward [Lounge points](https://lounge.llmgateway.io/leaderboard) like images, videos and audio.
+Each run lands in your decision history with its input, questions and answers. Opening a past run loads it back into the editor, so the loop is: change one question, pick another model, run again. Rename a run from its menu; the evaluated input itself never changes. Saved runs count toward [Lounge points](https://lounge.llmgateway.io/leaderboard) like images, videos and audio: 10 per run, up to 100 a day.
 
 Billing is the model's catalogue price on input tokens, which means the input plus every question, with no output charge. The studio draws on the same credit balance or [Lounge membership](https://lounge.llmgateway.io/pricing) allowance as chat and the other studios.
 

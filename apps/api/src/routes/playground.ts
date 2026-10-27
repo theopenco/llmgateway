@@ -1047,15 +1047,33 @@ const listDecisionHistory = createRoute({
 	},
 });
 
-function serializeDecisionHistoryListItem(
-	row: typeof tables.playgroundDecisionHistory.$inferSelect,
-) {
+// The columns the list view needs; `inputImages` is reduced to a count in
+// SQL so the base64 payloads never leave Postgres for the list.
+const decisionHistoryListColumns = {
+	id: tables.playgroundDecisionHistory.id,
+	prompt: tables.playgroundDecisionHistory.prompt,
+	title: tables.playgroundDecisionHistory.title,
+	createdAt: tables.playgroundDecisionHistory.createdAt,
+	inputImageCount: sql<number>`case when jsonb_typeof(${tables.playgroundDecisionHistory.inputImages}) = 'array' then jsonb_array_length(${tables.playgroundDecisionHistory.inputImages}) else 0 end`,
+	questions: tables.playgroundDecisionHistory.questions,
+	models: tables.playgroundDecisionHistory.models,
+};
+
+function serializeDecisionHistoryListItem(row: {
+	id: string;
+	prompt: string;
+	title: string | null;
+	createdAt: Date;
+	inputImageCount: number;
+	questions: (typeof tables.playgroundDecisionHistory.$inferSelect)["questions"];
+	models: (typeof tables.playgroundDecisionHistory.$inferSelect)["models"];
+}) {
 	return {
 		id: row.id,
 		prompt: row.prompt,
 		title: row.title ?? null,
 		createdAt: row.createdAt.toISOString(),
-		inputImageCount: row.inputImages?.length ?? 0,
+		inputImageCount: Number(row.inputImageCount),
 		questions: row.questions,
 		models: row.models,
 	};
@@ -1065,7 +1083,10 @@ function serializeDecisionHistory(
 	row: typeof tables.playgroundDecisionHistory.$inferSelect,
 ) {
 	return {
-		...serializeDecisionHistoryListItem(row),
+		...serializeDecisionHistoryListItem({
+			...row,
+			inputImageCount: row.inputImages?.length ?? 0,
+		}),
 		inputImages: row.inputImages ?? null,
 	};
 }
@@ -1102,7 +1123,7 @@ playground.openapi(listDecisionHistory, async (c) => {
 	);
 
 	const rows = await db
-		.select()
+		.select(decisionHistoryListColumns)
 		.from(tables.playgroundDecisionHistory)
 		.where(and(eq(tables.playgroundDecisionHistory.userId, user.id), orgFilter))
 		.orderBy(desc(tables.playgroundDecisionHistory.createdAt));

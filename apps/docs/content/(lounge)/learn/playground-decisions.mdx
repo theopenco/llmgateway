@@ -30,11 +30,11 @@ The dropdown lists every decision model in the catalogue, newest first, with its
 
 ## Question Types
 
-| Type         | Ask                            | You define                        | Answer                                     |
-| ------------ | ------------------------------ | --------------------------------- | ------------------------------------------ |
-| **Yes / no** | Whether a condition is true    | Instructions                      | Probability that it is true                |
-| **Pick one** | One option from a set          | 2 to 12 options with descriptions | The chosen option and a probability each   |
-| **Rate**     | A rating across ordered levels | 2 to 10 levels, lowest first      | The most likely level and a weighted score |
+| Type         | Ask                            | You define                             | Answer                                     |
+| ------------ | ------------------------------ | -------------------------------------- | ------------------------------------------ |
+| **Yes / no** | Whether a condition is true    | Instructions                           | Probability that it is true                |
+| **Pick one** | One option from a set          | 2 to 12 options, descriptions optional | The chosen option and a probability each   |
+| **Rate**     | A rating across ordered levels | 2 to 10 levels, lowest first           | The most likely level and a weighted score |
 
 The option and level counts are the studio's limits; the API itself accepts up to 255 options. Every question takes an optional name (`is_urgent`, `department`) that is echoed back in the answer, which is what your code would branch on. Leave it blank and the studio fills in `q1`, `q2`, and so on.
 
@@ -53,7 +53,8 @@ Enable comparison mode to run the same input and questions on up to three decisi
 Runs are saved to your decision history with their input, questions, and answers. Opening a past run loads it back into the editor so you can tweak a question or try another model. Rename a run from its menu; the evaluated input itself never changes.
 
 <Callout type="info">
-	The same request works on the API with any decision model. See the
+	A text run works on the API with any decision model; a run with images needs a
+	model that accepts image input, such as `gpt-6-luna-decisions`. See the
 	[Decisions](/features/decisions) feature page for the request and response
 	schema and the SDK examples.
 </Callout>
