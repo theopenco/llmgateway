@@ -1346,6 +1346,189 @@ describe("videos", () => {
 		expect(logs[0].videoOutputCost).toBe(0.56);
 	});
 
+	test("/v1/videos runs Gemini Omni through the AI Studio Interactions API", async () => {
+		const requests: Array<{
+			method?: string;
+			url?: string;
+			apiKey?: string | string[];
+			body: string;
+		}> = [];
+		const interaction = {
+			id: "v1_mock-interaction",
+			status: "completed",
+			model: "gemini-omni-1.1-flash",
+			usage: {
+				total_input_tokens: 20,
+				total_output_tokens: 5793,
+				total_thought_tokens: 300,
+				output_tokens_by_modality: [{ modality: "video", tokens: 5793 }],
+			},
+			steps: [
+				{ type: "user_input", content: [{ type: "text", text: "x" }] },
+				{ type: "thought", signature: "sig" },
+				{
+					type: "model_output",
+					content: [
+						{
+							type: "video",
+							mime_type: "video/mp4",
+							uri: "https://generativelanguage.googleapis.com/v1beta/files/mockfile1:download?alt=media",
+						},
+					],
+				},
+			],
+		};
+		const upstream = createServer((req, res) => {
+			let body = "";
+			req.on("data", (chunk) => {
+				body += chunk;
+			});
+			req.on("end", () => {
+				requests.push({
+					method: req.method,
+					url: req.url,
+					apiKey: req.headers["x-goog-api-key"],
+					body,
+				});
+				if (req.method === "POST" && req.url === "/v1beta/interactions") {
+					res.setHeader("Content-Type", "application/json");
+					res.end(
+						JSON.stringify({ id: interaction.id, status: "in_progress" }),
+					);
+					return;
+				}
+				if (req.url === `/v1beta/interactions/${interaction.id}`) {
+					res.setHeader("Content-Type", "application/json");
+					res.end(JSON.stringify(interaction));
+					return;
+				}
+				if (req.url === "/v1beta/files/mockfile1:download?alt=media") {
+					res.setHeader("Content-Type", "video/mp4");
+					res.end("omni-video-bytes");
+					return;
+				}
+				res.statusCode = 404;
+				res.end();
+			});
+		});
+		await new Promise<void>((resolve) => {
+			upstream.listen(0, "127.0.0.1", resolve);
+		});
+		const upstreamUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-ai-studio",
+				...encryptProviderKeyForStorage(
+					"ai-studio-test-token",
+					"provider-key-ai-studio",
+					"org-id",
+				),
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: upstreamUrl,
+			});
+
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-ai-studio/gemini-omni-1.1-flash",
+					prompt: "A paper boat drifting on a pond",
+					size: "360x640",
+					seconds: 3,
+				}),
+			});
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+			expect(requests[0]?.apiKey).toBe("ai-studio-test-token");
+			expect(JSON.parse(requests[0].body)).toEqual({
+				model: "gemini-omni-1.1-flash",
+				input: "A paper boat drifting on a pond",
+				background: true,
+				response_format: {
+					type: "video",
+					delivery: "uri",
+					aspect_ratio: "9:16",
+					resolution: "360p",
+					duration: "3s",
+				},
+			});
+
+			await processPendingVideoJobs();
+
+			const completedJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(completedJob?.status).toBe("completed");
+			expect(
+				(completedJob?.upstreamStatusResponse as Record<string, unknown>)
+					.google_ai_studio_file_name,
+			).toBe("files/mockfile1");
+
+			const logs = await db.query.log.findMany({
+				where: { usedModel: { eq: "google-ai-studio/gemini-omni-1.1-flash" } },
+			});
+			expect(logs).toHaveLength(1);
+			expect(logs[0].videoOutputCost).toBe(0.101378);
+			expect(logs[0].inputCost).toBe(0.00003);
+			expect(logs[0].outputCost).toBe(0.0027);
+			expect(logs[0].reasoningTokens).toBe("300");
+			expect(logs[0].cost).toBe(0.104108);
+
+			const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(contentRes.status).toBe(200);
+			expect(await contentRes.text()).toBe("omni-video-bytes");
+			expect(requests.at(-1)?.apiKey).toBe("ai-studio-test-token");
+		} finally {
+			await new Promise<void>((resolve) => {
+				upstream.close(() => resolve());
+			});
+		}
+	});
+
+	test("/v1/videos rejects silent and frame requests on Gemini Omni", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		for (const extra of [
+			{ audio: false },
+			{ image: { image_url: "data:image/png;base64,aGVsbG8=" } },
+		]) {
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-ai-studio/gemini-omni-1.1-flash",
+					prompt: "A paper boat drifting on a pond",
+					seconds: 5,
+					...extra,
+				}),
+			});
+			expect(res.status).toBe(400);
+		}
+	});
+
 	test("/v1/videos sends MiniMax H3 Max portrait text-to-video at 480P", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

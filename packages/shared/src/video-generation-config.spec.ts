@@ -4,10 +4,12 @@ import {
 	estimateVideoCostUsd,
 	estimateVideoSelectionCostUsd,
 	findVideoSize,
+	getGoogleAiStudioVideoFileName,
 	getSupportedVideoRequestOptions,
 	getVideoOrientations,
 	getVideoResolutions,
 	mergeVideoModelResults,
+	parseGoogleAiStudioFileName,
 	supportsVideoFrameInput,
 	supportsVideoEndFrameInput,
 } from "./video-generation-config.js";
@@ -127,6 +129,62 @@ describe("video size options", () => {
 		expect(findVideoSize(sizes, "480p", "landscape")).toBe("848x480");
 		expect(findVideoSize(["854x480"], "480p", "landscape")).toBe("854x480");
 		expect(findVideoSize(sizes, "720p", "portrait")).toBeUndefined();
+	});
+});
+
+describe("Gemini Omni 1.1 Flash", () => {
+	const omni: VideoCatalogModel = {
+		id: "gemini-omni-1.1-flash",
+		mappings: [
+			{
+				modelId: "gemini-omni-1.1-flash",
+				providerId: "google-ai-studio",
+				status: "active",
+				deactivatedAt: null,
+				perSecondPrice: { "360p": "0.0337925", "720p": "0.10136" },
+				supportedVideoSizes: ["640x360", "360x640", "1280x720", "720x1280"],
+				supportedVideoDurationsSeconds: [3, 4, 5, 6, 7, 8, 9, 10],
+				supportedVideoDurationsSecondsImageToVideo: null,
+			},
+		],
+	};
+
+	test("offers 360p and 3s text-to-video, no frame input", () => {
+		expect(getSupportedVideoRequestOptions([omni], [omni.id], "none")).toEqual({
+			sizes: ["640x360", "360x640", "1280x720", "720x1280"],
+			durations: [3, 4, 5, 6, 7, 8, 9, 10],
+		});
+		expect(getVideoResolutions(["640x360", "1280x720"])).toEqual([
+			"360p",
+			"720p",
+		]);
+		expect(
+			supportsVideoFrameInput("google-ai-studio/gemini-omni-1.1-flash"),
+		).toBe(false);
+	});
+
+	test("estimates the per-second rate for the resolution", () => {
+		expect(estimateVideoCostUsd(omni.mappings[0], "360p", 10, 0)).toBe(
+			0.337925,
+		);
+	});
+
+	test("parses Files API names from output URIs", () => {
+		expect(
+			parseGoogleAiStudioFileName(
+				"https://generativelanguage.googleapis.com/v1beta/files/gr2lbpezqjqc:download?alt=media",
+			),
+		).toBe("files/gr2lbpezqjqc");
+		expect(parseGoogleAiStudioFileName("https://example.com/video.mp4")).toBe(
+			null,
+		);
+		expect(
+			getGoogleAiStudioVideoFileName([
+				null,
+				{ google_ai_studio_file_name: "files/../x" },
+				{ google_ai_studio_file_name: "files/abc123" },
+			]),
+		).toBe("files/abc123");
 	});
 });
 

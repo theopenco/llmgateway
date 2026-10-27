@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 
+import { Decimal } from "decimal.js";
+
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
 import {
@@ -58,7 +60,11 @@ import {
 } from "@llmgateway/shared/gcs";
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
-import { isMinimaxV2VideoModel } from "@llmgateway/shared/video-generation-config";
+import {
+	isMinimaxV2VideoModel,
+	getGoogleAiStudioVideoFileName,
+	parseGoogleAiStudioFileName,
+} from "@llmgateway/shared/video-generation-config";
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
@@ -125,6 +131,7 @@ const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
 const VIDEO_RESOLUTION_720P = "720p";
 const VIDEO_RESOLUTION_480P = "480p";
+const VIDEO_RESOLUTION_360P = "360p";
 const VIDEO_RESOLUTION_768P = "768p";
 const VIDEO_DEFAULT_RESOLUTION = "default";
 const ACTIVE_VIDEO_STATUSES = ["queued", "in_progress"] as const;
@@ -135,6 +142,27 @@ const TERMINAL_VIDEO_STATUS_VALUES: Array<VideoJobRecord["status"]> = [
 	"expired",
 ];
 const TERMINAL_VIDEO_STATUSES = new Set<string>(TERMINAL_VIDEO_STATUS_VALUES);
+
+const REQUESTED_VIDEO_RESOLUTIONS = [
+	"360p",
+	"480p",
+	"720p",
+	"768p",
+	"1080p",
+	"hd",
+	"4k",
+] as const;
+
+type RequestedVideoResolution = (typeof REQUESTED_VIDEO_RESOLUTIONS)[number];
+
+function isRequestedVideoResolution(
+	value: unknown,
+): value is RequestedVideoResolution {
+	return (
+		typeof value === "string" &&
+		(REQUESTED_VIDEO_RESOLUTIONS as readonly string[]).includes(value)
+	);
+}
 
 type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
 type WebhookDeliveryRecord = InferSelectModel<typeof tables.webhookDeliveryLog>;
@@ -187,6 +215,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "google-ai-studio":
+			return "https://generativelanguage.googleapis.com";
 		case "minimax":
 			return "https://api.minimax.io";
 		case "alibaba":
@@ -414,6 +444,10 @@ function getVideoProviderHeaders(
 		return providerContext.vertexTokenType === "oauth"
 			? { Authorization: `Bearer ${providerContext.token}` }
 			: {};
+	}
+
+	if (isGoogleAiStudioVideoProvider(job.usedProvider)) {
+		return { "x-goog-api-key": providerContext.token };
 	}
 
 	return {
@@ -773,7 +807,10 @@ async function getPublicVideoContentUrl(
 	const resolvedLogId = logId ?? job.logId;
 	if (
 		resolvedLogId &&
-		(job.contentUrl || job.storageUri || getInlineGoogleVertexVideo(job))
+		(job.contentUrl ||
+			job.storageUri ||
+			getGoogleAiStudioVideoFileName([job.upstreamStatusResponse]) ||
+			getInlineGoogleVertexVideo(job))
 	) {
 		try {
 			return buildSignedGatewayVideoLogContentUrl(resolvedLogId);
@@ -910,7 +947,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	size: string;
 	width: number;
 	height: number;
-	resolution: "480p" | "720p" | "768p" | "1080p" | "hd" | "4k";
+	resolution: RequestedVideoResolution;
 } | null {
 	const size = getRequestedVideoSize(job);
 	if (!size) {
@@ -928,18 +965,10 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 		return null;
 	}
 
-	let requestedResolution:
-		"480p" | "720p" | "768p" | "1080p" | "hd" | "4k" | null = null;
+	let requestedResolution: RequestedVideoResolution | null = null;
 	for (const candidate of getVideoMetadataCandidates(job)) {
 		const value = readNestedValue(candidate, "llmgateway_requested_resolution");
-		if (
-			value === "480p" ||
-			value === "720p" ||
-			value === "768p" ||
-			value === "1080p" ||
-			value === "hd" ||
-			value === "4k"
-		) {
+		if (isRequestedVideoResolution(value)) {
 			requestedResolution = value;
 			break;
 		}
@@ -947,14 +976,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	if (!requestedResolution) {
 		for (const candidate of getVideoMetadataCandidates(job)) {
 			const value = readNestedValue(candidate, "resolution");
-			if (
-				value === "480p" ||
-				value === "720p" ||
-				value === "768p" ||
-				value === "1080p" ||
-				value === "hd" ||
-				value === "4k"
-			) {
+			if (isRequestedVideoResolution(value)) {
 				requestedResolution = value;
 				break;
 			}
@@ -972,7 +994,9 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 					? "hd"
 					: largestDimension >= 720
 						? "720p"
-						: "480p");
+						: largestDimension > 640
+							? "480p"
+							: "360p");
 
 	return {
 		size,
@@ -1403,7 +1427,9 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 						? VIDEO_RESOLUTION_720P
 						: requestedResolution === VIDEO_RESOLUTION_480P
 							? VIDEO_RESOLUTION_480P
-							: VIDEO_DEFAULT_RESOLUTION;
+							: requestedResolution === VIDEO_RESOLUTION_360P
+								? VIDEO_RESOLUTION_360P
+								: VIDEO_DEFAULT_RESOLUTION;
 	const resolutionCandidates = [
 		requestedResolution,
 		resolutionKey,
@@ -1500,7 +1526,9 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				jobToLog.status === "completed" ? getVideoOutputCost(jobToLog) : 0;
 			const imageInputCost =
 				jobToLog.status === "completed" ? getVideoImageInputCost(jobToLog) : 0;
-			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
+			const tokenCosts =
+				jobToLog.status === "completed" ? getVideoTokenCosts(jobToLog) : null;
+			const totalCost = getVideoBilledCost(jobToLog);
 			const costFields = {
 				cost: totalCost,
 				videoOutputCost,
@@ -1600,6 +1628,15 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				requestCost: 0,
 				imageInputCost,
 				videoOutputCost,
+				...(tokenCosts
+					? {
+							promptTokens: String(tokenCosts.promptTokens),
+							completionTokens: String(tokenCosts.completionTokens),
+							reasoningTokens: String(tokenCosts.reasoningTokens),
+							inputCost: tokenCosts.inputCost,
+							outputCost: tokenCosts.outputCost,
+						}
+					: {}),
 				estimatedCost: false,
 				messages: [
 					{
@@ -1659,15 +1696,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				claimedJob.usedMode === "credits" &&
 				!claimedJob.endCustomerWalletId
 			) {
-				const billedVideoCost =
-					claimedJob.status === "completed"
-						? Number(
-								(
-									getVideoOutputCost(claimedJob) +
-									getVideoImageInputCost(claimedJob)
-								).toFixed(6),
-							)
-						: 0;
+				const billedVideoCost = getVideoBilledCost(claimedJob);
 				const reservedSpendUsd = getVideoReservedSpendUsd(claimedJob);
 				await adjustOrgSpend(
 					claimedJob.organizationId,
@@ -2102,6 +2131,10 @@ async function fetchUpstreamStatus(
 		return await fetchGoogleVertexStatus(job, providerContext);
 	}
 
+	if (isGoogleAiStudioVideoProvider(job.usedProvider)) {
+		return await fetchGoogleAiStudioStatus(job, providerContext);
+	}
+
 	if (isBytedanceVideoProvider(job.usedProvider)) {
 		return await fetchBytedanceStatus(job, providerContext);
 	}
@@ -2170,6 +2203,7 @@ async function fetchUpstreamContentMetadata(
 	if (
 		job.usedProvider === "xai" ||
 		isGoogleVertexVideoProvider(job.usedProvider) ||
+		isGoogleAiStudioVideoProvider(job.usedProvider) ||
 		isMinimaxVideoProvider(job.usedProvider) ||
 		isAlibabaVideoProvider(job.usedProvider) ||
 		isAtlasCloudVideoProvider(job.usedProvider)
@@ -2730,4 +2764,235 @@ export async function processPendingWebhookDeliveries(): Promise<void> {
 
 		await deliverWebhook(delivery, job);
 	}
+}
+function isGoogleAiStudioVideoProvider(providerId: string): boolean {
+	return providerId === "google-ai-studio";
+}
+function getGoogleAiStudioVideoOutput(
+	body: Record<string, unknown>,
+): { uri: string | null; data: string | null; mimeType: string } | null {
+	const steps = Array.isArray(body.steps) ? body.steps : [];
+	for (const step of steps) {
+		if (!step || typeof step !== "object") {
+			continue;
+		}
+		const { type, content } = step as Record<string, unknown>;
+		if (type !== "model_output" || !Array.isArray(content)) {
+			continue;
+		}
+		for (const part of content) {
+			if (!part || typeof part !== "object") {
+				continue;
+			}
+			const video = part as Record<string, unknown>;
+			if (video.type !== "video") {
+				continue;
+			}
+			const uri =
+				typeof video.uri === "string" && video.uri.length > 0
+					? video.uri
+					: null;
+			const data =
+				typeof video.data === "string" && video.data.length > 0
+					? video.data
+					: null;
+			if (uri || data) {
+				return {
+					uri,
+					data,
+					mimeType:
+						typeof video.mime_type === "string" && video.mime_type.length > 0
+							? video.mime_type
+							: "video/mp4",
+				};
+			}
+		}
+	}
+	return null;
+}
+/**
+ * Normalizes a Gemini Interactions API video interaction. The interaction's
+ * `steps` (thought signatures, output file) are dropped: the output is kept as
+ * its Files API name, or as inline bytes when the API returned no URI.
+ */
+function normalizeGoogleAiStudioInteraction(
+	job: VideoJobRecord,
+	body: Record<string, unknown>,
+): Record<string, unknown> {
+	const rawStatus =
+		typeof body.status === "string" ? body.status.toLowerCase() : "";
+	const output = getGoogleAiStudioVideoOutput(body);
+	const fileName = output?.uri ? parseGoogleAiStudioFileName(output.uri) : null;
+	const inlineData = fileName ? null : (output?.data ?? null);
+	const hasVideo = Boolean(fileName || inlineData);
+	const status: VideoJobRecord["status"] =
+		rawStatus === "completed"
+			? hasVideo
+				? "completed"
+				: "failed"
+			: rawStatus === "failed" || rawStatus === "incomplete"
+				? "failed"
+				: rawStatus === "cancelled"
+					? "canceled"
+					: "in_progress";
+	const upstreamError =
+		body.error && typeof body.error === "object"
+			? (body.error as Record<string, unknown>)
+			: null;
+	const error =
+		status === "failed" || status === "canceled"
+			? {
+					message:
+						typeof upstreamError?.message === "string"
+							? upstreamError.message
+							: rawStatus === "completed"
+								? "Google AI Studio returned no video output"
+								: `Google AI Studio video generation ${rawStatus || "failed"}`,
+					code:
+						typeof upstreamError?.code === "string"
+							? upstreamError.code
+							: typeof upstreamError?.code === "number"
+								? String(upstreamError.code)
+								: undefined,
+					details: upstreamError ?? { status: body.status },
+				}
+			: null;
+
+	return addRequestedVideoMetadata(job, {
+		id: body.id,
+		model: body.model,
+		created: body.created,
+		updated: body.updated,
+		usage: body.usage,
+		upstream_status: body.status,
+		status,
+		progress: status === "in_progress" ? 50 : 100,
+		mime_type: output?.mimeType ?? "video/mp4",
+		...(fileName ? { google_ai_studio_file_name: fileName } : {}),
+		...(inlineData
+			? {
+					response: {
+						videos: [
+							{
+								bytesBase64Encoded: inlineData,
+								mimeType: output?.mimeType ?? "video/mp4",
+							},
+						],
+					},
+				}
+			: {}),
+		error,
+	});
+}
+async function fetchGoogleAiStudioStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/v1beta/interactions/${encodeURIComponent(job.upstreamId)}`,
+	);
+	const { body, response } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
+
+	if (!response.ok) {
+		throw new Error(
+			body.error &&
+				typeof body.error === "object" &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
+				? body.error.message
+				: `Google AI Studio status request failed with status ${response.status}`,
+		);
+	}
+
+	return normalizeGoogleAiStudioInteraction(job, body);
+}
+interface VideoTokenCosts {
+	promptTokens: number;
+	completionTokens: number;
+	reasoningTokens: number;
+	inputCost: number;
+	outputCost: number;
+}
+
+function readTokenCount(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: 0;
+}
+
+/**
+ * Text-token charges of a token-metered video model (Gemini Interactions API
+ * usage): prompt tokens at `inputPrice`, thinking and non-video output tokens
+ * at `outputPrice`. Video output itself is billed per second.
+ */
+function getVideoTokenCosts(job: VideoJobRecord): VideoTokenCosts | null {
+	const mapping = getVideoMapping(job);
+	if (!mapping?.inputPrice && !mapping?.outputPrice) {
+		return null;
+	}
+	const status =
+		job.upstreamStatusResponse &&
+		typeof job.upstreamStatusResponse === "object" &&
+		!Array.isArray(job.upstreamStatusResponse)
+			? (job.upstreamStatusResponse as Record<string, unknown>)
+			: null;
+	const usage =
+		status?.usage && typeof status.usage === "object"
+			? (status.usage as Record<string, unknown>)
+			: null;
+	if (!usage) {
+		return null;
+	}
+
+	const promptTokens = readTokenCount(usage.total_input_tokens);
+	const videoOutputTokens = (
+		Array.isArray(usage.output_tokens_by_modality)
+			? usage.output_tokens_by_modality
+			: []
+	).reduce<number>((total, entry) => {
+		if (!entry || typeof entry !== "object") {
+			return total;
+		}
+		const { modality, tokens } = entry as Record<string, unknown>;
+		return modality === "video" ? total + readTokenCount(tokens) : total;
+	}, 0);
+	const completionTokens = Math.max(
+		0,
+		readTokenCount(usage.total_output_tokens) - videoOutputTokens,
+	);
+	const reasoningTokens = readTokenCount(usage.total_thought_tokens);
+
+	return {
+		promptTokens,
+		completionTokens,
+		reasoningTokens,
+		inputCost: new Decimal(promptTokens)
+			.mul(mapping.inputPrice ?? 0)
+			.toDecimalPlaces(6)
+			.toNumber(),
+		outputCost: new Decimal(completionTokens + reasoningTokens)
+			.mul(mapping.outputPrice ?? 0)
+			.toDecimalPlaces(6)
+			.toNumber(),
+	};
+}
+function getVideoBilledCost(job: VideoJobRecord): number {
+	if (job.status !== "completed") {
+		return 0;
+	}
+	const tokenCosts = getVideoTokenCosts(job);
+	return new Decimal(getVideoOutputCost(job))
+		.plus(getVideoImageInputCost(job))
+		.plus(tokenCosts?.inputCost ?? 0)
+		.plus(tokenCosts?.outputCost ?? 0)
+		.toDecimalPlaces(6)
+		.toNumber();
 }

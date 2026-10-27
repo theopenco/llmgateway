@@ -137,6 +137,7 @@ import {
 import {
 	estimateVideoCostUsd,
 	isMinimaxV2VideoModel,
+	getGoogleAiStudioVideoFileName,
 } from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
@@ -169,6 +170,20 @@ const TERMINAL_VIDEO_STATUSES = new Set([
 const MIN_VIDEO_GENERATION_BALANCE = 1;
 const DEFAULT_VIDEO_SIZE = "1280x720";
 const SUPPORTED_VIDEO_SIZES = {
+	"640x360": {
+		size: "640x360",
+		width: 640,
+		height: 360,
+		resolution: "360p",
+		orientation: "landscape",
+	},
+	"360x640": {
+		size: "360x640",
+		width: 360,
+		height: 640,
+		resolution: "360p",
+		orientation: "portrait",
+	},
 	"848x480": {
 		size: "848x480",
 		width: 848,
@@ -1490,6 +1505,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "google-ai-studio":
+			return "https://generativelanguage.googleapis.com";
 		case "minimax":
 			return "https://api.minimax.io";
 		case "alibaba":
@@ -2006,9 +2023,11 @@ async function resolveVideoExecution(
 							? "720p"
 							: videoSize.resolution === "480p"
 								? "480p"
-								: videoSize.resolution === "hd"
-									? "hd"
-									: "default",
+								: videoSize.resolution === "360p"
+									? "360p"
+									: videoSize.resolution === "hd"
+										? "hd"
+										: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
@@ -2610,6 +2629,7 @@ async function getPublicVideoContentUrl(
 		resolvedLogId &&
 		(job.contentUrl ||
 			job.storageUri ||
+			getGoogleAiStudioVideoFileNameFromJob(job) ||
 			getInlineGoogleVertexVideoFromBodies([
 				job.upstreamStatusResponse,
 				job.upstreamCreateResponse,
@@ -2841,7 +2861,8 @@ function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
 	return (
 		job.usedProvider === "openai" ||
 		job.usedProvider === "minimax" ||
-		job.usedProvider === "xai"
+		job.usedProvider === "xai" ||
+		getGoogleAiStudioVideoFileNameFromJob(job) !== null
 	);
 }
 
@@ -2959,6 +2980,27 @@ async function streamDirectUpstreamVideoContent(
 		}),
 		...videoRangeHeaders(requestHeaders),
 	};
+
+	const googleAiStudioFileName = getGoogleAiStudioVideoFileNameFromJob(job);
+	if (googleAiStudioFileName) {
+		const downloadUrl = joinUrl(
+			providerContext.baseUrl,
+			`/v1beta/${googleAiStudioFileName}:download?alt=media`,
+		);
+		const downloadResponse = await fetchVideoContent(() =>
+			fetchProvider(
+				downloadUrl,
+				{
+					headers: {
+						...headers,
+						"x-goog-api-key": providerContext.token,
+					},
+				},
+				providerContext.tenantBaseUrl,
+			),
+		);
+		return videoProxyResponse(downloadResponse, job.contentType);
+	}
 
 	if (providerContext.providerId === "minimax") {
 		const statusResponse =
@@ -4229,6 +4271,14 @@ async function createUpstreamVideoJob(
 			);
 		case "alibaba":
 			return await createAlibabaVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+			);
+		case "google-ai-studio":
+			return await createGoogleAiStudioVideoJob(
 				providerContext,
 				providerMapping,
 				videoSize,
@@ -5514,3 +5564,91 @@ videos.openapi(getVideoContent, async (c) => {
 	}
 	return response;
 });
+function getGoogleAiStudioVideoResolution(
+	videoSize: VideoSizeConfig,
+): "360p" | "720p" | "1080p" | "4k" {
+	switch (videoSize.resolution) {
+		case "360p":
+			return "360p";
+		case "1080p":
+			return "1080p";
+		case "4k":
+			return "4k";
+		default:
+			return "720p";
+	}
+}
+async function createGoogleAiStudioVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		input: prompt,
+		background: true,
+		response_format: {
+			type: "video",
+			delivery: "uri",
+			aspect_ratio: getVertexAspectRatio(videoSize),
+			resolution: getGoogleAiStudioVideoResolution(videoSize),
+			duration: `${durationSeconds}s`,
+		},
+	};
+
+	const rawResponse = await fetchUpstreamJson(
+		joinUrl(providerContext.baseUrl, "/v1beta/interactions"),
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-goog-api-key": providerContext.token,
+				...getProviderHeaders("google-ai-studio", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
+		},
+		providerContext,
+	);
+
+	const interactionId =
+		typeof rawResponse.id === "string" && rawResponse.id.length > 0
+			? rawResponse.id
+			: null;
+	if (!interactionId) {
+		throw new HTTPException(502, {
+			message:
+				"Google AI Studio video response did not include an interaction id",
+		});
+	}
+
+	return {
+		upstreamId: interactionId,
+		upstreamRequest,
+		upstreamResponse: addRequestedVideoMetadata(
+			{
+				...rawResponse,
+				id: interactionId,
+				model: upstreamModelName,
+				duration: durationSeconds,
+			},
+			videoSize,
+		),
+	};
+}
+function getGoogleAiStudioVideoFileNameFromJob(
+	job: VideoJobRecord,
+): string | null {
+	if (job.usedProvider !== "google-ai-studio") {
+		return null;
+	}
+	return getGoogleAiStudioVideoFileName([job.upstreamStatusResponse]);
+}
