@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -36,6 +36,7 @@ import {
 	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
+import { createRoute } from "@/utils/create-route.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
 	claimDevPlanCardFingerprint,
@@ -2057,7 +2058,10 @@ devPlans.openapi(getStatus, async (c) => {
 	// reset date — the full allowance is already available again.
 	const premiumWeeklyLimit =
 		personalOrg.devPlan !== "none"
-			? getDevPlanPremiumWeeklyLimit(personalOrg.devPlan)
+			? getDevPlanPremiumWeeklyLimit(
+					personalOrg.devPlan,
+					personalOrg.devPlanCreditsLimit,
+				)
 			: 0;
 	const premiumWeekExpired = isPremiumWeekExpired(
 		personalOrg.devPlanPremiumWeekStart,
@@ -2076,7 +2080,10 @@ devPlans.openapi(getStatus, async (c) => {
 	// Daily pacing allowance, same semantics as the weekly window above.
 	const dailyLimit =
 		personalOrg.devPlan !== "none"
-			? getDevPlanDailyLimit(personalOrg.devPlan)
+			? getDevPlanDailyLimit(
+					personalOrg.devPlan,
+					personalOrg.devPlanCreditsLimit,
+				)
 			: 0;
 	const dayExpired = isDailyWindowExpired(personalOrg.devPlanDayStart);
 	const dailyCreditsUsed = dayExpired
@@ -4225,9 +4232,13 @@ devPlans.openapi(redeemResetPass, async (c) => {
 	}
 
 	const tier = personalOrg.devPlan;
-	const weeklyLimit = getDevPlanPremiumWeeklyLimit(tier);
+	const weeklyLimit = getDevPlanPremiumWeeklyLimit(
+		tier,
+		personalOrg.devPlanCreditsLimit,
+	);
 	const remaining = getRemainingPremiumWeeklyAllowance(
 		tier,
+		personalOrg.devPlanCreditsLimit,
 		personalOrg.devPlanPremiumCreditsUsed,
 		personalOrg.devPlanPremiumWeekStart,
 	);

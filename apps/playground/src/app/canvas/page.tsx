@@ -84,10 +84,6 @@ export default async function CanvasPage({
 				),
 	]);
 
-	let initialProjectsData = (orgIdProjectsData ?? null) as {
-		projects: Project[];
-	} | null;
-
 	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
@@ -110,40 +106,22 @@ export default async function CanvasPage({
 		return <PlaygroundSeoSection variant="canvas" />;
 	}
 
-	if (
-		!initialProjectsData &&
-		selectedOrganization &&
-		selectedOrganization.id === chatOrgData?.organizationId
-	) {
-		initialProjectsData = chatOrgProjectsData as { projects: Project[] } | null;
-	}
+	let initialProjectsData = (
+		orgId === selectedOrganization.id
+			? orgIdProjectsData
+			: selectedOrganization.id === chatOrgData?.organizationId
+				? chatOrgProjectsData
+				: null
+	) as { projects: Project[] } | null;
 
-	if (!initialProjectsData && selectedOrganization?.id) {
-		try {
-			initialProjectsData = (await fetchServerData(
-				"GET",
-				"/orgs/{id}/projects",
-				{
-					params: {
-						path: {
-							id: selectedOrganization.id,
-						},
-					},
-				},
-			)) as { projects: Project[] };
-		} catch (error) {
-			console.warn(
-				"Failed to fetch projects for organization:",
-				selectedOrganization?.id,
-				error,
-			);
-		}
-	}
+	initialProjectsData ??= (await fetchServerData("GET", "/orgs/{id}/projects", {
+		params: { path: { id: selectedOrganization.id } },
+	})) as { projects: Project[] } | null;
 
 	const projects = (initialProjectsData?.projects ?? []) as Project[];
 
 	let selectedProject: Project | null = null;
-	if (projectId) {
+	if (projectId && orgId === selectedOrganization.id) {
 		selectedProject = projects.find((p) => p.id === projectId) ?? null;
 		if (!selectedProject) {
 			notFound();
@@ -172,6 +150,7 @@ export default async function CanvasPage({
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}
+				projectsLoadFailed={initialProjectsData === null}
 				initialModelPreference={initialModelPreference}
 			/>
 		</>

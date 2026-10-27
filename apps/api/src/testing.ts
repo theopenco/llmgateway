@@ -17,6 +17,7 @@ import {
 import { app } from "./index.js";
 
 import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { AnyColumn } from "@llmgateway/db";
 
 const credentials = {
 	email: "admin@example.com",
@@ -284,6 +285,53 @@ function getCommonAggregationFields() {
 }
 
 /**
+ * BYOK subset of the error and latency fields on the project and API key
+ * hourly (model) stats, mirroring the worker's `getApiKeysModeFields`.
+ */
+function getApiKeysModeFields() {
+	const byok = sql`${tables.log.usedMode} = 'api-keys'`;
+	const errors = (reason: string, alias: string) =>
+		sql<number>`sum(case when ${byok} and ${tables.log.unifiedFinishReason} = ${reason} then 1 else 0 end)::int`.as(
+			alias,
+		);
+	const total = (column: AnyColumn, alias: string) =>
+		sql<number>`coalesce(sum(${column}) filter (where ${byok}), 0)::bigint`.as(
+			alias,
+		);
+	const samples = (column: AnyColumn, alias: string) =>
+		sql<number>`(count(${column}) filter (where ${byok}))::int`.as(alias);
+	return {
+		apiKeysClientErrorCount: errors("client_error", "apiKeysClientErrorCount"),
+		apiKeysGatewayErrorCount: errors(
+			"gateway_error",
+			"apiKeysGatewayErrorCount",
+		),
+		apiKeysUpstreamErrorCount: errors(
+			"upstream_error",
+			"apiKeysUpstreamErrorCount",
+		),
+		apiKeysTotalDuration: total(tables.log.duration, "apiKeysTotalDuration"),
+		apiKeysDurationCount: samples(tables.log.duration, "apiKeysDurationCount"),
+		apiKeysTotalTimeToFirstToken: total(
+			tables.log.timeToFirstToken,
+			"apiKeysTotalTimeToFirstToken",
+		),
+		apiKeysTimeToFirstTokenCount: samples(
+			tables.log.timeToFirstToken,
+			"apiKeysTimeToFirstTokenCount",
+		),
+		apiKeysTotalTimeToFirstReasoningToken: total(
+			tables.log.timeToFirstReasoningToken,
+			"apiKeysTotalTimeToFirstReasoningToken",
+		),
+		apiKeysTimeToFirstReasoningTokenCount: samples(
+			tables.log.timeToFirstReasoningToken,
+			"apiKeysTimeToFirstReasoningTokenCount",
+		),
+	};
+}
+
+/**
  * Aggregates logs into the hourly stats tables for testing purposes.
  * This mimics what the worker does in production.
  *
@@ -313,6 +361,7 @@ export async function aggregateLogsForTesting() {
 					"hourTimestamp",
 				),
 			...getCommonAggregationFields(),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.groupBy(tables.log.projectId, hourTrunc);
@@ -351,14 +400,7 @@ export async function aggregateLogsForTesting() {
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
 			...getCommonAggregationFields(),
-			apiKeysGatewayErrorCount:
-				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
-					"apiKeysGatewayErrorCount",
-				),
-			apiKeysUpstreamErrorCount:
-				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
-					"apiKeysUpstreamErrorCount",
-				),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.groupBy(
@@ -404,6 +446,7 @@ export async function aggregateLogsForTesting() {
 					"hourTimestamp",
 				),
 			...getCommonAggregationFields(),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
@@ -441,6 +484,7 @@ export async function aggregateLogsForTesting() {
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
 			...getCommonAggregationFields(),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
@@ -578,7 +622,7 @@ export async function createTestUser() {
 	await db.insert(tables.account).values({
 		id: "test-account-id",
 		providerId: "credential",
-		accountId: "test-account-id",
+		accountId: "test-user-id",
 		userId: "test-user-id",
 		password:
 			"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",

@@ -152,8 +152,8 @@ function RefundButton({
 			toast({
 				title: "Refund processing",
 				description: isPlanPayment(transaction.type)
-					? "Your subscription has been cancelled and the refund will appear in your transaction history shortly."
-					: "Your refund has been submitted and will appear in your transaction history shortly.",
+					? `Your subscription has been cancelled and the refund is on its way. It may take 5–10 business days to appear on your bank statement.`
+					: `Your refund is on its way. It may take 5–10 business days to appear on your bank statement.`,
 			});
 			setOpen(false);
 			setReason(null);

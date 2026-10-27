@@ -336,8 +336,24 @@ responses.post("/", async (c) => {
 					},
 				};
 			}
-			if (tool.type === "web_search") {
-				return tool;
+			// `web_search_preview` and dated `web_search_2025_08_26` are OpenAI's
+			// other names for the same tool.
+			if (
+				typeof tool.type === "string" &&
+				/^web_search(_preview)?(_\d{4}_\d{2}_\d{2})?$/.test(tool.type)
+			) {
+				const { filters, ...rest } = tool as {
+					filters?: { allowed_domains?: string[] };
+					allowed_domains?: string[];
+				};
+				return {
+					...rest,
+					type: "web_search" as const,
+					...(filters?.allowed_domains &&
+						!rest.allowed_domains && {
+							allowed_domains: filters.allowed_domains,
+						}),
+				};
 			}
 			return null;
 		})
@@ -409,7 +425,10 @@ responses.post("/", async (c) => {
 		chatRequest.tool_choice =
 			typeof req.tool_choice === "object" && "name" in req.tool_choice
 				? { type: "function", function: { name: req.tool_choice.name } }
-				: req.tool_choice;
+				: typeof req.tool_choice === "object" &&
+					  req.tool_choice.type === "web_search_preview"
+					? { type: "web_search" }
+					: req.tool_choice;
 	}
 	if (req.parallel_tool_calls !== undefined) {
 		chatRequest.parallel_tool_calls = req.parallel_tool_calls;

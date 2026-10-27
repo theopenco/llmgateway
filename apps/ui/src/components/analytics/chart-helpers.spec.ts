@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	aggregateCostByModel,
+	buildDimensionTimeseries,
+	buildModelTimeseries,
+	OTHER_KEY,
+	OTHER_LABEL,
+	STORAGE_KEY,
+	STORAGE_LABEL,
 	toDimensionRows,
 	UNATTRIBUTED_KEY,
 	aggregateByDimension,
@@ -38,10 +45,12 @@ function day(overrides: {
 		requestCount: number;
 		totalTokens: number;
 	}[];
+	dataStorageCost?: number;
 }) {
 	return {
 		date: "2026-08-10",
 		cost: overrides.cost,
+		dataStorageCost: overrides.dataStorageCost ?? 0,
 		requestCount: overrides.requestCount,
 		totalTokens: overrides.totalTokens,
 		modelBreakdown: (overrides.modelBreakdown ?? []).map((m) => ({
@@ -282,5 +291,143 @@ describe("toDimensionRows", () => {
 		);
 
 		expect(rows[0].breakdown).toHaveLength(1);
+	});
+
+	test("adds an Unattributed entry for platform keys in the API key view", () => {
+		const rows = toDimensionRows(
+			[
+				day({
+					cost: 8,
+					requestCount: 4,
+					totalTokens: 40,
+					apiKeyBreakdown: [
+						{
+							id: "key_1",
+							description: "CI key",
+							cost: 5,
+							requestCount: 3,
+							totalTokens: 30,
+						},
+					],
+				}),
+			],
+			"apiKey",
+		);
+
+		expect(
+			rows[0].breakdown.find((e) => e.key === UNATTRIBUTED_KEY),
+		).toMatchObject({ cost: 3, requestCount: 1, totalTokens: 10 });
+	});
+
+	test("adds storage so every grouping adds up to the total spend", () => {
+		for (const groupBy of ["model", "apiKey", "user"] as const) {
+			const rows = toDimensionRows(
+				[
+					day({
+						cost: 3,
+						requestCount: 2,
+						totalTokens: 20,
+						dataStorageCost: 0.5,
+						modelBreakdown: [
+							{
+								id: "gpt-5.6",
+								provider: "openai",
+								cost: 3,
+								requestCount: 2,
+								totalTokens: 20,
+							},
+						],
+					}),
+				],
+				groupBy,
+			);
+			const storage = rows[0].breakdown.find((e) => e.key === STORAGE_KEY);
+			expect(storage).toMatchObject({
+				label: STORAGE_LABEL,
+				cost: 0.5,
+				requestCount: 0,
+			});
+			expect(
+				rows[0].breakdown.reduce((total, e) => total + e.cost, 0),
+			).toBeCloseTo(3.5);
+		}
+	});
+});
+
+function modelDay(costs: number[], dataStorageCost = 0) {
+	return {
+		date: "2026-08-10",
+		dataStorageCost,
+		modelBreakdown: costs.map((cost, index) => ({
+			id: `model-${index}`,
+			provider: "openai",
+			cost,
+			requestCount: 1,
+			totalTokens: 10,
+			inputTokens: 0,
+			outputTokens: 0,
+			...modeSplit,
+		})),
+	};
+}
+
+describe("model charts", () => {
+	test("rank storage alongside models and include it in the total", () => {
+		const result = aggregateCostByModel([modelDay([1, 2], 5)], "mapping");
+		expect(result.totalCost).toBe(8);
+		expect(result.models[0]).toMatchObject({
+			model: STORAGE_LABEL,
+			cost: 5,
+			requestCount: 0,
+		});
+	});
+
+	test("collapse models past the top N into Other", () => {
+		const series = buildModelTimeseries(
+			[modelDay([5, 4, 3, 2, 1], 0.5)],
+			"mapping",
+			2,
+		);
+		expect(series.models).toEqual([
+			"openai/model-0",
+			"openai/model-1",
+			OTHER_LABEL,
+		]);
+		const entries = series.data[0].entries;
+		expect(entries[OTHER_LABEL]).toMatchObject({ cost: 6.5, requestCount: 3 });
+		expect(
+			Object.values(entries).reduce((total, e) => total + e.cost, 0),
+		).toBeCloseTo(15.5);
+	});
+});
+
+describe("buildDimensionTimeseries", () => {
+	test("collapses entries past the top N into Other", () => {
+		const entry = (key: string, cost: number) => ({
+			key,
+			label: key,
+			cost,
+			requestCount: 1,
+			totalTokens: 1,
+			...modeSplit,
+		});
+		const result = buildDimensionTimeseries(
+			[
+				{
+					date: "2026-08-10",
+					breakdown: [entry("a", 3), entry("b", 2), entry("c", 1)],
+				},
+			],
+			"cost",
+			1,
+		);
+		expect(result.series).toEqual([
+			{ key: "a", label: "a" },
+			{ key: OTHER_KEY, label: OTHER_LABEL },
+		]);
+		expect(result.data[0].entries[OTHER_KEY]).toMatchObject({
+			cost: 3,
+			requestCount: 2,
+		});
 	});
 });

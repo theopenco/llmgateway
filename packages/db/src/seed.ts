@@ -24,6 +24,7 @@ import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
 import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
+import { seedByokSplit } from "./seed-byok-split.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -35,11 +36,17 @@ import type { PgTable } from "drizzle-orm/pg-core";
  * @param uniqueKey The column name that serves as the unique identifier (usually 'id')
  * @returns The result of the insert operation
  */
+// Every seeded project goes through `upsert`; the BYOK split is scoped to them.
+const seededProjectIds = new Set<string>();
+
 async function upsert<T extends Record<string, any>>(
 	table: PgTable<any>,
 	values: T,
 	uniqueKey = "id",
 ) {
+	if (table === tables.project) {
+		seededProjectIds.add(String(values.id));
+	}
 	return await db
 		.insert(table)
 		.values(values)
@@ -202,7 +209,7 @@ const MODELS = [
 		outputPrice: 0.006,
 	},
 	{
-		model: "deepseek-chat",
+		model: "deepseek-v3.2",
 		provider: "deepseek",
 		inputPrice: 0.00014,
 		outputPrice: 0.00028,
@@ -1572,7 +1579,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "test-account-id",
 		providerId: "credential",
-		accountId: "test-account-id",
+		accountId: "test-user-id",
 		password: await hashPassword("admin@example.com"),
 		userId: "test-user-id",
 	});
@@ -1758,7 +1765,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.7 },
 				{ model: "gpt-4o", provider: "openai", weight: 0.2 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.1 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.1 },
 			],
 		},
 		{
@@ -1785,7 +1792,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.55 },
 				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.15 },
 			],
 		},
 		{
@@ -1794,7 +1801,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.5 },
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.3 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.2 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.2 },
 			],
 		},
 		{
@@ -1819,7 +1826,7 @@ async function seed() {
 			source: "kilo-code",
 			weight: 0.03,
 			models: [
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.6 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.6 },
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.25 },
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
 			],
@@ -1864,7 +1871,7 @@ async function seed() {
 			source: "autohand",
 			weight: 0.02,
 			models: [
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.55 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.55 },
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
 			],
@@ -1875,7 +1882,7 @@ async function seed() {
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
 				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
-				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+				{ model: "deepseek-v3.2", provider: "deepseek", weight: 0.15 },
 			],
 		},
 		{
@@ -2276,7 +2283,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "flagged-account-id",
 		providerId: "credential",
-		accountId: "flagged-account-id",
+		accountId: "flagged-user-id",
 		password: await hashPassword("flagged@example.com"),
 		userId: "flagged-user-id",
 	});
@@ -2315,7 +2322,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "enterprise-account-id",
 		providerId: "credential",
-		accountId: "enterprise-account-id",
+		accountId: "enterprise-user-id",
 		password: await hashPassword("enterprise@example.com"),
 		userId: "enterprise-user-id",
 	});
@@ -2385,7 +2392,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "enterprise-dev-account-id",
 		providerId: "credential",
-		accountId: "enterprise-dev-account-id",
+		accountId: "enterprise-dev-user-id",
 		password: await hashPassword("developer@example.com"),
 		userId: "enterprise-dev-user-id",
 	});
@@ -2421,7 +2428,7 @@ async function seed() {
 	await upsert(tables.account, {
 		id: "enterprise-project-admin-account-id",
 		providerId: "credential",
-		accountId: "enterprise-project-admin-account-id",
+		accountId: "enterprise-project-admin-user-id",
 		password: await hashPassword("project-admin@example.com"),
 		userId: "enterprise-project-admin-user-id",
 	});
@@ -2692,7 +2699,7 @@ async function seed() {
 		await upsert(tables.account, {
 			id: `account-${u.id}`,
 			providerId: "credential",
-			accountId: `account-${u.id}`,
+			accountId: u.id,
 			// Password == email, e.g. alice.chen@techcorp.io logs in with that string.
 			password: await hashPassword(u.email),
 			userId: u.id,
@@ -3245,6 +3252,7 @@ async function seed() {
 	});
 
 	await seedAirside();
+	await seedByokSplit([...seededProjectIds]);
 
 	await closeDatabase();
 	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
@@ -3323,7 +3331,7 @@ async function seedAirside() {
 	await upsert(tables.account, {
 		id: "airside-account-mistral",
 		providerId: "credential",
-		accountId: "airside-account-mistral",
+		accountId: "airside-user-mistral",
 		password: await hashPassword("ops@mistral.ai"),
 		userId: "airside-user-mistral",
 	});
@@ -3369,7 +3377,7 @@ async function seedAirside() {
 	await upsert(tables.account, {
 		id: "airside-account-moonshot",
 		providerId: "credential",
-		accountId: "airside-account-moonshot",
+		accountId: "airside-user-moonshot",
 		password: await hashPassword("ops@moonshot.ai"),
 		userId: "airside-user-moonshot",
 	});

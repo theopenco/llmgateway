@@ -482,6 +482,25 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const request: SpeechRequest = validationResult.data;
 	const requestedModel = request.model;
 
+	// Authenticate before model resolution so unauthenticated callers get a
+	// 401 instead of catalogue-dependent errors.
+	const token = extractApiToken(c);
+	const apiKey = await findApiKeyByToken(token);
+
+	if (!apiKey) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
 	const match = findSpeechMapping(requestedModel);
 	if (!match) {
 		return c.json(
@@ -593,23 +612,6 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const normalizedMessages = [
 		{ role: "user" as const, content: request.input },
 	];
-
-	const token = extractApiToken(c);
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
 
 	const project = await findProjectById(apiKey.projectId);
 	if (!project) {

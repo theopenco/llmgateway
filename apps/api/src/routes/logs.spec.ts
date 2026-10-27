@@ -4,8 +4,41 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, pool, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+function msAgo(ms: number): Date {
+	return new Date(Date.now() - ms);
+}
+
+// Filter options read the hourly aggregates the worker builds from `log`.
+async function seedModelStats(
+	rows: Array<{
+		apiKeyId: string;
+		projectId: string;
+		usedModel: string;
+		usedProvider: string;
+		hoursAgo?: number;
+	}>,
+) {
+	await db.insert(tables.apiKeyHourlyModelStats).values(
+		rows.map((row) => {
+			const hour = msAgo((row.hoursAgo ?? 1) * HOUR_MS);
+			hour.setUTCMinutes(0, 0, 0);
+			return {
+				apiKeyId: row.apiKeyId,
+				projectId: row.projectId,
+				hourTimestamp: hour,
+				usedModel: row.usedModel,
+				usedProvider: row.usedProvider,
+				requestCount: 1,
+			};
+		}),
+	);
+}
 
 describe("logs route", () => {
 	let token: string;
@@ -527,6 +560,14 @@ describe("logs route", () => {
 
 	describe("unique models route", () => {
 		test("should return providers from usedProvider and models from usedModel", async () => {
+			await seedModelStats([
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+				},
+			]);
 			const params = new URLSearchParams({ projectId: "test-project-id" });
 			const res = await app.request("/logs/unique-models?" + params, {
 				method: "GET",
@@ -541,30 +582,35 @@ describe("logs route", () => {
 			expect(json.providers).toEqual(["openai"]);
 		});
 
-		test("should scope unique models and providers to the selected project", async () => {
-			await db.insert(tables.log).values({
-				id: "test-log-id-3",
-				requestId: "test-log-id-3",
-				organizationId: "test-org-id",
-				projectId: "test-project-id",
-				apiKeyId: "test-api-key-id",
-				duration: 150,
-				requestedModel: "openai/gpt-4o-mini",
-				requestedProvider: "openai",
-				usedModel: "openai/gpt-4o-mini",
-				usedProvider: "openai",
-				responseSize: 1500,
-				content: "Test response content 3",
-				finishReason: "stop",
-				promptTokens: "15",
-				completionTokens: "25",
-				totalTokens: "40",
-				temperature: 0.6,
-				maxTokens: 150,
-				messages: JSON.stringify([{ role: "user", content: "Hello 3" }]),
-				mode: "api-keys",
-				usedMode: "api-keys",
-			});
+		test("should scope unique models and providers to the selected project and window", async () => {
+			await seedModelStats([
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+				},
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					usedModel: "openai/gpt-4o-mini",
+					usedProvider: "openai",
+					hoursAgo: 2,
+				},
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					usedModel: "openai/long-retired-model",
+					usedProvider: "openai",
+					hoursAgo: 24 * 120,
+				},
+				{
+					apiKeyId: "test-api-key-id-2",
+					projectId: "test-project-id-2",
+					usedModel: "anthropic/other-project-model",
+					usedProvider: "anthropic",
+				},
+			]);
 
 			const params = new URLSearchParams({ projectId: "test-project-id" });
 			const res = await app.request("/logs/unique-models?" + params, {
@@ -578,6 +624,207 @@ describe("logs route", () => {
 			const json = await res.json();
 			expect(json.models).toEqual(["gpt-4", "gpt-4o-mini"]);
 			expect(json.providers).toEqual(["openai"]);
+		});
+	});
+
+	describe("query guards", () => {
+		async function insertLog(
+			id: string,
+			daysAgo: number,
+			finishReason: string,
+		) {
+			await db.insert(tables.log).values({
+				id,
+				requestId: id,
+				createdAt: msAgo(daysAgo * DAY_MS),
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 10,
+				content: "x",
+				finishReason,
+				promptTokens: "1",
+				completionTokens: "1",
+				totalTokens: "2",
+				messages: JSON.stringify([{ role: "user", content: "x" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+		}
+
+		test("bounds unindexed filters to a default window", async () => {
+			await insertLog("old-length-log", 20, "length");
+			await insertLog("new-length-log", 1, "length");
+
+			const res = await app.request(
+				"/logs?projectId=test-project-id&finishReason=length",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.logs.map((log: { id: string }) => log.id)).toEqual([
+				"new-length-log",
+			]);
+			expect(json.message).toContain("last 7 days");
+
+			// Without the filter the index walks history directly, unbounded.
+			const all = await app.request("/logs?projectId=test-project-id", {
+				headers: { Cookie: token },
+			});
+			const allIds = (await all.json()).logs.map(
+				(log: { id: string }) => log.id,
+			);
+			expect(allIds).toContain("old-length-log");
+
+			// An explicit range still reaches older rows.
+			const ranged = new URLSearchParams({
+				projectId: "test-project-id",
+				finishReason: "length",
+				startDate: msAgo(30 * DAY_MS).toISOString(),
+			});
+			const rangedRes = await app.request("/logs?" + ranged, {
+				headers: { Cookie: token },
+			});
+			expect(
+				(await rangedRes.json()).logs.map((log: { id: string }) => log.id),
+			).toEqual(["new-length-log", "old-length-log"]);
+		});
+
+		test("merges results across projects in order and paginates", async () => {
+			const rows = [
+				["merge-a1", "test-project-id", 5],
+				["merge-b1", "test-project-id-2", 4],
+				["merge-a2", "test-project-id", 3],
+				["merge-b2", "test-project-id-2", 2],
+				["merge-a3", "test-project-id", 1],
+			] as const;
+			for (const [id, projectId, minutesAgo] of rows) {
+				await db.insert(tables.log).values({
+					id,
+					requestId: id,
+					createdAt: msAgo(minutesAgo * 60_000),
+					organizationId:
+						projectId === "test-project-id" ? "test-org-id" : "test-org-id-2",
+					projectId,
+					apiKeyId:
+						projectId === "test-project-id"
+							? "test-api-key-id"
+							: "test-api-key-id-2",
+					duration: 1,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 1,
+					content: "x",
+					promptTokens: "1",
+					completionTokens: "1",
+					totalTokens: "2",
+					messages: JSON.stringify([{ role: "user", content: "x" }]),
+					mode: "api-keys",
+					usedMode: "api-keys",
+				});
+			}
+			await db
+				.delete(tables.log)
+				.where(eq(tables.log.requestId, "test-log-id-1"));
+			await db
+				.delete(tables.log)
+				.where(eq(tables.log.requestId, "test-log-id-2"));
+
+			const seen: string[] = [];
+			let cursor: string | null = null;
+			do {
+				const params = new URLSearchParams({ limit: "2" });
+				if (cursor) {
+					params.set("cursor", cursor);
+				}
+				const res = await app.request("/logs?" + params, {
+					headers: { Cookie: token },
+				});
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				seen.push(
+					...json.logs
+						.map((log: { id: string }) => log.id)
+						.filter((id: string) => id.startsWith("merge-")),
+				);
+				cursor = json.pagination.nextCursor;
+			} while (cursor);
+
+			expect(seen).toEqual(rows.map(([id]) => id).reverse());
+		});
+
+		test("rejects unindexed filters over more than 31 days", async () => {
+			const params = new URLSearchParams({
+				projectId: "test-project-id",
+				finishReason: "length",
+				startDate: msAgo(60 * DAY_MS).toISOString(),
+			});
+			const res = await app.request("/logs?" + params, {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("rejects an invalid date", async () => {
+			const res = await app.request(
+				"/logs?projectId=test-project-id&startDate=not-a-date",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(400);
+		});
+
+		test("fails fast instead of queueing behind a lock on log", async () => {
+			const holder = await pool.connect();
+			await holder.query("BEGIN");
+			await holder.query("LOCK TABLE log IN ACCESS EXCLUSIVE MODE");
+			try {
+				const startedAt = Date.now();
+				const res = await app.request("/logs?projectId=test-project-id", {
+					headers: { Cookie: token },
+				});
+				expect(res.status).toBe(504);
+				expect(Date.now() - startedAt).toBeLessThan(5000);
+			} finally {
+				await holder.query("ROLLBACK");
+				holder.release();
+			}
+		});
+
+		test("limits concurrent searches per user", async () => {
+			process.env.LOG_QUERY_MAX_CONCURRENT_PER_USER = "1";
+			const holder = await pool.connect();
+			await holder.query("BEGIN");
+			await holder.query("LOCK TABLE log IN ACCESS EXCLUSIVE MODE");
+			try {
+				// The first search holds its slot while it waits on the lock.
+				const first = app.request("/logs?projectId=test-project-id", {
+					headers: { Cookie: token },
+				});
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				const second = await app.request("/logs?projectId=test-project-id", {
+					headers: { Cookie: token },
+				});
+				expect(second.status).toBe(429);
+				await holder.query("ROLLBACK");
+				expect((await first).status).toBe(200);
+
+				// Released afterwards.
+				const third = await app.request("/logs?projectId=test-project-id", {
+					headers: { Cookie: token },
+				});
+				expect(third.status).toBe(200);
+			} finally {
+				delete process.env.LOG_QUERY_MAX_CONCURRENT_PER_USER;
+				await holder.query("ROLLBACK");
+				holder.release();
+			}
 		});
 	});
 
@@ -1001,12 +1248,27 @@ describe("logs route", () => {
 		});
 
 		test("unique-models omits a teammate's models", async () => {
+			await seedModelStats([
+				{
+					apiKeyId: "teammate-key",
+					projectId: "test-project-id",
+					usedModel: "openai/teammate-only-model",
+					usedProvider: "openai",
+				},
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+				},
+			]);
 			const res = await app.request(
 				"/logs/unique-models?projectId=test-project-id",
 				{ headers: { Cookie: token } },
 			);
 			expect(res.status).toBe(200);
 			const json = await res.json();
+			expect(json.models).toContain("gpt-4");
 			expect(json.models).not.toContain("teammate-only-model");
 		});
 

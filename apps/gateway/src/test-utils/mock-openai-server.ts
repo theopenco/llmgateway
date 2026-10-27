@@ -1583,7 +1583,7 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	}
 
 	return c.json({
-		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
+		model: body.model === "jev-latest" ? "jev-1.14.0" : body.model,
 		answers,
 		usage: { input_tokens: 441, output_tokens: 69 },
 	});
@@ -3423,6 +3423,7 @@ export function startMockServer(
 	handleRequest: (request: Request) => Response | Promise<Response> = (
 		request,
 	) => mockOpenAIServer.fetch(request),
+	hostname?: string,
 ): Promise<string> {
 	return new Promise((resolve) => {
 		if (server) {
@@ -3434,9 +3435,13 @@ export function startMockServer(
 			{
 				fetch: handleRequest,
 				port,
+				hostname,
 			},
 			(info) => {
-				currentMockServerUrl = `http://localhost:${info.port}`;
+				const serverUrl = new URL("http://localhost");
+				serverUrl.hostname = hostname ?? "localhost";
+				serverUrl.port = String(info.port);
+				currentMockServerUrl = serverUrl.origin;
 				console.log(`Mock OpenAI server started on port ${info.port}`);
 				resolve(currentMockServerUrl);
 			},

@@ -371,6 +371,7 @@ export default async function ContentFilterPage({
 										<TableHead className="text-right">Blocked</TableHead>
 										<TableHead>Top categories</TableHead>
 										<TableHead>Top providers</TableHead>
+										<TableHead>Top categories by provider</TableHead>
 										<TableHead>Top models</TableHead>
 										<TableHead>Top mappings</TableHead>
 										<TableHead>Top API keys</TableHead>
@@ -431,6 +432,35 @@ export default async function ContentFilterPage({
 																{p.usedProvider} ({p.violationCount})
 															</span>
 														))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{org.topProviders.every(
+													(p) => p.topCategories.length === 0,
+												) ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topProviders
+															.filter((p) => p.topCategories.length > 0)
+															.map((p) => (
+																<span
+																	key={p.usedProvider}
+																	className="whitespace-nowrap"
+																>
+																	<span className="font-medium text-foreground">
+																		{p.usedProvider}
+																	</span>
+																	:{" "}
+																	{p.topCategories
+																		.map(
+																			(c) =>
+																				`${c.category} (${formatNumber(c.violationCount)})`,
+																		)
+																		.join(", ")}
+																</span>
+															))}
 													</div>
 												)}
 											</TableCell>

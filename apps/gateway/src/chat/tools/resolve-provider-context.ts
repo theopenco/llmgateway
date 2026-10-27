@@ -359,6 +359,7 @@ export function assertDevPlanPremiumCapNotExceeded(
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingPremiumWeeklyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanPremiumCreditsUsed,
 		organization.devPlanPremiumWeekStart,
 	);
@@ -451,6 +452,7 @@ export function assertDevPlanDailyCapNotExceeded(
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingDailyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanDailyCreditsUsed,
 		organization.devPlanDayStart,
 	);
@@ -964,6 +966,7 @@ export async function resolveProviderContext(
 				usedProvider === "google-vertex" ||
 				usedProvider === "quartz" ||
 				usedProvider === "vertex-anthropic" ||
+				usedProvider === "vertex-openai" ||
 				transportProvider === "google-vertex"
 				? usedToken
 				: undefined,
@@ -1143,6 +1146,8 @@ export async function resolveProviderContext(
 		undefined,
 		options.providerCacheAutoTtl,
 		options.parallel_tool_calls,
+		providerMappingForSelected?.webSearchFormat,
+		providerKey?.forwardCacheControl,
 	);
 
 	// Post-validation of max_tokens in request body

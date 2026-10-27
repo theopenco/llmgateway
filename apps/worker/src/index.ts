@@ -1,6 +1,11 @@
 import { fileURLToPath } from "node:url";
 
-import { setQueryTags } from "@llmgateway/db";
+import { getPoolStats, setQueryTags } from "@llmgateway/db";
+import {
+	registerDbPoolMetrics,
+	setMetricsServiceName,
+	startMetricsServer,
+} from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import { startWorker, stopWorker } from "./worker.js";
@@ -64,6 +69,13 @@ function isDirectExecution() {
 if (isDirectExecution()) {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "worker" });
+
+	// DB pool occupancy for Prometheus, served only when METRICS_PORT is set.
+	setMetricsServiceName("llmgateway-worker");
+	registerDbPoolMetrics(getPoolStats);
+	if (process.env.METRICS_PORT) {
+		startMetricsServer(Number(process.env.METRICS_PORT));
+	}
 
 	logger.info("Starting worker application...");
 	startWorker().catch((error) => {

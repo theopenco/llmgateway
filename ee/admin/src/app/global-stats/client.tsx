@@ -7,9 +7,11 @@ import {
 	Cpu,
 	Download,
 	FileDown,
+	KeyRound,
 	Layers,
 	Server,
 	Wallet,
+	Boxes,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -34,6 +36,10 @@ import {
 import { GlobalStatsBreakdownDetails } from "@/components/global-stats-breakdown-details";
 import { GlobalStatsRangePicker } from "@/components/global-stats-range-picker";
 import { GlobalStatsTimeZone } from "@/components/global-stats-time-zone";
+import {
+	ModelFamilySelector,
+	useModelFamilyFilter,
+} from "@/components/model-family-selector";
 import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
 import {
 	ProviderKeySelector,
@@ -72,11 +78,13 @@ import {
 	buildGlobalStatsTimeseriesCsv,
 	globalStatsExportFilename,
 } from "@/lib/global-stats-csv";
+import { summarizeGlobalStatsByFamily } from "@/lib/global-stats-family";
 import { resolveGlobalStatsRange } from "@/lib/global-stats-range";
 import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
 import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
+import { modelFamilyLabel } from "@llmgateway/models";
 import { formatDateTime } from "@llmgateway/shared";
 import { detectCsvFormat } from "@llmgateway/shared";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
@@ -84,7 +92,7 @@ import { formatCompactNumber } from "@llmgateway/shared/number-format";
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ReactNode } from "react";
 
-type GroupBy = "model" | "source" | "mode" | "kind";
+type GroupBy = "model" | "family" | "source" | "mode" | "kind" | "providerKey";
 type ModelView = "mapping" | "canonical" | "provider";
 
 interface CompositionItem {
@@ -97,9 +105,11 @@ interface CompositionItem {
 
 const GROUP_OPTIONS: { value: GroupBy; label: string; icon: typeof Cpu }[] = [
 	{ value: "model", label: "By model", icon: Cpu },
+	{ value: "family", label: "By family", icon: Boxes },
 	{ value: "source", label: "By x-source", icon: Layers },
 	{ value: "mode", label: "By mode", icon: Wallet },
 	{ value: "kind", label: "By org kind", icon: Building2 },
+	{ value: "providerKey", label: "By provider key", icon: KeyRound },
 ];
 
 const MODEL_VIEW_OPTIONS: {
@@ -154,7 +164,14 @@ const timeseriesChartConfig = {
 
 type TimeseriesMetric = keyof typeof timeseriesChartConfig;
 
-const VALID_GROUPS: GroupBy[] = ["model", "source", "mode", "kind"];
+const VALID_GROUPS: GroupBy[] = [
+	"model",
+	"family",
+	"source",
+	"mode",
+	"kind",
+	"providerKey",
+];
 const VALID_METRICS: TimeseriesMetric[] = [
 	"requestCount",
 	"cost",
@@ -315,15 +332,28 @@ export function GlobalStatsClient({
 	const providerKeyIds = useProviderKeyIds();
 	const byKey = providerKeyIds.length > 0;
 	const provider = useProviderFilter();
+	const family = useModelFamilyFilter();
 	// The per-model rollups have no x-source dimension (see the API).
 	const sourceUnavailable = byKey || provider !== null;
+	// A family filter is applied to model-keyed rows in the browser, so the
+	// dimensions that cannot be derived from a model are unavailable under it.
+	const nonModelUnavailable = family !== null;
 	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
-	const groupBy =
-		sourceUnavailable && requestedGroupBy === "source"
+	const groupBy: GroupBy =
+		(sourceUnavailable && requestedGroupBy === "source") ||
+		(nonModelUnavailable &&
+			requestedGroupBy !== "model" &&
+			requestedGroupBy !== "family")
 			? "model"
 			: requestedGroupBy;
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
+	// Families live in the model catalogue, not in the rollups: ask for
+	// mapping-keyed rows (serving provider + canonical id) and summarize them in
+	// the browser, so no new aggregation is needed.
+	const familyScoped = groupBy === "family" || family !== null;
+	const serverGroupBy = familyScoped ? "model" : groupBy;
+	const serverModelView = familyScoped ? "mapping" : modelView;
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
 	const [chartType, setChartType] = useState<ChartType>("bar");
 	const TimeseriesChart = chartType === "bar" ? BarChart : LineChart;
@@ -342,7 +372,7 @@ export function GlobalStatsClient({
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyIds.join(",")}|${provider ?? ""}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyIds.join(",")}|${provider ?? ""}|${family ?? ""}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -387,8 +417,8 @@ export function GlobalStatsClient({
 			params: {
 				query: {
 					...(range ? { range } : { from, to }),
-					groupBy,
-					modelView,
+					groupBy: serverGroupBy,
+					modelView: serverModelView,
 					mode: usageMode,
 					kind: orgKind,
 					...(byKey ? { providerKeyId: providerKeyIds.join(",") } : {}),
@@ -423,13 +453,54 @@ export function GlobalStatsClient({
 		return `${formatDateTime(start, "UTC", "monthDayYear")} – ${formatDateTime(end, "UTC", "monthDayYear")} (UTC dates)`;
 	}, [hourly, timeZone, from, to, data?.start, data?.end]);
 
-	const totals = data?.totals;
-	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
-	const timeseriesBreakdown = useMemo(
-		() => data?.timeseriesBreakdown ?? [],
-		[data?.timeseriesBreakdown],
+	const familySummary = useMemo(
+		() =>
+			familyScoped && data
+				? summarizeGlobalStatsByFamily({
+						breakdown: data.breakdown,
+						timeseries: data.timeseries,
+						timeseriesBreakdown: data.timeseriesBreakdown,
+						totals: data.totals,
+						family,
+						view: groupBy === "family" ? "family" : modelView,
+					})
+				: null,
+		[familyScoped, data, family, groupBy, modelView],
 	);
-	const breakdown = useMemo(() => data?.breakdown ?? [], [data?.breakdown]);
+
+	const totals = familySummary?.totals ?? data?.totals;
+	const timeseries = useMemo(
+		() => familySummary?.timeseries ?? data?.timeseries ?? [],
+		[familySummary?.timeseries, data?.timeseries],
+	);
+	// The API keys the provider-key grouping by credential id; name each key
+	// the way the provider-key filter does.
+	const relabel = useCallback(
+		<T extends { key: string; label: string }>(rows: T[]): T[] => {
+			if (groupBy !== "providerKey") {
+				return rows;
+			}
+			const keys = new Map(
+				(providerKeysData?.providerKeys ?? []).map((key) => [key.id, key]),
+			);
+			return rows.map((row) => {
+				const key = keys.get(row.key);
+				return key ? { ...row, label: providerKeyLabel(key) } : row;
+			});
+		},
+		[groupBy, providerKeysData?.providerKeys],
+	);
+	const timeseriesBreakdown = useMemo(
+		() =>
+			relabel(
+				familySummary?.timeseriesBreakdown ?? data?.timeseriesBreakdown ?? [],
+			),
+		[relabel, familySummary?.timeseriesBreakdown, data?.timeseriesBreakdown],
+	);
+	const breakdown = useMemo(
+		() => relabel(familySummary?.breakdown ?? data?.breakdown ?? []),
+		[relabel, familySummary?.breakdown, data?.breakdown],
+	);
 
 	const composition = data?.composition;
 
@@ -437,10 +508,12 @@ export function GlobalStatsClient({
 	// it still sums to the un-narrowed total. That makes it wrong to show under a
 	// headline the same filter narrowed: "DevPass cost $257" over a list naming
 	// every kind reads as if those were the parts of $257. Only offer the split
-	// while the corresponding dimension is unfiltered.
+	// while the corresponding dimension is unfiltered — a family filter is not a
+	// composition dimension at all, so it hides both.
 	const modeComposition =
-		usageMode === "total" ? composition?.byMode : undefined;
-	const kindComposition = orgKind === "all" ? composition?.byKind : undefined;
+		usageMode === "total" && family === null ? composition?.byMode : undefined;
+	const kindComposition =
+		orgKind === "all" && family === null ? composition?.byKind : undefined;
 
 	// Rows aggregated before mode/kind attribution existed. A filter silently
 	// excludes them, so say so rather than letting the totals quietly shrink.
@@ -553,34 +626,48 @@ export function GlobalStatsClient({
 			? modelView === "provider"
 				? "providers"
 				: "models"
-			: groupBy === "mode"
-				? "billing modes"
-				: groupBy === "kind"
-					? "org kinds"
-					: "sources";
+			: groupBy === "family"
+				? "families"
+				: groupBy === "mode"
+					? "billing modes"
+					: groupBy === "kind"
+						? "org kinds"
+						: groupBy === "providerKey"
+							? "provider keys"
+							: "sources";
 	const breakdownNounSingular =
 		groupBy === "model"
 			? modelView === "provider"
 				? "Provider"
 				: "Model"
-			: groupBy === "mode"
-				? "Billing mode"
-				: groupBy === "kind"
-					? "Org kind"
-					: "Source";
+			: groupBy === "family"
+				? "Family"
+				: groupBy === "mode"
+					? "Billing mode"
+					: groupBy === "kind"
+						? "Org kind"
+						: groupBy === "providerKey"
+							? "Provider key"
+							: "Source";
 
 	const scopeNotes = [
 		usageModeDescription(usageMode),
 		orgKindDescription(orgKind),
 		provider ? `Only requests served by provider ${provider}.` : null,
+		family
+			? `Only ${modelFamilyLabel(family)} models, whichever provider served them.`
+			: null,
 		byKey
 			? `Only requests served by provider ${providerKeyIds.length > 1 ? "keys" : "key"} ${providerKeyNames}${providerKeyIds.length > 1 ? ", summed" : ""}; traffic served by env-var credentials is never attributed to a key.`
-			: null,
+			: groupBy === "providerKey"
+				? "Traffic served by env-var credentials carries no key and is shown as one row."
+				: null,
 	].filter(Boolean);
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
 		provider,
+		family ? modelFamilyLabel(family) : null,
 		providerKeyIds.length > 1
 			? `${providerKeyIds.length} keys`
 			: byKey
@@ -594,6 +681,7 @@ export function GlobalStatsClient({
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
 		provider,
+		family ? modelFamilyLabel(family) : null,
 		byKey ? "Key" : null,
 	].filter((part): part is string => part !== null);
 	const scopeLabel =
@@ -635,6 +723,7 @@ export function GlobalStatsClient({
 					: null,
 			providerKeys: selectedProviderKeys,
 			provider,
+			family,
 			metric: chartMetric,
 		}),
 		[
@@ -650,6 +739,7 @@ export function GlobalStatsClient({
 			modelView,
 			selectedProviderKeys,
 			provider,
+			family,
 			chartMetric,
 		],
 	);
@@ -750,8 +840,8 @@ export function GlobalStatsClient({
 						</h1>
 						<p className="mt-1 text-sm text-muted-foreground">
 							Cross-organization usage aggregated by{" "}
-							{hourly ? "hour" : "UTC day"}, grouped by model, x-source header,
-							billing mode or organization kind.
+							{hourly ? "hour" : "UTC day"}, grouped by model, model family,
+							x-source header, billing mode, organization kind or provider key.
 							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 						</p>
 						<p className="mt-1 text-xs text-muted-foreground">
@@ -794,6 +884,9 @@ export function GlobalStatsClient({
 						<ToolbarGroup label="Provider key">
 							<ProviderKeySelector />
 						</ToolbarGroup>
+						<ToolbarGroup label="Model family">
+							<ModelFamilySelector />
+						</ToolbarGroup>
 						<ToolbarGroup label="Break down by">
 							<div
 								className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
@@ -803,7 +896,10 @@ export function GlobalStatsClient({
 								{GROUP_OPTIONS.map((opt) => {
 									const Icon = opt.icon;
 									const unavailable =
-										opt.value === "source" && sourceUnavailable;
+										(opt.value === "source" && sourceUnavailable) ||
+										(nonModelUnavailable &&
+											opt.value !== "model" &&
+											opt.value !== "family");
 									return (
 										<Button
 											key={opt.value}
@@ -813,9 +909,11 @@ export function GlobalStatsClient({
 											aria-pressed={groupBy === opt.value}
 											disabled={unavailable}
 											title={
-												unavailable
-													? "x-source is not tracked per provider or provider key"
-													: undefined
+												!unavailable
+													? undefined
+													: opt.value === "source" && sourceUnavailable
+														? "x-source is not tracked per provider or provider key"
+														: "Not derivable from a model while a family filter is active"
 											}
 											onClick={() => setGroupBy(opt.value)}
 										>
@@ -896,10 +994,14 @@ export function GlobalStatsClient({
 							) : (
 								<Cpu className="h-4 w-4" />
 							)
+						) : groupBy === "family" ? (
+							<Boxes className="h-4 w-4" />
 						) : groupBy === "mode" ? (
 							<Wallet className="h-4 w-4" />
 						) : groupBy === "kind" ? (
 							<Building2 className="h-4 w-4" />
+						) : groupBy === "providerKey" ? (
+							<KeyRound className="h-4 w-4" />
 						) : (
 							<Layers className="h-4 w-4" />
 						)
@@ -932,6 +1034,9 @@ export function GlobalStatsClient({
 									}`
 								: ` across all ${breakdownNoun}`}
 							.{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
+							{familySummary?.timeseriesPartial
+								? " Per-bucket rows are re-summed in the browser from requests, cost and tokens under a family filter, so the other CSV columns read zero; the range totals and the breakdown below stay complete."
+								: ""}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-end gap-3 border-t border-border/60 bg-muted/20 px-4 py-3 sm:px-6">
@@ -945,10 +1050,14 @@ export function GlobalStatsClient({
 							>
 								{groupBy === "model" ? (
 									<Cpu className="h-3.5 w-3.5" aria-hidden />
+								) : groupBy === "family" ? (
+									<Boxes className="h-3.5 w-3.5" aria-hidden />
 								) : groupBy === "mode" ? (
 									<Wallet className="h-3.5 w-3.5" aria-hidden />
 								) : groupBy === "kind" ? (
 									<Building2 className="h-3.5 w-3.5" aria-hidden />
+								) : groupBy === "providerKey" ? (
+									<KeyRound className="h-3.5 w-3.5" aria-hidden />
 								) : (
 									<Layers className="h-3.5 w-3.5" aria-hidden />
 								)}

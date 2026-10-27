@@ -55,6 +55,7 @@ function makeMapping(
 		realtime: null,
 		realtimeTranscription: null,
 		realtimeTranscriptionTurnDetection: null,
+		speechGenerations: null,
 		supportedVoices: null,
 		discount: null,
 		stability: "beta",
@@ -387,8 +388,10 @@ describe("AtlasCloud KLING v3.0 frame capabilities", () => {
 
 	test("supportsVideoFrameInput is true for AtlasCloud Kling", () => {
 		expect(supportsVideoFrameInput("kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("kling-v3-0-pro")).toBe(true);
 		expect(supportsVideoFrameInput("kling-v3-0-turbo")).toBe(true);
 		expect(supportsVideoFrameInput("atlascloud/kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-pro")).toBe(true);
 		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-turbo")).toBe(true);
 		expect(supportsVideoFrameInput("openai/kling-v3-0")).toBe(false);
 	});

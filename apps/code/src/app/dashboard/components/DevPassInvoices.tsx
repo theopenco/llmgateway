@@ -181,10 +181,10 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 				setComments("");
 				toast.success(
 					isResetPass
-						? "Refund processing. The unused pass has been returned and the refund will arrive within a few business days."
+						? "Refund processing. The unused pass has been returned and the refund is on its way. It may take 5–10 business days to appear on your bank statement."
 						: isCreditTopup
-							? "Refund processing. The credits have been removed from your balance and the refund will arrive within a few business days."
-							: "Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
+							? "Refund processing. The credits have been removed from your balance and the refund is on its way. It may take 5–10 business days to appear on your bank statement."
+							: "Refund processing. Your DevPass has been cancelled and the refund is on its way. It may take 5–10 business days to appear on your bank statement.",
 				);
 				void queryClient.invalidateQueries({
 					predicate: (query) => {

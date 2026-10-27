@@ -1,9 +1,13 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { assertNotTestingKey } from "@/lib/airside-carrier-keys.js";
+import {
+	listAirsideModelIds,
+	validateAirsideKey,
+} from "@/lib/airside-provider-key.js";
 import {
 	buildErrorTimeline,
 	errorTimelineSchema,
@@ -42,6 +46,7 @@ import {
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	collectProviderEnvCredentials,
@@ -95,7 +100,11 @@ import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyVariant } from "@llmgateway/db";
-import type { ProviderDefinition, ProviderId } from "@llmgateway/models";
+import type {
+	ProviderDefinition,
+	ProviderId,
+	ProviderValidationResult,
+} from "@llmgateway/models";
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
@@ -528,6 +537,70 @@ async function validateManagedAllowedModels(
 }
 
 /**
+ * The save-time probe: an Airside listing, a static catalogue model, or a
+ * custom carrier's listing. Undefined when there is nothing to probe with.
+ */
+async function probeCredentialToken(
+	provider: string,
+	token: string,
+	validationOptions: ReturnType<typeof managedCredentialValidationOptions>,
+	allowedModels: string[] | null | undefined,
+): Promise<ProviderValidationResult | undefined> {
+	let validationProvider = provider as ProviderId;
+	let validationBaseUrl: string | undefined;
+	let pinnedModelId: string | undefined;
+	if (providers.some((entry) => entry.id === provider)) {
+		// Airside listings exist only in the DB catalogue, so the static
+		// validation-model lookup below cannot probe them.
+		const airsideResult = await validateAirsideKey(
+			provider,
+			token,
+			undefined,
+			allowedModels,
+			{
+				providerKeyOptions: validationOptions,
+				skipEnvVars: true,
+				abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
+			},
+		);
+		if (airsideResult) {
+			return airsideResult;
+		}
+		pinnedModelId = pickAllowedValidationModel(
+			provider,
+			allowedModels ?? null,
+			validationOptions,
+		);
+		if (allowedModels?.length && !pinnedModelId) {
+			return undefined;
+		}
+	} else {
+		const carrier = await getCustomCarrierTarget(provider);
+		const candidate = allowedModels?.length
+			? allowedModels
+					.map((modelId) => carrier?.models.get(modelId))
+					.find((externalId) => externalId !== undefined)
+			: carrier?.models.values().next().value;
+		if (!carrier || !candidate) {
+			return undefined;
+		}
+		validationProvider = "custom";
+		validationBaseUrl = carrier.baseUrl;
+		pinnedModelId = candidate;
+	}
+
+	return await validateProviderKey(
+		validationProvider,
+		token,
+		validationBaseUrl,
+		false,
+		validationOptions,
+		pinnedModelId,
+		AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
+	);
+}
+
+/**
  * Confirms the credential actually works upstream by sending one minimal
  * completion through it, using exactly the settings the gateway will send with
  * it: the row's `config` surfaced as `env_config`, plus the region the
@@ -564,45 +637,13 @@ async function validateCredentialToken(
 		config,
 		region,
 	);
-	const isCatalogueProvider = providers.some((entry) => entry.id === provider);
-	let validationProvider = provider as ProviderId;
-	let validationBaseUrl: string | undefined;
-	let pinnedModelId: string | undefined;
-	if (isCatalogueProvider) {
-		pinnedModelId = pickAllowedValidationModel(
-			provider,
-			allowedModels ?? null,
-			validationOptions,
-		);
-		if (allowedModels?.length && !pinnedModelId) {
-			return;
-		}
-	} else {
-		const carrier = await getCustomCarrierTarget(provider);
-		const candidate = allowedModels?.length
-			? allowedModels
-					.map((modelId) => carrier?.models.get(modelId))
-					.find((externalId) => externalId !== undefined)
-			: carrier?.models.values().next().value;
-		if (!carrier || !candidate) {
-			return;
-		}
-		validationProvider = "custom";
-		validationBaseUrl = carrier.baseUrl;
-		pinnedModelId = candidate;
-	}
-
-	const result = await validateProviderKey(
-		validationProvider,
+	const result = await probeCredentialToken(
+		provider,
 		token,
-		validationBaseUrl,
-		false,
 		validationOptions,
-		pinnedModelId,
-		AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
+		allowedModels,
 	);
-
-	if (result.valid) {
+	if (!result || result.valid) {
 		return;
 	}
 
@@ -678,6 +719,10 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// published about itself, and fall back to local env only when there is no
 	// snapshot.
 	const inventory = await readProviderEnvInventory();
+	// Airside listings live only in the DB catalogue; offer them too.
+	const airsideModelsByProvider = await listAirsideModelIds(
+		providers.map((provider) => provider.id),
+	);
 
 	const entries = providers
 		.filter((provider) => provider.id !== "custom")
@@ -691,6 +736,13 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				? (inventory.providers[provider.id] ?? [])
 				: collectProviderEnvCredentials(provider.id);
 			const apiKeyEnvCounts = countEnvCredentialsByVariant(envCredentials);
+			const staticModels = modelsByProvider.get(provider.id) ?? [];
+			const airsideModels = (
+				airsideModelsByProvider.get(provider.id) ?? []
+			).filter((modelId) => !staticModels.includes(modelId));
+			const modelsByKind =
+				modelsByProviderAndKind.get(provider.id) ??
+				createEmptyProviderModelsByKind();
 			return {
 				id: provider.id,
 				name: provider.name,
@@ -703,10 +755,11 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
 				exclusiveConfigGroups: getProviderEnvExclusiveGroups(provider.id),
-				models: modelsByProvider.get(provider.id) ?? [],
-				modelsByKind:
-					modelsByProviderAndKind.get(provider.id) ??
-					createEmptyProviderModelsByKind(),
+				models: [...staticModels, ...airsideModels],
+				modelsByKind: {
+					...modelsByKind,
+					text: [...modelsByKind.text, ...airsideModels],
+				},
 			};
 		});
 
@@ -2427,19 +2480,36 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 		});
 	}
 
-	const result = await validateProviderKey(
-		target.customCarrier ? "custom" : (target.provider as ProviderId),
-		target.token,
-		target.customCarrier?.baseUrl,
-		false,
-		managedCredentialValidationOptions(
-			target.provider,
-			target.config,
-			target.region,
-		),
-		customCarrierModel?.[1],
-		AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+	const validationOptions = managedCredentialValidationOptions(
+		target.provider,
+		target.config,
+		target.region,
 	);
+	// A provider served only through Airside listings has no static
+	// validation model, so probe one of its listings instead.
+	const result =
+		(target.customCarrier
+			? undefined
+			: await validateAirsideKey(
+					target.provider,
+					target.token,
+					undefined,
+					null,
+					{
+						providerKeyOptions: validationOptions,
+						skipEnvVars: true,
+						abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+					},
+				)) ??
+		(await validateProviderKey(
+			target.customCarrier ? "custom" : (target.provider as ProviderId),
+			target.token,
+			target.customCarrier?.baseUrl,
+			false,
+			validationOptions,
+			customCarrierModel?.[1],
+			AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+		));
 
 	return c.json({
 		valid: result.valid,
@@ -2520,6 +2590,13 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 		target.region,
 	);
 
+	const airsideModelIds = new Set(
+		target.customCarrier
+			? []
+			: ((await listAirsideModelIds([target.provider])).get(target.provider) ??
+					[]),
+	);
+
 	type VerifyResult = z.infer<typeof verifyModelsResultSchema>;
 
 	const verifyOne = async (modelId: string): Promise<VerifyResult> => {
@@ -2554,6 +2631,32 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 					? redactToken(result.error, target.token)
 					: undefined,
 			};
+		}
+		if (airsideModelIds.has(modelId)) {
+			if (isCredentialTestEnv()) {
+				return { model: modelId, inCatalog: true, valid: true };
+			}
+			const result = await validateAirsideKey(
+				target.provider,
+				target.token,
+				undefined,
+				[modelId],
+				{
+					providerKeyOptions: validationOptions,
+					skipEnvVars: true,
+					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				},
+			);
+			if (result) {
+				return {
+					model: modelId,
+					inCatalog: true,
+					valid: result.valid,
+					error: result.error
+						? redactToken(result.error, target.token)
+						: undefined,
+				};
+			}
 		}
 		return await probeProviderKeyModel({
 			provider: target.provider,

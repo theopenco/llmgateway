@@ -12,6 +12,12 @@ test("/", async () => {
 	expect(data.health).toHaveProperty("database");
 });
 
+test("/livez", async () => {
+	const res = await app.request("/livez");
+	expect(res.status).toBe(200);
+	expect(await res.json()).toEqual({ status: "ok" });
+});
+
 test("/user/me", async () => {
 	const res = await app.request("/user/me");
 	expect(res.status).toBe(401);

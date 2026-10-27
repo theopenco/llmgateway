@@ -105,6 +105,7 @@ import { applyCategoryFilter } from "./model-category-filters";
 import {
 	compareSortValues,
 	effectiveTokenPrice,
+	getInputAudioHourPrice,
 	getInputCharacterPricePer1K,
 	getMaxPerSecondPrice,
 	getMinPerSecondPrice,
@@ -166,6 +167,11 @@ interface AllModelsProps {
 	 */
 	showPricingTierFilter?: boolean;
 	/**
+	 * Show the Lounge membership filter and the per-row "Plus" marker. Only
+	 * surfaces fed by fetchModelsFromApi carry `loungePlan`, so it is opt-in.
+	 */
+	showLoungePlanFilter?: boolean;
+	/**
 	 * Use Case category applied when the URL has no `category` param
 	 * (e.g. DevPass pins its directory to `code`).
 	 */
@@ -218,6 +224,13 @@ const PRICE_UNIT_OPTIONS: {
 		iconClass: "text-rose-500",
 		name: "Speech",
 		unit: "$/1K chars",
+	},
+	{
+		field: "inputAudioHourPrice",
+		Icon: Mic,
+		iconClass: "text-sky-500",
+		name: "Transcription",
+		unit: "$/hour",
 	},
 ];
 
@@ -461,6 +474,7 @@ const ModelTableRow = React.memo(
 		formatPrice,
 		modelHref,
 		pinnedCapabilityKeys,
+		showLoungePlan,
 	}: {
 		row: FlattenedModelRow;
 		isExpanded: boolean;
@@ -474,6 +488,7 @@ const ModelTableRow = React.memo(
 		) => React.ReactNode;
 		modelHref: (path: string) => string;
 		pinnedCapabilityKeys: string[];
+		showLoungePlan: boolean;
 	}) => {
 		const { ProviderIcon } = row;
 		const isCustom = row.model.source === "custom";
@@ -495,12 +510,19 @@ const ModelTableRow = React.memo(
 		const perThousandChars = getInputCharacterPricePer1K(row.provider);
 		const hasCharacterPricing =
 			(parseStrictPrice(row.provider.inputCharacterPrice) ?? 0) > 0;
+		// OCR bills per page; its zero token prices would read as "free".
+		const ocrPagePrice = parseStrictPrice(row.provider.ocrPagePrice) ?? 0;
+		const ocrPerThousandPages =
+			ocrPagePrice > 0 && !inputTokenPrice && !outputTokenPrice
+				? ocrPagePrice * 1000 * (1 - discountFraction(row.provider.discount))
+				: null;
 		const perSecondPrices = row.provider.perSecondPrice;
 		const perSecondLabel = perSecondPrices
 			? (formatPerSecondPriceLabel(perSecondPrices, row.provider.discount)
 					?.value ??
 				(minPerSecond !== null ? formatPerUnitPrice(minPerSecond) : null))
 			: null;
+		const audioHourPrice = getInputAudioHourPrice(row.provider);
 
 		return (
 			<>
@@ -677,6 +699,32 @@ const ModelTableRow = React.memo(
 									</TooltipContent>
 								</Tooltip>
 							)}
+							{showLoungePlan && row.model.loungePlan === "plus" && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span
+											tabIndex={0}
+											className="shrink-0 cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										>
+											<Badge
+												variant="outline"
+												className="px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+											>
+												Plus
+											</Badge>
+											<span className="sr-only">
+												: needs a Lounge Plus or Pro membership
+											</span>
+										</span>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p className="text-xs">
+											Frontier model. In Lounge it needs a Plus or Pro
+											membership; Starter doesn&apos;t include it.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							<button
 								onClick={(e) => {
 									// Custom models are requested as `<name>/<model>`, which is
@@ -711,6 +759,19 @@ const ModelTableRow = React.memo(
 								</TooltipTrigger>
 								<TooltipContent>
 									<p className="text-xs">Video per-second pricing</p>
+								</TooltipContent>
+							</Tooltip>
+						) : ocrPerThousandPages !== null ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										${ocrPerThousandPages.toFixed(2)}/1K pages
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-page OCR pricing (not per token)
+									</p>
 								</TooltipContent>
 							</Tooltip>
 						) : hasCharacterPricing &&
@@ -764,6 +825,19 @@ const ModelTableRow = React.memo(
 									</p>
 								</TooltipContent>
 							</Tooltip>
+						) : audioHourPrice !== null && !inputTokenPrice ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										{formatPerUnitPrice(audioHourPrice)}/hour
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Audio transcription per-hour pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
 						) : (
 							formatPrice(row.provider.inputPrice, row.provider.discount)
 						)}
@@ -782,14 +856,16 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.outputPrice ||
+						) : ocrPerThousandPages !== null ||
+						  ((!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  ((row.provider.requestPrice &&
-								parseFloat(row.provider.requestPrice) > 0) ||
-								(row.provider.perImagePrice &&
-									Object.keys(row.provider.perImagePrice).length > 0) ||
-								(row.provider.inputCharacterPrice &&
-									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
+								((row.provider.requestPrice &&
+									parseFloat(row.provider.requestPrice) > 0) ||
+									(row.provider.perImagePrice &&
+										Object.keys(row.provider.perImagePrice).length > 0) ||
+									(row.provider.inputCharacterPrice &&
+										parseFloat(row.provider.inputCharacterPrice) > 0) ||
+									audioHourPrice !== null)) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)
@@ -958,6 +1034,7 @@ export function AllModels({
 	renderCta,
 	modelHrefBase = "",
 	showPricingTierFilter = false,
+	showLoungePlanFilter = false,
 	defaultCategory = "all",
 	hideUseCaseFilter = false,
 	hideHeader = false,
@@ -1067,6 +1144,9 @@ export function AllModels({
 		return {
 			category,
 			tier: searchParams.get("tier") ?? "all",
+			loungePlan: showLoungePlanFilter
+				? (searchParams.get("lounge") ?? "all")
+				: "all",
 			capabilities,
 			selectedProvider: searchParams.get("provider") ?? "all",
 			status: getStatusFilterFromUrl(searchParams),
@@ -1091,6 +1171,25 @@ export function AllModels({
 		};
 	});
 
+	// Same-page links (e.g. the Lounge plan lists on /models) change the query
+	// without remounting, so follow the URL for the Lounge plan and panel.
+	const urlLoungePlan = showLoungePlanFilter
+		? (searchParams.get("lounge") ?? "all")
+		: "all";
+	const urlShowFilters = searchParams.get("filters") === "1";
+	useEffect(() => {
+		setFilters((prev) =>
+			prev.loungePlan === urlLoungePlan
+				? prev
+				: { ...prev, loungePlan: urlLoungePlan },
+		);
+	}, [urlLoungePlan]);
+	useEffect(() => {
+		if (urlShowFilters) {
+			setShowFilters(true);
+		}
+	}, [urlShowFilters]);
+
 	// Org-directory extensions: the Source and Eligibility filters only appear
 	// when the surface actually mixes in custom models or compliance data.
 	const hasCustomModels = useMemo(
@@ -1105,7 +1204,8 @@ export function AllModels({
 		[models],
 	);
 	// The per-unit toggles only appear when the current category has image,
-	// video or speech pricing; a unit left in the URL is ignored until then.
+	// video, speech or per-hour audio pricing; a unit left in the URL is
+	// ignored until then.
 	const hasPerUnitData = useMemo(() => {
 		const inScope = (model: ApiModel) =>
 			(!categoryFilter ||
@@ -1296,6 +1396,15 @@ export function AllModels({
 				return false;
 			}
 			if (filters.tier === "standard" && model.premium) {
+				return false;
+			}
+
+			// Lounge plan filter: "starter" lists what every membership includes,
+			// "plus" the frontier models that need Plus or Pro
+			if (
+				(filters.loungePlan === "starter" || filters.loungePlan === "plus") &&
+				model.loungePlan !== filters.loungePlan
+			) {
 				return false;
 			}
 
@@ -1624,6 +1733,7 @@ export function AllModels({
 		searchQuery ||
 		(filters.category && filters.category !== defaultCategory) ||
 		(filters.tier && filters.tier !== "all") ||
+		filters.loungePlan !== "all" ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
 		filters.status !== null ||
@@ -1777,6 +1887,7 @@ export function AllModels({
 		setFilters({
 			category: defaultCategory,
 			tier: "all",
+			loungePlan: "all",
 			capabilities: {
 				streaming: false,
 				vision: false,
@@ -1813,6 +1924,7 @@ export function AllModels({
 			q: undefined,
 			category: undefined,
 			tier: undefined,
+			lounge: undefined,
 			streaming: undefined,
 			vision: undefined,
 			tools: undefined,
@@ -1989,6 +2101,46 @@ export function AllModels({
 											<div className="flex items-center gap-2">
 												<Zap className="h-4 w-4 text-emerald-500" />
 												Standard
+											</div>
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</>
+						) : null}
+
+						{showLoungePlanFilter ? (
+							<>
+								<div className="font-medium text-sm">Lounge Plan</div>
+								<Select
+									value={filters.loungePlan}
+									onValueChange={(value) => {
+										setFilters((prev) => ({ ...prev, loungePlan: value }));
+										updateUrlWithFilters({
+											lounge: value !== "all" ? value : undefined,
+											page: undefined,
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="All Plans" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">
+											<div className="flex items-center gap-2">
+												<List className="h-4 w-4 text-muted-foreground" />
+												All Plans
+											</div>
+										</SelectItem>
+										<SelectItem value="starter">
+											<div className="flex items-center gap-2">
+												<MessageSquare className="h-4 w-4 text-emerald-500" />
+												Included on Starter
+											</div>
+										</SelectItem>
+										<SelectItem value="plus">
+											<div className="flex items-center gap-2">
+												<Sparkles className="h-4 w-4 text-amber-500" />
+												Plus &amp; Pro only
 											</div>
 										</SelectItem>
 									</SelectContent>
@@ -2609,6 +2761,7 @@ export function AllModels({
 									formatPrice={formatPrice}
 									modelHref={modelHref}
 									pinnedCapabilityKeys={pinnedCapabilityKeys}
+									showLoungePlan={showLoungePlanFilter}
 								/>
 							))}
 						</TableBody>
@@ -2726,6 +2879,7 @@ export function AllModels({
 														? 1
 														: 0,
 													filters.tier && filters.tier !== "all" ? 1 : 0,
+													filters.loungePlan !== "all" ? 1 : 0,
 													filters.selectedProvider &&
 													filters.selectedProvider !== "all"
 														? 1

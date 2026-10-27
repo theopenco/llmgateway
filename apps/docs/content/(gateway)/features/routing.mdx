@@ -578,10 +578,17 @@ error), the request still fails over to another key or provider. OpenAI
 encrypted reasoning is optional context, so the retry is sent without it: the
 model reasons afresh without the conversation's earlier reasoning on that
 request, instead of the request failing.
-When an upstream rejects replayed encrypted reasoning anyway (for example
-history from another gateway, or older than its pin), the gateway retries once
-on the same provider without it. Either way the log's
-`routingMetadata.encryptedReasoningDropped` is `true`.
+After such a failover the conversation carries reasoning from more than one
+account. Later turns are pinned to the key that produced the newest reasoning,
+and the items the other key produced are left out of the request up front; the
+items from the pinned key are replayed as usual.
+Reasoning without a remembered key is always replayed. When an upstream
+rejects replayed encrypted reasoning anyway (for example history from another
+gateway, or older than its pin), the gateway retries once on the same provider
+without it and remembers the rejected items for 24 hours after the
+conversation's last turn, so later turns leave them out instead of failing
+again. In every case the log's `routingMetadata.encryptedReasoningDropped` is
+`true`.
 
 Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
 During that time it serves only conversations that replay reasoning it

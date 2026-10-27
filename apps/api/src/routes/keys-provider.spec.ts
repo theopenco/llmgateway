@@ -639,6 +639,138 @@ describe("provider keys route", () => {
 		expect(providerKey).toBeUndefined();
 	});
 
+	describe("base URL overrides", () => {
+		beforeEach(() => {
+			vi.stubEnv("ALLOW_PROVIDER_BASE_URL_OVERRIDE", "");
+		});
+
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		test("rejects a base URL on a catalogue provider when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+			// Enterprise, so the rejection is the hosted restriction and not the plan
+			// gate on custom base URLs.
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					baseUrl: "https://my-own-endpoint.example.com",
+					options: { azure_resource: "my-resource" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain("custom base URL cannot be set");
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "azure" } },
+			});
+			expect(stored).toBeUndefined();
+		});
+
+		test("still accepts a catalogue provider without a base URL when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					options: { azure_resource: "my-resource" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("keeps the custom provider base URL when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "custom",
+					token: "custom-test-token",
+					name: "mycustomprovider",
+					baseUrl: "https://api.example.com",
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("allows the override on a self-hosted deployment", async () => {
+			vi.stubEnv("HOSTED", "");
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					baseUrl: "https://my-own-endpoint.example.com",
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test.each([
+			["azure_resource", "evil.example.com/x"],
+			["azure_deployment_name", "gpt-4o/../../foo"],
+			["azure_api_version", "2024-10-21&foo=bar"],
+			["google_vertex_project_id", "../../project"],
+		])(
+			"rejects an option that reshapes the endpoint URL (%s)",
+			async (option, value) => {
+				vi.stubEnv("HOSTED", "true");
+
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({
+						provider: "azure",
+						token: "azure-test-token",
+						options: { azure_resource: "my-resource", [option]: value },
+						organizationId: "test-org-id",
+					}),
+				});
+				expect(res.status).toBe(400);
+
+				const stored = await db.query.providerKey.findFirst({
+					where: { provider: { eq: "azure" } },
+				});
+				expect(stored).toBeUndefined();
+			},
+		);
+	});
+
 	test("POST /keys/provider with duplicate provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
@@ -1212,6 +1344,109 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("forwardCacheControl", () => {
+		async function createCustom(body: Record<string, unknown>) {
+			return await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "custom",
+					token: "custom-test-token",
+					name: "mycustom",
+					baseUrl: "https://api.example.com",
+					organizationId: "test-org-id",
+					...body,
+				}),
+			});
+		}
+
+		async function patchKey(id: string, forwardCacheControl: boolean) {
+			return await app.request(`/keys/provider/${id}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ forwardCacheControl }),
+			});
+		}
+
+		test("defaults to on for new custom keys", async () => {
+			await setPlan("enterprise");
+			const res = await createCustom({});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.forwardCacheControl).toBe(true);
+		});
+
+		test("stores an explicit opt-out on create", async () => {
+			await setPlan("enterprise");
+			const res = await createCustom({ forwardCacheControl: false });
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.forwardCacheControl).toBe(false);
+			const row = await db.query.providerKey.findFirst({
+				where: { id: { eq: json.providerKey.id } },
+			});
+			expect(row?.forwardCacheControl).toBe(false);
+		});
+
+		test("stays off for catalogue provider keys and pre-existing rows", async () => {
+			const row = await db.query.providerKey.findFirst({
+				where: { id: { eq: "test-provider-key-id" } },
+			});
+			expect(row?.forwardCacheControl).toBe(false);
+		});
+
+		test("rejects the flag on a catalogue provider", async () => {
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "anthropic",
+					token: "test-token",
+					organizationId: "test-org-id",
+					forwardCacheControl: true,
+				}),
+			});
+			expect(res.status).toBe(400);
+			const patch = await patchKey("test-provider-key-id", true);
+			expect(patch.status).toBe(400);
+			const json = await patch.json();
+			expect(json.message).toContain(
+				"forwardCacheControl can only be set on custom provider keys",
+			);
+		});
+
+		test("PATCH toggles the flag and audits the change", async () => {
+			await setPlan("enterprise");
+			const created = await createCustom({ forwardCacheControl: false });
+			const { providerKey } = await created.json();
+
+			const on = await patchKey(providerKey.id, true);
+			expect(on.status).toBe(200);
+			expect((await on.json()).providerKey.forwardCacheControl).toBe(true);
+
+			const entries = await db.query.auditLog.findMany({
+				where: {
+					organizationId: { eq: "test-org-id" },
+					action: { eq: "provider_key.update" },
+				},
+			});
+			const change = entries
+				.map(
+					(e) =>
+						(
+							e.metadata as {
+								changes?: Record<string, { old: unknown; new: unknown }>;
+							}
+						)?.changes?.forwardCacheControl,
+				)
+				.find(Boolean);
+			expect(change).toEqual({ old: false, new: true });
+
+			const off = await patchKey(providerKey.id, false);
+			expect((await off.json()).providerKey.forwardCacheControl).toBe(false);
+		});
+	});
+
 	describe("PATCH /keys/provider/{id} rename", () => {
 		async function seedCustomKey(id = "test-custom-key-id", name = "mycustom") {
 			await setPlan("enterprise");
@@ -1306,6 +1541,15 @@ describe("provider keys route", () => {
 			await seedCustomKey();
 
 			for (const name of ["My-Provider", "my_provider", "-my-provider", ""]) {
+				const res = await patchName("test-custom-key-id", name);
+				expect(res.status).toBe(400);
+			}
+		});
+
+		test("rejects reserved and built-in provider names", async () => {
+			await seedCustomKey();
+
+			for (const name of ["dynamic", "custom", "openai", "llmgateway"]) {
 				const res = await patchName("test-custom-key-id", name);
 				expect(res.status).toBe(400);
 			}

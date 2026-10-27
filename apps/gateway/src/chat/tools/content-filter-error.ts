@@ -156,14 +156,19 @@ export function classifyContentFilterError(
 }
 
 /**
- * A 4xx is the request's fault (an image format the classifier does not take,
- * a corrupt upload) and expected at some rate; everything else is the
- * classifier or the network failing and still deserves an alert.
+ * A 4xx is usually the request's fault (an image format the classifier does
+ * not take, a corrupt upload) and expected at some rate. A 401/403 rejects the
+ * credential and fails every call, so it alerts like the classifier or the
+ * network failing. Callers that retry transient failures downgrade the
+ * retried attempt themselves.
  */
 export function contentFilterErrorLogLevel(
-	error: Pick<ContentFilterModerationError, "kind">,
+	error: Pick<ContentFilterModerationError, "kind" | "status">,
 ): "warn" | "error" {
-	return error.kind === "upstream_4xx" ? "warn" : "error";
+	if (error.kind !== "upstream_4xx") {
+		return "error";
+	}
+	return error.status === 401 || error.status === 403 ? "error" : "warn";
 }
 
 /**

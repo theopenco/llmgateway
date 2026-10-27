@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { utils, write } from "xlsx";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -58,6 +59,52 @@ describe("chat-projects", () => {
 		vi.unstubAllEnvs();
 		await deleteAll();
 	});
+
+	test.each(["xls", "xlsx"] as const)(
+		"indexes a binary %s workbook through the upload route",
+		async (format) => {
+			const project = await createProject(token);
+			vi.spyOn(playgroundKey, "resolvePlaygroundToken").mockResolvedValue(
+				"test-token",
+			);
+			const upstream = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(
+					new Response(
+						JSON.stringify({ data: [{ index: 0, embedding: [1, 0] }] }),
+						{ headers: { "Content-Type": "application/json" } },
+					),
+				);
+			const workbook = utils.book_new();
+			utils.book_append_sheet(
+				workbook,
+				utils.aoa_to_sheet([
+					["Name", "Count"],
+					["Sample", 42],
+				]),
+				"Inventory",
+			);
+			const response = await app.request(`/chat-projects/${project.id}/files`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					name: `inventory.${format}`,
+					mimeType:
+						format === "xls"
+							? "application/vnd.ms-excel"
+							: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+					contentBase64: write(workbook, {
+						type: "base64",
+						bookType: format === "xls" ? "biff8" : "xlsx",
+					}),
+				}),
+			});
+			const body = await response.json();
+			expect(response.status, JSON.stringify(body)).toBe(201);
+			expect(body.file).toMatchObject({ status: "ready", chunkCount: 1 });
+			expect(String(upstream.mock.calls[0]?.[1]?.body)).toContain("Sample,42");
+		},
+	);
 
 	test.each([true, false])(
 		"file indexing respects an explicit billing key and keeps the personal fallback: %s",
@@ -122,6 +169,44 @@ describe("chat-projects", () => {
 		expect(project.instructions).toBe("Answer from the knowledge base.");
 		expect(project.fileCount).toBe(0);
 		expect(project.chatCount).toBe(0);
+	});
+
+	test.each([
+		["no Content-Type", undefined],
+		["a text/plain Content-Type", "text/plain"],
+	])("POST / rejects a body sent with %s", async (_label, contentType) => {
+		const req = new Request("http://localhost/chat-projects", {
+			method: "POST",
+			headers: { Cookie: token },
+			body: JSON.stringify({ name: "Unparsed" }),
+		});
+		if (contentType) {
+			req.headers.set("Content-Type", contentType);
+		} else {
+			req.headers.delete("Content-Type");
+		}
+		const res = await app.request(req);
+		expect(res.status).toBe(400);
+		expect(await db.query.chatProject.findMany()).toHaveLength(0);
+	});
+
+	test("POST / rejects a blank name", async () => {
+		const res = await app.request("/chat-projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ name: "   " }),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("POST /chats and /projects without a JSON body return 400", async () => {
+		for (const path of ["/chats", "/projects"]) {
+			const res = await app.request(path, {
+				method: "POST",
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(400);
+		}
 	});
 
 	test("GET / lists only the user's projects", async () => {

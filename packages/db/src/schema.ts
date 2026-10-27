@@ -28,6 +28,7 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	WebSearchFormat,
 	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
@@ -410,9 +411,9 @@ export const organization = snakeCase.table(
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Rolling 24-hour pacing window on the monthly allowance, the same
-		// shape as the premium weekly pair above. The limit derives from the
-		// tier (DEV_PLAN_DAILY_PERCENT), so only usage and window start are
-		// stored.
+		// shape as the premium weekly pair above. The limit derives from
+		// devPlanCreditsLimit × DEV_PLAN_DAILY_PERCENT, so only usage and
+		// window start are stored.
 		devPlanDailyCreditsUsed: decimal().notNull().default("0"),
 		devPlanDayStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
@@ -2187,6 +2188,9 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// When true (custom providers only), caller-supplied Anthropic-style
+		// `cache_control` markers are forwarded upstream instead of stripped.
+		forwardCacheControl: boolean().notNull().default(false),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		// "pending_deletion" is a deleted key inside its teardown grace period:
@@ -2615,8 +2619,9 @@ export const log = snakeCase.table(
 			// premium tier was in play.
 			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
-			// A retry dropped the conversation's OpenAI-format encrypted
-			// reasoning to move to a credential that could not verify it.
+			// Some of the conversation's OpenAI-format encrypted reasoning was
+			// left out: a retry moved to a credential that could not verify it,
+			// or the request replayed reasoning from another credential.
 			encryptedReasoningDropped?: boolean;
 			// Set when the request was resolved through a named dynamic route.
 			dynamicRoute?: {
@@ -3817,6 +3822,9 @@ export const modelProviderMapping = snakeCase.table(
 			],
 		}).$type<ProviderApiFormat>(),
 		region: text(),
+		// Airside decision listings, served on `/v1/decisions`. Static rows
+		// keep their catalogue definition.
+		decisions: boolean().notNull().default(false),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
 			.default("catalogue"),
@@ -3854,6 +3862,9 @@ export const modelProviderMapping = snakeCase.table(
 		webSearch: boolean().default(false).notNull(),
 		webSearchPrice: decimal(),
 		webSearchForcedOnly: boolean(),
+		// Chat Completions web search wire format (see `WebSearchFormat`).
+		// Populated for Airside-materialized mappings only.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})
@@ -5787,6 +5798,62 @@ export const providerClaim = snakeCase.table(
 	],
 );
 
+// The claims an Airworthy certificate attests, frozen at issue time. A live
+// claim whose public profile drifts from this snapshot stops showing the stamp
+// until it is re-certified.
+export interface AirworthyAttestedProfile {
+	legalEntity: string | null;
+	headquarters: string | null;
+	apiTraining: boolean | null;
+	promptLogging: boolean | null;
+	retentionPeriod: string | null;
+	gdpr: boolean | null;
+	soc2: 0 | 1 | 2 | null;
+	iso27001: boolean | null;
+}
+
+// Airworthy: LLM Gateway's certificate that an Airside carrier's declared
+// data handling, jurisdiction and audits were reviewed against evidence.
+// Issued and revoked by admins only; one active certificate per provider.
+export const providerCertification = snakeCase.table(
+	"provider_certification",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerClaimId: text()
+			.notNull()
+			.references(() => providerClaim.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// Public, printed on the stamp and the certificate.
+		certificateNumber: text().notNull(),
+		status: text({ enum: ["active", "revoked"] })
+			.notNull()
+			.default("active"),
+		attested: jsonb().$type<AirworthyAttestedProfile>().notNull(),
+		// Internal review notes: the evidence that was checked.
+		reviewNote: text(),
+		issuedAt: timestamp().notNull().defaultNow(),
+		expiresAt: timestamp().notNull(),
+		issuedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokedAt: timestamp(),
+		revokedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokeReason: text(),
+	},
+	(table) => [
+		uniqueIndex("provider_certification_number_uidx").on(
+			table.certificateNumber,
+		),
+		uniqueIndex("provider_certification_active_provider_uidx")
+			.on(table.providerId)
+			.where(sql`status = 'active'`),
+		index("provider_certification_claim_idx").on(table.providerClaimId),
+	],
+);
+
 // A model listed by a provider company for one of its claimed providers.
 // Non-pricing fields are provider-editable in place; pricing lives in
 // `provider_price_filing` rows and only ever changes through an approved
@@ -5810,6 +5877,7 @@ export interface AirsideModelMetadataChanges {
 	reasoningMaxTokens?: boolean;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean;
+	webSearchFormat?: WebSearchFormat | null;
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
@@ -5851,6 +5919,9 @@ export const providerDraftModel = snakeCase.table(
 			.$type<ProviderApiFormat>()
 			.notNull()
 			.default("provider-native"),
+		// Serves typed decisions on the carrier's OpenAI-compatible
+		// `/v1/decisions` instead of chat; set once at registration.
+		decisions: boolean().notNull().default(false),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -5874,6 +5945,9 @@ export const providerDraftModel = snakeCase.table(
 		// (subset of ReasoningEffort); null = parameter unsupported.
 		reasoningEfforts: jsonb().$type<string[]>(),
 		webSearch: boolean().notNull().default(false),
+		// Which OpenAI-compatible shape the endpoint takes web search in; null
+		// leaves the provider's built-in translation, if any.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		// Carrier-managed request caps. Admin `rate_limit` rows for the same
 		// provider/model always take precedence over these.
 		maxRpm: integer(),
@@ -5962,6 +6036,8 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** A decision listing, probed on `/v1/decisions` instead of chat. */
+	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */
 	region?: string | null;
 	streaming: boolean;
@@ -5976,6 +6052,8 @@ export interface ProviderModelVerificationTarget {
 	reasoningMaxTokens: boolean;
 	reasoningEfforts: string[] | null;
 	webSearch: boolean;
+	/** Web search wire format; unset on runs queued before it existed. */
+	webSearchFormat?: WebSearchFormat | null;
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;
@@ -6226,6 +6304,29 @@ export const providerRoutingFiling = snakeCase.table(
 );
 
 // Project hourly statistics aggregation - used for fast dashboard queries
+/**
+ * BYOK (`used_mode = 'api-keys'`) subset of the error and latency columns on
+ * the tenant hourly rollups. `log.used_mode` is only ever credits or api-keys,
+ * so the credits figure is the total minus this subset.
+ */
+function apiKeysModeColumns() {
+	return {
+		apiKeysClientErrorCount: integer().notNull().default(0),
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		apiKeysTotalDuration: bigint({ mode: "number" }).notNull().default(0),
+		apiKeysDurationCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstTokenCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+	};
+}
+
 export const projectHourlyStats = snakeCase.table(
 	"project_hourly_stats",
 	{
@@ -6302,6 +6403,7 @@ export const projectHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour (also creates implicit index)
@@ -6392,10 +6494,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
-		// BYOK subset of the gateway/upstream error counts, so incident views can
-		// show platform-only error rates.
-		apiKeysGatewayErrorCount: integer().notNull().default(0),
-		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -6661,6 +6760,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour
@@ -6822,6 +6922,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour-model-provider

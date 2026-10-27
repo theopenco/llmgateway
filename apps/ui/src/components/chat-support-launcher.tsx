@@ -1,9 +1,12 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { ChatSupportTrigger } from "@/components/chat-support-trigger";
+import { useSessionStatus } from "@/hooks/useUser";
 import { toast } from "@/lib/components/use-toast";
+import { useFetchClient } from "@/lib/fetch-client";
 
 import type { ChatSupport as ChatSupportComponent } from "@/components/chat-support";
 
@@ -15,6 +18,29 @@ export function ChatSupportLauncher() {
 		typeof ChatSupportComponent | null
 	>(null);
 	const [loading, setLoading] = useState(false);
+	// Verification usually happens from the email in another tab, so recheck
+	// on focus until the launcher can show.
+	const { session } = useSessionStatus({
+		refetchOnWindowFocus: (current) =>
+			!!current?.user && !current.user.emailVerified,
+	});
+	const fetchClient = useFetchClient();
+	const userId = session?.user.emailVerified ? session.user.id : null;
+	const { data: eligible } = useQuery({
+		queryKey: ["chat-support-eligibility", userId],
+		enabled: !!userId,
+		staleTime: 5 * 60 * 1000,
+		retry: 0,
+		queryFn: async () => {
+			const res = await fetchClient.GET(
+				"/public/chat-support/eligibility" as never,
+			);
+			if (res.error) {
+				throw new Error("Failed to load chat support eligibility");
+			}
+			return (res.data as unknown as { eligible: boolean }).eligible;
+		},
+	});
 
 	const prefetch = () => {
 		loadChatSupport().catch((error: unknown) => {
@@ -38,6 +64,12 @@ export function ChatSupportLauncher() {
 			})
 			.finally(() => setLoading(false));
 	};
+
+	// Spammers kept abusing the widget, so it only exists for verified users of
+	// paid or enterprise organizations (the API rejects the rest anyway).
+	if (!userId || !eligible) {
+		return null;
+	}
 
 	if (ChatSupport) {
 		return <ChatSupport defaultOpen />;

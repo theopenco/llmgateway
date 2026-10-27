@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -23,6 +23,7 @@ import {
 	getActiveUserOrganizationIds,
 	getAdminOrganizationIds,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	encryptProviderKey,
@@ -50,13 +51,17 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	isStealthProvider,
+	providers,
 	regionEndpointRequiresWorkspaceId,
 } from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	isProviderBaseUrlOverrideAllowed,
+	PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
+	PROVIDER_HOSTNAME_LABEL_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -144,6 +149,7 @@ export const providerKeySchema = z.object({
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	customModelsOnly: z.boolean(),
+	forwardCacheControl: z.boolean(),
 	complianceAttestation: complianceAttestationSchema
 		.extend({
 			attestedAt: z.string().optional(),
@@ -168,6 +174,7 @@ export const providerKeyPublicSchema = z.object({
 	options: providerKeySchema.shape.options,
 	status: providerKeySchema.shape.status,
 	customModelsOnly: providerKeySchema.shape.customModelsOnly,
+	forwardCacheControl: providerKeySchema.shape.forwardCacheControl,
 	complianceAttestation: providerKeySchema.shape.complianceAttestation,
 	organizationId: z.string(),
 	/** USD spend cap; the key auto-deactivates when usage reaches it. */
@@ -209,6 +216,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		options: row.options,
 		status: publicProviderKeyStatus(row.status),
 		customModelsOnly: row.customModelsOnly,
+		forwardCacheControl: row.forwardCacheControl,
 		// The organization's own compliance attestation for its custom provider,
 		// shown back in the dashboard. Not secret-bearing.
 		complianceAttestation: row.complianceAttestation,
@@ -259,7 +267,7 @@ function assertCustomProviderEnterprise(
 	assertEnterpriseFeature(organization, "Custom providers");
 }
 
-// The custom provider name is the routing segment used in `custom/<name>/<model>`
+// The custom provider name is the routing prefix used in `<name>/<model>`
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
@@ -268,6 +276,13 @@ export const customProviderNameSchema = z
 		(name) =>
 			!(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(name),
 		RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	)
+	// Catalogue provider ids (e.g. "openai", "custom") always win the
+	// `<name>/<model>` prefix in parseModelInput, so a colliding custom
+	// provider would be unaddressable.
+	.refine(
+		(name) => !providers.some((provider) => provider.id === name),
+		"This name matches a built-in provider id and cannot be used as a custom provider name",
 	);
 
 export async function assertCustomProviderNameAvailable(
@@ -369,12 +384,28 @@ export function isValidProviderToken(value: string): boolean {
 	}
 }
 
-// The workspace id becomes a hostname label on the workspace-dedicated
-// endpoint, so it is restricted to what Model Studio issues rather than
-// accepted verbatim.
-const WORKSPACE_ID_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
+// Every option below ends up inside the URL the gateway calls, so each is
+// restricted to the shape the provider itself issues. A resource or workspace
+// id becomes a hostname label — `evil.example.com/` would otherwise smuggle a
+// different host into the endpoint — while a deployment name, model or api
+// version lands in the path or query and must not be able to reshape it.
 const WORKSPACE_ID_MESSAGE =
 	"Workspace ID must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_RESOURCE_MESSAGE =
+	"Azure resource must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_PATH_SEGMENT_MESSAGE =
+	"Must be 1-128 characters of letters, digits, dots, underscores, or hyphens";
+const GCP_PROJECT_ID_MESSAGE =
+	"Project ID must be 6-30 characters: a lowercase letter, then lowercase letters, digits or hyphens";
+const azureResourceSchema = z
+	.string()
+	.regex(PROVIDER_HOSTNAME_LABEL_REGEX, AZURE_RESOURCE_MESSAGE);
+const azurePathSegmentSchema = z
+	.string()
+	.regex(/^[A-Za-z0-9._-]{1,128}$/, AZURE_PATH_SEGMENT_MESSAGE);
+const gcpProjectIdSchema = z
+	.string()
+	.regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, GCP_PROJECT_ID_MESSAGE);
 
 /**
  * A workspace id is optional: a region whose endpoint is workspace-scoped
@@ -429,26 +460,26 @@ const createProviderKeySchema = z.object({
 					"ap-southeast-2",
 				])
 				.optional(),
-			azure_resource: z.string().optional(),
-			azure_api_version: z.string().optional(),
+			azure_resource: azureResourceSchema.optional(),
+			azure_api_version: azurePathSegmentSchema.optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
-			azure_validation_model: z.string().optional(),
-			azure_deployment_name: z.string().min(1).optional(),
-			azure_ai_foundry_resource: z.string().optional(),
-			azure_ai_foundry_api_version: z.string().optional(),
-			azure_anthropic_resource: z.string().optional(),
+			azure_validation_model: azurePathSegmentSchema.optional(),
+			azure_deployment_name: azurePathSegmentSchema.optional(),
+			azure_ai_foundry_resource: azureResourceSchema.optional(),
+			azure_ai_foundry_api_version: azurePathSegmentSchema.optional(),
+			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
 			alibaba_workspace_id: z
 				.string()
-				.regex(WORKSPACE_ID_REGEX, WORKSPACE_ID_MESSAGE)
+				.regex(PROVIDER_HOSTNAME_LABEL_REGEX, WORKSPACE_ID_MESSAGE)
 				.optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
-			google_vertex_project_id: z.string().optional(),
-			vertex_openai_project_id: z.string().optional(),
+			google_vertex_project_id: gcpProjectIdSchema.optional(),
+			vertex_openai_project_id: gcpProjectIdSchema.optional(),
 		})
 		.superRefine(validateWorkspaceScopedRegion)
 		.optional(),
@@ -459,6 +490,8 @@ const createProviderKeySchema = z.object({
 	// Optional allowlist of canonical model ids this key may serve. Empty/null
 	// means the provider's full catalogue.
 	allowedModels: allowedModelsSchema,
+	// Custom providers only: forward caller `cache_control` markers upstream.
+	forwardCacheControl: z.boolean().optional(),
 	...providerKeyRateLimitsInputShape,
 });
 
@@ -476,6 +509,9 @@ const updateProviderKeyStatusSchema = z
 		description: z.string().trim().max(200).nullable().optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
+		// Custom providers only: forward caller `cache_control` markers upstream
+		// instead of stripping them.
+		forwardCacheControl: z.boolean().optional(),
 		// Custom providers only: self-attested compliance posture. `null` clears
 		// the attestation (restoring the fail-closed blocked state).
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
@@ -490,6 +526,7 @@ const updateProviderKeyStatusSchema = z
 			v.name !== undefined ||
 			v.description !== undefined ||
 			v.customModelsOnly !== undefined ||
+			v.forwardCacheControl !== undefined ||
 			v.complianceAttestation !== undefined ||
 			v.usageLimit !== undefined ||
 			v.allowedModels !== undefined,
@@ -543,6 +580,7 @@ keysProvider.openapi(create, async (c) => {
 		organizationId,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		forwardCacheControl,
 		...rateLimitInput
 	} = c.req.valid("json");
 
@@ -593,6 +631,11 @@ keysProvider.openapi(create, async (c) => {
 	) {
 		throw new HTTPException(400, { message: "Invalid or inactive provider." });
 	}
+	if (forwardCacheControl !== undefined && provider !== "custom") {
+		throw new HTTPException(400, {
+			message: "forwardCacheControl can only be set on custom provider keys",
+		});
+	}
 	if (provider === "custom") {
 		assertCustomProviderEnterprise(userOrgs[0]?.organization);
 		if (!name || !baseUrl) {
@@ -613,6 +656,15 @@ keysProvider.openapi(create, async (c) => {
 
 	if (baseUrl) {
 		if (provider !== "custom") {
+			// A catalogue provider is reached at its published endpoint, derived from
+			// the key's own settings (an Azure resource, a Bedrock region). A base URL
+			// would replace that endpoint wholesale, which the hosted service does not
+			// offer on any plan; only custom providers are defined by their URL.
+			if (!isProviderBaseUrlOverrideAllowed()) {
+				throw new HTTPException(400, {
+					message: PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
+				});
+			}
 			assertEnterpriseFeature(userOrgs[0]?.organization, "Custom base URLs");
 		}
 		await assertProviderBaseUrlAllowed(baseUrl);
@@ -763,6 +815,10 @@ keysProvider.openapi(create, async (c) => {
 			options: storedOptions,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
+			// New custom keys forward by default; the column default (false) keeps
+			// keys created before this setting existed on the old behaviour.
+			forwardCacheControl:
+				provider === "custom" ? (forwardCacheControl ?? true) : false,
 			...providerKeyRateLimitUpdates(rateLimitInput),
 		})
 		.returning();
@@ -777,6 +833,7 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
+			...(providerKey.forwardCacheControl && { forwardCacheControl: true }),
 		},
 	});
 
@@ -1081,6 +1138,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name,
 		description,
 		customModelsOnly,
+		forwardCacheControl,
 		complianceAttestation,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
@@ -1118,6 +1176,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name !== undefined ||
 		description !== undefined ||
 		customModelsOnly !== undefined ||
+		forwardCacheControl !== undefined ||
 		complianceAttestation !== undefined ||
 		usageLimit !== undefined ||
 		Object.keys(rateLimitUpdates).length > 0 ||
@@ -1144,6 +1203,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 				message: "customModelsOnly can only be set on custom provider keys",
 			});
 		}
+	}
+
+	if (forwardCacheControl !== undefined && providerKey.provider !== "custom") {
+		throw new HTTPException(400, {
+			message: "forwardCacheControl can only be set on custom provider keys",
+		});
 	}
 
 	// Only the catalogue is checked here, not the key upstream: a PATCH cannot
@@ -1195,6 +1260,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name?: string;
 		description?: string | null;
 		customModelsOnly?: boolean;
+		forwardCacheControl?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
@@ -1221,6 +1287,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
+	}
+	if (forwardCacheControl !== undefined) {
+		updates.forwardCacheControl = forwardCacheControl;
 	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
@@ -1275,6 +1344,15 @@ keysProvider.openapi(updateStatus, async (c) => {
 		changes.customModelsOnly = {
 			old: providerKey.customModelsOnly,
 			new: customModelsOnly,
+		};
+	}
+	if (
+		forwardCacheControl !== undefined &&
+		providerKey.forwardCacheControl !== forwardCacheControl
+	) {
+		changes.forwardCacheControl = {
+			old: providerKey.forwardCacheControl,
+			new: forwardCacheControl,
 		};
 	}
 	if (complianceAttestation !== undefined) {

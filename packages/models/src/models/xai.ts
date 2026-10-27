@@ -682,7 +682,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -690,8 +689,13 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 2_000_000,
 				maxOutput: 30000,
+				// Temperatures near 2 return gibberish until max_tokens.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningOutput: "omit",
 				tools: true,
@@ -700,6 +704,7 @@ export const xaiModels = [
 				// which 400s on `reasoning_effort` — leaving it undeclared
 				// keeps the gateway from forwarding a value Grok 4.20 rejects.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -712,7 +717,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-non-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -722,9 +726,13 @@ export const xaiModels = [
 				maxOutput: 30000,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -1206,8 +1214,13 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 500_000,
 				maxOutput: undefined,
+				// Temperatures near 2 never return; 1 answers normally.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningOutput: "omit",
@@ -1224,6 +1237,7 @@ export const xaiModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -1310,6 +1324,57 @@ export const xaiModels = [
 					"reasoning_effort",
 				],
 				regions: [{ id: "global" }, { id: "us" }],
+			},
+			{
+				providerId: "vertex-openai",
+				externalId: "grok-4.7",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: "2.0e-6",
+						outputPrice: "6.0e-6",
+						cachedInputPrice: "0.5e-6",
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "1.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 524_288,
+				maxOutput: undefined,
+				// Same as Bedrock: temperature 2 never returns; 1 answers normally.
+				maxTemperature: 1,
+				streaming: true,
+				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
+				reasoning: true,
+				// Vertex rejects xhigh/none, xAI rejects max on this deployment.
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
+				reasoningOutput: "omit",
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+				regions: [{ id: "global" }],
 			},
 		],
 	},

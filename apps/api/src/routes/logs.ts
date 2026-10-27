@@ -1,15 +1,20 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
 import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
+	acquireLogQuerySlot,
+	withLogQueryLimits,
+} from "@/lib/log-query-guard.js";
+import {
 	getActiveUserOrganizationIds,
 	getApiKeyScope,
 	getUserProjectIds,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import { scrubMessagesBase64 } from "@/utils/scrub-messages-base64.js";
 
 import {
@@ -26,6 +31,7 @@ import {
 	gt,
 	gte,
 	type InferSelectModel,
+	type SQL,
 	inArray,
 	lt,
 	lte,
@@ -61,12 +67,82 @@ const {
 	...publicLogColumns
 } = getTableColumns(tables.log);
 
-const logSelection = {
-	...publicLogColumns,
-	organizationName: tables.organization.name,
-	projectName: tables.project.name,
-	apiKeyName: tables.apiKey.description,
-};
+// Log queries select from `log` alone and names are looked up afterwards by
+// primary key: a join would hold a lock on organization/project/api_key for as
+// long as the log scan runs, and a schema change queued on one of those tables
+// then blocks every query on it.
+async function withNames<
+	T extends { organizationId: string; projectId: string; apiKeyId: string },
+>(
+	rows: T[],
+): Promise<
+	Array<
+		T & {
+			organizationName: string | null;
+			projectName: string | null;
+			apiKeyName: string | null;
+		}
+	>
+> {
+	if (!rows.length) {
+		return [];
+	}
+	const unique = (values: string[]) => [...new Set(values)];
+	const [organizations, projects, apiKeys] = await Promise.all([
+		db
+			.select({ id: tables.organization.id, name: tables.organization.name })
+			.from(tables.organization)
+			.where(
+				inArray(
+					tables.organization.id,
+					unique(rows.map((row) => row.organizationId)),
+				),
+			),
+		db
+			.select({ id: tables.project.id, name: tables.project.name })
+			.from(tables.project)
+			.where(
+				inArray(tables.project.id, unique(rows.map((row) => row.projectId))),
+			),
+		db
+			.select({ id: tables.apiKey.id, name: tables.apiKey.description })
+			.from(tables.apiKey)
+			.where(
+				inArray(tables.apiKey.id, unique(rows.map((row) => row.apiKeyId))),
+			),
+	]);
+	const organizationNames = new Map(organizations.map((o) => [o.id, o.name]));
+	const projectNames = new Map(projects.map((p) => [p.id, p.name]));
+	const apiKeyNames = new Map(apiKeys.map((k) => [k.id, k.name]));
+	return rows.map((row) => ({
+		...row,
+		organizationName: organizationNames.get(row.organizationId) ?? null,
+		projectName: projectNames.get(row.projectId) ?? null,
+		apiKeyName: apiKeyNames.get(row.apiKeyId) ?? null,
+	}));
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Filters no index can satisfy: Postgres walks the project's log history in
+// created_at order and checks each row, so a rare match scans everything.
+// Searches using them are bounded to a date window.
+const FILTERED_DEFAULT_WINDOW_DAYS = 7;
+const FILTERED_DEFAULT_WINDOW_MS = FILTERED_DEFAULT_WINDOW_DAYS * DAY_MS;
+const FILTERED_MAX_WINDOW_DAYS = 31;
+const FILTERED_MAX_WINDOW_MS = FILTERED_MAX_WINDOW_DAYS * DAY_MS;
+// Filter options come from hourly aggregates over this many days.
+const UNIQUE_MODELS_WINDOW_MS = 90 * DAY_MS;
+
+function parseDateParam(value: string | undefined, name: string) {
+	if (value === undefined) {
+		return undefined;
+	}
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		throw new HTTPException(400, { message: `Invalid ${name}` });
+	}
+	return date;
+}
 
 async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
 	logEntries: T[],
@@ -593,14 +669,10 @@ logs.openapi(get, async (c) => {
 	}
 
 	// Build where conditions for the select query
-	const whereConditions = [];
+	const whereConditions: Array<SQL | undefined> = [];
 
-	// Add project filter
-	if (projectId) {
-		whereConditions.push(eq(tables.log.projectId, projectId));
-	} else {
-		whereConditions.push(inArray(tables.log.projectId, projectIds));
-	}
+	// The project filter is applied per project below.
+	const searchedProjectIds = projectId ? [projectId] : projectIds;
 
 	const scopeCondition = apiKeyScopeFilter(
 		scope,
@@ -611,12 +683,38 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(scopeCondition);
 	}
 
-	// Add date range filters
-	if (startDate) {
-		whereConditions.push(gte(tables.log.createdAt, new Date(startDate)));
+	// Add date range filters. Searches with a filter no index covers are
+	// bounded to a window so they cannot scan a project's full history.
+	let start = parseDateParam(startDate, "startDate");
+	const end = parseDateParam(endDate, "endDate");
+	const usesUnindexedFilter = Boolean(
+		finishReason ||
+		unifiedFinishReason ||
+		provider ||
+		model ||
+		source ||
+		customHeaderKey ||
+		promptId ||
+		promptVersion !== undefined ||
+		usedMode,
+	);
+	let windowMessage: string | undefined;
+	if (usesUnindexedFilter) {
+		const windowEnd = end ?? new Date();
+		if (!start) {
+			start = new Date(windowEnd.getTime() - FILTERED_DEFAULT_WINDOW_MS);
+			windowMessage = `Filtered results cover the last ${FILTERED_DEFAULT_WINDOW_DAYS} days. Pick a date range to search further back.`;
+		} else if (windowEnd.getTime() - start.getTime() > FILTERED_MAX_WINDOW_MS) {
+			throw new HTTPException(400, {
+				message: `Filtered log searches can span at most ${FILTERED_MAX_WINDOW_DAYS} days. Narrow the date range.`,
+			});
+		}
 	}
-	if (endDate) {
-		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
+	if (start) {
+		whereConditions.push(gte(tables.log.createdAt, start));
+	}
+	if (end) {
+		whereConditions.push(lte(tables.log.createdAt, end));
 	}
 
 	if (model) {
@@ -699,68 +797,106 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(eq(tables.log.promptVersion, promptVersion));
 	}
 
-	// Add cursor-based pagination conditions
-	if (cursor) {
-		const cursorLog = await db
-			.select()
-			.from(tables.log)
-			.where(eq(tables.log.id, cursor))
-			.limit(1);
-
-		if (cursorLog.length > 0) {
-			const cursorCreatedAt = cursorLog[0].createdAt;
-
-			if (orderBy === "createdAt_asc") {
-				whereConditions.push(
-					or(
-						gt(tables.log.createdAt, cursorCreatedAt),
-						and(
-							eq(tables.log.createdAt, cursorCreatedAt),
-							gt(tables.log.id, cursor),
-						),
-					),
-				);
-			} else {
-				whereConditions.push(
-					or(
-						lt(tables.log.createdAt, cursorCreatedAt),
-						and(
-							eq(tables.log.createdAt, cursorCreatedAt),
-							lt(tables.log.id, cursor),
-						),
-					),
-				);
-			}
-		}
-	}
-
-	// Build the final where clause
-	const finalWhereClause =
-		whereConditions.length > 0 ? and(...whereConditions) : undefined;
-
 	// Build order by clauses
 	const orderByClauses =
 		orderBy === "createdAt_asc"
 			? [asc(tables.log.createdAt), asc(tables.log.id)]
 			: [desc(tables.log.createdAt), desc(tables.log.id)];
 
-	// Execute the query using select
-	let dbQuery = db
-		.select(logSelection)
-		.from(tables.log)
-		.leftJoin(
-			tables.organization,
-			eq(tables.log.organizationId, tables.organization.id),
-		)
-		.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
-		.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id));
+	const release = await acquireLogQuerySlot({
+		userId: user.id,
+		organizationIds: projects
+			.filter((project) => projectIds.includes(project.id))
+			.map((project) => project.organizationId),
+	});
+	let logs: Array<LogRecord>;
+	try {
+		logs = await withLogQueryLimits(async (tx) => {
+			// Add cursor-based pagination conditions
+			if (cursor) {
+				const [cursorLog] = await tx
+					.select({ createdAt: tables.log.createdAt })
+					.from(tables.log)
+					.where(eq(tables.log.id, cursor))
+					.limit(1);
 
-	if (finalWhereClause) {
-		// @ts-ignore
-		dbQuery = dbQuery.where(finalWhereClause);
+				if (cursorLog) {
+					const cursorCreatedAt = cursorLog.createdAt;
+
+					if (orderBy === "createdAt_asc") {
+						whereConditions.push(
+							or(
+								gt(tables.log.createdAt, cursorCreatedAt),
+								and(
+									eq(tables.log.createdAt, cursorCreatedAt),
+									gt(tables.log.id, cursor),
+								),
+							),
+						);
+					} else {
+						whereConditions.push(
+							or(
+								lt(tables.log.createdAt, cursorCreatedAt),
+								and(
+									eq(tables.log.createdAt, cursorCreatedAt),
+									lt(tables.log.id, cursor),
+								),
+							),
+						);
+					}
+				}
+			}
+
+			// One index-ordered scan per project, merged here. `project_id IN
+			// (...) ORDER BY created_at` cannot use the (project_id, created_at)
+			// index for ordering, so Postgres may walk the whole table
+			// newest-first instead; such a scan ran for 8 hours on 2026-10-19.
+			// Each scan stops after limit + 1 keys; full rows are read for the
+			// merged page only.
+			// created_at as text keeps its microseconds, which a JS Date drops.
+			const keys: Array<{ id: string; createdAt: string }> = [];
+			for (const id of searchedProjectIds) {
+				keys.push(
+					...(await tx
+						.select({
+							id: tables.log.id,
+							createdAt: sql<string>`${tables.log.createdAt}::text`,
+						})
+						.from(tables.log)
+						.where(and(eq(tables.log.projectId, id), ...whereConditions))
+						.orderBy(...orderByClauses)
+						.limit(limit + 1)),
+				);
+			}
+			const direction = orderBy === "createdAt_asc" ? 1 : -1;
+			const page = keys
+				.sort((a, b) => {
+					if (a.createdAt !== b.createdAt) {
+						return a.createdAt < b.createdAt ? -direction : direction;
+					}
+					return a.id < b.id ? -direction : direction;
+				})
+				.slice(0, limit + 1); // Fetch one extra for pagination
+			if (!page.length) {
+				return [];
+			}
+			const rows = await tx
+				.select(publicLogColumns)
+				.from(tables.log)
+				.where(
+					inArray(
+						tables.log.id,
+						page.map((key) => key.id),
+					),
+				);
+			const position = new Map(page.map((key, index) => [key.id, index]));
+			return rows.sort(
+				(a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0),
+			);
+		});
+	} finally {
+		await release();
 	}
-
-	const logs = await dbQuery.orderBy(...orderByClauses).limit(limit + 1); // Fetch one extra for pagination
 
 	// Check if there are more results
 	const hasMore = logs.length > limit;
@@ -776,7 +912,7 @@ logs.openapi(get, async (c) => {
 	if (!paginatedLogs.length) {
 		return c.json({
 			logs: [],
-			message: "No logs found",
+			message: windowMessage ?? "No logs found",
 			pagination: {
 				nextCursor: null,
 				hasMore: false,
@@ -785,7 +921,9 @@ logs.openapi(get, async (c) => {
 		});
 	}
 
-	const enrichedLogs = await enrichLogsWithVideoContentUrls(paginatedLogs);
+	const enrichedLogs = await withNames(
+		await enrichLogsWithVideoContentUrls(paginatedLogs),
+	);
 
 	const logsForResponse = enrichedLogs.map((log) => {
 		const scrubbedMessages = scrubMessagesBase64(log.messages);
@@ -797,6 +935,7 @@ logs.openapi(get, async (c) => {
 	});
 
 	return c.json({
+		...(windowMessage ? { message: windowMessage } : {}),
 		logs: logsForResponse,
 		pagination: {
 			nextCursor,
@@ -909,49 +1048,44 @@ logs.openapi(uniqueModelsGet, async (c) => {
 		});
 	}
 
-	// Build where conditions
-	const whereConditions = [];
-	if (projectId) {
-		whereConditions.push(eq(tables.log.projectId, projectId));
-	} else {
-		whereConditions.push(inArray(tables.log.projectId, projectIds));
-	}
+	// Read the hourly aggregates, not `log`: a DISTINCT over a project's log
+	// history scans every row it ever wrote.
+	const stats = tables.apiKeyHourlyModelStats;
+	const whereConditions = [
+		projectId
+			? eq(stats.projectId, projectId)
+			: inArray(stats.projectId, projectIds),
+		gte(stats.hourTimestamp, new Date(Date.now() - UNIQUE_MODELS_WINDOW_MS)),
+	];
 
 	// The filter options must describe the logs the caller can actually read, so
 	// a developer sees only the models and providers their own keys used.
 	const scopeCondition = apiKeyScopeFilter(
 		await getApiKeyScope(user.id, projectIds),
-		tables.log.projectId,
-		tables.log.apiKeyId,
+		stats.projectId,
+		stats.apiKeyId,
 	);
 	if (scopeCondition) {
 		whereConditions.push(scopeCondition);
 	}
 
-	const finalWhereClause =
-		whereConditions.length > 0 ? and(...whereConditions) : undefined;
-
-	const [uniqueUsedModels, uniqueUsedProviders] = await Promise.all([
-		db
-			.selectDistinct({ usedModel: tables.log.usedModel })
-			.from(tables.log)
-			.where(finalWhereClause!),
-		db
-			.selectDistinct({ usedProvider: tables.log.usedProvider })
-			.from(tables.log)
-			.where(finalWhereClause!),
-	]);
-
+	const rows = await withLogQueryLimits(
+		async (tx) =>
+			await tx
+				.selectDistinct({
+					usedModel: stats.usedModel,
+					usedProvider: stats.usedProvider,
+				})
+				.from(stats)
+				.where(and(...whereConditions)),
+	);
 	const modelNames = new Set<string>();
 	const providerNames = new Set<string>();
 
-	for (const row of uniqueUsedProviders) {
+	for (const row of rows) {
 		if (row.usedProvider) {
 			providerNames.add(row.usedProvider);
 		}
-	}
-
-	for (const row of uniqueUsedModels) {
 		const usedModel = row.usedModel;
 		if (!usedModel) {
 			continue;
@@ -981,22 +1115,22 @@ logs.openapi(getById, async (c) => {
 
 	const { id } = c.req.valid("param");
 
-	const baseQuery = () =>
-		db
-			.select(logSelection)
+	const found = await withLogQueryLimits(async (tx) => {
+		const byId = await tx
+			.select(publicLogColumns)
 			.from(tables.log)
-			.leftJoin(
-				tables.organization,
-				eq(tables.log.organizationId, tables.organization.id),
-			)
-			.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
-			.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id));
-
-	let [log] = await baseQuery().where(eq(tables.log.id, id)).limit(1);
-
-	if (!log) {
-		[log] = await baseQuery().where(eq(tables.log.requestId, id)).limit(1);
-	}
+			.where(eq(tables.log.id, id))
+			.limit(1);
+		if (byId.length) {
+			return byId;
+		}
+		return await tx
+			.select(publicLogColumns)
+			.from(tables.log)
+			.where(eq(tables.log.requestId, id))
+			.limit(1);
+	});
+	const [log] = await withNames(found);
 
 	if (!log) {
 		throw new HTTPException(404, { message: "Log not found" });

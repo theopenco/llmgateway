@@ -3004,12 +3004,12 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		).toBeUndefined();
 	});
 
-	test("normalizes none to off for Anthropic (thinking not enabled)", async () => {
+	test("forwards none to Anthropic as thinking disabled", async () => {
 		const requestBody = (await prepare({
 			provider: "anthropic",
 			model: "claude-sonnet-4-20250514",
 		})) as AnthropicRequestBody;
-		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
 	});
 });
 
@@ -3113,6 +3113,30 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		});
 		expect(requestBody.max_completion_tokens).toBe(4096);
 		expect(requestBody.max_tokens).toBeUndefined();
+	});
+
+	test.each(["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])(
+		"forwards reasoning_effort and max_completion_tokens for %s",
+		async (model) => {
+			const requestBody = await prepare({
+				model,
+				reasoningEffort: "low",
+				maxTokens: 4096,
+			});
+			expect(requestBody.reasoning_effort).toBe("low");
+			expect(requestBody.thinking).toBeUndefined();
+			expect(requestBody.max_completion_tokens).toBe(4096);
+			expect(requestBody.max_tokens).toBeUndefined();
+		},
+	);
+
+	test("collapses disable requests onto the provider default for kimi-k3.1-pro", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3.1-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
 	});
 
 	type Effort = Parameters<typeof prepareRequestBody>[14];
@@ -3664,6 +3688,27 @@ describe("prepareRequestBody - MiniMax thinking", () => {
 		expect(requestBody.thinking).toEqual({ type: "adaptive" });
 		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
 	});
+
+	test("forwards graduated reasoning_effort when the mapping supports it", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3.1-flash",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test.each(["none", "minimal"] as const)(
+		"collapses %s onto the lowest declared tier on always-on effort models",
+		async (reasoningEffort) => {
+			const requestBody = await prepare({
+				model: "minimax-m3.1-flash",
+				reasoningEffort,
+			});
+			expect(requestBody.reasoning_effort).toBe("low");
+			expect(requestBody.thinking).toBeUndefined();
+		},
+	);
 });
 
 describe("prepareRequestBody - Xiaomi thinking", () => {
@@ -6116,7 +6161,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6152,7 +6197,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should rewrite parameters with type: null to type: object", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6193,7 +6238,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 		};
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -9532,6 +9577,225 @@ describe("prepareRequestBody - Xiaomi", () => {
 	});
 });
 
+describe("prepareRequestBody - Anthropic thinking disabled", () => {
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				parameters: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		},
+	];
+
+	async function prepare(options: {
+		provider?:
+			"anthropic" | "vertex-anthropic" | "azure-anthropic" | "aws-bedrock";
+		model: string;
+		reasoningEffort?: Parameters<typeof prepareRequestBody>[14];
+		toolChoice?: Parameters<typeof prepareRequestBody>[13];
+	}) {
+		return (await prepareRequestBody(
+			options.provider ?? "anthropic",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			options.toolChoice ? tools : undefined,
+			options.toolChoice,
+			options.reasoningEffort,
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+	}
+
+	test.each([
+		["anthropic", "claude-haiku-5-5"],
+		["anthropic", "claude-sonnet-5"],
+		["anthropic", "claude-sonnet-4-5"],
+		["vertex-anthropic", "claude-sonnet-4-5"],
+	] as const)(
+		"%s %s forwards none as thinking disabled",
+		async (provider, model) => {
+			const requestBody = await prepare({
+				provider,
+				model,
+				reasoningEffort: "none",
+			});
+
+			expect(requestBody.thinking).toEqual({ type: "disabled" });
+			expect(requestBody.output_config?.effort).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	test("keeps a forced tool choice with thinking disabled", async () => {
+		const requestBody = await prepare({
+			model: "claude-haiku-5-5",
+			reasoningEffort: "none",
+			toolChoice: { type: "function", function: { name: "get_weather" } },
+		});
+
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.tool_choice).toEqual({
+			type: "tool",
+			name: "get_weather",
+		});
+	});
+
+	test("sends no thinking field when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "claude-haiku-5-5" });
+
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test.each(["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-4-5"])(
+		"aws-bedrock %s forwards none as thinking disabled",
+		async (model) => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model,
+				reasoningEffort: "none",
+				toolChoice: { type: "function", function: { name: "get_weather" } },
+			});
+
+			expect(requestBody.additionalModelRequestFields?.thinking).toEqual({
+				type: "disabled",
+			});
+			expect(
+				requestBody.additionalModelRequestFields?.output_config,
+			).toBeUndefined();
+		},
+	);
+
+	test("aws-bedrock sends no thinking field when no effort is requested", async () => {
+		const requestBody = await prepare({
+			provider: "aws-bedrock",
+			model: "claude-haiku-5-5",
+		});
+
+		expect(requestBody.additionalModelRequestFields?.thinking).toBeUndefined();
+	});
+	describe("aws-bedrock forced tool choice", () => {
+		test.each([
+			["required", "required" as const, { any: {} } as Record<string, unknown>],
+			[
+				"a named function",
+				{
+					type: "function" as const,
+					function: { name: "get_weather" },
+				},
+				{ tool: { name: "get_weather" } },
+			],
+		])(
+			"forwards %s as toolConfig.toolChoice",
+			async (_label, toolChoice, expected) => {
+				for (const reasoningEffort of [undefined, "none", "high"] as const) {
+					const requestBody = await prepare({
+						provider: "aws-bedrock",
+						model: "claude-haiku-5-5",
+						reasoningEffort,
+						toolChoice,
+					});
+
+					expect(requestBody.toolConfig.toolChoice).toEqual(expected);
+					expect(requestBody.tool_choice).toBeUndefined();
+				}
+			},
+		);
+
+		test("keeps sonnet-5 forced tool choice on every provider", async () => {
+			for (const provider of [
+				"anthropic",
+				"vertex-anthropic",
+				"azure-anthropic",
+			] as const) {
+				const requestBody = await prepare({
+					provider,
+					model: "claude-sonnet-5",
+					toolChoice: "required",
+				});
+				expect(requestBody.tool_choice).toEqual({ type: "any" });
+			}
+			const bedrock = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-sonnet-5",
+				toolChoice: "required",
+			});
+			expect(bedrock.toolConfig.toolChoice).toEqual({ any: {} });
+		});
+
+		test("leaves auto unset", async () => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-haiku-5-5",
+				toolChoice: "auto",
+			});
+
+			expect(requestBody.toolConfig.toolChoice).toBeUndefined();
+		});
+
+		test("stays on auto with budget thinking, which rejects forced tool use", async () => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-sonnet-4-5",
+				reasoningEffort: "high",
+				toolChoice: "required",
+			});
+
+			expect(requestBody.additionalModelRequestFields.thinking.type).toBe(
+				"enabled",
+			);
+			expect(requestBody.toolConfig.toolChoice).toBeUndefined();
+		});
+
+		test("forwards forced tool choice to budget-era models without thinking", async () => {
+			const requestBody = await prepare({
+				provider: "aws-bedrock",
+				model: "claude-sonnet-4-5",
+				toolChoice: "required",
+			});
+
+			expect(requestBody.toolConfig.toolChoice).toEqual({ any: {} });
+		});
+	});
+
+	// These models 400 on `thinking: { type: "disabled" }` (verified live).
+	test.each([
+		["anthropic", "claude-sonnet-5-5"],
+		["anthropic", "claude-fable-5"],
+		["anthropic", "claude-opus-5-5"],
+		["azure-anthropic", "claude-opus-5-5"],
+		["aws-bedrock", "claude-sonnet-5-5"],
+		["aws-bedrock", "claude-fable-5-1"],
+	] as const)(
+		"%s %s never sends disabled to a model that cannot turn thinking off",
+		async (provider, model) => {
+			const requestBody = await prepare({
+				provider,
+				model,
+				reasoningEffort: "none",
+			});
+
+			expect(requestBody.thinking).toBeUndefined();
+			expect(
+				requestBody.additionalModelRequestFields?.thinking,
+			).toBeUndefined();
+			expect(requestBody.output_config?.effort).toBeUndefined();
+		},
+	);
+});
+
 describe("prepareRequestBody - developer role normalization", () => {
 	async function prepare(
 		provider: string,
@@ -9811,6 +10075,115 @@ describe("prepareRequestBody - DashScope web search", () => {
 			expect(requestBody.search_options).toBeUndefined();
 		},
 	);
+});
+
+describe("prepareRequestBody - declared web search format", () => {
+	const prepare = (
+		provider: string,
+		webSearchTool: any,
+		webSearchFormat?: "web_search_options" | "web_search_tool",
+		tools?: unknown[],
+	) => {
+		const args: unknown[] = [
+			provider,
+			"qwen3.8-max",
+			null,
+			"qwen3.8-max",
+			[{ role: "user", content: "hi" }],
+			false,
+		];
+		args[12] = tools;
+		args[23] = webSearchTool;
+		args[25] = false;
+		args[40] = webSearchFormat;
+		return (prepareRequestBody as (...a: unknown[]) => Promise<any>)(...args);
+	};
+
+	test.each(["openai", "scx-ai-gp", "custom"])(
+		"%s sends the tool shape, forcing with required",
+		async (provider) => {
+			const body = await prepare(
+				provider,
+				{ type: "web_search", search_context_size: "low", forced: true },
+				"web_search_tool",
+			);
+			expect(body.tools).toEqual([
+				{ type: "web_search", search_context_size: "low" },
+			]);
+			expect(body.tool_choice).toBe("required");
+			expect(body.enable_search).toBeUndefined();
+			expect(body.web_search_options).toBeUndefined();
+		},
+	);
+
+	test.each(["openai", "scx-ai-gp", "custom"])(
+		"%s sends web_search_options for an offered search",
+		async (provider) => {
+			const body = await prepare(
+				provider,
+				{ type: "web_search" },
+				"web_search_options",
+			);
+			expect(body.web_search_options).toEqual({});
+			expect(body.tools).toBeUndefined();
+			expect(body.tool_choice).toBeUndefined();
+		},
+	);
+
+	test.each(["openai", "custom"])(
+		"%s leaves a forced search to the model next to function tools",
+		async (provider) => {
+			const fn = {
+				type: "function",
+				function: {
+					name: "get_weather",
+					parameters: { type: "object", properties: {} },
+				},
+			};
+			const body = await prepare(
+				provider,
+				{ type: "web_search", forced: true },
+				"web_search_tool",
+				[fn],
+			);
+			// "required" could be met by calling get_weather instead of searching.
+			expect(body.tools).toEqual([
+				expect.objectContaining({ type: "function" }),
+				{ type: "web_search" },
+			]);
+			expect(body.tool_choice).toBeUndefined();
+		},
+	);
+
+	test("sends nothing without a web search tool", async () => {
+		const body = await prepare("custom", undefined, "web_search_tool");
+		expect(body.tools).toBeUndefined();
+		expect(body.web_search_options).toBeUndefined();
+	});
+
+	test.each(["zai", "alibaba", "moonshot", "together-ai"])(
+		"%s sends only the declared shape",
+		async (provider) => {
+			const body = await prepare(
+				provider,
+				{ type: "web_search", forced: true },
+				"web_search_tool",
+			);
+			expect(body.tools).toEqual([{ type: "web_search" }]);
+			expect(body.tool_choice).toBe("required");
+			expect(body.enable_search).toBeUndefined();
+			expect(body.search_options).toBeUndefined();
+		},
+	);
+
+	test("leaves alibaba's DashScope translation alone", async () => {
+		const body = await prepare("alibaba", {
+			type: "web_search",
+			forced: true,
+		});
+		expect(body.enable_search).toBe(true);
+		expect(body.search_options).toEqual({ forced_search: true });
+	});
 });
 
 describe("prepareRequestBody - tool_choice with thinking disabled", () => {
@@ -10199,11 +10572,11 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 
 	test("forwards to an OpenAI-compatible mapping that declares it", async () => {
 		const mapping = models
-			.find((m) => m.id === "kimi-k2.5")
-			?.providers.find((p) => p.providerId === "embercloud");
+			.find((m) => m.id === "glm-4.6v-flash")
+			?.providers.find((p) => p.providerId === "zai");
 		expect(mapping?.supportedParameters).toContain("parallel_tool_calls");
 
-		const body = await prepare("embercloud", "kimi-k2.5", {
+		const body = await prepare("zai", "glm-4.6v-flash", {
 			parallel_tool_calls: false,
 		});
 		expect(body.parallel_tool_calls).toBe(false);
@@ -10365,4 +10738,338 @@ describe("prepareRequestBody - images inside tool results", () => {
 			},
 		]);
 	});
+});
+
+describe("prepareRequestBody - custom provider cache_control forwarding", () => {
+	const messages: BaseMessage[] = [
+		{
+			role: "system",
+			content: [
+				{
+					type: "text",
+					text: "You are a coding agent.",
+					cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+			],
+		},
+		{ role: "user", content: "Read the file." },
+		{
+			role: "assistant",
+			content: "",
+			tool_calls: [
+				{
+					id: "call_1",
+					type: "function",
+					function: { name: "read_file", arguments: "{}" },
+				},
+			],
+		},
+		{
+			role: "tool",
+			tool_call_id: "call_1",
+			content: "file contents",
+			tool_result_cache_control: { type: "ephemeral" },
+		},
+		{
+			role: "user",
+			content: [
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+					cache_control: { type: "ephemeral" },
+				} as never,
+				{
+					type: "text",
+					text: "Now fix it.",
+					cache_control: { type: "ephemeral", ttl: "10m" } as never,
+				},
+			],
+		},
+	];
+
+	async function prepareCustom(
+		forwardCacheControl: boolean | undefined,
+		mode: ProviderCacheControlMode = "auto",
+	) {
+		return (await prepareRequestBody(
+			"custom",
+			"claude-sonnet-router",
+			null,
+			"claude-sonnet-router",
+			messages,
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			mode, // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			forwardCacheControl,
+		)) as OpenAIRequestBody;
+	}
+
+	// Text-part markers only: the pre-existing strip path leaves non-text parts
+	// untouched for every provider that does not take markers.
+	function markers(body: OpenAIRequestBody): unknown[] {
+		return body.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content
+						.filter((part) => part.type === "text")
+						.map((part) => getCacheControl(part))
+				: [],
+		);
+	}
+
+	test("forwards caller markers when the key opts in", async () => {
+		const body = await prepareCustom(true);
+
+		expect(
+			getCacheControl((body.messages[0]!.content as unknown[])[0]),
+		).toEqual({ type: "ephemeral", ttl: "1h" });
+		// The tool_result carrier becomes a marker on a text part.
+		const toolMsg = body.messages[3]!;
+		expect(toolMsg).not.toHaveProperty("tool_result_cache_control");
+		expect(toolMsg.content).toEqual([
+			{
+				type: "text",
+				text: "file contents",
+				cache_control: { type: "ephemeral" },
+			},
+		]);
+		// Non-text parts lose their marker; an unknown ttl is normalized away.
+		const lastContent = body.messages[4]!.content as unknown[];
+		expect(getCacheControl(lastContent[0])).toBeUndefined();
+		expect(getCacheControl(lastContent[1])).toEqual({ type: "ephemeral" });
+	});
+
+	test("drops malformed markers", async () => {
+		const body = (await prepareRequestBody(
+			"custom",
+			"claude-sonnet-router",
+			null,
+			"claude-sonnet-router",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "hi",
+							cache_control: { ttl: "1h" } as never,
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+						},
+					],
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			true, // forwardCacheControl
+		)) as OpenAIRequestBody;
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+		// A tool result with no text part has nowhere to carry its marker.
+		expect(body.messages[1]).not.toHaveProperty("tool_result_cache_control");
+	});
+
+	test("does not inject markers of its own", async () => {
+		const body = await prepareCustom(true);
+		expect(markers(body).filter(Boolean)).toHaveLength(3);
+		expect(body.messages[1]!.content).toBe("Read the file.");
+	});
+
+	test.each([false, undefined])(
+		"strips caller markers when the key has not opted in (%s)",
+		async (forward) => {
+			const body = await prepareCustom(forward);
+
+			expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+			expect(body.messages[3]).not.toHaveProperty("tool_result_cache_control");
+			expect(body.messages[3]!.content).toBe("file contents");
+		},
+	);
+
+	test("strips everything when project cache writes are off", async () => {
+		const body = await prepareCustom(true, "off");
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+		expect(body.messages[3]).not.toHaveProperty("tool_result_cache_control");
+		expect(body.messages[3]!.content).toBe("file contents");
+	});
+
+	test("forwards in passthrough mode", async () => {
+		const body = await prepareCustom(true, "passthrough");
+		expect(markers(body).filter(Boolean)).toHaveLength(3);
+	});
+
+	test("ignores the flag for non-custom providers", async () => {
+		const body = (await prepareRequestBody(
+			"openai",
+			"gpt-4o-mini",
+			null,
+			"gpt-4o-mini",
+			messages,
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			true, // forwardCacheControl
+		)) as OpenAIRequestBody;
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+	});
+});
+
+describe("prepareRequestBody - Alibaba input_audio", () => {
+	async function prepare(data: string) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"qwen3.8-omni-flash",
+			null,
+			"qwen3.8-omni-flash",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What do you hear?" },
+						{ type: "input_audio", input_audio: { data, format: "wav" } },
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as {
+			messages: { content: { input_audio?: { data: string } }[] }[];
+		};
+	}
+
+	test("wraps bare base64 audio in a data URL", async () => {
+		const requestBody = await prepare("UklGRg==");
+		expect(requestBody.messages[0].content[1].input_audio).toEqual({
+			data: "data:;base64,UklGRg==",
+			format: "wav",
+		});
+	});
+
+	test.each(["data:audio/wav;base64,UklGRg==", "https://example.com/a.wav"])(
+		"forwards %s unchanged",
+		async (data) => {
+			const requestBody = await prepare(data);
+			expect(requestBody.messages[0].content[1].input_audio?.data).toBe(data);
+		},
+	);
 });

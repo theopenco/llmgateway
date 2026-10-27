@@ -116,6 +116,16 @@ describe("/v1/key", () => {
 		);
 	});
 
+	test("derives the daily limit from the stored cycle allowance", async () => {
+		await insertApiKey();
+		await harness.setDevPlan({ devPlan: "max", creditsLimit: "568.52" });
+
+		const res = await getKey("real-token");
+		expect(res.status).toBe(200);
+		const { data } = await res.json();
+		expect(data.devPlanDailyLimit).toBe("56.85");
+	});
+
 	test("reports zero daily usage once the pacing window has rolled over", async () => {
 		await insertApiKey();
 		await harness.setDevPlan({
@@ -153,7 +163,7 @@ describe("/v1/key", () => {
 		expect(data.devPlanCreditsLimit).toBe("237");
 		expect(data.devPlanCreditsRemaining).toBe("212.00");
 		expect(data.devPlanPremiumWeeklyLimit).toBe(
-			getDevPlanPremiumWeeklyLimit("pro").toFixed(2),
+			getDevPlanPremiumWeeklyLimit("pro", "237").toFixed(2),
 		);
 		expect(data.devPlanPremiumCreditsUsed).toBe("5.00");
 		expect(data.devPlanPremiumWeekResetsAt).toBe(

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	adoptAnthropicThinkingBlock,
+	exposeAnthropicThinkingBlock,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
@@ -177,5 +179,39 @@ describe("anthropic thinking replay", () => {
 		expect(
 			body.messages.some((message) => "reasoning_details" in message),
 		).toBe(false);
+	});
+});
+
+describe("Messages API thinking signatures", () => {
+	test("Anthropic API signatures go out unsealed and come back sealed", () => {
+		const sealed = sealAnthropicThinkingBlock("anthropic", THINKING);
+		const exposed = exposeAnthropicThinkingBlock(sealed);
+		expect(exposed).toEqual(THINKING);
+		expect(adoptAnthropicThinkingBlock(exposed)).toEqual(sealed);
+		expect(
+			adoptAnthropicThinkingBlock(
+				exposeAnthropicThinkingBlock(
+					sealAnthropicThinkingBlock("anthropic", REDACTED),
+				),
+			),
+		).toEqual(sealAnthropicThinkingBlock("anthropic", REDACTED));
+	});
+
+	test("other providers' signatures stay sealed", () => {
+		const sealed = sealAnthropicThinkingBlock("vertex-anthropic", THINKING);
+		expect(exposeAnthropicThinkingBlock(sealed)).toEqual(sealed);
+		expect(adoptAnthropicThinkingBlock(sealed)).toEqual(sealed);
+	});
+
+	test("an unsealed base64 signature is attributed to the Anthropic API", () => {
+		const block: AnthropicThinkingBlock = {
+			type: "thinking",
+			thinking: "x",
+			signature: "EqQBCkgIARABGAIiQL+/abc=",
+		};
+		expect(adoptAnthropicThinkingBlock(block)).toEqual({
+			...block,
+			signature: `anthropic:${block.signature}`,
+		});
 	});
 });

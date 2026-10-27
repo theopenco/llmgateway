@@ -201,6 +201,27 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 			"M4 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z M8 6h8 M16 14v4 M16 10h.01 M12 10h.01 M8 10h.01 M12 14h.01 M8 14h.01 M12 18h.01 M8 18h.01",
 		countFilter: (m) => curatedCategoryModelIds.math.has(m.id),
 	},
+	"cyber-security": {
+		title: "Cyber Security",
+		subtitle: "Models for code audits, log triage, and CTFs",
+		accentColor: "#EF4444",
+		accentColorDim: "#7F1D1D",
+		// Lucide "ShieldCheck" icon path
+		iconSvgPath:
+			"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M9 12l2 2 4-4",
+		countFilter: (m) => curatedCategoryModelIds["cyber-security"].has(m.id),
+	},
+	"reverse-engineering": {
+		title: "Reverse Engineering",
+		subtitle: "Models that read binaries and finish the job",
+		accentColor: "#A855F7",
+		accentColorDim: "#4C1D95",
+		// Lucide "Cpu" icon path
+		iconSvgPath:
+			"M12 20v2 M12 2v2 M17 20v2 M17 2v2 M2 12h2 M2 17h2 M2 7h2 M20 12h2 M20 17h2 M20 7h2 M7 20v2 M7 2v2 M4 4h16v16H4z M9 9h6v6H9z",
+		countFilter: (m) =>
+			curatedCategoryModelIds["reverse-engineering"].has(m.id),
+	},
 	"long-context": {
 		title: "Long Context",
 		subtitle: "Context windows from 200K to 2M tokens",

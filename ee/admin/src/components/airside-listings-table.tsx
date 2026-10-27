@@ -198,6 +198,15 @@ export function AirsideListingsTable({
 										{listing.delistReason.replace("_", " ")}
 									</div>
 								) : null}
+								{listing.pausedAt ? (
+									<div
+										className="text-xs text-amber-600 dark:text-amber-400"
+										title="Out of service until the carrier resumes it in Airside."
+									>
+										paused by carrier{" "}
+										{new Date(listing.pausedAt).toLocaleDateString()}
+									</div>
+								) : null}
 								{listing.relistRequestedAt ? (
 									<div className="text-xs text-amber-600 dark:text-amber-400">
 										relist requested{" "}
