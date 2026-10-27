@@ -45,12 +45,18 @@ interface ConnectParams {
 	// connecting the DevPass subscription provider so usage bills the DevPass
 	// plan; pay-as-you-go connects keep using the default dashboard org.
 	org: "default" | "devpass";
+	// RFC 7636 S256 challenge. When present, the loopback receives a one-time
+	// code the CLI redeems with its verifier, so the key never appears in a URL.
+	// Older CLIs omit it and receive the key itself.
+	codeChallenge: string | null;
 }
+
+const CODE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 /**
  * Only local loopback callbacks are allowed. The CLI starts a short-lived HTTP
- * server on localhost and passes its address here; we hand the freshly minted
- * API key back to that loopback so it never leaves the user's machine.
+ * server on localhost and passes its address here; we hand the login result
+ * back to that loopback so it never leaves the user's machine.
  */
 function isLoopbackCallback(callback: string): boolean {
 	try {
@@ -82,7 +88,15 @@ function readParams(): ConnectParams | null {
 	const params = new URLSearchParams(window.location.search);
 	const callback = params.get("callback") ?? "";
 	const state = params.get("state") ?? "";
+	const codeChallenge = params.get("code_challenge");
 	if (!callback || !state) {
+		return null;
+	}
+	if (
+		codeChallenge !== null &&
+		(params.get("code_challenge_method") !== "S256" ||
+			!CODE_CHALLENGE_PATTERN.test(codeChallenge))
+	) {
 		return null;
 	}
 	return {
@@ -91,6 +105,7 @@ function readParams(): ConnectParams | null {
 		source: params.get("source") ?? "coding CLI",
 		name: (params.get("name") ?? "").slice(0, 80),
 		org: params.get("org") === "devpass" ? "devpass" : "default",
+		codeChallenge,
 	};
 }
 
@@ -150,8 +165,11 @@ export default function ConnectCliPage() {
 			projectsQuery.isError ||
 			(!projectLoading && !pickedProject);
 
+	// The error renders under the button, so skip the global error toast.
 	const createApiKey = api.useMutation("post", "/keys/api", {
-		// The error renders under the button, so skip the global error toast.
+		onError: () => {},
+	});
+	const createApiKeyCode = api.useMutation("post", "/keys/cli-code", {
 		onError: () => {},
 	});
 
@@ -163,15 +181,28 @@ export default function ConnectCliPage() {
 		{},
 		{ enabled: wantsDevPassOrg && !!devPassResult.data },
 	);
+	const refetchDevPassStatus = () => {
+		void devPassStatus.refetch();
+	};
 	const rollDevPassKey = api.useMutation("post", "/dev-plans/rotate-api-key", {
-		onError: () => {
-			void devPassStatus.refetch();
-		},
+		onError: refetchDevPassStatus,
 	});
+	const rollDevPassKeyCode = api.useMutation(
+		"post",
+		"/dev-plans/rotate-api-key/cli-code",
+		{ onError: refetchDevPassStatus },
+	);
 	const devPassKeyId = devPassStatus.data?.apiKey?.id;
 	const devPassInactive =
 		wantsDevPassOrg && !!devPassStatus.data && !devPassKeyId;
-	const keyMutation = wantsDevPassOrg ? rollDevPassKey : createApiKey;
+	const usesCode = !!params?.codeChallenge;
+	const keyMutation = wantsDevPassOrg
+		? usesCode
+			? rollDevPassKeyCode
+			: rollDevPassKey
+		: usesCode
+			? createApiKeyCode
+			: createApiKey;
 
 	const budgetQuery = useMyMemberBudget(
 		wantsDevPassOrg ? "" : (organization?.id ?? ""),
@@ -196,21 +227,29 @@ export default function ConnectCliPage() {
 		? (agentLabel(params.source) ?? params.source)
 		: "";
 
-	const deliverKey = (token: string, keyId: string) => {
+	const deliver = (
+		result: { key: string } | { code: string },
+		keyId: string,
+	) => {
 		if (!params) {
 			return;
 		}
 		posthog.capture("cli_connect_authorized", {
 			source: params.source,
 			keyId,
+			flow: "code" in result ? "code" : "key",
 		});
 
 		const target = new URL(params.callback);
-		target.searchParams.set("key", token);
+		if ("code" in result) {
+			target.searchParams.set("code", result.code);
+		} else {
+			target.searchParams.set("key", result.key);
+		}
 		target.searchParams.set("state", params.state);
 
 		setDone(true);
-		// Hand the credential back to the CLI's local loopback server.
+		// Hand the login result back to the CLI's local loopback server.
 		window.location.href = target.toString();
 	};
 
@@ -218,14 +257,23 @@ export default function ConnectCliPage() {
 		if (!params || keyMutation.isPending) {
 			return;
 		}
+		const codeChallenge = params.codeChallenge;
 
 		if (wantsDevPassOrg) {
-			if (devPassKeyId) {
-				rollDevPassKey.mutate(
-					{ body: { apiKeyId: devPassKeyId } },
-					{ onSuccess: (data) => deliverKey(data.apiKey, data.apiKeyId) },
-				);
+			if (!devPassKeyId) {
+				return;
 			}
+			if (codeChallenge) {
+				rollDevPassKeyCode.mutate(
+					{ body: { apiKeyId: devPassKeyId, codeChallenge } },
+					{ onSuccess: (data) => deliver({ code: data.code }, data.apiKeyId) },
+				);
+				return;
+			}
+			rollDevPassKey.mutate(
+				{ body: { apiKeyId: devPassKeyId } },
+				{ onSuccess: (data) => deliver({ key: data.apiKey }, data.apiKeyId) },
+			);
 			return;
 		}
 
@@ -234,21 +282,27 @@ export default function ConnectCliPage() {
 		}
 
 		const ttlMs = CLI_KEY_TTL_DAYS * 24 * 60 * 60 * 1000;
-		const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+		const body = {
+			description: `${displayName} (CLI)${
+				params.name ? ` — ${params.name}` : ""
+			}`.slice(0, 100),
+			projectId: project.id,
+			expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+			...keyLimits,
+		};
 
+		if (codeChallenge) {
+			createApiKeyCode.mutate(
+				{ body: { ...body, codeChallenge } },
+				{ onSuccess: (data) => deliver({ code: data.code }, data.apiKeyId) },
+			);
+			return;
+		}
 		createApiKey.mutate(
+			{ body },
 			{
-				body: {
-					description: `${displayName} (CLI)${
-						params.name ? ` — ${params.name}` : ""
-					}`.slice(0, 100),
-					projectId: project.id,
-					expiresAt,
-					...keyLimits,
-				},
-			},
-			{
-				onSuccess: (data) => deliverKey(data.apiKey.token, data.apiKey.id),
+				onSuccess: (data) =>
+					deliver({ key: data.apiKey.token }, data.apiKey.id),
 			},
 		);
 	};
