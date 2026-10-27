@@ -136,7 +136,7 @@ Terminates evaluation and routes the request to a catalog model (see the [models
 
 A `model` node can also target one of your organization's [custom catalog models](/features/custom-providers#custom-model-catalog) as `<customProviderName>/<modelName>`. Such a node must not set `providers` (the custom model already fixes its provider), and the referenced custom model must be active in your organization when the route is saved or published.
 
-Optional `reasoningEffort` (`none` through `max`) replaces the caller's reasoning effort for requests that resolve to this node. The effort must be one the model's mappings (narrowed to `providers`, when set) declare; the visual editor only offers those. Set `reasoningEffortNearest: true` to accept any effort: each provider then receives the closest effort it declares, preferring the higher one on a tie. `none` is always accepted for a reasoning model and never adjusted. Without it, the effort is forwarded as-is.
+Optional `reasoningEffort` (`none` through `max`) replaces the caller's reasoning effort for requests that resolve to this node. When the catalog declares efforts for the model's mappings (narrowed to `providers`, when set), the effort must be one they declare and the visual editor offers only those; a model whose mappings do not reason rejects every effort. When support is unknown, for example for a custom model, every effort is accepted and offered. Set `reasoningEffortNearest: true` to also accept an effort the mappings do not declare: each provider then receives the closest effort it declares, preferring the higher one on a tie. `none` is always accepted for a reasoning model and never adjusted. Without `reasoningEffortNearest`, the effort is forwarded as-is.
 
 ```json
 {
@@ -159,7 +159,7 @@ Graphs are validated when you save a draft and again when you publish:
 - every referenced node must exist and be reachable from `entry`
 - cycles are rejected — evaluation is deterministic per request, so a revisited node would loop forever
 - model ids and provider ids must exist in the catalog, and each listed provider must actually serve the model
-- a `model` node's `reasoningEffort` must be supported by the model unless `reasoningEffortNearest` is set
+- a `model` node's `reasoningEffort` needs a model that supports reasoning, and must be one its mappings declare unless `reasoningEffortNearest` is set
 - operator/value mismatches (e.g. `gt` with a non-numeric value) are rejected
 - a `classifier` node's case values must be valid for its `on` answer, and must not repeat
 
