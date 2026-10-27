@@ -9,7 +9,7 @@ import { ShimmerButton } from "@/lib/components/shimmer-button";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import type { Variants } from "@/components/motion-wrapper";
+import type { Variants } from "framer-motion";
 
 const containerVariants: Variants = {
 	hidden: { opacity: 0 },
@@ -33,10 +33,9 @@ const itemVariants: Variants = {
 };
 
 // LazyMotion + m keep framer-motion's animation runtime out of the initial
-// bundle; the footer renders on ~70 marketing pages where Newsletter is the
-// only motion user.
+// bundle; the footer renders on ~70 marketing pages.
 const loadMotionFeatures = () =>
-	import("./newsletter-motion-features").then((mod) => mod.default);
+	import("@/components/motion-features").then((mod) => mod.default);
 
 const perks = [
 	{

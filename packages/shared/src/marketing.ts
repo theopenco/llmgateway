@@ -16,33 +16,3 @@ export const MARKETING_STATS = {
 	dataStoragePrice: "$0.01 per 1M tokens",
 	githubStars: "1.6K+",
 } as const;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const SCX_PROMO_DURATION_MS = 15 * DAY_MS;
-const SCX_PROMO_STARTS_AT = "2026-09-09T23:59:59Z";
-// Extended by 15 days on 2026-09-22.
-const SCX_PROMO_EXTENSION_MS = 15 * DAY_MS;
-
-export const SCX_PROMO = {
-	id: "scx",
-	discountPercent: 20,
-	modelCount: 7,
-	startsAt: SCX_PROMO_STARTS_AT,
-	endsAt: new Date(
-		Date.parse(SCX_PROMO_STARTS_AT) +
-			SCX_PROMO_DURATION_MS +
-			SCX_PROMO_EXTENSION_MS,
-	).toISOString(),
-	announcementPath: "/blog/scx-model-discount-extended",
-	announcementUrl: "https://llmgateway.io/blog/scx-model-discount-extended",
-} as const;
-
-export function getActiveProviderPromo(now = Date.now()) {
-	if (
-		now >= Date.parse(SCX_PROMO.startsAt) &&
-		now < Date.parse(SCX_PROMO.endsAt)
-	) {
-		return SCX_PROMO;
-	}
-	return null;
-}

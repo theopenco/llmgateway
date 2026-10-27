@@ -5552,16 +5552,6 @@ export async function prepareRequestBody(
 				requestBody.service_tier = supportedServiceTier;
 			}
 
-			// SCX resells Alibaba's Qwen models and passes DashScope's search
-			// parameters straight through, so its Qwen mappings take the same shape
-			// as the `alibaba` case above.
-			if (
-				usedProvider === "scx-ai-gp" &&
-				webSearchTool?.forced &&
-				!webSearchFormat
-			) {
-				applyDashScopeWebSearch(requestBody);
-			}
 			applyDeclaredWebSearch(requestBody);
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
