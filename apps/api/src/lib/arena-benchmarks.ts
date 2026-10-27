@@ -189,7 +189,6 @@ export function findArenaMatch(
 		// DeepSeek models
 		"deepseek-r1": ["deepseek-r1", "deepseek-r1-0528"],
 		"deepseek-v3": ["deepseek-v3-0324", "deepseek-v3"],
-		"deepseek-chat": ["deepseek-v3-0324", "deepseek-v3"],
 		// Mistral models
 		"mistral-large-latest": ["mistral-large-3"],
 		"mistral-small-latest": ["mistral-small-2501"],

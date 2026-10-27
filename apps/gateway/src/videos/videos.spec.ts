@@ -339,6 +339,61 @@ describe("videos", () => {
 		});
 	});
 
+	test("/v1/videos routes AtlasCloud KLING v3.0 Pro frames to the Pro upstream model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-pro",
+				prompt: "Animate this product shot with a slow camera push",
+				size: "1080x1920",
+				seconds: 5,
+				audio: false,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		expect(created.model).toBe("atlascloud/kling-v3-0-pro");
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedModel).toBe("kwaivgi/kling-v3.0-pro/image-to-video");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-v3.0-pro/image-to-video",
+			duration: 5,
+			aspect_ratio: "9:16",
+			sound: false,
+		});
+		expect(mockVideo?.requestBody).toHaveProperty("image");
+	});
+
 	test("/v1/videos does not persist prompts when retention is off", async () => {
 		await db
 			.update(tables.organization)
@@ -1289,6 +1344,324 @@ describe("videos", () => {
 		});
 		expect(logs).toHaveLength(1);
 		expect(logs[0].videoOutputCost).toBe(0.56);
+	});
+
+	async function startGeminiInteractionsMock(
+		interaction: Record<string, unknown>,
+	) {
+		const requests: Array<{
+			method?: string;
+			url?: string;
+			apiKey?: string | string[];
+			body: string;
+		}> = [];
+		const server = createServer((req, res) => {
+			let body = "";
+			req.on("data", (chunk) => {
+				body += chunk;
+			});
+			req.on("end", () => {
+				requests.push({
+					method: req.method,
+					url: req.url,
+					apiKey: req.headers["x-goog-api-key"],
+					body,
+				});
+				if (req.method === "POST" && req.url === "/v1beta/interactions") {
+					res.setHeader("Content-Type", "application/json");
+					res.end(
+						JSON.stringify({ id: interaction.id, status: "in_progress" }),
+					);
+					return;
+				}
+				if (req.url === `/v1beta/interactions/${String(interaction.id)}`) {
+					res.setHeader("Content-Type", "application/json");
+					res.end(JSON.stringify(interaction));
+					return;
+				}
+				if (req.url === "/v1beta/files/mockfile1:download?alt=media") {
+					res.setHeader("Content-Type", "video/mp4");
+					res.end("omni-video-bytes");
+					return;
+				}
+				res.statusCode = 404;
+				res.end();
+			});
+		});
+		await new Promise<void>((resolve) => {
+			server.listen(0, "127.0.0.1", resolve);
+		});
+		const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-ai-studio",
+			...encryptProviderKeyForStorage(
+				"ai-studio-test-token",
+				"provider-key-ai-studio",
+				"org-id",
+			),
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: url,
+		});
+
+		return {
+			requests,
+			close: async () =>
+				await new Promise<void>((resolve) => {
+					server.close(() => resolve());
+				}),
+		};
+	}
+
+	function completedOmniInteraction(videoTokens: number) {
+		return {
+			id: "v1_mock-interaction",
+			status: "completed",
+			model: "gemini-omni-1.1-flash",
+			usage: {
+				total_input_tokens: 20,
+				total_output_tokens: videoTokens,
+				total_thought_tokens: 300,
+				output_tokens_by_modality: [{ modality: "video", tokens: videoTokens }],
+			},
+			steps: [
+				{ type: "user_input", content: [{ type: "text", text: "x" }] },
+				{ type: "thought", signature: "sig" },
+				{
+					type: "model_output",
+					content: [
+						{
+							type: "video",
+							mime_type: "video/mp4",
+							uri: "https://generativelanguage.googleapis.com/v1beta/files/mockfile1:download?alt=media",
+						},
+					],
+				},
+			],
+		};
+	}
+
+	async function createOmniVideo(body: Record<string, unknown>) {
+		return await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-omni-1.1-flash",
+				prompt: "A paper boat drifting on a pond",
+				...body,
+			}),
+		});
+	}
+
+	test("/v1/videos runs Gemini Omni through the AI Studio Interactions API", async () => {
+		const upstream = await startGeminiInteractionsMock(
+			completedOmniInteraction(5793),
+		);
+		try {
+			const createRes = await createOmniVideo({ size: "360x640", seconds: 3 });
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+			expect(upstream.requests[0]?.apiKey).toBe("ai-studio-test-token");
+			expect(JSON.parse(upstream.requests[0].body)).toEqual({
+				model: "gemini-omni-1.1-flash",
+				input: "A paper boat drifting on a pond",
+				background: true,
+				response_format: {
+					type: "video",
+					delivery: "uri",
+					aspect_ratio: "9:16",
+					resolution: "360p",
+					duration: "3s",
+				},
+			});
+
+			await processPendingVideoJobs();
+
+			const completedJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(completedJob?.status).toBe("completed");
+			expect(
+				(completedJob?.upstreamStatusResponse as Record<string, unknown>)
+					.google_ai_studio_file_name,
+			).toBe("files/mockfile1");
+			expect(completedJob?.expiresAt).not.toBeNull();
+
+			const logs = await db.query.log.findMany({
+				where: { usedModel: { eq: "google-ai-studio/gemini-omni-1.1-flash" } },
+			});
+			expect(logs).toHaveLength(1);
+			expect(logs[0].videoOutputCost).toBe(0.101378);
+			expect(logs[0].inputCost).toBe(0.00003);
+			expect(logs[0].outputCost).toBe(0.0027);
+			expect(logs[0].reasoningTokens).toBe("300");
+			expect(logs[0].cost).toBe(0.104108);
+
+			const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(contentRes.status).toBe(200);
+			expect(await contentRes.text()).toBe("omni-video-bytes");
+			expect(upstream.requests.at(-1)?.apiKey).toBe("ai-studio-test-token");
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	test("/v1/videos sends Gemini Omni frames and references as interaction parts", async () => {
+		const upstream = await startGeminiInteractionsMock(
+			completedOmniInteraction(5793),
+		);
+		try {
+			const framesRes = await createOmniVideo({
+				seconds: 4,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				last_frame: { image_url: "data:image/png;base64,d29ybGQ=" },
+			});
+			expect(framesRes.status).toBe(200);
+			expect(JSON.parse(upstream.requests[0].body).input).toEqual([
+				{ type: "image", data: "aGVsbG8=", mime_type: "image/png" },
+				{ type: "image", data: "d29ybGQ=", mime_type: "image/png" },
+				{
+					type: "text",
+					text: "<FIRST_FRAME> <LAST_FRAME> A paper boat drifting on a pond",
+				},
+			]);
+
+			const referencesRes = await createOmniVideo({
+				seconds: 5,
+				reference_images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+				reference_videos: ["https://example.com/motion.mp4"],
+			});
+			expect(referencesRes.status).toBe(200);
+			expect(JSON.parse(upstream.requests[1].body).input).toEqual([
+				{ type: "image", data: "aGVsbG8=", mime_type: "image/png" },
+				{ type: "video", uri: "https://example.com/motion.mp4" },
+				{ type: "text", text: "A paper boat drifting on a pond" },
+			]);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	test("/v1/videos edits and extends a Gemini Omni source video", async () => {
+		const upstream = await startGeminiInteractionsMock(
+			completedOmniInteraction(11265),
+		);
+		try {
+			const editRes = await createOmniVideo({
+				size: "640x360",
+				seconds: 5,
+				video: { video_url: "https://example.com/source.mp4" },
+			});
+			expect(editRes.status).toBe(200);
+			const edited = await editRes.json();
+			expect(JSON.parse(upstream.requests[0].body)).toEqual({
+				model: "gemini-omni-1.1-flash",
+				input: [
+					{ type: "video", uri: "https://example.com/source.mp4" },
+					{ type: "text", text: "A paper boat drifting on a pond" },
+				],
+				background: true,
+				response_format: { type: "video", delivery: "uri", resolution: "360p" },
+				generation_config: { video_config: { task: "edit" } },
+			});
+
+			const extendRes = await createOmniVideo({
+				size: "640x360",
+				seconds: 4,
+				video: "https://example.com/source.mp4",
+				video_task: "extend",
+			});
+			expect(extendRes.status).toBe(200);
+			const extendBody = JSON.parse(upstream.requests[1].body);
+			expect(extendBody.response_format).toEqual({
+				type: "video",
+				delivery: "uri",
+				resolution: "360p",
+				duration: "4s",
+			});
+			expect(extendBody.generation_config).toEqual({
+				video_config: { task: "extend" },
+			});
+
+			await processPendingVideoJobs();
+
+			// An edit's length follows the source, so its video tokens are billed
+			// as reported rather than by the requested seconds.
+			const editJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: edited.id } },
+			});
+			expect(editJob?.videoOutputCost).toBe(0.197138);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	test("/v1/videos fails a Gemini Omni job from the interaction errors", async () => {
+		const upstream = await startGeminiInteractionsMock({
+			id: "v1_mock-interaction",
+			status: "failed",
+			errors: [
+				{ code: "INVALID_ARGUMENT", message: "There was a problem processing" },
+			],
+		});
+		try {
+			const createRes = await createOmniVideo({ seconds: 3 });
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+
+			await processPendingVideoJobs();
+
+			const failedJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(failedJob?.status).toBe("failed");
+			expect(failedJob?.error?.message).toBe("There was a problem processing");
+			expect(failedJob?.cost).toBe(0);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	test("/v1/videos rejects unsupported Gemini Omni requests", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		for (const body of [
+			{ seconds: 5, audio: false },
+			{ seconds: 5, reference_audios: ["https://example.com/a.mp3"] },
+			{ seconds: 5, video_task: "extend" },
+			{
+				seconds: 5,
+				video: "https://example.com/source.mp4",
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			},
+			{
+				model: "veo-3.1-generate-preview",
+				seconds: 8,
+				video: "https://example.com/source.mp4",
+			},
+		]) {
+			const res = await createOmniVideo(body);
+			expect(res.status).toBe(400);
+		}
 	});
 
 	test("/v1/videos sends MiniMax H3 Max portrait text-to-video at 480P", async () => {
