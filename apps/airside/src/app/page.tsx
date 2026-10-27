@@ -106,7 +106,7 @@ const FAQ: {
 	{
 		id: "getting-paid",
 		q: "How do we get paid for traffic?",
-		a: "We agree one of three billing modes with you, shown under Settings → Billing in your console. In every mode we reconcile your charges against our own traffic records each month.",
+		a: "We agree one of three billing modes with you and set it up together before your carrier goes live — it is not something you pick in the console. Settings → Billing shows the mode in place; contact us to change it. In every mode we reconcile your charges against our own traffic records each month.",
 		points: [
 			"Pay-as-you-go: we open an account on your platform with a card on auto top-up, so usage is charged as it happens.",
 			"Payout: you issue us an API key and invoice us on the 1st for the previous month. We pay out your earnings by USD wire, weekly or monthly.",
