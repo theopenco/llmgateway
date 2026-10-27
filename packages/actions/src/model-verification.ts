@@ -13,6 +13,11 @@ import {
 } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	createQueuedDecisionVerificationChecks,
+	runDecisionKeySmokeTest,
+	runDecisionVerification,
+} from "./decision-verification.js";
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
@@ -26,6 +31,7 @@ import {
 	encryptProviderKey,
 } from "./provider-key/crypto.js";
 import { redactToken } from "./provider-key/redact.js";
+import { RED_IMAGE_DATA_URL } from "./verification-image.js";
 import {
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
@@ -105,12 +111,6 @@ export interface ModelVerificationRunResult {
 	 */
 	unsupportedReasoningEfforts?: ReasoningEffort[];
 }
-
-// A 64x64 solid red PNG. Deliberately not a 1x1 pixel: several OpenAI-compatible
-// serving stacks reject a degenerate image before the model ever sees it, which
-// fails the check on endpoints whose vision support is fine.
-const RED_IMAGE_DATA_URL =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
 const COUNTRY_SCHEMA = {
 	type: "object",
@@ -670,6 +670,9 @@ export function disprovedCapabilities(
 export function createQueuedModelVerificationChecks(
 	target: ProviderModelVerificationTarget,
 ): ProviderModelVerificationCheck[] {
+	if (target.decisions) {
+		return createQueuedDecisionVerificationChecks(target);
+	}
 	return verificationDefinitions(target).map(({ id, label }) => ({
 		id,
 		label,
@@ -1987,6 +1990,9 @@ function optionalDefect(
 export async function runProviderModelVerification(
 	options: RunModelVerificationOptions,
 ): Promise<ModelVerificationRunResult> {
+	if (options.target.decisions) {
+		return await runDecisionVerification(options);
+	}
 	const definitions = verificationDefinitions(options.target);
 	const checks = createQueuedModelVerificationChecks(options.target);
 	const context: CheckContext = {
@@ -2107,6 +2113,9 @@ export async function runProviderModelVerification(
 export async function runProviderKeySmokeTest(
 	options: Omit<RunModelVerificationOptions, "onCheck">,
 ): Promise<string | null> {
+	if (options.target.decisions) {
+		return await runDecisionKeySmokeTest(options);
+	}
 	const outcome = await runCheck(
 		{
 			id: "basic",

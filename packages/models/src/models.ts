@@ -432,6 +432,13 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
+	 * Per-token price in USD for generated video tokens, for video models the
+	 * provider bills by output tokens (e.g. Gemini Omni). When the upstream
+	 * usage reports video output tokens, finalization bills them at this rate
+	 * instead of `perSecondPrice`, which still drives estimates and routing.
+	 */
+	videoOutputPrice?: Price;
+	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
 	 * provider bills a flat per-image rate that varies with the served
@@ -924,6 +931,11 @@ export interface ProviderModelMapping {
 	 * Whether this provider mapping supports generating video without audio.
 	 */
 	supportsVideoWithoutAudio?: boolean;
+	/**
+	 * The output is as long as the input audio rather than the requested
+	 * `seconds`, so per-second billing uses the measured output duration.
+	 */
+	videoDurationFollowsAudio?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";

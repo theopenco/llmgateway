@@ -626,6 +626,19 @@ describe("AtlasCloud video models", () => {
 				true,
 			],
 			[
+				"kling-v3-0-pro",
+				"kwaivgi/kling-v3.0-pro",
+				{
+					default_audio: "0.168",
+					default_video: "0.112",
+					"1080p_audio": "0.168",
+					"1080p_video": "0.112",
+				},
+				[5, 10],
+				["1920x1080", "1080x1920"],
+				true,
+			],
+			[
 				"kling-v3-0-turbo",
 				"kwaivgi/kling-v3.0-turbo",
 				{

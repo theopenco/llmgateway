@@ -33,6 +33,7 @@ import {
 	invalidateOrganizationsCache,
 	isNotNull,
 	isApiKeyPeriodLimitConfigured,
+	isPremiumModelAfterDiscounts,
 	log,
 	type LogInsertData,
 	lt,
@@ -52,9 +53,9 @@ import {
 	isCreditTopUpAmountInRange,
 	isDailyWindowExpired,
 	isLoungeSource,
-	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
+	usedModelBaseId,
 } from "@llmgateway/shared";
 import {
 	getLogRetentionCutoff,
@@ -1239,6 +1240,23 @@ export async function batchProcessLogs(): Promise<number> {
 			// not an option.
 			const isChatSource = isLoungeSource;
 
+			// Classify each distinct model once per batch at public prices, the
+			// same classification the gateway's premium gate uses.
+			const batchModelIds = new Set(
+				rows.flatMap((r) =>
+					r.used_model ? [usedModelBaseId(r.used_model)] : [],
+				),
+			);
+			const premiumModelIds = new Set(
+				(
+					await Promise.all(
+						[...batchModelIds].map(async (modelId) =>
+							(await isPremiumModelAfterDiscounts(modelId)) ? modelId : null,
+						),
+					)
+				).filter((modelId) => modelId !== null),
+			);
+
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
 
@@ -1376,7 +1394,10 @@ export async function batchProcessLogs(): Promise<number> {
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
-							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
+							Boolean(
+								row.used_model &&
+								premiumModelIds.has(usedModelBaseId(row.used_model)),
+							),
 						);
 					}
 				}

@@ -97,6 +97,24 @@ describe("admin content filter violations", () => {
 				blockedCount: 0,
 			},
 			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "violence",
+				violationCount: 3,
+			},
+			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				category: "hate",
+				violationCount: 1,
+			},
+			{
 				hourTimestamp: hoursAgo(2),
 				organizationId: "cf-org-b",
 				projectId: "proj-b",
@@ -182,6 +200,7 @@ describe("admin content filter violations", () => {
 							violationCount: 3,
 							blockedCount: 1,
 							violationRate: 0.5,
+							topCategories: [{ category: "violence", violationCount: 3 }],
 						},
 						{
 							usedProvider: "anthropic",
@@ -189,6 +208,7 @@ describe("admin content filter violations", () => {
 							violationCount: 1,
 							blockedCount: 0,
 							violationRate: 0.25,
+							topCategories: [{ category: "hate", violationCount: 1 }],
 						},
 					],
 					topApiKeys: [],
@@ -222,6 +242,7 @@ describe("admin content filter violations", () => {
 							violationCount: 1,
 							blockedCount: 0,
 							violationRate: 0.05,
+							topCategories: [],
 						},
 					],
 					topApiKeys: [],
@@ -309,6 +330,15 @@ describe("admin content filter violations", () => {
 			violationCount: 2,
 			blockedCount: 1,
 		});
+		await db.insert(tables.contentFilterHourlyModelStats).values({
+			hourTimestamp: hoursAgo(1),
+			organizationId: "cf-org-a",
+			projectId: "proj-a",
+			usedModel: "openai/gpt-5.6-terra",
+			usedProvider: "openai",
+			category: "hate",
+			violationCount: 2,
+		});
 
 		const res = await app.request(
 			"/admin/content-filter/violations?window=24h",
@@ -325,6 +355,11 @@ describe("admin content filter violations", () => {
 				violationCount: 5,
 				blockedCount: 2,
 				violationRate: 5 / 16,
+				// Categories sum across the provider's models, ranked by count.
+				topCategories: [
+					{ category: "violence", violationCount: 3 },
+					{ category: "hate", violationCount: 2 },
+				],
 			},
 			{
 				usedProvider: "anthropic",
@@ -332,6 +367,7 @@ describe("admin content filter violations", () => {
 				violationCount: 1,
 				blockedCount: 0,
 				violationRate: 0.25,
+				topCategories: [{ category: "hate", violationCount: 1 }],
 			},
 		]);
 	});

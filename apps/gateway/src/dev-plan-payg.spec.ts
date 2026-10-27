@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -235,4 +235,39 @@ describe("dev-plan PAYG overflow", () => {
 		const body = JSON.stringify(await res.json());
 		expect(body).toContain("weekly allowance for premium-tier models");
 	});
+
+	test.each([
+		{ scope: "a global", organizationId: null, status: 200 },
+		{ scope: "an org-specific", organizationId: "org-id", status: 402 },
+	])(
+		"weekly premium cap with $scope discount pricing the model as standard returns $status",
+		async ({ organizationId, status }) => {
+			const token = `premium-discount-${status}-token`;
+			const discountId = `premium-discount-${status}`;
+			await setupCreditsApiKey(token);
+			await harness.setDevPlan({
+				devPlan: "pro",
+				creditsUsed: "50",
+				creditsLimit: "100",
+				premiumCreditsUsed: "999",
+				premiumWeekStart: new Date(),
+			});
+			// Through cdb so its mutation hook drops cached discount lookups.
+			await cdb.insert(tables.discount).values({
+				id: discountId,
+				organizationId,
+				provider: null,
+				model: "gpt-5.5",
+				discountPercent: "0.9",
+			});
+			try {
+				const res = await chatRequest(token, "gpt-5.5");
+				expect(res.status).toBe(status);
+			} finally {
+				await cdb
+					.delete(tables.discount)
+					.where(eq(tables.discount.id, discountId));
+			}
+		},
+	);
 });

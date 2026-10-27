@@ -24,7 +24,10 @@ import {
 	routeProjectlessVertexEndpoint,
 	selectProviderMapping,
 } from "@llmgateway/actions";
-import { providerKeyAllowsModel } from "@llmgateway/db";
+import {
+	providerKeyAllowsModel,
+	isPremiumModelAfterDiscounts,
+} from "@llmgateway/db";
 import {
 	type BaseMessage,
 	getRegionSpecificEnvVarName,
@@ -52,7 +55,6 @@ import {
 	getRemainingDailyAllowance,
 	type DevPlanTier,
 	getRemainingPremiumWeeklyAllowance,
-	isPremiumModel,
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
@@ -111,6 +113,12 @@ export interface ProviderContext {
 	supportsReasoning: boolean;
 	splitTaggedReasoning: boolean;
 	healStreamingJsonOutput: boolean;
+	/**
+	 * The effort the prepared body was built with. A fallback re-picks an
+	 * auto-routed effort per mapping, so the caller mirrors this into the
+	 * value it logs.
+	 */
+	reasoning_effort: ProviderContextOptions["reasoning_effort"];
 	temperature: number | undefined;
 	max_tokens: number | undefined;
 	top_p: number | undefined;
@@ -329,7 +337,7 @@ export function buildDevPlanCreditLimitError(
  * tracking there would emit one event per fallback candidate — including for
  * requests that ultimately succeed on another key.
  */
-export function assertDevPlanPremiumCapNotExceeded(
+export async function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
 		| "id"
@@ -346,11 +354,11 @@ export function assertDevPlanPremiumCapNotExceeded(
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
 	trackRejection = false,
-): void {
+): Promise<void> {
 	if (organization.devPlan === "none") {
 		return;
 	}
-	if (!isPremiumModel(modelInfo.id)) {
+	if (!(await isPremiumModelAfterDiscounts(modelInfo.id))) {
 		return;
 	}
 	const tier = organization.devPlan as DevPlanTier;
@@ -523,15 +531,15 @@ export function formatTimeUntilReset(ms: number): string {
 // switch to LLMGateway env-var tokens cannot be used to bill an organization
 // with non-positive credits. Free models (explicitly flagged in the catalog)
 // are exempt.
-function assertOrganizationHasCreditsForEnvFallback(
+async function assertOrganizationHasCreditsForEnvFallback(
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
 	sponsoredOnboarding = false,
-): void {
+): Promise<void> {
 	if (modelInfo.free) {
 		return;
 	}
-	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
+	await assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
 	assertDevPlanDailyCapNotExceeded(organization);
 	const {
 		devPlanCreditsRemaining,
@@ -734,7 +742,7 @@ export async function resolveProviderContext(
 
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertOrganizationHasCreditsForEnvFallback(
+		await assertOrganizationHasCreditsForEnvFallback(
 			organization,
 			modelInfo,
 			options.sponsoredOnboarding,
@@ -791,7 +799,7 @@ export async function resolveProviderContext(
 					},
 				);
 			}
-			assertOrganizationHasCreditsForEnvFallback(
+			await assertOrganizationHasCreditsForEnvFallback(
 				organization,
 				modelInfo,
 				options.sponsoredOnboarding,
@@ -1237,6 +1245,7 @@ export async function resolveProviderContext(
 		supportsReasoning,
 		splitTaggedReasoning,
 		healStreamingJsonOutput,
+		reasoning_effort: options.reasoning_effort,
 		temperature,
 		max_tokens,
 		top_p,

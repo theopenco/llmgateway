@@ -6161,7 +6161,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6197,7 +6197,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should rewrite parameters with type: null to type: object", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6238,7 +6238,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 		};
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6948,6 +6948,64 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				},
 				{ cachePoint: { type: "default" } },
 			],
+		});
+	});
+	test("sends text parts of an assistant message with tool calls as text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"anthropic.claude-sonnet-4-6",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Let me check." },
+						{ type: "text", text: "   " },
+						{ type: "text", text: "One moment." },
+					],
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17 }),
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const assistant = requestBody.messages[1];
+		expect(assistant.role).toBe("assistant");
+		expect(assistant.content[0]).toEqual({ text: "Let me check." });
+		expect(assistant.content[1]).toEqual({ text: "One moment." });
+		expect(assistant.content[2]).toEqual({
+			toolUse: {
+				toolUseId: "tool_1",
+				name: "get_weather",
+				input: { city: "Berlin" },
+			},
 		});
 	});
 	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
@@ -11022,4 +11080,54 @@ describe("prepareRequestBody - custom provider cache_control forwarding", () => 
 
 		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
 	});
+});
+
+describe("prepareRequestBody - Alibaba input_audio", () => {
+	async function prepare(data: string) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"qwen3.8-omni-flash",
+			null,
+			"qwen3.8-omni-flash",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What do you hear?" },
+						{ type: "input_audio", input_audio: { data, format: "wav" } },
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as {
+			messages: { content: { input_audio?: { data: string } }[] }[];
+		};
+	}
+
+	test("wraps bare base64 audio in a data URL", async () => {
+		const requestBody = await prepare("UklGRg==");
+		expect(requestBody.messages[0].content[1].input_audio).toEqual({
+			data: "data:;base64,UklGRg==",
+			format: "wav",
+		});
+	});
+
+	test.each(["data:audio/wav;base64,UklGRg==", "https://example.com/a.wav"])(
+		"forwards %s unchanged",
+		async (data) => {
+			const requestBody = await prepare(data);
+			expect(requestBody.messages[0].content[1].input_audio?.data).toBe(data);
+		},
+	);
 });

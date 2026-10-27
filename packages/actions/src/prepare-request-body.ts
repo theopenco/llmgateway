@@ -13,6 +13,7 @@ import {
 	type BaseMessage,
 	type CacheControl,
 	type FunctionParameter,
+	isInputAudioContent,
 	isTextContent,
 	type OpenAIFunctionToolInput,
 	type OpenAIRequestBody,
@@ -2571,6 +2572,34 @@ export async function prepareRequestBody(
 		);
 	}
 
+	// DashScope reads `input_audio.data` as a URL and 400s on the bare base64
+	// OpenAI sends, so inline audio goes up as a data URL.
+	if (usedProvider === "alibaba") {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const content = m.content.map((part) => {
+				if (
+					!isInputAudioContent(part) ||
+					/^(data:|https?:\/\/)/i.test(part.input_audio.data)
+				) {
+					return part;
+				}
+				mutated = true;
+				return {
+					...part,
+					input_audio: {
+						...part.input_audio,
+						data: `data:;base64,${part.input_audio.data}`,
+					},
+				};
+			});
+			return mutated ? { ...m, content } : m;
+		});
+	}
+
 	const messagesWithGoogleSignatures = processedMessages;
 	processedMessages = processedMessages.map((message: BaseMessage) => {
 		if (
@@ -4123,7 +4152,9 @@ export async function prepareRequestBody(
 						...response_format.json_schema.schema,
 						additionalProperties: false,
 					} as Record<string, unknown>;
+					// Keep the effort set above: output_config holds both effort and format.
 					requestBody.output_config = {
+						...requestBody.output_config,
 						format: {
 							type: "json_schema",
 							schema,
@@ -4398,11 +4429,22 @@ export async function prepareRequestBody(
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls?.length) {
-					// Add text content if present
-					if (msg.content) {
-						bedrockMessage.content.push({
-							text: msg.content,
-						});
+					// Add text content if present. The OpenAI schema also allows an array
+					// of text parts here, which Converse takes as one text block per part.
+					if (typeof msg.content === "string") {
+						if (msg.content) {
+							bedrockMessage.content.push({
+								text: msg.content,
+							});
+						}
+					} else if (Array.isArray(msg.content)) {
+						for (const part of msg.content as any[]) {
+							if (part.type === "text" && part.text?.trim()) {
+								bedrockMessage.content.push({
+									text: part.text,
+								});
+							}
+						}
 					}
 
 					// Add tool use blocks

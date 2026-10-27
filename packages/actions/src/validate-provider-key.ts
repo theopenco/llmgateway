@@ -11,7 +11,10 @@ import {
 } from "@llmgateway/models";
 import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
-import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
+import {
+	getGcpServiceAccountAccessToken,
+	GcpCredentialError,
+} from "./gcp-access-token.js";
 import {
 	getAzureFoundryBaseUrl,
 	getDecisionsUpstreamPath,
@@ -725,6 +728,23 @@ export async function validateProviderKey(
 				error: safeErrorMessage,
 				model: validationModel?.modelId,
 				unreachable: true,
+			};
+		}
+
+		if (error instanceof GcpCredentialError) {
+			// Revoked or malformed service-account keys are tenant input, not a
+			// gateway fault, so warn instead of paging.
+			logger.warn("Provider key validation rejected GCP credential", {
+				provider,
+				model: validationModel?.modelId,
+				statusCode: error.status,
+				error: safeErrorMessage,
+			});
+			return {
+				valid: false,
+				error: safeErrorMessage,
+				statusCode: error.status,
+				model: validationModel?.modelId,
 			};
 		}
 

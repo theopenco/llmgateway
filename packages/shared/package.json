@@ -91,6 +91,11 @@
 			"import": "./dist/email-unsubscribe.js",
 			"default": "./dist/email-unsubscribe.js"
 		},
+		"./security-txt": {
+			"types": "./dist/security-txt.d.ts",
+			"import": "./dist/security-txt.js",
+			"default": "./dist/security-txt.js"
+		},
 		"./mask-token": {
 			"types": "./dist/mask-token.d.ts",
 			"import": "./dist/mask-token.js",
@@ -204,6 +209,11 @@
 			"types": "./dist/audio-generation-config.d.ts",
 			"import": "./dist/audio-generation-config.js",
 			"default": "./dist/audio-generation-config.js"
+		},
+		"./decision-studio": {
+			"types": "./dist/decision-studio.d.ts",
+			"import": "./dist/decision-studio.js",
+			"default": "./dist/decision-studio.js"
 		},
 		"./realtime-pcm": {
 			"types": "./dist/realtime-pcm.d.ts",

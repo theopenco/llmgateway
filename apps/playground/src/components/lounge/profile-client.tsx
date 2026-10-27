@@ -10,6 +10,7 @@ import {
 	ImagePlus,
 	MessageSquare,
 	MessageSquarePlus,
+	Scale,
 	Sparkles,
 	Trophy,
 } from "lucide-react";
@@ -35,6 +36,7 @@ const BREAKDOWN_ICONS: Record<string, typeof MessageSquare> = {
 	image_generation: ImagePlus,
 	video_generation: Film,
 	audio_generation: AudioLines,
+	decision_run: Scale,
 };
 
 function StatTile({

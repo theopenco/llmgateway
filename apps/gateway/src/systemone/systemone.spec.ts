@@ -119,12 +119,12 @@ describe("systemone", () => {
 		});
 
 		expect(res.status).toBe(200);
-		expect((await res.json()).model).toBe("typesafe/jev-1.13.0");
+		expect((await res.json()).model).toBe("typesafe/jev-1.14.0");
 
 		const logs = await waitForLogs(1);
 		expect(
-			logs.find((l) => l.usedModel === "typesafe/jev-1.13.0")?.usedModelMapping,
-		).toBe("jev-1.13.0");
+			logs.find((l) => l.usedModel === "typesafe/jev-1.14.0")?.usedModelMapping,
+		).toBe("jev-1.14.0");
 	});
 
 	test("/v1/systemone rejects a chat model", async () => {
