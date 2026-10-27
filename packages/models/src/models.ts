@@ -931,6 +931,11 @@ export interface ProviderModelMapping {
 	 * Whether this provider mapping supports generating video without audio.
 	 */
 	supportsVideoWithoutAudio?: boolean;
+	/**
+	 * The output is as long as the input audio rather than the requested
+	 * `seconds`, so per-second billing uses the measured output duration.
+	 */
+	videoDurationFollowsAudio?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";

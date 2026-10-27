@@ -66,6 +66,8 @@ import {
 	parseGoogleAiStudioFileName,
 } from "@llmgateway/shared/video-generation-config";
 
+import { readMp4DurationSeconds } from "./mp4-duration.js";
+
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
 // A failed video job is reported by an upstream status poll that itself
@@ -1237,6 +1239,19 @@ async function fetchGoogleVertexStatus(
 }
 
 function extractVideoDurationSeconds(job: VideoJobRecord): number | null {
+	if (getVideoMapping(job)?.videoDurationFollowsAudio) {
+		const status = job.upstreamStatusResponse;
+		const measured =
+			status && typeof status === "object" && !Array.isArray(status)
+				? (status as Record<string, unknown>).llmgateway_output_duration_seconds
+				: undefined;
+		return typeof measured === "number" &&
+			Number.isFinite(measured) &&
+			measured > 0
+			? measured
+			: null;
+	}
+
 	return getRequestedVideoDurationSeconds(job);
 }
 
@@ -1780,6 +1795,27 @@ function isAtlasCloudVideoProvider(providerId: string): boolean {
 	return providerId === "atlascloud";
 }
 
+async function readRemoteMp4DurationSeconds(
+	url: string,
+	tenantControlled: boolean,
+): Promise<number> {
+	return await readMp4DurationSeconds(async (start, length) => {
+		const response = await fetchWithSignals(
+			url,
+			{ headers: { Range: `bytes=${start}-${start + length - 1}` } },
+			UPSTREAM_FETCH_TIMEOUT_MS,
+			tenantControlled,
+		);
+		if (response.status !== 206) {
+			await response.body?.cancel();
+			throw new Error(
+				`Video duration probe expected a 206 range response, got ${response.status}`,
+			);
+		}
+		return Buffer.from(await response.arrayBuffer());
+	});
+}
+
 async function fetchAtlasCloudStatus(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
@@ -1828,8 +1864,25 @@ async function fetchAtlasCloudStatus(
 			)
 			.find((url) => url !== null) ?? null;
 
+	// The output follows the input audio, so bill its measured length.
+	const outputDurationSeconds =
+		status === "completed" &&
+		outputUrl &&
+		getVideoMapping(job)?.videoDurationFollowsAudio
+			? await readRemoteMp4DurationSeconds(
+					outputUrl,
+					providerContext.tenantControlled,
+				)
+			: null;
+
 	return addRequestedVideoMetadata(job, {
 		...body,
+		...(outputDurationSeconds !== null
+			? {
+					duration: outputDurationSeconds,
+					llmgateway_output_duration_seconds: outputDurationSeconds,
+				}
+			: {}),
 		status,
 		progress:
 			status === "completed"

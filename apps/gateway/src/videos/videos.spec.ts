@@ -737,6 +737,126 @@ describe("videos", () => {
 		});
 	});
 
+	test("/v1/videos lip-syncs VEED Fabric and bills the measured output length", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/veed-fabric-1-0",
+				prompt: "A presenter reads the script",
+				size: "854x480",
+				seconds: 5,
+				input_reference: { image_url: "data:image/png;base64,aGVsbG8=" },
+				reference_audios: ["https://example.com/speech.mp3"],
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedModel).toBe("veed/fabric-1.0/image-to-video");
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toEqual({
+			model: "veed/fabric-1.0/image-to-video",
+			image_url: expect.stringContaining("/uploads/atlascloud-media-"),
+			audio_url: "https://example.com/speech.mp3",
+			resolution: "480p",
+		});
+
+		// The output follows the audio (7.3s), not the requested 5s.
+		const mp4Box = (type: string, payload: Buffer) => {
+			const header = Buffer.alloc(8);
+			header.writeUInt32BE(8 + payload.length, 0);
+			header.write(type, 4, "latin1");
+			return Buffer.concat([header, payload]);
+		};
+		const mvhd = Buffer.alloc(100);
+		mvhd.writeUInt32BE(1000, 12);
+		mvhd.writeUInt32BE(7300, 16);
+		setMockVideoAsset(
+			Buffer.concat([
+				mp4Box("ftyp", Buffer.from("isom0000")),
+				mp4Box("mdat", Buffer.alloc(256)),
+				mp4Box("moov", mp4Box("mvhd", mvhd)),
+			]),
+		);
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const log = await db.query.log.findFirst({
+			where: { usedModel: { eq: "atlascloud/veed-fabric-1-0" } },
+		});
+		expect(log?.videoOutputCost).toBeCloseTo(7.3 * 0.088, 6);
+		expect(log?.cost).toBeCloseTo(7.3 * 0.088, 6);
+	});
+
+	test("/v1/videos requires one image and one audio clip for VEED Fabric", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		for (const inputs of [
+			{ input_reference: { image_url: "data:image/png;base64,aGVsbG8=" } },
+			{ reference_audios: ["https://example.com/speech.mp3"] },
+			{
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			},
+		]) {
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "atlascloud/veed-fabric-1-0-fast",
+					prompt: "A presenter reads the script",
+					size: "1280x720",
+					seconds: 5,
+					...inputs,
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			await expect(res.json()).resolves.toMatchObject({
+				error: {
+					message: expect.stringContaining(
+						"VEED Fabric requires exactly one input_reference image and one reference_audios clip",
+					),
+				},
+			});
+		}
+	});
+
 	test("/v1/videos bills AtlasCloud 4K audio and silent output at the same rate", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

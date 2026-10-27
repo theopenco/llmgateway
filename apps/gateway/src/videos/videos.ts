@@ -467,7 +467,7 @@ const createVideoRequestSchema = z
 		}),
 		reference_audios: videoReferenceAudiosSchema.optional().openapi({
 			description:
-				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.x models and can be combined with reference_images and reference_videos.",
+				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Supported on ByteDance Seedance 2.x models, where they can be combined with reference_images and reference_videos, and on VEED Fabric models, which take exactly one clip as the speech to lip-sync to one input_reference image.",
 			example: [
 				{
 					audio_url: "https://example.com/reference-track.mp3",
@@ -1219,6 +1219,12 @@ function isAtlasCloudCollapsedKlingModel(externalId: string): boolean {
 	);
 }
 
+function isAtlasCloudFabricModel(externalId: string): boolean {
+	return (
+		externalId === "veed/fabric-1.0" || externalId === "veed/fabric-1.0/fast"
+	);
+}
+
 function getVideoProviderConstraintReasons(
 	provider: ProviderModelMapping,
 	videoSize: VideoSizeConfig,
@@ -1266,6 +1272,23 @@ function getVideoProviderConstraintReasons(
 		if (!isGoogleAiStudioVideoProvider(provider.providerId)) {
 			reasons.push(
 				"source video edit/extend is currently only supported through google-ai-studio",
+			);
+		}
+		return reasons;
+	}
+
+	if (
+		isAtlasCloudVideoProvider(provider.providerId) &&
+		isAtlasCloudFabricModel(provider.externalId)
+	) {
+		if (
+			inputMode !== "reference" ||
+			inputImageCount !== 1 ||
+			referenceAudioCount !== 1 ||
+			referenceVideoCount > 0
+		) {
+			reasons.push(
+				"VEED Fabric requires exactly one input_reference image and one reference_audios clip, and no other image or video inputs",
 			);
 		}
 		return reasons;
@@ -1512,6 +1535,10 @@ function getAtlasCloudVideoModelName(
 	videoSize: VideoSizeConfig,
 	inputMode: VideoInputMode,
 ): string {
+	if (isAtlasCloudFabricModel(baseModelName)) {
+		return `${baseModelName}/image-to-video`;
+	}
+
 	const taskName = getAtlasCloudTaskName(inputMode);
 	if (
 		baseModelName === "kwaivgi/kling-v3.0-turbo" ||
@@ -3707,9 +3734,9 @@ async function getAtlasCloudImageUrl(
 	return await uploadAtlasCloudMedia(providerContext, processedImage);
 }
 
-async function createAtlasCloudVideoJob(
+async function buildAtlasCloudKlingVideoRequest(
 	providerContext: ProviderContext,
-	providerMapping: ProviderModelMapping,
+	upstreamModelName: string,
 	videoSize: VideoSizeConfig,
 	prompt: string,
 	durationSeconds: number,
@@ -3718,21 +3745,7 @@ async function createAtlasCloudVideoJob(
 	lastFrameInput: VideoImageInput | undefined,
 	referenceImageInputs: VideoImageInput[],
 	referenceVideoUrls: string[],
-): Promise<{
-	upstreamId: string;
-	upstreamRequest: Record<string, unknown>;
-	upstreamResponse: Record<string, unknown>;
-}> {
-	const upstreamModelName = getVideoUpstreamModelName(
-		"atlascloud",
-		providerMapping.externalId,
-		videoSize,
-		referenceImageInputs.length > 0 || referenceVideoUrls.length > 0
-			? "reference"
-			: firstFrameInput || lastFrameInput
-				? "frames"
-				: "none",
-	);
+): Promise<Record<string, unknown>> {
 	const imageUrl = firstFrameInput
 		? await getAtlasCloudImageUrl(providerContext, firstFrameInput)
 		: null;
@@ -3747,7 +3760,7 @@ async function createAtlasCloudVideoJob(
 					),
 				)
 			: [];
-	const upstreamRequest: Record<string, unknown> = {
+	return {
 		model: upstreamModelName,
 		prompt,
 		duration: durationSeconds,
@@ -3764,6 +3777,87 @@ async function createAtlasCloudVideoJob(
 			? { reference_video_urls: referenceVideoUrls }
 			: {}),
 	};
+}
+
+async function buildAtlasCloudFabricVideoRequest(
+	providerContext: ProviderContext,
+	upstreamModelName: string,
+	videoSize: VideoSizeConfig,
+	referenceImageInputs: VideoImageInput[],
+	referenceAudioUrls: string[],
+): Promise<Record<string, unknown>> {
+	const [imageInput] = referenceImageInputs;
+	const [audioUrl] = referenceAudioUrls;
+	if (!imageInput || !audioUrl) {
+		throw new HTTPException(400, {
+			message:
+				"VEED Fabric requires one input_reference image and one reference_audios clip",
+		});
+	}
+	// AtlasCloud fetches the audio itself; still refuse internal targets.
+	try {
+		await assertSafeUserContentUrl(audioUrl);
+	} catch (error) {
+		throw new HTTPException(400, {
+			message: `Invalid audio URL: ${toError(error).message}`,
+		});
+	}
+
+	return {
+		model: upstreamModelName,
+		image_url: await getAtlasCloudImageUrl(providerContext, imageInput),
+		audio_url: audioUrl,
+		resolution: videoSize.resolution,
+	};
+}
+
+async function createAtlasCloudVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	firstFrameInput: VideoImageInput | undefined,
+	lastFrameInput: VideoImageInput | undefined,
+	referenceImageInputs: VideoImageInput[],
+	referenceVideoUrls: string[],
+	referenceAudioUrls: string[],
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = getVideoUpstreamModelName(
+		"atlascloud",
+		providerMapping.externalId,
+		videoSize,
+		referenceImageInputs.length > 0 || referenceVideoUrls.length > 0
+			? "reference"
+			: firstFrameInput || lastFrameInput
+				? "frames"
+				: "none",
+	);
+	const upstreamRequest = isAtlasCloudFabricModel(providerMapping.externalId)
+		? await buildAtlasCloudFabricVideoRequest(
+				providerContext,
+				upstreamModelName,
+				videoSize,
+				referenceImageInputs,
+				referenceAudioUrls,
+			)
+		: await buildAtlasCloudKlingVideoRequest(
+				providerContext,
+				upstreamModelName,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				firstFrameInput,
+				lastFrameInput,
+				referenceImageInputs,
+				referenceVideoUrls,
+			);
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -4294,6 +4388,7 @@ async function createUpstreamVideoJob(
 				lastFrameInput,
 				referenceImageInputs,
 				referenceVideoUrls,
+				referenceAudioUrls,
 			);
 		case "xai":
 			return await createXaiVideoJob(
