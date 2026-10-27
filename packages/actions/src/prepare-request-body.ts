@@ -3044,8 +3044,14 @@ export async function prepareRequestBody(
 					// so a forced search is forwarded rather than translated. Verified
 					// live: "What is 2+2?" produces no web_search_call without it and
 					// one with it.
+					// Bedrock Mantle rejects that choice ("Tool choice 'web_search'
+					// is not supported"), so it gets "required" instead, which
+					// forces a search when web search is the only tool.
 					if (webSearchTool.forced) {
-						responsesBody.tool_choice = { type: "web_search" };
+						responsesBody.tool_choice =
+							usedProvider === "aws-mantle"
+								? "required"
+								: { type: "web_search" };
 					}
 				}
 

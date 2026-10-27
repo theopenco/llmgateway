@@ -8,6 +8,7 @@ import {
 	type ProviderValidationResult,
 	providers,
 	resolveVertexTokenType,
+	expandProviderRegions,
 } from "@llmgateway/models";
 import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
@@ -264,6 +265,65 @@ export function getPinnedValidationModel(
 			true,
 		chatCapable: kind === "text",
 	};
+}
+
+/**
+ * Providers whose web search needs its own upstream permission: a key that
+ * answers chat can still be denied every web search (Bedrock's
+ * bedrock-websearch:* IAM actions), so the chat probe alone misses it.
+ */
+const WEB_SEARCH_PERMISSION_PROVIDERS = new Set<ProviderId>(["aws-mantle"]);
+
+/** Generous enough for a page fetch; a slow route must not block saving. */
+const WEB_SEARCH_PROBE_TIMEOUT_MS = 60_000;
+
+/**
+ * Cheapest model the key's region serves web search on, or null when the
+ * provider needs no separate check or the region has no web search. A pinned
+ * model is probed only if it offers web search itself.
+ */
+export function getWebSearchValidationModel(
+	provider: ProviderId,
+	providerKeyOptions?: ProviderKeyOptions,
+	pinnedModelId?: string,
+): { modelId: string; externalId: string; region: string | undefined } | null {
+	if (!WEB_SEARCH_PERMISSION_PROVIDERS.has(provider)) {
+		return null;
+	}
+	const region = resolveSelectedRegion(provider, providerKeyOptions);
+	const now = new Date();
+	const candidates = models.flatMap((model) => {
+		if (pinnedModelId && model.id !== pinnedModelId) {
+			return [];
+		}
+		const entry = (model.providers as readonly ProviderModelMapping[])
+			.filter((p) => p.providerId === provider)
+			.flatMap(expandProviderRegions)
+			.find((p) => (p.region ?? null) === (region ?? null));
+		if (
+			!entry?.webSearch ||
+			(entry.deactivatedAt && now >= entry.deactivatedAt)
+		) {
+			return [];
+		}
+		return [
+			{
+				modelId: model.id,
+				externalId: entry.externalId,
+				price:
+					(Number(entry.inputPrice ?? "0") + Number(entry.outputPrice ?? "0")) /
+					2,
+				releasedAt:
+					"releasedAt" in model
+						? (model.releasedAt as Date | undefined)
+						: undefined,
+			},
+		];
+	});
+	const best = pickCheapestRecentModel(candidates);
+	return best
+		? { modelId: best.modelId, externalId: best.externalId, region }
+		: null;
 }
 
 const VALIDATION_IMAGE_DATA_URL =
@@ -700,6 +760,17 @@ export async function validateProviderKey(
 			});
 		}
 
+		const webSearchDenied = await probeWebSearchAccess(
+			provider,
+			token,
+			providerKeyOptions,
+			pinnedModelId,
+			abortSignal,
+		);
+		if (webSearchDenied) {
+			return webSearchDenied;
+		}
+
 		logger.debug("Provider key validation succeeded", {
 			provider,
 			model: validationModel?.modelId,
@@ -753,4 +824,124 @@ export async function validateProviderKey(
 			model: validationModel?.modelId,
 		};
 	}
+}
+/**
+ * For providers that gate web search behind its own permission, ask the key
+ * to open a page with the hosted web search tool. Fetching from the live web
+ * needs the most permissions (Bedrock: InvokeFetch and ExternalWebAccess), and
+ * a page-open prompt reliably triggers it. Only an access denial rejects the
+ * key; any other failure leaves the chat probe's verdict standing.
+ */
+async function probeWebSearchAccess(
+	provider: ProviderId,
+	token: string,
+	providerKeyOptions: ProviderKeyOptions | undefined,
+	pinnedModelId: string | undefined,
+	abortSignal: AbortSignal | undefined,
+): Promise<ProviderValidationResult | null> {
+	const probe = getWebSearchValidationModel(
+		provider,
+		providerKeyOptions,
+		pinnedModelId,
+	);
+	if (!probe) {
+		return null;
+	}
+	const endpoint = getProviderEndpoint(
+		provider,
+		undefined,
+		probe.modelId,
+		undefined,
+		false,
+		false,
+		false,
+		providerKeyOptions,
+		undefined,
+		false,
+		probe.region,
+		true,
+	);
+	const headers = getProviderHeaders(provider, token, {
+		providerKeyOptions,
+		skipEnvVars: true,
+	});
+	headers["Content-Type"] = "application/json";
+	const timeout = AbortSignal.timeout(WEB_SEARCH_PROBE_TIMEOUT_MS);
+
+	let response: Response;
+	try {
+		response = await fetch(endpoint, {
+			method: "POST",
+			redirect: "error",
+			signal: abortSignal ? AbortSignal.any([abortSignal, timeout]) : timeout,
+			headers,
+			body: JSON.stringify({
+				model: getUpstreamModelId(
+					provider,
+					probe.modelId,
+					probe.externalId,
+					probe.region,
+				),
+				input:
+					"Open https://nodejs.org/en/about/previous-releases with your web tool and reply with its page title.",
+				tools: [{ type: "web_search" }],
+				tool_choice: "required",
+				max_output_tokens: 400,
+				store: false,
+			}),
+		});
+	} catch (error) {
+		if (abortSignal?.aborted) {
+			throw error;
+		}
+		logger.warn("Web search key probe did not complete", {
+			provider,
+			model: probe.modelId,
+			error: redactToken(
+				error instanceof Error ? error.message : String(error),
+				token,
+			),
+		});
+		return null;
+	}
+
+	if (response.status !== 401 && response.status !== 403) {
+		if (!response.ok) {
+			logger.warn("Web search key probe failed", {
+				provider,
+				model: probe.modelId,
+				statusCode: response.status,
+			});
+		}
+		try {
+			await response.body?.cancel();
+		} catch (error) {
+			logger.warn("Could not cancel web search probe response body", {
+				provider,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+		return null;
+	}
+
+	const errorText = await response.text();
+	let upstreamMessage = `${response.status} ${response.statusText}`;
+	try {
+		const errorJson = JSON.parse(errorText);
+		upstreamMessage =
+			errorJson.error?.message ?? errorJson.message ?? upstreamMessage;
+	} catch {}
+	const safeMessage = redactToken(upstreamMessage, token);
+	logger.warn("Provider key cannot use web search", {
+		provider,
+		model: probe.modelId,
+		statusCode: response.status,
+		error: safeMessage,
+	});
+	return {
+		valid: false,
+		error: `The key works for chat but cannot use web search: ${safeMessage}. Attach the AmazonBedrockExternalWebSearchReadOnly managed policy (or grant bedrock-websearch:InvokeSearch, InvokeFetch and ExternalWebAccess) to the key's IAM identity.`,
+		statusCode: response.status,
+		model: probe.modelId,
+	};
 }

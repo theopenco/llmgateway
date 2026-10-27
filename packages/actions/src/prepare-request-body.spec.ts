@@ -10073,6 +10073,40 @@ describe("prepareRequestBody - DashScope web search", () => {
 		expect(requestBody.tools).toContainEqual({ type: "web_search" });
 	});
 
+	test("aws-mantle forces a search with required", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-mantle",
+			"gpt-5.6-luna",
+			"us-east-1",
+			"openai.gpt-5.6-luna",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ type: "web_search", forced: true },
+		)) as any;
+
+		// Mantle 400s on `{type: "web_search"}`: "Tool choice 'web_search' is
+		// not supported".
+		expect(requestBody.tool_choice).toBe("required");
+		expect(requestBody.tools).toEqual([{ type: "web_search" }]);
+	});
+
 	test("openai leaves an offered search to the model", async () => {
 		const requestBody = await prepare("openai", "gpt-5", {
 			type: "web_search",

@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@llmgateway/logger";
-import { models, providers } from "@llmgateway/models";
+import {
+	models,
+	providers,
+	type ProviderModelMapping,
+} from "@llmgateway/models";
 import { getProviderModelKind } from "@llmgateway/shared";
 
 import { managedCredentialValidationOptions } from "./provider-key/managed.js";
 import {
 	getPinnedValidationModel,
 	getValidationModel,
+	getWebSearchValidationModel,
 	pickCheapestRecentModel,
 	validateProviderKey,
 } from "./validate-provider-key.js";
@@ -624,10 +629,13 @@ describe("validateProviderKey region resolution", () => {
 			);
 
 			expect(result.valid).toBe(true);
-			expect(fetchMock).toHaveBeenCalledTimes(1);
-			expect(fetchMock.mock.calls[0][0]).toBe(
-				`https://bedrock-mantle.${region}.api.aws/openai/v1/responses`,
-			);
+			// The chat probe, then the web search probe these regions offer.
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+			for (const [url] of fetchMock.mock.calls) {
+				expect(url).toBe(
+					`https://bedrock-mantle.${region}.api.aws/openai/v1/responses`,
+				);
+			}
 		},
 	);
 
@@ -719,6 +727,129 @@ describe("validateProviderKey region resolution", () => {
 			expect(body.messages).toBeDefined();
 		},
 	);
+});
+
+describe("web search permission probe", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function respond(status: number, body: unknown = {}) {
+		return new Response(JSON.stringify(body), {
+			status,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	it("picks a web search model only where the key's region offers it", () => {
+		const probe = getWebSearchValidationModel("aws-mantle", {
+			aws_mantle_region: "us-east-1",
+		});
+		const mapping = models
+			.find((m) => m.id === probe?.modelId)
+			?.providers.find((p) => p.providerId === "aws-mantle") as
+			ProviderModelMapping | undefined;
+		expect(mapping?.webSearch).toBe(true);
+		expect(probe?.region).toBe("us-east-1");
+
+		expect(
+			getWebSearchValidationModel("aws-mantle", {
+				aws_mantle_region: "eu-west-2",
+			}),
+		).toBeNull();
+		expect(getWebSearchValidationModel("openai")).toBeNull();
+		expect(
+			getWebSearchValidationModel(
+				"aws-mantle",
+				{ aws_mantle_region: "us-east-1" },
+				"gpt-oss-20b",
+			),
+		).toBeNull();
+		expect(
+			getWebSearchValidationModel(
+				"aws-mantle",
+				{ aws_mantle_region: "us-east-2" },
+				"gpt-5.4",
+			)?.modelId,
+		).toBe("gpt-5.4");
+		// The mapping turns web search off in this region only.
+		expect(
+			getWebSearchValidationModel(
+				"aws-mantle",
+				{ aws_mantle_region: "us-east-1" },
+				"gpt-5.4",
+			),
+		).toBeNull();
+	});
+
+	it("rejects a key that answers chat but is denied web search", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(respond(200))
+			.mockResolvedValueOnce(
+				respond(401, {
+					error: {
+						code: "access_denied",
+						message:
+							"Access denied: web search is not authorized for this identity.",
+					},
+				}),
+			);
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+			{ aws_mantle_region: "us-east-1" },
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.statusCode).toBe(401);
+		expect(result.error).toContain("web search is not authorized");
+		expect(result.error).toContain("AmazonBedrockExternalWebSearchReadOnly");
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock.mock.calls[1][0]).toBe(
+			"https://bedrock-mantle.us-east-1.api.aws/openai/v1/responses",
+		);
+		const body = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+		expect(body.tools).toEqual([{ type: "web_search" }]);
+		expect(body.tool_choice).toBe("required");
+	});
+
+	it("keeps the key when the probe fails for another reason", async () => {
+		vi.spyOn(logger, "warn").mockImplementation(() => {});
+		vi.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(respond(200))
+			.mockResolvedValueOnce(respond(500, { error: { message: "boom" } }));
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+			{ aws_mantle_region: "us-east-1" },
+		);
+
+		expect(result.valid).toBe(true);
+	});
+
+	it("skips the probe where web search is not offered", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(respond(200));
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+			{ aws_mantle_region: "eu-west-2" },
+		);
+
+		expect(result.valid).toBe(true);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("validateProviderKey credential hygiene", () => {

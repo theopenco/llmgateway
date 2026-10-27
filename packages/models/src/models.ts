@@ -254,6 +254,11 @@ export interface ProviderRegion {
 	 */
 	webSearchPrice?: Price;
 	/**
+	 * Native web search support override for this region.
+	 * When absent, falls back to the mapping-level webSearch.
+	 */
+	webSearch?: boolean;
+	/**
 	 * Context window size in tokens for this region.
 	 * When absent, falls back to the mapping-level contextSize.
 	 */

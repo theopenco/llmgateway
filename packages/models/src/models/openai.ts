@@ -1727,7 +1727,9 @@ export const openaiModels = [
 				// these routes, so none is requested.
 				reasoningSummary: "omit",
 				regions: [
-					{ id: "us-east-1" },
+					// Web search requests never complete in us-east-1 (no response
+					// in 400s), while plain requests there do.
+					{ id: "us-east-1", webSearch: false },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
 				],
@@ -1757,6 +1759,11 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				// Bedrock Web Search runs only on in-region Mantle routes in the
+				// commercial US regions; cross-region profiles go through
+				// bedrock-runtime, which lacks it. $12 per 1,000 queries.
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
 				reasoningOutput: "omit",
@@ -2021,7 +2028,9 @@ export const openaiModels = [
 				// Requests carrying a reasoning summary never complete on several of
 				// these routes, so none is requested.
 				reasoningSummary: "omit",
-				regions: [{ id: "us-east-1" }, { id: "us-east-2" }],
+				// Web search requests never complete in us-east-1 (no response in
+				// 400s), while plain requests there do.
+				regions: [{ id: "us-east-1", webSearch: false }, { id: "us-east-2" }],
 				inputPrice: "5.5e-6",
 				outputPrice: "33.0e-6",
 				cachedInputPrice: "0.55e-6",
@@ -2048,6 +2057,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
 				reasoningOutput: "omit",
@@ -2227,6 +2238,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "4.0e-6",
 						outputPrice: "20.0e-6",
 						cachedInputPrice: "0.4e-6",
@@ -2250,7 +2262,7 @@ export const openaiModels = [
 							},
 						],
 					},
-					{ id: "us" },
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 				],
@@ -2290,6 +2302,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
@@ -2427,6 +2441,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "2.0e-6",
 						outputPrice: "12.0e-6",
 						cachedInputPrice: "0.2e-6",
@@ -2450,7 +2465,7 @@ export const openaiModels = [
 							},
 						],
 					},
-					{ id: "us" },
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
@@ -2491,6 +2506,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
@@ -2627,6 +2644,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "0.2e-6",
 						outputPrice: "1.2e-6",
 						cachedInputPrice: "0.02e-6",
@@ -2650,7 +2668,7 @@ export const openaiModels = [
 							},
 						],
 					},
-					{ id: "us" },
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
@@ -2691,6 +2709,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
@@ -2824,6 +2844,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "10.0e-6",
 						outputPrice: "50.0e-6",
 						cachedInputPrice: "1.0e-6",
@@ -2847,7 +2868,7 @@ export const openaiModels = [
 							},
 						],
 					},
-					{ id: "us" },
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 					{ id: "us-west-2" },
 				],
@@ -2880,6 +2901,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -3014,6 +3037,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "2.0e-6",
 						outputPrice: "10.0e-6",
 						cachedInputPrice: "0.2e-6",
@@ -3037,7 +3061,7 @@ export const openaiModels = [
 							},
 						],
 					},
-					{ id: "us" },
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 				],
 				inputPrice: "2.2e-6",
@@ -3069,6 +3093,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -3202,6 +3228,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "2.0e-6",
 						outputPrice: "10.0e-6",
 						cachedInputPrice: "0.1e-6",
@@ -3225,7 +3252,7 @@ export const openaiModels = [
 							},
 						],
 					},
-					{ id: "us" },
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 				],
 				inputPrice: "2.2e-6",
@@ -3257,6 +3284,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -3391,6 +3420,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "0.1e-6",
 						outputPrice: "0.5e-6",
 						cachedInputPrice: "0.01e-6",
@@ -3414,7 +3444,7 @@ export const openaiModels = [
 							},
 						],
 					},
-					{ id: "us" },
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 				],
 				inputPrice: "0.11e-6",
@@ -3446,6 +3476,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",

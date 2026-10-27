@@ -3,7 +3,10 @@ import {
 	DEFAULT_ROUTING_THRESHOLDS,
 } from "@llmgateway/shared/routing-config";
 
-import { hasInvalidProviderCredentialError } from "./provider-auth-errors.js";
+import {
+	hasInvalidProviderCredentialError,
+	hasFeatureAccessDeniedError,
+} from "./provider-auth-errors.js";
 import { hasExhaustedProviderAccountError } from "./provider-funding-errors.js";
 
 /**
@@ -419,6 +422,11 @@ export function reportKeyError(
 	errorText?: string,
 	selectionScope?: string,
 ): void {
+	// The key works; it just lacks one optional feature. Blacklisting it would
+	// take every other request down with it.
+	if (hasFeatureAccessDeniedError(errorText)) {
+		return;
+	}
 	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
 	let health = keyHealthMap.get(healthKey);
 
@@ -481,6 +489,9 @@ export function reportTrackedKeyError(
 	errorText?: string,
 	selectionScope?: string,
 ): void {
+	if (hasFeatureAccessDeniedError(errorText)) {
+		return;
+	}
 	const healthKey = getTrackedHealthKey(keyId, selectionScope);
 	let health = keyHealthMap.get(healthKey);
 

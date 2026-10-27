@@ -488,6 +488,29 @@ describe("OpenAI models on AWS Bedrock", () => {
 			}
 		}
 	});
+
+	// Bedrock Web Search is served only by Mantle's Responses API in the
+	// commercial US regions; Runtime's cross-region profiles lack it.
+	it("offers web search only on in-region US Mantle routes", () => {
+		// Web search requests hang on these, though plain requests complete.
+		const hangs = new Set(["gpt-5.4:us-east-1", "gpt-5.5:us-east-1"]);
+		for (const { modelId, provider } of mantleEntries) {
+			for (const entry of expandProviderRegions(provider)) {
+				if (entry.region === undefined) {
+					continue;
+				}
+				const inRegionUs = ["us-east-1", "us-east-2", "us-west-2"].includes(
+					entry.region,
+				);
+				expect(entry.webSearch, `${modelId} ${entry.region}`).toBe(
+					inRegionUs && !hangs.has(`${modelId}:${entry.region}`),
+				);
+				expect(entry.webSearchPrice, `${modelId} ${entry.region}`).toBe(
+					"0.012",
+				);
+			}
+		}
+	});
 });
 
 describe("gpt-oss on AWS Bedrock (OpenAI)", () => {
@@ -515,6 +538,7 @@ describe("gpt-oss on AWS Bedrock (OpenAI)", () => {
 		"$modelId uses chat completions in configured in-region deployments",
 		({ provider }) => {
 			expect(provider.apiFormat).toBe("openai-chat-completions");
+			expect(provider.webSearch).toBeUndefined();
 			const def = providers.find((p) => p.id === "aws-mantle");
 			for (const region of provider.regions ?? []) {
 				// Mantle has no cross-region profile for gpt-oss.
