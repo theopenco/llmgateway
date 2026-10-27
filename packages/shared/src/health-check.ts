@@ -2,6 +2,18 @@ export function getAppVersion(): string {
 	return process.env.APP_VERSION ?? "v0.0.0-unknown";
 }
 
+/**
+ * Shares one in-flight run of `fn` between concurrent callers, so an
+ * unauthenticated health endpoint cannot stack dependency queries.
+ */
+export function singleFlight<T>(fn: () => Promise<T>): () => Promise<T> {
+	let inflight: Promise<T> | undefined;
+	return () =>
+		(inflight ??= fn().finally(() => {
+			inflight = undefined;
+		}));
+}
+
 export interface HealthCheckResult {
 	status: "ok" | "error";
 	redis: {

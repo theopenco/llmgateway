@@ -116,6 +116,7 @@ export {
 export {
 	getAppVersion,
 	HealthChecker,
+	singleFlight,
 	type HealthCheckResult,
 	type HealthCheckOptions,
 	type HealthCheckDependencies,

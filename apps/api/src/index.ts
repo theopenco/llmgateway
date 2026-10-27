@@ -16,7 +16,7 @@ import {
 	createRequestLifecycleMiddleware,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { getAppVersion, HealthChecker } from "@llmgateway/shared";
+import { getAppVersion, HealthChecker, singleFlight } from "@llmgateway/shared";
 import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
@@ -250,12 +250,16 @@ app.get("/livez", (c) => c.json({ status: "ok" }));
 // Deep health for external monitoring: checks Postgres and Redis. Readiness
 // uses `/`, so a dependency outage or a schema the running release cannot
 // read never pulls every pod out of the load balancer.
-app.get("/health/deep", async (c) => {
-	const healthChecker = new HealthChecker({ redisClient, db, logger });
-	const health = await healthChecker.performHealthChecks({
+const deepHealthChecker = new HealthChecker({ redisClient, db, logger });
+const deepHealthCheck = singleFlight(() =>
+	deepHealthChecker.performHealthChecks({
 		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
-	});
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
+	}),
+);
+app.get("/health/deep", async (c) => {
+	const { response, statusCode } = deepHealthChecker.createHealthResponse(
+		await deepHealthCheck(),
+	);
 	return c.json(response, statusCode as 200 | 503);
 });
 

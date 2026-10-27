@@ -1,6 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { HealthChecker } from "./health-check.js";
+import { HealthChecker, singleFlight } from "./health-check.js";
+
+describe("singleFlight", () => {
+	it("shares one in-flight run and starts a new one after it settles", async () => {
+		let release = () => {};
+		const fn = vi.fn(
+			() =>
+				new Promise<number>((resolve) => {
+					release = () => resolve(fn.mock.calls.length);
+				}),
+		);
+		const run = singleFlight(fn);
+		const first = run();
+		const second = run();
+		release();
+		expect(await Promise.all([first, second])).toEqual([1, 1]);
+		const third = run();
+		release();
+		expect(await third).toBe(2);
+		expect(fn).toHaveBeenCalledTimes(2);
+	});
+});
 
 function checker(overrides: {
 	ping?: () => Promise<string>;

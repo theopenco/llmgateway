@@ -19,7 +19,7 @@ import {
 	createRequestLifecycleMiddleware,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
-import { getAppVersion, HealthChecker } from "@llmgateway/shared";
+import { getAppVersion, HealthChecker, singleFlight } from "@llmgateway/shared";
 import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
@@ -285,12 +285,16 @@ app.get("/livez", (c) => c.json({ status: "ok" }));
 // instances. Readiness uses `/`, so a dependency outage or a schema the
 // running release cannot read never pulls every pod out of the load balancer;
 // this endpoint is what pages when Postgres or Redis is unreachable.
-app.get("/health/deep", async (c) => {
-	const healthChecker = createHealthChecker();
-	const health = await healthChecker.performHealthChecks({
+const deepHealthChecker = createHealthChecker();
+const deepHealthCheck = singleFlight(() =>
+	deepHealthChecker.performHealthChecks({
 		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
-	});
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
+	}),
+);
+app.get("/health/deep", async (c) => {
+	const { response, statusCode } = deepHealthChecker.createHealthResponse(
+		await deepHealthCheck(),
+	);
 	return c.json(response, statusCode as 200 | 503);
 });
 
