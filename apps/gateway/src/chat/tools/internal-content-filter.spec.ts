@@ -145,7 +145,7 @@ describe("checkInternalContentFilter", () => {
 			"http://classifier.test/v1/classify",
 			expect.objectContaining({
 				method: "POST",
-				headers: expect.objectContaining({ "X-Request-Id": "request-id" }),
+				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ prompt: "user: bad prompt" }),
 			}),
 		);

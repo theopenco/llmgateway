@@ -208,12 +208,9 @@ async function classifyPrompt(
 		const response = await fetch(url, {
 			method: "POST",
 			redirect: "error",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Request-Id": context.requestId,
-			},
 			// Prompt only: the classifier keeps no audit log, so it needs no
 			// request or organization ids.
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ prompt }),
 			signal,
 		});
