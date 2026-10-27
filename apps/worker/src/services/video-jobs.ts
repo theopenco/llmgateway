@@ -1398,6 +1398,18 @@ function getVideoImageInputCost(job: VideoJobRecord): number {
 }
 
 function getVideoOutputCost(job: VideoJobRecord): number {
+	// Token-billed video output (e.g. an edit, whose length follows the source
+	// rather than the requested duration) is billed exactly as reported.
+	const videoOutputPrice = getVideoMapping(job)?.videoOutputPrice;
+	const usage = getUpstreamVideoUsage(job);
+	const videoOutputTokens = usage ? getVideoOutputTokens(usage) : 0;
+	if (videoOutputPrice && videoOutputTokens > 0) {
+		return new Decimal(videoOutputTokens)
+			.mul(videoOutputPrice)
+			.toDecimalPlaces(6)
+			.toNumber();
+	}
+
 	const pricing = getVideoPricing(job);
 	if (!pricing) {
 		return getVideoRequestPrice(job) ?? 0;
@@ -2835,9 +2847,10 @@ function normalizeGoogleAiStudioInteraction(
 				: rawStatus === "cancelled"
 					? "canceled"
 					: "in_progress";
+	const firstError = Array.isArray(body.errors) ? body.errors[0] : body.error;
 	const upstreamError =
-		body.error && typeof body.error === "object"
-			? (body.error as Record<string, unknown>)
+		firstError && typeof firstError === "object"
+			? (firstError as Record<string, unknown>)
 			: null;
 	const error =
 		status === "failed" || status === "canceled"
@@ -2938,35 +2951,15 @@ function getVideoTokenCosts(job: VideoJobRecord): VideoTokenCosts | null {
 	if (!mapping?.inputPrice && !mapping?.outputPrice) {
 		return null;
 	}
-	const status =
-		job.upstreamStatusResponse &&
-		typeof job.upstreamStatusResponse === "object" &&
-		!Array.isArray(job.upstreamStatusResponse)
-			? (job.upstreamStatusResponse as Record<string, unknown>)
-			: null;
-	const usage =
-		status?.usage && typeof status.usage === "object"
-			? (status.usage as Record<string, unknown>)
-			: null;
+	const usage = getUpstreamVideoUsage(job);
 	if (!usage) {
 		return null;
 	}
 
 	const promptTokens = readTokenCount(usage.total_input_tokens);
-	const videoOutputTokens = (
-		Array.isArray(usage.output_tokens_by_modality)
-			? usage.output_tokens_by_modality
-			: []
-	).reduce<number>((total, entry) => {
-		if (!entry || typeof entry !== "object") {
-			return total;
-		}
-		const { modality, tokens } = entry as Record<string, unknown>;
-		return modality === "video" ? total + readTokenCount(tokens) : total;
-	}, 0);
 	const completionTokens = Math.max(
 		0,
-		readTokenCount(usage.total_output_tokens) - videoOutputTokens,
+		readTokenCount(usage.total_output_tokens) - getVideoOutputTokens(usage),
 	);
 	const reasoningTokens = readTokenCount(usage.total_thought_tokens);
 
@@ -2995,4 +2988,30 @@ function getVideoBilledCost(job: VideoJobRecord): number {
 		.plus(tokenCosts?.outputCost ?? 0)
 		.toDecimalPlaces(6)
 		.toNumber();
+}
+function getUpstreamVideoUsage(
+	job: VideoJobRecord,
+): Record<string, unknown> | null {
+	const status =
+		job.upstreamStatusResponse &&
+		typeof job.upstreamStatusResponse === "object" &&
+		!Array.isArray(job.upstreamStatusResponse)
+			? (job.upstreamStatusResponse as Record<string, unknown>)
+			: null;
+	return status?.usage && typeof status.usage === "object"
+		? (status.usage as Record<string, unknown>)
+		: null;
+}
+function getVideoOutputTokens(usage: Record<string, unknown>): number {
+	return (
+		Array.isArray(usage.output_tokens_by_modality)
+			? usage.output_tokens_by_modality
+			: []
+	).reduce<number>((total, entry) => {
+		if (!entry || typeof entry !== "object") {
+			return total;
+		}
+		const { modality, tokens } = entry as Record<string, unknown>;
+		return modality === "video" ? total + readTokenCount(tokens) : total;
+	}, 0);
 }

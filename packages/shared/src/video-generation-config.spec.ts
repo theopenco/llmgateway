@@ -12,6 +12,8 @@ import {
 	parseGoogleAiStudioFileName,
 	supportsVideoFrameInput,
 	supportsVideoEndFrameInput,
+	supportsVideoReferenceInput,
+	supportsVideoReferenceVideoInput,
 } from "./video-generation-config.js";
 
 import type {
@@ -149,7 +151,7 @@ describe("Gemini Omni 1.1 Flash", () => {
 		],
 	};
 
-	test("offers 360p and 3s text-to-video, no frame input", () => {
+	test("offers 360p, 3s, frame and reference inputs", () => {
 		expect(getSupportedVideoRequestOptions([omni], [omni.id], "none")).toEqual({
 			sizes: ["640x360", "360x640", "1280x720", "720x1280"],
 			durations: [3, 4, 5, 6, 7, 8, 9, 10],
@@ -158,9 +160,20 @@ describe("Gemini Omni 1.1 Flash", () => {
 			"360p",
 			"720p",
 		]);
+		const modelId = "google-ai-studio/gemini-omni-1.1-flash";
+		expect(supportsVideoFrameInput(modelId)).toBe(true);
+		expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceVideoInput(modelId)).toBe(true);
 		expect(
-			supportsVideoFrameInput("google-ai-studio/gemini-omni-1.1-flash"),
+			supportsVideoReferenceInput("google-vertex/gemini-omni-1.1-flash"),
 		).toBe(false);
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "reference").durations,
+		).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "frames").sizes,
+		).toEqual(["640x360", "360x640", "1280x720", "720x1280"]);
 	});
 
 	test("estimates the per-second rate for the resolution", () => {

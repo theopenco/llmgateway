@@ -1594,6 +1594,7 @@ export const googleModels = [
 				externalId: "gemini-omni-1.1-flash",
 				inputPrice: "1.5e-6",
 				outputPrice: "9e-6",
+				videoOutputPrice: "17.5e-6",
 				requestPrice: undefined,
 				perSecondPrice: {
 					"360p": "0.0337925",

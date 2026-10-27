@@ -405,8 +405,16 @@ export function getVideoDurations(): VideoDuration[] {
 	return VIDEO_DURATIONS;
 }
 
+function isGeminiOmniVideoModel(canonicalModelId: string): boolean {
+	return canonicalModelId === "gemini-omni-1.1-flash";
+}
+
 export function supportsVideoFrameInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (isGeminiOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "google-ai-studio";
+	}
 
 	if (isSeedance2ReferenceModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "bytedance";
@@ -474,6 +482,10 @@ function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 export function supportsVideoReferenceInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
 
+	if (isGeminiOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "google-ai-studio";
+	}
+
 	if (providerId === "bytedance") {
 		return isSeedance2ReferenceModel(canonicalModelId);
 	}
@@ -490,6 +502,10 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 
 export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (isGeminiOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "google-ai-studio";
+	}
 
 	if (providerId !== undefined && providerId !== "bytedance") {
 		return false;
@@ -564,6 +580,7 @@ function mappingSupportsVideoRequest(
 
 		if (
 			mapping.providerId !== "google-vertex" &&
+			mapping.providerId !== "google-ai-studio" &&
 			mapping.providerId !== "minimax" &&
 			mapping.providerId !== "xai" &&
 			mapping.providerId !== "atlascloud"
@@ -576,6 +593,10 @@ function mappingSupportsVideoRequest(
 		// Match by canonical model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
 			return isSeedance2ReferenceModel(mapping.modelId);
+		}
+
+		if (mapping.providerId === "google-ai-studio") {
+			return isGeminiOmniVideoModel(mapping.modelId);
 		}
 
 		// Veo reference images are only supported on the veo-3.1 family.
