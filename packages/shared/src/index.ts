@@ -282,6 +282,7 @@ export {
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
+	INTERNAL_CLASSIFIER_MODEL,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
 	type ContentFilterClassifier,

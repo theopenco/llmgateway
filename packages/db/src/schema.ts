@@ -2798,6 +2798,12 @@ export const log = snakeCase.table(
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
+		// Content-filtered requests by time, for the admin classifier export.
+		// Retention nulls the response after 30 days, which bounds the index.
+		// Build CONCURRENTLY out of band in prod before deploying.
+		index("log_content_filter_created_at_idx")
+			.on(table.createdAt)
+			.where(sql`gateway_content_filter_response IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)

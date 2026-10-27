@@ -2,6 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { ContentFilterSettingsForm } from "@/components/content-filter-settings-form";
+import { InternalClassifierCheckExport } from "@/components/internal-classifier-check-export";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -270,6 +271,20 @@ export default async function ContentFilterPage({
 				</CardHeader>
 				<CardContent>
 					<ContentFilterSettingsForm settings={settings} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Internal classifier checks</CardTitle>
+					<CardDescription>
+						Every internal classifier verdict, passes included, with the audit
+						CSV&apos;s columns and prompt fingerprints, read from request logs.
+						Up to 24 hours per export; logs keep them for 30 days.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<InternalClassifierCheckExport />
 				</CardContent>
 			</Card>
 
