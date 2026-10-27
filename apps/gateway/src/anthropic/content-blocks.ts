@@ -35,6 +35,19 @@ const toolResultContentBlocksSchema = z
 	.array(z.unknown())
 	.superRefine((blocks, ctx) => {
 		blocks.forEach((block, index) => {
+			// Anthropic's tool_result content takes text and image blocks. The
+			// native replay forwards the whole array verbatim, so a `document`
+			// sibling would carry its `url` source to the provider without
+			// passing the gateway URL guard; reject it here instead.
+			if (blockType(block) === "document") {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: [index, "type"],
+					message:
+						"tool_result content does not accept document blocks; send the document as user content",
+				});
+				return;
+			}
 			if (blockType(block) !== "image") {
 				return;
 			}

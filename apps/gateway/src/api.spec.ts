@@ -1511,6 +1511,75 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/messages rejects a document block inside tool_result content", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// The whole nested array is replayed verbatim, so a document block
+		// carrying a `url` source would reach the provider without passing the
+		// gateway URL guard. Anthropic documents tool_result content as text
+		// and image blocks only.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "anthropic/claude-opus-4-8",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "Chart the data." },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "tool_use",
+								id: "toolu_1",
+								name: "render_chart",
+								input: {},
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: "toolu_1",
+								content: [
+									{
+										type: "document",
+										source: {
+											type: "url",
+											url: "https://example.com/report.pdf",
+										},
+									},
+								],
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain(
+			"tool_result content does not accept document blocks",
+		);
+	});
+
 	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
