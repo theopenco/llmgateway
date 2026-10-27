@@ -1496,6 +1496,7 @@ describe("videos", () => {
 				(completedJob?.upstreamStatusResponse as Record<string, unknown>)
 					.google_ai_studio_file_name,
 			).toBe("files/mockfile1");
+			expect(completedJob?.expiresAt).not.toBeNull();
 
 			const logs = await db.query.log.findMany({
 				where: { usedModel: { eq: "google-ai-studio/gemini-omni-1.1-flash" } },

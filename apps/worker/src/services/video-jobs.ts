@@ -132,6 +132,8 @@ const VIDEO_RESOLUTION_1080P = "1080p";
 const VIDEO_RESOLUTION_720P = "720p";
 const VIDEO_RESOLUTION_480P = "480p";
 const VIDEO_RESOLUTION_360P = "360p";
+// Gemini Files API files, generated outputs included, are deleted after 48h.
+const GOOGLE_AI_STUDIO_FILE_TTL_MS = 48 * 60 * 60 * 1000;
 const VIDEO_RESOLUTION_768P = "768p";
 const VIDEO_DEFAULT_RESOLUTION = "default";
 const ACTIVE_VIDEO_STATUSES = ["queued", "in_progress"] as const;
@@ -1670,7 +1672,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				),
 				upstreamResponse: redactStealthProviderError
 					? null
-					: jobToLog.upstreamStatusResponse,
+					: withoutInlineVideoBytes(jobToLog.upstreamStatusResponse),
 				processedAt: null,
 				dataStorageCost: "0",
 			};
@@ -2844,7 +2846,7 @@ function normalizeGoogleAiStudioInteraction(
 				: "failed"
 			: rawStatus === "failed" || rawStatus === "incomplete"
 				? "failed"
-				: rawStatus === "cancelled"
+				: rawStatus === "cancelled" || rawStatus === "canceled"
 					? "canceled"
 					: "in_progress";
 	const firstError = Array.isArray(body.errors) ? body.errors[0] : body.error;
@@ -2881,7 +2883,15 @@ function normalizeGoogleAiStudioInteraction(
 		status,
 		progress: status === "in_progress" ? 50 : 100,
 		mime_type: output?.mimeType ?? "video/mp4",
-		...(fileName ? { google_ai_studio_file_name: fileName } : {}),
+		...(fileName
+			? {
+					google_ai_studio_file_name: fileName,
+					expires_at: new Date(
+						(parseTimestamp(body.updated) ?? new Date()).getTime() +
+							GOOGLE_AI_STUDIO_FILE_TTL_MS,
+					).toISOString(),
+				}
+			: {}),
 		...(inlineData
 			? {
 					response: {
@@ -3014,4 +3024,37 @@ function getVideoOutputTokens(usage: Record<string, unknown>): number {
 		const { modality, tokens } = entry as Record<string, unknown>;
 		return modality === "video" ? total + readTokenCount(tokens) : total;
 	}, 0);
+}
+/**
+ * The job's upstream status for the log row, without inline video bytes: the
+ * job row keeps them for content retrieval, the log never needs them.
+ */
+function withoutInlineVideoBytes(status: unknown): unknown {
+	if (!status || typeof status !== "object" || Array.isArray(status)) {
+		return status;
+	}
+	const body = status as Record<string, unknown>;
+	const response =
+		body.response && typeof body.response === "object"
+			? (body.response as Record<string, unknown>)
+			: null;
+	if (!response || !Array.isArray(response.videos)) {
+		return status;
+	}
+	return {
+		...body,
+		response: {
+			...response,
+			videos: response.videos.map((video: unknown) => {
+				if (!video || typeof video !== "object") {
+					return video;
+				}
+				const { bytesBase64Encoded: _bytes, ...rest } = video as Record<
+					string,
+					unknown
+				>;
+				return rest;
+			}),
+		},
+	};
 }

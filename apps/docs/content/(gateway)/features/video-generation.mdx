@@ -341,7 +341,7 @@ Failed, canceled, and expired jobs report a cost of `0`.
 
 `google-vertex` follows Vertex AI's long-running operation flow. The gateway submits Veo generation with `predictLongRunning`, polls with `fetchPredictOperation`, and streams the final bytes through the gateway content endpoint once the operation is done.
 
-`google-ai-studio` uses the Gemini Interactions API. The gateway creates a background interaction, polls it until the video is ready, and streams the generated file through the gateway content endpoint.
+`google-ai-studio` uses the Gemini Interactions API. The gateway creates a background interaction, polls it until the video is ready, and streams the generated file through the gateway content endpoint. Google deletes the generated file after 48 hours, which the job reports as `expires_at`.
 
 `bytedance` uses the ModelArk `/contents/generations/tasks` endpoint. The gateway submits the job, polls the upstream task status, and exposes the final video bytes through the gateway content endpoint once the task succeeds.
 

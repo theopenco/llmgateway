@@ -304,6 +304,7 @@ const videoImageInputSchema = z
 
 const SEEDANCE_2_MAX_REFERENCE_IMAGES = 9;
 const DEFAULT_MAX_REFERENCE_IMAGES = 3;
+const GEMINI_OMNI_MAX_SOURCE_VIDEO_SECONDS = 10;
 
 const videoReferenceImagesSchema = z
 	.array(videoImageInputSchema)
@@ -2944,13 +2945,27 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
 	if (job.usedMode === "api-keys") {
-		const providerKey = await findProviderKey(
-			job.organizationId,
-			providerId,
-			job.usedModel,
-			undefined,
-			getVideoProviderKeyFilter(providerId),
-		);
+		// Prefer the key that created the job: some providers (Gemini Files API
+		// outputs) scope job content to the creating key.
+		const keyFilter = getVideoProviderKeyFilter(providerId);
+		const creatingKey = job.providerKeyId
+			? await findProviderKey(
+					job.organizationId,
+					providerId,
+					job.usedModel,
+					undefined,
+					(key) => key.id === job.providerKeyId && (keyFilter?.(key) ?? true),
+				)
+			: undefined;
+		const providerKey =
+			creatingKey ??
+			(await findProviderKey(
+				job.organizationId,
+				providerId,
+				job.usedModel,
+				undefined,
+				keyFilter,
+			));
 		if (!providerKey) {
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${providerId}`,
@@ -3008,6 +3023,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 	const organization = await findOrganizationById(job.organizationId);
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
 	const env = getProviderEnv(providerId, {
+		configIndex: job.providerConfigIndex ?? undefined,
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
 		selectionScope: job.usedModel,
 		variant: envVariant,
@@ -5779,7 +5795,11 @@ async function createGoogleAiStudioVideoJob(
 				...rawResponse,
 				id: interactionId,
 				model: upstreamModelName,
-				duration: durationSeconds,
+				// An edit keeps the source's length, which Google caps.
+				duration:
+					sourceVideo?.task === "edit"
+						? GEMINI_OMNI_MAX_SOURCE_VIDEO_SECONDS
+						: durationSeconds,
 			},
 			videoSize,
 		),
