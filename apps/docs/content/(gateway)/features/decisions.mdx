@@ -25,13 +25,6 @@ For the full request and response schema, see the
 
 ## Models
 
-| Model                  | Provider | Input        | Price (input only)                  |
-| ---------------------- | -------- | ------------ | ----------------------------------- |
-| `gpt-6-luna-decisions` | OpenAI   | Text, images | $0.10 / 1M tokens ($0.20 over 272K) |
-| `microsoft-decision-1` | Azure    | Text         | $0.042 / 1M tokens                  |
-| `jev-1.14.0`           | TypeSafe | Text         | $0.042 / 1M tokens                  |
-| `jev-1.13.0`           | TypeSafe | Text         | $0.042 / 1M tokens                  |
-
 `microsoft-decision-1` is served by Azure and works with LLMGateway credits.
 To use your own Azure key instead, deploy Microsoft-Decision-1 in Microsoft
 Foundry with the deployment name `Decision-1`, then add the Azure key and
