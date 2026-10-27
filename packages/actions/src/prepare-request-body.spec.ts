@@ -11023,3 +11023,51 @@ describe("prepareRequestBody - custom provider cache_control forwarding", () => 
 		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
 	});
 });
+
+describe("prepareRequestBody - Alibaba input_audio", () => {
+	async function prepare(data: string) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"qwen3.8-omni-flash",
+			null,
+			"qwen3.8-omni-flash",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What do you hear?" },
+						{ type: "input_audio", input_audio: { data, format: "wav" } },
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+	}
+
+	test("wraps bare base64 audio in a data URL", async () => {
+		const requestBody = await prepare("UklGRg==");
+		expect(requestBody.messages[0].content[1].input_audio).toEqual({
+			data: "data:;base64,UklGRg==",
+			format: "wav",
+		});
+	});
+
+	test.each(["data:audio/wav;base64,UklGRg==", "https://example.com/a.wav"])(
+		"forwards %s unchanged",
+		async (data) => {
+			const requestBody = await prepare(data);
+			expect(requestBody.messages[0].content[1].input_audio.data).toBe(data);
+		},
+	);
+});
