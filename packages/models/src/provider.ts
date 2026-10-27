@@ -235,6 +235,9 @@ export function getProviderEnvVarNameFor(
 	if (!config) {
 		return undefined;
 	}
+	if (key === "apiKey") {
+		return getProviderEnvVar(provider);
+	}
 	if (key in config.required) {
 		return config.required[key as keyof typeof config.required];
 	}
@@ -355,7 +358,9 @@ export function validateProviderEnv(provider: Provider): string[] {
 	const errors: string[] = [];
 
 	// Check all required env vars
-	for (const [key, envVarName] of Object.entries(config.required)) {
+	for (const [key, configuredName] of Object.entries(config.required)) {
+		const envVarName =
+			key === "apiKey" ? getProviderEnvVar(provider) : configuredName;
 		if (envVarName && !process.env[envVarName]) {
 			errors.push(`Missing required env var: ${envVarName} (${key})`);
 		}

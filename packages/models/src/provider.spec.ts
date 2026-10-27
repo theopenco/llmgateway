@@ -11,6 +11,7 @@ import {
 	hasRegionSpecificEnvKey,
 	getVariantEnvVarName,
 	getVariantEnvVarNameFor,
+	validateProviderEnv,
 } from "./provider.js";
 import { getRegionScopedDefaultRegion } from "./providers.js";
 
@@ -342,6 +343,8 @@ describe("getProviderEnvVar fallback key", () => {
 		expect(getProviderEnvVar("aws-mantle")).toBe("LLM_AWS_BEDROCK_API_KEY");
 		expect(hasProviderEnvironmentToken("aws-mantle")).toBe(true);
 		expect(hasRegionSpecificEnvKey("aws-mantle", "eu-west-2")).toBe(true);
+		expect(getProviderEnvValue("aws-mantle", "apiKey")).toBe("ABSKbedrock");
+		expect(validateProviderEnv("aws-mantle")).toEqual([]);
 	});
 
 	it("keeps the own name when neither key is set", () => {
