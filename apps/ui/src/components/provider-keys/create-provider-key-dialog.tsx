@@ -384,7 +384,7 @@ export function CreateProviderKeyDialog({
 		}
 
 		if (selectedProvider === "cloudflare") {
-			const accountId = cloudflareAccountId.trim();
+			const accountId = cloudflareAccountId.trim().toLowerCase();
 			if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
 				toast({
 					title: "Error",
@@ -477,6 +477,7 @@ export function CreateProviderKeyDialog({
 			setAzureValidationModel("gpt-4o-mini");
 			setAzureAiFoundryResource("");
 			setAzureAiFoundryApiVersion("2024-05-01-preview");
+			setCloudflareAccountId("");
 			setSelectedRegion("");
 			setAlibabaWorkspaceId("");
 			setGoogleVertexProjectId("");

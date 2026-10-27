@@ -652,6 +652,16 @@ keysProvider.openapi(create, async (c) => {
 		}
 	}
 
+	if (
+		provider === "cloudflare" &&
+		!baseUrl &&
+		!options?.cloudflare_account_id
+	) {
+		throw new HTTPException(400, {
+			message: "Cloudflare keys require an account ID",
+		});
+	}
+
 	// Stealth providers have no default base URL and an undisclosed platform, so
 	// users can't self-configure a working key for them. They are hidden from the
 	// UI selector; reject here too as defense in depth against direct API calls.
