@@ -6919,7 +6919,7 @@ chat.openapi(completions, async (c) => {
 		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
-		assertDevPlanPremiumCapNotExceeded(
+		await assertDevPlanPremiumCapNotExceeded(
 			organization,
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
@@ -7103,7 +7103,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 			// Check regular credits, dev plan credits, and chat plan credits.
-			assertDevPlanPremiumCapNotExceeded(
+			await assertDevPlanPremiumCapNotExceeded(
 				organization,
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,

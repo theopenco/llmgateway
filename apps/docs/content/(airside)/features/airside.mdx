@@ -119,6 +119,14 @@ A filing covers input, output, optional cached-input, and optional per-request p
 
 Approved listings are genuinely routable. A request for `<provider>/<model>` that does not match the static catalogue resolves against active Airside listings with an approved price filing, and is billed at the filed prices — no extra configuration on the developer side.
 
+### Getting paid
+
+LLM Gateway agrees one of three billing modes with each carrier. Your mode is shown under **Settings → Billing**; contact us to change it. In every mode we reconcile your charges against our own traffic records each month.
+
+1. **Pay-as-you-go** — we open an account on your platform with a card on auto top-up, so usage is charged as it happens.
+2. **Payout** — you issue us an API key and invoice us on the 1st for the previous month. We pay out your earnings by USD wire, weekly or monthly.
+3. **Post-billing** — we open an account on your platform and you switch it to post-paid. You invoice us on the 1st for the previous month and we pay once a month.
+
 ## Traffic
 
 The **Traffic** page shows usage of your claimed providers: requests, errors, input/output/total tokens, and billed traffic in USD, as a daily series and broken down per model.
