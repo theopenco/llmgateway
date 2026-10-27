@@ -351,6 +351,21 @@ describe("getProviderEnvVar fallback key", () => {
 		expect(hasProviderEnvironmentToken("aws-mantle")).toBe(false);
 	});
 
+	it("keeps its own name while only an own variant or regional key is set", () => {
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY", "");
+		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "ABSKbedrock");
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY__ENTERPRISE", "ABSKmantle-ent");
+		expect(getProviderEnvVar("aws-mantle")).toBe("LLM_AWS_MANTLE_API_KEY");
+		expect(getVariantEnvVarName("aws-mantle", "enterprise")).toBe(
+			"LLM_AWS_MANTLE_API_KEY__ENTERPRISE",
+		);
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY__ENTERPRISE", "");
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY__EU_WEST_2", "ABSKmantle-eu");
+		expect(getRegionSpecificEnvVarName("aws-mantle", "eu-west-2")).toBe(
+			"LLM_AWS_MANTLE_API_KEY__EU_WEST_2",
+		);
+	});
+
 	it("never borrows in the other direction", () => {
 		vi.stubEnv("LLM_AWS_MANTLE_API_KEY", "ABSKmantle");
 		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "");

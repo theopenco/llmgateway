@@ -19,18 +19,27 @@ export const providerEnvVarMap: Record<Provider, string | undefined> =
 	) as Record<Provider, string | undefined>;
 
 /**
- * The env var carrying the provider's API key: its own when set, else a
- * declared `fallbackApiKey` that is set, else its own (unset) name.
+ * The base env var carrying the provider's API key. A provider declaring a
+ * `fallbackApiKey` uses that var instead only while none of its own key vars
+ * (base, `__{VARIANT}` or `__{REGION}` overrides) is set, so variant and
+ * regional lookups derived from this name never mix the two credentials.
  */
 export function getProviderEnvVar(
 	provider: Provider | string,
 ): string | undefined {
 	const own = providerEnvVarMap[provider as Provider];
-	if (own && process.env[own]) {
+	const fallback = getProviderDefinition(provider)?.env.fallbackApiKey;
+	if (!own || !fallback || hasOwnApiKeyEnv(own)) {
 		return own;
 	}
-	const fallback = getProviderDefinition(provider)?.env.fallbackApiKey;
-	return fallback && process.env[fallback] ? fallback : own;
+	return process.env[fallback] ? fallback : own;
+}
+
+function hasOwnApiKeyEnv(own: string): boolean {
+	return Object.entries(process.env).some(
+		([name, value]) =>
+			Boolean(value) && (name === own || name.startsWith(`${own}__`)),
+	);
 }
 
 export type EnvVarVariant = "enterprise" | "plans";
