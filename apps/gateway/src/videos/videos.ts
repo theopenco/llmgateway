@@ -130,6 +130,7 @@ import {
 	getGoogleVertexVideoOutputPrefix,
 	parseGcsUri,
 } from "@llmgateway/shared/gcs";
+import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 import {
 	buildSignedGatewayVideoLogContentUrl,
 	verifyVideoContentAccessToken,
@@ -5705,11 +5706,21 @@ async function createGoogleAiStudioVideoJob(
 			data: image.bytesBase64Encoded,
 			mime_type: image.mimeType,
 		}));
-	// Google fetches the HTTPS URLs itself.
-	const videoParts = [
+	// Google fetches the HTTPS URLs itself; still refuse internal targets.
+	const videoUrls = [
 		...(sourceVideo ? [sourceVideo.url] : []),
 		...referenceVideoUrls,
-	].map((uri) => ({ type: "video", uri }));
+	];
+	for (const url of videoUrls) {
+		try {
+			await assertSafeUserContentUrl(url);
+		} catch (error) {
+			throw new HTTPException(400, {
+				message: `Invalid video URL: ${toError(error).message}`,
+			});
+		}
+	}
+	const videoParts = videoUrls.map((uri) => ({ type: "video", uri }));
 	// Frame tags tell the model the images are the opening/closing frames rather
 	// than subject references.
 	const frameTags = [

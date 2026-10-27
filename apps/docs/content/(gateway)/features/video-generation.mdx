@@ -207,10 +207,10 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 `gemini-omni-1.1-flash` can edit or extend a source video passed as `video`, a publicly reachable HTTPS URL (or `{ "video_url": "…" }`) of up to 10 seconds. `video_task` selects the operation:
 
-| `video_task`     | Result                                                                                                |
-| ---------------- | ----------------------------------------------------------------------------------------------------- |
-| `edit` (default) | The source with the prompt's changes, at the source's length and aspect ratio; `seconds` is ignored   |
-| `extend`         | The source followed by a `seconds`-long continuation; only the continuation's video tokens are billed |
+| `video_task`     | Result                                                                                                                                                         |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `edit` (default) | The source with the prompt's changes, at the source's length and aspect ratio; `seconds` must still be a supported duration (3–10) but does not set the length |
+| `extend`         | The source followed by a `seconds`-long continuation; only the continuation's video tokens are billed                                                          |
 
 `size` selects the output resolution. A source video cannot be combined with frame or reference inputs. Simple prompts work best for edits, for example `"Make this video anime. Keep everything else the same."` Editing or extending an uploaded video is not available to callers in the EEA, Switzerland, and the United Kingdom.
 
