@@ -50,6 +50,8 @@ const DROP_TABLE_RE = new RegExp(
 	String.raw`^\s*drop\s+table\s+(?:if\s+exists\s+)?(${QUALIFIED})`,
 	"i",
 );
+const DROP_TABLE_LIST_RE =
+	/^\s*drop\s+table\s+(?:if\s+exists\s+)?([\s\S]+?)(?:\s+(?:cascade|restrict))?\s*;?\s*$/i;
 const LOCKING_TABLE_RES = [
 	ALTER_TABLE_RE,
 	DROP_TABLE_RE,
@@ -65,6 +67,29 @@ const LOCKING_TABLE_RES = [
 /** Blanks string literals and quoted identifiers so keywords in names don't match. */
 function bareSql(sql: string): string {
 	return sql.replace(/'(?:[^']|'')*'/g, "''").replace(/"(?:[^"]|"")*"/g, '""');
+}
+
+/** The comma-separated actions of an ALTER TABLE statement, from bareSql output. */
+function alterActions(bare: string): string[] {
+	const body = bare.replace(
+		/^\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?\S+\s+/i,
+		"",
+	);
+	const actions: string[] = [];
+	let depth = 0;
+	let start = 0;
+	for (let i = 0; i < body.length; i++) {
+		if (body[i] === "(") {
+			depth++;
+		} else if (body[i] === ")") {
+			depth--;
+		} else if (body[i] === "," && depth === 0) {
+			actions.push(body.slice(start, i).trim());
+			start = i + 1;
+		}
+	}
+	actions.push(body.slice(start).trim());
+	return actions;
 }
 
 /**
@@ -102,9 +127,12 @@ const CONTRACT_RULES: {
 	{
 		rule: "add-not-null-without-default",
 		test: (bare) =>
-			/\badd\s+column\b/i.test(bare) &&
-			/\bnot\s+null\b/i.test(bare) &&
-			!/\b(?:default|generated)\b/i.test(bare),
+			alterActions(bare).some(
+				(action) =>
+					/^add\s+column\b/i.test(action) &&
+					/\bnot\s+null\b/i.test(action) &&
+					!/\b(?:default|generated)\b/i.test(action),
+			),
 		message:
 			"ADD COLUMN ... NOT NULL without a DEFAULT fails the previous release's inserts, which do not set it. Add a DEFAULT or make it nullable.",
 	},
@@ -253,9 +281,11 @@ function hasMarkerReason(
 	return statements.some((statement) =>
 		statement.raw.split("\n").some((line) => {
 			const trimmed = line.trim();
+			const rest = trimmed.slice(marker.length);
 			return (
 				trimmed.toLowerCase().startsWith(marker) &&
-				trimmed.slice(marker.length).replace(/^[:\s]+/, "").length > 0
+				/^[:\s]/.test(rest) &&
+				rest.replace(/^[:\s]+/, "").length > 0
 			);
 		}),
 	);
@@ -402,9 +432,12 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 			continue;
 		}
 
-		const dropTable = DROP_TABLE_RE.exec(sql);
+		const dropTable = DROP_TABLE_LIST_RE.exec(sql);
 		if (dropTable) {
-			if (!isNew(dropTable[1]) && !contracted) {
+			const existing = splitIdentifierList(dropTable[1]).some(
+				(table) => !isNew(table),
+			);
+			if (existing && !contracted) {
 				findings.push({
 					rule: "drop-table",
 					message: `DROP TABLE breaks the previous release if it still uses the table. ${CONTRACT_HINT}`,

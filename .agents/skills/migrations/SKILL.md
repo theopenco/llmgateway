@@ -59,10 +59,12 @@ migrations created since the lint was added:
 ## Backward compatibility
 
 Migrations run before rollout and are never reverted, so the previous release
-runs on the new schema during every rollout and after any rollback. Drizzle
-names every `schema.ts` column in each SELECT, RETURNING, and INSERT, so a
-column the previous release still declares must still exist. Additive changes
-(new tables, nullable columns, columns with a DEFAULT) are safe.
+runs on the new schema during every rollout and after any rollback. Full-row
+Drizzle queries (`select()`, relational queries without `columns`,
+`returning()`) name every `schema.ts` column, as does code that references one
+directly, so a column the previous release still declares must still exist.
+Additive changes (new tables, nullable columns, columns with a DEFAULT) are
+safe.
 
 Remove a column or table in two deployed PRs:
 

@@ -97,6 +97,31 @@ describe("lintMigrationSql", () => {
 		);
 	});
 
+	it("checks each ADD COLUMN action and every dropped table", () => {
+		const sql = [
+			`ALTER TABLE "project" ADD COLUMN "a" text DEFAULT 'x' NOT NULL, ADD COLUMN "b" text NOT NULL;`,
+			`CREATE TABLE "scratch" ("id" text);`,
+			`DROP TABLE "scratch", "old_feature";`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([
+			"add-not-null-without-default",
+			"drop-table",
+		]);
+	});
+
+	it("requires a separator between a marker and its reason", () => {
+		expect(
+			lintMigrationSql(
+				`-- migrate:contractual note\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
+		expect(
+			lintMigrationSql(
+				`-- migrate:contract: #4551 is deployed\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			),
+		).toEqual([]);
+	});
+
 	it("allows additive changes and contract changes on new tables", () => {
 		const sql = [
 			`CREATE TABLE "feature" ("id" text PRIMARY KEY NOT NULL, "x" text);`,
