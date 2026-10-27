@@ -1320,66 +1320,6 @@ describe("getProviderEndpoint", () => {
 
 		it.each([
 			{
-				model: "gpt-oss-120b",
-				region: "us-east-1",
-				endpoint:
-					"https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions",
-			},
-			{
-				model: "gpt-oss-20b",
-				region: "eu-west-2",
-				endpoint:
-					"https://bedrock-mantle.eu-west-2.api.aws/v1/chat/completions",
-			},
-			{
-				model: "gpt-oss-20b",
-				region: "us-east-1",
-				baseUrl: "https://bedrock-mantle.us-east-1.api.aws/v1",
-				endpoint:
-					"https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions",
-			},
-			{
-				model: "gpt-oss-120b",
-				region: "us-east-1",
-				baseUrl: "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
-				endpoint:
-					"https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions",
-			},
-		])(
-			"routes $model through the Bedrock Mantle /v1 endpoint in $region",
-			({
-				model,
-				region,
-				baseUrl,
-				endpoint: expectedEndpoint,
-			}: {
-				model: string;
-				region: string;
-				baseUrl?: string;
-				endpoint: string;
-			}) => {
-				const endpoint = getProviderEndpoint(
-					"aws-bedrock",
-					baseUrl,
-					model,
-					undefined,
-					false,
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					region,
-					true,
-					model,
-				);
-
-				expect(endpoint).toBe(expectedEndpoint);
-			},
-		);
-
-		it.each([
-			{
 				region: undefined,
 				endpoint:
 					"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions",
@@ -1598,6 +1538,38 @@ describe("getProviderEndpoint", () => {
 	});
 
 	describe("aws-mantle regions", () => {
+		it.each([
+			{ model: "gpt-oss-120b", region: "us-east-1" },
+			{ model: "gpt-oss-20b", region: "eu-west-2" },
+			{ model: "gpt-oss-20b", region: "ap-northeast-1" },
+		])(
+			"routes $model to Mantle /v1 chat completions in $region",
+			({ model, region }) => {
+				const endpoint = getProviderEndpoint(
+					"aws-mantle",
+					undefined,
+					model,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					region,
+					true,
+					model,
+					undefined,
+					undefined,
+					"openai-chat-completions",
+				);
+
+				expect(endpoint).toBe(
+					`https://bedrock-mantle.${region}.api.aws/v1/chat/completions`,
+				);
+			},
+		);
+
 		it.each(["global", "us"])("routes %s through Bedrock Runtime", (region) => {
 			const endpoint = getProviderEndpoint(
 				"aws-mantle",

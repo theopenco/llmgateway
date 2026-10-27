@@ -61,8 +61,7 @@ function applyAwsBedrockRegionalPricing(
 	if (
 		mapping.providerId !== "aws-bedrock" ||
 		!mapping.region ||
-		mapping.region === "global" ||
-		mapping.inRegionPricing
+		mapping.region === "global"
 	) {
 		return mapping;
 	}

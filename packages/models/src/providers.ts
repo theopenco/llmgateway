@@ -21,6 +21,12 @@ export interface ProviderEnvConfig {
 	 * Validated when a credential is saved and surfaced in the admin form.
 	 */
 	exclusive?: ProviderEnvExclusiveGroup[];
+	/**
+	 * Env var holding an API key this provider also accepts, read only when
+	 * its own `apiKey` var is unset (one AWS Bedrock key serves both Bedrock
+	 * providers). Managed and BYOK credentials are never shared.
+	 */
+	fallbackApiKey?: string;
 }
 
 export interface ProviderEnvExclusiveGroup {
@@ -1126,10 +1132,12 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "aws-mantle",
-		name: "AWS Mantle",
+		// Kept separate from aws-bedrock so OpenAI models on Bedrock can be
+		// blocked, allowed and rate limited as one provider.
+		name: "AWS Bedrock (OpenAI)",
 		forwardsSafetyIdentifier: false,
 		description:
-			"OpenAI frontier models on Amazon Bedrock's Mantle and Runtime Responses APIs",
+			"OpenAI models on Amazon Bedrock, served through the Mantle and Runtime OpenAI-compatible APIs",
 		env: {
 			required: {
 				apiKey: "LLM_AWS_MANTLE_API_KEY",
@@ -1138,6 +1146,7 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_AWS_MANTLE_BASE_URL",
 				region: "LLM_AWS_MANTLE_REGION",
 			},
+			fallbackApiKey: "LLM_AWS_BEDROCK_API_KEY",
 		},
 		priority: 2,
 		cancellation: true,
@@ -1154,6 +1163,11 @@ export const providers: ProviderDefinition[] = [
 				{ id: "us-east-1", label: "US East (N. Virginia)" },
 				{ id: "us-east-2", label: "US East (Ohio)" },
 				{ id: "us-west-2", label: "US West (Oregon)" },
+				{ id: "eu-north-1", label: "EU (Stockholm)" },
+				{ id: "eu-central-1", label: "EU (Frankfurt)" },
+				{ id: "eu-west-1", label: "EU (Ireland)" },
+				{ id: "eu-west-2", label: "EU (London)" },
+				{ id: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
 			],
 			endpointMap: {
 				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
@@ -1161,6 +1175,11 @@ export const providers: ProviderDefinition[] = [
 				"us-east-1": "https://bedrock-mantle.us-east-1.api.aws",
 				"us-east-2": "https://bedrock-mantle.us-east-2.api.aws",
 				"us-west-2": "https://bedrock-mantle.us-west-2.api.aws",
+				"eu-north-1": "https://bedrock-mantle.eu-north-1.api.aws",
+				"eu-central-1": "https://bedrock-mantle.eu-central-1.api.aws",
+				"eu-west-1": "https://bedrock-mantle.eu-west-1.api.aws",
+				"eu-west-2": "https://bedrock-mantle.eu-west-2.api.aws",
+				"ap-northeast-1": "https://bedrock-mantle.ap-northeast-1.api.aws",
 			},
 			modelPrefixMap: { global: "global.", us: "us." },
 			// Bedrock long-term API keys are IAM-global: one ABSK key authenticates

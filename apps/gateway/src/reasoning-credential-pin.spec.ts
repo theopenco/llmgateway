@@ -37,6 +37,8 @@ describe("reasoning credential pinning", () => {
 		"LLM_OPENAI_API_KEY",
 		"LLM_AZURE_API_KEY",
 		"LLM_AWS_MANTLE_API_KEY",
+		// aws-mantle falls back to the Bedrock key.
+		"LLM_AWS_BEDROCK_API_KEY",
 	];
 	const previousEnv: Record<string, string | undefined> = {};
 

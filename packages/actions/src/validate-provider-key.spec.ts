@@ -691,6 +691,34 @@ describe("validateProviderKey region resolution", () => {
 		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
 		expect(body.model).not.toBe("openai.gpt-5.6-sol");
 	});
+
+	// gpt-oss is the only OpenAI model on Mantle outside the US, and Mantle
+	// serves it on `/v1` chat completions rather than the Responses route.
+	it.each([undefined, "gpt-oss-20b"])(
+		"probes gpt-oss over chat completions (pinned model: %s)",
+		async (pinnedModelId) => {
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("{}", { status: 200 }));
+
+			const result = await validateProviderKey(
+				"aws-mantle",
+				"ABSKtest",
+				undefined,
+				false,
+				{ aws_mantle_region: "eu-west-2" },
+				pinnedModelId,
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				"https://bedrock-mantle.eu-west-2.api.aws/v1/chat/completions",
+			);
+			const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+			expect(body.model).toMatch(/^openai\.gpt-oss-(20|120)b$/);
+			expect(body.messages).toBeDefined();
+		},
+	);
 });
 
 describe("validateProviderKey credential hygiene", () => {

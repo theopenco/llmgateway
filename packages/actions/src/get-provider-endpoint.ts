@@ -45,30 +45,21 @@ function isChatCompletionsUrl(url: string): boolean {
 	);
 }
 
-function getBedrockMantleBaseUrl(
-	url: string,
-	region?: string,
-	basePath: "/openai/v1" | "/v1" = "/openai/v1",
-): string {
+function getBedrockMantleBaseUrl(url: string, region?: string): string {
 	if (url.includes("/openai/v1")) {
-		return url.replace("/openai/v1", basePath);
-	}
-	// A base URL that already carries the `/v1` base path (AWS documents it
-	// that way for gpt-oss) is used as-is.
-	if (basePath === "/v1" && /\/v1\/?$/.test(new URL(url).pathname)) {
-		return url.replace(/\/$/, "");
+		return url;
 	}
 	if (url.includes("bedrock-mantle.")) {
-		return appendPath(url, basePath);
+		return appendPath(url, "/openai/v1");
 	}
 	if (url.includes("bedrock-runtime.")) {
 		const mantleRegion =
 			region === "global" || region === "us"
 				? "us-west-2"
 				: (region ?? "us-west-2");
-		return `https://bedrock-mantle.${mantleRegion}.api.aws${basePath}`;
+		return `https://bedrock-mantle.${mantleRegion}.api.aws/openai/v1`;
 	}
-	return appendPath(url, basePath);
+	return appendPath(url, "/openai/v1");
 }
 
 /**
@@ -684,7 +675,7 @@ export function getProviderEndpoint(
 			);
 		}
 		return appendPath(
-			getBedrockMantleBaseUrl(url, region, providerMapping?.mantleBasePath),
+			getBedrockMantleBaseUrl(url, region),
 			"/chat/completions",
 		);
 	}

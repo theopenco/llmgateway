@@ -18,10 +18,19 @@ export const providerEnvVarMap: Record<Provider, string | undefined> =
 		]),
 	) as Record<Provider, string | undefined>;
 
+/**
+ * The env var carrying the provider's API key: its own when set, else a
+ * declared `fallbackApiKey` that is set, else its own (unset) name.
+ */
 export function getProviderEnvVar(
 	provider: Provider | string,
 ): string | undefined {
-	return providerEnvVarMap[provider as Provider];
+	const own = providerEnvVarMap[provider as Provider];
+	if (own && process.env[own]) {
+		return own;
+	}
+	const fallback = getProviderDefinition(provider)?.env.fallbackApiKey;
+	return fallback && process.env[fallback] ? fallback : own;
 }
 
 export type EnvVarVariant = "enterprise" | "plans";

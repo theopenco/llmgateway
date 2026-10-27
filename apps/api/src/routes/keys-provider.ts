@@ -97,6 +97,18 @@ export const complianceAttestationSchema = z.object({
 		.optional(),
 });
 
+// In-region Mantle deployments a BYOK key can be pinned to.
+const awsMantleRegionSchema = z.enum([
+	"us-east-1",
+	"us-east-2",
+	"us-west-2",
+	"eu-north-1",
+	"eu-central-1",
+	"eu-west-1",
+	"eu-west-2",
+	"ap-northeast-1",
+]);
+
 // Create a schema for provider key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
 export const providerKeySchema = z.object({
@@ -141,9 +153,7 @@ export const providerKeySchema = z.object({
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
 			alibaba_workspace_id: z.string().optional(),
-			aws_mantle_region: z
-				.enum(["us-east-1", "us-east-2", "us-west-2"])
-				.optional(),
+			aws_mantle_region: awsMantleRegionSchema.optional(),
 			vertex_openai_project_id: z.string().optional(),
 		})
 		.nullable(),
@@ -475,9 +485,7 @@ const createProviderKeySchema = z.object({
 				.string()
 				.regex(PROVIDER_HOSTNAME_LABEL_REGEX, WORKSPACE_ID_MESSAGE)
 				.optional(),
-			aws_mantle_region: z
-				.enum(["us-east-1", "us-east-2", "us-west-2"])
-				.optional(),
+			aws_mantle_region: awsMantleRegionSchema.optional(),
 			google_vertex_project_id: gcpProjectIdSchema.optional(),
 			vertex_openai_project_id: gcpProjectIdSchema.optional(),
 		})

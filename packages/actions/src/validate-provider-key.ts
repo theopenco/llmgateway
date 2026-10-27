@@ -555,6 +555,11 @@ export async function validateProviderKey(
 				"imageGenerations" in validationModel &&
 				validationModel.imageGenerations;
 
+			// gpt-oss on aws-mantle takes chat completions rather than the
+			// provider's Responses route; the request is then OpenAI-shaped.
+			const mantleChatCompletions =
+				provider === "aws-mantle" &&
+				providerMapping?.apiFormat === "openai-chat-completions";
 			endpoint = getProviderEndpoint(
 				provider,
 				baseUrl,
@@ -574,6 +579,10 @@ export async function validateProviderKey(
 				imageGenerations,
 				validationRegion,
 				true,
+				undefined,
+				undefined,
+				undefined,
+				mantleChatCompletions ? "openai-chat-completions" : undefined,
 			);
 
 			const supportsMaxTokens =
@@ -581,7 +590,7 @@ export async function validateProviderKey(
 				providerMapping?.supportedParameters?.includes("max_tokens") &&
 				providerMapping.providerId !== "azure";
 			payload = await prepareRequestBody(
-				provider,
+				mantleChatCompletions ? "openai" : provider,
 				validationModel.modelId,
 				validationRegion ?? null,
 				getUpstreamModelId(

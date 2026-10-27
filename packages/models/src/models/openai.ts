@@ -836,11 +836,11 @@ export const openaiModels = [
 				jsonOutput: false,
 			},
 			{
-				providerId: "aws-bedrock",
+				providerId: "aws-mantle",
 				externalId: "openai.gpt-oss-120b",
+				// Mantle serves gpt-oss on `/v1` chat completions only, not the
+				// `/openai/v1` Responses route the GPT-5/6 mappings use.
 				apiFormat: "openai-chat-completions",
-				mantleBasePath: "/v1",
-				inRegionPricing: true,
 				regions: [
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
@@ -953,11 +953,9 @@ export const openaiModels = [
 				jsonOutput: false,
 			},
 			{
-				providerId: "aws-bedrock",
+				providerId: "aws-mantle",
 				externalId: "openai.gpt-oss-20b",
 				apiFormat: "openai-chat-completions",
-				mantleBasePath: "/v1",
-				inRegionPricing: true,
 				regions: [
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },

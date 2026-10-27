@@ -242,8 +242,9 @@ const BEDROCK_PREMIUM = 1.1;
 const BEDROCK_CONTEXT_SIZE = 921600;
 
 // GPT-5.4 and GPT-5.5 have cross-region profiles, but AWS publishes no rate
-// for them, so only their in-region deployments are mapped. Sol 5.6 is not deployed to us-west-2, and
-// the GPT-6 family is in-region only in us-east-1 (Astra also in us-west-2).
+// for them, so only their in-region deployments are mapped. Sol 5.6 is not
+// deployed to us-west-2, and the GPT-6 family is in-region only in us-east-1
+// (Astra also in us-west-2).
 const EXPECTED_REGIONS: Record<string, string[]> = {
 	"gpt-5.4": ["us-east-1", "us-east-2", "us-west-2"],
 	"gpt-5.5": ["us-east-1", "us-east-2"],
@@ -257,9 +258,15 @@ const EXPECTED_REGIONS: Record<string, string[]> = {
 };
 
 describe("OpenAI models on AWS Bedrock", () => {
+	// gpt-oss runs on Mantle's chat completions route at its own per-region
+	// SKUs, outside the GPT-5/6 pricing scheme checked here.
 	const mantleEntries = models.flatMap((model) =>
 		model.providers
-			.filter((provider) => provider.providerId === "aws-mantle")
+			.filter(
+				(provider) =>
+					provider.providerId === "aws-mantle" &&
+					(provider as ProviderModelMapping).apiFormat === undefined,
+			)
 			.map((provider) => ({
 				modelId: model.id,
 				provider: provider as ProviderModelMapping,
@@ -481,4 +488,41 @@ describe("OpenAI models on AWS Bedrock", () => {
 			}
 		}
 	});
+});
+
+describe("gpt-oss on AWS Bedrock (OpenAI)", () => {
+	const ossEntries = models.flatMap((model) =>
+		model.providers
+			.filter(
+				(provider) =>
+					provider.providerId === "aws-mantle" &&
+					model.id.startsWith("gpt-oss"),
+			)
+			.map((provider) => ({
+				modelId: model.id,
+				provider: provider as ProviderModelMapping,
+			})),
+	);
+
+	it("maps both gpt-oss sizes", () => {
+		expect(ossEntries.map((e) => e.modelId).sort()).toEqual([
+			"gpt-oss-120b",
+			"gpt-oss-20b",
+		]);
+	});
+
+	it.each(ossEntries)(
+		"$modelId uses chat completions in configured in-region deployments",
+		({ provider }) => {
+			expect(provider.apiFormat).toBe("openai-chat-completions");
+			const def = providers.find((p) => p.id === "aws-mantle");
+			for (const region of provider.regions ?? []) {
+				// Mantle has no cross-region profile for gpt-oss.
+				expect(def?.regionConfig?.modelPrefixMap?.[region.id]).toBeUndefined();
+				expect(def?.regionConfig?.endpointMap[region.id]).toBe(
+					`https://bedrock-mantle.${region.id}.api.aws`,
+				);
+			}
+		},
+	);
 });
