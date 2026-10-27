@@ -1424,18 +1424,6 @@ export function parseProviderResponse(
 					}
 				}
 
-				// SCX returns finish_reason "stop" even when the message contains
-				// tool calls; normalize to "tool_calls" so downstream consumers see
-				// the OpenAI-standard value.
-				if (
-					usedProvider === "scx-ai" &&
-					finishReason === "stop" &&
-					Array.isArray(toolResults) &&
-					toolResults.length > 0
-				) {
-					finishReason = "tool_calls";
-				}
-
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
@@ -1508,17 +1496,6 @@ export function parseProviderResponse(
 					} else if (webSearchRequested) {
 						webSearchCount = 1;
 					}
-				}
-
-				// SCX resells Qwen through DashScope, which returns no search
-				// metadata over the OpenAI-compatible protocol. See the `alibaba`
-				// case: only a forced request searches, and it always does.
-				if (
-					usedProvider === "scx-ai-gp" &&
-					webSearchRequested &&
-					webSearchForced
-				) {
-					webSearchCount = 1;
 				}
 			}
 			break;

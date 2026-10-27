@@ -10059,7 +10059,7 @@ describe("prepareRequestBody - DashScope web search", () => {
 			webSearchTool,
 		) as Promise<any>;
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s pairs enable_search with forced_search when forced",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
@@ -10074,20 +10074,17 @@ describe("prepareRequestBody - DashScope web search", () => {
 		},
 	);
 
-	test.each(["alibaba", "scx-ai-gp"])(
-		"%s omits search_strategy",
-		async (provider) => {
-			const requestBody = await prepare(provider, "qwen3.8-max", {
-				type: "web_search",
-				forced: true,
-			});
+	test.each(["alibaba"])("%s omits search_strategy", async (provider) => {
+		const requestBody = await prepare(provider, "qwen3.8-max", {
+			type: "web_search",
+			forced: true,
+		});
 
-			// The Qwen max models 400 on the documented "agent" policy.
-			expect(requestBody.search_options.search_strategy).toBeUndefined();
-		},
-	);
+		// The Qwen max models 400 on the documented "agent" policy.
+		expect(requestBody.search_options.search_strategy).toBeUndefined();
+	});
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s sends no search params for a merely offered tool",
 		async (provider) => {
 			// A chat client that leaves a web search toggle on attaches the tool to
@@ -10124,7 +10121,7 @@ describe("prepareRequestBody - DashScope web search", () => {
 		expect(requestBody.tools).toContainEqual({ type: "web_search" });
 	});
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s sends no search params without a web_search tool",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max");
@@ -10157,7 +10154,7 @@ describe("prepareRequestBody - declared web search format", () => {
 		return (prepareRequestBody as (...a: unknown[]) => Promise<any>)(...args);
 	};
 
-	test.each(["openai", "scx-ai-gp", "custom"])(
+	test.each(["openai", "custom"])(
 		"%s sends the tool shape, forcing with required",
 		async (provider) => {
 			const body = await prepare(
@@ -10174,7 +10171,7 @@ describe("prepareRequestBody - declared web search format", () => {
 		},
 	);
 
-	test.each(["openai", "scx-ai-gp", "custom"])(
+	test.each(["openai", "custom"])(
 		"%s sends web_search_options for an offered search",
 		async (provider) => {
 			const body = await prepare(
