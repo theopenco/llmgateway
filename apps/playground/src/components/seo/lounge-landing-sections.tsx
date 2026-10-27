@@ -48,6 +48,12 @@ const STUDIOS = [
 			"Text to speech with ElevenLabs, OpenAI, and Gemini voices — pick a voice, compare, download.",
 	},
 	{
+		href: "/decisions",
+		name: "Decision studio",
+		description:
+			"Run decision models on text or images and get typed yes/no, pick-one, and rating answers with probabilities.",
+	},
+	{
 		href: "/canvas",
 		name: "Canvas",
 		description:
@@ -202,8 +208,9 @@ export function LoungeLandingSections() {
 						</a>
 						. One membership covers GPT, Claude, Gemini, Grok, and{" "}
 						{MARKETING_STATS.models} models in total — chat, multi-model council
-						chats, and image, video, and audio studios, drawing on a single
-						credit balance instead of a stack of per-provider subscriptions.
+						chats, and image, video, audio, and decision studios, drawing on a
+						single credit balance instead of a stack of per-provider
+						subscriptions.
 					</p>
 				</header>
 

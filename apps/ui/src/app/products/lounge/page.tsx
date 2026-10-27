@@ -5,6 +5,7 @@ import {
 	ImagePlus,
 	MessageSquare,
 	PenTool,
+	Scale,
 	ScrollText,
 	Users,
 } from "lucide-react";
@@ -24,7 +25,7 @@ import type { Metadata } from "next";
 
 const title = "Lounge — Every Frontier Model, One Membership";
 const description =
-	"Lounge is the members' lounge for AI: chat with GPT, Claude, and Gemini, generate images, video, and audio, and run multi-model group chats — one membership from $9/mo.";
+	"Lounge is the members' lounge for AI: chat with GPT, Claude, and Gemini, generate images, video, and audio, run decision models, and hold multi-model group chats — one membership from $9/mo.";
 
 export const metadata: Metadata = {
 	title,
@@ -68,6 +69,12 @@ const studios = [
 		title: "Audio Studio",
 		description:
 			"Generate speech with ElevenLabs, OpenAI TTS, and Gemini TTS. Pick from dozens of voices, control format and speed, and download the result.",
+	},
+	{
+		icon: Scale,
+		title: "Decision Studio",
+		description:
+			"Run decision models like GPT-6 Luna Decisions and Microsoft-Decision-1 on any text or image. Ask yes/no, pick-one, and rating questions and get probabilities instead of prose.",
 	},
 	{
 		icon: PenTool,
@@ -114,7 +121,7 @@ export default function LoungeProductPage() {
 					eyebrow="Product · Lounge"
 					title="Every frontier model. One membership."
 					subtitle="The members' lounge for AI."
-					description="Chat with GPT, Claude, and Gemini, generate images and video, and run multi-model group chats. Lounge replaces ChatGPT Plus, Claude Pro, and Gemini Advanced with one membership — starting at $9/mo."
+					description="Chat with GPT, Claude, and Gemini, generate images, video, and speech, run decision models, and hold multi-model group chats. Lounge replaces ChatGPT Plus, Claude Pro, and Gemini Advanced with one membership — starting at $9/mo."
 					ctas={[
 						{
 							label: "Open Lounge",
@@ -130,7 +137,7 @@ export default function LoungeProductPage() {
 					]}
 					stats={[
 						{ value: "200+", label: "Models" },
-						{ value: "6", label: "Studios" },
+						{ value: "7", label: "Studios" },
 						{ value: "$9/mo", label: "Starting price" },
 					]}
 				/>
@@ -160,6 +167,12 @@ export default function LoungeProductPage() {
 							alt="Lounge Audio Studio generating speech from text"
 							title="Audio Studio"
 							description="Text to speech with ElevenLabs, OpenAI, and Gemini voices — pick a voice, generate, and download."
+						/>
+						<ProductScreenshot
+							slug="decision-studio"
+							alt="Lounge Decision Studio answering typed questions with probabilities"
+							title="Decision Studio"
+							description="Decision models answer yes/no, pick-one, and rating questions about any text or image with calibrated probabilities — compare GPT-6 Luna, Microsoft-Decision-1, and Jev on the same input."
 						/>
 					</section>
 
