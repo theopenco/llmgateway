@@ -1,5 +1,8 @@
 import { getChatPlanMinimumTier } from "@/chat-plans.js";
-import { isPremiumModel } from "@/model-categories.js";
+import {
+	isPremiumModel,
+	discountLookupFromMappings,
+} from "@/model-categories.js";
 
 export interface TimeBasedTokenPrices {
 	inputPrice: string;
@@ -237,7 +240,10 @@ export async function fetchModelsFromApi(
 			data.models ?? [];
 		const withPremium = models.map((model) => ({
 			...model,
-			premium: isPremiumModel(model.id),
+			premium: isPremiumModel(
+				model.id,
+				discountLookupFromMappings(model.mappings),
+			),
 			loungePlan: getChatPlanMinimumTier(model.id),
 		}));
 		modelsMemo.set(apiBackendUrl, {
