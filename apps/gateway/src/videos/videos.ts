@@ -1152,6 +1152,7 @@ function isAtlasCloudVideoProvider(providerId: string): boolean {
 function isAtlasCloudCollapsedKlingModel(externalId: string): boolean {
 	return (
 		externalId === "kwaivgi/kling-v3.0" ||
+		externalId === "kwaivgi/kling-v3.0-pro" ||
 		externalId === "kwaivgi/kling-v3.0-turbo"
 	);
 }
@@ -1429,13 +1430,18 @@ function getAtlasCloudVideoModelName(
 	inputMode: VideoInputMode,
 ): string {
 	const taskName = getAtlasCloudTaskName(inputMode);
-	const isTurbo = baseModelName === "kwaivgi/kling-v3.0-turbo";
+	if (
+		baseModelName === "kwaivgi/kling-v3.0-turbo" ||
+		baseModelName === "kwaivgi/kling-v3.0-pro"
+	) {
+		return `${baseModelName}/${taskName}`;
+	}
 
 	if (videoSize.resolution === "4k") {
 		return `kwaivgi/kling-v3.0-4k/${taskName}`;
 	}
 
-	return `kwaivgi/kling-v3.0-${isTurbo ? "turbo" : "std"}/${taskName}`;
+	return `kwaivgi/kling-v3.0-std/${taskName}`;
 }
 
 function getVideoUpstreamModelName(
