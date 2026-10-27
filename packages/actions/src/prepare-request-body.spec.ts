@@ -3115,6 +3115,30 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		expect(requestBody.max_tokens).toBeUndefined();
 	});
 
+	test.each(["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])(
+		"forwards reasoning_effort and max_completion_tokens for %s",
+		async (model) => {
+			const requestBody = await prepare({
+				model,
+				reasoningEffort: "low",
+				maxTokens: 4096,
+			});
+			expect(requestBody.reasoning_effort).toBe("low");
+			expect(requestBody.thinking).toBeUndefined();
+			expect(requestBody.max_completion_tokens).toBe(4096);
+			expect(requestBody.max_tokens).toBeUndefined();
+		},
+	);
+
+	test("collapses disable requests onto the provider default for kimi-k3.1-pro", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3.1-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
 	type Effort = Parameters<typeof prepareRequestBody>[14];
 	const xaiEffortCases: Array<
 		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
@@ -6137,7 +6161,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6173,7 +6197,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should rewrite parameters with type: null to type: object", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6214,7 +6238,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 		};
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6924,6 +6948,64 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				},
 				{ cachePoint: { type: "default" } },
 			],
+		});
+	});
+	test("sends text parts of an assistant message with tool calls as text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"anthropic.claude-sonnet-4-6",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Let me check." },
+						{ type: "text", text: "   " },
+						{ type: "text", text: "One moment." },
+					],
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17 }),
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const assistant = requestBody.messages[1];
+		expect(assistant.role).toBe("assistant");
+		expect(assistant.content[0]).toEqual({ text: "Let me check." });
+		expect(assistant.content[1]).toEqual({ text: "One moment." });
+		expect(assistant.content[2]).toEqual({
+			toolUse: {
+				toolUseId: "tool_1",
+				name: "get_weather",
+				input: { city: "Berlin" },
+			},
 		});
 	});
 	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
@@ -10714,4 +10796,338 @@ describe("prepareRequestBody - images inside tool results", () => {
 			},
 		]);
 	});
+});
+
+describe("prepareRequestBody - custom provider cache_control forwarding", () => {
+	const messages: BaseMessage[] = [
+		{
+			role: "system",
+			content: [
+				{
+					type: "text",
+					text: "You are a coding agent.",
+					cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+			],
+		},
+		{ role: "user", content: "Read the file." },
+		{
+			role: "assistant",
+			content: "",
+			tool_calls: [
+				{
+					id: "call_1",
+					type: "function",
+					function: { name: "read_file", arguments: "{}" },
+				},
+			],
+		},
+		{
+			role: "tool",
+			tool_call_id: "call_1",
+			content: "file contents",
+			tool_result_cache_control: { type: "ephemeral" },
+		},
+		{
+			role: "user",
+			content: [
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+					cache_control: { type: "ephemeral" },
+				} as never,
+				{
+					type: "text",
+					text: "Now fix it.",
+					cache_control: { type: "ephemeral", ttl: "10m" } as never,
+				},
+			],
+		},
+	];
+
+	async function prepareCustom(
+		forwardCacheControl: boolean | undefined,
+		mode: ProviderCacheControlMode = "auto",
+	) {
+		return (await prepareRequestBody(
+			"custom",
+			"claude-sonnet-router",
+			null,
+			"claude-sonnet-router",
+			messages,
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			mode, // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			forwardCacheControl,
+		)) as OpenAIRequestBody;
+	}
+
+	// Text-part markers only: the pre-existing strip path leaves non-text parts
+	// untouched for every provider that does not take markers.
+	function markers(body: OpenAIRequestBody): unknown[] {
+		return body.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content
+						.filter((part) => part.type === "text")
+						.map((part) => getCacheControl(part))
+				: [],
+		);
+	}
+
+	test("forwards caller markers when the key opts in", async () => {
+		const body = await prepareCustom(true);
+
+		expect(
+			getCacheControl((body.messages[0]!.content as unknown[])[0]),
+		).toEqual({ type: "ephemeral", ttl: "1h" });
+		// The tool_result carrier becomes a marker on a text part.
+		const toolMsg = body.messages[3]!;
+		expect(toolMsg).not.toHaveProperty("tool_result_cache_control");
+		expect(toolMsg.content).toEqual([
+			{
+				type: "text",
+				text: "file contents",
+				cache_control: { type: "ephemeral" },
+			},
+		]);
+		// Non-text parts lose their marker; an unknown ttl is normalized away.
+		const lastContent = body.messages[4]!.content as unknown[];
+		expect(getCacheControl(lastContent[0])).toBeUndefined();
+		expect(getCacheControl(lastContent[1])).toEqual({ type: "ephemeral" });
+	});
+
+	test("drops malformed markers", async () => {
+		const body = (await prepareRequestBody(
+			"custom",
+			"claude-sonnet-router",
+			null,
+			"claude-sonnet-router",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "hi",
+							cache_control: { ttl: "1h" } as never,
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+						},
+					],
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			true, // forwardCacheControl
+		)) as OpenAIRequestBody;
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+		// A tool result with no text part has nowhere to carry its marker.
+		expect(body.messages[1]).not.toHaveProperty("tool_result_cache_control");
+	});
+
+	test("does not inject markers of its own", async () => {
+		const body = await prepareCustom(true);
+		expect(markers(body).filter(Boolean)).toHaveLength(3);
+		expect(body.messages[1]!.content).toBe("Read the file.");
+	});
+
+	test.each([false, undefined])(
+		"strips caller markers when the key has not opted in (%s)",
+		async (forward) => {
+			const body = await prepareCustom(forward);
+
+			expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+			expect(body.messages[3]).not.toHaveProperty("tool_result_cache_control");
+			expect(body.messages[3]!.content).toBe("file contents");
+		},
+	);
+
+	test("strips everything when project cache writes are off", async () => {
+		const body = await prepareCustom(true, "off");
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+		expect(body.messages[3]).not.toHaveProperty("tool_result_cache_control");
+		expect(body.messages[3]!.content).toBe("file contents");
+	});
+
+	test("forwards in passthrough mode", async () => {
+		const body = await prepareCustom(true, "passthrough");
+		expect(markers(body).filter(Boolean)).toHaveLength(3);
+	});
+
+	test("ignores the flag for non-custom providers", async () => {
+		const body = (await prepareRequestBody(
+			"openai",
+			"gpt-4o-mini",
+			null,
+			"gpt-4o-mini",
+			messages,
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
+			undefined, // parallel_tool_calls
+			undefined, // webSearchFormat
+			true, // forwardCacheControl
+		)) as OpenAIRequestBody;
+
+		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
+	});
+});
+
+describe("prepareRequestBody - Alibaba input_audio", () => {
+	async function prepare(data: string) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"qwen3.8-omni-flash",
+			null,
+			"qwen3.8-omni-flash",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What do you hear?" },
+						{ type: "input_audio", input_audio: { data, format: "wav" } },
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as {
+			messages: { content: { input_audio?: { data: string } }[] }[];
+		};
+	}
+
+	test("wraps bare base64 audio in a data URL", async () => {
+		const requestBody = await prepare("UklGRg==");
+		expect(requestBody.messages[0].content[1].input_audio).toEqual({
+			data: "data:;base64,UklGRg==",
+			format: "wav",
+		});
+	});
+
+	test.each(["data:audio/wav;base64,UklGRg==", "https://example.com/a.wav"])(
+		"forwards %s unchanged",
+		async (data) => {
+			const requestBody = await prepare(data);
+			expect(requestBody.messages[0].content[1].input_audio?.data).toBe(data);
+		},
+	);
 });

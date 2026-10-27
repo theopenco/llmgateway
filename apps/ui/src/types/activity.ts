@@ -10,6 +10,10 @@ export interface ActivityModelUsage {
 	cacheWriteTokens: number;
 	totalTokens: number;
 	cost: number;
+	inputCost: number;
+	outputCost: number;
+	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	creditsRequestCount: number;
 	apiKeysRequestCount: number;
 	creditsCost: number;

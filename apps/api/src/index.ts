@@ -2,11 +2,13 @@
 import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { APICallError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+
+import { createRoute } from "@/utils/create-route.js";
 
 import { db } from "@llmgateway/db";
 import {
@@ -40,6 +42,7 @@ import { publicApps } from "./routes/public-apps.js";
 import { publicBanner } from "./routes/public-banner.js";
 import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
+import { publicCliAuth } from "./routes/public-cli-auth.js";
 import { publicConfig } from "./routes/public-config.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
@@ -347,6 +350,7 @@ app.route("/public/newsletter", publicNewsletter);
 app.route("/public/unsubscribe", publicUnsubscribe);
 app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
+app.route("/public/cli-auth", publicCliAuth);
 app.route("/public/apps", publicApps);
 app.route("/public/profile", publicProfile);
 app.route("/public/leaderboard", publicLeaderboard);

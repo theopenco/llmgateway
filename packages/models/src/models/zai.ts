@@ -107,6 +107,28 @@ export const zaiModels = [
 				jsonOutputSchema: true,
 				supportsDeveloperRole: false,
 			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5.3-flash-intl",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				quantization: "fp8",
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				// Thinking cannot be disabled, and below xhigh it often returns no
+				// reasoning text at all.
+				reasoningEfforts: ["xhigh", "max"],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{

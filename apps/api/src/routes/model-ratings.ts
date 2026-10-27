@@ -1,9 +1,10 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { invalidatePublicResponse } from "@/lib/public-response-cache.js";
 import { modelRatingsCacheKey } from "@/routes/public-model-ratings.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { models as modelDefinitions } from "@llmgateway/models";

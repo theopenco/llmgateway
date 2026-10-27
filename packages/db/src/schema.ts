@@ -33,6 +33,12 @@ import type {
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type {
+	DecisionAnswer,
+	DecisionInputImage,
+	DecisionQuestion,
+	DecisionUsage,
+} from "@llmgateway/shared/decision-studio";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type {
 	EmailCategory,
@@ -2188,6 +2194,9 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// When true (custom providers only), caller-supplied Anthropic-style
+		// `cache_control` markers are forwarded upstream instead of stripped.
+		forwardCacheControl: boolean().notNull().default(false),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		// "pending_deletion" is a deleted key inside its teardown grace period:
@@ -2795,6 +2804,12 @@ export const log = snakeCase.table(
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
+		// Content-filtered requests by time, for the admin classifier export.
+		// Retention nulls the response after 30 days, which bounds the index.
+		// Build CONCURRENTLY out of band in prod before deploying.
+		index("log_content_filter_created_at_idx")
+			.on(table.createdAt)
+			.where(sql`gateway_content_filter_response IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -3819,6 +3834,9 @@ export const modelProviderMapping = snakeCase.table(
 			],
 		}).$type<ProviderApiFormat>(),
 		region: text(),
+		// Airside decision listings, served on `/v1/decisions`. Static rows
+		// keep their catalogue definition.
+		decisions: boolean().notNull().default(false),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
 			.default("catalogue"),
@@ -5913,6 +5931,9 @@ export const providerDraftModel = snakeCase.table(
 			.$type<ProviderApiFormat>()
 			.notNull()
 			.default("provider-native"),
+		// Serves typed decisions on the carrier's OpenAI-compatible
+		// `/v1/decisions` instead of chat; set once at registration.
+		decisions: boolean().notNull().default(false),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -6027,6 +6048,8 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** A decision listing, probed on `/v1/decisions` instead of chat. */
+	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */
 	region?: string | null;
 	streaming: boolean;
@@ -6293,6 +6316,29 @@ export const providerRoutingFiling = snakeCase.table(
 );
 
 // Project hourly statistics aggregation - used for fast dashboard queries
+/**
+ * BYOK (`used_mode = 'api-keys'`) subset of the error and latency columns on
+ * the tenant hourly rollups. `log.used_mode` is only ever credits or api-keys,
+ * so the credits figure is the total minus this subset.
+ */
+function apiKeysModeColumns() {
+	return {
+		apiKeysClientErrorCount: integer().notNull().default(0),
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		apiKeysTotalDuration: bigint({ mode: "number" }).notNull().default(0),
+		apiKeysDurationCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstTokenCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+	};
+}
+
 export const projectHourlyStats = snakeCase.table(
 	"project_hourly_stats",
 	{
@@ -6369,6 +6415,7 @@ export const projectHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour (also creates implicit index)
@@ -6459,10 +6506,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
-		// BYOK subset of the gateway/upstream error counts, so incident views can
-		// show platform-only error rates.
-		apiKeysGatewayErrorCount: integer().notNull().default(0),
-		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -6728,6 +6772,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour
@@ -6889,6 +6934,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour-model-provider
@@ -7465,6 +7511,43 @@ export const playgroundAudioHistory = snakeCase.table(
 	(table) => [index("playground_audio_history_user_id_idx").on(table.userId)],
 );
 
+export const playgroundDecisionHistory = snakeCase.table(
+	"playground_decision_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the run was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		// The evaluated text. Renames change `title`, never the input.
+		prompt: text().notNull(),
+		title: text(),
+		inputImages: jsonb().$type<DecisionInputImage[]>(),
+		questions: jsonb().notNull().$type<DecisionQuestion[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				answers: DecisionAnswer[] | null;
+				usage?: DecisionUsage | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [
+		index("playground_decision_history_user_id_idx").on(table.userId),
+	],
+);
+
 export const playgroundVideoHistory = snakeCase.table(
 	"playground_video_history",
 	{
@@ -7524,6 +7607,7 @@ export const loungePointEvent = snakeCase.table(
 				| "image_generation"
 				| "video_generation"
 				| "audio_generation"
+				| "decision_run"
 				| "sandbox_escape"
 			>(),
 		points: integer().notNull(),

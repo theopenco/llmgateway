@@ -40,6 +40,7 @@ Run all `pnpm` commands from the repository root, not from app directories.
 - `pnpm build` - Build everything. ALWAYS run a full build after finishing a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 - `pnpm test:unit` / `pnpm test:e2e` - Unit (`*.spec.ts`) and e2e (`*.e2e.ts`) tests. Run unit tests after adding features, ALWAYS against the worktree's own isolated database (`local-stack` skill); details in the `testing` skill.
+- New or edited model mappings: ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them, locally or in CI (`/e2e` runs every model and bills real provider spend). Without local credentials, dispatch the e2e workflow with `test_models` set to the same mappings and `full_mode` on. Unscoped CI e2e is only for generic gateway code changes whose effect across models needs checking.
 
 To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`). NEVER use `pnpm --filter <app> build`: it skips rebuilding workspace dependencies and compiles against stale `dist/` artifacts.
 
@@ -111,17 +112,19 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 
 ### Public repository
 
-NEVER put internal or private information into anything published to this public repository — commit titles and bodies, branch names, PR titles and descriptions, PR/issue comments, code comments, changelog entries, or docs. Never include real user or customer names, email addresses, customer/partner/company names, organization/project/user IDs, API keys, tokens, secrets or credentials (including partial or redacted-looking values), dollar amounts (revenue, credit balances, spend, invoice totals, contract values), internal dashboards, internal ticket/Slack/Linear links, or internal infrastructure hostnames. Describe the situation generically ("a customer organization", "a large credit balance"). Seeded fixtures already in the repo (`admin@example.com`, `test-token`, `Test Organization`) and public provider pricing from `packages/models` are fine.
+NEVER put internal or private information into anything published to this public repository — commit titles and bodies, branch names, PR titles and descriptions, PR/issue comments, code comments, changelog entries, or docs. Never include real user or customer names, email addresses, customer/partner/company names, organization/project/user IDs, API keys, tokens, secrets or credentials (including partial or redacted-looking values), dollar amounts (revenue, credit balances, spend, invoice totals, contract values), internal dashboards, internal ticket/Slack/Linear links, internal infrastructure hostnames, or the private infrastructure repository (its PRs, changes, alerting, or monitoring setup). Describe only what changes in this repository, even when a task spans both. Describe the situation generically ("a customer organization", "a large credit balance"). Seeded fixtures already in the repo (`admin@example.com`, `test-token`, `Test Organization`) and public provider pricing from `packages/models` are fine.
 
 ### Git and pull requests
 
-- Use conventional commit format for commits and PR titles, max 50 characters.
+- Use conventional commit format for commits and PR titles. Count the PR title before creating or editing it: at most 50 characters, `type(scope): ` included.
 - Do not `--amend` commits after pushing. Force-push only feature branches, never main.
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).
 - Sync a feature branch with main via a merge commit; rebase only when required or clearly better, and say why.
 - Resolve `pnpm-lock.yaml` conflicts by running `pnpm install`.
 - Never force-merge a PR (`gh pr merge --admin`, bypassing required checks or reviews). Merge only when every required check is green, or enable auto-merge and let it land.
-- Use the `pull-request` skill for opening and updating PRs. PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
+- Load the `pull-request` skill before every `gh pr create` or `gh pr edit`; do not write a PR from memory. The body follows `.github/pull_request_template.md`: Summary, Verification and a filled-in Rollback, with Database migration deleted when there is none.
+- After opening or pushing to a PR, wait for CodeRabbit, then fix every failed pre-merge check and every finding, or resolve it with a one-line reason, before handing off. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
 - Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR and `security-review` on sensitive paths (branches in this repository only), a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
 
 ## License

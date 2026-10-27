@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -23,6 +23,7 @@ import {
 	getActiveUserOrganizationIds,
 	getAdminOrganizationIds,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	encryptProviderKey,
@@ -148,6 +149,7 @@ export const providerKeySchema = z.object({
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	customModelsOnly: z.boolean(),
+	forwardCacheControl: z.boolean(),
 	complianceAttestation: complianceAttestationSchema
 		.extend({
 			attestedAt: z.string().optional(),
@@ -172,6 +174,7 @@ export const providerKeyPublicSchema = z.object({
 	options: providerKeySchema.shape.options,
 	status: providerKeySchema.shape.status,
 	customModelsOnly: providerKeySchema.shape.customModelsOnly,
+	forwardCacheControl: providerKeySchema.shape.forwardCacheControl,
 	complianceAttestation: providerKeySchema.shape.complianceAttestation,
 	organizationId: z.string(),
 	/** USD spend cap; the key auto-deactivates when usage reaches it. */
@@ -213,6 +216,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		options: row.options,
 		status: publicProviderKeyStatus(row.status),
 		customModelsOnly: row.customModelsOnly,
+		forwardCacheControl: row.forwardCacheControl,
 		// The organization's own compliance attestation for its custom provider,
 		// shown back in the dashboard. Not secret-bearing.
 		complianceAttestation: row.complianceAttestation,
@@ -486,6 +490,8 @@ const createProviderKeySchema = z.object({
 	// Optional allowlist of canonical model ids this key may serve. Empty/null
 	// means the provider's full catalogue.
 	allowedModels: allowedModelsSchema,
+	// Custom providers only: forward caller `cache_control` markers upstream.
+	forwardCacheControl: z.boolean().optional(),
 	...providerKeyRateLimitsInputShape,
 });
 
@@ -503,6 +509,9 @@ const updateProviderKeyStatusSchema = z
 		description: z.string().trim().max(200).nullable().optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
+		// Custom providers only: forward caller `cache_control` markers upstream
+		// instead of stripping them.
+		forwardCacheControl: z.boolean().optional(),
 		// Custom providers only: self-attested compliance posture. `null` clears
 		// the attestation (restoring the fail-closed blocked state).
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
@@ -517,6 +526,7 @@ const updateProviderKeyStatusSchema = z
 			v.name !== undefined ||
 			v.description !== undefined ||
 			v.customModelsOnly !== undefined ||
+			v.forwardCacheControl !== undefined ||
 			v.complianceAttestation !== undefined ||
 			v.usageLimit !== undefined ||
 			v.allowedModels !== undefined,
@@ -570,6 +580,7 @@ keysProvider.openapi(create, async (c) => {
 		organizationId,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		forwardCacheControl,
 		...rateLimitInput
 	} = c.req.valid("json");
 
@@ -619,6 +630,11 @@ keysProvider.openapi(create, async (c) => {
 		!(await getEffectiveProviders()).some((entry) => entry.id === provider)
 	) {
 		throw new HTTPException(400, { message: "Invalid or inactive provider." });
+	}
+	if (forwardCacheControl !== undefined && provider !== "custom") {
+		throw new HTTPException(400, {
+			message: "forwardCacheControl can only be set on custom provider keys",
+		});
 	}
 	if (provider === "custom") {
 		assertCustomProviderEnterprise(userOrgs[0]?.organization);
@@ -799,6 +815,10 @@ keysProvider.openapi(create, async (c) => {
 			options: storedOptions,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
+			// New custom keys forward by default; the column default (false) keeps
+			// keys created before this setting existed on the old behaviour.
+			forwardCacheControl:
+				provider === "custom" ? (forwardCacheControl ?? true) : false,
 			...providerKeyRateLimitUpdates(rateLimitInput),
 		})
 		.returning();
@@ -813,6 +833,7 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
+			...(providerKey.forwardCacheControl && { forwardCacheControl: true }),
 		},
 	});
 
@@ -1117,6 +1138,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name,
 		description,
 		customModelsOnly,
+		forwardCacheControl,
 		complianceAttestation,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
@@ -1154,6 +1176,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name !== undefined ||
 		description !== undefined ||
 		customModelsOnly !== undefined ||
+		forwardCacheControl !== undefined ||
 		complianceAttestation !== undefined ||
 		usageLimit !== undefined ||
 		Object.keys(rateLimitUpdates).length > 0 ||
@@ -1180,6 +1203,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 				message: "customModelsOnly can only be set on custom provider keys",
 			});
 		}
+	}
+
+	if (forwardCacheControl !== undefined && providerKey.provider !== "custom") {
+		throw new HTTPException(400, {
+			message: "forwardCacheControl can only be set on custom provider keys",
+		});
 	}
 
 	// Only the catalogue is checked here, not the key upstream: a PATCH cannot
@@ -1231,6 +1260,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name?: string;
 		description?: string | null;
 		customModelsOnly?: boolean;
+		forwardCacheControl?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
@@ -1257,6 +1287,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
+	}
+	if (forwardCacheControl !== undefined) {
+		updates.forwardCacheControl = forwardCacheControl;
 	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
@@ -1311,6 +1344,15 @@ keysProvider.openapi(updateStatus, async (c) => {
 		changes.customModelsOnly = {
 			old: providerKey.customModelsOnly,
 			new: customModelsOnly,
+		};
+	}
+	if (
+		forwardCacheControl !== undefined &&
+		providerKey.forwardCacheControl !== forwardCacheControl
+	) {
+		changes.forwardCacheControl = {
+			old: providerKey.forwardCacheControl,
+			new: forwardCacheControl,
 		};
 	}
 	if (complianceAttestation !== undefined) {

@@ -1583,7 +1583,7 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	}
 
 	return c.json({
-		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
+		model: body.model === "jev-latest" ? "jev-1.14.0" : body.model,
 		answers,
 		usage: { input_tokens: 441, output_tokens: 69 },
 	});

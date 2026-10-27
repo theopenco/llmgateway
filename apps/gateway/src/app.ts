@@ -24,6 +24,7 @@ import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
 } from "@llmgateway/shared/client-ip";
+import { buildSecurityTxt } from "@llmgateway/shared/security-txt";
 
 import { aisdk } from "./aisdk/aisdk.js";
 import { creditsRoute } from "./aisdk/credits.js";
@@ -462,4 +463,9 @@ app.get("/docs", swaggerUI({ url: "/json" }));
 // indexing its endpoints (GSC keeps reporting api.llmgateway.io URLs).
 app.get("/robots.txt", (c) => {
 	return c.text("User-agent: *\nDisallow: /\n");
+});
+
+app.get("/.well-known/security.txt", (c) => {
+	c.header("Cache-Control", "public, max-age=86400");
+	return c.text(buildSecurityTxt());
 });

@@ -33,6 +33,11 @@ import { CostBreakdownCard } from "@/components/dashboard/cost-breakdown-card";
 import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
+import {
+	parseUsageGrain,
+	USAGE_GRAINS,
+	usageGrainAdjective,
+} from "@/components/dashboard/overview-data";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import { ReferralBanner } from "@/components/dashboard/referral-banner";
 import {
@@ -71,6 +76,7 @@ import {
 } from "@llmgateway/shared/number-format";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
+import type { UsageGrain } from "@/components/dashboard/overview-data";
 import type {
 	UsageComparisonMode,
 	UsageDateRange,
@@ -247,6 +253,7 @@ export function DashboardClient({
 		"costs" | "requests";
 	const costView =
 		searchParams.get("costView") === "breakdown" ? "breakdown" : "total";
+	const grain = parseUsageGrain(searchParams.get("grain"));
 	const requestedComparisonMode = parseUsageComparisonMode(
 		searchParams.get("compare"),
 	);
@@ -391,6 +398,16 @@ export function DashboardClient({
 			params.delete("costView");
 		} else {
 			params.set("costView", newView);
+		}
+		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
+	};
+
+	const updateGrainInUrl = (newGrain: UsageGrain) => {
+		const params = new URLSearchParams(searchParams.toString());
+		if (newGrain === "day") {
+			params.delete("grain");
+		} else {
+			params.set("grain", newGrain);
 		}
 		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
 	};
@@ -734,7 +751,7 @@ export function DashboardClient({
 								icon={ArrowDownToLine}
 								label="Input tokens"
 								value={formatTokens(totalInputTokens)}
-								sub={`$${totalInputCost.toFixed(2)} spend`}
+								sub={`$${(totalInputCost + totalCachedInputCost + totalCacheWriteInputCost).toFixed(2)} spend, incl. cache`}
 								isLoading={isLoading}
 							/>
 							<StatCell
@@ -748,7 +765,7 @@ export function DashboardClient({
 								icon={Server}
 								label="Cached tokens"
 								value={formatTokens(totalCachedTokens)}
-								sub={`$${totalCachedInputCost.toFixed(2)} spend${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} cache writes` : ""}`}
+								sub={`$${totalCachedInputCost.toFixed(2)} reads${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} writes` : ""}`}
 								isLoading={isLoading}
 							/>
 							<StatCell
@@ -944,11 +961,13 @@ export function DashboardClient({
 										<div>
 											<CardTitle>Usage Overview</CardTitle>
 											<CardDescription>
-												{metric === "costs"
-													? costView === "total"
-														? "Daily total spend, including storage"
-														: "Daily spend by cost type"
-													: "Daily request volume"}
+												{`${usageGrainAdjective(grain)} ${
+													metric === "costs"
+														? costView === "total"
+															? "total spend, including storage"
+															: "spend by cost type"
+														: "request volume"
+												}`}
 											</CardDescription>
 										</div>
 										<div className="flex flex-wrap items-center justify-end gap-2">
@@ -988,6 +1007,23 @@ export function DashboardClient({
 													))}
 												</div>
 											)}
+											<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
+												{USAGE_GRAINS.map((option) => (
+													<button
+														key={option}
+														type="button"
+														onClick={() => updateGrainInUrl(option)}
+														className={cn(
+															"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+															grain === option
+																? "bg-background text-foreground shadow-sm"
+																: "text-muted-foreground hover:text-foreground",
+														)}
+													>
+														{option}
+													</button>
+												))}
+											</div>
 											<UsageComparisonPicker
 												mode={comparisonMode}
 												currentRange={{ from, to }}
@@ -1009,6 +1045,7 @@ export function DashboardClient({
 										isComparisonError={isComparisonError}
 										metric={metric}
 										costView={costView}
+										grain={grain}
 									/>
 								</CardContent>
 							</Card>

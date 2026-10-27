@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
@@ -13,6 +13,7 @@ import {
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	getEffectiveProviders,

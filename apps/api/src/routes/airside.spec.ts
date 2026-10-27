@@ -265,6 +265,7 @@ async function createModel(
 				verifiedPromptCaching ??
 				(body.pricing as { cachedInputPrice?: string }).cachedInputPrice !==
 					undefined,
+			...(body.decisions === true ? { decisions: true } : {}),
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -2877,6 +2878,27 @@ describe("airside provider portal", () => {
 		expect(pausedModel.pausedAt).toEqual(expect.any(String));
 		expect(pausedModel.currentPricing).not.toBeNull();
 		expect(await mappingStatus()).toEqual(["inactive"]);
+		// Admin sees why the listing is out of service.
+		const adminListings = await app.request(
+			"/admin/airside/listings?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await adminListings.json()).listings[0]).toMatchObject({
+			status: "active",
+			pausedAt: pausedModel.pausedAt,
+		});
+		const providerDetail = await app.request("/admin/providers/mistral", {
+			headers: { Cookie: cookie },
+		});
+		expect(providerDetail.status).toBe(200);
+		expect(
+			(await providerDetail.json()).models.find(
+				(row: { modelId: string }) => row.modelId === "mistral-large-3",
+			),
+		).toMatchObject({
+			status: "inactive",
+			airsidePausedAt: pausedModel.pausedAt,
+		});
 		const pausedAgain = await app.request(
 			`/airside/models/${model.id}/pause`,
 			json(cookie),
@@ -4280,6 +4302,189 @@ describe("airside provider portal", () => {
 			where: { id: { eq: model.id } },
 		});
 		expect(stored?.apiFormat).toBe("openai-responses");
+	});
+
+	it("lists a decision model for /v1/decisions and keeps it decisions-only", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const decisionListing = {
+			modelName: "mistral-decide-1",
+			decisions: true,
+			streaming: false,
+			tools: false,
+			vision: true,
+			contextSize: 8000,
+		};
+
+		// Preflight probes only what a decision model can claim.
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				...decisionListing,
+				tools: true,
+				reasoning: true,
+				apiKey: "provider-secret-for-test",
+			}),
+		);
+		expect(queued.status).toBe(202);
+		const { verification } = await queued.json();
+		expect(
+			verification.checks.map((check: { id: string }) => check.id),
+		).toEqual(["basic", "vision"]);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verification.id } },
+		});
+		expect(stored?.target).toMatchObject({
+			decisions: true,
+			vision: true,
+			tools: false,
+			reasoning: false,
+			streaming: false,
+		});
+
+		// Decisions bill input tokens only.
+		const priced = await createModel(cookie, company.id, {
+			...decisionListing,
+			pricing: { inputPrice: "8e-8", outputPrice: "1e-6" },
+		});
+		expect(priced.status).toBe(400);
+		expect((await priced.json()).message).toContain("output price of 0");
+
+		const created = await createModel(cookie, company.id, {
+			...decisionListing,
+			pricing: { inputPrice: "8e-8", outputPrice: "0" },
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model).toMatchObject({
+			decisions: true,
+			streaming: false,
+			tools: false,
+			vision: true,
+		});
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: "mistral-decide-1" } },
+		});
+		expect(mapping).toMatchObject({
+			decisions: true,
+			source: "airside",
+			status: "active",
+		});
+		const catalogueModel = await db.query.model.findFirst({
+			where: { id: { eq: "mistral-decide-1" } },
+		});
+		expect(catalogueModel?.output).toEqual(["decision"]);
+
+		// A decision listing cannot pick up chat capabilities.
+		const edited = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: true }, "PATCH"),
+		);
+		expect(edited.status).toBe(400);
+		expect((await edited.json()).message).toContain("tools");
+
+		// Or file cached or output fares.
+		const refiled = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, {
+				inputPrice: "9e-8",
+				outputPrice: "0",
+				cachedInputPrice: "1e-8",
+			}),
+		);
+		expect(refiled.status).toBe(400);
+
+		// A catalogue chat model cannot be listed as a decision model.
+		const chatModel = (catalogueModels as ModelDefinition[]).find(
+			(entry) =>
+				!entry.output?.includes("decision") &&
+				!entry.providers.some((mapping) => mapping.providerId === "mistral"),
+		)!;
+		const shadow = await createModel(cookie, company.id, {
+			...decisionListing,
+			modelName: chatModel.id,
+			pricing: { inputPrice: "8e-8", outputPrice: "0" },
+		});
+		expect(shadow.status).toBe(409);
+		expect((await shadow.json()).message).toContain("a chat model");
+	});
+
+	it("relists only one kind when opposite-kind relists race", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const listings = [
+			{ suffix: "chat", decisions: false },
+			{ suffix: "decide", decisions: true },
+		];
+		for (const { suffix, decisions } of listings) {
+			await db.insert(tables.providerCompany).values({
+				id: `race-company-${suffix}`,
+				name: `Race ${suffix}`,
+			});
+			await db.insert(tables.providerClaim).values({
+				id: `race-claim-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				providerId: `race-${suffix}`,
+				kind: "custom",
+				matchedDomain: `race-${suffix}.ai`,
+				customName: `Race ${suffix}`,
+				customBaseUrl: `https://api.race-${suffix}.ai`,
+				status: "active",
+			});
+			await db.insert(tables.providerDraftModel).values({
+				id: `race-model-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				providerId: `race-${suffix}`,
+				modelName: "race-contested-1",
+				externalId: "race-contested-1",
+				family: "race",
+				decisions,
+				streaming: !decisions,
+				status: "delisted",
+				delistedAt: new Date(),
+				delistReason: "removed",
+				relistRequestedAt: new Date(),
+			});
+			await db.insert(tables.providerPriceFiling).values({
+				draftModelId: `race-model-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				kind: "initial",
+				inputPrice: "1e-7",
+				outputPrice: decisions ? "0" : "2e-7",
+				status: "approved",
+			});
+		}
+
+		const results = await Promise.all(
+			listings.map(({ suffix }) =>
+				app.request(
+					`/admin/airside/listings/race-model-${suffix}/relist/approve`,
+					json(cookie),
+				),
+			),
+		);
+		expect(results.map((res) => res.status).sort()).toEqual([200, 409]);
+		const live = await db.query.providerDraftModel.findMany({
+			where: {
+				modelName: { eq: "race-contested-1" },
+				status: { eq: "active" },
+			},
+		});
+		expect(live).toHaveLength(1);
+		const model = await db.query.model.findFirst({
+			where: { id: { eq: "race-contested-1" } },
+		});
+		expect(model?.output).toEqual(live[0].decisions ? ["decision"] : ["text"]);
 	});
 
 	it("stores reasoning efforts and audio on a listing", async () => {

@@ -14,6 +14,7 @@ import {
 	Fingerprint,
 	Gauge,
 	Globe,
+	Hourglass,
 	ImageIcon,
 	KeyRound,
 	Layers,
@@ -23,6 +24,7 @@ import {
 	Mic,
 	Network,
 	NotebookPen,
+	PlaneTakeoff,
 	Puzzle,
 	Radio,
 	Receipt,
@@ -122,7 +124,7 @@ claude`,
 		description:
 			"Route each request to the best available provider by price, uptime and latency, with automatic retry and fallback when one fails.",
 		longDescription:
-			"Name a model and LLM Gateway picks the provider. If that provider errors or times out, the request is retried on the next best one automatically, so your users never see the outage.",
+			"Name a model and LLM Gateway picks the provider, scoring price, uptime, throughput and latency on recent traffic. If that provider errors, times out or hits a rate limit, the request is retried on the next best one automatically, so your users never see the outage.",
 		icon: Route,
 		category: "routing",
 		docsPath: "/features/routing",
@@ -140,7 +142,7 @@ claude`,
 		benefits: [
 			{
 				title: "Auto routing",
-				description: "Price, uptime and latency weighed per request.",
+				description: "Price, uptime, throughput and latency per request.",
 			},
 			{
 				title: "Retry & fallback",
@@ -361,7 +363,7 @@ claude`,
 		description:
 			"Serve identical requests from the gateway at $0, and use provider prompt caching to discount long, reused prompts.",
 		longDescription:
-			"Gateway caching answers repeated identical requests without calling the provider. Provider cache control discounts the shared prefix of long prompts like system prompts, tools and history.",
+			"Gateway caching answers repeated identical requests without calling the provider. Provider prompt caching discounts the shared prefix of long prompts like system prompts, tools and history, and the gateway adds cache markers for Claude models automatically.",
 		icon: DatabaseZap,
 		category: "routing",
 		docsPath: "/features/caching",
@@ -390,8 +392,8 @@ claude`,
 				description: "Discounted reuse of long prefixes.",
 			},
 			{
-				title: "Configurable TTL",
-				description: "Choose how long responses live.",
+				title: "Cache modes",
+				description: "Automatic, client-managed or off, 5m or 1h TTL.",
 			},
 			{
 				title: "Visible savings",
@@ -429,6 +431,62 @@ claude`,
 	]
 }`,
 		},
+	},
+	{
+		id: "rate-limits",
+		slug: "rate-limits",
+		title: "Rate Limits",
+		subtitle: "Stay inside every upstream quota",
+		description:
+			"Cap requests and tokens per minute or day on providers, models and individual provider keys, and let routing steer around them.",
+		longDescription:
+			"Upstream accounts are quota'd per key and in tokens. Set RPM, RPD, TPM and TPD caps on any provider key: a key at its cap drops out of rotation, routing moves to the next healthy one, and you only see a 429 with Retry-After when nothing else can serve the request.",
+		icon: Hourglass,
+		category: "routing",
+		docsPath: "/resources/rate-limits",
+		visual: {
+			kind: "flow",
+			source: "Your app",
+			hub: "LLM Gateway",
+			targets: [
+				{ label: "openai · key 1", status: "blocked", note: "TPM cap hit" },
+				{ label: "openai · key 2", status: "active", note: "62% of TPM" },
+				{ label: "azure · key 1", status: "idle", note: "standby" },
+			],
+			caption: "Capped keys leave rotation until the window slides",
+		},
+		benefits: [
+			{
+				title: "Requests & tokens",
+				description: "RPM, RPD, TPM and TPD windows.",
+			},
+			{
+				title: "Per provider key",
+				description: "Match each upstream account's quota.",
+			},
+			{
+				title: "Strict, soft or lax",
+				description: "Keep session pins past a cap if you choose.",
+			},
+			{
+				title: "Retry-After",
+				description: "Accurate reset hints on every 429.",
+			},
+		],
+		useCases: [
+			{
+				title: "Shared BYOK keys",
+				description: "Spread traffic across several upstream keys",
+			},
+			{
+				title: "Tier-limited accounts",
+				description: "Strict caps keep traffic inside token quotas",
+			},
+			{
+				title: "Long sessions",
+				description: "Soft caps keep reasoning on the same key",
+			},
+		],
 	},
 	{
 		id: "timeouts",
@@ -511,8 +569,8 @@ claude`,
 				description: "Define your own models in the directory.",
 			},
 			{
-				title: "Same tooling",
-				description: "Keys, logs and analytics included.",
+				title: "Prompt caching",
+				description: "Cache markers forwarded to your endpoint.",
 			},
 			{
 				title: "Compliance aware",
@@ -1055,7 +1113,7 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 		description:
 			"Get ranked web results with extracted page content from the /v1/search endpoint.",
 		longDescription:
-			"Send a query, get back ranked results with the page content already extracted, filtered by recency if you want. Ideal grounding for agents.",
+			"Send a query, get back ranked results with the page content already extracted, filtered by recency if you want. Set the model to auto and the gateway picks the cheapest active search model. Ideal grounding for agents.",
 		icon: Search,
 		category: "models",
 		docsPath: "/features/search",
@@ -1969,5 +2027,60 @@ npm install @llmgateway/server
 npm install @llmgateway/elements   # React drop-in components
 npm install @llmgateway/client     # headless / non-React`,
 		},
+	},
+	{
+		id: "airside",
+		slug: "airside",
+		title: "Airside for Providers",
+		subtitle: "List your models on LLM Gateway",
+		description:
+			"The self-serve console where inference providers claim their catalogue entry, file prices, pass preflight checks and get routed traffic.",
+		longDescription:
+			"Airside lets a provider list its fleet, file reviewed prices, set traffic discounts and billing mode, and watch its traffic and incidents. Every listing passes automated preflight checks for usage, streaming and reasoning, and carriers can earn an Airworthy AW-1 certificate that verifies their data handling, jurisdiction and audit claims.",
+		icon: PlaneTakeoff,
+		category: "build",
+		docsPath: "/features/airside",
+		visual: {
+			kind: "feed",
+			title: "Airside · carrier console",
+			items: [
+				{ title: "Preflight: usage & streaming", meta: "passed", tone: "ok" },
+				{ title: "Price filing · 3 models", meta: "in review", tone: "info" },
+				{ title: "Airworthy AW-1", meta: "certified", tone: "ok" },
+				{ title: "Upstream timeouts", meta: "2 incidents", tone: "warn" },
+			],
+		},
+		benefits: [
+			{
+				title: "Self-serve listing",
+				description: "Claim your entry and list your fleet.",
+			},
+			{
+				title: "Preflight checks",
+				description: "Usage, streaming and reasoning verified.",
+			},
+			{
+				title: "Airworthy certificate",
+				description: "Verified data and compliance claims.",
+			},
+			{
+				title: "Flexible billing",
+				description: "Pay-as-you-go, post-billing or payout.",
+			},
+		],
+		useCases: [
+			{
+				title: "New providers",
+				description: "Reach developers without a sales cycle",
+			},
+			{
+				title: "Price changes",
+				description: "File and review new fares in one place",
+			},
+			{
+				title: "Trust signals",
+				description: "Show verified retention and audits",
+			},
+		],
 	},
 ];

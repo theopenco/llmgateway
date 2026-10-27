@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -24,6 +24,13 @@ import {
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { assertListingContextSize } from "@/lib/airside-context-size.js";
+import {
+	assertDecisionMetadataEdit,
+	assertDecisionPricing,
+	assertDecisionProvider,
+	assertListingKind,
+	DECISION_LISTING_CHAT_FIELDS,
+} from "@/lib/airside-decisions.js";
 import { delistAirsideListing } from "@/lib/airside-delist.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
@@ -97,6 +104,7 @@ import {
 	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
+import { createRoute } from "@/utils/create-route.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
@@ -240,6 +248,9 @@ const verificationMappingSchema = z.object({
 	modelName: z.string().min(1).max(200),
 	externalId: z.string().min(1).max(200).optional(),
 	apiFormat: providerApiFormatValue.optional(),
+	// Serves typed decisions on the carrier's `POST /v1/decisions` instead
+	// of chat. Fixed once listed.
+	decisions: z.boolean().optional(),
 	streaming: z.boolean().optional(),
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
@@ -398,6 +409,8 @@ const modelSchema = z.object({
 	// The id sent to the provider's API; fixed at registration or import.
 	externalId: z.string(),
 	apiFormat: providerApiFormatValue,
+	// A decision model, served on `/v1/decisions`; fixed at registration.
+	decisions: z.boolean(),
 	displayName: z.string().nullable(),
 	description: z.string().nullable(),
 	family: z.string().nullable(),
@@ -632,6 +645,7 @@ function draftVerificationTarget(
 		modelName: model.modelName,
 		externalId: model.externalId,
 		apiFormat: model.apiFormat,
+		decisions: model.decisions,
 		streaming: proposed.streaming ?? model.streaming,
 		vision: proposed.vision ?? model.vision,
 		audio: proposed.audio ?? model.audio,
@@ -709,6 +723,7 @@ function serializeModel(
 		modelName: row.modelName,
 		externalId: row.externalId,
 		apiFormat: row.apiFormat,
+		decisions: row.decisions,
 		displayName: row.displayName,
 		description: row.description,
 		quantization: row.quantization,
@@ -2643,6 +2658,7 @@ airside.openapi(submitProviderKey, async (c) => {
 			modelName: listing.modelName,
 			externalId: listing.externalId,
 			apiFormat: listing.apiFormat,
+			decisions: listing.decisions,
 		}),
 	);
 	const pendingProviderKey = await cdb.transaction(
@@ -2805,6 +2821,8 @@ airside.openapi(queueNewModelVerification, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	assertDecisionProvider(body.providerId, body.decisions ?? false);
+	await assertListingKind(body.modelName, body.decisions ?? false);
 	const target = verificationTarget(body);
 	const credential = await resolveVerificationCredential(
 		target,
@@ -3095,6 +3113,8 @@ const createModel = createRoute({
 						// Defaults to modelName. Immutable once listed.
 						externalId: z.string().min(1).max(200).optional(),
 						apiFormat: providerApiFormatValue.optional(),
+						// Serves typed decisions on `POST /v1/decisions`.
+						decisions: z.boolean().optional(),
 						displayName: z.string().max(200).optional(),
 						description: z.string().max(2000).optional(),
 						quantization: quantizationValue.nullish(),
@@ -3181,6 +3201,9 @@ airside.openapi(createModel, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	assertDecisionProvider(body.providerId, body.decisions ?? false);
+	await assertListingKind(body.modelName, body.decisions ?? false);
+	assertDecisionPricing(body.decisions ?? false, body.pricing);
 	await assertListingContextSize(
 		body.modelName,
 		body.providerId,
@@ -3291,6 +3314,13 @@ airside.openapi(createModel, async (c) => {
 					rateLimitScope: body.rateLimitScope ?? "global",
 					rateLimitMode: body.rateLimitMode ?? "strict",
 					createdBy: user.id,
+					...(body.decisions
+						? {
+								decisions: true,
+								apiFormat: "openai-chat-completions" as const,
+								...DECISION_LISTING_CHAT_FIELDS,
+							}
+						: {}),
 				})
 				.returning();
 			const [filing] = await tx
@@ -3448,6 +3478,9 @@ airside.openapi(importCatalogueModels, async (c) => {
 		// base band at the wrong rate — so those stay on the catalogue.
 		if (
 			listed.has(model.id) ||
+			// Catalogue decision models speak each provider's own protocol;
+			// listings are served on the OpenAI-compatible /v1/decisions.
+			mapping.decisions ||
 			!mapping.inputPrice ||
 			!mapping.outputPrice ||
 			(mapping.pricingTiers?.length ?? 0) > 0 ||
@@ -3564,6 +3597,7 @@ airside.openapi(updateModel, async (c) => {
 	}
 	const changes = pickMetadataChanges(body);
 	const updates = diffMetadataChanges(model, changes);
+	assertDecisionMetadataEdit(model.decisions, updates);
 	// Any edit must leave the listing with an acceptable window, so listings
 	// filed before the check get fixed the next time they change.
 	if (Object.keys(updates).length > 0) {
@@ -4139,6 +4173,7 @@ airside.openapi(createPriceFiling, async (c) => {
 				message: "Delisted models cannot receive price filings.",
 			});
 		}
+		assertDecisionPricing(locked.decisions, body);
 		const pending = await tx
 			.select({ id: tables.providerPriceFiling.id })
 			.from(tables.providerPriceFiling)

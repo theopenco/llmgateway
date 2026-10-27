@@ -50,7 +50,7 @@
 		"dotenv": "17.4.2",
 		"exceljs": "4.4.0",
 		"gateway": "workspace:*",
-		"hono": "^4.13.5",
+		"hono": "^4.13.13",
 		"hono-openapi": "^1.1.1",
 		"hyparquet": "1.31.4",
 		"ioredis": "5.7.0",

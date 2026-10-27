@@ -1,10 +1,14 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
+import {
+	CLI_CODE_CHALLENGE_PATTERN,
+	issueCliAuthCode,
+} from "@/lib/cli-auth-code.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import {
 	devPlanCancellationCommentsSchema,
@@ -36,6 +40,7 @@ import {
 	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
+import { createRoute } from "@/utils/create-route.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
 	claimDevPlanCardFingerprint,
@@ -3041,19 +3046,10 @@ const rotateApiKey = createRoute({
 	},
 });
 
-devPlans.openapi(rotateApiKey, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-	const { apiKeyId } = c.req.valid("json");
-
+async function rotateDevPassApiKey(userId: string, apiKeyId: string) {
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
-			userId: user.id,
+			userId,
 		},
 		with: {
 			organization: true,
@@ -3123,7 +3119,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 				...hashApiKeyForStorage(newToken),
 				projectId: project.id,
 				description: "Dev Plan API Key",
-				createdBy: user.id,
+				createdBy: userId,
 			})
 			.returning({ id: tables.apiKey.id });
 
@@ -3132,16 +3128,81 @@ devPlans.openapi(rotateApiKey, async (c) => {
 
 	await logAuditEvent({
 		organizationId: personalOrg.id,
-		userId: user.id,
+		userId,
 		action: "dev_plan.rotate_api_key",
 		resourceType: "api_key",
 		resourceId: project.id,
 	});
 
-	return c.json({
-		apiKey: newToken,
-		apiKeyId: newApiKeyId,
+	return { token: newToken, apiKeyId: newApiKeyId };
+}
+
+devPlans.openapi(rotateApiKey, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+	const { token, apiKeyId } = await rotateDevPassApiKey(
+		user.id,
+		c.req.valid("json").apiKeyId,
+	);
+
+	return c.json({ apiKey: token, apiKeyId });
+});
+
+// Roll the dev-plan API key for a coding CLI's browser login. The response
+// carries a one-time code, not the key; the CLI redeems it at
+// /public/cli-auth/token.
+const rotateApiKeyCliCode = createRoute({
+	method: "post",
+	path: "/rotate-api-key/cli-code",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						codeChallenge: z.string().regex(CLI_CODE_CHALLENGE_PATTERN),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						code: z.string(),
+					}),
+				},
+			},
+			description: "API key rotated; redeem the code from the CLI.",
+		},
+	},
+});
+
+devPlans.openapi(rotateApiKeyCliCode, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+	const body = c.req.valid("json");
+	const { token, apiKeyId } = await rotateDevPassApiKey(user.id, body.apiKeyId);
+	const code = await issueCliAuthCode({
+		token,
+		codeChallenge: body.codeChallenge,
+		expiresAt: null,
 	});
+
+	return c.json({ apiKeyId, code });
 });
 
 const removableDevPlanSubscriptionStatuses =

@@ -498,6 +498,8 @@ When using auto routing (`"model": "auto"`), if the selected model supports reas
 2. Set `reasoning_effort` to `low` for other auto-routed reasoning models
 3. Only route to providers that support reasoning when `reasoning_effort` is specified
 
+The automatic effort is clamped to the efforts the selected provider mapping accepts, and when a request fails over to another provider of the same model it is picked again against that provider's mapping — mappings of one model can accept different efforts. If none of the preferred efforts is supported, no effort is sent. An effort you set yourself is never changed by a fallback.
+
 This ensures optimal performance and cost when using auto-routing with reasoning-capable models.
 
 ## Model-Specific Behavior

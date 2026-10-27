@@ -1578,6 +1578,22 @@ export const RunpodIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+// The TypeSafe AI mark, used for both the `typesafe` provider and the
+// `typesafe` model family. Extracted from TypeSafe AI's wordmark; the box is
+// squared up around the glyph's 98.82x144 bounds so it centres in a square slot.
+export const TypeSafeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="-22.59 0 144 144">
+		<path
+			fill="currentColor"
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M76.4576 17.5651V42.3984L98.8152 56.9225L98.8213 111.911L49.4046 144L22.3637 126.441V100.92L0 86.3963V32.0953L2.12872 30.7086L49.4106 0L76.4576 17.5651ZM35.6044 123.899L49.3985 132.858L85.5624 109.362L71.7744 100.41L35.6044 123.899ZM54.0756 61.9949V86.4024L31.7058 100.927V115.292L67.1155 92.296V53.5286L54.0756 61.9949ZM76.4576 92.3082L89.4732 100.762V61.9888L76.4576 53.5347V92.3082ZM13.2467 83.8601L27.0347 92.8191L40.8289 83.8601L27.0408 74.9072L13.2467 83.8601ZM9.34204 37.1617V75.26L22.3637 66.7998V42.3923L44.7396 27.8561V14.1652L9.34204 37.1617ZM31.7058 66.7937L44.7335 75.2539V61.9888L31.7058 53.5286V66.7937ZM35.6044 44.9225L49.4106 53.8875L63.2048 44.9285L49.4046 35.9635L35.6044 44.9225ZM54.0817 27.8561L67.1155 36.3223V22.6376L54.0817 14.1652V27.8561Z"
+		/>
+	</svg>
+);
+
 export const ProviderIcons = {
 	atlascloud: AtlasCloudIcon,
 	anthropic: AnthropicIcon,
@@ -1628,6 +1644,7 @@ export const ProviderIcons = {
 	consensusprotocol: ConsensusProtocolIcon,
 	atria: AtriaIcon,
 	tencent: TencentCloudIcon,
+	typesafe: TypeSafeIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1719,6 +1736,7 @@ const bundledProviderLogos: Partial<
 	consensusprotocol: ProviderIcons.consensusprotocol,
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
+	typesafe: ProviderIcons.typesafe,
 };
 
 export const providerLogoUrls: Partial<
@@ -1782,6 +1800,7 @@ export const ModelFamilyIcons: Record<
 	reve: ReveIcon,
 	sakana: SakanaIcon,
 	tencent: TencentCloudIcon,
+	typesafe: TypeSafeIcon,
 	xai: XAIIcon,
 	xiaomi: XiaomiIcon,
 	zai: ZaiIcon,

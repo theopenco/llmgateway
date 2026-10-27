@@ -24,6 +24,7 @@ llmgateway_data
 !apps/playground/public/llms.txt
 !apps/docs/app/llms.txt
 !apps/docs/app/llms-full.txt
+!apps/ui/src/app/.well-known/security.txt
 docker-compose-override-*.yml
 benchmark_results.json
 benchmark-*.json
@@ -61,3 +62,5 @@ scripts/*.png
 
 # Agent scratch space (PR bodies, logs, audit runs)
 /.context/
+
+/.worktrees/

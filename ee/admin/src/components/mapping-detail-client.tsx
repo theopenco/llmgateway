@@ -15,9 +15,14 @@ import {
 import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	CatalogDetailUsageMode,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
 import { useHistoryClient } from "@/lib/history-client";
 import { publicModelUrl } from "@/lib/public-urls";
+import { CATALOG_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import { getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -64,7 +69,9 @@ export function MappingDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	// The server rendered the stats for the initial window; only refetch for others.
+	const mode = useUsageMode(CATALOG_USAGE_MODE_DEFAULT);
+	// The server renders the stats for the current mode and the initial
+	// window; only refetch for other windows.
 	const [initialWindow] = useState(window);
 	const $api = useApi();
 	const detailQuery = $api.useQuery(
@@ -73,7 +80,7 @@ export function MappingDetailClient({
 		{
 			params: {
 				path: { providerId, modelId: encodeURIComponent(modelId) },
-				query: { window, ...(region ? { region } : {}) },
+				query: { window, ...(region ? { region } : {}), mode },
 			},
 		},
 		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
@@ -91,9 +98,10 @@ export function MappingDetailClient({
 				w,
 				undefined,
 				region,
+				mode,
 			);
 		},
-		[history, providerId, modelId, region],
+		[history, providerId, modelId, region, mode],
 	);
 
 	const verificationsQuery = $api.useQuery(
@@ -121,13 +129,13 @@ export function MappingDetailClient({
 			? mapping.externalId
 			: mapping.modelId;
 
-	// Match the history chart's scope: it counts BYOK traffic, and a region-less
-	// mapping's history also rolls up its regional rows, which only the
-	// model-wide filter covers.
+	// Match the history chart's scope: BYOK traffic unless the credits view is
+	// selected, and a region-less mapping's history also rolls up its regional
+	// rows, which only the model-wide filter covers.
 	const recentErrorsScope = mapping.region
 		? `mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}:${mapping.region}`)}`
 		: `modelId=${encodeURIComponent(mapping.modelId)}`;
-	const recentErrorsHref = `/unstable-mappings?${recentErrorsScope}&includeByok=true`;
+	const recentErrorsHref = `/unstable-mappings?${recentErrorsScope}${mode === "credits" ? "" : "&includeByok=true"}`;
 
 	return (
 		<>
@@ -181,6 +189,8 @@ export function MappingDetailClient({
 					</Button>
 				</ModelVerificationDialog>
 			</header>
+
+			<CatalogDetailUsageMode />
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (

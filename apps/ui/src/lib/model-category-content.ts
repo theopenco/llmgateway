@@ -184,6 +184,74 @@ export const modelCategoryContent = {
 			},
 		],
 	},
+	"cyber-security": {
+		metaTitle: "Best AI Models for Cyber Security — Compare Security LLMs",
+		metaDescription:
+			"Compare the best LLMs for cyber security work — code audits, log triage, malware analysis in a sandbox, CTFs, and pentest reports — including Chinese-lab models that do not stop mid-task. Prices, context windows, one API key.",
+		heading: "Best Models for Cyber Security",
+		subheading:
+			"Models for code audits, log triage, threat modelling, CTFs, and sandboxed malware analysis — compared by price, context window, and whether they finish the task",
+		intro: [
+			"Security work puts two different demands on a language model. Defensive tasks — auditing a pull request for injection bugs, triaging a day of logs, writing a threat model or a pentest report — reward raw reasoning and a long context window, and every frontier model handles them. Offensive-adjacent tasks — explaining a malware sample in a sandbox, solving a CTF, triaging a crash into an exploitability verdict — also need a model that keeps going. Since September 2026, Anthropic's Claude Opus 5.5 ships with cyber safeguards that can stop a response mid-answer, and Anthropic's own launch benchmarks note that cyber tasks the safeguards interrupted were completed by Claude Opus 4.8 instead. OpenAI and Google apply similar classifiers to GPT-5.5 and Gemini.",
+			"This page lists both kinds of model. Frontier options like Claude Opus 4.8, GPT-5.5, and Gemini 3.1 Pro for defensive review where quality matters most, and models from Chinese labs — DeepSeek, Moonshot (Kimi), Z.ai (GLM), Alibaba (Qwen), MiniMax, and Xiaomi — that are served with no cyber-specific refusal layer and cost a fraction of the price. Every one of them is reachable through the same OpenAI-compatible endpoint with one API key, so an agent can run the first pass on DeepSeek V4.1 Flash and escalate to a frontier model for the final report. For binary and firmware analysis specifically, see the reverse engineering models page.",
+		],
+		faqs: [
+			{
+				question: "What is the best AI model for cyber security?",
+				answer:
+					"For defensive work — code review, log analysis, threat modelling, report writing — Claude Opus 4.8, GPT-5.5, and Gemini 3.1 Pro produce the most thorough results. For hands-on analysis of malware samples, CTF challenges, or crash triage, Chinese-lab models such as DeepSeek V4 Pro, Kimi K3.1 Pro, GLM-5.2, and Qwen3.7 Max are the reliable choice because they are not wrapped in a cyber-specific refusal layer and will finish the task.",
+			},
+			{
+				question: "Why do Claude and GPT models refuse security tasks?",
+				answer:
+					"Frontier labs run safety classifiers on cyber-adjacent prompts. Anthropic's Claude Opus 5.5 launch post states the model deploys with safeguards covering cybersecurity, and that when those safeguards intervened during benchmark testing the tasks were completed by Claude Opus 4.8. Since October 21, 2026, users on r/Claude have reported Opus 5.5 halting reverse-engineering requests mid-answer; Anthropic has not confirmed a change. Anthropic also runs a Cyber Verification Program that grants verified security practitioners wider access.",
+			},
+			{
+				question: "Which models will not refuse malware analysis or CTF work?",
+				answer:
+					"Models from Chinese labs served through API providers — DeepSeek V4 Pro and V4.1 Flash, Kimi K3.1 Pro and K2.7 Code, GLM-5.2, Qwen3.7 Max and Qwen3.7 Plus, MiniMax M3, and MiMo V2.6 Pro — carry no cyber-specific classifier and complete sandboxed malware analysis, CTF challenges, and exploit triage. All of them support tool calling, so they work inside agents that drive Ghidra, Hopper, or a sandbox through MCP. Stay within the law: analyse systems you own or are authorised to test.",
+			},
+			{
+				question: "How much does an AI security review cost?",
+				answer:
+					"A 2,000-line pull request is roughly 25,000 input tokens. Reviewing it on DeepSeek V4.1 Flash costs well under a cent; on Claude Opus 4.8 at $5 per million input tokens it is about 13 cents before output. For a daily log triage pipeline, route the bulk pass to a budget model and escalate only flagged findings to a frontier model — one API key covers both and every request is logged with its exact cost.",
+			},
+		],
+	},
+	"reverse-engineering": {
+		metaTitle: "Best AI Models for Reverse Engineering — Compare RE LLMs",
+		metaDescription:
+			"Compare the best LLMs for reverse engineering — decompiling binaries, reading assembly, firmware and app analysis with REA, Ghidra, and Hopper. Chinese-lab models that finish the job, with prices and context windows.",
+		heading: "Best Models for Reverse Engineering",
+		subheading:
+			"Models that read decompiler output, trace native code, and drive Ghidra, Hopper, and IDA through MCP — compared by price, context window, and tool support",
+		intro: [
+			"Reverse engineering with an AI agent is now a mainstream workflow: tools like REA (Reverse Engineer Anything, 380K+ GitHub stars) give Claude Code, Codex, Cursor, OpenCode, and Qwen Code an MCP server that inspects native binaries, Electron and JavaScript apps, .NET assemblies, firmware, and Unity IL2CPP metadata, with Ghidra, Hopper, or IDA doing the heavy lifting. The model's job is to read pseudocode and strings, name functions, follow cross-references, and turn evidence into an explanation or a working reimplementation. That takes strong code reasoning, a long context window for decompiler output, and reliable tool calling.",
+			"It also takes a model that does not stop halfway. Since October 21, 2026, users have reported that Claude Opus 5.5 cuts off reverse-engineering requests mid-answer, and ChatGPT applies a similar refusal layer to decompilation and exploit questions. Models from DeepSeek, Moonshot (Kimi), Z.ai (GLM), Alibaba (Qwen), MiniMax, Xiaomi, and ByteDance have no such classifier, and several of them — DeepSeek V4 Pro, Kimi K3.1 Pro, GLM-5.2 — carry million-token windows that hold an entire Ghidra export. Every model on this page supports tool calling and is available through one OpenAI- and Anthropic-compatible endpoint, so you can point your existing agent at the gateway and keep the same REA setup.",
+		],
+		faqs: [
+			{
+				question: "What is the best AI model for reverse engineering?",
+				answer:
+					"DeepSeek V4 Pro and Kimi K3.1 Pro are the strongest Chinese-lab choices: both reason well over decompiler pseudocode, support tool calling for Ghidra and Hopper bridges, and hold a 1M-token context. GLM-5.2 and Qwen3.7 Max are close behind, and DeepSeek V4.1 Flash is the budget pick at $0.15 per million input tokens for bulk function naming and string analysis. Among Western models, Grok 4.3 and Gemini 3.1 Pro complete most RE tasks; Claude Opus 5.5 is currently reported to halt them.",
+			},
+			{
+				question: "Does Claude refuse reverse engineering now?",
+				answer:
+					"Reports started on October 21, 2026 on r/Claude, covered by Kotaku and others: Claude Opus 5.5 begins analysing a target, then a safety guardrail stops the response mid-sentence and it will not reproduce the write-up even when reworded. Anthropic has not announced a change. Opus 5.5 launched on September 22, 2026 with safeguards that cover cybersecurity, and Anthropic's launch notes say interrupted cyber tasks in testing were completed by Claude Opus 4.8, which is why Opus 4.8 is on this list.",
+			},
+			{
+				question: "Can I use REA with these models?",
+				answer:
+					"Yes. REA (npx rea-agents setup) registers an MCP server with Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Qwen Code, and other agents. Point that agent at LLM Gateway — https://api.llmgateway.io/v1 for OpenAI-compatible clients, or the Anthropic-compatible endpoint for Claude Code — with your gateway key and a model ID such as deepseek-v4-pro or kimi-k3.1-pro. REA's tools and skill stay the same; only the model behind the agent changes.",
+			},
+			{
+				question: "Is AI-assisted reverse engineering legal?",
+				answer:
+					"Often, within limits. Analysing your own code, open-source software, malware in a sandbox, and CTF challenges is generally permitted; interoperability and security research have explicit exemptions in many jurisdictions. Copying closed-source code into a product, circumventing DRM, or probing systems you do not own is usually where it stops being legal. Check the licence and the law where you are before you publish results.",
+			},
+		],
+	},
 	"long-context": {
 		metaTitle: "Long Context LLMs — Models With 200K+ Token Windows",
 		metaDescription:
@@ -294,14 +362,14 @@ export const modelCategoryContent = {
 		subheading:
 			"Models priced at $5+ per million input tokens or $15+ per million output tokens — the exact list used for DevPass fair-use limits",
 		intro: [
-			"Premium is a pricing classification, not a curated list: a model lands on this page when any of its providers charges at least $5 per million input tokens or $15 per million output tokens. The classification is computed directly from catalogue prices, so this page always shows exactly which models are premium right now — every model not listed here is standard.",
+			"Premium is a pricing classification, not a curated list: a model lands on this page when any of its providers charges at least $5 per million input tokens or $15 per million output tokens. The classification is computed directly from catalogue prices after active public discounts, so this page always shows exactly which models are premium right now — every model not listed here is standard.",
 			"The distinction matters for DevPass coding plans, where premium models are subject to a weekly fair-use allowance (a percentage of the plan's monthly credits) on top of the normal credit balance. When you call the LLM Gateway API directly with pay-as-you-go credits, premium models have no extra cap and no markup — you pay the same per-token provider prices shown here.",
 		],
 		faqs: [
 			{
 				question: "What makes a model premium?",
 				answer:
-					"Pricing alone. A model is premium when at least one of its providers charges $5 or more per million input tokens, or $15 or more per million output tokens. There is no hand-picked list — the classification is recomputed from the live model catalogue, so it updates automatically when prices change.",
+					"Pricing alone. A model is premium when at least one of its providers charges $5 or more per million input tokens, or $15 or more per million output tokens. Prices are taken after any active public discount, so a promotion that brings a model below both thresholds makes it standard while it runs. There is no hand-picked list — the classification is recomputed from the live model catalogue, so it updates automatically when prices change.",
 			},
 			{
 				question: "Do premium models cost extra on LLM Gateway?",

@@ -167,6 +167,11 @@ interface AllModelsProps {
 	 */
 	showPricingTierFilter?: boolean;
 	/**
+	 * Show the Lounge membership filter and the per-row "Plus" marker. Only
+	 * surfaces fed by fetchModelsFromApi carry `loungePlan`, so it is opt-in.
+	 */
+	showLoungePlanFilter?: boolean;
+	/**
 	 * Use Case category applied when the URL has no `category` param
 	 * (e.g. DevPass pins its directory to `code`).
 	 */
@@ -469,6 +474,7 @@ const ModelTableRow = React.memo(
 		formatPrice,
 		modelHref,
 		pinnedCapabilityKeys,
+		showLoungePlan,
 	}: {
 		row: FlattenedModelRow;
 		isExpanded: boolean;
@@ -482,6 +488,7 @@ const ModelTableRow = React.memo(
 		) => React.ReactNode;
 		modelHref: (path: string) => string;
 		pinnedCapabilityKeys: string[];
+		showLoungePlan: boolean;
 	}) => {
 		const { ProviderIcon } = row;
 		const isCustom = row.model.source === "custom";
@@ -686,8 +693,35 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier / $5+/M input or $15+/M output. Subject to
-											the weekly fair-use allowance on DevPass plans.
+											Premium tier / $5+/M input or $15+/M output after public
+											discounts. Subject to the weekly fair-use allowance on
+											DevPass plans.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{showLoungePlan && row.model.loungePlan === "plus" && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span
+											tabIndex={0}
+											className="shrink-0 cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										>
+											<Badge
+												variant="outline"
+												className="px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+											>
+												Plus
+											</Badge>
+											<span className="sr-only">
+												: needs a Lounge Plus or Pro membership
+											</span>
+										</span>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p className="text-xs">
+											Frontier model. In Lounge it needs a Plus or Pro
+											membership; Starter doesn&apos;t include it.
 										</p>
 									</TooltipContent>
 								</Tooltip>
@@ -1001,6 +1035,7 @@ export function AllModels({
 	renderCta,
 	modelHrefBase = "",
 	showPricingTierFilter = false,
+	showLoungePlanFilter = false,
 	defaultCategory = "all",
 	hideUseCaseFilter = false,
 	hideHeader = false,
@@ -1110,6 +1145,9 @@ export function AllModels({
 		return {
 			category,
 			tier: searchParams.get("tier") ?? "all",
+			loungePlan: showLoungePlanFilter
+				? (searchParams.get("lounge") ?? "all")
+				: "all",
 			capabilities,
 			selectedProvider: searchParams.get("provider") ?? "all",
 			status: getStatusFilterFromUrl(searchParams),
@@ -1133,6 +1171,25 @@ export function AllModels({
 			})(),
 		};
 	});
+
+	// Same-page links (e.g. the Lounge plan lists on /models) change the query
+	// without remounting, so follow the URL for the Lounge plan and panel.
+	const urlLoungePlan = showLoungePlanFilter
+		? (searchParams.get("lounge") ?? "all")
+		: "all";
+	const urlShowFilters = searchParams.get("filters") === "1";
+	useEffect(() => {
+		setFilters((prev) =>
+			prev.loungePlan === urlLoungePlan
+				? prev
+				: { ...prev, loungePlan: urlLoungePlan },
+		);
+	}, [urlLoungePlan]);
+	useEffect(() => {
+		if (urlShowFilters) {
+			setShowFilters(true);
+		}
+	}, [urlShowFilters]);
 
 	// Org-directory extensions: the Source and Eligibility filters only appear
 	// when the surface actually mixes in custom models or compliance data.
@@ -1340,6 +1397,15 @@ export function AllModels({
 				return false;
 			}
 			if (filters.tier === "standard" && model.premium) {
+				return false;
+			}
+
+			// Lounge plan filter: "starter" lists what every membership includes,
+			// "plus" the frontier models that need Plus or Pro
+			if (
+				(filters.loungePlan === "starter" || filters.loungePlan === "plus") &&
+				model.loungePlan !== filters.loungePlan
+			) {
 				return false;
 			}
 
@@ -1668,6 +1734,7 @@ export function AllModels({
 		searchQuery ||
 		(filters.category && filters.category !== defaultCategory) ||
 		(filters.tier && filters.tier !== "all") ||
+		filters.loungePlan !== "all" ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
 		filters.status !== null ||
@@ -1821,6 +1888,7 @@ export function AllModels({
 		setFilters({
 			category: defaultCategory,
 			tier: "all",
+			loungePlan: "all",
 			capabilities: {
 				streaming: false,
 				vision: false,
@@ -1857,6 +1925,7 @@ export function AllModels({
 			q: undefined,
 			category: undefined,
 			tier: undefined,
+			lounge: undefined,
 			streaming: undefined,
 			vision: undefined,
 			tools: undefined,
@@ -2033,6 +2102,46 @@ export function AllModels({
 											<div className="flex items-center gap-2">
 												<Zap className="h-4 w-4 text-emerald-500" />
 												Standard
+											</div>
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</>
+						) : null}
+
+						{showLoungePlanFilter ? (
+							<>
+								<div className="font-medium text-sm">Lounge Plan</div>
+								<Select
+									value={filters.loungePlan}
+									onValueChange={(value) => {
+										setFilters((prev) => ({ ...prev, loungePlan: value }));
+										updateUrlWithFilters({
+											lounge: value !== "all" ? value : undefined,
+											page: undefined,
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="All Plans" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">
+											<div className="flex items-center gap-2">
+												<List className="h-4 w-4 text-muted-foreground" />
+												All Plans
+											</div>
+										</SelectItem>
+										<SelectItem value="starter">
+											<div className="flex items-center gap-2">
+												<MessageSquare className="h-4 w-4 text-emerald-500" />
+												Included on Starter
+											</div>
+										</SelectItem>
+										<SelectItem value="plus">
+											<div className="flex items-center gap-2">
+												<Sparkles className="h-4 w-4 text-amber-500" />
+												Plus &amp; Pro only
 											</div>
 										</SelectItem>
 									</SelectContent>
@@ -2653,6 +2762,7 @@ export function AllModels({
 									formatPrice={formatPrice}
 									modelHref={modelHref}
 									pinnedCapabilityKeys={pinnedCapabilityKeys}
+									showLoungePlan={showLoungePlanFilter}
 								/>
 							))}
 						</TableBody>
@@ -2770,6 +2880,7 @@ export function AllModels({
 														? 1
 														: 0,
 													filters.tier && filters.tier !== "all" ? 1 : 0,
+													filters.loungePlan !== "all" ? 1 : 0,
 													filters.selectedProvider &&
 													filters.selectedProvider !== "all"
 														? 1

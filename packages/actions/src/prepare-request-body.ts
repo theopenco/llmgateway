@@ -11,7 +11,9 @@ import {
 	type ReasoningMode,
 	type ProviderId,
 	type BaseMessage,
+	type CacheControl,
 	type FunctionParameter,
+	isInputAudioContent,
 	isTextContent,
 	type OpenAIFunctionToolInput,
 	type OpenAIRequestBody,
@@ -1592,6 +1594,94 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 }
 
 /**
+ * Validated copy of a caller's cache marker for an upstream that takes
+ * Anthropic-style markers verbatim: `{type: "ephemeral"}` plus a known `ttl`.
+ * Anything else is malformed and dropped.
+ */
+function normalizeCacheControl(marker: unknown): CacheControl | undefined {
+	if (
+		!marker ||
+		typeof marker !== "object" ||
+		(marker as { type?: unknown }).type !== "ephemeral"
+	) {
+		return undefined;
+	}
+	const ttl = (marker as { ttl?: unknown }).ttl;
+	return ttl === "5m" || ttl === "1h"
+		? { type: "ephemeral", ttl }
+		: { type: "ephemeral" };
+}
+
+/**
+ * Normalizes text-part markers (dropping malformed ones) and removes markers
+ * from every other part type, which OpenAI-compatible upstreams do not take.
+ */
+function normalizeContentCacheControl(message: BaseMessage): BaseMessage {
+	if (!Array.isArray(message.content)) {
+		return message;
+	}
+	let mutated = false;
+	const content = message.content.map((part) => {
+		const record = part as unknown as Record<string, unknown>;
+		if (record?.cache_control === undefined) {
+			return part;
+		}
+		mutated = true;
+		const { cache_control: marker, ...rest } = record;
+		const normalized =
+			record.type === "text" ? normalizeCacheControl(marker) : undefined;
+		return (normalized
+			? { ...rest, cache_control: normalized }
+			: rest) as unknown as typeof part;
+	});
+	return mutated ? { ...message, content } : message;
+}
+
+/**
+ * Moves a tool message's `tool_result_cache_control` onto its last text part,
+ * the only place an OpenAI-compatible upstream can carry it. A string result
+ * becomes a single text part.
+ */
+function attachToolResultCacheControl(message: BaseMessage): BaseMessage {
+	if (message.tool_result_cache_control === undefined) {
+		return message;
+	}
+	const { tool_result_cache_control: marker, ...rest } = message;
+	const cacheControl = normalizeCacheControl(marker);
+	if (!cacheControl) {
+		return rest;
+	}
+	if (typeof rest.content === "string") {
+		return rest.content === ""
+			? rest
+			: {
+					...rest,
+					content: [
+						{ type: "text", text: rest.content, cache_control: cacheControl },
+					],
+				};
+	}
+	if (!Array.isArray(rest.content)) {
+		return rest;
+	}
+	let lastText = -1;
+	rest.content.forEach((part, index) => {
+		if (isTextContent(part)) {
+			lastText = index;
+		}
+	});
+	if (lastText === -1) {
+		return rest;
+	}
+	return {
+		...rest,
+		content: rest.content.map((part, index) =>
+			index === lastText ? { ...part, cache_control: cacheControl } : part,
+		),
+	};
+}
+
+/**
  * Prepares the request body for different providers.
  *
  * @param usedProvider - Provider id used for routing.
@@ -1665,6 +1755,11 @@ export async function prepareRequestBody(
 	 * Airside carriers on the OpenAI transport resolve no mapping here.
 	 */
 	webSearchFormat?: WebSearchFormat,
+	/**
+	 * The custom provider key opted in to forwarding caller `cache_control`
+	 * markers. Only read when `usedProvider` is `custom`.
+	 */
+	forwardCacheControl = false,
 ): Promise<ProviderRequestBody | FormData> {
 	// Check before provider transforms can strip a caller's markers.
 	const hasCacheMarker = (part: object) =>
@@ -2224,6 +2319,16 @@ export async function prepareRequestBody(
 	// cachePoint after the toolResult. Anywhere else it would reach the upstream
 	// as an unknown message field, and a project that opted out of provider
 	// cache writes must not emit it at all.
+	// A custom provider key that opted in forwards caller markers to its
+	// OpenAI-compatible upstream (typically a router in front of Claude). It
+	// never adds markers of its own, and `off` still strips everything.
+	const forwardCustomCacheControl =
+		usedProvider === "custom" &&
+		forwardCacheControl &&
+		allowProviderCacheWrites;
+	if (forwardCustomCacheControl) {
+		processedMessages = processedMessages.map(attachToolResultCacheControl);
+	}
 	const bedrockConverseApi =
 		usedProvider === "aws-bedrock" &&
 		providerMappingForOptions?.apiFormat !== "openai-chat-completions";
@@ -2261,7 +2366,8 @@ export async function prepareRequestBody(
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "azure-anthropic" ||
 		usedProvider === "aws-bedrock" ||
-		usedProvider === "alibaba";
+		usedProvider === "alibaba" ||
+		forwardCustomCacheControl;
 	const stripAllCacheControl = !allowProviderCacheWrites;
 	const stripTextCacheControl = !providerHandlesCacheControl;
 	if (stripAllCacheControl || stripTextCacheControl) {
@@ -2286,6 +2392,8 @@ export async function prepareRequestBody(
 			});
 			return mutated ? { ...m, content: newContent } : m;
 		});
+	} else if (forwardCustomCacheControl) {
+		processedMessages = processedMessages.map(normalizeContentCacheControl);
 	} else if (usedProvider === "alibaba") {
 		// Alibaba's cache_control accepts only `{type: "ephemeral"}` (5m fixed).
 		// Drop the `ttl` field if present so Anthropic-style requests don't trip
@@ -2462,6 +2570,34 @@ export async function prepareRequestBody(
 				return { ...m, content };
 			}),
 		);
+	}
+
+	// DashScope reads `input_audio.data` as a URL and 400s on the bare base64
+	// OpenAI sends, so inline audio goes up as a data URL.
+	if (usedProvider === "alibaba") {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const content = m.content.map((part) => {
+				if (
+					!isInputAudioContent(part) ||
+					/^(data:|https?:\/\/)/i.test(part.input_audio.data)
+				) {
+					return part;
+				}
+				mutated = true;
+				return {
+					...part,
+					input_audio: {
+						...part.input_audio,
+						data: `data:;base64,${part.input_audio.data}`,
+					},
+				};
+			});
+			return mutated ? { ...m, content } : m;
+		});
 	}
 
 	const messagesWithGoogleSignatures = processedMessages;
@@ -3294,11 +3430,11 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "moonshot": {
-			// Kimi K3 has its own parameter surface: output length is capped via
+			// The Kimi K3 family has its own parameter surface: output length is capped via
 			// `max_completion_tokens` (the K2-era `max_tokens` is not documented
 			// for it), and thinking is configured through the native top-level
 			// `reasoning_effort` field instead of the binary `thinking` toggle.
-			const isKimiK3 = usedInternalModel === "kimi-k3";
+			const isKimiK3 = usedInternalModel.startsWith("kimi-k3");
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -4016,7 +4152,9 @@ export async function prepareRequestBody(
 						...response_format.json_schema.schema,
 						additionalProperties: false,
 					} as Record<string, unknown>;
+					// Keep the effort set above: output_config holds both effort and format.
 					requestBody.output_config = {
+						...requestBody.output_config,
 						format: {
 							type: "json_schema",
 							schema,
@@ -4291,11 +4429,22 @@ export async function prepareRequestBody(
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls?.length) {
-					// Add text content if present
-					if (msg.content) {
-						bedrockMessage.content.push({
-							text: msg.content,
-						});
+					// Add text content if present. The OpenAI schema also allows an array
+					// of text parts here, which Converse takes as one text block per part.
+					if (typeof msg.content === "string") {
+						if (msg.content) {
+							bedrockMessage.content.push({
+								text: msg.content,
+							});
+						}
+					} else if (Array.isArray(msg.content)) {
+						for (const part of msg.content as any[]) {
+							if (part.type === "text" && part.text?.trim()) {
+								bedrockMessage.content.push({
+									text: part.text,
+								});
+							}
+						}
 					}
 
 					// Add tool use blocks

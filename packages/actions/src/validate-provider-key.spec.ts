@@ -368,12 +368,12 @@ describe("validateProviderKey model-specific probes", () => {
 
 		const result = await validateProviderKey("typesafe", "ts-test");
 
-		expect(result).toEqual({ valid: true, model: "jev-1.13.0" });
+		expect(result).toEqual({ valid: true, model: "jev-1.14.0" });
 		expect(fetchMock.mock.calls[0][0]).toBe(
 			"https://api.typesafe.ai/v1/systemone",
 		);
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
-			model: "jev-1.13.0",
+			model: "jev-1.14.0",
 			state: "Hello",
 			questions: {
 				greeting: { type: "noul", instructions: "Is this a greeting?" },
