@@ -206,6 +206,12 @@ escapeMove.openapi(
 				});
 			}
 			if (
+				APICallError.isInstance(error) &&
+				(error.statusCode === 400 || error.statusCode === 404)
+			) {
+				throw new HTTPException(400, { message: error.message });
+			}
+			if (
 				error instanceof Error &&
 				["TimeoutError", "AbortError"].includes(error.name)
 			) {

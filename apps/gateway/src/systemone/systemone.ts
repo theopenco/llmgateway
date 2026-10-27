@@ -243,7 +243,8 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 		rawBody,
 		requestedModel,
 		logSummary: `state: ${summarizeState(state)}\nquestions: ${summarizeQuestions(questions)}`,
-		supportsProvider: (providerId) => providerId === "typesafe",
+		supportsProvider: (providerId, wireFormat) =>
+			providerId === "typesafe" && wireFormat === "system-one",
 		unsupportedModelHint: "Use /v1/decisions for this model.",
 		buildUpstreamRequest: (_providerId, upstreamModel) => ({
 			path: "/v1/systemone",

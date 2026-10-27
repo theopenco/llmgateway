@@ -709,8 +709,12 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
  * `state_not_found` parse failure mean the OAuth/SSO callback had no `state`
  * param at all (bots, hand-built URLs, provider errors without state).
  * Replayed or expired callbacks still carry `state` and surface as
- * `state_mismatch`, which stays at error. Logging any of these at error
- * severity only trips production alerting.
+ * `state_mismatch`, which stays at error. `Invalid callbackURL: <url>` (and
+ * the redirect/errorCallback/newUserCallback variants) is the origin check
+ * rejecting an untrusted redirect target with a 403 — open-redirect probes.
+ * `Invalid origin` stays at error: a missing trustedOrigins entry breaks
+ * every sign-in. Logging any of these at error severity only trips
+ * production alerting.
  */
 const clientAuthErrorMessages = new Set([
 	"signup_disabled",
@@ -719,12 +723,18 @@ const clientAuthErrorMessages = new Set([
 	"State not found",
 ]);
 
+const untrustedRedirectUrlMessage =
+	/^Invalid (?:callbackURL|redirectURL|errorCallbackURL|newUserCallbackURL): /;
+
 export function isClientAuthError(
 	message: string,
 	args: unknown[] = [],
 ): boolean {
 	const text = message.trim();
-	if (clientAuthErrorMessages.has(text)) {
+	if (
+		clientAuthErrorMessages.has(text) ||
+		untrustedRedirectUrlMessage.test(text)
+	) {
 		return true;
 	}
 	return (
