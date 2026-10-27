@@ -83,7 +83,7 @@ const systemOneRequestSchema = z.object({
 	model: z.string().openapi({
 		description:
 			"ID of the decision model to use. Optionally prefixed with a provider (`typesafe/…`).",
-		example: "jev-1.13.0",
+		example: "jev-1.14.0",
 	}),
 	state: structuredTextSchema.openapi({
 		description:

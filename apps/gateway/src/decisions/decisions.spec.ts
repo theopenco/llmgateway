@@ -145,7 +145,7 @@ describe("decisions", () => {
 
 		const json = await res.json();
 		expect(res.status, JSON.stringify(json)).toBe(200);
-		expect(json.model).toBe("typesafe/jev-1.13.0");
+		expect(json.model).toBe("typesafe/jev-1.14.0");
 		expect(json.answers).toEqual([
 			{
 				type: "choice",
@@ -178,7 +178,7 @@ describe("decisions", () => {
 		});
 
 		const logs = await waitForLogs(1);
-		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.13.0");
+		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.14.0");
 		expect(log?.hasError).toBe(false);
 		expect(log?.apiOrigin).toBe("decisions");
 		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
