@@ -479,11 +479,27 @@ function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 	);
 }
 
+function isVeedFabricVideoModel(canonicalModelId: string): boolean {
+	return (
+		canonicalModelId === "veed-fabric-1-0" ||
+		canonicalModelId === "veed-fabric-1-0-fast"
+	);
+}
+
+/** Lip-sync models need exactly one reference image and one reference audio clip. */
+export function requiresVideoLipSyncInputs(modelId: string): boolean {
+	return isVeedFabricVideoModel(parseVideoModel(modelId).canonicalModelId);
+}
+
 export function supportsVideoReferenceInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
 
 	if (isGeminiOmniVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "google-ai-studio";
+	}
+
+	if (isVeedFabricVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
 	}
 
 	if (providerId === "bytedance") {
@@ -516,6 +532,10 @@ export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 
 export function supportsVideoReferenceAudioInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (isVeedFabricVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
+	}
 
 	if (providerId !== undefined && providerId !== "bytedance") {
 		return false;
@@ -574,6 +594,10 @@ function mappingSupportsVideoRequest(
 
 	if (inputMode === "frames") {
 		// Match by canonical model id — never by the upstream externalId.
+		if (isVeedFabricVideoModel(mapping.modelId)) {
+			return false;
+		}
+
 		if (mapping.providerId === "bytedance") {
 			return isSeedance2ReferenceModel(mapping.modelId);
 		}
@@ -597,6 +621,10 @@ function mappingSupportsVideoRequest(
 
 		if (mapping.providerId === "google-ai-studio") {
 			return isGeminiOmniVideoModel(mapping.modelId);
+		}
+
+		if (mapping.providerId === "atlascloud") {
+			return isVeedFabricVideoModel(mapping.modelId);
 		}
 
 		// Veo reference images are only supported on the veo-3.1 family.

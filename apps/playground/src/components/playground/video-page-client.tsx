@@ -46,6 +46,7 @@ import {
 	isPendingVideoModel,
 	POLL_TIMEOUT_ERROR_CODE,
 	pollVideoJob,
+	requiresVideoLipSyncInputs,
 	supportsVideoEndFrameInput,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
@@ -843,6 +844,15 @@ export default function VideoPageClient({
 			}
 			if (frameInputs.end && !frameInputs.start) {
 				toast.error("A last frame needs a first frame. Please add one.");
+				return;
+			}
+			if (
+				selectedModels.some(requiresVideoLipSyncInputs) &&
+				(referenceImages.length !== 1 || referenceAudios.length !== 1)
+			) {
+				toast.error(
+					"Lip-sync models need exactly one reference image and one reference audio URL.",
+				);
 				return;
 			}
 
