@@ -1064,96 +1064,6 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
-	describe("scx-ai finish reason mapping", () => {
-		it("normalizes 'stop' to 'tool_calls' when the message has tool calls", () => {
-			const json = {
-				choices: [
-					{
-						message: {
-							role: "assistant",
-							content: null,
-							tool_calls: [
-								{
-									id: "call_1",
-									type: "function",
-									function: {
-										name: "get_weather",
-										arguments: '{"city":"San Francisco"}',
-									},
-								},
-							],
-						},
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 10,
-					completion_tokens: 5,
-					total_tokens: 15,
-				},
-			};
-
-			const result = parseProviderResponse("scx-ai", "MiniMax-M2.7", json);
-
-			expect(result.finishReason).toBe("tool_calls");
-			expect(result.toolResults).toHaveLength(1);
-		});
-
-		it("leaves 'stop' unchanged when there are no tool calls", () => {
-			const json = {
-				choices: [
-					{
-						message: { role: "assistant", content: "Hello" },
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 10,
-					completion_tokens: 5,
-					total_tokens: 15,
-				},
-			};
-
-			const result = parseProviderResponse("scx-ai", "MiniMax-M2.7", json);
-
-			expect(result.finishReason).toBe("stop");
-		});
-
-		it("does not normalize 'stop' for the general-purpose tier", () => {
-			const json = {
-				choices: [
-					{
-						message: {
-							role: "assistant",
-							content: null,
-							tool_calls: [
-								{
-									id: "call_1",
-									type: "function",
-									function: {
-										name: "get_weather",
-										arguments: '{"city":"San Francisco"}',
-									},
-								},
-							],
-						},
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 10,
-					completion_tokens: 5,
-					total_tokens: 15,
-				},
-			};
-
-			const result = parseProviderResponse("scx-ai-gp", "GLM-5.2", json);
-
-			expect(result.finishReason).toBe("stop");
-			expect(result.toolResults).toHaveLength(1);
-		});
-	});
-
 	describe("openai-format finish reason mapping", () => {
 		it("maps 'abort' finish reason to 'upstream_error' for minimax", () => {
 			const json = {
@@ -1602,7 +1512,7 @@ describe("parseProviderResponse", () => {
 			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
 		};
 
-		it.each(["alibaba", "scx-ai-gp"] as const)(
+		it.each(["alibaba"] as const)(
 			"%s counts one search when forced",
 			(provider) => {
 				const result = parseProviderResponse(
@@ -1620,7 +1530,7 @@ describe("parseProviderResponse", () => {
 			},
 		);
 
-		it.each(["alibaba", "scx-ai-gp"] as const)(
+		it.each(["alibaba"] as const)(
 			"%s bills nothing for an unforced request",
 			(provider) => {
 				const result = parseProviderResponse(

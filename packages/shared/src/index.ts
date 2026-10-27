@@ -237,11 +237,7 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export {
-	getActiveProviderPromo,
-	MARKETING_STATS,
-	SCX_PROMO,
-} from "./marketing.js";
+export { MARKETING_STATS } from "./marketing.js";
 
 export {
 	type DiscordEmbed,

@@ -43,8 +43,6 @@ export const providerLogoUrls: Partial<
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
-	"scx-ai": ProviderIcons["scx-ai"],
-	"scx-ai-gp": ProviderIcons["scx-ai-gp"],
 	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,

@@ -17,20 +17,19 @@ import { Navbar } from "@/components/landing/navbar";
 import { JsonLd } from "@/components/seo/json-ld";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
-import { fetchModels } from "@/lib/fetch-models";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
-import { providers as providerDefinitions } from "@llmgateway/models";
 import { MARKETING_STATS } from "@llmgateway/shared";
 import {
+	CarrierMark,
 	getModelFamilyIcon,
 	isMappingDeactivated,
-	ScxIcon,
 } from "@llmgateway/shared/components";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
-import type { ApiModel } from "@/lib/fetch-models";
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Metadata } from "next";
 
 export const revalidate = 300;
@@ -62,9 +61,6 @@ const SCX_TURBO_ID = "scx-ai";
 const SCX_GP_ID = "scx-ai-gp";
 const SCX_PROVIDER_IDS: readonly string[] = [SCX_GP_ID, SCX_TURBO_ID];
 
-const scxTurbo = providerDefinitions.find((p) => p.id === SCX_TURBO_ID);
-const scxGp = providerDefinitions.find((p) => p.id === SCX_GP_ID);
-
 interface ScxModelEntry {
 	id: string;
 	name: string;
@@ -89,7 +85,9 @@ function formatPerMillion(perTokenPrice: string | null): string | null {
 
 // SCX serves its models as Airside listings, which only the API catalogue
 // carries. isMappingDeactivated() is time-based, so derive per render.
-function getScxCatalog(apiModels: ApiModel[]) {
+function getScxCatalog(apiModels: ApiModel[], apiProviders: ApiProvider[]) {
+	const scxTurbo = apiProviders.find((p) => p.id === SCX_TURBO_ID);
+	const scxGp = apiProviders.find((p) => p.id === SCX_GP_ID);
 	const scxModels: ScxModelEntry[] = apiModels.flatMap((model) => {
 		const mapping = model.mappings.find(
 			(p) =>
@@ -132,26 +130,30 @@ function getScxCatalog(apiModels: ApiModel[]) {
 		},
 	];
 
-	return { scxModels, scxEndpoints };
+	return { scxModels, scxEndpoints, scxTurbo, scxGp };
 }
 
-const scxPolicy = scxTurbo?.dataPolicy;
-const trustChips = [
-	{ icon: Leaf, label: "Renewable-powered infrastructure" },
-	scxPolicy?.apiTraining === false
-		? { icon: ShieldCheck, label: "No training on API data" }
-		: null,
-	scxPolicy?.retentionPeriod === "0 days"
-		? { icon: ShieldCheck, label: "Zero data retention" }
-		: null,
-	scxPolicy?.soc2
-		? {
-				icon: ShieldCheck,
-				label: `SOC 2 Type ${scxPolicy.soc2 === 2 ? "II" : "I"}`,
-			}
-		: null,
-	scxPolicy?.iso27001 ? { icon: ShieldCheck, label: "ISO 27001" } : null,
-].filter((chip): chip is { icon: typeof Leaf; label: string } => chip !== null);
+function getTrustChips(provider: ApiProvider | undefined) {
+	const policy = provider?.airsideProfile?.dataPolicy;
+	return [
+		{ icon: Leaf, label: "Renewable-powered infrastructure" },
+		policy?.apiTraining === false
+			? { icon: ShieldCheck, label: "No training on API data" }
+			: null,
+		policy?.retentionPeriod === "0 days"
+			? { icon: ShieldCheck, label: "Zero data retention" }
+			: null,
+		policy?.soc2
+			? {
+					icon: ShieldCheck,
+					label: `SOC 2 Type ${policy.soc2 === 2 ? "II" : "I"}`,
+				}
+			: null,
+		policy?.iso27001 ? { icon: ShieldCheck, label: "ISO 27001" } : null,
+	].filter(
+		(chip): chip is { icon: typeof Leaf; label: string } => chip !== null,
+	);
+}
 
 const partnerBenefits = [
 	{
@@ -205,13 +207,20 @@ export default async function PartnersPage() {
 	// Server-side stats snapshot used to order the partner's models by real
 	// traffic; the page degrades to release order when stats are unavailable.
 	// Independent of the model catalogue, so both are fetched in parallel.
-	const [apiModels, stats] = await Promise.all([
+	const [apiModels, apiProviders, stats] = await Promise.all([
 		fetchModels(),
+		fetchProviders(),
 		fetchServerData<PublicModelStats>("GET", "/public/models/stats", {
 			params: { query: { window: "30d" } },
 		}),
 	]);
-	const { scxModels, scxEndpoints } = getScxCatalog(apiModels);
+	const { scxModels, scxEndpoints, scxTurbo, scxGp } = getScxCatalog(
+		apiModels,
+		apiProviders,
+	);
+	const trustChips = getTrustChips(scxGp ?? scxTurbo);
+	const scxWebsite = scxGp?.airsideProfile?.website ?? scxGp?.website ?? null;
+	const scxLogo = scxGp?.airsideLogoUrl ?? scxTurbo?.airsideLogoUrl ?? null;
 	const tokensByModelId = new Map<string, number>(
 		(stats?.models ?? []).map((m) => [m.modelId, m.totalTokens]),
 	);
@@ -247,7 +256,7 @@ export default async function PartnersPage() {
 		"@context": "https://schema.org",
 		"@type": "Organization",
 		name: "SCX.ai",
-		url: scxTurbo?.website ?? `${BASE_URL}/providers/${SCX_GP_ID}`,
+		url: scxWebsite ?? `${BASE_URL}/providers/${SCX_GP_ID}`,
 		description: scxGp?.description,
 		location: {
 			"@type": "Place",
@@ -377,7 +386,18 @@ export default async function PartnersPage() {
 										Sydney, Australia
 									</div>
 
-									<ScxIcon className="h-10 w-auto text-white md:h-12" />
+									{/* The card is dark, so the uploaded mark is painted white. */}
+									{scxLogo ? (
+										<CarrierMark
+											src={scxLogo}
+											alt="SCX.ai"
+											className="h-10 w-28 object-contain object-left text-white brightness-0 invert md:h-12 md:w-36"
+										/>
+									) : (
+										<span className="font-display text-3xl font-bold">
+											SCX.ai
+										</span>
+									)}
 
 									<p className="max-w-xl text-sm leading-relaxed text-white/70 md:text-base">
 										SCX.ai is an Australian sovereign AI platform serving open
@@ -403,9 +423,9 @@ export default async function PartnersPage() {
 										))}
 									</ul>
 
-									{scxTurbo?.website ? (
+									{scxWebsite ? (
 										<a
-											href={scxTurbo.website}
+											href={scxWebsite}
 											target="_blank"
 											rel="noopener noreferrer"
 											className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-300 transition-colors hover:text-teal-200"

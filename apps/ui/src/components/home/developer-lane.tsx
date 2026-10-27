@@ -32,7 +32,6 @@ const CARRIERS: { id: keyof typeof dimensions; name: string }[] = [
 	{ id: "fireworks", name: "Fireworks" },
 	{ id: "deepinfra", name: "DeepInfra" },
 	{ id: "novita", name: "NovitaAI" },
-	{ id: "scx-ai-gp", name: "SCX.ai" },
 ];
 
 function logoHeight(id: keyof typeof dimensions) {
