@@ -57,7 +57,7 @@
 		"ipaddr.js": "2.2.0",
 		"openai": "^5.19.1",
 		"posthog-node": "5.10.4",
-		"react": "19.3.0",
+		"react": "19.3.1",
 		"resend": "6.8.0",
 		"sharp": "0.35.5",
 		"stripe": "18.1.1",
