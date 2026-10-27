@@ -218,7 +218,14 @@ export default async function PartnersPage() {
 		apiModels,
 		apiProviders,
 	);
-	const trustChips = getTrustChips(scxGp ?? scxTurbo);
+	// The card speaks for both deployments, whose claims hold separate
+	// profiles: only show what both declare.
+	const turboChipLabels = new Set(
+		getTrustChips(scxTurbo).map((chip) => chip.label),
+	);
+	const trustChips = getTrustChips(scxGp).filter((chip) =>
+		turboChipLabels.has(chip.label),
+	);
 	const scxWebsite = scxGp?.airsideProfile?.website ?? scxGp?.website ?? null;
 	const scxLogo = scxGp?.airsideLogoUrl ?? scxTurbo?.airsideLogoUrl ?? null;
 	const tokensByModelId = new Map<string, number>(
