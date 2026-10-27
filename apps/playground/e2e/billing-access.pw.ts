@@ -17,7 +17,7 @@ for (const email of ["developer@example.com", "project-admin@example.com"]) {
 				billingRequests.push(request.url());
 			}
 		});
-		for (const path of ["/", "/image", "/video", "/audio"]) {
+		for (const path of ["/", "/image", "/video", "/audio", "/decisions"]) {
 			await page.goto(`${path}?orgId=${orgId}&projectId=enterprise-project-id`);
 			await expect(
 				page.getByRole("navigation", { name: "Studios" }),

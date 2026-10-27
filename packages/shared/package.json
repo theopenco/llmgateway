@@ -210,6 +210,11 @@
 			"import": "./dist/audio-generation-config.js",
 			"default": "./dist/audio-generation-config.js"
 		},
+		"./decision-studio": {
+			"types": "./dist/decision-studio.d.ts",
+			"import": "./dist/decision-studio.js",
+			"default": "./dist/decision-studio.js"
+		},
 		"./realtime-pcm": {
 			"types": "./dist/realtime-pcm.d.ts",
 			"import": "./dist/realtime-pcm.js",
