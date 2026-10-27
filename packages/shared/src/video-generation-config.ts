@@ -448,7 +448,9 @@ function isGrokImagineVideoModel(canonicalModelId: string): boolean {
 
 function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 	return (
-		canonicalModelId === "kling-v3-0" || canonicalModelId === "kling-v3-0-turbo"
+		canonicalModelId === "kling-v3-0" ||
+		canonicalModelId === "kling-v3-0-pro" ||
+		canonicalModelId === "kling-v3-0-turbo"
 	);
 }
 
