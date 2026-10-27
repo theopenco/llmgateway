@@ -11052,7 +11052,9 @@ describe("prepareRequestBody - Alibaba input_audio", () => {
 			undefined, // reasoning_effort
 			true, // supportsReasoning
 			false, // isProd
-		)) as any;
+		)) as {
+			messages: { content: { input_audio?: { data: string } }[] }[];
+		};
 	}
 
 	test("wraps bare base64 audio in a data URL", async () => {
@@ -11067,7 +11069,7 @@ describe("prepareRequestBody - Alibaba input_audio", () => {
 		"forwards %s unchanged",
 		async (data) => {
 			const requestBody = await prepare(data);
-			expect(requestBody.messages[0].content[1].input_audio.data).toBe(data);
+			expect(requestBody.messages[0].content[1].input_audio?.data).toBe(data);
 		},
 	);
 });
