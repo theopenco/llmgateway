@@ -3398,6 +3398,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-27"),
 			},
 			{
 				providerId: "deepinfra",
@@ -3461,6 +3462,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-10-27"),
 			},
 		],
 	},
