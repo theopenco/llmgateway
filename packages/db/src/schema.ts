@@ -33,6 +33,12 @@ import type {
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type {
+	DecisionAnswer,
+	DecisionInputImage,
+	DecisionQuestion,
+	DecisionUsage,
+} from "@llmgateway/shared/decision-studio";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type {
 	EmailCategory,
@@ -7505,6 +7511,43 @@ export const playgroundAudioHistory = snakeCase.table(
 	(table) => [index("playground_audio_history_user_id_idx").on(table.userId)],
 );
 
+export const playgroundDecisionHistory = snakeCase.table(
+	"playground_decision_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the run was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		// The evaluated text. Renames change `title`, never the input.
+		prompt: text().notNull(),
+		title: text(),
+		inputImages: jsonb().$type<DecisionInputImage[]>(),
+		questions: jsonb().notNull().$type<DecisionQuestion[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				answers: DecisionAnswer[] | null;
+				usage?: DecisionUsage | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [
+		index("playground_decision_history_user_id_idx").on(table.userId),
+	],
+);
+
 export const playgroundVideoHistory = snakeCase.table(
 	"playground_video_history",
 	{
@@ -7564,6 +7607,7 @@ export const loungePointEvent = snakeCase.table(
 				| "image_generation"
 				| "video_generation"
 				| "audio_generation"
+				| "decision_run"
 				| "sandbox_escape"
 			>(),
 		points: integer().notNull(),

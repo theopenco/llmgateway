@@ -183,7 +183,7 @@ export const Navbar = ({
 			title: "Lounge",
 			href: "/products/lounge",
 			description:
-				"Frontier models from OpenAI, Anthropic, Google and xAI in one chat (full lineup on Plus and Pro), plus image, video and audio studios.",
+				"Frontier models from OpenAI, Anthropic, Google and xAI in one chat (full lineup on Plus and Pro), plus image, video, audio and decision studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",

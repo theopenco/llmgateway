@@ -1,0 +1,199 @@
+import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
+
+import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
+import DecisionsPageClient from "@/components/playground/decisions-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
+import { decisionModels } from "@/lib/decision-models";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import {
+	DECISIONS_MODEL_COOKIE,
+	decodeModelPreference,
+} from "@/lib/model-preferences";
+import { fetchServerData } from "@/lib/server-api";
+
+import type { Project, Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "Decision Studio — Typed Answers with Probabilities",
+	description:
+		"Run decision models in Lounge. Ask yes/no, pick-one, and rating questions about any text or image and get calibrated probabilities instead of prose.",
+	alternates: { canonical: "/decisions" },
+	openGraph: {
+		title: "Decision Studio — Typed Answers with Probabilities | Lounge",
+		description:
+			"Run decision models in Lounge. Ask yes/no, pick-one, and rating questions about any text or image and get calibrated probabilities instead of prose.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/decisions",
+	},
+};
+
+export default async function DecisionsPage({
+	searchParams,
+}: {
+	searchParams: Promise<{ orgId: string; projectId: string }>;
+}) {
+	const { orgId, projectId } = await searchParams;
+	const cookieStore = await cookies();
+	const initialModelPreference = decodeModelPreference(
+		cookieStore.get(DECISIONS_MODEL_COOKIE)?.value,
+	);
+
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground. Its response already names
+	// the Chat org, so the default selection's projects fetch can start as
+	// soon as it resolves instead of after the org list.
+	const chatOrgPromise = fetchServerData<{
+		organizationId: string;
+		projectId: string;
+	}>("GET", "/playground/chat-org");
+
+	const [
+		models,
+		providers,
+		initialOrganizationsData,
+		orgIdProjectsData,
+		chatOrgData,
+		chatOrgProjectsData,
+	] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+		chatOrgPromise.then(() =>
+			fetchServerData("GET", "/orgs", {
+				params: { query: { includeChat: "true" } },
+			}),
+		),
+		orgId
+			? fetchServerData("GET", "/orgs/{id}/projects", {
+					params: {
+						path: {
+							id: orgId,
+						},
+					},
+				})
+			: null,
+		chatOrgPromise,
+		orgId
+			? null
+			: chatOrgPromise.then((chatOrg) =>
+					chatOrg
+						? fetchServerData("GET", "/orgs/{id}/projects", {
+								params: { path: { id: chatOrg.organizationId } },
+							})
+						: null,
+				),
+	]);
+
+	let initialProjectsData = (orgIdProjectsData ?? null) as {
+		projects: Project[];
+	} | null;
+
+	if (
+		projectId &&
+		initialProjectsData &&
+		typeof initialProjectsData === "object" &&
+		"projects" in initialProjectsData
+	) {
+		const projects = (initialProjectsData as { projects: Project[] }).projects;
+		const currentProject = projects.find((p: Project) => p.id === projectId);
+
+		if (!currentProject) {
+			notFound();
+		}
+	}
+
+	const allOrganizations = (
+		initialOrganizationsData &&
+		typeof initialOrganizationsData === "object" &&
+		"organizations" in initialOrganizationsData
+			? (initialOrganizationsData as { organizations: Organization[] })
+					.organizations
+			: []
+	) as Organization[];
+	// The Chat org backs the default billing context and must not appear in the
+	// dashboard org switcher.
+	const chatOrg = allOrganizations.find((o) => o.kind === "chat") ?? null;
+	const organizations = allOrganizations.filter((o) => o.kind === "default");
+	const selectedOrganization =
+		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
+		chatOrg ??
+		organizations[0] ??
+		null;
+
+	// Discard projects fetched for an orgId that didn't resolve to the selected
+	// organization so the project list always matches the billing context.
+	if (orgId && selectedOrganization?.id !== orgId) {
+		initialProjectsData = null;
+	}
+
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="decisions" />;
+	}
+
+	if (
+		!initialProjectsData &&
+		selectedOrganization &&
+		selectedOrganization.id === chatOrgData?.organizationId
+	) {
+		initialProjectsData = chatOrgProjectsData as { projects: Project[] } | null;
+	}
+
+	if (!initialProjectsData && selectedOrganization?.id) {
+		try {
+			initialProjectsData = (await fetchServerData(
+				"GET",
+				"/orgs/{id}/projects",
+				{
+					params: {
+						path: {
+							id: selectedOrganization.id,
+						},
+					},
+				},
+			)) as { projects: Project[] };
+		} catch (error) {
+			console.warn(
+				"Failed to fetch projects for organization:",
+				selectedOrganization?.id,
+				error,
+			);
+		}
+	}
+
+	const projects = (initialProjectsData?.projects ?? []) as Project[];
+
+	let selectedProject: Project | null = null;
+	if (projectId) {
+		selectedProject = projects.find((p) => p.id === projectId) ?? null;
+		if (projectId && !selectedProject && projectId.length > 0) {
+			notFound();
+		}
+	} else if (selectedOrganization?.id) {
+		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
+		const lastUsed = cookieStore.get(cookieName)?.value;
+		if (lastUsed) {
+			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
+		}
+	}
+	selectedProject ??= projects[0] ?? null;
+
+	return (
+		<>
+			{selectedOrganization?.id && selectedProject?.id ? (
+				<LastUsedProjectTracker
+					orgId={selectedOrganization.id}
+					projectId={selectedProject.id}
+				/>
+			) : null}
+			<DecisionsPageClient
+				models={decisionModels(models)}
+				providers={providers}
+				organizations={organizations}
+				selectedOrganization={selectedOrganization}
+				selectedProject={selectedProject}
+				initialModelPreference={initialModelPreference}
+			/>
+		</>
+	);
+}
