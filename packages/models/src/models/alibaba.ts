@@ -589,6 +589,7 @@ export const alibabaModels = [
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "qwen-3-235b-a22b-instruct-2507",
+				deactivatedAt: new Date("2026-10-27"),
 				inputPrice: "0.6e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -611,6 +612,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-instruct-2507",
+				deactivatedAt: new Date("2026-10-27"),
 				inputPrice: "0.09e-6",
 				outputPrice: "0.58e-6",
 				requestPrice: "0",
