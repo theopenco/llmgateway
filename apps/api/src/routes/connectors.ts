@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
@@ -24,6 +24,7 @@ import {
 	listConnectorTools,
 } from "@/lib/connectors/tools.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { and, db, eq, lt, tables } from "@llmgateway/db";
 import {
@@ -34,7 +35,7 @@ import {
 import type { ConnectorCredentials } from "@/lib/connectors/oauth.js";
 import type { ServerTypes } from "@/vars.js";
 
-export const connectors = new OpenAPIHono<ServerTypes>();
+export const connectors = createRouter<ServerTypes>();
 const connectorId = z.enum(loungeConnectorIds);
 const params = z.object({ connectorId });
 const ok = {
@@ -377,7 +378,7 @@ connectors.openapi(
 									connectorId,
 									name: z.string(),
 									description: z.string(),
-									inputSchema: z.record(z.unknown()),
+									inputSchema: z.record(z.string(), z.unknown()),
 								}),
 							),
 						}),
@@ -410,7 +411,9 @@ connectors.openapi(
 				required: true,
 				content: {
 					"application/json": {
-						schema: z.object({ input: z.record(z.unknown()) }).strict(),
+						schema: z
+							.object({ input: z.record(z.string(), z.unknown()) })
+							.strict(),
 					},
 				},
 			},

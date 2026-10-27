@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -107,6 +106,7 @@ import {
 import { createRoute } from "@/utils/create-route.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
+import { createRouter } from "@/utils/router.js";
 
 import { readProviderKey } from "@llmgateway/actions";
 import {
@@ -156,7 +156,7 @@ import type { ProviderModelMapping } from "@llmgateway/models";
  * margin) that feed the routing election.
  */
 
-export const airside = new OpenAPIHono<ServerTypes>();
+export const airside = createRouter<ServerTypes>();
 
 // Listing-fee gate: only enforced when the Stripe price is configured, so
 // self-hosted installs without billing keep a working portal.
@@ -1037,10 +1037,8 @@ const createCompany = createRoute({
 						// Accepts the Airside Terms of Use (/legal/terms) and Privacy
 						// Notice (/legal/privacy).
 						acceptTerms: z.literal(true, {
-							errorMap: () => ({
-								message:
-									"Accept the Airside Terms of Use and Privacy Notice to create a company.",
-							}),
+							error: () =>
+								"Accept the Airside Terms of Use and Privacy Notice to create a company.",
 						}),
 					}),
 				},

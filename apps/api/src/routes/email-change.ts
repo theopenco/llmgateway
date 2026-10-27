@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
@@ -6,8 +5,9 @@ import {
 	confirmEmailChange,
 } from "@/lib/email-change.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
-export const emailChange = new OpenAPIHono();
+export const emailChange = createRouter();
 
 emailChange.openapi(
 	createRoute({

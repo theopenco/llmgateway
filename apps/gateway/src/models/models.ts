@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
@@ -7,6 +7,7 @@ import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { createRouter } from "@/lib/router.js";
 import {
 	filterAccessibleModels,
 	getModelsAccess,
@@ -24,7 +25,7 @@ import {
 import type { ServerTypes } from "@/vars.js";
 import type { RouteConfig } from "@hono/zod-openapi";
 
-export const modelsApi = new OpenAPIHono<ServerTypes>();
+export const modelsApi = createRouter<ServerTypes>();
 
 const modelSchema = z.object({
 	id: z.string(),
@@ -75,8 +76,8 @@ const modelSchema = z.object({
 					input_audio: z.string().optional(),
 					input_audio_cache_read: z.string().optional(),
 					output_audio: z.string().optional(),
-					per_second: z.record(z.string()).optional(),
-					per_image: z.record(z.string()).optional(),
+					per_second: z.record(z.string(), z.string()).optional(),
+					per_image: z.record(z.string(), z.string()).optional(),
 					request: z.string().optional(),
 					input_cache_read: z.string().optional(),
 					input_cache_write: z.string().optional(),
@@ -131,8 +132,8 @@ const modelSchema = z.object({
 		input_audio: z.string().optional(),
 		input_audio_cache_read: z.string().optional(),
 		output_audio: z.string().optional(),
-		per_second: z.record(z.string()).optional(),
-		per_image: z.record(z.string()).optional(),
+		per_second: z.record(z.string(), z.string()).optional(),
+		per_image: z.record(z.string(), z.string()).optional(),
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
 		input_cache_write: z.string().optional(),
@@ -147,7 +148,7 @@ const modelSchema = z.object({
 		description:
 			"Largest max_tokens value guaranteed to be accepted regardless of which provider mapping serves the request (the minimum across still-servable mappings that declare a limit; deactivated mappings are excluded). Omitted when no such mapping declares one.",
 	}),
-	per_request_limits: z.record(z.string()).optional(),
+	per_request_limits: z.record(z.string(), z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
 	structured_outputs: z.boolean(),

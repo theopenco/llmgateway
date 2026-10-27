@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -56,6 +55,7 @@ import {
 } from "@/lib/series-buckets.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	collectProviderEnvCredentials,
@@ -109,7 +109,7 @@ import type { ServerTypes } from "@/vars.js";
  * filing wins).
  */
 
-export const adminAirside = new OpenAPIHono<ServerTypes>();
+export const adminAirside = createRouter<ServerTypes>();
 
 adminAirside.use("/*", adminMiddleware);
 

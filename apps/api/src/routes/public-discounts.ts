@@ -1,14 +1,14 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicDiscounts = new OpenAPIHono<ServerTypes>();
+export const publicDiscounts = createRouter<ServerTypes>();
 
 const discountSchema = z.object({
 	id: z.string(),

@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -63,6 +62,7 @@ import {
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
@@ -117,7 +117,7 @@ import type {
 } from "@llmgateway/models";
 import type Stripe from "stripe";
 
-export const devPlans = new OpenAPIHono<ServerTypes>();
+export const devPlans = createRouter<ServerTypes>();
 
 // How long an unreleased tier-change lease is honored before a retry may take
 // it over. Well above the Stripe SDK's request timeout (80s per attempt), so a

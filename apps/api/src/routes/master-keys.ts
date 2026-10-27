@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, shortid, tables } from "@llmgateway/db";
@@ -15,7 +15,7 @@ import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const masterKeys = new OpenAPIHono<ServerTypes>();
+export const masterKeys = createRouter<ServerTypes>();
 
 export const MAX_MASTER_KEYS_PER_ORG = 10;
 

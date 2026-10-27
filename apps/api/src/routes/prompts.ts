@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -26,7 +26,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const prompts = new OpenAPIHono<ServerTypes>();
+export const prompts = createRouter<ServerTypes>();
 
 const MAX_PROMPTS_PER_PROJECT = 500;
 const MAX_LABELS_PER_VERSION_INPUT = 20;

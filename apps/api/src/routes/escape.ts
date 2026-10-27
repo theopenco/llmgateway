@@ -1,9 +1,10 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, tables } from "@llmgateway/db";
 import {
@@ -19,7 +20,7 @@ import { escapeMove } from "./escape-move.js";
 import type { ServerTypes } from "@/vars.js";
 import type { Direction } from "@llmgateway/shared/sandbox-escape";
 
-export const escape = new OpenAPIHono<ServerTypes>();
+export const escape = createRouter<ServerTypes>();
 escape.route("/", escapeMove);
 
 const runSchema = z.object({

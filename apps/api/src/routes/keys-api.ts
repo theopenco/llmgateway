@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -26,6 +25,7 @@ import {
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -57,7 +57,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const keysApi = new OpenAPIHono<ServerTypes>();
+export const keysApi = createRouter<ServerTypes>();
 
 export function isPlaygroundApiKey(apiKey: {
 	kind: "regular" | "playground";

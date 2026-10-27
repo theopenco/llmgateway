@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -24,6 +23,7 @@ import {
 	getAdminOrganizationIds,
 } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	encryptProviderKey,
@@ -75,7 +75,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
 import type { ProviderId } from "@llmgateway/models";
 
-export const keysProvider = new OpenAPIHono<ServerTypes>();
+export const keysProvider = createRouter<ServerTypes>();
 
 // Self-attested compliance posture for a custom provider key. Client-supplied
 // fields only — attestedAt/attestedByUserId are stamped server-side.

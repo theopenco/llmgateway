@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -9,6 +8,7 @@ import {
 	resolveBenchmarkRunTargets,
 } from "@/utils/benchmark-targets.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { and, db, desc, eq, tables } from "@llmgateway/db";
 
@@ -21,7 +21,7 @@ import type { ServerTypes } from "@/vars.js";
  * catalogue *and* `model_provider_mapping`, so an Airside listing that only
  * exists in the database is benchmarkable too.
  */
-export const adminBenchmarks = new OpenAPIHono<ServerTypes>();
+export const adminBenchmarks = createRouter<ServerTypes>();
 
 adminBenchmarks.use("/*", adminMiddleware);
 

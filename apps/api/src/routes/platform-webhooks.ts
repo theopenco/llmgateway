@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, eq, shortid, tables } from "@llmgateway/db";
 import { assertSafeWebhookUrl } from "@llmgateway/shared";
@@ -15,7 +15,7 @@ import type { ServerTypes } from "@/vars.js";
  * auth). LLM Gateway POSTs signed events (wallet.credited, wallet.low_balance)
  * to these. The signing secret is returned only once, at creation.
  */
-export const platformWebhooks = new OpenAPIHono<ServerTypes>();
+export const platformWebhooks = createRouter<ServerTypes>();
 
 platformWebhooks.use("*", platformSecretAuth);
 

@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
@@ -7,6 +6,7 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import { createRoute } from "@/utils/create-route.js";
 import { findDevPlanCardFingerprintOwner } from "@/utils/dev-plan-card-fingerprints.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -23,7 +23,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const adminOrgDetails = new OpenAPIHono<ServerTypes>();
+export const adminOrgDetails = createRouter<ServerTypes>();
 
 adminOrgDetails.use("/*", adminMiddleware);
 

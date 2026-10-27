@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { generateText, tool } from "ai";
 import { HTTPException } from "hono/http-exception";
 
@@ -7,6 +7,7 @@ import {
 	getGatewayUrl,
 	resolvePlaygroundToken,
 } from "@/utils/playground-key.js";
+import { createRouter } from "@/utils/router.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and } from "@llmgateway/db";
@@ -15,7 +16,7 @@ import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const skills = new OpenAPIHono<ServerTypes>();
+export const skills = createRouter<ServerTypes>();
 
 const skillSchema = z.object({
 	id: z.string(),

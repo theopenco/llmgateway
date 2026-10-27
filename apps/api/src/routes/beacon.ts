@@ -1,16 +1,16 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { posthog } from "@/posthog.js";
 import { createRoute } from "@/utils/create-route.js";
 import { getCountryFromHeaders } from "@/utils/request-country.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const beacon = new OpenAPIHono<ServerTypes>();
+export const beacon = createRouter<ServerTypes>();
 
 const beaconDataSchema = z.object({
 	uuid: z.string().uuid("Must be a valid UUID"),

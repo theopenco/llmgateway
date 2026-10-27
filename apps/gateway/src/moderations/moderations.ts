@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
@@ -48,6 +48,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { createRouter } from "@/lib/router.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
@@ -128,7 +129,7 @@ const moderationResultSchema = z
 			example: true,
 		}),
 		categories: z
-			.record(z.boolean())
+			.record(z.string(), z.boolean())
 			.optional()
 			.openapi({
 				description: "Category flags returned by the moderation model.",
@@ -138,7 +139,7 @@ const moderationResultSchema = z
 				},
 			}),
 		category_scores: z
-			.record(z.number())
+			.record(z.string(), z.number())
 			.optional()
 			.openapi({
 				description: "Model confidence scores for each category.",
@@ -148,7 +149,7 @@ const moderationResultSchema = z
 				},
 			}),
 		category_applied_input_types: z
-			.record(z.array(z.string()))
+			.record(z.string(), z.array(z.string()))
 			.optional()
 			.openapi({
 				description: "Input types that contributed to each category decision.",
@@ -284,7 +285,7 @@ async function assertCreditsAvailableForModeration(
 	throw new HTTPException(402, { message: insufficientCreditsMessage });
 }
 
-export const moderations = new OpenAPIHono<ServerTypes>();
+export const moderations = createRouter<ServerTypes>();
 
 const createModeration = createRoute({
 	operationId: "v1_moderations",

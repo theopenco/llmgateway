@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
@@ -53,6 +53,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { createRouter } from "@/lib/router.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
@@ -131,7 +132,7 @@ const transcriptionResponseSchema = z
 		language: z.string().optional(),
 		duration: z.number().optional(),
 		words: z.array(transcriptionWordSchema).optional(),
-		channels: z.array(z.record(z.unknown())).optional(),
+		channels: z.array(z.record(z.string(), z.unknown())).optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -249,7 +250,7 @@ async function assertCreditsAvailableForTranscription(
 	throw new HTTPException(402, { message: insufficientCreditsMessage });
 }
 
-export const transcriptions = new OpenAPIHono<ServerTypes>();
+export const transcriptions = createRouter<ServerTypes>();
 
 const createTranscription = createRoute({
 	operationId: "v1_audio_transcriptions",
@@ -286,15 +287,11 @@ const createTranscription = createRoute({
 	},
 });
 
-// Promise<any> like the OCR route: the handler passes upstream JSON through
-// with runtime-determined status codes, which cannot satisfy OpenAPIHono's
-// RouteConfigToTypedResponse union derived from the declared schemas.
-transcriptions.openapi(createTranscription, async (c): Promise<any> => {
-	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
-	c.header("x-request-id", requestId);
-
+// @hono/zod-openapi 1.x rejects a mismatched Content-Type with a bare 415
+// before the handler runs; keep answering with the OpenAI-shaped 400 instead.
+transcriptions.use("/", async (c, next) => {
 	const contentType = c.req.header("Content-Type") ?? "";
-	if (!contentType.includes("multipart/form-data")) {
+	if (c.req.method === "POST" && !contentType.includes("multipart/form-data")) {
 		return c.json(
 			{
 				error: {
@@ -308,6 +305,15 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			400,
 		);
 	}
+	return await next();
+});
+
+// Promise<any> like the OCR route: the handler passes upstream JSON through
+// with runtime-determined status codes, which cannot satisfy OpenAPIHono's
+// RouteConfigToTypedResponse union derived from the declared schemas.
+transcriptions.openapi(createTranscription, async (c): Promise<any> => {
+	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+	c.header("x-request-id", requestId);
 
 	let formBody: Record<string, string | File | (string | File)[]>;
 	try {

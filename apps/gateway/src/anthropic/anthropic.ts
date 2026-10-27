@@ -88,10 +88,23 @@ function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
 	const flattened: string[] = [];
 	for (const issue of issues) {
 		if (issue.code === "invalid_union" && depth < 3) {
-			for (const unionError of issue.unionErrors) {
-				flattened.push(...flattenZodIssues(unionError.issues, depth + 1));
+			// zod 4 branch issues carry paths relative to the union's position;
+			// prefix the union's own path so locations stay absolute. A
+			// discriminated union rejecting an unknown discriminator reports no
+			// branch issues; fall through to the union issue itself then.
+			const nested = issue.errors.flatMap((unionIssues) =>
+				flattenZodIssues(
+					unionIssues.map((i) => ({
+						...i,
+						path: [...issue.path, ...i.path],
+					})),
+					depth + 1,
+				),
+			);
+			if (nested.length > 0) {
+				flattened.push(...nested);
+				continue;
 			}
-			continue;
 		}
 		flattened.push(`${issue.path.join(".")}: ${issue.message}`);
 	}
@@ -186,7 +199,7 @@ const anthropicMessageSchema = z.object({
 		.object({
 			id: z.string().optional(),
 			name: z.string(),
-			arguments: z.union([z.string(), z.record(z.unknown())]),
+			arguments: z.union([z.string(), z.record(z.string(), z.unknown())]),
 		})
 		.optional(),
 });
@@ -364,16 +377,18 @@ const anthropicContentBlockSchema = z.object({
 		"tool_search_tool_result",
 	]),
 	text: z.string().optional(),
-	citations: z.array(z.record(z.unknown())).nullish(),
+	citations: z.array(z.record(z.string(), z.unknown())).nullish(),
 	thinking: z.string().optional(),
 	signature: z.string().optional(),
 	data: z.string().optional(),
 	id: z.string().optional(),
 	name: z.string().optional(),
-	input: z.record(z.unknown()).optional(),
+	input: z.record(z.string(), z.unknown()).optional(),
 	tool_use_id: z.string().optional(),
 	// An array for web search results, an object for tool search results.
-	content: z.union([z.array(z.unknown()), z.record(z.unknown())]).optional(),
+	content: z
+		.union([z.array(z.unknown()), z.record(z.string(), z.unknown())])
+		.optional(),
 });
 
 const anthropicResponseSchema = z.object({

@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -114,6 +113,7 @@ import {
 	pickMappingHistoryTable,
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
+import { createRouter } from "@/utils/router.js";
 
 import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -282,7 +282,7 @@ function buildOrganizationOwnerSubquery(organizationIds?: string[]) {
 		.as("owner_sub");
 }
 
-export const admin = new OpenAPIHono<ServerTypes>();
+export const admin = createRouter<ServerTypes>();
 
 admin.use("/*", adminMiddleware);
 
@@ -6211,7 +6211,7 @@ const updateContentFilterSettingsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: contentFilterSettingsSchema.openapi({}),
+					schema: contentFilterSettingsSchema,
 				},
 			},
 		},
@@ -6468,7 +6468,7 @@ const getModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Model error-rate Discord alert rules.",
@@ -6483,7 +6483,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 		},
@@ -6492,7 +6492,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Updated model error-rate Discord alert rules.",

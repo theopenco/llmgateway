@@ -1975,7 +1975,7 @@ describe("api", () => {
 		};
 		expect(body.type).toBe("error");
 		expect(body.error.type).toBe("invalid_request_error");
-		expect(body.error.message).toContain("Invalid enum value");
+		expect(body.error.message).toContain("Invalid option");
 
 		const logs = await waitForLogs(1);
 		expect(logs[0].finishReason).toBe("client_error");

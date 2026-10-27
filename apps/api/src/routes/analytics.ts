@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -27,6 +26,7 @@ import {
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 import { bucketDate, timezoneQueryField } from "@/utils/timezone.js";
 
 import {
@@ -49,7 +49,7 @@ import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const analytics = new OpenAPIHono<ServerTypes>();
+export const analytics = createRouter<ServerTypes>();
 
 const roleSchema = z.enum(["owner", "admin", "project_admin", "developer"]);
 

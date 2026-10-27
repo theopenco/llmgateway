@@ -1,7 +1,8 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	decryptNotificationChannelConfig,
@@ -32,7 +33,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { ComplianceAlertSettings } from "@llmgateway/db";
 import type { Context } from "hono";
 
-export const complianceAlerts = new OpenAPIHono<ServerTypes>();
+export const complianceAlerts = createRouter<ServerTypes>();
 
 const MAX_WATCHES = 100;
 

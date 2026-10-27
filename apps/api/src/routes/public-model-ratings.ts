@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { cachedPublicResponse } from "@/lib/public-response-cache.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -19,7 +19,7 @@ import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
-const publicModelRatings = new OpenAPIHono<ServerTypes>();
+const publicModelRatings = createRouter<ServerTypes>();
 
 const reviewSchema = z.object({
 	rating: z.number().int().min(1).max(5),

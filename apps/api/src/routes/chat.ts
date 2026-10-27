@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
 import { getGatewayUrl } from "@/utils/playground-key.js";
+import { createRouter } from "@/utils/router.js";
 
 import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
@@ -19,7 +19,7 @@ import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
-const chat = new OpenAPIHono<ServerTypes>();
+const chat = createRouter<ServerTypes>();
 
 // Onboarding is meant to be tried a couple of times, not looped: an account that
 // never clicks "Go to Dashboard" would otherwise keep making calls we don't

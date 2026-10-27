@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
 import { notifyEnterpriseContact } from "@/utils/discord.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -16,7 +16,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicContact = new OpenAPIHono<ServerTypes>();
+export const publicContact = createRouter<ServerTypes>();
 
 const contactFormSchema = z.object({
 	name: z.string().min(2, "Name must be at least 2 characters"),

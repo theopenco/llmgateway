@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -10,6 +9,7 @@ import {
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -27,7 +27,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 
 import type { ServerTypes } from "@/vars.js";
 
-export const organizationTeams = new OpenAPIHono<ServerTypes>();
+export const organizationTeams = createRouter<ServerTypes>();
 
 const periodUnitSchema = z.enum(apiKeyPeriodDurationUnits);
 const budgetSchema = z.object({

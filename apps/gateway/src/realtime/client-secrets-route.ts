@@ -1,10 +1,11 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { openAIErrorSchema } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { createRouter } from "@/lib/router.js";
 
 import { logger } from "@llmgateway/logger";
 import { estimateTokensFromText } from "@llmgateway/shared";
@@ -23,7 +24,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-export const realtimeClientSecretsRoute = new OpenAPIHono<ServerTypes>();
+export const realtimeClientSecretsRoute = createRouter<ServerTypes>();
 
 export function isRealtimeEnabled(): boolean {
 	// Kill switch, independent of how realtime is deployed.

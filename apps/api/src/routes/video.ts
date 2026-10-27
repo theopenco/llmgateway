@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -76,7 +76,7 @@ const getVideoStatus = createRoute({
 	},
 });
 
-export const video = new OpenAPIHono<ServerTypes>();
+export const video = createRouter<ServerTypes>();
 
 video.openapi(getVideoStatus, async (c) => {
 	const user = c.get("user");

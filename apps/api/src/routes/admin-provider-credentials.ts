@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -47,6 +46,7 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	collectProviderEnvCredentials,
@@ -106,7 +106,7 @@ import type {
 	ProviderValidationResult,
 } from "@llmgateway/models";
 
-export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
+export const adminProviderCredentials = createRouter<ServerTypes>();
 
 adminProviderCredentials.use("/*", adminMiddleware);
 

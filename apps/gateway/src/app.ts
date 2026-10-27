@@ -2,9 +2,11 @@
 import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { createRoute } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+
+import { createRouter } from "@/lib/router.js";
 
 import {
 	InvalidFileContentError,
@@ -101,7 +103,7 @@ This document: https://api.llmgateway.io/openapi.json (mirrored at https://llmga
 	},
 };
 
-export const app = new OpenAPIHono<ServerTypes>();
+export const app = createRouter<ServerTypes>();
 
 const honoRequestLogger = createHonoRequestLogger({ service: "gateway" });
 
@@ -403,7 +405,7 @@ app.openapi(root, async (c) => {
 	);
 });
 
-const v1 = new OpenAPIHono<ServerTypes>();
+const v1 = createRouter<ServerTypes>();
 
 v1.route("/chat", chat);
 v1.route("/embeddings", embeddingsRoute);

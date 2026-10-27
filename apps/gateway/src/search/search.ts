@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
@@ -55,6 +55,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { createRouter } from "@/lib/router.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -332,7 +333,7 @@ async function assertCreditsAvailableForSearch(
 	throw new HTTPException(402, { message: insufficientCreditsMessage });
 }
 
-export const search = new OpenAPIHono<ServerTypes>();
+export const search = createRouter<ServerTypes>();
 
 const createSearch = createRoute({
 	operationId: "v1_search",

@@ -1,10 +1,11 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 
 import { handleDecisionRequest } from "@/decisions/handle-decision-request.js";
 import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { createRouter } from "@/lib/router.js";
 
 import { shortid } from "@llmgateway/db";
 
@@ -19,7 +20,7 @@ import type { ServerTypes } from "@/vars.js";
 /** Free-form text, or JSON structure the questions can reference by key. */
 const structuredTextSchema = z.union([
 	z.string(),
-	z.record(z.unknown()),
+	z.record(z.string(), z.unknown()),
 	z.array(z.unknown()),
 ]);
 
@@ -47,7 +48,7 @@ const choiceQuestionSchema = z.object({
 	type: z.literal("choice"),
 	instructions: instructionsSchema,
 	criteria: z
-		.record(structuredTextSchema.nullable())
+		.record(z.string(), structuredTextSchema.nullable())
 		.refine((criteria) => Object.keys(criteria).length >= 2, {
 			message: "A choice question needs at least two options",
 		})
@@ -91,7 +92,7 @@ const systemOneRequestSchema = z.object({
 		example: "Our production integration has been returning 500s for 3 days.",
 	}),
 	questions: z
-		.record(questionSchema)
+		.record(z.string(), questionSchema)
 		.refine((questions) => Object.keys(questions).length > 0, {
 			message: "At least one question is required",
 		})
@@ -114,10 +115,10 @@ const systemOneAnswerSchema = z
 			description:
 				"Probability-weighted level, on a score answer. Can land between levels.",
 		}),
-		legend: z.record(z.string()).optional().openapi({
+		legend: z.record(z.string(), z.string()).optional().openapi({
 			description: "Level index to its description, on a score answer.",
 		}),
-		probabilities: z.record(z.number()).optional().openapi({
+		probabilities: z.record(z.string(), z.number()).optional().openapi({
 			description: "Probability per option or level; sums to 1.",
 		}),
 		confidence: z.number().optional().openapi({
@@ -130,7 +131,7 @@ const systemOneAnswerSchema = z
 const systemOneResponseSchema = z
 	.object({
 		model: z.string(),
-		answers: z.record(systemOneAnswerSchema),
+		answers: z.record(z.string(), systemOneAnswerSchema),
 		usage: z
 			.object({
 				input_tokens: z.number().int().optional(),
@@ -158,7 +159,7 @@ function summarizeState(state: unknown): string {
 	return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
 }
 
-export const systemone = new OpenAPIHono<ServerTypes>();
+export const systemone = createRouter<ServerTypes>();
 
 const createSystemOne = createRoute({
 	operationId: "v1_systemone",

@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { isContentFilterClassifierCompliant } from "@/chat/tools/content-filter-classifier.js";
@@ -57,6 +57,7 @@ import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { markRequestLogged } from "@/lib/request-log-context.js";
+import { createRouter } from "@/lib/router.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
@@ -4484,7 +4485,7 @@ async function createUpstreamVideoJob(
 	}
 }
 
-export const videos = new OpenAPIHono<ServerTypes>();
+export const videos = createRouter<ServerTypes>();
 
 function getVideoFirstFrameInput(
 	request: z.infer<typeof createVideoRequestSchema>,

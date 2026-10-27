@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
@@ -53,6 +53,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { createRouter } from "@/lib/router.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
@@ -128,8 +129,8 @@ const ocrRequestSchema = z
 		}),
 		image_limit: z.number().int().optional(),
 		image_min_size: z.number().int().optional(),
-		bbox_annotation_format: z.record(z.unknown()).optional(),
-		document_annotation_format: z.record(z.unknown()).optional(),
+		bbox_annotation_format: z.record(z.string(), z.unknown()).optional(),
+		document_annotation_format: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
 
@@ -137,8 +138,8 @@ const ocrPageSchema = z
 	.object({
 		index: z.number().int().optional(),
 		markdown: z.string().optional(),
-		images: z.array(z.record(z.unknown())).optional(),
-		dimensions: z.record(z.unknown()).nullable().optional(),
+		images: z.array(z.record(z.string(), z.unknown())).optional(),
+		dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
 	})
 	.passthrough();
 
@@ -297,7 +298,7 @@ async function assertCreditsAvailableForOcr(
 	throw new HTTPException(402, { message: insufficientCreditsMessage });
 }
 
-export const ocr = new OpenAPIHono<ServerTypes>();
+export const ocr = createRouter<ServerTypes>();
 
 const createOcr = createRoute({
 	operationId: "v1_ocr",

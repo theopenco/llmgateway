@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -31,6 +30,7 @@ import {
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 import {
 	bucketDate,
 	generateTimeSlots,
@@ -62,7 +62,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 import type { ServerTypes } from "@/vars.js";
 import type { AnyColumn } from "@llmgateway/db";
 
-export const activity = new OpenAPIHono<ServerTypes>();
+export const activity = createRouter<ServerTypes>();
 
 // Define the response schema for model-specific usage
 const modelUsageSchema = z.object({

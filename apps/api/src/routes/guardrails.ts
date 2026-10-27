@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -33,7 +33,7 @@ import type {
 	CustomRuleConfig,
 } from "@llmgateway/db";
 
-export const guardrails = new OpenAPIHono<ServerTypes>();
+export const guardrails = createRouter<ServerTypes>();
 
 /**
  * The scope a guardrail request operates on: the organization-level config

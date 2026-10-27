@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 
@@ -13,13 +13,14 @@ import {
 	summarizeOrganizationSkill,
 } from "@/lib/organization-skills.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const organizationSkills = new OpenAPIHono<ServerTypes>();
+export const organizationSkills = createRouter<ServerTypes>();
 for (const path of ["/:organizationId/skills", "/:organizationId/skills/*"]) {
 	organizationSkills.use(path, async (c, next) => {
 		c.header("Cache-Control", "private, no-store");

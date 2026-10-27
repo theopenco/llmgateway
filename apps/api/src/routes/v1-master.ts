@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -63,6 +62,7 @@ import {
 	resolveProviderCacheControlMode,
 	withLegacyProviderCacheControl,
 } from "@/utils/provider-cache-control.js";
+import { createRouter } from "@/utils/router.js";
 import { timezoneQueryField } from "@/utils/timezone.js";
 import {
 	isZeroDataRetentionEnabled,
@@ -90,7 +90,7 @@ import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const v1Master = new OpenAPIHono<ServerTypes>();
+export const v1Master = createRouter<ServerTypes>();
 
 interface AuthenticatedMasterKey {
 	id: string;

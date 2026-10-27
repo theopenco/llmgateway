@@ -1,10 +1,10 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 import { getStripe } from "@/routes/payments.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { and, db, eq, shortid, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -21,7 +21,7 @@ import type { ServerTypes } from "@/vars.js";
  *
  * NOTE: live operation requires Stripe Connect enabled on the platform account.
  */
-export const platformConnect = new OpenAPIHono<ServerTypes>();
+export const platformConnect = createRouter<ServerTypes>();
 
 platformConnect.use("*", platformSecretAuth);
 

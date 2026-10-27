@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { and, cdb, db, eq, sql, tables } from "@llmgateway/db";
 import {
@@ -19,7 +19,7 @@ import { checkProjectEnterpriseAccess } from "./routing-config.js";
 import type { ServerTypes } from "@/vars.js";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
-export const dynamicRoutes = new OpenAPIHono<ServerTypes>();
+export const dynamicRoutes = createRouter<ServerTypes>();
 
 const routeNameSchema = z
 	.string()

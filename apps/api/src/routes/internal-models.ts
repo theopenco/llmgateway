@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
@@ -14,6 +13,7 @@ import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	getEffectiveProviders,
@@ -50,7 +50,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const internalModels = new OpenAPIHono<ServerTypes>();
+export const internalModels = createRouter<ServerTypes>();
 
 // Provider schema
 const providerSchema = z.object({
@@ -134,8 +134,8 @@ const modelProviderMappingSchema = z.object({
 	cacheWriteInputPrice1h: z.string().nullable(),
 	imageInputPrice: z.string().nullable(),
 	imageOutputPrice: z.string().nullable(),
-	imageInputTokensByResolution: z.record(z.number()).nullable(),
-	imageOutputTokensByResolution: z.record(z.number()).nullable(),
+	imageInputTokensByResolution: z.record(z.string(), z.number()).nullable(),
+	imageOutputTokensByResolution: z.record(z.string(), z.number()).nullable(),
 	inputCharacterPrice: z.string().nullable(),
 	inputAudioPrice: z.string().nullable(),
 	cachedInputAudioPrice: z.string().nullable(),
@@ -176,8 +176,8 @@ const modelProviderMappingSchema = z.object({
 	supportedVideoDurationsSecondsImageToVideo: z.array(z.number()).nullable(),
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
-	perSecondPrice: z.record(z.string()).nullable(),
-	perImagePrice: z.record(z.string()).nullable(),
+	perSecondPrice: z.record(z.string(), z.string()).nullable(),
+	perImagePrice: z.record(z.string(), z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
 	peakPricing: peakPricingSchema.nullable(),
 	serviceTiers: z.array(z.string()).nullable(),
@@ -802,7 +802,7 @@ const getProviderMarksRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ marks: z.record(z.string()) }),
+					schema: z.object({ marks: z.record(z.string(), z.string()) }),
 				},
 			},
 			description: "Uploaded provider marks",
@@ -1417,7 +1417,9 @@ const getProviderFacts = createRoute({
 								name: z.string(),
 								description: z.string(),
 								forwardsSafetyIdentifier: z.boolean(),
-								env: z.object({ required: z.record(z.string().optional()) }),
+								env: z.object({
+									required: z.record(z.string(), z.string().optional()),
+								}),
 								color: z.string().optional(),
 								website: z.string().nullish(),
 								legalEntity: z.string().nullable(),

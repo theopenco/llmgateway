@@ -1,10 +1,10 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	checkAndReserveTopUp,
@@ -296,7 +296,7 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 	return { organizationId, organization };
 }
 
-export const stripeRoutes = new OpenAPIHono<ServerTypes>();
+export const stripeRoutes = createRouter<ServerTypes>();
 
 const webhookHandler = createRoute({
 	method: "post",

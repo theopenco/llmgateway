@@ -1,9 +1,9 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { cachedPublicResponse } from "@/lib/public-response-cache.js";
 import { createRoute } from "@/utils/create-route.js";
 import { getLoungeLevel } from "@/utils/lounge-points.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -19,7 +19,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicLoungeLeaderboard = new OpenAPIHono<ServerTypes>();
+export const publicLoungeLeaderboard = createRouter<ServerTypes>();
 
 const loungeLeaderboardEntrySchema = z.object({
 	rank: z.number(),

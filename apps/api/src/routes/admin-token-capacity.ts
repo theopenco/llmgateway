@@ -1,7 +1,7 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, excludeRegionalMappingRows, sql, tables } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
@@ -179,7 +179,7 @@ export function tokenCapacityPeakQuery(
 	`;
 }
 
-export const adminTokenCapacity = new OpenAPIHono<ServerTypes>();
+export const adminTokenCapacity = createRouter<ServerTypes>();
 
 adminTokenCapacity.openapi(
 	createRoute({

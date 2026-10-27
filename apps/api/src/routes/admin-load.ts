@@ -1,4 +1,3 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
@@ -21,6 +20,7 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import { adminTokenCapacity } from "@/routes/admin-token-capacity.js";
 import { createRoute } from "@/utils/create-route.js";
 import { pickMappingHistoryTable } from "@/utils/history-window.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -44,7 +44,7 @@ import { deriveStabilityMetrics } from "@llmgateway/shared";
 import type { ServerTypes } from "@/vars.js";
 import type { AnyColumn, SQL, TtftTotals } from "@llmgateway/db";
 
-export const adminLoad = new OpenAPIHono<ServerTypes>();
+export const adminLoad = createRouter<ServerTypes>();
 
 adminLoad.use("/*", adminMiddleware);
 adminLoad.route("/", adminTokenCapacity);

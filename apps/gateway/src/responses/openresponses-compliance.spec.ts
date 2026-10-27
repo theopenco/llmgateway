@@ -94,7 +94,7 @@ const functionToolSchema = z
 		type: z.literal("function"),
 		name: z.string(),
 		description: z.union([z.string(), z.null()]),
-		parameters: z.union([z.record(z.any()), z.null()]),
+		parameters: z.union([z.record(z.string(), z.any()), z.null()]),
 		strict: z.union([z.boolean(), z.null()]),
 	})
 	.passthrough();
@@ -155,7 +155,7 @@ export const responseResourceSchema = z
 		store: z.boolean(),
 		background: z.boolean(),
 		service_tier: z.string(),
-		metadata: z.record(z.unknown()),
+		metadata: z.record(z.string(), z.unknown()),
 		safety_identifier: z.string().nullable(),
 		prompt_cache_key: z.string().nullable(),
 	})

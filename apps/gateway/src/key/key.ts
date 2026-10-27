@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
@@ -10,6 +10,7 @@ import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { createRouter } from "@/lib/router.js";
 
 import {
 	DEV_PLAN_DAY_LENGTH_MS,
@@ -22,7 +23,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-export const key = new OpenAPIHono<ServerTypes>();
+export const key = createRouter<ServerTypes>();
 
 const keyResponseSchema = z.object({
 	data: z.object({

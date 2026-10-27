@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { preserveAnsweredToolCalls } from "@/lib/connectors/tool-approval.js";
@@ -7,6 +7,7 @@ import { userHasOrganizationAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	db,
@@ -26,7 +27,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 
-const chats = new OpenAPIHono<ServerTypes>();
+const chats = createRouter<ServerTypes>();
 
 // Schemas
 const chatSchema = z.object({
@@ -56,7 +57,7 @@ const messageSchema = z.object({
 	reasoning: z.string().nullable(), // Reasoning content
 	tools: z.string().nullable(), // JSON string of tool parts
 	sources: z.string().nullable(), // JSON string of web search source citations
-	metadata: z.record(z.unknown()).nullable(),
+	metadata: z.record(z.string(), z.unknown()).nullable(),
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
@@ -118,7 +119,7 @@ const orgShareSchema = z.object({
 			reasoning: z.string().nullable(),
 			tools: z.string().nullable(),
 			sources: z.string().nullable(),
-			metadata: z.record(z.unknown()).nullable().optional(),
+			metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 			sequence: z.number(),
 			createdAt: z.string().datetime(),
 		}),
@@ -136,7 +137,7 @@ const sharedMessageSnapshotSchema = z.array(
 		reasoning: z.string().nullable(),
 		tools: z.string().nullable(),
 		sources: z.string().nullable().optional(),
-		metadata: z.record(z.unknown()).nullable().optional(),
+		metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 		sequence: z.number(),
 		createdAt: z.string().datetime(),
 	}),
@@ -180,7 +181,7 @@ const createMessageSchema = z
 		reasoning: z.string().optional(), // Reasoning content
 		tools: z.string().optional(), // Tool parts JSON
 		sources: z.string().optional(), // Web search source citations JSON
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.refine(
 		(data) =>

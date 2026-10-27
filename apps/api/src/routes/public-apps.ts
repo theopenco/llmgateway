@@ -1,13 +1,13 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import { db, globalSourceStats, ne, sql } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const publicApps = new OpenAPIHono<ServerTypes>();
+export const publicApps = createRouter<ServerTypes>();
 
 const appStatSchema = z.object({
 	source: z.string(),

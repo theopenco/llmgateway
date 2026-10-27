@@ -1,8 +1,8 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { createRoute } from "@/utils/create-route.js";
+import { createRouter } from "@/utils/router.js";
 
 import {
 	and,
@@ -20,7 +20,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 
 import type { ServerTypes } from "@/vars.js";
 
-export const auditLogs = new OpenAPIHono<ServerTypes>();
+export const auditLogs = createRouter<ServerTypes>();
 
 const auditLogSchema = z.object({
 	id: z.string(),
