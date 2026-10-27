@@ -86,23 +86,35 @@ assert.equal(
 	1,
 );
 
-// Resolving a still-anchored thread clears its high finding only; a resolved
-// but outdated thread does not; medium findings never count.
-const open = openHighFindings(
+// Resolving a still-anchored thread clears its high finding; an open thread
+// keeps it open; a resolved but outdated thread anchors nothing, so the
+// finding is unanchored rather than open; a finding with no thread at all is
+// unanchored too; medium findings never count.
+const xss = buildComment(finding("b.ts", 3, "XSS"), read);
+const { open, unanchored } = openHighFindings(
 	[
 		finding("a.ts", 10, "SQL injection"),
 		finding("a.ts", 30, "SQL injection"),
 		finding("b.ts", 3, "XSS"),
 		finding("b.ts", 3, "weak hash", "MEDIUM"),
+		finding("c.ts", 1, "RCE"),
 	],
-	[thread(built.body, true), thread(other.body, true, true)],
+	[
+		thread(built.body, true),
+		thread(other.body, true, true),
+		thread(xss.body, false),
+	],
 	read,
 );
 assert.deepEqual(
 	open.map((c) => [c.path, c.line]),
+	[["b.ts", 3]],
+);
+assert.deepEqual(
+	unanchored.map((c) => [c.path, c.line]),
 	[
 		["a.ts", 30],
-		["b.ts", 3],
+		["c.ts", 1],
 	],
 );
 

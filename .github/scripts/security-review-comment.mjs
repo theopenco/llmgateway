@@ -93,23 +93,32 @@ export function selectNew(findings, threads, changedFiles, readLine) {
 	return out;
 }
 
-// High-severity findings with no resolved, still-anchored thread. Resolving
-// a thread with a reason is how a false positive clears the check.
+// High-severity findings whose thread is still open. Resolving a thread with
+// a reason is how a false positive clears the check. A finding with no
+// still-anchored thread at all (its file is not in the PR, or GitHub refused
+// every comment) cannot be resolved, so it is reported, not counted.
 export function openHighFindings(findings, threads, readLine) {
-	const resolved = new Set(
+	const anchored = new Map(
 		threads
-			.filter((t) => t.isResolved && !t.isOutdated)
-			.map((t) => existingKey(t.body))
-			.filter((k) => k !== undefined),
+			.filter((t) => !t.isOutdated)
+			.map((t) => [existingKey(t.body), t.isResolved])
+			.filter(([k]) => k !== undefined),
 	);
 	const open = new Map();
+	const unanchored = new Map();
 	for (const finding of findings) {
 		const c = buildComment(finding, readLine);
-		if (c.severity === "HIGH" && !resolved.has(c.key) && !open.has(c.key)) {
-			open.set(c.key, { path: c.path, line: c.line, key: c.key });
+		if (c.severity !== "HIGH") {
+			continue;
+		}
+		const entry = { path: c.path, line: c.line, key: c.key };
+		if (!anchored.has(c.key)) {
+			unanchored.set(c.key, entry);
+		} else if (anchored.get(c.key) === false) {
+			open.set(c.key, entry);
 		}
 	}
-	return [...open.values()];
+	return { open: [...open.values()], unanchored: [...unanchored.values()] };
 }
 
 const THREADS_QUERY = `
@@ -185,11 +194,14 @@ export async function postFindings({ github, context, core }) {
 		);
 		threads = await listThreads(github, owner, repo, number);
 	}
-	const open = openHighFindings(findings, threads);
+	const { open, unanchored } = openHighFindings(findings, threads);
 	writeFileSync("findings-open.json", JSON.stringify(open, null, "\t"));
-	core.info(
-		`${open.length} high-severity finding(s) without a resolved thread`,
-	);
+	core.info(`${open.length} high-severity finding(s) with an open thread`);
+	for (const { path, line } of unanchored) {
+		core.warning(
+			`high-severity finding on ${path}:${line} has no review thread (file not in the PR, or the comment was rejected); not counted as open`,
+		);
+	}
 }
 
 async function postReview(github, owner, repo, number, head, comments, core) {
@@ -209,7 +221,8 @@ async function postReview(github, owner, repo, number, head, comments, core) {
 		});
 	} catch (error) {
 		// A line outside the diff fails the whole review; post one by one and
-		// keep the rest.
+		// keep the rest. A line GitHub still rejects gets a file-level comment
+		// so the finding has a thread the author can resolve.
 		core.warning(
 			`review failed (${error.message}); posting comments individually`,
 		);
@@ -227,8 +240,23 @@ async function postReview(github, owner, repo, number, head, comments, core) {
 				});
 			} catch (lineError) {
 				core.warning(
-					`could not comment on ${path}:${line}: ${lineError.message}`,
+					`could not comment on ${path}:${line} (${lineError.message}); posting a file-level comment`,
 				);
+				try {
+					await github.rest.pulls.createReviewComment({
+						owner,
+						repo,
+						pull_number: number,
+						commit_id: head,
+						path,
+						subject_type: "file",
+						body: `${body}\n_Reported at line ${line}, outside this PR's diff._\n`,
+					});
+				} catch (fileError) {
+					core.warning(
+						`could not comment on ${path}: ${fileError.message}`,
+					);
+				}
 			}
 		}
 	}
