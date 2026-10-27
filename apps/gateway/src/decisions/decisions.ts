@@ -100,7 +100,7 @@ const questionSchema = z
 const decisionRequestSchema = z.object({
 	model: z.string().openapi({
 		description:
-			"ID of the decision model to use, optionally prefixed with a provider (`openai/gpt-6-luna-decisions`, `azure/microsoft-decision-1`, `typesafe/jev-1.13.0`).",
+			"ID of the decision model to use, optionally prefixed with a provider (`openai/gpt-6-luna-decisions`, `azure/microsoft-decision-1`, `typesafe/jev-1.14.0`).",
 		example: "gpt-6-luna-decisions",
 	}),
 	input: z.union([z.string(), z.array(inputMessageSchema)]).openapi({
