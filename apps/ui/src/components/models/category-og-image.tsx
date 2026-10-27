@@ -17,7 +17,6 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import { isPremiumModel } from "@llmgateway/shared";
 
 export const ogSize = {
 	width: 1200,
@@ -278,7 +277,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		accentColorDim: "#78350F",
 		// Lucide "Gem" icon path
 		iconSvgPath: "M6 3h12l4 6-10 13L2 9Z M11 3 8 9l4 13 4-13-3-6 M2 9h20",
-		countFilter: (m) => isPremiumModel(m.id),
 	},
 };
 
@@ -291,6 +289,12 @@ async function getCategoryModelCount(
 		return models.filter((model) =>
 			model.mappings.some((mapping) => discountFraction(mapping.discount) > 0),
 		).length;
+	}
+
+	// Premium depends on live discounts, which only the API models carry.
+	if (categoryKey === "premium") {
+		const models = await fetchModels();
+		return models.filter((model) => model.premium).length;
 	}
 
 	return config.countFilter

@@ -127,6 +127,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 	]);
 	const apiProvider = apiProviders.find((p) => p.id === id);
 	const uploadedLogo = apiProvider?.airsideLogoUrl ?? undefined;
+	const apiModelById = new Map(apiModels.map((m) => [m.id, m]));
 	const discountByModelId = new Map<string, string>();
 	for (const apiModel of apiModels) {
 		for (const mapping of apiModel.mappings) {
@@ -157,7 +158,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 
 		return {
 			id: def.id,
-			premium: isPremiumModel(def.id),
+			premium: apiModelById.get(def.id)?.premium ?? isPremiumModel(def.id),
 			createdAt: new Date().toISOString(),
 			releasedAt: def.releasedAt?.toISOString() ?? null,
 			name: def.name ?? null,

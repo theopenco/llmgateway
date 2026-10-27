@@ -105,12 +105,15 @@ export {
 } from "./chat-plans.js";
 
 export {
+	discountLookupFromMappings,
 	getModelCategory,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
 	isPremiumUsedModel,
 	type ModelCategory,
+	type PremiumDiscountLookup,
+	usedModelBaseId,
 } from "./model-categories.js";
 
 export {

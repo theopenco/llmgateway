@@ -227,11 +227,11 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 				across every model. Frontier fair-use covers premium models — any model
 				priced at ${Math.round(HIGH_COST_INPUT_PRICE * 1_000_000)}+ per million
 				input tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per
-				million output tokens — as a weekly allowance on top. Every other model
-				draws on your full monthly allowance. No hidden throttling. And none of
-				it is a wall: opt into pay-as-you-go overflow in your dashboard to keep
-				coding past any of them, billed from a credits balance at provider
-				rates.
+				million output tokens after any active discount — as a weekly allowance
+				on top. Every other model draws on your full monthly allowance. No
+				hidden throttling. And none of it is a wall: opt into pay-as-you-go
+				overflow in your dashboard to keep coding past any of them, billed from
+				a credits balance at provider rates.
 			</p>
 
 			<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] p-6 text-center sm:flex-row sm:text-left">
