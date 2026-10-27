@@ -28,6 +28,8 @@ When you include the `web_search` tool in your request, the model can search the
 
 Native web search is available on select models. See all models with native web search support on our [models page](https://llmgateway.io/models?filters=1&webSearch=true).
 
+The same capability is on the API: `GET /v1/models` returns a `web_search` boolean on each model (true when at least one provider mapping that can still serve requests accepts the tool) and on each `providers[]` entry for the mapping itself, so a client can filter the catalogue without sending a probe request.
+
 <Callout type="warn">
 	**Perplexity Sonar changed on September 25, 2026.** Perplexity retired its
 	Sonar chat completions API on September 27. On September 25,
