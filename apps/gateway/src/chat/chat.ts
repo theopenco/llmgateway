@@ -6649,13 +6649,9 @@ chat.openapi(completions, async (c) => {
 		providerId: string | undefined,
 		region: string | undefined,
 	) =>
-		finalModelInfo?.providers.find(
-			(p) =>
-				p.providerId === providerId && (p.region ?? null) === (region ?? null),
-		) ??
-		finalModelInfo?.providers.find(
-			(p) => p.providerId === providerId && p.region === undefined,
-		);
+		finalModelInfo
+			? selectProviderMapping(finalModelInfo.providers, providerId, region)
+			: undefined;
 	const getUsedProviderMapping = () =>
 		findFinalProviderMapping(usedProvider, usedRegion);
 	if (usedProvider !== "custom") {
