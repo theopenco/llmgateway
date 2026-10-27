@@ -389,13 +389,20 @@ export function toConcurrentDropIndex(name: string): string {
  */
 export function lintMigrationSql(migrationSql: string): LintFinding[] {
 	const statements = splitStatements(migrationSql);
-	const created = createdTables(migrationSql);
+	// Filled in statement order, so a table dropped before it is recreated still
+	// counts as existing.
+	const created = new Set<string>();
 	const findings: LintFinding[] = [];
 	const lockedExisting = new Set<string>();
 	const isNew = (identifier: string) => created.has(relationName(identifier));
 
 	for (const statement of statements) {
 		const { sql } = statement;
+		const createTable = CREATE_TABLE_RE.exec(sql);
+		if (createTable) {
+			created.add(relationName(createTable[1]));
+			continue;
+		}
 		const reviewed = hasReviewedReason([statement]);
 
 		const create = CREATE_INDEX_RE.exec(sql);

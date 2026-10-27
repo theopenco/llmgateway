@@ -109,6 +109,14 @@ describe("lintMigrationSql", () => {
 		]);
 	});
 
+	it("flags a table dropped before it is recreated", () => {
+		const sql = [
+			`DROP TABLE "project";`,
+			`CREATE TABLE "project" ("id" text PRIMARY KEY NOT NULL);`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual(["drop-table"]);
+	});
+
 	it("requires a separator between a marker and its reason", () => {
 		expect(
 			lintMigrationSql(
