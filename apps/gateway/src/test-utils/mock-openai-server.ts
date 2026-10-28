@@ -1492,6 +1492,14 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 
 mockOpenAIServer.post("/v1/systemone", async (c) => {
 	const body = await c.req.json();
+	if (
+		body.assets &&
+		Object.keys(body.assets).length > 0 &&
+		c.req.header("TypeSafe-Danger-Zone-Images") !== "true"
+	) {
+		c.status(400);
+		return c.json({ error: { message: "Images are not turned on" } });
+	}
 	const stateText =
 		typeof body.state === "string" ? body.state : JSON.stringify(body.state);
 

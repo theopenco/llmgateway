@@ -180,8 +180,9 @@ on models that accept them:
 }
 ```
 
-Text-only models such as `jev-1.14.0` and `microsoft-decision-1` reject image
-parts with a 400.
+Text-only models such as `microsoft-decision-1` reject image parts with a 400.
+TypeSafe's Jev models take PNG and JPEG images only, between 280 and 1568
+pixels per side; TypeSafe treats image input as experimental.
 
 <Callout type="info">
 	Decision models are billed on input tokens only — the input plus every

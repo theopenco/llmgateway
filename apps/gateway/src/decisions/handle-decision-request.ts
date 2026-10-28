@@ -253,7 +253,11 @@ const ESTIMATED_TOKENS_PER_IMAGE = 765;
 export function estimateInputTokens(body: Record<string, unknown>): number {
 	let images = 0;
 	const text = JSON.stringify(body, (key, value: unknown) => {
-		if (key === "image_url" && typeof value === "string") {
+		// `image_url` on the OpenAI shape, `data_base64` on a System One asset.
+		if (
+			(key === "image_url" || key === "data_base64") &&
+			typeof value === "string"
+		) {
 			images++;
 			return "";
 		}
@@ -295,6 +299,8 @@ export interface DecisionUpstreamRequest {
 	/** Path appended to the provider base URL, e.g. `/v1/decisions`. */
 	path: string;
 	body: Record<string, unknown>;
+	/** Extra request headers, e.g. TypeSafe's image opt-in. */
+	headers?: Record<string, string>;
 }
 
 export interface NormalizedDecisionResponse {
@@ -336,7 +342,7 @@ export interface DecisionEndpoint {
 		upstreamModel: string,
 		safetyIdentifier: string,
 		wireFormat: DecisionWireFormat,
-	) => DecisionUpstreamRequest;
+	) => DecisionUpstreamRequest | Promise<DecisionUpstreamRequest>;
 	normalizeResponse: (
 		providerId: string,
 		upstream: Record<string, unknown>,
@@ -487,11 +493,7 @@ export async function handleDecisionRequest(
 		model: requestedModel,
 	});
 
-	if (
-		endpoint.hasImageInput &&
-		wireFormat === "openai" &&
-		!decisionMapping.vision
-	) {
+	if (endpoint.hasImageInput && !decisionMapping.vision) {
 		throw new HTTPException(400, {
 			message: `Model ${requestedModel} accepts text input only; remove the input_image parts.`,
 		});
@@ -499,7 +501,7 @@ export async function handleDecisionRequest(
 
 	// Translate only once the caller is allowed to use the model, so a denied
 	// caller sees the access error rather than an input error.
-	const upstreamRequest = endpoint.buildUpstreamRequest(
+	const upstreamRequest = await endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
 		apiKey.safetyIdentifier,
@@ -797,6 +799,7 @@ export async function handleDecisionRequest(
 						redirect: "error",
 						headers: {
 							"Content-Type": "application/json",
+							...upstreamRequest.headers,
 							...getProviderHeaders(providerId, attempt.usedToken, {
 								requestId,
 							}),

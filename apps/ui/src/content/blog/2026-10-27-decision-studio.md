@@ -89,7 +89,7 @@ Every decision model in the catalogue is available:
 | ---------------------- | -------- | ------------ | ------------------ |
 | `gpt-6-luna-decisions` | OpenAI   | Text, images | $0.10 / 1M tokens  |
 | `microsoft-decision-1` | Azure    | Text         | $0.042 / 1M tokens |
-| `jev-1.14.0`           | TypeSafe | Text         | $0.042 / 1M tokens |
+| `jev-1.14.0`           | TypeSafe | Text, images | $0.042 / 1M tokens |
 
 Models with image input accept up to four pasted, dropped or picked images next to the text, or on their own, so "does this product photo show damage?" is a yes/no question like any other. Images are resized to 1536px in the browser before they are sent, and are offered only when every selected model can read them.
 

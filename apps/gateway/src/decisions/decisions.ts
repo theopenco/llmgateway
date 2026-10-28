@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { HTTPException } from "hono/http-exception";
 
 import {
 	rateLimitHeaders,
@@ -8,6 +9,7 @@ import {
 import {
 	DECISIONS_UPSTREAM_PATH,
 	getDecisionsUpstreamPath,
+	processImageUrl,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
@@ -15,13 +17,40 @@ import { handleDecisionRequest } from "./handle-decision-request.js";
 import {
 	decisionInputHasImages,
 	fromTypeSafeResponse,
+	loadTypeSafeImages,
 	toTypeSafeRequest,
-	type DecisionInput,
-	type DecisionRequestBody,
+	TYPESAFE_IMAGES_HEADER,
 } from "./typesafe-translation.js";
 
+import type {
+	DecisionInput,
+	DecisionRequestBody,
+} from "./typesafe-translation.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
+
+/** TypeSafe's per-image file size limit. */
+const TYPESAFE_MAX_IMAGE_MB = 16;
+
+/** Decodes a data URL or downloads an image URL through the SSRF guard. */
+async function loadDecisionImage(
+	url: string,
+): Promise<{ data: string; mimeType: string }> {
+	try {
+		return await processImageUrl(
+			url,
+			process.env.NODE_ENV === "production",
+			TYPESAFE_MAX_IMAGE_MB,
+		);
+	} catch (error) {
+		throw new HTTPException(400, {
+			message:
+				error instanceof Error
+					? `Invalid image input: ${error.message}`
+					: "Invalid image input",
+		});
+	}
+}
 
 const inputTextSchema = z.object({
 	type: z.literal("input_text"),
@@ -313,30 +342,37 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 			.join(", ")}`,
 		// System One providers get a translated request; OpenAI and Airside
 		// carriers take the OpenAI-compatible body as-is.
-		buildUpstreamRequest: (
+		buildUpstreamRequest: async (
 			providerId,
 			upstreamModel,
 			safetyIdentifier,
 			wireFormat,
-		) => ({
-			path:
-				wireFormat === "openai"
-					? DECISIONS_UPSTREAM_PATH
-					: getDecisionsUpstreamPath(providerId as ProviderId),
-			body:
-				wireFormat === "openai"
-					? {
-							model: upstreamModel,
-							input: request.input,
-							questions: request.questions,
-							// OpenAI attributes abuse to it, so the client's value is
-							// replaced by the API key's; Airside carriers get none.
-							...(providerId === "openai"
-								? { safety_identifier: safetyIdentifier }
-								: {}),
-						}
-					: toTypeSafeRequest(upstreamModel, request),
-		}),
+		) => {
+			if (wireFormat === "openai") {
+				return {
+					path: DECISIONS_UPSTREAM_PATH,
+					body: {
+						model: upstreamModel,
+						input: request.input,
+						questions: request.questions,
+						// OpenAI attributes abuse to it, so the client's value is
+						// replaced by the API key's; Airside carriers get none.
+						...(providerId === "openai"
+							? { safety_identifier: safetyIdentifier }
+							: {}),
+					},
+				};
+			}
+			// System One takes images as inline base64 assets, so remote URLs are
+			// downloaded here.
+			const images = await loadTypeSafeImages(request.input, loadDecisionImage);
+			return {
+				path: getDecisionsUpstreamPath(providerId as ProviderId),
+				body: toTypeSafeRequest(upstreamModel, request, images),
+				headers:
+					images.length > 0 ? { [TYPESAFE_IMAGES_HEADER]: "true" } : undefined,
+			};
+		},
 		normalizeResponse: (_providerId, upstream, responseModel, wireFormat) => {
 			const body =
 				wireFormat === "openai"

@@ -246,12 +246,76 @@ describe("decisions", () => {
 		);
 	});
 
-	test("/v1/decisions rejects image input for a text-only decision model", async () => {
+	test("/v1/decisions sends Jev image input as System One assets", async () => {
 		await seedApiKey("decisions-jev-image");
 		await seedProviderKey("decisions-jev-image", "typesafe");
 
 		const res = await postDecision("decisions-jev-image", {
-			model: "jev-1.13.0",
+			model: "jev-1.14.0",
+			input: [
+				{
+					role: "user",
+					content: [
+						{ type: "input_text", text: "Inspect this photo." },
+						{
+							type: "input_image",
+							image_url: "data:image/png;base64,iVBORw0KGgo=",
+						},
+					],
+				},
+			],
+			questions: [QUESTIONS[1]],
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.14.0");
+		expect(log?.hasError).toBe(false);
+		const upstream = log?.upstreamRequest as {
+			state: string;
+			assets: Record<string, unknown>;
+		};
+		const [ref] = Object.keys(upstream.assets);
+		expect(upstream.assets[ref]).toEqual({
+			type: "image",
+			format: "png",
+			data_base64: "iVBORw0KGgo=",
+		});
+		expect(upstream.state).toBe(`Inspect this photo.\n${ref}`);
+	});
+
+	test("/v1/decisions rejects Jev image input that is not PNG or JPEG", async () => {
+		await seedApiKey("decisions-jev-webp");
+		await seedProviderKey("decisions-jev-webp", "typesafe");
+
+		const res = await postDecision("decisions-jev-webp", {
+			model: "jev-1.14.0",
+			input: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "input_image",
+							image_url: "data:image/webp;base64,UklGRg==",
+						},
+					],
+				},
+			],
+			questions: [QUESTIONS[1]],
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain("PNG and JPEG");
+	});
+
+	test("/v1/decisions rejects image input for a text-only decision model", async () => {
+		await seedApiKey("decisions-azure-image");
+		await seedProviderKey("decisions-azure-image", "azure");
+
+		const res = await postDecision("decisions-azure-image", {
+			model: "azure/microsoft-decision-1",
 			input: [
 				{
 					role: "user",

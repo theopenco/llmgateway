@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { HTTPException } from "hono/http-exception";
 
 /**
@@ -65,22 +67,73 @@ export function decisionInputHasImages(input: DecisionInput): boolean {
 	);
 }
 
-/** Flattens text-only input into TypeSafe's `state` string. */
-function inputToState(input: DecisionInput): string {
+/** An image in a System One request's `assets` map. */
+export interface TypeSafeImageAsset {
+	type: "image";
+	format: "png" | "jpg";
+	data_base64: string;
+}
+
+/** Header TypeSafe requires on every request that carries an image. */
+export const TYPESAFE_IMAGES_HEADER = "TypeSafe-Danger-Zone-Images";
+
+const TYPESAFE_IMAGE_FORMATS: Record<string, TypeSafeImageAsset["format"]> = {
+	"image/png": "png",
+	"image/jpeg": "jpg",
+	"image/jpg": "jpg",
+};
+
+/** Resolves an `input_image` URL to base64 image data and its MIME type. */
+export type DecisionImageLoader = (
+	url: string,
+) => Promise<{ data: string; mimeType: string }>;
+
+/** Loads every `input_image` part, in input order, as a TypeSafe asset. */
+export async function loadTypeSafeImages(
+	input: DecisionInput,
+	loadImage: DecisionImageLoader,
+): Promise<TypeSafeImageAsset[]> {
+	if (typeof input === "string") {
+		return [];
+	}
+	const urls = input.flatMap((message) =>
+		typeof message.content === "string"
+			? []
+			: message.content.flatMap((part) =>
+					part.type === "input_image" ? [part.image_url] : [],
+				),
+	);
+	return await Promise.all(
+		urls.map(async (url) => {
+			const { data, mimeType } = await loadImage(url);
+			const format = TYPESAFE_IMAGE_FORMATS[mimeType.toLowerCase()];
+			if (!format) {
+				throw badRequest(
+					`This decision model accepts PNG and JPEG images only, not ${mimeType}.`,
+				);
+			}
+			return { type: "image" as const, format, data_base64: data };
+		}),
+	);
+}
+
+/**
+ * Flattens input into TypeSafe's `state` string. Each image part becomes the
+ * reference of its asset, which System One replaces with the image.
+ */
+function inputToState(input: DecisionInput, imageRefs: string[]): string {
 	if (typeof input === "string") {
 		return input;
 	}
-	if (decisionInputHasImages(input)) {
-		throw badRequest(
-			"This decision model accepts text input only. Use a model with image input, such as gpt-6-luna-decisions, for input_image parts.",
-		);
-	}
+	let imageIndex = 0;
 	return input
 		.map((message) =>
 			typeof message.content === "string"
 				? message.content
 				: message.content
-						.map((part) => (part.type === "input_text" ? part.text : ""))
+						.map((part) =>
+							part.type === "input_text" ? part.text : imageRefs[imageIndex++],
+						)
 						.join("\n"),
 		)
 		.join("\n\n");
@@ -170,21 +223,41 @@ function toTypeSafeQuestion(question: DecisionQuestion) {
 	}
 }
 
-/** Builds the TypeSafe `/v1/systemone` body for an OpenAI-shaped request. */
+/**
+ * Builds the TypeSafe `/v1/systemone` body for an OpenAI-shaped request.
+ * `images` holds one asset per `input_image` part, in input order, from
+ * `loadTypeSafeImages`.
+ */
 export function toTypeSafeRequest(
 	upstreamModel: string,
 	request: DecisionRequestBody,
+	images: TypeSafeImageAsset[] = [],
 ): Record<string, unknown> {
+	if (decisionInputHasImages(request.input) && images.length === 0) {
+		throw badRequest(
+			"This decision model accepts text input only. Use a model with image input, such as gpt-6-luna-decisions, for input_image parts.",
+		);
+	}
 	const keys = questionKeys(request.questions);
+	// A fresh UUID per image can't collide with the caller's text, where
+	// System One would otherwise swap in the image.
+	const imageRefs = images.map(() => `image-${randomUUID()}`);
 	return {
 		model: upstreamModel,
-		state: inputToState(request.input),
+		state: inputToState(request.input, imageRefs),
 		questions: Object.fromEntries(
 			request.questions.map((question, index) => [
 				keys[index],
 				toTypeSafeQuestion(question),
 			]),
 		),
+		...(images.length > 0
+			? {
+					assets: Object.fromEntries(
+						imageRefs.map((ref, index) => [ref, images[index]]),
+					),
+				}
+			: {}),
 	};
 }
 

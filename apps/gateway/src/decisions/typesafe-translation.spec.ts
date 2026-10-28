@@ -3,11 +3,63 @@ import { describe, expect, it } from "vitest";
 
 import {
 	fromTypeSafeResponse,
+	loadTypeSafeImages,
 	toTypeSafeRequest,
 	type DecisionRequestBody,
 } from "./typesafe-translation.js";
 
 describe("typesafe translation", () => {
+	it("replaces each image part with a reference to its asset", async () => {
+		const request: DecisionRequestBody = {
+			model: "jev-1.14.0",
+			input: [
+				{
+					role: "user",
+					content: [
+						{ type: "input_image", image_url: "first" },
+						{ type: "input_text", text: "between" },
+						{ type: "input_image", image_url: "second" },
+					],
+				},
+			],
+			questions: [{ type: "predicate", instructions: "Same dog?" }],
+		};
+		const images = await loadTypeSafeImages(request.input, async (url) => ({
+			data: url,
+			mimeType: url === "first" ? "image/png" : "image/jpeg",
+		}));
+
+		const body = toTypeSafeRequest("jev-1.14.0", request, images);
+		const assets = body.assets as Record<string, { data_base64: string }>;
+		const [first, second] = Object.keys(assets);
+		expect(assets[first]).toEqual({
+			type: "image",
+			format: "png",
+			data_base64: "first",
+		});
+		expect(assets[second]).toEqual({
+			type: "image",
+			format: "jpg",
+			data_base64: "second",
+		});
+		expect(body.state).toBe(`${first}\nbetween\n${second}`);
+	});
+
+	it("rejects image input it has no assets for", () => {
+		expect(() =>
+			toTypeSafeRequest("microsoft-decision-1", {
+				model: "microsoft-decision-1",
+				input: [
+					{
+						role: "user",
+						content: [{ type: "input_image", image_url: "x" }],
+					},
+				],
+				questions: [{ type: "predicate", instructions: "Damaged?" }],
+			}),
+		).toThrow(HTTPException);
+	});
+
 	it("keeps choice values that shadow Object prototype names", () => {
 		const request: DecisionRequestBody = {
 			model: "jev-1.13.0",

@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { handleDecisionRequest } from "@/decisions/handle-decision-request.js";
+import { TYPESAFE_IMAGES_HEADER } from "@/decisions/typesafe-translation.js";
 import {
 	rateLimitHeaders,
 	standardErrorResponses,
@@ -90,6 +91,22 @@ const systemOneRequestSchema = z.object({
 			"The content to evaluate: plain text, or structured data such as a chat log or record.",
 		example: "Our production integration has been returning 500s for 3 days.",
 	}),
+	assets: z
+		.record(
+			z.object({
+				type: z.literal("image").optional(),
+				format: z.enum(["png", "jpg", "jpeg"]),
+				data_base64: z.string().min(1).openapi({
+					description:
+						"The image file, base64-encoded, without a `data:` prefix.",
+				}),
+			}),
+		)
+		.optional()
+		.openapi({
+			description:
+				"Images keyed by a reference string. Write the reference in `state`, `instructions` or `criteria` and the model receives the image in its place. Experimental.",
+		}),
 	questions: z
 		.record(questionSchema)
 		.refine((questions) => Object.keys(questions).length > 0, {
@@ -232,7 +249,13 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 		);
 	}
 
-	const { model: requestedModel, state, questions } = validationResult.data;
+	const {
+		model: requestedModel,
+		state,
+		questions,
+		assets,
+	} = validationResult.data;
+	const hasImageInput = assets !== undefined && Object.keys(assets).length > 0;
 
 	return await handleDecisionRequest(c, {
 		apiOrigin: "systemone",
@@ -241,13 +264,20 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 		requestId,
 		rawBody,
 		requestedModel,
+		hasImageInput,
 		logSummary: `state: ${summarizeState(state)}\nquestions: ${summarizeQuestions(questions)}`,
 		supportsProvider: (providerId, wireFormat) =>
 			providerId === "typesafe" && wireFormat === "system-one",
 		unsupportedModelHint: "Use /v1/decisions for this model.",
 		buildUpstreamRequest: (_providerId, upstreamModel) => ({
 			path: "/v1/systemone",
-			body: { model: upstreamModel, state, questions },
+			body: {
+				model: upstreamModel,
+				state,
+				questions,
+				...(hasImageInput ? { assets } : {}),
+			},
+			headers: hasImageInput ? { [TYPESAFE_IMAGES_HEADER]: "true" } : undefined,
 		}),
 		normalizeResponse: (_providerId, upstream, responseModel) => {
 			const usage =
