@@ -172,7 +172,8 @@ When the user explicitly asks to set a PR to auto-merge, enable it
    (usually a required review), or an unresolved review thread. Unresolved threads block auto-merge even when every
    check is green, and CodeRabbit can open new ones after each push. Fix the
    cause or reply and resolve the thread (see "After opening"), push, and run
-   the script again. Never bypass checks (see `AGENTS.md`).
+   the script again. Exit 4 means GitHub requests kept failing; check network
+   and `gh auth status`, then rerun. Never bypass checks (see `AGENTS.md`).
 2. Follow the rollout through the deployment repository: the image-bump PR for
    the merge commit, its merge, and the deploy run it triggers. If the deploy
    fails for a reason unrelated to the change, report it rather than changing

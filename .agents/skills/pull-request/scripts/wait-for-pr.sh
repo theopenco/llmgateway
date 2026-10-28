@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Wait until an auto-merge PR merges, or until it needs the agent.
 # Exit 0: merged. 1: closed or timed out. 2: usage. 3: needs action (failed
-# check, unresolved review thread, merge conflict, or green but still blocked).
+# check, unresolved review thread, merge conflict, branch behind its base, or
+# green but still blocked). 4: GitHub requests kept failing.
 
 set -euo pipefail
 
@@ -39,13 +40,32 @@ unresolved_threads() {
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
+max_failures="${MAX_GH_FAILURES:-10}"
+failures=0
+# A network blip must not end the watch: skip the poll, and give up only after
+# several failures in a row.
+gh_failed() {
+	failures=$((failures + 1))
+	log "GitHub request failed ($failures/$max_failures)"
+	if [ "$failures" -ge "$max_failures" ]; then
+		exit 4
+	fi
+	sleep "$interval"
+}
+
 green_since=""
+state=""
+merge_state=""
 deadline=$(($(date +%s) + timeout_min * 60))
 while [ "$(date +%s)" -lt "$deadline" ]; do
-	read -r state merge_state < <(gh pr view "$pr" --json state,mergeStateStatus -q '"\(.state) \(.mergeStateStatus)"')
+	if ! status=$(gh pr view "$pr" --json state,mergeStateStatus -q '"\(.state) \(.mergeStateStatus)"'); then
+		gh_failed
+		continue
+	fi
+	read -r state merge_state <<<"$status"
 	case "$state" in
 		MERGED)
-			log "merged: $(gh pr view "$pr" --json mergeCommit -q .mergeCommit.oid)"
+			log "merged: $(gh pr view "$pr" --json mergeCommit -q .mergeCommit.oid || echo "commit unavailable")"
 			exit 0
 			;;
 		CLOSED)
@@ -58,7 +78,11 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 	checks=$(gh pr checks "$pr" 2>/dev/null || true)
 	failed=$(printf '%s\n' "$checks" | awk -F'\t' '$2 == "fail" {print "- " $1 " " $4}')
 	pending=$(printf '%s\n' "$checks" | awk -F'\t' '$2 == "pending" {n++} END {print n + 0}')
-	threads=$(unresolved_threads)
+	if ! threads=$(unresolved_threads); then
+		gh_failed
+		continue
+	fi
+	failures=0
 
 	if [ -n "$failed" ]; then
 		log "failed checks:"
