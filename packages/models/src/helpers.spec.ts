@@ -270,9 +270,11 @@ describe("catalogue base prices under peak pricing", () => {
 				}
 				const scopes = [
 					{ id: "", ...mapping },
-					...(mapping.regions ?? []).map((region) => ({
-						...region,
-						peakPricing: region.peakPricing ?? mapping.peakPricing,
+					// Regions inherit every unset field, as expandProviderRegions does.
+					...(mapping.regions ?? []).map(({ id, ...overrides }) => ({
+						...mapping,
+						...overrides,
+						id,
 					})),
 				];
 				for (const scope of scopes) {
