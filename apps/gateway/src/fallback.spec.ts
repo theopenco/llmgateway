@@ -3094,38 +3094,75 @@ describe("fallback and error status code handling", () => {
 			});
 		});
 
-		test("non-streaming: retries another key for auth failures on the same explicit provider", async () => {
-			await setupSingleProviderWithMultipleKeys("together-ai");
+		test.each([false, true])(
+			"retries another key for auth failures on the same explicit provider (stream=%s)",
+			async (stream) => {
+				await setupSingleProviderWithMultipleKeys("together-ai");
+				const primaryKeyHash = getApiKeyFingerprint(
+					"together-ai-primary-token",
+				);
+				const secondaryKeyHash = getApiKeyFingerprint(
+					"together-ai-secondary-token",
+				);
 
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "together-ai/glm-4.7",
-					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
-				}),
-			});
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "together-ai/glm-4.7",
+						messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
+						stream,
+					}),
+				});
 
-			expect(res.status).toBe(500);
-			const json = await res.json();
-			expect(json.error.type).toBe("gateway_error");
+				if (stream) {
+					expect(await res.text()).toContain("gateway_error");
+				} else {
+					expect(res.status).toBe(500);
+					const json = await res.json();
+					expect(json.error.type).toBe("gateway_error");
+				}
 
-			const logs = await waitForLogs(2);
-			const authLogs = logs.filter(
-				(log: Log) => log.errorDetails?.statusCode === 401,
-			);
-			expect(authLogs).toHaveLength(2);
-			expect(authLogs.some((log: Log) => log.retried)).toBe(true);
-			expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
-				false,
-			);
-			expect(isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7")).toBe(
-				false,
-			);
-		});
+				const logs = await waitForLogs(2);
+				const authLogs = logs.filter(
+					(log: Log) => log.errorDetails?.statusCode === 401,
+				);
+				expect(authLogs).toHaveLength(2);
+				const retriedLog = authLogs.find((log: Log) => log.retried);
+				const terminalLog = authLogs.find((log: Log) => !log.retried);
+				// The retry link must resolve to the terminal attempt's log.
+				expect(retriedLog?.retriedByLogId).toBe(terminalLog?.id);
+				// The terminal attempt's routing lists every key that was tried.
+				expect(terminalLog?.routingMetadata?.routing).toEqual([
+					expect.objectContaining({
+						succeeded: false,
+						status_code: 401,
+						logId: retriedLog?.id,
+					}),
+					expect.objectContaining({
+						succeeded: false,
+						status_code: 401,
+						logId: terminalLog?.id,
+					}),
+				]);
+				expect(
+					new Set(
+						terminalLog?.routingMetadata?.routing?.map(
+							(attempt) => attempt.apiKeyHash,
+						),
+					),
+				).toEqual(new Set([primaryKeyHash, secondaryKeyHash]));
+				expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
+					false,
+				);
+				expect(
+					isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7"),
+				).toBe(false);
+			},
+		);
 
 		test("non-streaming: retries another key for invalid API key payloads", async () => {
 			await setupSingleProviderWithMultipleKeys("together-ai");

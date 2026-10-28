@@ -9821,6 +9821,33 @@ chat.openapi(completions, async (c) => {
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
+							const attemptLogId = willRetryRequest ? shortid() : finalLogId;
+							routingAttempts.push(
+								buildRoutingAttempt(
+									usedProvider,
+									usedInternalModel,
+									0,
+									getErrorType(0),
+									false,
+									{
+										region: usedRegion,
+										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
+										logId: attemptLogId,
+									},
+								),
+							);
+							routingMetadata = {
+								...(routingMetadata ?? {
+									availableProviders: [usedProvider],
+									selectedProvider: usedProvider,
+									selectionReason: "direct-provider-specified",
+									providerScores: [],
+								}),
+								routing: [...routingAttempts],
+							};
+
 							const baseLogEntry = createLogEntry(
 								requestId,
 								project,
@@ -9856,7 +9883,6 @@ chat.openapi(completions, async (c) => {
 								timeoutPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -9899,22 +9925,6 @@ chat.openapi(completions, async (c) => {
 							});
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -9927,43 +9937,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryTimeout) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -10061,6 +10039,33 @@ chat.openapi(completions, async (c) => {
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
+							const attemptLogId = willRetryRequest ? shortid() : finalLogId;
+							routingAttempts.push(
+								buildRoutingAttempt(
+									usedProvider,
+									usedInternalModel,
+									0,
+									getErrorType(0),
+									false,
+									{
+										region: usedRegion,
+										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
+										logId: attemptLogId,
+									},
+								),
+							);
+							routingMetadata = {
+								...(routingMetadata ?? {
+									availableProviders: [usedProvider],
+									selectedProvider: usedProvider,
+									selectionReason: "direct-provider-specified",
+									providerScores: [],
+								}),
+								routing: [...routingAttempts],
+							};
+
 							const baseLogEntry = createLogEntry(
 								requestId,
 								project,
@@ -10096,7 +10101,6 @@ chat.openapi(completions, async (c) => {
 								fetchErrorPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -10158,22 +10162,6 @@ chat.openapi(completions, async (c) => {
 							}
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -10186,43 +10174,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryFetch) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -10389,6 +10345,33 @@ chat.openapi(completions, async (c) => {
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
+						const attemptLogId = willRetryRequest ? shortid() : finalLogId;
+						routingAttempts.push(
+							buildRoutingAttempt(
+								usedProvider,
+								usedInternalModel,
+								res.status,
+								getErrorType(res.status),
+								false,
+								{
+									region: usedRegion,
+									apiKeyHash: usedApiKeyHash,
+									credentialSource: currentCredentialSource(),
+									...currentProviderKeyIdentity(),
+									logId: attemptLogId,
+								},
+							),
+						);
+						routingMetadata = {
+							...(routingMetadata ?? {
+								availableProviders: [usedProvider],
+								selectedProvider: usedProvider,
+								selectionReason: "direct-provider-specified",
+								providerScores: [],
+							}),
+							routing: [...routingAttempts],
+						};
+
 						const baseLogEntry = createLogEntry(
 							requestId,
 							project,
@@ -10424,7 +10407,6 @@ chat.openapi(completions, async (c) => {
 							streamingErrorPluginIds,
 							undefined, // No plugin results for error case
 						);
-						const attemptLogId = shortid();
 
 						const contentFilterPromptTokens =
 							finishReason === "content_filter"
@@ -10533,22 +10515,6 @@ chat.openapi(completions, async (c) => {
 						}
 
 						if (willRetrySameProvider && sameProviderRetryContext) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
@@ -10561,43 +10527,11 @@ chat.openapi(completions, async (c) => {
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
 							await sameKeyRetryDelay(sameKeyRetryCount);
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							retryAttempt--;
 							continue;
 						}
 
 						if (willRetryHttpError) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 							continue;
 						}
@@ -10782,7 +10716,7 @@ chat.openapi(completions, async (c) => {
 							willRetryStreamingError ||
 							willRetrySameKey;
 
-						const attemptLogId = shortid();
+						const attemptLogId = willRetryRequest ? shortid() : finalLogId;
 						routingAttempts.push(
 							buildRoutingAttempt(
 								usedProvider,
@@ -14374,6 +14308,33 @@ chat.openapi(completions, async (c) => {
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
+			const attemptLogId = willRetryRequest ? shortid() : finalLogId;
+			routingAttempts.push(
+				buildRoutingAttempt(
+					usedProvider,
+					usedInternalModel,
+					0,
+					getErrorType(0),
+					false,
+					{
+						region: usedRegion,
+						apiKeyHash: usedApiKeyHash,
+						credentialSource: currentCredentialSource(),
+						...currentProviderKeyIdentity(),
+						logId: attemptLogId,
+					},
+				),
+			);
+			routingMetadata = {
+				...(routingMetadata ?? {
+					availableProviders: [usedProvider],
+					selectedProvider: usedProvider,
+					selectionReason: "direct-provider-specified",
+					providerScores: [],
+				}),
+				routing: [...routingAttempts],
+			};
+
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -14409,7 +14370,6 @@ chat.openapi(completions, async (c) => {
 				nonStreamingFetchErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			await insertLogEntry({
 				...baseLogEntry,
@@ -14472,22 +14432,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -14500,43 +14444,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryFetchNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
@@ -14828,6 +14740,33 @@ chat.openapi(completions, async (c) => {
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 
+			const attemptLogId = willRetryRequest ? shortid() : finalLogId;
+			routingAttempts.push(
+				buildRoutingAttempt(
+					usedProvider,
+					usedInternalModel,
+					res.status,
+					getErrorType(res.status),
+					false,
+					{
+						region: usedRegion,
+						apiKeyHash: usedApiKeyHash,
+						credentialSource: currentCredentialSource(),
+						...currentProviderKeyIdentity(),
+						logId: attemptLogId,
+					},
+				),
+			);
+			routingMetadata = {
+				...(routingMetadata ?? {
+					availableProviders: [usedProvider],
+					selectedProvider: usedProvider,
+					selectionReason: "direct-provider-specified",
+					providerScores: [],
+				}),
+				routing: [...routingAttempts],
+			};
+
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -14863,7 +14802,6 @@ chat.openapi(completions, async (c) => {
 				providerErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			const nonStreamContentFilterPromptTokens =
 				finishReason === "content_filter"
@@ -14991,22 +14929,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -15019,43 +14941,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryHttpNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
