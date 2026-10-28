@@ -30,18 +30,36 @@ import type {
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
 
-/** Decodes a data URL or downloads an image URL through the SSRF guard. */
+/**
+ * Decodes a data URL or downloads an image URL through the SSRF guard. The
+ * download stops when `signal` aborts: the client disconnected or the image
+ * deadline passed.
+ */
 async function loadDecisionImage(
 	url: string,
 	maxSizeMB: number,
+	signal: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
 	try {
 		return await processImageUrl(
 			url,
 			process.env.NODE_ENV === "production",
 			maxSizeMB,
+			null,
+			signal,
 		);
 	} catch (error) {
+		if (signal.aborted) {
+			if (
+				signal.reason instanceof DOMException &&
+				signal.reason.name === "TimeoutError"
+			) {
+				throw new HTTPException(400, {
+					message: "Invalid image input: downloading the images timed out",
+				});
+			}
+			throw error;
+		}
 		throw new HTTPException(400, {
 			message:
 				error instanceof Error
@@ -371,8 +389,10 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 							headers: { [TYPESAFE_IMAGES_HEADER]: "true" },
 							// System One takes images as inline base64 assets, so
 							// remote URLs are downloaded.
-							loadBody: async () => ({
-								assets: await loadTypeSafeAssets(images, loadDecisionImage),
+							loadBody: async (signal) => ({
+								assets: await loadTypeSafeAssets(images, (url, maxSizeMB) =>
+									loadDecisionImage(url, maxSizeMB, signal),
+								),
 							}),
 						}
 					: {}),

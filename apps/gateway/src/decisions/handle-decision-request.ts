@@ -87,6 +87,9 @@ import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
+/** Deadline for loading remote request input, such as image downloads. */
+const LOAD_BODY_TIMEOUT_MS = 30_000;
+
 /**
  * The wire format a decision mapping speaks upstream. OpenAI and every Airside
  * carrier serve the OpenAI-compatible `POST /v1/decisions`; TypeSafe and Azure
@@ -303,9 +306,10 @@ export interface DecisionUpstreamRequest {
 	headers?: Record<string, string>;
 	/**
 	 * Loads remote input, such as image downloads, merged into `body`. Runs only
-	 * once the request passed the rate-limit, credit and credential gates.
+	 * once the request passed the rate-limit, credit and credential gates, and
+	 * must stop when `signal` aborts (client disconnect or load deadline).
 	 */
-	loadBody?: () => Promise<Record<string, unknown>>;
+	loadBody?: (signal: AbortSignal) => Promise<Record<string, unknown>>;
 }
 
 export interface NormalizedDecisionResponse {
@@ -754,7 +758,14 @@ export async function handleDecisionRequest(
 	// Remote input (image downloads) loads only after the first attempt passed
 	// the credit and credential gates; retries reuse the loaded body.
 	if (upstreamRequest.loadBody) {
-		upstreamBody = { ...upstreamBody, ...(await upstreamRequest.loadBody()) };
+		const loadSignal = AbortSignal.any([
+			c.req.raw.signal,
+			AbortSignal.timeout(LOAD_BODY_TIMEOUT_MS),
+		]);
+		upstreamBody = {
+			...upstreamBody,
+			...(await upstreamRequest.loadBody(loadSignal)),
+		};
 		attempt = { ...attempt, requestBody: upstreamBody };
 	}
 
