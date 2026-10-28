@@ -247,11 +247,9 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	canopywave: "https://inference.canopywave.io",
 	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
-	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
-	consensusprotocol: "https://api.consensusprotocol.org",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 	typesafe: "https://api.typesafe.ai",
@@ -1144,7 +1142,6 @@ export function getProviderEndpoint(
 		case "xiaomi":
 		case "embercloud":
 		case "ranoai":
-		case "consensusprotocol":
 		case "atria":
 		case "cloudflare":
 		case "custom":

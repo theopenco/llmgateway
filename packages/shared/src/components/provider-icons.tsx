@@ -1248,20 +1248,6 @@ export const EmberCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 		/>
 	</svg>
 );
-
-export const Gonka24Icon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" {...props}>
-		<g
-			transform="translate(0,1080) scale(0.1,-0.1)"
-			fill="currentColor"
-			stroke="none"
-		>
-			<path d="M9445 7634 c-533 -7 -1382 -17 -1885 -23 -1839 -22 -2309 -31 -2410 -47 -439 -69 -1044 -330 -1383 -596 -216 -170 -813 -771 -2022 -2033 -700 -730 -1216 -1267 -1384 -1439 -152 -154 -155 -159 -131 -169 35 -14 486 -21 844 -12 l301 7 395 419 c217 231 449 477 515 547 66 71 262 279 436 463 173 184 378 402 454 484 240 259 676 713 851 885 331 325 465 418 796 554 251 102 372 128 687 146 265 15 1343 28 2939 36 l1393 7 382 384 c210 211 384 388 385 394 2 5 -36 8 -95 8 -54 -1 -534 -8 -1068 -15z" />
-			<path d="M7000 5983 c-490 -4 -1549 -24 -1705 -33 -234 -12 -380 -49 -580 -145 -131 -63 -217 -118 -305 -193 -176 -152 -987 -976 -2153 -2188 -43 -45 -74 -85 -68 -88 10 -6 678 0 3101 30 l1355 16 190 75 c218 86 406 180 556 278 92 61 154 119 560 524 450 450 1659 1697 1659 1711 0 16 -1431 23 -2610 13z m531 -972 c-313 -324 -547 -551 -634 -615 -149 -110 -337 -180 -547 -205 -200 -24 -467 -32 -1330 -40 -503 -5 -917 -8 -919 -6 -7 7 604 627 741 753 210 192 262 226 413 270 90 27 180 43 280 51 44 3 558 7 1142 7 l1063 1 -209 -216z" />
-		</g>
-	</svg>
-);
-
 export const FireworksIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1308,25 +1294,6 @@ export const AtriaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		<path d="M11.4 16.3H8.9a2.31 2.31 0 0 1-2-3.46l1.25-2.17" />
 	</svg>
 );
-
-export const ConsensusProtocolIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
-	props,
-) => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		strokeLinecap="round"
-		{...props}
-	>
-		<path d="M20.6 5.98A10.5 10.5 0 1 0 20.6 18.02" strokeWidth="1.4" />
-		<path d="M15.17 5.2A7.5 7.5 0 1 1 8.83 5.2" strokeWidth="1.4" />
-		<path d="M15.22 9.3A4.2 4.2 0 1 0 15.22 14.7" strokeWidth="2.8" />
-		<circle cx="3.96" cy="18.75" r="1.1" fill="currentColor" stroke="none" />
-	</svg>
-);
-
 export const CloudflareIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1587,12 +1554,10 @@ export const ProviderIcons = {
 	deepinfra: DeepInfraIcon,
 	reve: ReveIcon,
 	sakana: SakanaIcon,
-	gonka24: Gonka24Icon,
 	fireworks: FireworksIcon,
 	runpod: RunpodIcon,
 	ranoai: RanoAIIcon,
 	baidu: BaiduIcon,
-	consensusprotocol: ConsensusProtocolIcon,
 	atria: AtriaIcon,
 	tencent: TencentCloudIcon,
 	typesafe: TypeSafeIcon,
@@ -1678,12 +1643,10 @@ const bundledProviderLogos: Partial<
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
-	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
-	consensusprotocol: ProviderIcons.consensusprotocol,
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
 	typesafe: ProviderIcons.typesafe,
