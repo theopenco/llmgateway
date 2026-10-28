@@ -26,6 +26,17 @@ import { getBedrockProfilePrefix } from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
+/**
+ * A provider key's settings (account id, resource, workspace id) are missing or
+ * malformed — tenant input, not a gateway fault.
+ */
+export class ProviderConfigError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "ProviderConfigError";
+	}
+}
+
 function appendPath(url: string, path: string): string {
 	let urlEnd = url.length;
 	while (urlEnd > 0 && url[urlEnd - 1] === "/") {
@@ -101,12 +112,12 @@ function resolveWorkspaceScopedEndpoint(
 		if (fallback) {
 			return fallback;
 		}
-		throw new Error(
+		throw new ProviderConfigError(
 			`Provider ${provider} region ${region} is only reachable through a workspace-dedicated endpoint - set the workspace id on the provider key or via the ${regionalEnvVar} env var`,
 		);
 	}
 	if (!isProviderHostnameLabel(workspaceId)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			`Provider ${provider} workspace id is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${regionalEnvVar} env var)`,
 		);
 	}
@@ -269,7 +280,7 @@ export function getDecisionsUpstreamPath(provider: ProviderId): string {
  */
 export function getAzureFoundryBaseUrl(resource: string): string {
 	if (!isProviderHostnameLabel(resource)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
 		);
 	}
@@ -281,12 +292,12 @@ export function getCloudflareWorkersAiBaseUrl(
 	accountId: string | undefined,
 ): string {
 	if (!accountId) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Cloudflare requires an account ID - set via provider options or the LLM_CLOUDFLARE_ACCOUNT_ID env var",
 		);
 	}
 	if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Cloudflare account ID is invalid - must be 32 lowercase hex characters",
 		);
 	}
@@ -588,13 +599,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureEnv = getProviderEnvConfig("azure");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure requires a resource or a base URL - set either via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} / ${azureEnv?.optional?.baseUrl ?? "LLM_AZURE_BASE_URL"} env vars`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureEnv = getProviderEnvConfig("azure");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
 					);
 				}
@@ -617,13 +628,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
 					);
 				}
@@ -646,13 +657,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure Anthropic resource is required - set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
 					);
 				}

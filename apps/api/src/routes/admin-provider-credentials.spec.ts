@@ -231,6 +231,16 @@ describe("admin provider credentials", () => {
 		expect(await res.text()).toContain("projeckt");
 	});
 
+	test("rejects a malformed Cloudflare account id", async () => {
+		const res = await create({
+			provider: "cloudflare",
+			token: "cf-key",
+			config: { accountId: "not-an-account-id" },
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("32 lowercase hex");
+	});
+
 	test("rejects an unknown provider", async () => {
 		const res = await create({ provider: "not-a-provider", token: "x" });
 		expect(res.status).toBe(400);
