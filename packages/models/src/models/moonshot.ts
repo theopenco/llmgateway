@@ -515,6 +515,7 @@ export const moonshotModels = [
 			{
 				providerId: "baidu",
 				externalId: "kimi-k2.6",
+				deactivatedAt: new Date("2026-10-28"),
 				// Mirrors the Moonshot mapping: the model rejects forced
 				// tool_choice while thinking is on.
 				supportedToolChoices: ["auto", "none"],

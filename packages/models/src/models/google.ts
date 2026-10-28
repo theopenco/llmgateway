@@ -2803,6 +2803,7 @@ export const googleModels = [
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "gemma-4-31b",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.99e-6",
 				outputPrice: "1.49e-6",
 				requestPrice: "0",

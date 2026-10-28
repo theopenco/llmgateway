@@ -1339,6 +1339,7 @@ export const zaiModels = [
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "zai-glm-4.7",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "2.25e-6",
 				outputPrice: "2.75e-6",
 				requestPrice: "0",

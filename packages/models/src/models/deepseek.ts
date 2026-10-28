@@ -130,6 +130,7 @@ export const deepseekModels = [
 			{
 				providerId: "novita",
 				externalId: "deepseek/deepseek-v3.2",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.269e-6",
 				cachedInputPrice: "0.1345e-6",
 				outputPrice: "0.4e-6",
