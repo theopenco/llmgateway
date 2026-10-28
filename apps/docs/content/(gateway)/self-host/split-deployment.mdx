@@ -25,13 +25,14 @@ production authenticated API. Provider calls can still incur charges.
 
 Use origins without a trailing slash or `/v1` suffix:
 
-| Variable               | Where to set it                                   | Purpose                                                                       |
-| ---------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `API_URL`              | All frontends, API, and gateway                   | Public management API origin; browser requests, auth callbacks, and MCP tools |
-| `API_BACKEND_URL`      | All frontends and gateway                         | Server-side management API origin; defaults to `API_URL`                      |
-| `GATEWAY_URL`          | UI, docs, Lounge, admin, API, gateway, and worker | Public inference origin; server-side inference also uses it unless overridden |
-| `GATEWAY_BACKEND_URL`  | Services making server-side inference calls       | Optional backend origin; defaults to `GATEWAY_URL`                            |
-| `REALTIME_BACKEND_URL` | Lounge when realtime is served separately         | Optional realtime backend origin; otherwise uses the gateway backend          |
+| Variable               | Where to set it                                   | Purpose                                                                        |
+| ---------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `API_URL`              | All frontends, API, and gateway                   | Public management API origin; browser requests, auth callbacks, and MCP tools  |
+| `API_BACKEND_URL`      | All frontends and gateway                         | Server-side management API origin; defaults to `API_URL`                       |
+| `GATEWAY_URL`          | UI, docs, Lounge, admin, API, gateway, and worker | Public inference origin; server-side inference also uses it unless overridden  |
+| `GATEWAY_BACKEND_URL`  | Services making server-side inference calls       | Optional backend origin; defaults to `GATEWAY_URL`                             |
+| `MCP_GATEWAY_URL`      | Gateway                                           | Optional HTTPS origin for MCP generation; overrides both gateway URL variables |
+| `REALTIME_BACKEND_URL` | Lounge when realtime is served separately         | Optional realtime backend origin; otherwise uses the gateway backend           |
 
 Always set `GATEWAY_URL` explicitly on testing deployments. The shared gateway
 helper defaults to the hosted production gateway when `NODE_ENV=production`.
@@ -43,6 +44,10 @@ to reach a separately hosted backend. Its server-side URL must be reachable
 from that runtime. Private HTTP backends are appropriate only over a trusted
 network; public endpoints require HTTPS. Keep public origins in `API_URL` and
 `GATEWAY_URL` even when server-side traffic uses a private backend.
+
+Unset `MCP_GATEWAY_URL` or set it to the testing gateway. MCP generation sends
+its API-key credential to that override, even when the other gateway URLs point
+to the testing deployment.
 
 ## Product links
 
@@ -67,6 +72,18 @@ public links are resolved at build time. The docs app uses `API_BACKEND_URL`
 (or `API_URL`) for its announcement banner, `GATEWAY_URL` and optionally
 `GATEWAY_BACKEND_URL` for its interactive API proxy, and `PLAYGROUND_URL` for
 its Lounge link. It does not need database credentials.
+
+### API explorer prerequisite
+
+The explorer's schema must list the testing gateway in `servers`. On builds
+without configured-origin explorer support, that list comes from
+`apps/gateway/src/app.ts`; setting `GATEWAY_URL` or regenerating the unchanged
+schema does not add a custom server. Upgrade and redeploy the docs with
+configured-origin support before using the explorer for that deployment.
+Until then, send testing requests directly to the explicit `GATEWAY_URL` from
+your API client. Do not select the hosted server as a fallback or enter a key
+while the explorer destination is wrong. Keep the proxy's target allowlist
+restricted to the configured gateway.
 
 ## Cookies and CORS
 
