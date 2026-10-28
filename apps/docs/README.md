@@ -15,6 +15,14 @@ yarn dev
 
 Open http://localhost:3000 with your browser to see the result.
 
+## API reference
+
+Build from the repository root with `pnpm exec turbo run build --filter=docs`.
+This generates `openapi.json` and the API reference pages before Next.js builds.
+The server imports the generated schema into its bundle; `./openapi.json` remains
+its document ID, not a runtime filesystem path. Keep that ID aligned with the
+generated MDX when changing schema loading.
+
 ## Explore
 
 In the project, you can see:
