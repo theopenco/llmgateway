@@ -25,6 +25,10 @@ A developer sends a 270K-token prompt to GPT-5.6 Sol in Copilot and pays $1.18. 
 
 That looks like a trick to squeeze more AI Credits out of customers. We checked GitHub's [models and pricing page](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing) against the providers' own price lists, the same ones **LLM Gateway** bills at. The short answer: the tiers are real, the cliff is steep, and with one exception Copilot is not the one setting it. What Copilot does control is how visible the cliff is, and today it is easy to miss.
 
+<video src="/blog/github-copilot-long-context-pricing/copilot-vs-llmgateway.webm" poster="/blog/github-copilot-long-context-pricing/copilot-vs-llmgateway-poster.jpg" controls muted playsinline preload="metadata" style="width: 100%; border-radius: 12px; margin: 1.5rem 0;">
+  Your browser does not support the video tag. [Watch the GitHub Copilot vs LLM Gateway video](/blog/github-copilot-long-context-pricing/copilot-vs-llmgateway.webm).
+</video>
+
 ## Which Copilot models have long-context pricing
 
 Since June 1, 2026, Copilot bills chat, agents, CLI and code review in AI Credits (1 credit = $0.01) at per-token rates. Some models have two rows on the [pricing page](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing), a default tier and a long-context tier, split by a threshold in input tokens. This is a snapshot as of October 28, 2026; check GitHub's page for current rates. Prices are per 1M tokens:
