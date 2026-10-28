@@ -174,7 +174,13 @@ When the user explicitly asks to set a PR to auto-merge, enable it
    the merge commit, its merge, and the deploy run it triggers. A later image
    bump also ships the commit. If the deploy fails for a reason unrelated to the
    change, report it rather than changing shared infrastructure.
-4. Confirm every deployment runs the merge commit's image (check with
-   `kubectl` when it is set up), then send a final message saying it is live.
+4. Confirm it is live (with `kubectl` when it is set up): every deployment of
+   our `ghcr.io/theopenco/llmgateway-*` images is ready on one image tag, and
+   that tag's commit contains the merge commit
+   (`git merge-base --is-ancestor <merge-sha> <tag-sha>`). Do not wait for the
+   merge commit's own tag, since a later bump often ships it first, and skip
+   deployments of third-party images. Then send a final message saying it is
+   live.
 
-Monitor with a background job instead of polling in the conversation.
+Monitor with a background job instead of polling in the conversation, and
+read its log while it runs: a live check that can never pass fails silently.
