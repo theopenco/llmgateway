@@ -1580,6 +1580,70 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/messages rejects a text block without string text inside tool_result content", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Anthropic requires a string `text` on a text block, and the array
+		// is replayed verbatim: a `{ type: "text" }` sibling would reach the
+		// provider and be rejected there instead of here.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "anthropic/claude-opus-4-8",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "Chart the data." },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "tool_use",
+								id: "toolu_1",
+								name: "render_chart",
+								input: {},
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: "toolu_1",
+								content: [
+									{
+										type: "text",
+									},
+								],
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain(
+			"tool_result text blocks must contain string text",
+		);
+	});
+
 	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

@@ -48,6 +48,21 @@ const toolResultContentBlocksSchema = z
 				});
 				return;
 			}
+			// The array is replayed verbatim and Anthropic requires a string
+			// `text` on a text block, so a bare `{ type: "text" }` would be
+			// rejected upstream with a 400 instead of here. `tool_reference`
+			// blocks stay pass-through.
+			if (
+				blockType(block) === "text" &&
+				typeof (block as { text?: unknown }).text !== "string"
+			) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: [index, "text"],
+					message: "tool_result text blocks must contain string text",
+				});
+				return;
+			}
 			if (blockType(block) !== "image") {
 				return;
 			}
