@@ -19,16 +19,23 @@ async function proxy(request: Request) {
 			],
 			overrides: {
 				request(proxied) {
-					const target = new URL(proxied.url);
+					// Fumadocs drops bodies without Content-Length; retain the original stream.
+					const forwarded =
+						!proxied.body && request.body
+							? new Request(new Request(proxied, request), {
+									headers: proxied.headers,
+								})
+							: proxied;
+					const target = new URL(forwarded.url);
 					if (target.origin !== gatewayOrigin) {
-						return proxied;
+						return forwarded;
 					}
 					const backend = new URL(getGatewayBackendBaseUrl());
 					backend.pathname = target.pathname;
 					backend.search = target.search;
-					return new Request(new Request(backend, proxied), {
+					return new Request(new Request(backend, forwarded), {
 						headers: {
-							...Object.fromEntries(proxied.headers),
+							...Object.fromEntries(forwarded.headers),
 							...forwardedIpHeaders(request.headers),
 						},
 						redirect: "error",

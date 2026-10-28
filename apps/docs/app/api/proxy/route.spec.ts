@@ -97,3 +97,47 @@ test("uses the production gateway by default without a configured backend", asyn
 	expect(forwarded.url).toBe(target);
 	expect(forwarded.headers.get("authorization")).toBe("Bearer test-token");
 });
+test("streams multipart uploads without Content-Length", async () => {
+	vi.stubEnv("GATEWAY_URL", "https://gateway.example.com");
+	vi.stubEnv("GATEWAY_BACKEND_URL", "http://localhost:4301");
+	const body = new FormData();
+	body.set("model", "test-model");
+	body.set(
+		"file",
+		new File(["audio fixture"], "test.wav", { type: "audio/wav" }),
+	);
+	const request = new Request(
+		"http://localhost/api/proxy?url=https://gateway.example.com/v1/audio/transcriptions",
+		{
+			method: "POST",
+			headers: {
+				Authorization: "Bearer test-token",
+				"x-client-ip": "192.0.2.1",
+			},
+			body,
+		},
+	);
+	expect(request.headers.has("content-length")).toBe(false);
+	const upstream = vi
+		.spyOn(globalThis, "fetch")
+		.mockResolvedValue(Response.json({ ok: true }));
+	const response = await POST(request);
+	expect(response.status).toBe(200);
+	expect(upstream).toHaveBeenCalledOnce();
+	const forwarded = upstream.mock.calls[0][0];
+	if (!(forwarded instanceof Request)) {
+		throw new Error("Expected a proxied Request");
+	}
+	expect(forwarded.url).toBe("http://localhost:4301/v1/audio/transcriptions");
+	expect(forwarded.headers.get("authorization")).toBe("Bearer test-token");
+	expect(forwarded.headers.get("x-client-ip")).toBe("192.0.2.1");
+	const form = await forwarded.formData();
+	expect(form.get("model")).toBe("test-model");
+	const file = form.get("file");
+	if (!(file instanceof File)) {
+		throw new Error("Expected an uploaded file");
+	}
+	expect(file.name).toBe("test.wav");
+	expect(file.type).toBe("audio/wav");
+	expect(await file.text()).toBe("audio fixture");
+});
