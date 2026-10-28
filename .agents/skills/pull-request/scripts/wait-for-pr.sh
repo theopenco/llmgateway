@@ -41,6 +41,8 @@ unresolved_threads() {
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
 max_failures="${MAX_GH_FAILURES:-10}"
+err_file=$(mktemp)
+trap 'rm -f "$err_file"' EXIT
 failures=0
 # A network blip must not end the watch: skip the poll, and give up only after
 # several failures in a row.
@@ -74,8 +76,15 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 			;;
 	esac
 
-	# `gh pr checks` exits non-zero while checks are pending or failing.
-	checks=$(gh pr checks "$pr" 2>/dev/null || true)
+	# `gh pr checks` exits 1 on a failing check and 8 while checks are pending,
+	# and both still list the checks. Empty output with a non-zero exit is a
+	# failed request, unless the PR has no checks yet.
+	checks_rc=0
+	checks=$(gh pr checks "$pr" 2>"$err_file") || checks_rc=$?
+	if [ "$checks_rc" -ne 0 ] && [ -z "$checks" ] && ! grep -q "no checks reported" "$err_file"; then
+		gh_failed
+		continue
+	fi
 	failed=$(printf '%s\n' "$checks" | awk -F'\t' '$2 == "fail" {print "- " $1 " " $4}')
 	pending=$(printf '%s\n' "$checks" | awk -F'\t' '$2 == "pending" {n++} END {print n + 0}')
 	if ! threads=$(unresolved_threads); then

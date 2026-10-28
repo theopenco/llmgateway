@@ -25,6 +25,22 @@ trap 'rm -f "$err_file"' EXIT
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
+# git has no overall fetch timeout, so a watchdog kills a stalled fetch.
+fetch_bounded() {
+	git fetch -q origin &
+	local fetch_pid=$!
+	(
+		sleep "${FETCH_TIMEOUT_SECONDS:-60}"
+		kill "$fetch_pid" 2>/dev/null
+	) &
+	local watchdog_pid=$!
+	local rc=0
+	wait "$fetch_pid" || rc=$?
+	kill "$watchdog_pid" 2>/dev/null || true
+	wait "$watchdog_pid" 2>/dev/null || true
+	return "$rc"
+}
+
 # Columns: name, image, want, current, updated, ready, available, generation,
 # observed generation. Missing counts print as <none>. The request timeout
 # keeps a hung API server from stalling the deadline and failure count.
@@ -60,8 +76,9 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 		[ "$status" != "$last" ] && log "$status"
 		last="$status"
 		if [ -z "$not_ready" ] && [ "$(echo "$tags" | wc -l)" -eq 1 ]; then
-			# A failed fetch only delays the check; the next poll retries it.
-			git fetch -q origin || log "git fetch failed; retrying next poll"
+			# A failed or stalled fetch only delays the check; the next poll
+			# retries it.
+			fetch_bounded || log "git fetch failed or timed out; retrying next poll"
 			if git merge-base --is-ancestor "$sha" "$tags" 2>/dev/null; then
 				log "live: $sha ships in v0.0.0-$tags"
 				printf '%s\n' "$rows"

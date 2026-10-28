@@ -172,8 +172,10 @@ When the user explicitly asks to set a PR to auto-merge, enable it
    (usually a required review), or an unresolved review thread. Unresolved threads block auto-merge even when every
    check is green, and CodeRabbit can open new ones after each push. Fix the
    cause or reply and resolve the thread (see "After opening"), push, and run
-   the script again. Exit 4 means GitHub requests kept failing; check network
-   and `gh auth status`, then rerun. Never bypass checks (see `AGENTS.md`).
+   the script again. Exit 1 means the PR closed without merging or the watch
+   timed out; check the PR before rerunning. Exit 4 means GitHub requests kept
+   failing; check network and `gh auth status`, then rerun. Never bypass checks
+   (see `AGENTS.md`).
 2. Follow the rollout through the deployment repository: the image-bump PR for
    the merge commit, its merge, and the deploy run it triggers. If the deploy
    fails for a reason unrelated to the change, report it rather than changing
@@ -187,7 +189,10 @@ When the user explicitly asks to set a PR to auto-merge, enable it
    third-party images are skipped. Exit 4 means `kubectl` failed several times
    in a row, or the selected context and namespace hold no deployment of our
    images (third-party ones do not count); fix access or point it at the
-   production namespace. Then send a final message saying it is live.
+   production namespace. Exit 1 means the timeout passed without a live
+   rollout: report what is stuck (its last output shows the tags and the
+   deployments not ready) and do not call it live. Only on exit 0, send a final
+   message saying it is live.
 
 Run both scripts as background jobs instead of polling in the conversation.
 Without `kubectl` access, confirm the deploy run succeeded and say the pods were
