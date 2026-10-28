@@ -31,6 +31,22 @@ const comparisonData = [
 				copilot: "Cached-token pricing",
 			},
 			{
+				title: "Long-context pricing",
+				description:
+					"Higher per-token rates once a prompt passes a size threshold",
+				llmgateway:
+					"Provider tiers billed at cost, with cost logged per request",
+				copilot:
+					"Provider tiers passed through (e.g. >272K GPT, >200K Grok, >100K Haiku 5.5)",
+			},
+			{
+				title: "Model and cost visibility",
+				description: "Know which model ran and what it cost",
+				llmgateway: "Model, provider, and cost on every request log",
+				copilot:
+					"Visible for most features; code review model undisclosed and also bills Actions minutes",
+			},
+			{
 				title: "Flat-fee coding plans",
 				description: "Predictable monthly pricing for coding agents",
 				llmgateway: "DevPass from $29/month; allowance and fair use",
