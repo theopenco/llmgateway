@@ -52,6 +52,7 @@ import {
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
+import { liftToolResultImages } from "./lift-tool-result-images.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
@@ -1458,12 +1459,17 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 					"tool message could not be matched to a preceding tool call; the Responses API requires every function_call_output to reference a function_call (supply tool_call_id)",
 				);
 			}
+			// The output takes input_text/input_image parts, so a screenshot
+			// stays an image; text-only arrays keep the stringified form.
 			const output =
 				typeof msg.content === "string"
 					? msg.content
-					: msg.content !== null && msg.content !== undefined
-						? JSON.stringify(msg.content)
-						: "";
+					: Array.isArray(msg.content) &&
+						  msg.content.some((part: any) => part?.type === "image_url")
+						? transformContentForResponsesApi(msg.content, "tool")
+						: msg.content !== null && msg.content !== undefined
+							? JSON.stringify(msg.content)
+							: "";
 			items.push({
 				type: "function_call_output",
 				call_id: callId,
@@ -2851,10 +2857,13 @@ export async function prepareRequestBody(
 				// image URLs (SSRF-guarded) and inline them as data URLs upstream.
 				if (usedProvider === "aws-mantle") {
 					for (const item of transformedMessages) {
-						if (!Array.isArray(item?.content)) {
-							continue;
-						}
-						for (const part of item.content) {
+						// Tool-result images ride on a function_call_output's `output`.
+						const parts = Array.isArray(item?.content)
+							? item.content
+							: Array.isArray(item?.output)
+								? item.output
+								: [];
+						for (const part of parts) {
 							if (
 								part?.type === "input_image" &&
 								typeof part.image_url === "string" &&
@@ -5612,6 +5621,12 @@ export async function prepareRequestBody(
 				thinking: true,
 			};
 		}
+	}
+
+	// Only a Chat Completions body still has `tool` messages here; the native
+	// formats (Anthropic, Bedrock, Gemini, Responses) carry the images themselves.
+	if (Array.isArray(requestBody.messages)) {
+		requestBody.messages = liftToolResultImages(requestBody.messages);
 	}
 
 	return requestBody;
