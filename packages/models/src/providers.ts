@@ -1958,30 +1958,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "gonka24",
-		managedInAirside: true,
-		name: "Gonka24",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
-		env: {
-			required: {
-				apiKey: "LLM_GONKA_24_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#000000",
-		website: "https://gonka24.com",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://gonka24.com/terms",
-		privacyPolicyUrl: "https://gonka24.com/privacy",
-		usagePolicyUrl: "https://gonka24.com/terms",
-		legalEntity: "Investment company Temir LLC",
-		headquarters: "KZ",
-		dataPolicy: null,
-	},
-	{
 		id: "fireworks",
 		name: "Fireworks AI",
 		forwardsSafetyIdentifier: false,
@@ -2050,40 +2026,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-	},
-	{
-		id: "consensusprotocol",
-		managedInAirside: true,
-		name: "Consensus Protocol",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
-		env: {
-			required: {
-				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#dc2626",
-		website: "https://consensusprotocol.org",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://consensusprotocol.org/terms",
-		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
-		usagePolicyUrl: "https://consensusprotocol.org/terms",
-		legalEntity: "Consensus Protocol LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-		additionalLinks: [
-			{
-				desc: "Inference data handling",
-				link: "https://consensusprotocol.org/data-policy",
-			},
-		],
 	},
 	{
 		id: "tencent",
@@ -2698,7 +2640,6 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
-	KZ: "Kazakhstan",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

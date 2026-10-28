@@ -402,7 +402,6 @@ const OPENAI_CHAT_BODY_PROVIDERS: ReadonlySet<string> = new Set([
 	"cerebras",
 	"xiaomi",
 	"deepseek",
-	"gonka24",
 ]);
 
 /**
@@ -5483,52 +5482,6 @@ export async function prepareRequestBody(
 					requestBody.thinking = { type: "disabled" };
 				}
 			} else if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = reasoning_effort;
-			}
-			break;
-		}
-
-		case "gonka24": {
-			if (stream) {
-				requestBody.stream_options = {
-					include_usage: true,
-				};
-			}
-			if (response_format) {
-				requestBody.response_format = response_format;
-			}
-
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
-
-			// Gonka24 keeps thinking off by default, and only the binary `thinking`
-			// switch turns it on — `reasoning_effort` alone never does, and the
-			// chat-template flag is ignored. So the effort decides the switch:
-			// "none" disables, any other tier enables. The effort is forwarded
-			// alongside it because the deployment validates it against its enum and
-			// grades the tiers by intent; today they measure the same (low/medium/
-			// high differ by ~6% in reasoning length over 40 samples each, well
-			// inside noise), but forwarding means real grading works the moment the
-			// provider implements it, with no gateway change.
-			if (supportsReasoning && reasoning_effort !== undefined) {
-				requestBody.thinking =
-					reasoning_effort === "none"
-						? { type: "disabled" }
-						: { type: "enabled" };
 				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
