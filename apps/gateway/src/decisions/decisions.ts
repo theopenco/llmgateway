@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { HTTPException } from "hono/http-exception";
 
 import {
 	rateLimitHeaders,
@@ -8,6 +9,7 @@ import {
 import {
 	DECISIONS_UPSTREAM_PATH,
 	getDecisionsUpstreamPath,
+	processImageUrl,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
@@ -15,13 +17,57 @@ import { handleDecisionRequest } from "./handle-decision-request.js";
 import {
 	decisionInputHasImages,
 	fromTypeSafeResponse,
+	loadTypeSafeAssets,
+	planTypeSafeImages,
 	toTypeSafeRequest,
-	type DecisionInput,
-	type DecisionRequestBody,
+	TYPESAFE_IMAGES_HEADER,
 } from "./typesafe-translation.js";
 
+import type {
+	DecisionInput,
+	DecisionRequestBody,
+} from "./typesafe-translation.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
+
+/**
+ * Decodes a data URL or downloads an image URL through the SSRF guard. The
+ * download stops when `signal` aborts: the client disconnected or the image
+ * deadline passed.
+ */
+async function loadDecisionImage(
+	url: string,
+	maxSizeMB: number,
+	signal: AbortSignal,
+): Promise<{ data: string; mimeType: string }> {
+	try {
+		return await processImageUrl(
+			url,
+			process.env.NODE_ENV === "production",
+			maxSizeMB,
+			null,
+			signal,
+		);
+	} catch (error) {
+		if (signal.aborted) {
+			if (
+				signal.reason instanceof DOMException &&
+				signal.reason.name === "TimeoutError"
+			) {
+				throw new HTTPException(400, {
+					message: "Invalid image input: downloading the images timed out",
+				});
+			}
+			throw error;
+		}
+		throw new HTTPException(400, {
+			message:
+				error instanceof Error
+					? `Invalid image input: ${error.message}`
+					: "Invalid image input",
+		});
+	}
+}
 
 const inputTextSchema = z.object({
 	type: z.literal("input_text"),
@@ -318,25 +364,40 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 			upstreamModel,
 			safetyIdentifier,
 			wireFormat,
-		) => ({
-			path:
-				wireFormat === "openai"
-					? DECISIONS_UPSTREAM_PATH
-					: getDecisionsUpstreamPath(providerId as ProviderId),
-			body:
-				wireFormat === "openai"
+		) => {
+			if (wireFormat === "openai") {
+				return {
+					path: DECISIONS_UPSTREAM_PATH,
+					body: {
+						model: upstreamModel,
+						input: request.input,
+						questions: request.questions,
+						// OpenAI attributes abuse to it, so the client's value is
+						// replaced by the API key's; Airside carriers get none.
+						...(providerId === "openai"
+							? { safety_identifier: safetyIdentifier }
+							: {}),
+					},
+				};
+			}
+			const images = planTypeSafeImages(request.input);
+			return {
+				path: getDecisionsUpstreamPath(providerId as ProviderId),
+				body: toTypeSafeRequest(upstreamModel, request, images.refs),
+				...(images.urls.length > 0
 					? {
-							model: upstreamModel,
-							input: request.input,
-							questions: request.questions,
-							// OpenAI attributes abuse to it, so the client's value is
-							// replaced by the API key's; Airside carriers get none.
-							...(providerId === "openai"
-								? { safety_identifier: safetyIdentifier }
-								: {}),
+							headers: { [TYPESAFE_IMAGES_HEADER]: "true" },
+							// System One takes images as inline base64 assets, so
+							// remote URLs are downloaded.
+							loadBody: async (signal) => ({
+								assets: await loadTypeSafeAssets(images, (url, maxSizeMB) =>
+									loadDecisionImage(url, maxSizeMB, signal),
+								),
+							}),
 						}
-					: toTypeSafeRequest(upstreamModel, request),
-		}),
+					: {}),
+			};
+		},
 		normalizeResponse: (_providerId, upstream, responseModel, wireFormat) => {
 			const body =
 				wireFormat === "openai"

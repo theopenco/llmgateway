@@ -127,6 +127,39 @@ describe("systemone", () => {
 		).toBe("jev-1.14.0");
 	});
 
+	test("/v1/systemone forwards image assets with TypeSafe's image opt-in", async () => {
+		await seedKeys("systemone-assets");
+		await seedProviderKey("systemone-assets");
+
+		const assets = {
+			"a3f1c2e8-door": {
+				type: "image",
+				format: "jpg",
+				data_base64: "/9j/4AAQSkZJRg==",
+			},
+		};
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-assets",
+			},
+			body: JSON.stringify({
+				model: "jev-1.14.0",
+				state: { door: "a3f1c2e8-door" },
+				assets,
+				questions: { urgency: QUESTIONS.urgency },
+			}),
+		});
+
+		// The mock rejects assets sent without the opt-in header.
+		expect(res.status, await res.clone().text()).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.14.0");
+		expect(log?.upstreamRequest).toMatchObject({ assets });
+	});
+
 	test("/v1/systemone rejects a chat model", async () => {
 		await seedKeys("systemone-chat-model");
 

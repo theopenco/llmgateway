@@ -222,6 +222,28 @@ describe("processImageUrl size limits", () => {
 
 		expect(fetchSpy).toHaveBeenCalledWith(REMOTE_URL, { redirect: "error" });
 	});
+
+	it("stops a download when the caller's signal aborts", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		const controller = new AbortController();
+		const reason = new DOMException("deadline", "TimeoutError");
+		// A stalled server: the fetch only settles when its signal aborts.
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+			async (_input, init) =>
+				await new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(reason));
+					controller.abort(reason);
+				}),
+		);
+
+		await expect(
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, null, controller.signal),
+		).rejects.toBe(reason);
+		expect(fetchSpy).toHaveBeenCalledWith(REMOTE_URL, {
+			signal: controller.signal,
+			redirect: "error",
+		});
+	});
 });
 
 describe("processImageUrl data URLs", () => {

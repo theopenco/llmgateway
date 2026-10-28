@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { HTTPException } from "hono/http-exception";
 
 /**
@@ -65,22 +67,143 @@ export function decisionInputHasImages(input: DecisionInput): boolean {
 	);
 }
 
-/** Flattens text-only input into TypeSafe's `state` string. */
-function inputToState(input: DecisionInput): string {
+/** An image in a System One request's `assets` map. */
+export interface TypeSafeImageAsset {
+	type: "image";
+	format: "png" | "jpg";
+	data_base64: string;
+}
+
+/** Header TypeSafe requires on every request that carries an image. */
+export const TYPESAFE_IMAGES_HEADER = "TypeSafe-Danger-Zone-Images";
+
+const TYPESAFE_IMAGE_FORMATS: Record<string, TypeSafeImageAsset["format"]> = {
+	"image/png": "png",
+	"image/jpeg": "jpg",
+	"image/jpg": "jpg",
+};
+
+/**
+ * Resolves an `input_image` URL to base64 image data and its MIME type,
+ * rejecting an image larger than `maxSizeMB`.
+ */
+export type DecisionImageLoader = (
+	url: string,
+	maxSizeMB: number,
+) => Promise<{ data: string; mimeType: string }>;
+
+/** Gateway cap on images per request; bounds the downloads one request makes. */
+export const MAX_TYPESAFE_IMAGES = 16;
+/** TypeSafe's per-image file size limit. */
+const MAX_TYPESAFE_IMAGE_MB = 16;
+/**
+ * Base64 image text per request. TypeSafe caps the whole request body at
+ * 32 MiB, base64 included; the rest is left for the JSON around the images.
+ */
+const MAX_TYPESAFE_IMAGE_BASE64_MB = 30;
+const BASE64_PER_DECODED_BYTE = 4 / 3;
+/** Decoded image bytes that fit the base64 budget. */
+export const MAX_TYPESAFE_TOTAL_IMAGE_MB =
+	MAX_TYPESAFE_IMAGE_BASE64_MB / BASE64_PER_DECODED_BYTE;
+
+const BYTES_PER_MB = 1024 * 1024;
+
+function unsupportedImageFormat(mimeType: string): HTTPException {
+	return badRequest(
+		`This decision model accepts PNG and JPEG images only, not ${mimeType || "an untyped image"}.`,
+	);
+}
+
+function inputImageUrls(input: DecisionInput): string[] {
+	if (typeof input === "string") {
+		return [];
+	}
+	return input.flatMap((message) =>
+		typeof message.content === "string"
+			? []
+			: message.content.flatMap((part) =>
+					part.type === "input_image" ? [part.image_url] : [],
+				),
+	);
+}
+
+/** The image parts of a request, in input order, and the reference of each. */
+export interface TypeSafeImagePlan {
+	urls: string[];
+	refs: string[];
+}
+
+/**
+ * Collects the image parts and gives each a fresh UUID reference, which can't
+ * collide with the caller's text, where System One would otherwise swap in
+ * the image. Checks everything it can without downloading.
+ */
+export function planTypeSafeImages(input: DecisionInput): TypeSafeImagePlan {
+	const urls = inputImageUrls(input);
+	if (urls.length > MAX_TYPESAFE_IMAGES) {
+		throw badRequest(
+			`This decision model accepts at most ${MAX_TYPESAFE_IMAGES} images per request.`,
+		);
+	}
+	for (const url of urls) {
+		const mediaType = /^data:([^;,]*)/i.exec(url)?.[1]?.toLowerCase();
+		if (mediaType !== undefined && !TYPESAFE_IMAGE_FORMATS[mediaType]) {
+			throw unsupportedImageFormat(mediaType);
+		}
+	}
+	return { urls, refs: urls.map(() => `image-${randomUUID()}`) };
+}
+
+/**
+ * Loads planned images as System One `assets`, keyed by reference. Images
+ * load one at a time, each limited to what is left of the request's budget,
+ * so the budget also caps the memory a request holds.
+ */
+export async function loadTypeSafeAssets(
+	plan: TypeSafeImagePlan,
+	loadImage: DecisionImageLoader,
+): Promise<Record<string, TypeSafeImageAsset>> {
+	const assets: Record<string, TypeSafeImageAsset> = {};
+	let usedBase64MB = 0;
+	for (const [index, url] of plan.urls.entries()) {
+		const remainingBase64MB = MAX_TYPESAFE_IMAGE_BASE64_MB - usedBase64MB;
+		const remainingMB = remainingBase64MB / BASE64_PER_DECODED_BYTE;
+		// One decimal keeps size errors readable ("the 6.2MB limit").
+		const limitMB =
+			Math.floor(Math.min(MAX_TYPESAFE_IMAGE_MB, remainingMB) * 10) / 10;
+		if (limitMB <= 0) {
+			throw badRequest(
+				`Images in one request may total at most ${MAX_TYPESAFE_TOTAL_IMAGE_MB}MB.`,
+			);
+		}
+		const { data, mimeType } = await loadImage(url, limitMB);
+		const format = TYPESAFE_IMAGE_FORMATS[mimeType.toLowerCase()];
+		if (!format) {
+			throw unsupportedImageFormat(mimeType);
+		}
+		usedBase64MB += data.length / BYTES_PER_MB;
+		assets[plan.refs[index]] = { type: "image", format, data_base64: data };
+	}
+	return assets;
+}
+
+/**
+ * Flattens input into TypeSafe's `state` string. Each image part becomes the
+ * reference of its asset, which System One replaces with the image.
+ */
+function inputToState(input: DecisionInput, imageRefs: string[]): string {
 	if (typeof input === "string") {
 		return input;
 	}
-	if (decisionInputHasImages(input)) {
-		throw badRequest(
-			"This decision model accepts text input only. Use a model with image input, such as gpt-6-luna-decisions, for input_image parts.",
-		);
-	}
+	let imageIndex = 0;
 	return input
 		.map((message) =>
 			typeof message.content === "string"
 				? message.content
 				: message.content
-						.map((part) => (part.type === "input_text" ? part.text : ""))
+						.map((part) =>
+							part.type === "input_text" ? part.text : imageRefs[imageIndex++],
+						)
 						.join("\n"),
 		)
 		.join("\n\n");
@@ -170,15 +293,32 @@ function toTypeSafeQuestion(question: DecisionQuestion) {
 	}
 }
 
-/** Builds the TypeSafe `/v1/systemone` body for an OpenAI-shaped request. */
+/**
+ * Builds the TypeSafe `/v1/systemone` body for an OpenAI-shaped request.
+ * `imageRefs` holds the reference of each image part, from
+ * `planTypeSafeImages`; the `assets` they point to are loaded separately with
+ * `loadTypeSafeAssets`.
+ */
 export function toTypeSafeRequest(
 	upstreamModel: string,
 	request: DecisionRequestBody,
+	imageRefs: string[] = [],
 ): Record<string, unknown> {
+	const imageCount = inputImageUrls(request.input).length;
+	if (imageCount > 0 && imageRefs.length === 0) {
+		throw badRequest(
+			"This decision model accepts text input only. Use a model with image input, such as gpt-6-luna-decisions, for input_image parts.",
+		);
+	}
+	if (imageRefs.length !== imageCount) {
+		throw new Error(
+			`Expected ${imageCount} image references, got ${imageRefs.length}`,
+		);
+	}
 	const keys = questionKeys(request.questions);
 	return {
 		model: upstreamModel,
-		state: inputToState(request.input),
+		state: inputToState(request.input, imageRefs),
 		questions: Object.fromEntries(
 			request.questions.map((question, index) => [
 				keys[index],
