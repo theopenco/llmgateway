@@ -148,6 +148,7 @@ import {
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
+import { processImageUrl } from "@llmgateway/actions";
 import {
 	applyGoogleServiceTier,
 	assumeServedServiceTier,
@@ -214,6 +215,7 @@ import {
 import {
 	applyRedactions,
 	checkGuardrails,
+	resolveGuardrailScope,
 	logViolation,
 } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
@@ -3308,9 +3310,77 @@ chat.openapi(completions, async (c) => {
 		chatPlanExpiresAt: organization.chatPlanExpiresAt,
 	};
 
+	// Get image size limits from environment variables or use defaults
+	const freeLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
+		50,
+	);
+	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
+	const enterpriseLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
+		proLimitMB,
+	);
+
+	// Determine max image size based on plan. Enterprise is never capped below
+	// Pro — bucketing it with free rejected enterprise uploads at the free limit
+	// and then told them to contact us about raising their Enterprise limits.
+	const userPlan = getLicensedOrganizationPlan(
+		organization?.id,
+		organization?.plan,
+	);
+	const maxImageSizeMB =
+		userPlan === "enterprise"
+			? enterpriseLimitMB
+			: userPlan === "pro"
+				? proLimitMB
+				: freeLimitMB;
+
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
 	if (hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
+		const guardrailScope = await resolveGuardrailScope(
+			project.organizationId,
+			project.id,
+		);
+		if (
+			guardrailScope?.config.enabled &&
+			guardrailScope.config.systemRules.file_types?.enabled
+		) {
+			for (const message of messages) {
+				if (!Array.isArray(message.content)) {
+					continue;
+				}
+				for (const part of message.content) {
+					if (
+						part.type !== "image_url" ||
+						part.image_url.url.slice(0, 5).toLowerCase() === "data:"
+					) {
+						continue;
+					}
+					try {
+						const image = await processImageUrl(
+							part.image_url.url,
+							false,
+							maxImageSizeMB,
+							userPlan,
+						);
+						part.image_url.url = `data:${image.mimeType};base64,${image.data}`;
+					} catch (error) {
+						const message =
+							error instanceof Error
+								? error.message
+								: "Unable to validate attachment";
+						await logGatewayRejection({
+							message,
+							statusCode: 400,
+							statusText: "Bad Request",
+							cause: "attachment_validation_failed",
+						});
+						throw new HTTPException(400, { message });
+					}
+				}
+			}
+		}
 		guardrailResult = await checkGuardrails({
 			organizationId: project.organizationId,
 			projectId: project.id,
@@ -3704,31 +3774,6 @@ chat.openapi(completions, async (c) => {
 			usedRegion = requestedRegion;
 		}
 	}
-
-	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = imageSizeLimitMB(
-		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
-		50,
-	);
-	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
-	const enterpriseLimitMB = imageSizeLimitMB(
-		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
-		proLimitMB,
-	);
-
-	// Determine max image size based on plan. Enterprise is never capped below
-	// Pro — bucketing it with free rejected enterprise uploads at the free limit
-	// and then told them to contact us about raising their Enterprise limits.
-	const userPlan = getLicensedOrganizationPlan(
-		organization?.id,
-		organization?.plan,
-	);
-	const maxImageSizeMB =
-		userPlan === "enterprise"
-			? enterpriseLimitMB
-			: userPlan === "pro"
-				? proLimitMB
-				: freeLimitMB;
 
 	// Validate IAM rules for model access
 	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
