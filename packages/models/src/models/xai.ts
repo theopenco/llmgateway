@@ -524,6 +524,7 @@ export const xaiModels = [
 			{
 				providerId: "azure-ai-foundry",
 				externalId: "grok-4-1-fast-non-reasoning",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",

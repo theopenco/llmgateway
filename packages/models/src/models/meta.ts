@@ -774,6 +774,7 @@ export const metaModels = [
 				providerId: "novita",
 				stability: "unstable",
 				externalId: "meta-llama/llama-3.2-3b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.03e-6",
 				outputPrice: "0.05e-6",
 				requestPrice: "0",
