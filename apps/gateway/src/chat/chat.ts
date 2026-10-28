@@ -11089,8 +11089,7 @@ chat.openapi(completions, async (c) => {
 					webSearchTool &&
 					!usedWebSearchFormat() &&
 					(usedProvider === "zai" ||
-						((usedProvider === "alibaba" || usedProvider === "scx-ai-gp") &&
-							webSearchTool.forced))
+						(usedProvider === "alibaba" && webSearchTool.forced))
 						? 1
 						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices

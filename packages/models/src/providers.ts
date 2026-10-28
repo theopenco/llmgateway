@@ -1589,67 +1589,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "scx-ai",
-		managedInAirside: true,
-		name: "SCX.ai (Turbo)",
-		forwardsSafetyIdentifier: false,
-		description:
-			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
-		env: {
-			required: {
-				apiKey: "LLM_SCX_AI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#1a1a2e",
-		modelCardBadge: "Up to 4x faster",
-		website: "https://scx.ai",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://scx.ai/terms",
-		privacyPolicyUrl: "https://scx.ai/privacy",
-		usagePolicyUrl: "https://scx.ai/terms",
-		legalEntity: "SCX.ai Holdings Limited",
-		headquarters: "AU",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 1,
-			iso27001: true,
-		},
-	},
-	{
-		id: "scx-ai-gp",
-		managedInAirside: true,
-		name: "SCX.ai",
-		forwardsSafetyIdentifier: false,
-		description:
-			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible general-purpose inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
-		env: {
-			required: {
-				apiKey: "LLM_SCX_AI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#1a1a2e",
-		website: "https://scx.ai",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://scx.ai/terms",
-		privacyPolicyUrl: "https://scx.ai/privacy",
-		usagePolicyUrl: "https://scx.ai/terms",
-		legalEntity: "SCX.ai Holdings Limited",
-		headquarters: "AU",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 1,
-			iso27001: true,
-		},
-	},
-	{
 		id: "custom",
 		name: "Custom",
 		forwardsSafetyIdentifier: false,
@@ -2760,7 +2699,6 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	FR: "France",
 	JP: "Japan",
 	KZ: "Kazakhstan",
-	AU: "Australia",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

@@ -43,9 +43,9 @@
 	"prettier": "@steebchen/prettier-config",
 	"devDependencies": {
 		"@abinnovision/eslint-config-react": "3.1.1",
-		"@playwright/test": "1.61.1",
+		"@playwright/test": "1.64.1",
 		"@semantic-release/exec": "^7.1.0",
-		"@semantic-release/npm": "^13.1.5",
+		"@semantic-release/npm": "^13.2.0",
 		"@steebchen/commitlint-config": "^1.7.0",
 		"@steebchen/eslint-config": "^1.11.1",
 		"@steebchen/lint-base": "1.1.0",
