@@ -37,7 +37,7 @@ const comparisonData = [
 				llmgateway:
 					"Provider tiers billed at cost, with cost logged per request",
 				copilot:
-					"Provider tiers passed through (e.g. >272K GPT-6, >200K Grok, >100K Haiku 5.5)",
+					"Provider tiers passed through (>272K GPT-6, >200K Grok, >100K Haiku 5.5); rates collapsed in the model picker",
 			},
 			{
 				title: "Model and cost visibility",
