@@ -301,6 +301,11 @@ export interface DecisionUpstreamRequest {
 	body: Record<string, unknown>;
 	/** Extra request headers, e.g. TypeSafe's image opt-in. */
 	headers?: Record<string, string>;
+	/**
+	 * Loads remote input, such as image downloads, merged into `body`. Runs only
+	 * once the request passed the rate-limit, credit and credential gates.
+	 */
+	loadBody?: () => Promise<Record<string, unknown>>;
 }
 
 export interface NormalizedDecisionResponse {
@@ -342,7 +347,7 @@ export interface DecisionEndpoint {
 		upstreamModel: string,
 		safetyIdentifier: string,
 		wireFormat: DecisionWireFormat,
-	) => DecisionUpstreamRequest | Promise<DecisionUpstreamRequest>;
+	) => DecisionUpstreamRequest;
 	normalizeResponse: (
 		providerId: string,
 		upstream: Record<string, unknown>,
@@ -499,6 +504,17 @@ export async function handleDecisionRequest(
 		});
 	}
 
+	// Translate only once the caller is allowed to use the model, so a denied
+	// caller sees the access error rather than an input error. Translation runs
+	// before the rate-limit check, so an invalid request uses no slot.
+	const upstreamRequest = endpoint.buildUpstreamRequest(
+		providerId,
+		upstreamModel,
+		apiKey.safetyIdentifier,
+		wireFormat,
+	);
+	let upstreamBody = upstreamRequest.body;
+
 	// Carrier-set and admin caps for the pair apply as they do on chat.
 	const rateLimit = await checkProviderRateLimit(
 		project.organizationId,
@@ -519,16 +535,6 @@ export async function handleDecisionRequest(
 			message: `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`,
 		});
 	}
-
-	// Translate only once the caller is allowed to use the model and within its
-	// rate limit: a denied caller sees the access error rather than an input
-	// error, and image downloads never run for a rejected request.
-	const upstreamRequest = await endpoint.buildUpstreamRequest(
-		providerId,
-		upstreamModel,
-		apiKey.safetyIdentifier,
-		wireFormat,
-	);
 
 	const discount = new Decimal(
 		(
@@ -713,7 +719,7 @@ export async function handleDecisionRequest(
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}${upstreamRequest.path}`,
 			tenantBaseUrl: providerKeyInner?.baseUrl ?? airsideBaseUrl ?? null,
-			requestBody: upstreamRequest.body,
+			requestBody: upstreamBody,
 		};
 	}
 
@@ -744,6 +750,13 @@ export async function handleDecisionRequest(
 	}
 
 	let attempt: DecisionAttempt = await resolveAttempt();
+
+	// Remote input (image downloads) loads only after the first attempt passed
+	// the credit and credential gates; retries reuse the loaded body.
+	if (upstreamRequest.loadBody) {
+		upstreamBody = { ...upstreamBody, ...(await upstreamRequest.loadBody()) };
+		attempt = { ...attempt, requestBody: upstreamBody };
+	}
 
 	const controller = new AbortController();
 	const onAbort = () => {

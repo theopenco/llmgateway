@@ -3,11 +3,24 @@ import { describe, expect, it } from "vitest";
 
 import {
 	fromTypeSafeResponse,
-	loadTypeSafeImages,
+	loadTypeSafeAssets,
+	MAX_TYPESAFE_IMAGES,
+	planTypeSafeImages,
 	toTypeSafeRequest,
 	type DecisionRequestBody,
-	MAX_TYPESAFE_IMAGES,
 } from "./typesafe-translation.js";
+
+function imageInput(urls: string[]): DecisionRequestBody["input"] {
+	return [
+		{
+			role: "user",
+			content: urls.map((url) => ({
+				type: "input_image" as const,
+				image_url: url,
+			})),
+		},
+	];
+}
 
 describe("typesafe translation", () => {
 	it("replaces each image part with a reference to its asset", async () => {
@@ -25,64 +38,58 @@ describe("typesafe translation", () => {
 			],
 			questions: [{ type: "predicate", instructions: "Same dog?" }],
 		};
-		const images = await loadTypeSafeImages(request.input, async (url) => ({
+		const plan = planTypeSafeImages(request.input);
+		const body = toTypeSafeRequest("jev-1.14.0", request, plan.refs);
+		const assets = await loadTypeSafeAssets(plan, async (url) => ({
 			data: url,
 			mimeType: url === "first" ? "image/png" : "image/jpeg",
 		}));
 
-		const body = toTypeSafeRequest("jev-1.14.0", request, images);
-		const assets = body.assets as Record<string, { data_base64: string }>;
-		const [first, second] = Object.keys(assets);
-		expect(assets[first]).toEqual({
-			type: "image",
-			format: "png",
-			data_base64: "first",
-		});
-		expect(assets[second]).toEqual({
-			type: "image",
-			format: "jpg",
-			data_base64: "second",
+		const [first, second] = plan.refs;
+		expect(body.assets).toBeUndefined();
+		expect(assets).toEqual({
+			[first]: { type: "image", format: "png", data_base64: "first" },
+			[second]: { type: "image", format: "jpg", data_base64: "second" },
 		});
 		expect(body.state).toBe(`${first}\nbetween\n${second}`);
 	});
 
-	it("caps the image count before loading any image", async () => {
-		let loads = 0;
-		const input: DecisionRequestBody["input"] = [
-			{
-				role: "user",
-				content: Array.from({ length: MAX_TYPESAFE_IMAGES + 1 }, () => ({
-					type: "input_image" as const,
-					image_url: "x",
-				})),
-			},
-		];
-		await expect(
-			loadTypeSafeImages(input, async () => {
-				loads++;
-				return { data: "", mimeType: "image/png" };
-			}),
-		).rejects.toThrow(HTTPException);
-		expect(loads).toBe(0);
+	it("rejects too many images and non-PNG/JPEG data URLs without loading", () => {
+		expect(() =>
+			planTypeSafeImages(
+				imageInput(Array.from({ length: MAX_TYPESAFE_IMAGES + 1 }, () => "x")),
+			),
+		).toThrow(HTTPException);
+		expect(() =>
+			planTypeSafeImages(imageInput(["data:image/webp;base64,UklGRg=="])),
+		).toThrow("PNG and JPEG");
+		expect(
+			planTypeSafeImages(imageInput(["data:image/png;base64,iVBORw0="])).refs,
+		).toHaveLength(1);
 	});
 
-	it("shrinks each image's size limit to what is left of the request total", async () => {
+	it("limits each image to what is left of the request's base64 budget", async () => {
 		const limits: number[] = [];
 		const tenMB = "A".repeat((10 * 1024 * 1024 * 4) / 3);
-		const input: DecisionRequestBody["input"] = [
-			{
-				role: "user",
-				content: Array.from({ length: 4 }, () => ({
-					type: "input_image" as const,
-					image_url: "x",
-				})),
-			},
-		];
-		await loadTypeSafeImages(input, async (_url, maxSizeMB) => {
+		const load = async (_url: string, maxSizeMB: number) => {
 			limits.push(maxSizeMB);
 			return { data: tenMB, mimeType: "image/png" };
-		});
-		expect(limits.map((limit) => Math.round(limit))).toEqual([16, 16, 12, 2]);
+		};
+
+		await loadTypeSafeAssets(
+			planTypeSafeImages(imageInput(["a", "b", "c"])),
+			load,
+		);
+		expect(limits).toEqual([16, 12.5, 2.5]);
+
+		limits.length = 0;
+		await expect(
+			loadTypeSafeAssets(
+				planTypeSafeImages(imageInput(["a", "b", "c", "d"])),
+				load,
+			),
+		).rejects.toThrow("may total at most");
+		expect(limits).toHaveLength(3);
 	});
 
 	it("rejects image input it has no assets for", () => {

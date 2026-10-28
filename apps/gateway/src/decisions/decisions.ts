@@ -17,7 +17,8 @@ import { handleDecisionRequest } from "./handle-decision-request.js";
 import {
 	decisionInputHasImages,
 	fromTypeSafeResponse,
-	loadTypeSafeImages,
+	loadTypeSafeAssets,
+	planTypeSafeImages,
 	toTypeSafeRequest,
 	TYPESAFE_IMAGES_HEADER,
 } from "./typesafe-translation.js";
@@ -340,7 +341,7 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 			.join(", ")}`,
 		// System One providers get a translated request; OpenAI and Airside
 		// carriers take the OpenAI-compatible body as-is.
-		buildUpstreamRequest: async (
+		buildUpstreamRequest: (
 			providerId,
 			upstreamModel,
 			safetyIdentifier,
@@ -361,14 +362,20 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 					},
 				};
 			}
-			// System One takes images as inline base64 assets, so remote URLs are
-			// downloaded here.
-			const images = await loadTypeSafeImages(request.input, loadDecisionImage);
+			const images = planTypeSafeImages(request.input);
 			return {
 				path: getDecisionsUpstreamPath(providerId as ProviderId),
-				body: toTypeSafeRequest(upstreamModel, request, images),
-				headers:
-					images.length > 0 ? { [TYPESAFE_IMAGES_HEADER]: "true" } : undefined,
+				body: toTypeSafeRequest(upstreamModel, request, images.refs),
+				...(images.urls.length > 0
+					? {
+							headers: { [TYPESAFE_IMAGES_HEADER]: "true" },
+							// System One takes images as inline base64 assets, so
+							// remote URLs are downloaded.
+							loadBody: async () => ({
+								assets: await loadTypeSafeAssets(images, loadDecisionImage),
+							}),
+						}
+					: {}),
 			};
 		},
 		normalizeResponse: (_providerId, upstream, responseModel, wireFormat) => {

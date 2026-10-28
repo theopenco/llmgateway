@@ -181,9 +181,10 @@ on models that accept them:
 ```
 
 Text-only models such as `microsoft-decision-1` reject image parts with a 400.
-TypeSafe's Jev models take PNG and JPEG images only, between 280 and 1568
-pixels per side, up to 16 images and 32 MB in total per request; TypeSafe
-treats image input as experimental.
+TypeSafe's Jev models take PNG and JPEG images only. The gateway accepts up to
+16 images and 22.5 MB of image data per request, 16 MB per image, so the
+request fits TypeSafe's body limit; TypeSafe rejects images under 280 or over
+1568 pixels per side. TypeSafe treats image input as experimental.
 
 <Callout type="info">
 	Decision models are billed on input tokens only — the input plus every

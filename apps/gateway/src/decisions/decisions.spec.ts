@@ -331,6 +331,9 @@ describe("decisions", () => {
 		});
 
 		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain(
+			"accepts text input only",
+		);
 	});
 
 	test("/v1/decisions rejects a chat model", async () => {
