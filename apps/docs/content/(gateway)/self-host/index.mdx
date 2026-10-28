@@ -64,6 +64,8 @@ off for small databases, where building an index inside the migration is quick.
 
 For self-hosted DevPass and Airside, set `UI_URL` and `PLAYGROUND_URL` to your Gateway dashboard and Lounge origins. When unset, these apps use `https://llmgateway.io` and `https://lounge.llmgateway.io`; with `NODE_ENV=development`, they use `http://localhost:3002` and `http://localhost:3003`.
 
+For frontends hosted separately from the backend, follow [Split deployments](/self-host/split-deployment) to configure public and server-side URLs, shared session cookies, CORS, and client IP forwarding.
+
 ## Database sessions and health checks
 
 The gateway, API, and worker set these limits on every Postgres connection, so
