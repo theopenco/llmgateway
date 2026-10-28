@@ -909,7 +909,12 @@ async function probeWebSearchAccess(
 	}
 
 	if (response.status !== 401 && response.status !== 403) {
-		if (!response.ok) {
+		if (response.ok) {
+			logger.debug("Web search key probe passed", {
+				provider,
+				model: probe.modelId,
+			});
+		} else {
 			logger.warn("Web search key probe failed", {
 				provider,
 				model: probe.modelId,
