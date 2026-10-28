@@ -683,6 +683,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-thinking-2507",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.3e-6",
 				outputPrice: "3e-6",
 				requestPrice: "0",
@@ -720,6 +721,7 @@ export const alibabaModels = [
 				stability: "unstable",
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-fp8",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
 				requestPrice: "0",
@@ -1034,6 +1036,7 @@ export const alibabaModels = [
 				providerId: "novita",
 				stability: "unstable",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.38e-6",
 				outputPrice: "1.55e-6",
 				requestPrice: "0",
@@ -1087,6 +1090,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-coder-30b-a3b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.07e-6",
 				outputPrice: "0.27e-6",
 				requestPrice: "0",
@@ -1367,6 +1371,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-next-80b-a3b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1456,6 +1461,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-max",
+				deactivatedAt: new Date("2026-10-28"),
 				// Novita tiers this model by prompt length; the flat fields below are
 				// the lowest tier for routing comparisons, actual billing uses
 				// pricingTiers (verified live 2026-08-18).

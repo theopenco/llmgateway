@@ -586,6 +586,7 @@ export const minimaxModels = [
 				providerId: "novita",
 				test: "skip",
 				externalId: "minimax/minimax-m2.1",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
