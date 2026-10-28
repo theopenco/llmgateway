@@ -74,6 +74,10 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 		log "merge conflict with the base branch"
 		exit 3
 	fi
+	if [ "$merge_state" = "BEHIND" ]; then
+		log "branch is behind the base branch; merge it in and push"
+		exit 3
+	fi
 
 	if [ "$pending" -eq 0 ] && [ "$merge_state" = "BLOCKED" ]; then
 		green_since="${green_since:-$(date +%s)}"

@@ -4,7 +4,7 @@
 # on one image tag whose commit contains <merge-sha>. A later image bump often
 # ships the commit first; deployments of third-party images are skipped.
 # Extra arguments go to kubectl (e.g. --context <ctx> -n <namespace>).
-# Exit 0: live. 1: timed out. 2: usage.
+# Exit 0: live. 1: timed out. 2: usage. 4: kubectl failing or no deployments.
 
 set -euo pipefail
 
@@ -17,25 +17,42 @@ sha="$1"
 shift
 interval="${POLL_SECONDS:-30}"
 timeout_min="${TIMEOUT_MINUTES:-120}"
+max_failures="${MAX_KUBECTL_FAILURES:-5}"
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
+# Columns: name, image, want, current, updated, ready, available, generation,
+# observed generation. Missing counts print as <none>.
 deployments() {
-	kubectl "$@" get deploy \
-		-o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas,WANT:.spec.replicas' \
-		--no-headers |
-		awk '$2 ~ /^ghcr\.io\/theopenco\/llmgateway-/'
+	kubectl "$@" get deploy --no-headers \
+		-o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,WANT:.spec.replicas,CURRENT:.status.replicas,UPDATED:.status.updatedReplicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,GEN:.metadata.generation,OBSERVED:.status.observedGeneration'
 }
 
+failures=0
 last=""
 deadline=$(($(date +%s) + timeout_min * 60))
 while [ "$(date +%s)" -lt "$deadline" ]; do
-	rows=$(deployments "$@" || true)
+	if ! all=$(deployments "$@" 2>/tmp/wait-for-rollout.$$.err); then
+		failures=$((failures + 1))
+		log "kubectl failed ($failures/$max_failures): $(head -c 300 /tmp/wait-for-rollout.$$.err)"
+		if [ "$failures" -ge "$max_failures" ]; then
+			rm -f /tmp/wait-for-rollout.$$.err
+			exit 4
+		fi
+		sleep "$interval"
+		continue
+	fi
+	failures=0
+	rows=$(printf '%s\n' "$all" | awk '$2 ~ /^ghcr\.io\/theopenco\/llmgateway-/')
 	if [ -z "$rows" ]; then
-		log "no llmgateway deployments visible; check the kubectl context"
+		log "no llmgateway deployments in this context; check the kubectl context and namespace"
+		rm -f /tmp/wait-for-rollout.$$.err
+		exit 4
 	else
 		tags=$(printf '%s\n' "$rows" | awk '{sub(/.*:v0\.0\.0-/, "", $2); print $2}' | sort -u)
-		not_ready=$(printf '%s\n' "$rows" | awk '$3 != $4 {print $1}')
+		# Rolled out: the controller saw the latest spec, and every pod (no
+		# leftovers from the old ReplicaSet) runs it, ready and available.
+		not_ready=$(printf '%s\n' "$rows" | awk '$4 != $3 || $5 != $3 || $6 != $3 || $7 != $3 || $9 != $8 {print $1}')
 		status="tags: $(echo "$tags" | tr '\n' ' ')not ready: ${not_ready:-none}"
 		[ "$status" != "$last" ] && log "$status"
 		last="$status"
@@ -44,6 +61,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 			if git merge-base --is-ancestor "$sha" "$tags" 2>/dev/null; then
 				log "live: $sha ships in v0.0.0-$tags"
 				printf '%s\n' "$rows"
+				rm -f /tmp/wait-for-rollout.$$.err
 				exit 0
 			fi
 		fi
@@ -53,4 +71,5 @@ done
 
 log "not live after ${timeout_min} minutes"
 printf '%s\n' "${rows:-}"
+rm -f /tmp/wait-for-rollout.$$.err
 exit 1
