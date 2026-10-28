@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { and, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -28,7 +29,7 @@ function floorTo(date: Date, ms: number): Date {
 interface LoadOverview {
 	window: string;
 	bucket: "minute" | "hour" | "day";
-	source: "mapping-history" | "project-stats";
+	source: "mapping-history" | "project-stats" | "provider-key-stats";
 	summarySource: "mapping-history" | "project-stats";
 	groupBy: string;
 	summary: {
@@ -1033,6 +1034,111 @@ describe("admin — gateway load", () => {
 			});
 			expect(past.page).toBe(2);
 			expect(past.rows.map((row) => row.key)).toEqual([ORG_B]);
+		});
+	});
+
+	describe("provider key axis", () => {
+		const MANAGED_KEY = "load-pk-managed";
+		const BYOK_KEY = "load-pk-byok";
+		const query = { window: "1d", groupBy: "provider-key" };
+
+		beforeEach(async () => {
+			await db.insert(tables.providerKey).values([
+				{
+					id: MANAGED_KEY,
+					...encryptProviderKeyForStorage("sk-load-managed", MANAGED_KEY, null),
+					provider: "openai",
+					managed: true,
+					comment: "Pool A",
+					variant: "enterprise",
+				},
+				{
+					id: BYOK_KEY,
+					...encryptProviderKeyForStorage("sk-load-byok", BYOK_KEY, ORG_A),
+					provider: "openai",
+					organizationId: ORG_A,
+				},
+			]);
+			await db.insert(tables.providerKeyHourlyStats).values([
+				{
+					providerKeyId: MANAGED_KEY,
+					projectId: PROJECT_A,
+					hourTimestamp: closedHour,
+					requestCount: 5000,
+					errorCount: 60,
+					clientErrorCount: 10,
+					upstreamErrorCount: 50,
+				},
+				{
+					providerKeyId: MANAGED_KEY,
+					projectId: PROJECT_B,
+					hourTimestamp: closedHour,
+					requestCount: 600,
+				},
+				// BYOK traffic is the tenant's own credential and never shows up.
+				{
+					providerKeyId: BYOK_KEY,
+					projectId: PROJECT_A,
+					hourTimestamp: closedHour,
+					requestCount: 900,
+				},
+			]);
+		});
+
+		test("ranks managed keys and folds the rest of credits into unattributed", async () => {
+			const body = await fetchLoad(cookie, query);
+
+			expect(body.source).toBe("provider-key-stats");
+			expect(body.bucket).toBe("hour");
+			expect(body.breakdown.map((row) => [row.key, row.requestCount])).toEqual([
+				[MANAGED_KEY, 5600],
+				// 8100 credits requests across both projects, minus 5600 attributed.
+				["unattributed", 2500],
+			]);
+			const [managed, unattributed] = body.breakdown;
+			expect(managed.label).toBe("OpenAI · Pool A (enterprise)");
+			expect(unattributed.label).toBe("Unattributed");
+			expect(managed.share).toBeCloseTo(5600 / 8100, 6);
+			expect(managed.avgDurationMs).toBeNull();
+			expect(managed.avgTimeToFirstTokenMs).toBeNull();
+			// Project A logged 12 client and 60 upstream errors; the key took 10 and 50.
+			expect(unattributed.clientErrorCount).toBe(2);
+			expect(unattributed.errorCount).toBe(10);
+
+			const closed = body.data.find(
+				(point) =>
+					point.timestamp === closedHour.toISOString().replace(".000", ""),
+			);
+			expect(closed?.requestCount).toBe(8100);
+		});
+
+		test("scopes to an organization", async () => {
+			const body = await fetchLoad(cookie, {
+				...query,
+				organizationId: ORG_B,
+			});
+
+			expect(body.breakdown.map((row) => [row.key, row.requestCount])).toEqual([
+				[MANAGED_KEY, 600],
+				["unattributed", 300],
+			]);
+		});
+
+		test("rejects an API key filter", async () => {
+			const params = new URLSearchParams({ ...query, apiKeyId: API_KEY_A });
+			const res = await app.request(`/admin/load/overview?${params}`, {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("the breakdown endpoint agrees with the overview", async () => {
+			const [overview, breakdown] = await Promise.all([
+				fetchLoad(cookie, query),
+				fetchBreakdown(cookie, { ...query, sortBy: "label", sortOrder: "asc" }),
+			]);
+			expect(breakdown.rows).toEqual(overview.breakdown);
+			expect(breakdown.totalKeys).toBe(2);
 		});
 	});
 });

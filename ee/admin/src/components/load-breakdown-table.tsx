@@ -131,13 +131,14 @@ function SortableHead({
 export function LoadBreakdownTable({
 	query,
 	groupLabel,
-	linkOrganizations,
+	rowHref,
 	defaultSortBy,
 	refetchInterval,
 }: {
 	query: Omit<BreakdownQuery, "sortBy" | "sortOrder" | "page" | "pageSize">;
 	groupLabel: string;
-	linkOrganizations: boolean;
+	/** Detail page for a row, or null when the key has none. */
+	rowHref?: (key: string) => string | null;
 	defaultSortBy: SortBy;
 	refetchInterval: number | false;
 }) {
@@ -259,60 +260,63 @@ export function LoadBreakdownTable({
 								</TableCell>
 							</TableRow>
 						) : (
-							rows.map((row) => (
-								<TableRow key={row.key}>
-									<TableCell className="max-w-[320px] truncate font-medium">
-										{linkOrganizations ? (
-											<Link
-												href={`/organizations/${row.key}`}
-												className="hover:underline"
-											>
-												{row.label}
-											</Link>
-										) : (
-											row.label
-										)}
-									</TableCell>
-									<TableCell className="text-right tabular-nums">
-										{formatNumber(Math.round(row.requestCount))}
-									</TableCell>
-									<TableCell className="text-right tabular-nums">
-										{formatRps(row.avgRps)}
-									</TableCell>
-									<TableCell className="text-right tabular-nums">
-										{formatRps(row.peakRps)}
-									</TableCell>
-									<TableCell className="text-right tabular-nums">
-										{formatShare(row.share)}
-									</TableCell>
-									<TableCell
-										className="text-right tabular-nums"
-										title={
-											row.errorCount === null
-												? undefined
-												: `${formatNumber(row.errorCount)} errors`
-										}
-									>
-										{formatErrorRate(row.errorRate)}
-									</TableCell>
-									<TableCell
-										className="text-right tabular-nums text-muted-foreground"
-										title={
-											row.clientErrorCount === null
-												? undefined
-												: `${formatNumber(row.clientErrorCount)} client errors`
-										}
-									>
-										{formatErrorRate(row.clientErrorRate)}
-									</TableCell>
-									<TableCell className="text-right tabular-nums">
-										{formatDurationMs(row.avgDurationMs)}
-									</TableCell>
-									<TableCell className="text-right tabular-nums">
-										{formatDurationMs(row.avgTimeToFirstTokenMs)}
-									</TableCell>
-								</TableRow>
-							))
+							rows.map((row) => {
+								const href = rowHref?.(row.key) ?? null;
+								return (
+									<TableRow key={row.key}>
+										<TableCell
+											className="max-w-[320px] truncate font-medium"
+											title={row.label}
+										>
+											{href ? (
+												<Link href={href} className="hover:underline">
+													{row.label}
+												</Link>
+											) : (
+												row.label
+											)}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatNumber(Math.round(row.requestCount))}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatRps(row.avgRps)}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatRps(row.peakRps)}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatShare(row.share)}
+										</TableCell>
+										<TableCell
+											className="text-right tabular-nums"
+											title={
+												row.errorCount === null
+													? undefined
+													: `${formatNumber(row.errorCount)} errors`
+											}
+										>
+											{formatErrorRate(row.errorRate)}
+										</TableCell>
+										<TableCell
+											className="text-right tabular-nums text-muted-foreground"
+											title={
+												row.clientErrorCount === null
+													? undefined
+													: `${formatNumber(row.clientErrorCount)} client errors`
+											}
+										>
+											{formatErrorRate(row.clientErrorRate)}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatDurationMs(row.avgDurationMs)}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatDurationMs(row.avgTimeToFirstTokenMs)}
+										</TableCell>
+									</TableRow>
+								);
+							})
 						)}
 					</TableBody>
 				</Table>
