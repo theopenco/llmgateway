@@ -51,6 +51,7 @@ export const providerLogoUrls: Partial<
 	consensusprotocol: ProviderIcons.consensusprotocol,
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
+	cloudflare: ProviderIcons.cloudflare,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

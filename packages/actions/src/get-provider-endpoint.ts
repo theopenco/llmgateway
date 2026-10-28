@@ -17,7 +17,10 @@ import {
 	resolveVertexTokenType,
 	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
-import { isProviderHostnameLabel } from "@llmgateway/shared";
+import {
+	isProviderHostnameLabel,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
+} from "@llmgateway/shared";
 
 import { getBedrockProfilePrefix } from "./provider-api-format.js";
 
@@ -271,6 +274,23 @@ export function getAzureFoundryBaseUrl(resource: string): string {
 		);
 	}
 	return `https://${resource}.services.ai.azure.com`;
+}
+
+/** Workers AI's OpenAI-compatible base URL is scoped to the account. */
+export function getCloudflareWorkersAiBaseUrl(
+	accountId: string | undefined,
+): string {
+	if (!accountId) {
+		throw new Error(
+			"Cloudflare requires an account ID - set via provider options or the LLM_CLOUDFLARE_ACCOUNT_ID env var",
+		);
+	}
+	if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
+		throw new Error(
+			"Cloudflare account ID is invalid - must be 32 lowercase hex characters",
+		);
+	}
+	return `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai`;
 }
 
 export function getProviderDefaultBaseUrl(
@@ -637,6 +657,22 @@ export function getProviderEndpoint(
 					);
 				}
 				url = `https://${resource}.services.ai.azure.com`;
+				break;
+			}
+			case "cloudflare": {
+				const accountId =
+					credentialConfig?.accountId ??
+					providerKeyOptions?.cloudflare_account_id ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"cloudflare",
+								"accountId",
+								configIndex,
+								undefined,
+								variant,
+							));
+				url = getCloudflareWorkersAiBaseUrl(accountId);
 				break;
 			}
 			case "custom":
@@ -1099,6 +1135,7 @@ export function getProviderEndpoint(
 		case "ranoai":
 		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

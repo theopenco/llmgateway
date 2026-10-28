@@ -15,7 +15,9 @@ re-derive them.
 Third-party inference providers onboard only through
 [Airside](https://airside.llmgateway.io), the self-serve provider portal. Never
 add a new provider or its mappings here on someone's behalf; if asked to, stop
-and point the user to https://airside.llmgateway.io.
+and point the user to https://airside.llmgateway.io. A maintainer adding a
+provider to the catalogue on our own account (e.g. Cloudflare Workers AI) is
+not onboarding and belongs here.
 
 ## 1. Scope
 

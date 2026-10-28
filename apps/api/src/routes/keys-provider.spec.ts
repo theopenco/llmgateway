@@ -491,6 +491,37 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("POST /keys/provider cloudflare account id", () => {
+		const postCloudflareKey = (options?: Record<string, string>) =>
+			app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "cloudflare",
+					token: "cloudflare-test-token",
+					organizationId: "test-org-id",
+					options,
+				}),
+			});
+
+		test("requires an account id", async () => {
+			const res = await postCloudflareKey();
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("account ID");
+		});
+
+		test.each(["../evil", "0123456789ABCDEF0123456789ABCDEF", "abc"])(
+			"rejects an account id that is not 32 lowercase hex chars (%s)",
+			async (cloudflare_account_id) => {
+				const res = await postCloudflareKey({ cloudflare_account_id });
+				expect(res.status).toBe(400);
+			},
+		);
+	});
+
 	test("POST /keys/provider with invalid provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
