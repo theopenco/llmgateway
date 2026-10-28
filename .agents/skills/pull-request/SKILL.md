@@ -168,8 +168,8 @@ When the user explicitly asks to set a PR to auto-merge, enable it
 
 1. Run `.agents/skills/pull-request/scripts/wait-for-pr.sh <n>` as a background
    job until it exits 0 (merged). Exit 3 means the PR needs you: a failed check,
-   a merge conflict, a branch behind `main`, a green PR still blocked (usually a required review), or an
-   unresolved review thread. Unresolved threads block auto-merge even when every
+   a merge conflict, a branch behind its base branch, a green PR still blocked
+   (usually a required review), or an unresolved review thread. Unresolved threads block auto-merge even when every
    check is green, and CodeRabbit can open new ones after each push. Fix the
    cause or reply and resolve the thread (see "After opening"), push, and run
    the script again. Never bypass checks (see `AGENTS.md`).
@@ -183,9 +183,10 @@ When the user explicitly asks to set a PR to auto-merge, enable it
    every deployment of our `ghcr.io/theopenco/llmgateway-*` images is ready on
    one tag whose commit contains the merge commit. A later image bump often
    ships the commit first, so the merge commit's own tag may never run;
-   third-party images are skipped. Exit 4 means `kubectl` keeps failing or
-   sees no deployments; fix access or the context. Then send a final message
-   saying it is live.
+   third-party images are skipped. Exit 4 means `kubectl` failed several times
+   in a row, or the selected context and namespace hold no deployment of our
+   images (third-party ones do not count); fix access or point it at the
+   production namespace. Then send a final message saying it is live.
 
 Run both scripts as background jobs instead of polling in the conversation.
 Without `kubectl` access, confirm the deploy run succeeded and say the pods were

@@ -18,13 +18,18 @@ shift
 interval="${POLL_SECONDS:-30}"
 timeout_min="${TIMEOUT_MINUTES:-120}"
 max_failures="${MAX_KUBECTL_FAILURES:-5}"
+request_timeout="${KUBECTL_REQUEST_TIMEOUT:-30s}"
+
+err_file=$(mktemp)
+trap 'rm -f "$err_file"' EXIT
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
 # Columns: name, image, want, current, updated, ready, available, generation,
-# observed generation. Missing counts print as <none>.
+# observed generation. Missing counts print as <none>. The request timeout
+# keeps a hung API server from stalling the deadline and failure count.
 deployments() {
-	kubectl "$@" get deploy --no-headers \
+	kubectl --request-timeout="$request_timeout" "$@" get deploy --no-headers \
 		-o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,WANT:.spec.replicas,CURRENT:.status.replicas,UPDATED:.status.updatedReplicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,GEN:.metadata.generation,OBSERVED:.status.observedGeneration'
 }
 
@@ -32,11 +37,10 @@ failures=0
 last=""
 deadline=$(($(date +%s) + timeout_min * 60))
 while [ "$(date +%s)" -lt "$deadline" ]; do
-	if ! all=$(deployments "$@" 2>/tmp/wait-for-rollout.$$.err); then
+	if ! all=$(deployments "$@" 2>"$err_file"); then
 		failures=$((failures + 1))
-		log "kubectl failed ($failures/$max_failures): $(head -c 300 /tmp/wait-for-rollout.$$.err)"
+		log "kubectl failed ($failures/$max_failures): $(head -c 300 "$err_file")"
 		if [ "$failures" -ge "$max_failures" ]; then
-			rm -f /tmp/wait-for-rollout.$$.err
 			exit 4
 		fi
 		sleep "$interval"
@@ -45,8 +49,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 	failures=0
 	rows=$(printf '%s\n' "$all" | awk '$2 ~ /^ghcr\.io\/theopenco\/llmgateway-/')
 	if [ -z "$rows" ]; then
-		log "no llmgateway deployments in this context; check the kubectl context and namespace"
-		rm -f /tmp/wait-for-rollout.$$.err
+		log "no deployments of ghcr.io/theopenco/llmgateway-* images in this context and namespace"
 		exit 4
 	else
 		tags=$(printf '%s\n' "$rows" | awk '{sub(/.*:v0\.0\.0-/, "", $2); print $2}' | sort -u)
@@ -57,11 +60,11 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 		[ "$status" != "$last" ] && log "$status"
 		last="$status"
 		if [ -z "$not_ready" ] && [ "$(echo "$tags" | wc -l)" -eq 1 ]; then
-			git fetch -q origin
+			# A failed fetch only delays the check; the next poll retries it.
+			git fetch -q origin || log "git fetch failed; retrying next poll"
 			if git merge-base --is-ancestor "$sha" "$tags" 2>/dev/null; then
 				log "live: $sha ships in v0.0.0-$tags"
 				printf '%s\n' "$rows"
-				rm -f /tmp/wait-for-rollout.$$.err
 				exit 0
 			fi
 		fi
@@ -71,5 +74,4 @@ done
 
 log "not live after ${timeout_min} minutes"
 printf '%s\n' "${rows:-}"
-rm -f /tmp/wait-for-rollout.$$.err
 exit 1
