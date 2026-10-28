@@ -20,12 +20,13 @@ async function proxy(request: Request) {
 			overrides: {
 				request(proxied) {
 					// Fumadocs drops bodies without Content-Length; retain the original stream.
-					const forwarded =
+					const withBody =
 						!proxied.body && request.body
-							? new Request(new Request(proxied, request), {
-									headers: proxied.headers,
-								})
+							? new Request(proxied, request)
 							: proxied;
+					const headers = new Headers(proxied.headers);
+					headers.delete("transfer-encoding");
+					const forwarded = new Request(withBody, { headers });
 					const target = new URL(forwarded.url);
 					if (target.origin !== gatewayOrigin) {
 						return forwarded;

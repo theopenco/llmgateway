@@ -113,6 +113,7 @@ test("streams multipart uploads without Content-Length", async () => {
 			headers: {
 				Authorization: "Bearer test-token",
 				"x-client-ip": "192.0.2.1",
+				"transfer-encoding": "chunked",
 			},
 			body,
 		},
@@ -131,6 +132,7 @@ test("streams multipart uploads without Content-Length", async () => {
 	expect(forwarded.url).toBe("http://localhost:4301/v1/audio/transcriptions");
 	expect(forwarded.headers.get("authorization")).toBe("Bearer test-token");
 	expect(forwarded.headers.get("x-client-ip")).toBe("192.0.2.1");
+	expect(forwarded.headers.has("transfer-encoding")).toBe(false);
 	const form = await forwarded.formData();
 	expect(form.get("model")).toBe("test-model");
 	const file = form.get("file");
