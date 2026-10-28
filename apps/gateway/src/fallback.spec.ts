@@ -211,13 +211,13 @@ describe("fallback and error status code handling", () => {
 				baseUrl: mockServerUrl,
 			},
 			{
-				id: "provider-key-novita",
+				id: "provider-key-bytedance",
 				...encryptProviderKeyForStorage(
-					"sk-novita-key",
-					"provider-key-novita",
+					"sk-bytedance-key",
+					"provider-key-bytedance",
 					"org-id",
 				),
-				provider: "novita",
+				provider: "bytedance",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
@@ -1498,7 +1498,7 @@ describe("fallback and error status code handling", () => {
 		beforeEach(async () => {
 			await setupMultiProviderKeys();
 			await setRoutingMetrics(modelId, "together-ai", 0);
-			await setRoutingMetrics(modelId, "novita", 100);
+			await setRoutingMetrics(modelId, "bytedance", 100);
 		});
 
 		test("does not reroute a 0% uptime provider when IAM only allows the requested provider", async () => {
@@ -1539,9 +1539,9 @@ describe("fallback and error status code handling", () => {
 		test("does not reroute a 0% uptime provider when IAM denies the fallback provider", async () => {
 			await insertIamRules([
 				{
-					id: "iam-deny-novita",
+					id: "iam-deny-bytedance",
 					ruleType: "deny_providers",
-					providers: ["novita"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -1578,9 +1578,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-deny-novita-combo",
+					id: "iam-deny-bytedance-combo",
 					ruleType: "deny_providers",
-					providers: ["novita"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -2377,10 +2377,10 @@ describe("fallback and error status code handling", () => {
 				expect(logs.length).toBe(1);
 
 				const log = logs[0];
-				expect(log.usedProvider).toBe("novita");
+				expect(log.usedProvider).toBe("bytedance");
 				expect(log.internalContentFilter).toBe(true);
 				expect(log.routingMetadata).toMatchObject({
-					selectedProvider: "novita",
+					selectedProvider: "bytedance",
 					contentFilterMatched: true,
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
@@ -3937,16 +3937,16 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 
 		test("non-streaming: IAM deny_providers prevents retry fallback to a denied provider", async () => {
 			await setupMultiProviderKeys();
 			await insertIamRules([
 				{
-					id: "iam-retry-deny-novita",
+					id: "iam-retry-deny-bytedance",
 					ruleType: "deny_providers",
-					providers: ["novita"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -3967,7 +3967,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 
 		test("non-streaming: combined IAM allow and deny rules prevent retry fallback to any disallowed provider", async () => {
@@ -3979,9 +3979,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-retry-deny-novita-combo",
+					id: "iam-retry-deny-bytedance-combo",
 					ruleType: "deny_providers",
-					providers: ["novita"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -4002,7 +4002,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 	});
 });
