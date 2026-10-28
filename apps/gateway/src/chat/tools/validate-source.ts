@@ -20,8 +20,9 @@ export function validateSource(
 	source: string | undefined,
 	referer?: string | undefined,
 ): string | undefined {
-	// An empty x-source carries no attribution intent; treat it as absent
-	// (like on main, which never 400ed on it) so fallbacks still apply.
+	// The re-dispatch lanes forward `c.req.header("x-source") ?? ""`, so an
+	// empty value carries no attribution intent: treat it as absent and let the
+	// referer and User-Agent fallbacks apply.
 	if (source) {
 		const normalized = normalizeSource(source);
 		if (normalized === undefined) {

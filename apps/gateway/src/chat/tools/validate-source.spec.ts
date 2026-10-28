@@ -1,7 +1,10 @@
 import { HTTPException } from "hono/http-exception";
 import { describe, expect, it } from "vitest";
 
-import { validateSource } from "@/chat/tools/validate-source.js";
+import {
+	validateSource,
+	normalizeSource,
+} from "@/chat/tools/validate-source.js";
 
 describe("validateSource", () => {
 	it("returns undefined when neither value is present", () => {
@@ -53,5 +56,28 @@ describe("validateSource", () => {
 		expect(
 			validateSource(undefined, "https://example.com/a_b"),
 		).toBeUndefined();
+	});
+});
+
+/**
+ * Exported for the realtime WebSocket upgrade (`extractSource`), which has no
+ * HTTPException path — the charset contract is pinned here for both callers.
+ */
+describe("normalizeSource", () => {
+	it("strips the protocol and a leading www.", () => {
+		expect(normalizeSource("https://www.example.com/app")).toBe(
+			"example.com/app",
+		);
+		expect(normalizeSource("http://example.com")).toBe("example.com");
+	});
+
+	it("returns undefined for values outside the allowed charset", () => {
+		expect(normalizeSource("localhost:3000")).toBeUndefined();
+		expect(normalizeSource("example.com/page?x=1")).toBeUndefined();
+		expect(normalizeSource("a_b")).toBeUndefined();
+		expect(normalizeSource("a b")).toBeUndefined();
+		expect(normalizeSource("a\nb")).toBeUndefined();
+		expect(normalizeSource("münchen.de")).toBeUndefined();
+		expect(normalizeSource("")).toBeUndefined();
 	});
 });
