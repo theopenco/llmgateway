@@ -1626,8 +1626,9 @@ export const deepseekModels = [
 		id: "deepseek-v4.1-flash-cyber",
 		name: "DeepSeek V4.1 Flash Cyber",
 		description:
-			"Abliterated DeepSeek V4.1 Flash 1017 for security tooling and agents, with fewer refusals, vision, tool calling, and a 1M-token context window.",
+			"Abliterated DeepSeek V4.1 Flash 1017 for security tooling and agents, with fewer refusals, vision, tool calling, and a 1M-token context window. Enterprise plan only.",
 		family: "deepseek",
+		enterpriseOnly: true,
 		releasedAt: new Date("2026-10-29"),
 		providers: [
 			{
@@ -1642,7 +1643,7 @@ export const deepseekModels = [
 				maxTemperature: 1.5,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "high", "max"],
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],

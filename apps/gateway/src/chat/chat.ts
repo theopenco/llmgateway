@@ -71,6 +71,8 @@ import {
 	withWalletCredits,
 } from "@/lib/end-user-session.js";
 import {
+	canUseModel,
+	enterpriseOnlyModelMessage,
 	getLicensedOrganizationEnvVariant,
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
@@ -3472,6 +3474,18 @@ chat.openapi(completions, async (c) => {
 	const isStarterChatPlan = Boolean(
 		organization?.kind === "chat" && organization.chatPlan === "starter",
 	);
+	if (
+		!canUseModel(
+			modelInfo as ModelDefinition,
+			organization.id,
+			organization.plan,
+		)
+	) {
+		throw new HTTPException(403, {
+			message: enterpriseOnlyModelMessage(modelInfo.id),
+		});
+	}
+
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
 			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at lounge.llmgateway.io/pricing to access frontier models.`,
@@ -4480,6 +4494,16 @@ chat.openapi(completions, async (c) => {
 			// is intentionally relaxed.
 			const candidateOutput = (modelDef as ModelDefinition).output;
 			if (candidateOutput && !candidateOutput.includes("text")) {
+				continue;
+			}
+
+			if (
+				!canUseModel(
+					modelDef as ModelDefinition,
+					organization.id,
+					organization.plan,
+				)
+			) {
 				continue;
 			}
 

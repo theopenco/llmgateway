@@ -969,6 +969,11 @@ export interface ModelDefinition {
 	 */
 	free?: boolean;
 	/**
+	 * Only organizations with enterprise access (KYC'd) may request this
+	 * model; everyone else gets a 403 and auto routing never selects it.
+	 */
+	enterpriseOnly?: boolean;
+	/**
 	 * Rate limit tier for free models (defaults to 'low' if not specified)
 	 * - low: Standard rate limits for free models
 	 * - high: More generous rate limits for free models
