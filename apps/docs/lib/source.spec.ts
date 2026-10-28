@@ -1,9 +1,13 @@
 import { readFile } from "node:fs/promises";
 
 import { createOpenAPI } from "fumadocs-openapi/server";
-import { describe, expect, test, vi, beforeEach } from "vitest";
+import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
 
 import { openapi } from "./source";
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -14,6 +18,7 @@ vi.mock("../openapi.json", () => ({
 	default: {
 		openapi: "3.0.0",
 		info: { title: "Test API", version: "1.0.0" },
+		servers: [{ url: "https://api.llmgateway.io" }],
 		paths: {
 			"/v1/chat/completions": {
 				post: {
@@ -54,4 +59,26 @@ describe("bundled OpenAPI schema", () => {
 			"[OpenAPI] Failed to resolve input: ./openapi.json",
 		);
 	});
+});
+describe("API explorer destination", () => {
+	test.each([
+		["production", undefined, "https://api.llmgateway.io"],
+		["development", undefined, "http://localhost:4001"],
+		[
+			"production",
+			"https://gateway.example.com",
+			"https://gateway.example.com",
+		],
+	])(
+		"uses the configured %s gateway %s",
+		async (mode: string, configured: string | undefined, expected: string) => {
+			vi.stubEnv("NODE_ENV", mode);
+			vi.stubEnv("GATEWAY_URL", configured);
+			vi.resetModules();
+			const { openapi: configuredOpenapi } = await import("./source");
+			const schema = await configuredOpenapi.getSchema("./openapi.json");
+			expect(schema.dereferenced.servers).toEqual([{ url: expected }]);
+			expect(configuredOpenapi.options.proxyUrl).toBe("/api/proxy");
+		},
+	);
 });
