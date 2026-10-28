@@ -114,6 +114,14 @@ describe("tool-result images per upstream format", () => {
 		expect(body.messages.at(-1).content).toContainEqual(IMAGE);
 	});
 
+	test("Xiaomi gets a string tool message and the image in the user turn", async () => {
+		const body = await prepare("xiaomi", "mimo-v2.6-flash");
+		const tool = body.messages.find((m: any) => m.tool_call_id === "call_1");
+
+		expect(tool.content).toBe("First.");
+		expect(body.messages.at(-1).content).toContainEqual(IMAGE);
+	});
+
 	test("Responses sends the image as an input_image in the call output", async () => {
 		const body = await prepare("openai", "gpt-4.1", true);
 		const output = body.input.find(

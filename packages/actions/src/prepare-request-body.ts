@@ -5389,19 +5389,20 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "xiaomi": {
-			// Xiaomi expects tool message content as a plain string — flatten
-			// array content blocks to text, dropping image blocks.
-			requestBody.messages = requestBody.messages.map((m: BaseMessage) =>
-				m.role === "tool" && Array.isArray(m.content)
-					? {
-							...m,
-							content: m.content
-								.filter(isTextContent)
-								.map((c) => c.text)
-								.filter(Boolean)
-								.join("\n"),
-						}
-					: m,
+			// Xiaomi expects tool message content as a plain string, so images move
+			// to the user turn first and the remaining text parts are flattened.
+			requestBody.messages = liftToolResultImages(requestBody.messages).map(
+				(m: BaseMessage) =>
+					m.role === "tool" && Array.isArray(m.content)
+						? {
+								...m,
+								content: m.content
+									.filter(isTextContent)
+									.map((c) => c.text)
+									.filter(Boolean)
+									.join("\n"),
+							}
+						: m,
 			);
 
 			if (stream) {
