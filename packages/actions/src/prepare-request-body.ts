@@ -1781,6 +1781,12 @@ export async function prepareRequestBody(
 	// are still sent, just without deferral, so the request degrades to ordinary
 	// eager tool loading instead of failing on an unknown property.
 	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	// Read before the strip below: Bedrock Converse has no per-tool field and
+	// takes fine-grained tool streaming as a request-wide beta instead.
+	const eagerToolInputStreaming =
+		tools?.some(
+			(tool) => isFunctionTool(tool) && tool.eager_input_streaming === true,
+		) ?? false;
 	if (!anthropicMessagesApi) {
 		if (tools?.some(isToolSearchTool)) {
 			logger.warn(
@@ -3964,6 +3970,9 @@ export async function prepareRequestBody(
 						...(tool.allowed_callers && {
 							allowed_callers: tool.allowed_callers,
 						}),
+						...(tool.eager_input_streaming !== undefined && {
+							eager_input_streaming: tool.eager_input_streaming,
+						}),
 						// Budget and TTL ordering were both settled above, where the
 						// system pass needed the resulting count.
 						...(toolCacheControlKept[index] && {
@@ -4889,6 +4898,19 @@ export async function prepareRequestBody(
 					schema,
 				};
 				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
+			}
+
+			if (
+				usesBedrockClaudeConverse &&
+				stream &&
+				eagerToolInputStreaming &&
+				requestBody.toolConfig
+			) {
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					...(requestBody.additionalModelRequestFields.anthropic_beta ?? []),
+					"fine-grained-tool-streaming-2025-05-14",
+				];
 			}
 
 			break;

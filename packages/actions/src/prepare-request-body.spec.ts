@@ -10646,7 +10646,7 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 	});
 });
 
-describe("prepareRequestBody - tool strict and allowed_callers", () => {
+describe("prepareRequestBody - tool strict, allowed_callers and eager_input_streaming", () => {
 	const strictTool = {
 		type: "function" as const,
 		function: {
@@ -10660,12 +10660,14 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 			strict: true,
 		},
 		allowed_callers: ["code_execution"],
+		eager_input_streaming: true,
 	};
 
 	async function prepare(
 		provider: Parameters<typeof prepareRequestBody>[0],
 		model: string,
 		useResponsesApi = false,
+		stream = false,
 	) {
 		return (await prepareRequestBody(
 			provider,
@@ -10673,7 +10675,7 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 			null,
 			model,
 			[{ role: "user", content: "Weather in Paris?" }],
-			false,
+			stream,
 			undefined,
 			undefined,
 			undefined,
@@ -10697,33 +10699,52 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 		)) as unknown as Record<string, any>;
 	}
 
-	test("Anthropic takes strict and allowed_callers on the tool", async () => {
+	test("Anthropic takes strict, allowed_callers and eager_input_streaming on the tool", async () => {
 		const body = await prepare("anthropic", "claude-sonnet-4-6");
 		expect(body.tools[0]).toMatchObject({
 			name: "get_weather",
 			strict: true,
 			allowed_callers: ["code_execution"],
+			eager_input_streaming: true,
 		});
 	});
 
-	test("OpenAI chat completions keeps function.strict and drops allowed_callers", async () => {
+	test("OpenAI chat completions keeps function.strict and drops the Anthropic fields", async () => {
 		const body = await prepare("openai", "gpt-4o-mini");
 		expect(body.tools[0].function.strict).toBe(true);
 		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+		expect(body.tools[0]).not.toHaveProperty("eager_input_streaming");
 	});
 
 	test("OpenAI Responses API keeps strict on the flat tool", async () => {
 		const body = await prepare("openai", "gpt-5", true);
 		expect(body.tools[0]).toMatchObject({ name: "get_weather", strict: true });
 		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+		expect(body.tools[0]).not.toHaveProperty("eager_input_streaming");
 	});
 
-	test("Google drops both", async () => {
+	test("Bedrock Converse turns eager_input_streaming into the fine-grained tool streaming beta", async () => {
+		const body = await prepare("aws-bedrock", "claude-sonnet-4-6", false, true);
+		expect(body.toolConfig.tools[0].toolSpec).not.toHaveProperty(
+			"eager_input_streaming",
+		);
+		expect(body.additionalModelRequestFields.anthropic_beta).toEqual([
+			"fine-grained-tool-streaming-2025-05-14",
+		]);
+
+		const nonStreaming = await prepare("aws-bedrock", "claude-sonnet-4-6");
+		expect(
+			nonStreaming.additionalModelRequestFields?.anthropic_beta,
+		).toBeUndefined();
+	});
+
+	test("Google drops all of them", async () => {
 		const body = await prepare("google-ai-studio", "gemini-2.5-flash");
 		const declaration = body.tools[0].functionDeclarations[0];
 		expect(declaration.name).toBe("get_weather");
 		expect(declaration).not.toHaveProperty("strict");
 		expect(declaration).not.toHaveProperty("allowed_callers");
+		expect(declaration).not.toHaveProperty("eager_input_streaming");
 	});
 });
 
