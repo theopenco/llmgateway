@@ -123,6 +123,7 @@ export async function processImageUrl(
 	isProd = false,
 	maxSizeMB = 20,
 	userPlan: "free" | "pro" | "enterprise" | null = null,
+	signal?: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
 	if (url.slice(0, 5).toLowerCase() === "data:") {
@@ -198,9 +199,13 @@ export async function processImageUrl(
 	// SSRF: remote content must not resolve to an internal host. This also
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
 	await assertSafeUserContentUrl(url);
+	signal?.throwIfAborted();
 
 	try {
-		const response = await fetchNoRedirect(url);
+		const response = await fetchNoRedirect(
+			url,
+			signal ? { signal } : undefined,
+		);
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -260,6 +265,10 @@ export async function processImageUrl(
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
+		}
+		// The caller cancelled or timed out the download; it decides how to report it.
+		if (signal?.aborted) {
+			throw signal.reason;
 		}
 
 		// Log the full error internally but sanitize the thrown error

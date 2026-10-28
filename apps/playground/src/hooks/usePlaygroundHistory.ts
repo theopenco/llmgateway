@@ -115,6 +115,85 @@ export function useDeleteAudioHistory() {
 	});
 }
 
+export function useDecisionHistory(enabled = true, organizationId?: string) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/playground/decision-history",
+		{ params: { query: organizationId ? { organizationId } : {} } },
+		{ enabled },
+	);
+}
+
+// Full run including its input images, fetched only when a run with images
+// is opened. Rows never change apart from renames, which invalidate this.
+export function useDecisionHistoryItem(id: string | null) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/playground/decision-history/{id}",
+		{ params: { path: { id: id ?? "" } } },
+		{ enabled: !!id, staleTime: Infinity },
+	);
+}
+
+export function useSaveDecisionHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("post", "/playground/decision-history", {
+		onSuccess: (data) => {
+			// Seed the detail cache so opening the run that just finished does
+			// not download its input images again.
+			queryClient.setQueryData(
+				api.queryOptions("get", "/playground/decision-history/{id}", {
+					params: { path: { id: data.item.id } },
+				}).queryKey,
+				data,
+			);
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/decision-history")
+					.queryKey,
+			});
+		},
+	});
+}
+
+export function useRenameDecisionHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("patch", "/playground/decision-history/{id}", {
+		onSuccess: (_data, variables) => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/decision-history")
+					.queryKey,
+			});
+			const id = variables.params?.path?.id;
+			if (id) {
+				void queryClient.invalidateQueries({
+					queryKey: api.queryOptions(
+						"get",
+						"/playground/decision-history/{id}",
+						{ params: { path: { id } } },
+					).queryKey,
+				});
+			}
+		},
+	});
+}
+
+export function useDeleteDecisionHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("delete", "/playground/decision-history/{id}", {
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/decision-history")
+					.queryKey,
+			});
+		},
+	});
+}
+
 export function useRealtimeHistory(enabled = true, organizationId?: string) {
 	const api = useApi();
 	return api.useQuery(

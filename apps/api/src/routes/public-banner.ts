@@ -1,7 +1,8 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { getActiveSystemBanner } from "@/lib/system-banner.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { SYSTEM_BANNER_SEVERITIES } from "@llmgateway/shared";
 

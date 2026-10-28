@@ -186,7 +186,10 @@ import {
 	type RoutingMetadata,
 	type GoogleThoughtSignatureState,
 	isGoogleReasoningDetail,
+	isToolSearchBlock,
 	preserveGoogleResponseText,
+	promptTokensShowSearchContext,
+	reportedWebSearchCount,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -347,7 +350,11 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
-import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
+import {
+	type AutoReasoningEffortPick,
+	pickAutoReasoningEffort,
+	pickFallbackReasoningEffort,
+} from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -1923,6 +1930,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		verbosity,
 		web_search,
+		web_search_options,
 		plugins,
 		n,
 		user,
@@ -2051,6 +2059,29 @@ chat.openapi(completions, async (c) => {
 		tools.push({
 			type: "web_search" as const,
 		});
+	}
+
+	// OpenAI's `web_search_options` is the same request as a web_search tool;
+	// fold it into one so everything downstream reads a single shape. Fields
+	// the caller set on the tool itself take precedence.
+	if (web_search_options) {
+		const location = web_search_options.user_location?.approximate;
+		const fromOptions = {
+			...(web_search_options.search_context_size && {
+				search_context_size: web_search_options.search_context_size,
+			}),
+			...(location && { user_location: location }),
+		};
+		tools = tools ?? [];
+		const index = tools.findIndex((tool) => tool.type === "web_search");
+		if (index === -1) {
+			tools.push({ type: "web_search" as const, ...fromOptions });
+		} else {
+			tools[index] = {
+				...fromOptions,
+				...tools[index],
+			} as (typeof tools)[number];
+		}
 	}
 
 	// Detect whether the caller marked any content with `cache_control` for an
@@ -6614,21 +6645,24 @@ chat.openapi(completions, async (c) => {
 	// Check if this is an image generation model. Identify the routed mapping
 	// by (providerId, region) — externalId is upstream-only and no longer
 	// participates in mapping selection.
+	const findFinalProviderMapping = (
+		providerId: string | undefined,
+		region: string | undefined,
+	) =>
+		finalModelInfo
+			? selectProviderMapping(finalModelInfo.providers, providerId, region)
+			: undefined;
 	const getUsedProviderMapping = () =>
-		finalModelInfo?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				(p.region ?? null) === (usedRegion ?? null),
-		) ??
-		finalModelInfo?.providers.find(
-			(p) => p.providerId === usedProvider && p.region === undefined,
-		);
+		findFinalProviderMapping(usedProvider, usedRegion);
 	if (usedProvider !== "custom") {
 		const airsideMapping = await resolveAirsidePricingMapping();
 		if (airsideResolution || airsideMapping) {
 			applyAirsidePricingMapping(airsideMapping);
 		}
 	}
+	// Set when the mapping declares how its endpoint takes web search. Such a
+	// search is billed only on evidence in the response, never inferred.
+	const usedWebSearchFormat = () => getUsedProviderMapping()?.webSearchFormat;
 	const imageGenProviderMapping = getUsedProviderMapping();
 	let airsideCustomBaseUrl = await resolveAirsideProviderBaseUrl(usedProvider);
 	let transportProvider = getProviderApiTransport(
@@ -6651,6 +6685,7 @@ chat.openapi(completions, async (c) => {
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
+	let autoReasoningEffortPick: AutoReasoningEffortPick | undefined;
 	if (
 		(requestedModel === "auto" || requestedModel === "smart") &&
 		reasoning_effort === undefined &&
@@ -6691,6 +6726,10 @@ chat.openapi(completions, async (c) => {
 			) {
 				effortTier = "low";
 			}
+			autoReasoningEffortPick = {
+				modelId: usedInternalModel,
+				effortTier,
+			};
 			const autoEffort = pickAutoReasoningEffort(
 				usedInternalModel,
 				getUsedProviderMapping()?.reasoningEfforts,
@@ -6880,7 +6919,7 @@ chat.openapi(completions, async (c) => {
 		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
-		assertDevPlanPremiumCapNotExceeded(
+		await assertDevPlanPremiumCapNotExceeded(
 			organization,
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
@@ -7064,7 +7103,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 			// Check regular credits, dev plan credits, and chat plan credits.
-			assertDevPlanPremiumCapNotExceeded(
+			await assertDevPlanPremiumCapNotExceeded(
 				organization,
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
@@ -7762,6 +7801,9 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			// /v1/messages replies carry Anthropic-only fields chat completions
+			// replies leave out. Undefined keeps existing keys unchanged.
+			messages_endpoint: apiOrigin === "messages" || undefined,
 			verbosity,
 			effort,
 			image_config,
@@ -8625,6 +8667,8 @@ chat.openapi(completions, async (c) => {
 			reasoning_mode,
 			providerCacheAutoTtl,
 			parallel_tool_calls,
+			usedWebSearchFormat(),
+			providerKey?.forwardCacheControl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8815,7 +8859,14 @@ chat.openapi(completions, async (c) => {
 				response_format,
 				tools,
 				tool_choice,
-				reasoning_effort,
+				reasoning_effort: pickFallbackReasoningEffort(
+					reasoning_effort,
+					autoReasoningEffortPick,
+					findFinalProviderMapping(
+						providerMapping.providerId,
+						providerMapping.region,
+					)?.reasoningEfforts,
+				),
 				reasoning_max_tokens,
 				prompt_cache_key,
 				prompt_cache_retention,
@@ -8932,6 +8983,15 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
+		// An auto-routed effort is re-picked per fallback mapping, so the logged
+		// effort has to follow what the new body carries. The header only lands
+		// on non-streaming responses: a stream has already sent its headers, and
+		// setting one then rebuilds a response whose body is already being read.
+		// An undefined effort clears the header the first attempt set.
+		reasoning_effort = ctx.reasoning_effort;
+		if (smartRoutingDecision && !stream) {
+			c.header("x-llmgateway-smart-effort", reasoning_effort);
+		}
 		temperature = ctx.temperature;
 		max_tokens = ctx.max_tokens;
 		top_p = ctx.top_p;
@@ -9362,7 +9422,9 @@ chat.openapi(completions, async (c) => {
 							0, // No output images
 							undefined,
 							inputImageCount,
-							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							// Bill for web search if it was enabled, except where only
+							// response evidence may count one
+							webSearchTool && !usedWebSearchFormat() ? 1 : null,
 							project.organizationId,
 							undefined, // imageQuality
 							null, // reportedImageInputTokens
@@ -11025,9 +11087,9 @@ chat.openapi(completions, async (c) => {
 				// caller forced it and then always do.
 				let webSearchCount =
 					webSearchTool &&
+					!usedWebSearchFormat() &&
 					(usedProvider === "zai" ||
-						((usedProvider === "alibaba" || usedProvider === "scx-ai-gp") &&
-							webSearchTool.forced))
+						(usedProvider === "alibaba" && webSearchTool.forced))
 						? 1
 						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
@@ -11930,6 +11992,26 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								// Text block boundaries, citations and web search/fetch
+								// blocks only matter to the /v1/messages layer that rebuilds
+								// Anthropic blocks; chat completions clients get annotations.
+								const streamDelta = transformedData.choices?.[0]?.delta;
+								if (apiOrigin !== "messages" && streamDelta) {
+									delete streamDelta.anthropic_text_block_start;
+									delete streamDelta.anthropic_citation;
+									if (Array.isArray(streamDelta.anthropic_native_blocks)) {
+										const toolSearchBlocks =
+											streamDelta.anthropic_native_blocks.filter(
+												isToolSearchBlock,
+											);
+										if (toolSearchBlocks.length > 0) {
+											streamDelta.anthropic_native_blocks = toolSearchBlocks;
+										} else {
+											delete streamDelta.anthropic_native_blocks;
+										}
+									}
+								}
+
 								if (usedProviderEncryptsReasoning()) {
 									await rememberReasoningCredential(
 										project.organizationId,
@@ -11938,8 +12020,8 @@ chat.openapi(completions, async (c) => {
 									);
 								}
 
-								// A chunk whose finish_reason signals an upstream failure (e.g.
-								// Embercloud's "error") is not a valid OpenAI completion chunk —
+								// A chunk whose finish_reason signals an upstream failure
+								// ("error") is not a valid OpenAI completion chunk —
 								// "error" is not a valid OpenAI finish_reason. Capture the
 								// terminal finish reason and raw payload for the error event and
 								// logging, but skip this chunk entirely otherwise: it is not
@@ -12287,7 +12369,12 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (isAnthropicMessagesProvider(transportProvider)) {
+								if (webSearchTool && usedWebSearchFormat()) {
+									webSearchCount = Math.max(
+										webSearchCount,
+										reportedWebSearchCount(data),
+									);
+								} else if (isAnthropicMessagesProvider(transportProvider)) {
 									// For Anthropic, count successful web_search_tool_result
 									// blocks; errored searches carry an object and are not billed
 									if (
@@ -12890,8 +12977,8 @@ chat.openapi(completions, async (c) => {
 					}
 
 					// A finish_reason that itself signals an upstream failure (e.g.
-					// Embercloud emits finish_reason "error" with a null content delta and
-					// no error event/HTTP error) is a hard error in its own right. Treat it
+					// finish_reason "error" with a null content delta and no error
+					// event/HTTP error) is a hard error in its own right. Treat it
 					// as an upstream error regardless of whether any partial content
 					// arrived, instead of inferring failure from an empty response.
 					const hasUpstreamErrorFinishReason =
@@ -12923,6 +13010,17 @@ chat.openapi(completions, async (c) => {
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 						(!fullContent || fullContent.trim() === "") &&
 						(!streamingToolCalls || streamingToolCalls.length === 0);
+
+					// A declared-format search that left no citation or usage counter
+					// in the stream still shows as a prompt larger than the request.
+					if (
+						webSearchTool &&
+						usedWebSearchFormat() &&
+						webSearchCount === 0 &&
+						promptTokensShowSearchContext(promptTokens, requestBody)
+					) {
+						webSearchCount = 1;
+					}
 
 					let streamingCostsEarly:
 						Awaited<ReturnType<typeof calculateCosts>> | undefined;
@@ -15656,11 +15754,12 @@ chat.openapi(completions, async (c) => {
 		messages,
 		supportsReasoning,
 		splitTaggedReasoning,
-		!!webSearchTool,
-		!!webSearchTool?.forced,
+		// A declared format leaves the count to response evidence below.
+		!!webSearchTool && !usedWebSearchFormat(),
+		!!webSearchTool?.forced && !usedWebSearchFormat(),
 		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
-	let { content, totalTokens } = parsedResponse;
+	let { content, totalTokens, webSearchCount } = parsedResponse;
 	const {
 		reasoningContent,
 		finishReason,
@@ -15679,8 +15778,19 @@ chat.openapi(completions, async (c) => {
 		images,
 		annotations,
 		searchResults,
-		webSearchCount,
 	} = parsedResponse;
+	if (webSearchTool && usedWebSearchFormat()) {
+		const reported = Math.max(
+			webSearchCount ?? 0,
+			reportedWebSearchCount(json),
+		);
+		webSearchCount =
+			reported > 0
+				? reported
+				: promptTokensShowSearchContext(promptTokens, requestBody)
+					? 1
+					: null;
+	}
 
 	const responseHealingEnabled = plugins?.some(
 		(p) => p.id === "response-healing",
@@ -16013,16 +16123,32 @@ chat.openapi(completions, async (c) => {
 		transformedResponse.choices[0].message.message_items =
 			parsedResponse.messageItems;
 	}
-	// Surface Anthropic's server-side tool search blocks so the /v1/messages
-	// layer can hand them back to the client, which replays them on the next
-	// turn — that is what lets Claude reuse an already discovered tool.
+	// Surface Anthropic's server tool blocks so the client can replay them on
+	// the next turn — that is what lets Claude reuse an already discovered tool
+	// or see earlier search results. Chat completions clients get the tool
+	// search pair only; web search results reach them as annotations.
+	const visibleNativeBlocks =
+		apiOrigin === "messages"
+			? parsedResponse.anthropicNativeBlocks
+			: parsedResponse.anthropicNativeBlocks?.filter(isToolSearchBlock);
 	if (
-		parsedResponse.anthropicNativeBlocks &&
-		parsedResponse.anthropicNativeBlocks.length > 0 &&
+		visibleNativeBlocks &&
+		visibleNativeBlocks.length > 0 &&
 		transformedResponse.choices?.[0]?.message
 	) {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
-			parsedResponse.anthropicNativeBlocks;
+			visibleNativeBlocks;
+	}
+	// The Anthropic content array as sent, for turns lowering loses detail of
+	// (server tool blocks, citations). /v1/messages returns it unchanged; chat
+	// completions clients have `content` and `annotations` instead.
+	if (
+		apiOrigin === "messages" &&
+		parsedResponse.anthropicContent &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_content =
+			parsedResponse.anthropicContent;
 	}
 	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
 	// /v1/messages layer hands them back as `safeguard_results`.

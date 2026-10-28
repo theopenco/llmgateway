@@ -11,6 +11,7 @@ const STUDIO_LABELS = [
 	"Image Studio",
 	"Video Studio",
 	"Audio Studio",
+	"Decision Studio",
 	"Canvas",
 	"Projects",
 	"Skills",

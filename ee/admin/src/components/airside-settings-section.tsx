@@ -321,6 +321,141 @@ function EditDetailsDialog({
 	);
 }
 
+function TransferOwnershipDialog({
+	open,
+	onOpenChange,
+	carrier,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	carrier: AirsideCarrier;
+}) {
+	const $api = useApi();
+	const router = useRouter();
+	const { members } = carrier.settings;
+	const [email, setEmail] = useState("");
+	const transfer = $api.useMutation(
+		"put",
+		"/admin/airside/companies/{id}/owner",
+	);
+	const trimmed = email.trim().toLowerCase();
+	const alreadyOwner = members.some(
+		(member) =>
+			member.role === "owner" && member.email.toLowerCase() === trimmed,
+	);
+
+	async function save() {
+		try {
+			await transfer.mutateAsync({
+				params: { path: { id: carrier.company.id } },
+				body: { email: trimmed },
+			});
+			toast.success(`Ownership transferred to ${trimmed}.`);
+			onOpenChange(false);
+			router.refresh();
+		} catch (error) {
+			toast.error(apiErrorMessage(error, "The transfer failed"));
+		}
+	}
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className="max-w-md" aria-describedby={undefined}>
+				<DialogHeader>
+					<DialogTitle>Transfer ownership</DialogTitle>
+				</DialogHeader>
+				<div className="space-y-4">
+					<p className="text-sm text-muted-foreground">
+						The account becomes the sole owner of {carrier.company.name}.
+						Current owners stay on as crew members. The email must belong to an
+						existing LLM Gateway account.
+					</p>
+					<div className="space-y-1">
+						<Label htmlFor="airside-owner-email">New owner email</Label>
+						<Input
+							id="airside-owner-email"
+							type="email"
+							list="airside-owner-candidates"
+							value={email}
+							onChange={(e) => setEmail(e.target.value)}
+							placeholder="person@carrier.example"
+						/>
+						<datalist id="airside-owner-candidates">
+							{members
+								.filter((member) => member.role !== "owner")
+								.map((member) => (
+									<option key={member.id} value={member.email} />
+								))}
+						</datalist>
+					</div>
+				</div>
+				<DialogFooter>
+					<Button variant="outline" onClick={() => onOpenChange(false)}>
+						Cancel
+					</Button>
+					<Button
+						disabled={transfer.isPending || !trimmed || alreadyOwner}
+						onClick={() => void save()}
+					>
+						{transfer.isPending ? "Transferring…" : "Transfer"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function CrewField({
+	carrier,
+	editable,
+}: {
+	carrier: AirsideCarrier;
+	editable: boolean;
+}) {
+	const [open, setOpen] = useState(false);
+	const { members } = carrier.settings;
+	return (
+		<div className="space-y-1">
+			{members.length === 0 ? (
+				<span className="text-muted-foreground">—</span>
+			) : (
+				members.map((member) => (
+					<span key={member.id} className="block">
+						{member.email}{" "}
+						{member.role === "owner" ? (
+							<Badge variant="secondary" className="ml-1">
+								owner
+							</Badge>
+						) : (
+							<span className="text-xs text-muted-foreground">member</span>
+						)}
+					</span>
+				))
+			)}
+			{editable ? (
+				<>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						className="mt-1"
+						onClick={() => setOpen(true)}
+					>
+						Transfer ownership
+					</Button>
+					{open ? (
+						<TransferOwnershipDialog
+							open={open}
+							onOpenChange={setOpen}
+							carrier={carrier}
+						/>
+					) : null}
+				</>
+			) : null}
+		</div>
+	);
+}
+
 function BillingModeField({
 	settings,
 	editable,
@@ -815,6 +950,9 @@ export function AirsideSettingsSection({
 					</SettingRow>
 					<SettingRow label="Approved">
 						{formatDate(settings.approvedAt)}
+					</SettingRow>
+					<SettingRow label="Crew" className="sm:col-span-2">
+						<CrewField carrier={carrier} editable={editable} />
 					</SettingRow>
 					<SettingRow label="Domains">
 						{settings.domains.length === 0

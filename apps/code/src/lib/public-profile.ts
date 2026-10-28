@@ -1,8 +1,12 @@
 import { cache } from "react";
 
 import { getConfig } from "@/lib/config-server";
+import { attachCanonicalModels } from "@/lib/model-family";
 
-import type { ProfileData } from "@/components/profile/ProfileView";
+import type {
+	ApiProfileData,
+	ProfileData,
+} from "@/components/profile/ProfileView";
 
 /**
  * Fetch a public DevPass profile by username from the API. Returns null when
@@ -22,8 +26,11 @@ export const fetchPublicProfile = cache(async function fetchPublicProfile(
 		if (!res.ok) {
 			return null;
 		}
-		const json = (await res.json()) as { profile: ProfileData };
-		return json.profile;
+		const json = (await res.json()) as { profile: ApiProfileData };
+		return {
+			...json.profile,
+			models: attachCanonicalModels(json.profile.models),
+		};
 	} catch {
 		return null;
 	}

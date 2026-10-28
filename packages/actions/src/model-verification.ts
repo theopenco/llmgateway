@@ -13,6 +13,11 @@ import {
 } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	createQueuedDecisionVerificationChecks,
+	runDecisionKeySmokeTest,
+	runDecisionVerification,
+} from "./decision-verification.js";
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
@@ -26,6 +31,11 @@ import {
 	encryptProviderKey,
 } from "./provider-key/crypto.js";
 import { redactToken } from "./provider-key/redact.js";
+import { RED_IMAGE_DATA_URL } from "./verification-image.js";
+import {
+	promptTokensShowSearchContext,
+	reportedWebSearchCount,
+} from "./web-search-format.js";
 
 import type {
 	ProviderKeyOptions,
@@ -101,12 +111,6 @@ export interface ModelVerificationRunResult {
 	 */
 	unsupportedReasoningEfforts?: ReasoningEffort[];
 }
-
-// A 64x64 solid red PNG. Deliberately not a 1x1 pixel: several OpenAI-compatible
-// serving stacks reject a degenerate image before the model ever sees it, which
-// fails the check on endpoints whose vision support is fine.
-const RED_IMAGE_DATA_URL =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
 const COUNTRY_SCHEMA = {
 	type: "object",
@@ -577,7 +581,9 @@ function verificationDefinitions(
 	if (target.webSearch) {
 		definitions.push({
 			id: "web_search",
-			label: "Web search",
+			label: target.webSearchFormat
+				? `Web search (${target.webSearchFormat})`
+				: "Web search",
 			request: createWebSearchVerificationRequest(target.modelName),
 		});
 	}
@@ -664,6 +670,9 @@ export function disprovedCapabilities(
 export function createQueuedModelVerificationChecks(
 	target: ProviderModelVerificationTarget,
 ): ProviderModelVerificationCheck[] {
+	if (target.decisions) {
+		return createQueuedDecisionVerificationChecks(target);
+	}
 	return verificationDefinitions(target).map(({ id, label }) => ({
 		id,
 		label,
@@ -1112,6 +1121,8 @@ function validateResponse(
 	id: ModelVerificationCheckId,
 	body: unknown,
 	target: ProviderModelVerificationTarget,
+	/** The prompt grew past what the request could encode to: see `promptTokensShowSearchContext`. */
+	searchContext = false,
 ): string | null {
 	const assistantText = extractAssistantText(body);
 	switch (id) {
@@ -1156,7 +1167,9 @@ function validateResponse(
 			if (!assistantText) {
 				return "The provider returned no assistant content.";
 			}
-			return containsWebSearchEvidence(body)
+			return containsWebSearchEvidence(body) ||
+				reportedWebSearchCount(body) > 0 ||
+				searchContext
 				? null
 				: "The response did not contain evidence of a web search.";
 		default:
@@ -1277,7 +1290,10 @@ function upstreamErrorMessage(body: string, status: number): string {
 	return body.trim().slice(0, 500) || `Provider returned HTTP ${status}.`;
 }
 
-function splitTools(tools: OpenAIToolInput[] | undefined): {
+function splitTools(
+	tools: OpenAIToolInput[] | undefined,
+	toolChoice: ModelVerificationRequest["tool_choice"],
+): {
 	functionTools: OpenAIToolInput[] | undefined;
 	webSearchTool: WebSearchTool | undefined;
 } {
@@ -1294,6 +1310,10 @@ function splitTools(tools: OpenAIToolInput[] | undefined): {
 						type: "web_search",
 						search_context_size: search.search_context_size,
 						max_uses: search.max_uses,
+						// As the gateway does: a web_search tool_choice demands the search.
+						forced:
+							typeof toolChoice === "object" &&
+							toolChoice?.type === "web_search",
 					}
 				: undefined,
 	};
@@ -1783,7 +1803,21 @@ async function executeCheck(
 		options.target.apiFormat,
 	);
 	const useResponsesApi = options.target.apiFormat === "openai-responses";
-	const { functionTools, webSearchTool } = splitTools(definition.request.tools);
+	const { functionTools, webSearchTool } = splitTools(
+		definition.request.tools,
+		definition.request.tool_choice,
+	);
+	// The gateway forces the tool shape with "required"; a listing that does not
+	// take that mode is probed the way it will be served, unforced.
+	const declaredToolChoices = options.target.supportedToolChoices;
+	if (
+		webSearchTool?.forced &&
+		options.target.webSearchFormat === "web_search_tool" &&
+		declaredToolChoices?.length &&
+		!declaredToolChoices.includes("required")
+	) {
+		webSearchTool.forced = false;
+	}
 	let payload = await prepareRequestBody(
 		transportProvider,
 		options.target.modelName,
@@ -1816,6 +1850,21 @@ async function executeCheck(
 		webSearchTool,
 		definition.id === "reasoning_budget" ? 256 : undefined,
 		useResponsesApi,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		options.target.webSearchFormat ?? undefined,
 	);
 	// The OpenAI Responses body always carries a reasoning block (every OpenAI
 	// model on that surface reasons). A carrier listing that declares no
@@ -1903,7 +1952,13 @@ async function executeCheck(
 	if (definition.calibration) {
 		return null;
 	}
-	const invalid = validateResponse(definition.id, body, options.target);
+	const invalid = validateResponse(
+		definition.id,
+		body,
+		options.target,
+		definition.id === "web_search" &&
+			promptTokensShowSearchContext(reportedInputTokens(body), payload),
+	);
 	if (invalid) {
 		return { message: invalid, rejected: false };
 	}
@@ -1935,6 +1990,9 @@ function optionalDefect(
 export async function runProviderModelVerification(
 	options: RunModelVerificationOptions,
 ): Promise<ModelVerificationRunResult> {
+	if (options.target.decisions) {
+		return await runDecisionVerification(options);
+	}
 	const definitions = verificationDefinitions(options.target);
 	const checks = createQueuedModelVerificationChecks(options.target);
 	const context: CheckContext = {
@@ -2055,6 +2113,9 @@ export async function runProviderModelVerification(
 export async function runProviderKeySmokeTest(
 	options: Omit<RunModelVerificationOptions, "onCheck">,
 ): Promise<string | null> {
+	if (options.target.decisions) {
+		return await runDecisionKeySmokeTest(options);
+	}
 	const outcome = await runCheck(
 		{
 			id: "basic",

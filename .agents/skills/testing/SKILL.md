@@ -34,7 +34,7 @@ Pin the provider and disable fallback, or a healthy provider masks the error:
 ```bash
 curl -N http://localhost:4001/v1/chat/completions \
   -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
-  -d '{"model":"embercloud/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"novita/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 The gateway caches responses, errors included, keyed on the request body; vary
@@ -70,7 +70,9 @@ CI e2e (`.github/workflows/e2e.yml`) spends real money and runs on demand only:
 comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Push
 first: `/e2e` refuses a head pushed after the comment. Use it
 for complex gateway or backend changes affecting routing, stability, uptime, or
-provider integration.
+provider integration. Never `/e2e` for model-mapping PRs; run those locally with
+`TEST_MODELS`, or, only without local credentials, dispatch with
+`test_models` and `full_mode` set.
 
 ## Writing tests
 

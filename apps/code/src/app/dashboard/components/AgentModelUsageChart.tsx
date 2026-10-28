@@ -27,6 +27,7 @@ import {
 	formatBucketLabelWithZone,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import { splitCost } from "@llmgateway/shared/cost-breakdown";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -92,6 +93,7 @@ interface ChartRow {
 	cachedInputCost: number;
 	cacheWriteInputCost: number;
 	outputCost: number;
+	otherCost: number;
 	[key: string]: string | number;
 }
 
@@ -154,7 +156,13 @@ function ChartTooltipContent({
 			tokens: first.outputTokens,
 			cost: first.outputCost,
 		},
-	].filter((row) => row.tokens > 0 || row.cost > 0);
+		// Per-request fees, images, audio and web search: billed but not per token.
+		{
+			label: "Other",
+			tokens: null,
+			cost: first.otherCost,
+		},
+	].filter((row) => (row.tokens ?? 0) > 0 || row.cost > 0);
 	return (
 		<div className="min-w-[210px] rounded-lg border border-border/60 bg-popover p-2.5 text-xs text-popover-foreground shadow-md">
 			<div className="font-medium">{dateLabel}</div>
@@ -187,7 +195,7 @@ function ChartTooltipContent({
 						>
 							<span className="text-muted-foreground">{row.label}</span>
 							<span className="ml-auto tabular-nums text-muted-foreground">
-								{formatTokens(row.tokens)}
+								{row.tokens === null ? null : formatTokens(row.tokens)}
 							</span>
 							<span className="w-16 text-right tabular-nums text-foreground">
 								${row.cost.toFixed(4)}
@@ -290,6 +298,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				cachedInputCost: row.cachedInputCost,
 				cacheWriteInputCost: row.cacheWriteInputCost,
 				outputCost: row.outputCost,
+				otherCost: splitCost(row).other,
 				models: perModel,
 			};
 		});
@@ -318,6 +327,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 					cachedInputCost: row.cachedInputCost,
 					cacheWriteInputCost: row.cacheWriteInputCost,
 					outputCost: row.outputCost,
+					otherCost: row.otherCost,
 				};
 				for (const modelId of models) {
 					const m = row.models[modelId];

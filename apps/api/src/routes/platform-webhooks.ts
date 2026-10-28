@@ -1,8 +1,9 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db, eq, shortid, tables } from "@llmgateway/db";
 import { assertSafeWebhookUrl } from "@llmgateway/shared";

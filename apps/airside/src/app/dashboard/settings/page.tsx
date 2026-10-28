@@ -343,7 +343,7 @@ function BillingSection({ claim }: { claim: Claim }) {
 	return (
 		<KeySection
 			title="Billing"
-			description="How your usage is settled. Set by LLM Gateway — contact us to change it."
+			description="How your usage is settled. Agreed with LLM Gateway and set up by our team before you go live, not selectable here — contact us to change it."
 			testId={`billing-mode-${claim.providerId}`}
 		>
 			<p className="text-sm font-semibold">

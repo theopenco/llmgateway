@@ -589,6 +589,7 @@ export const alibabaModels = [
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "qwen-3-235b-a22b-instruct-2507",
+				deactivatedAt: new Date("2026-10-27"),
 				inputPrice: "0.6e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -611,6 +612,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-instruct-2507",
+				deactivatedAt: new Date("2026-10-27"),
 				inputPrice: "0.09e-6",
 				outputPrice: "0.58e-6",
 				requestPrice: "0",
@@ -681,6 +683,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-thinking-2507",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.3e-6",
 				outputPrice: "3e-6",
 				requestPrice: "0",
@@ -718,6 +721,7 @@ export const alibabaModels = [
 				stability: "unstable",
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-fp8",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
 				requestPrice: "0",
@@ -1032,6 +1036,7 @@ export const alibabaModels = [
 				providerId: "novita",
 				stability: "unstable",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.38e-6",
 				outputPrice: "1.55e-6",
 				requestPrice: "0",
@@ -1085,6 +1090,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-coder-30b-a3b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.07e-6",
 				outputPrice: "0.27e-6",
 				requestPrice: "0",
@@ -1365,6 +1371,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-next-80b-a3b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1454,6 +1461,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-max",
+				deactivatedAt: new Date("2026-10-28"),
 				// Novita tiers this model by prompt length; the flat fields below are
 				// the lowest tier for routing comparisons, actual billing uses
 				// pricingTiers (verified live 2026-08-18).
@@ -2268,6 +2276,75 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3.8-omni-flash",
+		name: "Qwen3.8 Omni Flash",
+		description:
+			"Omni-modal Qwen3.8 Flash model that understands text, images and audio, with adjustable reasoning, tool use and a 1M context.",
+		family: "alibaba",
+		releasedAt: new Date("2026-09-18"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.8-omni-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.47e-6",
+				cachedInputPrice: "0.016e-6",
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.113e-6",
+						outputPrice: "0.382e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					{
+						id: "cn-beijing",
+						inputPrice: "0.113e-6",
+						outputPrice: "0.382e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 983616,
+				maxOutput: 131072,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				streaming: true,
+				vision: true,
+				// Beijing cannot reach many non-CN image hosts and hangs on the fetch.
+				requiresBase64Images: true,
+				audio: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "function"],
+				supportedToolChoicesWithThinkingDisabled: ["required"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"tool_choice",
+					"response_format",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "qwen3-coder-next",
 		name: "Qwen3 Coder Next",
 		description:
@@ -2276,6 +2353,8 @@ export const alibabaModels = [
 		releasedAt: new Date("2026-02-04"),
 		providers: [
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "qwen3-coder-next",
 				inputPrice: "0.108e-6",
@@ -3396,6 +3475,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-27"),
 			},
 			{
 				providerId: "deepinfra",
@@ -3459,6 +3539,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-10-27"),
 			},
 		],
 	},

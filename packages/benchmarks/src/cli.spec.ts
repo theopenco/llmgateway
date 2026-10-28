@@ -36,7 +36,7 @@ describe("runBenchmarkCli", () => {
 		await expect(
 			runBenchmarkCli([
 				"--model",
-				"deepseek-v4.1-flash",
+				"deepseek-v4.1-flash-1017",
 				"--mapping",
 				"deepseek",
 				"--suite",
@@ -67,7 +67,7 @@ describe("runBenchmarkCli", () => {
 
 		const exitCode = await runBenchmarkCli([
 			"--model",
-			"deepseek-v4.1-flash",
+			"deepseek-v4.1-flash-1017",
 			"--mapping",
 			"deepseek",
 			"--suite",
@@ -106,7 +106,7 @@ describe("runBenchmarkCli", () => {
 
 		const exitCode = await runBenchmarkCli([
 			"--model",
-			"deepseek-v4.1-flash",
+			"deepseek-v4.1-flash-1017",
 			"--mapping",
 			"deepseek",
 			"--external",

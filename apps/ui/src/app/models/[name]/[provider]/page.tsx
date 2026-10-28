@@ -6,11 +6,16 @@ import {
 	Wrench,
 	MessageSquare,
 	Sliders,
+	SlidersHorizontal,
 	Braces,
 	FileJson2,
 	Globe,
 	ListOrdered,
 	ImagePlus,
+	Video,
+	Volume2,
+	Mic,
+	Boxes,
 	Search,
 } from "lucide-react";
 import Link from "next/link";
@@ -81,6 +86,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		}),
 	]);
 	const providerInfoPromise = findProviderInfo(decodedProvider);
+	// Started here so the tab-branding lookup below doesn't add a serial
+	// round trip after the model and ratings fetches. React.cache shares it
+	// with findProviderInfo, and it resolves to [] on failure.
+	const apiProvidersPromise = fetchProviders();
 	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
@@ -151,7 +160,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const allProviderIds = modelDef.providers.map((p) => p.providerId);
 	const providerTabBranding = buildProviderTabBranding(
 		allProviderIds,
-		await fetchProviders(),
+		await apiProvidersPromise,
 	);
 
 	const breadcrumbSchema = {
@@ -398,6 +407,61 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										color: "text-pink-500",
 									});
 								}
+								const hasVideoGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("video")
+									: false;
+								if (hasVideoGen) {
+									items.push({
+										key: "video",
+										icon: Video,
+										label: "Video Generation",
+										color: "text-violet-500",
+									});
+								}
+								const hasAudio = Array.isArray(modelDef.output)
+									? modelDef.output.includes("audio")
+									: false;
+								if (hasAudio) {
+									items.push({
+										key: "audio",
+										icon: Volume2,
+										label: "Speech Generation",
+										color: "text-rose-500",
+									});
+								}
+								const hasTranscription = Array.isArray(modelDef.output)
+									? modelDef.output.includes("transcription")
+									: false;
+								if (hasTranscription) {
+									items.push({
+										key: "transcription",
+										icon: Mic,
+										label: "Transcription",
+										color: "text-sky-500",
+									});
+								}
+								const hasEmbedding = Array.isArray(modelDef.output)
+									? modelDef.output.includes("embedding")
+									: false;
+								if (hasEmbedding) {
+									items.push({
+										key: "embedding",
+										icon: Boxes,
+										label: "Embeddings",
+										color: "text-indigo-500",
+									});
+								}
+								const hasDecision = Array.isArray(modelDef.output)
+									? modelDef.output.includes("decision")
+									: false;
+								if (hasDecision) {
+									items.push({
+										key: "decision",
+										icon: SlidersHorizontal,
+										label: "Decisions",
+										color: "text-teal-500",
+									});
+								}
 								if (
 									Array.isArray(modelDef.output) &&
 									modelDef.output.includes("search")
@@ -438,7 +502,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 							})()}
 						</div>
 
-						<ModelRating modelId={decodedName} />
+						<ModelRating
+							modelId={decodedName}
+							initialData={ratingsData ?? undefined}
+						/>
 					</div>
 
 					{bannerDiscount && (

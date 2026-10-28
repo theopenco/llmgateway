@@ -56,7 +56,6 @@ import { cn } from "@/lib/utils";
 import { MARKETING_STATS } from "@llmgateway/shared";
 import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
-import { ProviderPromoBanner } from "./provider-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
 
 import type { Route } from "next";
@@ -183,7 +182,7 @@ export const Navbar = ({
 			title: "Lounge",
 			href: "/products/lounge",
 			description:
-				"Frontier models from OpenAI, Anthropic, Google and xAI in one chat (full lineup on Plus and Pro), plus image, video and audio studios.",
+				"Frontier models from OpenAI, Anthropic, Google and xAI in one chat (full lineup on Plus and Pro), plus image, video, audio and decision studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
@@ -465,7 +464,6 @@ export const Navbar = ({
 				data-state={menuState && "active"}
 				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
-				<ProviderPromoBanner collapsed={isScrolled} />
 				<div
 					className={cn(
 						"mt-2 mx-auto max-w-[1400px] px-6 transition-all duration-300",
@@ -640,7 +638,9 @@ export const Navbar = ({
 							{/* Mobile nav */}
 							<div className="nav:hidden">
 								<div className="mb-4">
-									<ModelSearch />
+									{/* The desktop instance above owns the ⌘K hotkey; this
+									    hidden-on-desktop copy must not also open on it. */}
+									<ModelSearch hotkey={false} />
 								</div>
 								<ul className="text-base">
 									<li>

@@ -112,6 +112,48 @@ export interface ProviderDataPolicy {
 	gdpr?: boolean | null;
 }
 
+/**
+ * Certifications a provider declares itself in Airside. A null field keeps
+ * the catalogue's reviewed value; SOC 2 `0` declares no certification.
+ */
+export interface DeclaredCompliance {
+	gdpr: boolean | null;
+	soc2: number | null;
+	iso27001: boolean | null;
+}
+
+/** `policy` with the provider's own declared certifications layered on top. */
+export function applyDeclaredCompliance<
+	T extends ProviderDataPolicy | null | undefined,
+>(
+	policy: T,
+	declared: DeclaredCompliance | null | undefined,
+): T | ProviderDataPolicy {
+	if (
+		!declared ||
+		(declared.gdpr === null &&
+			declared.soc2 === null &&
+			declared.iso27001 === null)
+	) {
+		return policy;
+	}
+	const base: ProviderDataPolicy = policy ?? {
+		apiTraining: null,
+		promptLogging: null,
+	};
+	return {
+		...base,
+		gdpr: declared.gdpr ?? base.gdpr,
+		iso27001: declared.iso27001 ?? base.iso27001,
+		soc2:
+			declared.soc2 === null
+				? base.soc2
+				: declared.soc2 === 1 || declared.soc2 === 2
+					? declared.soc2
+					: null,
+	};
+}
+
 export interface ProviderAdditionalLink {
 	desc: string;
 	link: string;
@@ -1547,67 +1589,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "scx-ai",
-		managedInAirside: true,
-		name: "SCX.ai (Turbo)",
-		forwardsSafetyIdentifier: false,
-		description:
-			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
-		env: {
-			required: {
-				apiKey: "LLM_SCX_AI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#1a1a2e",
-		modelCardBadge: "Up to 4x faster",
-		website: "https://scx.ai",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://scx.ai/terms",
-		privacyPolicyUrl: "https://scx.ai/privacy",
-		usagePolicyUrl: "https://scx.ai/terms",
-		legalEntity: "SCX.ai Holdings Limited",
-		headquarters: "AU",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 1,
-			iso27001: true,
-		},
-	},
-	{
-		id: "scx-ai-gp",
-		managedInAirside: true,
-		name: "SCX.ai",
-		forwardsSafetyIdentifier: false,
-		description:
-			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible general-purpose inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
-		env: {
-			required: {
-				apiKey: "LLM_SCX_AI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#1a1a2e",
-		website: "https://scx.ai",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://scx.ai/terms",
-		privacyPolicyUrl: "https://scx.ai/privacy",
-		usagePolicyUrl: "https://scx.ai/terms",
-		legalEntity: "SCX.ai Holdings Limited",
-		headquarters: "AU",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 1,
-			iso27001: true,
-		},
-	},
-	{
 		id: "custom",
 		name: "Custom",
 		forwardsSafetyIdentifier: false,
@@ -1977,30 +1958,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "gonka24",
-		managedInAirside: true,
-		name: "Gonka24",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
-		env: {
-			required: {
-				apiKey: "LLM_GONKA_24_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#000000",
-		website: "https://gonka24.com",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://gonka24.com/terms",
-		privacyPolicyUrl: "https://gonka24.com/privacy",
-		usagePolicyUrl: "https://gonka24.com/terms",
-		legalEntity: "Investment company Temir LLC",
-		headquarters: "KZ",
-		dataPolicy: null,
-	},
-	{
 		id: "fireworks",
 		name: "Fireworks AI",
 		forwardsSafetyIdentifier: false,
@@ -2069,40 +2026,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-	},
-	{
-		id: "consensusprotocol",
-		managedInAirside: true,
-		name: "Consensus Protocol",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
-		env: {
-			required: {
-				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#dc2626",
-		website: "https://consensusprotocol.org",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://consensusprotocol.org/terms",
-		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
-		usagePolicyUrl: "https://consensusprotocol.org/terms",
-		legalEntity: "Consensus Protocol LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-		additionalLinks: [
-			{
-				desc: "Inference data handling",
-				link: "https://consensusprotocol.org/data-policy",
-			},
-		],
 	},
 	{
 		id: "tencent",
@@ -2200,6 +2123,40 @@ export const providers: ProviderDefinition[] = [
 				link: "https://typesafe.ai/legal/data-processing",
 			},
 		],
+	},
+	{
+		id: "cloudflare",
+		name: "Cloudflare",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Cloudflare Workers AI runs open-weight models on Cloudflare's global GPU network through an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_CLOUDFLARE_API_KEY",
+				accountId: "LLM_CLOUDFLARE_ACCOUNT_ID",
+			},
+		},
+		cancellation: true,
+		color: "#F38020",
+		website: "https://developers.cloudflare.com/workers-ai",
+		statusPageUrl: "https://www.cloudflarestatus.com",
+		announcement: null,
+		apiKeyInstructions:
+			"Use a Cloudflare API token with Workers AI permissions, plus the 32-character account ID from your Cloudflare dashboard.",
+		termsUrl: "https://www.cloudflare.com/terms/",
+		privacyPolicyUrl: "https://www.cloudflare.com/privacypolicy/",
+		usagePolicyUrl:
+			"https://www.cloudflare.com/service-specific-terms-developer-platform/",
+		legalEntity: "Cloudflare, Inc.",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 ] as const satisfies ProviderDefinition[];
 
@@ -2683,8 +2640,6 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
-	KZ: "Kazakhstan",
-	AU: "Australia",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

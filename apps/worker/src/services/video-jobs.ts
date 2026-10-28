@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 
+import { Decimal } from "decimal.js";
+
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
 import {
@@ -58,7 +60,13 @@ import {
 } from "@llmgateway/shared/gcs";
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
-import { isMinimaxV2VideoModel } from "@llmgateway/shared/video-generation-config";
+import {
+	isMinimaxV2VideoModel,
+	getGoogleAiStudioVideoFileName,
+	parseGoogleAiStudioFileName,
+} from "@llmgateway/shared/video-generation-config";
+
+import { readMp4DurationSeconds } from "./mp4-duration.js";
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
@@ -125,6 +133,9 @@ const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
 const VIDEO_RESOLUTION_720P = "720p";
 const VIDEO_RESOLUTION_480P = "480p";
+const VIDEO_RESOLUTION_360P = "360p";
+// Gemini Files API files, generated outputs included, are deleted after 48h.
+const GOOGLE_AI_STUDIO_FILE_TTL_MS = 48 * 60 * 60 * 1000;
 const VIDEO_RESOLUTION_768P = "768p";
 const VIDEO_DEFAULT_RESOLUTION = "default";
 const ACTIVE_VIDEO_STATUSES = ["queued", "in_progress"] as const;
@@ -135,6 +146,27 @@ const TERMINAL_VIDEO_STATUS_VALUES: Array<VideoJobRecord["status"]> = [
 	"expired",
 ];
 const TERMINAL_VIDEO_STATUSES = new Set<string>(TERMINAL_VIDEO_STATUS_VALUES);
+
+const REQUESTED_VIDEO_RESOLUTIONS = [
+	"360p",
+	"480p",
+	"720p",
+	"768p",
+	"1080p",
+	"hd",
+	"4k",
+] as const;
+
+type RequestedVideoResolution = (typeof REQUESTED_VIDEO_RESOLUTIONS)[number];
+
+function isRequestedVideoResolution(
+	value: unknown,
+): value is RequestedVideoResolution {
+	return (
+		typeof value === "string" &&
+		(REQUESTED_VIDEO_RESOLUTIONS as readonly string[]).includes(value)
+	);
+}
 
 type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
 type WebhookDeliveryRecord = InferSelectModel<typeof tables.webhookDeliveryLog>;
@@ -187,6 +219,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "google-ai-studio":
+			return "https://generativelanguage.googleapis.com";
 		case "minimax":
 			return "https://api.minimax.io";
 		case "alibaba":
@@ -414,6 +448,10 @@ function getVideoProviderHeaders(
 		return providerContext.vertexTokenType === "oauth"
 			? { Authorization: `Bearer ${providerContext.token}` }
 			: {};
+	}
+
+	if (isGoogleAiStudioVideoProvider(job.usedProvider)) {
+		return { "x-goog-api-key": providerContext.token };
 	}
 
 	return {
@@ -773,7 +811,10 @@ async function getPublicVideoContentUrl(
 	const resolvedLogId = logId ?? job.logId;
 	if (
 		resolvedLogId &&
-		(job.contentUrl || job.storageUri || getInlineGoogleVertexVideo(job))
+		(job.contentUrl ||
+			job.storageUri ||
+			getGoogleAiStudioVideoFileName([job.upstreamStatusResponse]) ||
+			getInlineGoogleVertexVideo(job))
 	) {
 		try {
 			return buildSignedGatewayVideoLogContentUrl(resolvedLogId);
@@ -910,7 +951,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	size: string;
 	width: number;
 	height: number;
-	resolution: "480p" | "720p" | "768p" | "1080p" | "hd" | "4k";
+	resolution: RequestedVideoResolution;
 } | null {
 	const size = getRequestedVideoSize(job);
 	if (!size) {
@@ -928,18 +969,10 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 		return null;
 	}
 
-	let requestedResolution:
-		"480p" | "720p" | "768p" | "1080p" | "hd" | "4k" | null = null;
+	let requestedResolution: RequestedVideoResolution | null = null;
 	for (const candidate of getVideoMetadataCandidates(job)) {
 		const value = readNestedValue(candidate, "llmgateway_requested_resolution");
-		if (
-			value === "480p" ||
-			value === "720p" ||
-			value === "768p" ||
-			value === "1080p" ||
-			value === "hd" ||
-			value === "4k"
-		) {
+		if (isRequestedVideoResolution(value)) {
 			requestedResolution = value;
 			break;
 		}
@@ -947,14 +980,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	if (!requestedResolution) {
 		for (const candidate of getVideoMetadataCandidates(job)) {
 			const value = readNestedValue(candidate, "resolution");
-			if (
-				value === "480p" ||
-				value === "720p" ||
-				value === "768p" ||
-				value === "1080p" ||
-				value === "hd" ||
-				value === "4k"
-			) {
+			if (isRequestedVideoResolution(value)) {
 				requestedResolution = value;
 				break;
 			}
@@ -972,7 +998,9 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 					? "hd"
 					: largestDimension >= 720
 						? "720p"
-						: "480p");
+						: largestDimension > 640
+							? "480p"
+							: "360p");
 
 	return {
 		size,
@@ -1211,6 +1239,21 @@ async function fetchGoogleVertexStatus(
 }
 
 function extractVideoDurationSeconds(job: VideoJobRecord): number | null {
+	if (getVideoMapping(job)?.videoDurationFollowsAudio) {
+		const status = job.upstreamStatusResponse;
+		const measured =
+			status && typeof status === "object" && !Array.isArray(status)
+				? (status as Record<string, unknown>).llmgateway_output_duration_seconds
+				: undefined;
+		if (
+			typeof measured === "number" &&
+			Number.isFinite(measured) &&
+			measured > 0
+		) {
+			return measured;
+		}
+	}
+
 	return getRequestedVideoDurationSeconds(job);
 }
 
@@ -1374,6 +1417,18 @@ function getVideoImageInputCost(job: VideoJobRecord): number {
 }
 
 function getVideoOutputCost(job: VideoJobRecord): number {
+	// Token-billed video output (e.g. an edit, whose length follows the source
+	// rather than the requested duration) is billed exactly as reported.
+	const videoOutputPrice = getVideoMapping(job)?.videoOutputPrice;
+	const usage = getUpstreamVideoUsage(job);
+	const videoOutputTokens = usage ? getVideoOutputTokens(usage) : 0;
+	if (videoOutputPrice && videoOutputTokens > 0) {
+		return new Decimal(videoOutputTokens)
+			.mul(videoOutputPrice)
+			.toDecimalPlaces(6)
+			.toNumber();
+	}
+
 	const pricing = getVideoPricing(job);
 	if (!pricing) {
 		return getVideoRequestPrice(job) ?? 0;
@@ -1403,7 +1458,9 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 						? VIDEO_RESOLUTION_720P
 						: requestedResolution === VIDEO_RESOLUTION_480P
 							? VIDEO_RESOLUTION_480P
-							: VIDEO_DEFAULT_RESOLUTION;
+							: requestedResolution === VIDEO_RESOLUTION_360P
+								? VIDEO_RESOLUTION_360P
+								: VIDEO_DEFAULT_RESOLUTION;
 	const resolutionCandidates = [
 		requestedResolution,
 		resolutionKey,
@@ -1500,7 +1557,9 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				jobToLog.status === "completed" ? getVideoOutputCost(jobToLog) : 0;
 			const imageInputCost =
 				jobToLog.status === "completed" ? getVideoImageInputCost(jobToLog) : 0;
-			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
+			const tokenCosts =
+				jobToLog.status === "completed" ? getVideoTokenCosts(jobToLog) : null;
+			const totalCost = getVideoBilledCost(jobToLog);
 			const costFields = {
 				cost: totalCost,
 				videoOutputCost,
@@ -1600,6 +1659,15 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				requestCost: 0,
 				imageInputCost,
 				videoOutputCost,
+				...(tokenCosts
+					? {
+							promptTokens: String(tokenCosts.promptTokens),
+							completionTokens: String(tokenCosts.completionTokens),
+							reasoningTokens: String(tokenCosts.reasoningTokens),
+							inputCost: tokenCosts.inputCost,
+							outputCost: tokenCosts.outputCost,
+						}
+					: {}),
 				estimatedCost: false,
 				messages: [
 					{
@@ -1621,7 +1689,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				),
 				upstreamResponse: redactStealthProviderError
 					? null
-					: jobToLog.upstreamStatusResponse,
+					: withoutInlineVideoBytes(jobToLog.upstreamStatusResponse),
 				processedAt: null,
 				dataStorageCost: "0",
 			};
@@ -1659,15 +1727,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				claimedJob.usedMode === "credits" &&
 				!claimedJob.endCustomerWalletId
 			) {
-				const billedVideoCost =
-					claimedJob.status === "completed"
-						? Number(
-								(
-									getVideoOutputCost(claimedJob) +
-									getVideoImageInputCost(claimedJob)
-								).toFixed(6),
-							)
-						: 0;
+				const billedVideoCost = getVideoBilledCost(claimedJob);
 				const reservedSpendUsd = getVideoReservedSpendUsd(claimedJob);
 				await adjustOrgSpend(
 					claimedJob.organizationId,
@@ -1737,6 +1797,27 @@ function isAtlasCloudVideoProvider(providerId: string): boolean {
 	return providerId === "atlascloud";
 }
 
+async function readRemoteMp4DurationSeconds(
+	url: string,
+	tenantControlled: boolean,
+): Promise<number> {
+	return await readMp4DurationSeconds(async (start, length) => {
+		const response = await fetchWithSignals(
+			url,
+			{ headers: { Range: `bytes=${start}-${start + length - 1}` } },
+			UPSTREAM_FETCH_TIMEOUT_MS,
+			tenantControlled,
+		);
+		if (response.status !== 206) {
+			await response.body?.cancel();
+			throw new Error(
+				`Video duration probe expected a 206 range response, got ${response.status}`,
+			);
+		}
+		return Buffer.from(await response.arrayBuffer());
+	});
+}
+
 async function fetchAtlasCloudStatus(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
@@ -1785,8 +1866,37 @@ async function fetchAtlasCloudStatus(
 			)
 			.find((url) => url !== null) ?? null;
 
+	// The output follows the input audio, so bill its measured length.
+	let outputDurationSeconds: number | null = null;
+	if (
+		status === "completed" &&
+		outputUrl &&
+		getVideoMapping(job)?.videoDurationFollowsAudio
+	) {
+		try {
+			outputDurationSeconds = await readRemoteMp4DurationSeconds(
+				outputUrl,
+				providerContext.tenantControlled,
+			);
+		} catch (error) {
+			// Failing the poll would eventually fail a finished, paid-for video;
+			// bill the requested seconds instead.
+			logger.error("Could not measure video output duration for billing", {
+				videoJobId: job.id,
+				upstreamId: job.upstreamId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
 	return addRequestedVideoMetadata(job, {
 		...body,
+		...(outputDurationSeconds !== null
+			? {
+					duration: outputDurationSeconds,
+					llmgateway_output_duration_seconds: outputDurationSeconds,
+				}
+			: {}),
 		status,
 		progress:
 			status === "completed"
@@ -2102,6 +2212,10 @@ async function fetchUpstreamStatus(
 		return await fetchGoogleVertexStatus(job, providerContext);
 	}
 
+	if (isGoogleAiStudioVideoProvider(job.usedProvider)) {
+		return await fetchGoogleAiStudioStatus(job, providerContext);
+	}
+
 	if (isBytedanceVideoProvider(job.usedProvider)) {
 		return await fetchBytedanceStatus(job, providerContext);
 	}
@@ -2170,6 +2284,7 @@ async function fetchUpstreamContentMetadata(
 	if (
 		job.usedProvider === "xai" ||
 		isGoogleVertexVideoProvider(job.usedProvider) ||
+		isGoogleAiStudioVideoProvider(job.usedProvider) ||
 		isMinimaxVideoProvider(job.usedProvider) ||
 		isAlibabaVideoProvider(job.usedProvider) ||
 		isAtlasCloudVideoProvider(job.usedProvider)
@@ -2730,4 +2845,283 @@ export async function processPendingWebhookDeliveries(): Promise<void> {
 
 		await deliverWebhook(delivery, job);
 	}
+}
+function isGoogleAiStudioVideoProvider(providerId: string): boolean {
+	return providerId === "google-ai-studio";
+}
+function getGoogleAiStudioVideoOutput(
+	body: Record<string, unknown>,
+): { uri: string | null; data: string | null; mimeType: string } | null {
+	const steps = Array.isArray(body.steps) ? body.steps : [];
+	for (const step of steps) {
+		if (!step || typeof step !== "object") {
+			continue;
+		}
+		const { type, content } = step as Record<string, unknown>;
+		if (type !== "model_output" || !Array.isArray(content)) {
+			continue;
+		}
+		for (const part of content) {
+			if (!part || typeof part !== "object") {
+				continue;
+			}
+			const video = part as Record<string, unknown>;
+			if (video.type !== "video") {
+				continue;
+			}
+			const uri =
+				typeof video.uri === "string" && video.uri.length > 0
+					? video.uri
+					: null;
+			const data =
+				typeof video.data === "string" && video.data.length > 0
+					? video.data
+					: null;
+			if (uri || data) {
+				return {
+					uri,
+					data,
+					mimeType:
+						typeof video.mime_type === "string" && video.mime_type.length > 0
+							? video.mime_type
+							: "video/mp4",
+				};
+			}
+		}
+	}
+	return null;
+}
+/**
+ * Normalizes a Gemini Interactions API video interaction. The interaction's
+ * `steps` (thought signatures, output file) are dropped: the output is kept as
+ * its Files API name, or as inline bytes when the API returned no URI.
+ */
+function normalizeGoogleAiStudioInteraction(
+	job: VideoJobRecord,
+	body: Record<string, unknown>,
+): Record<string, unknown> {
+	const rawStatus =
+		typeof body.status === "string" ? body.status.toLowerCase() : "";
+	const output = getGoogleAiStudioVideoOutput(body);
+	const fileName = output?.uri ? parseGoogleAiStudioFileName(output.uri) : null;
+	const inlineData = fileName ? null : (output?.data ?? null);
+	const hasVideo = Boolean(fileName || inlineData);
+	const status: VideoJobRecord["status"] =
+		rawStatus === "completed"
+			? hasVideo
+				? "completed"
+				: "failed"
+			: rawStatus === "failed" || rawStatus === "incomplete"
+				? "failed"
+				: rawStatus === "cancelled" || rawStatus === "canceled"
+					? "canceled"
+					: "in_progress";
+	const firstError = Array.isArray(body.errors) ? body.errors[0] : body.error;
+	const upstreamError =
+		firstError && typeof firstError === "object"
+			? (firstError as Record<string, unknown>)
+			: null;
+	const error =
+		status === "failed" || status === "canceled"
+			? {
+					message:
+						typeof upstreamError?.message === "string"
+							? upstreamError.message
+							: rawStatus === "completed"
+								? "Google AI Studio returned no video output"
+								: `Google AI Studio video generation ${rawStatus || "failed"}`,
+					code:
+						typeof upstreamError?.code === "string"
+							? upstreamError.code
+							: typeof upstreamError?.code === "number"
+								? String(upstreamError.code)
+								: undefined,
+					details: upstreamError ?? { status: body.status },
+				}
+			: null;
+
+	return addRequestedVideoMetadata(job, {
+		id: body.id,
+		model: body.model,
+		created: body.created,
+		updated: body.updated,
+		usage: body.usage,
+		upstream_status: body.status,
+		status,
+		progress: status === "in_progress" ? 50 : 100,
+		mime_type: output?.mimeType ?? "video/mp4",
+		...(fileName
+			? {
+					google_ai_studio_file_name: fileName,
+					expires_at: new Date(
+						(parseTimestamp(body.updated) ?? new Date()).getTime() +
+							GOOGLE_AI_STUDIO_FILE_TTL_MS,
+					).toISOString(),
+				}
+			: {}),
+		...(inlineData
+			? {
+					response: {
+						videos: [
+							{
+								bytesBase64Encoded: inlineData,
+								mimeType: output?.mimeType ?? "video/mp4",
+							},
+						],
+					},
+				}
+			: {}),
+		error,
+	});
+}
+async function fetchGoogleAiStudioStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/v1beta/interactions/${encodeURIComponent(job.upstreamId)}`,
+	);
+	const { body, response } = await fetchJsonResponse(
+		url,
+		{
+			method: "GET",
+			headers: getVideoProviderHeaders(job, providerContext),
+		},
+		providerContext.tenantControlled,
+	);
+
+	if (!response.ok) {
+		throw new Error(
+			body.error &&
+				typeof body.error === "object" &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
+				? body.error.message
+				: `Google AI Studio status request failed with status ${response.status}`,
+		);
+	}
+
+	return normalizeGoogleAiStudioInteraction(job, body);
+}
+interface VideoTokenCosts {
+	promptTokens: number;
+	completionTokens: number;
+	reasoningTokens: number;
+	inputCost: number;
+	outputCost: number;
+}
+
+function readTokenCount(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: 0;
+}
+
+/**
+ * Text-token charges of a token-metered video model (Gemini Interactions API
+ * usage): prompt tokens at `inputPrice`, thinking and non-video output tokens
+ * at `outputPrice`. Video output itself is billed per second.
+ */
+function getVideoTokenCosts(job: VideoJobRecord): VideoTokenCosts | null {
+	const mapping = getVideoMapping(job);
+	if (!mapping?.inputPrice && !mapping?.outputPrice) {
+		return null;
+	}
+	const usage = getUpstreamVideoUsage(job);
+	if (!usage) {
+		return null;
+	}
+
+	const promptTokens = readTokenCount(usage.total_input_tokens);
+	const completionTokens = Math.max(
+		0,
+		readTokenCount(usage.total_output_tokens) - getVideoOutputTokens(usage),
+	);
+	const reasoningTokens = readTokenCount(usage.total_thought_tokens);
+
+	return {
+		promptTokens,
+		completionTokens,
+		reasoningTokens,
+		inputCost: new Decimal(promptTokens)
+			.mul(mapping.inputPrice ?? 0)
+			.toDecimalPlaces(6)
+			.toNumber(),
+		outputCost: new Decimal(completionTokens + reasoningTokens)
+			.mul(mapping.outputPrice ?? 0)
+			.toDecimalPlaces(6)
+			.toNumber(),
+	};
+}
+function getVideoBilledCost(job: VideoJobRecord): number {
+	if (job.status !== "completed") {
+		return 0;
+	}
+	const tokenCosts = getVideoTokenCosts(job);
+	return new Decimal(getVideoOutputCost(job))
+		.plus(getVideoImageInputCost(job))
+		.plus(tokenCosts?.inputCost ?? 0)
+		.plus(tokenCosts?.outputCost ?? 0)
+		.toDecimalPlaces(6)
+		.toNumber();
+}
+function getUpstreamVideoUsage(
+	job: VideoJobRecord,
+): Record<string, unknown> | null {
+	const status =
+		job.upstreamStatusResponse &&
+		typeof job.upstreamStatusResponse === "object" &&
+		!Array.isArray(job.upstreamStatusResponse)
+			? (job.upstreamStatusResponse as Record<string, unknown>)
+			: null;
+	return status?.usage && typeof status.usage === "object"
+		? (status.usage as Record<string, unknown>)
+		: null;
+}
+function getVideoOutputTokens(usage: Record<string, unknown>): number {
+	return (
+		Array.isArray(usage.output_tokens_by_modality)
+			? usage.output_tokens_by_modality
+			: []
+	).reduce<number>((total, entry) => {
+		if (!entry || typeof entry !== "object") {
+			return total;
+		}
+		const { modality, tokens } = entry as Record<string, unknown>;
+		return modality === "video" ? total + readTokenCount(tokens) : total;
+	}, 0);
+}
+/**
+ * The job's upstream status for the log row, without inline video bytes: the
+ * job row keeps them for content retrieval, the log never needs them.
+ */
+function withoutInlineVideoBytes(status: unknown): unknown {
+	if (!status || typeof status !== "object" || Array.isArray(status)) {
+		return status;
+	}
+	const body = status as Record<string, unknown>;
+	const response =
+		body.response && typeof body.response === "object"
+			? (body.response as Record<string, unknown>)
+			: null;
+	if (!response || !Array.isArray(response.videos)) {
+		return status;
+	}
+	return {
+		...body,
+		response: {
+			...response,
+			videos: response.videos.map((video: unknown) => {
+				if (!video || typeof video !== "object") {
+					return video;
+				}
+				const { bytesBase64Encoded: _bytes, ...rest } = video as Record<
+					string,
+					unknown
+				>;
+				return rest;
+			}),
+		},
+	};
 }

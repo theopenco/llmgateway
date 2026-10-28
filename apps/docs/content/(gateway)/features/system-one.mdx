@@ -50,7 +50,7 @@ curl -X POST "https://api.llmgateway.io/v1/systemone" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "jev-1.13.0",
+    "model": "jev-1.14.0",
     "state": "Help! My payouts have been failing for 3 days.",
     "questions": {
       "department": {
@@ -77,7 +77,7 @@ curl -X POST "https://api.llmgateway.io/v1/systemone" \
 
 ```json
 {
-	"model": "typesafe/jev-1.13.0",
+	"model": "typesafe/jev-1.14.0",
 	"answers": {
 		"department": {
 			"type": "choice",
@@ -110,6 +110,37 @@ request is always billed and logged against the version you can read prices for.
 | `model`     | `string`                    | Decision model to use. Optionally prefixed with a provider (`typesafe/…`). |
 | `state`     | `string \| object \| array` | The content to evaluate. Structured data lets questions reference fields.  |
 | `questions` | `map<string, Question>`     | At least one typed question, keyed by ids you choose.                      |
+| `assets`    | `map<string, Asset>`        | Optional images, keyed by a reference string. See below.                   |
+
+## Images
+
+Each image goes in `assets` as `{ "type": "image", "format": "png" | "jpg", "data_base64": "…" }`
+(base64 without a `data:` prefix), keyed by a reference string. Write the
+reference anywhere in `state`, `instructions` or `criteria` and the model
+receives the image in its place. Use a fresh UUID per image so the reference
+can't match your text by accident. The gateway sends TypeSafe's
+`TypeSafe-Danger-Zone-Images` opt-in for you. Image input is experimental at
+TypeSafe; multipart uploads are not supported.
+
+```json
+{
+	"model": "jev-1.14.0",
+	"state": { "photo": "a3f1c2e8-photo" },
+	"assets": {
+		"a3f1c2e8-photo": {
+			"type": "image",
+			"format": "jpg",
+			"data_base64": "/9j/4AAQ…"
+		}
+	},
+	"questions": {
+		"damaged": {
+			"type": "noul",
+			"instructions": "Is the item in `photo` damaged?"
+		}
+	}
+}
+```
 
 ## Deciding in code
 
@@ -125,7 +156,7 @@ const res = await fetch("https://api.llmgateway.io/v1/systemone", {
 		"Content-Type": "application/json",
 	},
 	body: JSON.stringify({
-		model: "jev-1.13.0",
+		model: "jev-1.14.0",
 		state: ticket,
 		questions: {
 			department: {

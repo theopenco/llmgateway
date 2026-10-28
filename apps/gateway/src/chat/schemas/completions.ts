@@ -172,7 +172,7 @@ export const completionsRequestSchema = z.object({
 				.optional()
 				.openapi({
 					description:
-						"Anthropic content blocks with no OpenAI-format equivalent. On an assistant message these are the server-side tool search blocks (`server_tool_use` + `tool_search_tool_result`), replayed ahead of the message's tool calls; on a tool message they are the `tool_result` content array, which is how a client-side tool search returns `tool_reference` blocks. Replayed on the Anthropic Messages API only and stripped for every other provider.",
+						"Anthropic content blocks with no OpenAI-format equivalent. On an assistant message these are server tool blocks (`server_tool_use` plus its `tool_search_tool_result`, `web_search_tool_result` or `web_fetch_tool_result`) as the response returned them; on a tool message they are the `tool_result` content array, which is how a client-side tool search returns `tool_reference` blocks. Replayed on the Anthropic Messages API only and stripped for every other provider.",
 				}),
 			tool_result_cache_control: z
 				.object({
@@ -334,6 +334,10 @@ export const completionsRequestSchema = z.object({
 						description:
 							"Anthropic only. Which callers may invoke the tool (programmatic tool calling). Stripped for every other provider.",
 					}),
+					eager_input_streaming: z.boolean().optional().openapi({
+						description:
+							"Anthropic only. Streams the tool input as the model generates it (fine-grained tool streaming) instead of buffering each parameter until it validates. Claude on AWS Bedrock gets it as the request-wide fine-grained tool streaming beta when every tool sets it. Stripped for every other provider.",
+					}),
 					defer_loading: z.boolean().optional().openapi({
 						description:
 							"Anthropic only. Keeps the tool out of the rendered tools section so it never enters the cached prompt prefix, and loads it on demand once the tool search tool discovers it. Requires a `tool_search` tool in `tools`, and Anthropic rejects a request whose tools are all deferred. Stripped for every other provider, which receives the tool eagerly instead.",
@@ -375,6 +379,27 @@ export const completionsRequestSchema = z.object({
 					allowed_domains: z.array(z.string()).optional(),
 					blocked_domains: z.array(z.string()).optional(),
 				}),
+				z
+					.object({
+						type: z.literal("web_fetch"),
+						web_fetch_type: z
+							.string()
+							.regex(/^web_fetch_/)
+							.openapi({
+								description:
+									"Anthropic web fetch tool type, e.g. `web_fetch_20250910`.",
+							}),
+						name: z.string().optional(),
+						max_uses: z.number().int().positive().optional(),
+						allowed_domains: z.array(z.string()).optional(),
+						blocked_domains: z.array(z.string()).optional(),
+						citations: z.object({ enabled: z.boolean() }).optional(),
+						max_content_tokens: z.number().int().positive().optional(),
+					})
+					.openapi({
+						description:
+							"Anthropic's server-side web fetch tool. Forwarded to the Anthropic Messages API only and stripped for every other provider.",
+					}),
 			]),
 		)
 		.optional(),
@@ -533,6 +558,31 @@ export const completionsRequestSchema = z.object({
 			seed: z.number().optional(),
 		})
 		.optional(),
+	// OpenAI Chat Completions web search options
+	web_search_options: z
+		.object({
+			search_context_size: z.enum(["low", "medium", "high"]).optional(),
+			user_location: z
+				.object({
+					type: z.literal("approximate").optional(),
+					approximate: z
+						.object({
+							city: z.string().optional(),
+							region: z.string().optional(),
+							country: z.string().optional(),
+							timezone: z.string().optional(),
+						})
+						.optional(),
+				})
+				.nullable()
+				.optional(),
+		})
+		.optional()
+		.openapi({
+			description:
+				'OpenAI\'s Chat Completions web search parameter. Equivalent to a `{"type": "web_search"}` entry in `tools` with the same `search_context_size` and `user_location`; when both are sent, the tool\'s own fields win. The model decides whether to search; add `tool_choice: {"type": "web_search"}` to demand one.',
+			example: { search_context_size: "low" },
+		}),
 	// Web search enablement
 	web_search: z.boolean().optional().default(false).openapi({
 		description:

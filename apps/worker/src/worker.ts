@@ -33,6 +33,7 @@ import {
 	invalidateOrganizationsCache,
 	isNotNull,
 	isApiKeyPeriodLimitConfigured,
+	isPremiumModelAfterDiscounts,
 	log,
 	type LogInsertData,
 	lt,
@@ -52,9 +53,9 @@ import {
 	isCreditTopUpAmountInRange,
 	isDailyWindowExpired,
 	isLoungeSource,
-	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
+	usedModelBaseId,
 } from "@llmgateway/shared";
 import {
 	getLogRetentionCutoff,
@@ -77,6 +78,7 @@ import { startHistoryAfterRecovery } from "./services/history-startup.js";
 import {
 	runModelStatsByokErrorsBackfillStep,
 	runSourceModelStatsBackfillStep,
+	runTenantStatsByokSplitBackfillStep,
 } from "./services/hourly-stats-backfill.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
@@ -150,6 +152,8 @@ const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
 	"model_stats_byok_errors_backfill";
+const TENANT_STATS_BYOK_SPLIT_BACKFILL_LOCK_KEY =
+	"tenant_stats_byok_split_backfill";
 const PROJECT_STATS_LOCK_KEY = "project_stats_refresh";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
@@ -898,6 +902,10 @@ export async function cleanupExpiredLogData(): Promise<void> {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
 				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
+				// ORDER BY created_at forces the partial index. Without it the planner
+				// assumes the two predicates are independent, expects many matches, and
+				// picks a seq scan that "stops early" — but pending rows are all recent,
+				// so it reads the whole heap and finds almost nothing.
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
@@ -907,6 +915,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
+					.orderBy(log.createdAt)
 					.limit(CLEANUP_BATCH_SIZE)
 					.for("update", { skipLocked: true });
 
@@ -1231,6 +1240,23 @@ export async function batchProcessLogs(): Promise<number> {
 			// not an option.
 			const isChatSource = isLoungeSource;
 
+			// Classify each distinct model once per batch at public prices, the
+			// same classification the gateway's premium gate uses.
+			const batchModelIds = new Set(
+				rows.flatMap((r) =>
+					r.used_model ? [usedModelBaseId(r.used_model)] : [],
+				),
+			);
+			const premiumModelIds = new Set(
+				(
+					await Promise.all(
+						[...batchModelIds].map(async (modelId) =>
+							(await isPremiumModelAfterDiscounts(modelId)) ? modelId : null,
+						),
+					)
+				).filter((modelId) => modelId !== null),
+			);
+
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
 
@@ -1368,7 +1394,10 @@ export async function batchProcessLogs(): Promise<number> {
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
-							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
+							Boolean(
+								row.used_model &&
+								premiumModelIds.has(usedModelBaseId(row.used_model)),
+							),
 						);
 					}
 				}
@@ -1554,6 +1583,7 @@ export async function batchProcessLogs(): Promise<number> {
 						const allowanceLeft = new Decimal(
 							getRemainingPremiumWeeklyAllowance(
 								org.devPlan as DevPlanTier,
+								org.devPlanCreditsLimit,
 								devPool.premiumCreditsUsed?.toNumber() ?? 0,
 								devPool.premiumWeekStart,
 							),
@@ -1583,6 +1613,7 @@ export async function batchProcessLogs(): Promise<number> {
 						const dailyLeft = new Decimal(
 							getRemainingDailyAllowance(
 								org.devPlan as DevPlanTier,
+								org.devPlanCreditsLimit,
 								devPool.dailyCreditsUsed?.toNumber() ?? 0,
 								devPool.dayStart,
 							),
@@ -3685,6 +3716,11 @@ export async function startWorker() {
 		"model stats BYOK errors",
 		MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY,
 		runModelStatsByokErrorsBackfillStep,
+	);
+	void runBackfillLoop(
+		"tenant stats BYOK split",
+		TENANT_STATS_BYOK_SPLIT_BACKFILL_LOCK_KEY,
+		runTenantStatsByokSplitBackfillStep,
 	);
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);

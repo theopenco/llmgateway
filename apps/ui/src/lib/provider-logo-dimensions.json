@@ -116,15 +116,6 @@
 	"sakana": {
 		"viewBox": "0 0 1289 1289"
 	},
-	"scx-ai": {
-		"viewBox": "107.5 18.8 760 277.2"
-	},
-	"scx-ai-gp": {
-		"viewBox": "107.5 18.8 760 277.2"
-	},
-	"gonka24": {
-		"viewBox": "0 0 1080 1080"
-	},
 	"fireworks": {
 		"viewBox": "0 0 88 44"
 	},
@@ -137,13 +128,16 @@
 	"baidu": {
 		"viewBox": "0 0 24 24"
 	},
-	"consensusprotocol": {
-		"viewBox": "0 0 24 24"
-	},
 	"atria": {
 		"viewBox": "0 0 24 24"
 	},
 	"tencent": {
 		"viewBox": "0 -5 33 33"
+	},
+	"typesafe": {
+		"viewBox": "-22.59 0 144 144"
+	},
+	"cloudflare": {
+		"viewBox": "0 0 24 24"
 	}
 }

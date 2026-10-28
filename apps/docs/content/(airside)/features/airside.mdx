@@ -85,6 +85,27 @@ Each check lists the upstream requests it actually sent. A check can be more tha
 
 Where a check can tell the difference between a capability and a dialect, it narrows the listing itself. A `tool_choice` mode your endpoint mishandles is dropped while tool calls stay on, and a `reasoning_effort` tier your endpoint rejects outright is retried at another tier — reasoning stays on and only the rejected tiers come off your declared set. If one tier is rejected the check goes on to try the others, since a tier left declared is one the gateway will forward verbatim. So a deployment implementing only a subset of the tiers verifies without losing reasoning, and you do not have to know which subset in advance.
 
+### Web search format
+
+A listing that declares **web search** also picks the shape its Chat Completions endpoint takes a search in:
+
+- **`web_search_options`** — OpenAI's Chat Completions body field, `{"web_search_options": {"search_context_size": "low"}}`. It has no forced mode; the model decides.
+- **`tools: [{type: "web_search"}]`** — a hosted-tool entry, the Responses API's shape, which some chat endpoints accept instead. A request that requires a search sends `tool_choice: "required"` when web search is its only tool and your listing accepts `required`; next to the caller's own functions it leaves `tool_choice` to the model.
+
+The gateway translates every caller's web search — a `web_search` tool, `web_search_options`, or a Responses API tool — into the shape you pick, and passes `url_citation` annotations back. A search is billed only on evidence in your response: `url_citation` annotations, a usage counter (`server_tool_use.web_search_requests` or `num_search_queries`), or `prompt_tokens` beyond what the request could encode to (the retrieved pages you added to the prompt). The **web search** preflight check sends its probe in the chosen shape and passes only on the same evidence, so a shape your endpoint ignores fails it. Changing the shape on a listing with web search needs a passing preflight in the new shape.
+
+### Decision models
+
+Set **Model type** to **Typed decisions** to list a decision model: one that answers typed questions with probabilities instead of generating text. Developers call it on LLM Gateway's [`/v1/decisions`](/features/decisions) endpoint, and the gateway forwards the request to `<base URL>/v1/decisions` on your API with `input` and `questions` as sent and `model` set to your upstream model ID. Your endpoint must implement OpenAI's Decisions API:
+
+- Accept `POST /v1/decisions` with `model` (your upstream model ID), `input` (a string, or user messages with `input_text` and `input_image` parts), and `questions` (`predicate`, `choice`, and `score`).
+- Return one answer per question in question order, echoing each `name`: a `probability` from 0 to 1 for `predicate`; a `choice` from the offered values with one entry in `probabilities` per value for `choice`; a `score` from 0 to the highest level index with one entry in `probabilities` per level for `score`.
+- Report `usage.input_tokens` as a non-negative integer. Decisions are billed on input tokens only, plus an optional per-request price, so a decision listing files an output price of 0 and takes no cached or regional fares. A response without a usable count is billed on an estimate of the request size.
+
+A decision listing declares only **image input** and its maximum input tokens; chat capabilities do not apply. Preflight sends one request per question type and fails unless each response has that shape and reports a positive `usage.input_tokens`. With image input declared, it also sends a solid red image and fails unless your model answers that it is red with a probability of at least 0.5. Carriers whose catalogue decision API is not `/v1/decisions` cannot list decision models.
+
+The model type is fixed once listed. While any listing of a model ID is in service, the ID stays a chat model or a decision model, and a catalogue model keeps its catalogue type. A model ID without a provider prefix goes to the catalogue mapping when there is one, otherwise to the listing with the lowest input price.
+
 ## Price filings
 
 Listed prices are what developers are billed, so pricing never changes silently: it only changes through a reviewed **price filing**.
@@ -97,6 +118,14 @@ A filing covers input, output, optional cached-input, and optional per-request p
 ## Routing and billing
 
 Approved listings are genuinely routable. A request for `<provider>/<model>` that does not match the static catalogue resolves against active Airside listings with an approved price filing, and is billed at the filed prices — no extra configuration on the developer side.
+
+### Getting paid
+
+LLM Gateway settles the traffic it sends you under one of three billing modes. The mode is not self-serve: we discuss it with you and set it up together before your carrier goes live. **Settings → Billing** shows the mode in place; contact us to change it. In every mode we reconcile your charges against our own traffic records each month.
+
+1. **Pay-as-you-go** — we open an account on your platform with a card on auto top-up, so usage is charged as it happens.
+2. **Payout** — you issue us an API key and invoice us on the 1st for the previous month. We pay out your earnings by USD wire, weekly or monthly.
+3. **Post-billing** — we open an account on your platform and you switch it to post-paid. You invoice us on the 1st for the previous month and we pay once a month.
 
 ## Traffic
 
@@ -136,13 +165,7 @@ Accepting more than the baseline margin or offering a discount makes your traffi
 
 **Settings** holds the preflight **test key** for each claimed carrier, shown masked. Replace or remove it at any time; without one, preflight asks for a key on every run.
 
-Settings also shows each carrier's **billing mode**, which the LLM Gateway team sets and you can only view:
-
-- **Pay-as-you-go** (default) — LLM Gateway prepays usage on its own account with you.
-- **Post-billing** — you invoice LLM Gateway after each month's usage, paid by wire.
-- **Payout** — you supply the API key and cover upstream costs; LLM Gateway pays you after each month.
-
-Contact the LLM Gateway team to change it.
+Settings also shows each carrier's **billing mode**. It is view-only: the mode is agreed with the LLM Gateway team and set up before your carrier goes live (see [Getting paid](#getting-paid)). Contact the LLM Gateway team to change it.
 
 ## Provider resources
 

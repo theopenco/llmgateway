@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { generateText, tool } from "ai";
 import { HTTPException } from "hono/http-exception";
 
@@ -7,6 +7,7 @@ import {
 	extractFileText,
 } from "@/lib/file-extract.js";
 import { chunkText, cosineSimilarity, embedTexts } from "@/lib/rag.js";
+import { createRoute } from "@/utils/create-route.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import {
 	getGatewayUrl,

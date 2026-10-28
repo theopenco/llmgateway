@@ -83,13 +83,21 @@ export const PROFILE_LINK_KEYS = [
 ] as const satisfies readonly CarrierProfileKey[];
 
 /**
- * Data-policy claims. Catalogue providers keep LLM Gateway's reviewed policy,
- * which also drives compliance routing, so only custom carriers declare one.
+ * Data-handling claims. Catalogue providers keep the policy LLM Gateway
+ * reviewed, so only custom carriers declare these.
  */
-export const PROFILE_POLICY_KEYS = [
+export const PROFILE_REVIEWED_POLICY_KEYS = [
 	"apiTraining",
 	"promptLogging",
 	"retentionPeriod",
+] as const satisfies readonly CarrierProfileKey[];
+
+/**
+ * Certifications every carrier declares itself. On catalogue claims a stated
+ * value overrides the reviewed catalogue one, here, on the public provider
+ * pages and in compliance routing; null keeps the reviewed value.
+ */
+export const PROFILE_COMPLIANCE_KEYS = [
 	"gdpr",
 	"soc2",
 	"iso27001",
@@ -248,10 +256,10 @@ function ownProfile(row: ProfileColumns): CarrierProfile {
 }
 
 /**
- * Custom carriers show exactly what they declared. Catalogue claims always
- * show the reviewed data policy; their links fall back to the catalogue until
- * the carrier first saves a profile, after which the saved links stand alone
- * so a cleared optional link stays cleared.
+ * Custom carriers show exactly what they declared. Catalogue claims show the
+ * reviewed data policy under their own declared certifications; their links
+ * fall back to the catalogue until the carrier first saves a profile, after
+ * which the saved links stand alone so a cleared optional link stays cleared.
  */
 export function effectiveCarrierProfile(
 	row: ClaimProfileColumns,
@@ -266,6 +274,9 @@ export function effectiveCarrierProfile(
 		profile[key] = row.profileUpdatedAt
 			? own[key]
 			: (own[key] ?? reviewed[key]);
+	}
+	for (const key of PROFILE_COMPLIANCE_KEYS) {
+		profile[key] = own[key] ?? reviewed[key];
 	}
 	return profile as CarrierProfile;
 }
@@ -334,33 +345,39 @@ export function profileColumns(
 	return columns as Partial<Pick<ProviderClaimRow, CarrierProfileKey>>;
 }
 
-/** Rejects data-policy fields on catalogue claims; see PROFILE_POLICY_KEYS. */
+/** Rejects reviewed data-handling fields on catalogue claims. */
 export function assertEditableProfile(
 	kind: ProviderClaimRow["kind"],
 	profile: Partial<Record<CarrierProfileKey, unknown>> | undefined,
 ) {
 	if (
 		kind === "catalogue" &&
-		PROFILE_POLICY_KEYS.some((key) => profile?.[key] !== undefined)
+		PROFILE_REVIEWED_POLICY_KEYS.some((key) => profile?.[key] !== undefined)
 	) {
 		throw new HTTPException(400, {
 			message:
-				"Catalogue providers keep LLM Gateway's reviewed data policy. Contact us to change it.",
+				"Catalogue providers keep LLM Gateway's reviewed API training, prompt logging and retention policy. Contact us to change it.",
 		});
 	}
 }
 
 /**
- * Every link column of a catalogue claim: `profile` over `base`. Writing the
- * full set on each save snapshots the catalogue links the carrier was shown.
+ * Every link column of a catalogue claim, `profile` over `base`, plus the
+ * certifications `profile` declares. Writing the full link set on each save
+ * snapshots the catalogue links the carrier was shown.
  */
-export function catalogueLinkColumns(
+export function catalogueProfileColumns(
 	base: CarrierProfile,
 	profile: Partial<Record<CarrierProfileKey, unknown>> | undefined,
 ): Partial<Pick<ProviderClaimRow, CarrierProfileKey>> {
 	const columns: Record<string, unknown> = {};
 	for (const key of PROFILE_LINK_KEYS) {
 		columns[key] = profile?.[key] !== undefined ? profile[key] : base[key];
+	}
+	for (const key of PROFILE_COMPLIANCE_KEYS) {
+		if (profile?.[key] !== undefined) {
+			columns[key] = profile[key];
+		}
 	}
 	return columns as Partial<Pick<ProviderClaimRow, CarrierProfileKey>>;
 }
@@ -377,11 +394,19 @@ export function assertNoRequiredCleared(
 	}
 }
 
+/** The certifications a catalogue claim declared, or null when it kept all reviewed. */
+function declaredCompliance(own: CarrierProfile) {
+	return PROFILE_COMPLIANCE_KEYS.some((key) => own[key] !== null)
+		? { gdpr: own.gdpr, soc2: own.soc2, iso27001: own.iso27001 }
+		: null;
+}
+
 /**
  * The public profile for the provider page, from the live claim's own
- * columns. Catalogue claims publish their links only once saved and keep the
- * reviewed data policy (null here); custom carriers publish everything they
- * declared. Null when there is nothing to publish.
+ * columns. Catalogue claims publish their links only once saved, keep the
+ * reviewed data policy (null here) and publish the certifications they
+ * declared over it; custom carriers publish everything they declared. Null
+ * when there is nothing to publish.
  */
 export function publicAirsideProfile(row: ClaimProfileColumns) {
 	const own = ownProfile(row);
@@ -394,7 +419,9 @@ export function publicAirsideProfile(row: ClaimProfileColumns) {
 		headquarters: own.headquarters,
 	};
 	if (effectiveClaimKind(row) === "catalogue") {
-		return row.profileUpdatedAt ? { ...links, dataPolicy: null } : null;
+		return row.profileUpdatedAt
+			? { ...links, dataPolicy: null, compliance: declaredCompliance(own) }
+			: null;
 	}
 	if (PROFILE_KEYS.every((key) => own[key] === null)) {
 		return null;
@@ -409,6 +436,7 @@ export function publicAirsideProfile(row: ClaimProfileColumns) {
 			soc2: own.soc2,
 			iso27001: own.iso27001,
 		},
+		compliance: null,
 	};
 }
 
@@ -424,6 +452,14 @@ export const publicAirsideProfileSchema = z.object({
 			apiTraining: z.boolean().nullable(),
 			promptLogging: z.boolean().nullable(),
 			retentionPeriod: z.string().nullable(),
+			gdpr: z.boolean().nullable(),
+			soc2: z.union([z.literal(0), z.literal(1), z.literal(2)]).nullable(),
+			iso27001: z.boolean().nullable(),
+		})
+		.nullable(),
+	/** Certifications a catalogue provider declared over its reviewed policy. */
+	compliance: z
+		.object({
 			gdpr: z.boolean().nullable(),
 			soc2: z.union([z.literal(0), z.literal(1), z.literal(2)]).nullable(),
 			iso27001: z.boolean().nullable(),

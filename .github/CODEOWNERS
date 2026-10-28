@@ -1,0 +1,2 @@
+# Migrations run against production on deploy; a maintainer reviews every one.
+/packages/db/migrations/ @steebchen @smakosh

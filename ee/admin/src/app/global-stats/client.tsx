@@ -7,6 +7,7 @@ import {
 	Cpu,
 	Download,
 	FileDown,
+	KeyRound,
 	Layers,
 	Server,
 	Wallet,
@@ -91,7 +92,7 @@ import { formatCompactNumber } from "@llmgateway/shared/number-format";
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ReactNode } from "react";
 
-type GroupBy = "model" | "family" | "source" | "mode" | "kind";
+type GroupBy = "model" | "family" | "source" | "mode" | "kind" | "providerKey";
 type ModelView = "mapping" | "canonical" | "provider";
 
 interface CompositionItem {
@@ -108,6 +109,7 @@ const GROUP_OPTIONS: { value: GroupBy; label: string; icon: typeof Cpu }[] = [
 	{ value: "source", label: "By x-source", icon: Layers },
 	{ value: "mode", label: "By mode", icon: Wallet },
 	{ value: "kind", label: "By org kind", icon: Building2 },
+	{ value: "providerKey", label: "By provider key", icon: KeyRound },
 ];
 
 const MODEL_VIEW_OPTIONS: {
@@ -162,7 +164,14 @@ const timeseriesChartConfig = {
 
 type TimeseriesMetric = keyof typeof timeseriesChartConfig;
 
-const VALID_GROUPS: GroupBy[] = ["model", "family", "source", "mode", "kind"];
+const VALID_GROUPS: GroupBy[] = [
+	"model",
+	"family",
+	"source",
+	"mode",
+	"kind",
+	"providerKey",
+];
 const VALID_METRICS: TimeseriesMetric[] = [
 	"requestCount",
 	"cost",
@@ -464,13 +473,33 @@ export function GlobalStatsClient({
 		() => familySummary?.timeseries ?? data?.timeseries ?? [],
 		[familySummary?.timeseries, data?.timeseries],
 	);
+	// The API keys the provider-key grouping by credential id; name each key
+	// the way the provider-key filter does.
+	const relabel = useCallback(
+		<T extends { key: string; label: string }>(rows: T[]): T[] => {
+			if (groupBy !== "providerKey") {
+				return rows;
+			}
+			const keys = new Map(
+				(providerKeysData?.providerKeys ?? []).map((key) => [key.id, key]),
+			);
+			return rows.map((row) => {
+				const key = keys.get(row.key);
+				return key ? { ...row, label: providerKeyLabel(key) } : row;
+			});
+		},
+		[groupBy, providerKeysData?.providerKeys],
+	);
 	const timeseriesBreakdown = useMemo(
-		() => familySummary?.timeseriesBreakdown ?? data?.timeseriesBreakdown ?? [],
-		[familySummary?.timeseriesBreakdown, data?.timeseriesBreakdown],
+		() =>
+			relabel(
+				familySummary?.timeseriesBreakdown ?? data?.timeseriesBreakdown ?? [],
+			),
+		[relabel, familySummary?.timeseriesBreakdown, data?.timeseriesBreakdown],
 	);
 	const breakdown = useMemo(
-		() => familySummary?.breakdown ?? data?.breakdown ?? [],
-		[familySummary?.breakdown, data?.breakdown],
+		() => relabel(familySummary?.breakdown ?? data?.breakdown ?? []),
+		[relabel, familySummary?.breakdown, data?.breakdown],
 	);
 
 	const composition = data?.composition;
@@ -603,7 +632,9 @@ export function GlobalStatsClient({
 					? "billing modes"
 					: groupBy === "kind"
 						? "org kinds"
-						: "sources";
+						: groupBy === "providerKey"
+							? "provider keys"
+							: "sources";
 	const breakdownNounSingular =
 		groupBy === "model"
 			? modelView === "provider"
@@ -615,7 +646,9 @@ export function GlobalStatsClient({
 					? "Billing mode"
 					: groupBy === "kind"
 						? "Org kind"
-						: "Source";
+						: groupBy === "providerKey"
+							? "Provider key"
+							: "Source";
 
 	const scopeNotes = [
 		usageModeDescription(usageMode),
@@ -626,7 +659,9 @@ export function GlobalStatsClient({
 			: null,
 		byKey
 			? `Only requests served by provider ${providerKeyIds.length > 1 ? "keys" : "key"} ${providerKeyNames}${providerKeyIds.length > 1 ? ", summed" : ""}; traffic served by env-var credentials is never attributed to a key.`
-			: null,
+			: groupBy === "providerKey"
+				? "Traffic served by env-var credentials carries no key and is shown as one row."
+				: null,
 	].filter(Boolean);
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
@@ -806,7 +841,7 @@ export function GlobalStatsClient({
 						<p className="mt-1 text-sm text-muted-foreground">
 							Cross-organization usage aggregated by{" "}
 							{hourly ? "hour" : "UTC day"}, grouped by model, model family,
-							x-source header, billing mode or organization kind.
+							x-source header, billing mode, organization kind or provider key.
 							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 						</p>
 						<p className="mt-1 text-xs text-muted-foreground">
@@ -965,6 +1000,8 @@ export function GlobalStatsClient({
 							<Wallet className="h-4 w-4" />
 						) : groupBy === "kind" ? (
 							<Building2 className="h-4 w-4" />
+						) : groupBy === "providerKey" ? (
+							<KeyRound className="h-4 w-4" />
 						) : (
 							<Layers className="h-4 w-4" />
 						)
@@ -1019,6 +1056,8 @@ export function GlobalStatsClient({
 									<Wallet className="h-3.5 w-3.5" aria-hidden />
 								) : groupBy === "kind" ? (
 									<Building2 className="h-3.5 w-3.5" aria-hidden />
+								) : groupBy === "providerKey" ? (
+									<KeyRound className="h-3.5 w-3.5" aria-hidden />
 								) : (
 									<Layers className="h-3.5 w-3.5" aria-hidden />
 								)}

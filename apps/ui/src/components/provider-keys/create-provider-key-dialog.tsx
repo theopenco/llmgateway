@@ -22,6 +22,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
@@ -33,6 +34,8 @@ import {
 	type ProviderDefinition,
 } from "@llmgateway/models";
 import {
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	getProviderModelIds,
 	isProviderHostnameLabel,
 	PROVIDER_HOSTNAME_LABEL_MESSAGE,
@@ -62,6 +65,7 @@ export function CreateProviderKeyDialog({
 	);
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
+	const [forwardCacheControl, setForwardCacheControl] = useState(true);
 	const [token, setToken] = useState("");
 	const [description, setDescription] = useState("");
 	const [azureResource, setAzureResource] = useState("");
@@ -73,6 +77,7 @@ export function CreateProviderKeyDialog({
 		useState("gpt-4o-mini");
 	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
 	const [azureAnthropicResource, setAzureAnthropicResource] = useState("");
+	const [cloudflareAccountId, setCloudflareAccountId] = useState("");
 	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
 		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
@@ -238,6 +243,7 @@ export function CreateProviderKeyDialog({
 			organizationId: string;
 			usageLimit?: string;
 			allowedModels?: string[];
+			forwardCacheControl?: boolean;
 		} = {
 			provider: selectedProvider,
 			token: trimmedToken,
@@ -254,6 +260,9 @@ export function CreateProviderKeyDialog({
 		}
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
+		}
+		if (selectedProvider === "custom") {
+			payload.forwardCacheControl = forwardCacheControl;
 		}
 		// A custom provider's models live in the organization's own catalogue, so
 		// there is nothing for a canonical-id restriction to match; the API rejects
@@ -374,6 +383,22 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
+		if (selectedProvider === "cloudflare") {
+			const accountId = cloudflareAccountId.trim().toLowerCase();
+			if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
+				toast({
+					title: "Error",
+					description: CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				cloudflare_account_id: accountId,
+			};
+		}
+
 		if (selectedProvider === "google-vertex") {
 			payload.options = {
 				...payload.options,
@@ -443,6 +468,7 @@ export function CreateProviderKeyDialog({
 			setSelectedProvider(preselectedProvider ?? "");
 			setBaseUrl("");
 			setCustomName("");
+			setForwardCacheControl(true);
 			setToken("");
 			setDescription("");
 			setAzureResource("");
@@ -451,6 +477,7 @@ export function CreateProviderKeyDialog({
 			setAzureValidationModel("gpt-4o-mini");
 			setAzureAiFoundryResource("");
 			setAzureAiFoundryApiVersion("2024-05-01-preview");
+			setCloudflareAccountId("");
 			setSelectedRegion("");
 			setAlibabaWorkspaceId("");
 			setGoogleVertexProjectId("");
@@ -713,6 +740,23 @@ export function CreateProviderKeyDialog({
 								</div>
 							)}
 
+							{selectedProvider === "cloudflare" && (
+								<div className="space-y-2">
+									<Label htmlFor="cloudflare-account-id">Account ID</Label>
+									<Input
+										id="cloudflare-account-id"
+										type="text"
+										placeholder="0123456789abcdef0123456789abcdef"
+										value={cloudflareAccountId}
+										onChange={(e) => setCloudflareAccountId(e.target.value)}
+										required
+									/>
+									<p className="text-sm text-muted-foreground">
+										The 32-character account ID from your Cloudflare dashboard.
+									</p>
+								</div>
+							)}
+
 							{selectedProvider === "google-vertex" && (
 								<div className="space-y-2">
 									<Label htmlFor="google-vertex-project-id">
@@ -843,6 +887,23 @@ export function CreateProviderKeyDialog({
 											onChange={(e) => setBaseUrl(e.target.value)}
 											required
 										/>
+									</div>
+									<div className="flex items-start gap-3">
+										<Switch
+											id="custom-forward-cache-control"
+											checked={forwardCacheControl}
+											onCheckedChange={setForwardCacheControl}
+										/>
+										<div className="space-y-1">
+											<Label htmlFor="custom-forward-cache-control">
+												Forward prompt-cache markers
+											</Label>
+											<p className="text-sm text-muted-foreground">
+												Sends your requests' <code>cache_control</code> markers
+												to this provider instead of stripping them. Turn off if
+												its API rejects unknown fields.
+											</p>
+										</div>
 									</div>
 								</>
 							)}

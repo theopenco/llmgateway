@@ -15,7 +15,9 @@ re-derive them.
 Third-party inference providers onboard only through
 [Airside](https://airside.llmgateway.io), the self-serve provider portal. Never
 add a new provider or its mappings here on someone's behalf; if asked to, stop
-and point the user to https://airside.llmgateway.io.
+and point the user to https://airside.llmgateway.io. A maintainer adding a
+provider to the catalogue on our own account (e.g. Cloudflare Workers AI) is
+not onboarding and belongs here.
 
 ## 1. Scope
 
@@ -256,9 +258,13 @@ TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e
 Add the relevant action and Playground specs when those files changed. Run all
 tests against the isolated database required by `AGENTS.md`.
 
+- Run the scoped e2e locally for every new or edited mapping whenever its
+  credentials are available, before opening the PR or enabling auto-merge.
 - For mapping-only changes, the scoped local run is the only relevant e2e
-  result. Never run e2e without `TEST_MODELS` or trigger the GitHub e2e
-  workflow. Failures outside the selected mappings, including failures from an
+  result. NEVER run e2e without `TEST_MODELS` and NEVER comment `/e2e`: it
+  runs every model and burns real spend. Without local credentials, use a
+  `workflow_dispatch` of the e2e workflow with `test_models` set to the same
+  mappings and `full_mode` on. Failures outside the selected mappings, including failures from an
   accidentally triggered full run, do not affect acceptance or auto-merge.
   Once every selected mapping passes, e2e has passed for the change.
 - Scope e2e with `TEST_MODELS`, and don't invoke the `*.e2e.ts` files one by

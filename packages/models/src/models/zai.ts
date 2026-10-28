@@ -107,6 +107,50 @@ export const zaiModels = [
 				jsonOutputSchema: true,
 				supportsDeveloperRole: false,
 			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5.3-flash-intl",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				quantization: "fp8",
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				// Thinking cannot be disabled, and below xhigh it often returns no
+				// reasoning text at all.
+				reasoningEfforts: ["xhigh", "max"],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/zai-org/glm-5.3-flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
+			},
 		],
 	},
 	{
@@ -325,6 +369,27 @@ export const zaiModels = [
 				jsonOutputSchema: true,
 				supportsDeveloperRole: false,
 			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/zai-org/glm-5.3",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
+			},
 		],
 	},
 	{
@@ -398,6 +463,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-5.2",
 				// embercloud rate-limits this model on every request (429 even for
@@ -657,6 +724,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-5.1",
 				// embercloud returns 400 "Temporary routing error" on every request
@@ -844,6 +913,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-5",
 				// embercloud reasoning requests time out repeatedly in e2e
@@ -1003,6 +1074,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.5",
 				// embercloud rate-limits this model on every request (429 even for
@@ -1105,6 +1178,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.5-air",
 				// embercloud rate-limits this model on every request (429 even for
@@ -1264,6 +1339,7 @@ export const zaiModels = [
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "zai-glm-4.7",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "2.25e-6",
 				outputPrice: "2.75e-6",
 				requestPrice: "0",
@@ -1345,6 +1421,8 @@ export const zaiModels = [
 				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.7",
 				// embercloud reasoning requests time out repeatedly in e2e
@@ -1466,6 +1544,8 @@ export const zaiModels = [
 		releasedAt: new Date("2025-12-22"),
 		providers: [
 			{
+				deprecatedAt: new Date("2026-10-21"),
+				deactivatedAt: new Date("2026-10-28"),
 				providerId: "embercloud",
 				externalId: "glm-4.7-flash",
 				// embercloud rate-limits this model on every request (429 even for
