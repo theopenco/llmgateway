@@ -3,7 +3,7 @@ id: "blog-github-copilot-long-context-pricing"
 slug: "github-copilot-long-context-pricing"
 date: "2026-10-28"
 title: "GitHub Copilot Long-Context Pricing: What You Pay and Where It Hides"
-summary: "GitHub Copilot charges a higher rate once a prompt crosses 272K tokens on GPT models, 200K on Grok and 100K on Claude Haiku 5.5. We checked every tier against the providers' own prices. The rates match, one threshold sits lower than OpenAI's, and the model picker hides the price jump. Here is where it sits, what it costs, and how to stay under it."
+summary: "GitHub Copilot charges a higher rate once a prompt crosses 272K tokens on most GPT models, 200K on Grok and GPT-5.6 Luna, and 100K on Claude Haiku 5.5. We checked every tier against the providers' own prices. The rates match, one threshold sits lower than OpenAI's, and the model picker hides the price jump. Here is where it sits, what it costs, and how to stay under it."
 categories: ["Guides"]
 faqs:
   - question: "Does GitHub Copilot charge more for long context?"
@@ -45,7 +45,7 @@ Every other model on the page has a single rate: Claude Opus 5.5 ($4 / $20), Cla
 
 Mostly no. We compared each row with the list prices OpenAI, xAI and Anthropic publish, which are the rates LLM Gateway passes through:
 
-- **OpenAI.** GPT-5.6 Sol is $4 / $20 up to 272K and $8 / $30 above it at OpenAI, which prices the full request at the higher rate once input passes 272K. The same rates and threshold hold for GPT-5.6 Terra, GPT-6 Astra, Sol and Luna, and GPT-6.1 Sol and Terra.
+- **OpenAI.** GPT-5.6 Sol is $4 / $20 up to 272K and $8 / $30 above it at OpenAI's current promotional rates, and OpenAI prices the full request at the higher rate once input passes 272K. The same rates and threshold hold for GPT-5.6 Terra, GPT-6 Astra, Sol and Luna, and GPT-6.1 Sol and Terra.
 - **xAI.** Grok 4.5 through 4.7 double above 200K on xAI's own API.
 - **Anthropic.** Claude Haiku 5.5 jumps from $0.10 / $0.50 to $0.50 / $2.50 above 100K at Anthropic.
 
