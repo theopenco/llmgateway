@@ -3481,9 +3481,14 @@ chat.openapi(completions, async (c) => {
 			organization.plan,
 		)
 	) {
-		throw new HTTPException(403, {
-			message: enterpriseOnlyModelMessage(modelInfo.id),
+		const message = enterpriseOnlyModelMessage(modelInfo.id);
+		await logGatewayRejection({
+			message,
+			statusCode: 403,
+			statusText: "Forbidden",
+			cause: "enterprise_only_model",
 		});
+		throw new HTTPException(403, { message });
 	}
 
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
