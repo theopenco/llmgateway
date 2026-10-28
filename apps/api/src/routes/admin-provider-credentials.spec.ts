@@ -30,6 +30,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as LlmGatewayActions from "@llmgateway/actions";
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 // Spy on the live probe so the pinned-model selection in
 // validateCredentialToken can be asserted without real upstream calls. The
@@ -3210,13 +3211,19 @@ describe("managed credential Airside listings", () => {
 		await deleteAll();
 	});
 
-	/** A catalogue provider whose models all come from Airside listings. */
+	/** A catalogue provider with no live static mapping, so every model it
+	 *  serves comes from Airside listings. */
 	function airsideOnlyProvider(): string {
+		const now = new Date();
 		const provider = catalogueProviders.find(
 			(entry) =>
 				entry.id !== "custom" &&
 				!catalogueModels.some((model) =>
-					model.providers.some((mapping) => mapping.providerId === entry.id),
+					(model.providers as readonly ProviderModelMapping[]).some(
+						(mapping) =>
+							mapping.providerId === entry.id &&
+							(!mapping.deactivatedAt || mapping.deactivatedAt > now),
+					),
 				),
 		);
 		expect(provider).toBeDefined();
