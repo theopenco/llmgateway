@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
 	convertAwsEventStreamToSSE,
 	parseAwsEventStream,
+	parseAwsEventStreamFrames,
 } from "./parse-aws-eventstream.js";
 
 function frame(payload: string): Uint8Array {
@@ -73,6 +74,23 @@ describe("convertAwsEventStreamToSSE", () => {
 		expect(convertAwsEventStreamToSSE(buffer)).toEqual({
 			sse: 'data: {"completion":"ok"}\n\n',
 			bytesConsumed: complete.length,
+			invalid: false,
+		});
+	});
+
+	it("reports a structurally impossible frame as invalid, not incomplete", () => {
+		const valid = frame('{"completion":"ok"}');
+		const corrupt = new Uint8Array(16); // totalLength 0
+		const buffer = new Uint8Array(valid.length + corrupt.length);
+		buffer.set(valid);
+		buffer.set(corrupt, valid.length);
+
+		// The valid prefix is still delivered and consumed; the caller must abort
+		// rather than wait for bytes that can never make the next frame parse.
+		expect(convertAwsEventStreamToSSE(buffer)).toEqual({
+			sse: 'data: {"completion":"ok"}\n\n',
+			bytesConsumed: valid.length,
+			invalid: true,
 		});
 	});
 });
@@ -91,8 +109,8 @@ describe("parseAwsEventStream malformed input", () => {
 
 	it("rejects a headers length larger than the frame", () => {
 		// Valid total length (16) but a headers length of 0xffffffff, which
-		// cannot fit inside the message. The guard must stop rather than read
-		// past the buffer.
+		// cannot fit inside the message. Without the guard the frame is emitted
+		// as a bogus empty message and the header section runs into the payload.
 		const buffer = new Uint8Array(16);
 		const view = new DataView(buffer.buffer);
 		view.setUint32(0, 16, false); // total length
@@ -100,6 +118,32 @@ describe("parseAwsEventStream malformed input", () => {
 
 		expect(() => parseAwsEventStream(buffer)).not.toThrow();
 		expect(parseAwsEventStream(buffer)).toEqual([]);
+		expect(parseAwsEventStreamFrames(buffer).invalid).toBe(true);
+	});
+
+	it("distinguishes a truncated frame from an invalid one", () => {
+		const complete = frame('{"completion":"ok"}');
+		const truncated = complete.slice(0, complete.length - 1);
+
+		expect(parseAwsEventStreamFrames(truncated)).toEqual({
+			messages: [],
+			invalid: false,
+			bytesConsumed: 0,
+		});
+		expect(parseAwsEventStreamFrames(new Uint8Array(16)).invalid).toBe(true);
+	});
+
+	it("rejects a total length above the protocol maximum", () => {
+		// 0xffffffff is never completed by more bytes, so treating it as merely
+		// incomplete would make the caller buffer the rest of the response.
+		const buffer = new Uint8Array(16);
+		new DataView(buffer.buffer).setUint32(0, 0xffffffff, false);
+
+		expect(parseAwsEventStreamFrames(buffer)).toEqual({
+			messages: [],
+			invalid: true,
+			bytesConsumed: 0,
+		});
 	});
 
 	it("stops header parsing when a header field overruns the header section", () => {
@@ -115,9 +159,11 @@ describe("parseAwsEventStream malformed input", () => {
 		buffer[16] = 7; // would be read as a string value type
 
 		expect(() => parseAwsEventStream(buffer)).not.toThrow();
-		expect(parseAwsEventStream(buffer)).toEqual([
-			{ headers: {}, payload: new Uint8Array(0) },
-		]);
+		expect(parseAwsEventStreamFrames(buffer)).toEqual({
+			messages: [],
+			invalid: true,
+			bytesConsumed: 0,
+		});
 	});
 
 	it("still parses well-formed string headers", () => {
@@ -145,6 +191,70 @@ describe("parseAwsEventStream malformed input", () => {
 		expect(convertAwsEventStreamToSSE(buffer)).toEqual({
 			sse: 'data: {"completion":"ok","__aws_event_type":"chunk"}\n\n',
 			bytesConsumed: totalLength,
+			invalid: false,
+		});
+	});
+});
+
+describe("EventStream frame boundaries", () => {
+	it.each(Array.from({ length: 15 }, (_, index) => index + 1))(
+		"rejects total length %i below the fixed overhead",
+		(totalLength) => {
+			const buffer = new Uint8Array(16);
+			new DataView(buffer.buffer).setUint32(0, totalLength);
+			expect(parseAwsEventStreamFrames(buffer)).toEqual({
+				messages: [],
+				invalid: true,
+				bytesConsumed: 0,
+			});
+		},
+	);
+
+	it("accepts an empty frame at the exact structural minimum", () => {
+		expect(parseAwsEventStreamFrames(frame(""))).toEqual({
+			messages: [{ headers: {}, payload: new Uint8Array(0) }],
+			invalid: false,
+			bytesConsumed: 16,
+		});
+	});
+
+	it.each([[3], [0, 7], [0, 7, 0], [0, 7, 0, 2, 65]])(
+		"keeps malformed string fields inside the header section: %j",
+		(...header) => {
+			const buffer = new Uint8Array(16 + header.length);
+			const view = new DataView(buffer.buffer);
+			view.setUint32(0, buffer.length);
+			view.setUint32(4, header.length);
+			buffer.set(header, 12);
+			expect(parseAwsEventStreamFrames(buffer)).toEqual({
+				messages: [],
+				invalid: true,
+				bytesConsumed: 0,
+			});
+		},
+	);
+
+	it("retains every split of a valid frame without losing bytes", () => {
+		const complete = frame('{"completion":"ok"}');
+		for (let split = 0; split < complete.length; split++) {
+			expect(parseAwsEventStreamFrames(complete.subarray(0, split))).toEqual({
+				messages: [],
+				invalid: false,
+				bytesConsumed: 0,
+			});
+		}
+	});
+
+	it("accounts for consumed frames in a view with a nonzero byte offset", () => {
+		const complete = frame('{"completion":"ok"}');
+		const storage = new Uint8Array(complete.length + 32);
+		storage.set(complete, 7);
+		expect(
+			convertAwsEventStreamToSSE(storage.subarray(7, 7 + complete.length + 16)),
+		).toEqual({
+			sse: 'data: {"completion":"ok"}\n\n',
+			bytesConsumed: complete.length,
+			invalid: true,
 		});
 	});
 });

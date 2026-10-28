@@ -178,7 +178,7 @@ function getResponsesApiUserMessage(input: unknown): string {
 		.join(" ");
 }
 
-function buildAwsEventStreamMessage(
+export function buildAwsEventStreamMessage(
 	eventType: string,
 	payload: Record<string, unknown>,
 ): Uint8Array {

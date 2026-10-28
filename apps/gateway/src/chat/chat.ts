@@ -10593,6 +10593,10 @@ chat.openapi(completions, async (c) => {
 					pending: "",
 				};
 				let shouldTerminateStream = false;
+				// Set when the AWS EventStream parser rejects a frame outright. The
+				// abort is emitted after the current chunk's valid events so the
+				// client never receives data after [DONE].
+				let malformedEventStreamFrame = false;
 
 				// Response healing for streaming mode
 				const streamingResponseHealingEnabled = plugins?.some(
@@ -10655,13 +10659,27 @@ chat.openapi(completions, async (c) => {
 							binaryBuffer = newBuffer;
 
 							// Parse and convert available events
-							const { sse, bytesConsumed } =
+							const { sse, bytesConsumed, invalid } =
 								convertAwsEventStreamToSSE(binaryBuffer);
 							chunk = sse;
 
 							// Remove consumed bytes from binary buffer
 							if (bytesConsumed > 0) {
 								binaryBuffer = binaryBuffer.slice(bytesConsumed);
+							}
+
+							// A frame that breaks the EventStream framing can never be
+							// consumed, however many bytes follow, so binaryBuffer would
+							// grow (and be re-copied) for the rest of the response while
+							// the client receives nothing. Flush what parsed, then abort.
+							if (invalid) {
+								logger.error("Malformed AWS EventStream frame", {
+									provider: usedProvider,
+									model: usedInternalModel,
+									binaryBufferSize: binaryBuffer.length,
+								});
+								malformedEventStreamFrame = true;
+								shouldTerminateStream = true;
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE
@@ -10681,8 +10699,13 @@ chat.openapi(completions, async (c) => {
 							rawUpstreamData += chunk;
 						}
 
-						// Check buffer size to prevent memory exhaustion
-						if (buffer.length > MAX_BUFFER_SIZE) {
+						// Check buffer size to prevent memory exhaustion. binaryBuffer is
+						// covered too: an incomplete AWS EventStream frame yields an empty
+						// chunk, so the decoded string buffer alone would never trip this.
+						if (
+							buffer.length > MAX_BUFFER_SIZE ||
+							binaryBuffer.length > MAX_BUFFER_SIZE
+						) {
 							const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
 							logger.error(
 								`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
@@ -10743,7 +10766,8 @@ chat.openapi(completions, async (c) => {
 						// the event can actually complete.
 						if (
 							buffer.length > SSE_SCAN_SKIP_MIN_BUFFER &&
-							!chunkMayCompleteSseEvent(chunk)
+							!chunkMayCompleteSseEvent(chunk) &&
+							!shouldTerminateStream
 						) {
 							continue;
 						}
@@ -12060,6 +12084,54 @@ chat.openapi(completions, async (c) => {
 						// Remove processed data from buffer
 						if (processedLength > 0) {
 							buffer = bufferCopy.slice(processedLength);
+						}
+
+						if (malformedEventStreamFrame && !doneSent) {
+							malformedEventStreamFrame = false;
+							const malformedMessage =
+								"Upstream sent a malformed AWS EventStream frame";
+							streamingError = {
+								message: malformedMessage,
+								type: "upstream_error",
+								code: "malformed_event_stream",
+								details: {
+									statusCode: 502,
+									statusText: "Malformed Event Stream",
+									responseText: malformedMessage,
+									provider: usedProvider,
+									model: usedInternalModel,
+								},
+							};
+							finishReason = "upstream_error";
+
+							try {
+								await writeSSEAndCache({
+									event: "error",
+									data: JSON.stringify({
+										error: {
+											message: malformedMessage,
+											type: "upstream_error",
+											code: "malformed_event_stream",
+											param: null,
+											responseText: malformedMessage,
+										},
+									}),
+									id: String(eventId++),
+								});
+								if (!doneSent) {
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+								}
+							} catch (sseError) {
+								logger.error(
+									"Failed to send malformed event stream error SSE",
+									toError(sseError),
+								);
+							}
 						}
 
 						if (shouldTerminateStream) {
