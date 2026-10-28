@@ -1181,6 +1181,9 @@ anthropic.openapi(messages, async (c) => {
 						...(tool.allowed_callers && {
 							allowed_callers: tool.allowed_callers,
 						}),
+						...(tool.eager_input_streaming !== undefined && {
+							eager_input_streaming: tool.eager_input_streaming,
+						}),
 					};
 				}
 

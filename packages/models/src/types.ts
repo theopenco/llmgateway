@@ -259,6 +259,11 @@ export interface OpenAIFunctionToolInput {
 	 */
 	allowed_callers?: string[];
 	/**
+	 * Anthropic-only: stream tool input as it is generated (fine-grained tool
+	 * streaming). Stripped for every other upstream.
+	 */
+	eager_input_streaming?: boolean;
+	/**
 	 * Anthropic-only: keep this tool out of the rendered tools section so it
 	 * never enters the cached prompt prefix, and load it on demand when the
 	 * tool search tool discovers it. Stripped for every other upstream.
@@ -329,6 +334,7 @@ export interface AnthropicTool {
 	cache_control?: CacheControl;
 	strict?: boolean;
 	allowed_callers?: string[];
+	eager_input_streaming?: boolean;
 }
 
 export interface GoogleTool {
