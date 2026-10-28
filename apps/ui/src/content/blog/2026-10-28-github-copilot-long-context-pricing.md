@@ -2,12 +2,12 @@
 id: "blog-github-copilot-long-context-pricing"
 slug: "github-copilot-long-context-pricing"
 date: "2026-10-28"
-title: "GitHub Copilot Long-Context Pricing: Not a Markup, Easy to Miss"
-summary: "GitHub Copilot charges a higher rate once a prompt crosses 272K tokens on GPT models, 200K on Grok and 100K on Claude Haiku 5.5. We checked every tier against the providers' own prices. It is not a Copilot markup, but the price cliff is real and the model picker hides it. Here is where it sits, what it costs, and how to stay under it."
+title: "GitHub Copilot Long-Context Pricing: What You Pay and Where It Hides"
+summary: "GitHub Copilot charges a higher rate once a prompt crosses 272K tokens on GPT models, 200K on Grok and 100K on Claude Haiku 5.5. We checked every tier against the providers' own prices. The rates match, one threshold sits lower than OpenAI's, and the model picker hides the price jump. Here is where it sits, what it costs, and how to stay under it."
 categories: ["Guides"]
 faqs:
   - question: "Does GitHub Copilot charge more for long context?"
-    answer: "Yes, on some models. GPT-5.6, GPT-6 and GPT-6.1 models cost about twice as much per input token above 272K input tokens (200K for GPT-5.6 Luna), Grok 4.5 to 4.7 double above 200K, and Claude Haiku 5.5 costs five times as much above 100K. Every one of those long-context rates matches the provider's own list price, so Copilot passes them through rather than adding a markup."
+    answer: "Yes, on some models. GPT-5.6, GPT-6 and GPT-6.1 models cost about twice as much per input token above 272K input tokens (200K for GPT-5.6 Luna), Grok 4.5 to 4.7 double above 200K, and Claude Haiku 5.5 costs five times as much above 100K. The long-context rates match the providers' own list prices, so Copilot passes them through rather than adding a markup. One threshold differs: Copilot switches GPT-5.6 Luna at 200K, where OpenAI uses 272K."
   - question: "Does picking the 1M context window in Copilot cost more?"
     answer: "Not by itself. The rate depends on how many input tokens the request actually sends. A Copilot team member confirmed that selecting the 1M window does not apply long-context pricing to prompts under the default size. The catch is that 1M mode compacts history less often, so sessions cross the threshold sooner, and every request above it is billed at the long-context rate until you compact."
   - question: "Which Copilot models have no long-context tier?"
@@ -18,7 +18,7 @@ faqs:
 
 A developer sends a 270K-token prompt to GPT-5.6 Sol in Copilot and pays $1.18. The next turn adds 5K tokens of file context and the same request costs $2.35. Nothing about the task changed. The prompt crossed 272K input tokens, and **GitHub Copilot long-context pricing** kicked in.
 
-That looks like a trick to squeeze more AI Credits out of customers. We checked GitHub's [models and pricing page](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing) against the providers' own price lists, the same ones **LLM Gateway** bills at. The short answer: the tiers are real, the cliff is steep, and Copilot is not the one setting it. What Copilot does control is how visible the cliff is, and today it is easy to miss.
+That looks like a trick to squeeze more AI Credits out of customers. We checked GitHub's [models and pricing page](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing) against the providers' own price lists, the same ones **LLM Gateway** bills at. The short answer: the tiers are real, the cliff is steep, and with one exception Copilot is not the one setting it. What Copilot does control is how visible the cliff is, and today it is easy to miss.
 
 ## Which Copilot models have long-context pricing
 
@@ -43,17 +43,19 @@ Every other model on the page has a single rate: Claude Opus 5.5 ($4 / $20), Cla
 
 ## Is it a Copilot markup? We checked every tier
 
-No. We compared each row with the list prices OpenAI, xAI and Anthropic publish, which are the rates LLM Gateway passes through:
+Mostly no. We compared each row with the list prices OpenAI, xAI and Anthropic publish, which are the rates LLM Gateway passes through:
 
-- **OpenAI.** GPT-5.6 Sol is $4 / $20 up to 272K and $8 / $30 above it at OpenAI. The same holds for GPT-5.6 Terra and Luna, GPT-6 Astra, Sol and Luna, and GPT-6.1 Sol and Terra.
+- **OpenAI.** GPT-5.6 Sol is $4 / $20 up to 272K and $8 / $30 above it at OpenAI, which prices the full request at the higher rate once input passes 272K. The same rates and threshold hold for GPT-5.6 Terra, GPT-6 Astra, Sol and Luna, and GPT-6.1 Sol and Terra.
 - **xAI.** Grok 4.5 through 4.7 double above 200K on xAI's own API.
 - **Anthropic.** Claude Haiku 5.5 jumps from $0.10 / $0.50 to $0.50 / $2.50 above 100K at Anthropic.
 
 The models Copilot prices flat are flat at the provider too. If Copilot were inventing tiers to raise bills, Claude Opus 5.5 and Sonnet 5.5, two popular coding models, would be an obvious place to put one. They have none.
 
-There was one real overcharge. Copilot listed and billed a long-context rate for Claude Sonnet 4.6, 600 credits input and 2,250 output per 1M tokens instead of 300 and 1,500, the figures some AI search answers still quote. Anthropic does not charge extra for long context on Sonnet 4.6. A VS Code team member [confirmed the prices were set incorrectly](https://github.com/microsoft/vscode/issues/320027), and that GitHub corrected them and refunded affected users. Today's pricing page lists Sonnet 4.6 at a flat $3 / $15.
+One threshold is lower on Copilot than at the provider. Copilot moves GPT-5.6 Luna to its long-context rate above 200K input tokens, while OpenAI's [GPT-5.6 Luna page](https://developers.openai.com/api/docs/models/gpt-5.6-luna) puts that line at 272K. The rates on both sides of the line are the same, but a 250K-token Luna prompt with 5K of output costs $0.109 on Copilot and $0.056 at OpenAI's list price.
 
-The only rate that differs from our catalog is Grok 4.5 cached input: Copilot bills $0.50, which matches one of the regional rates on xAI's own pricing page, while our catalog lists $0.30.
+There was one real overcharge. Copilot listed and billed a long-context rate for Claude Sonnet 4.6, 600 credits input and 2,250 output per 1M tokens instead of 300 and 1,500. Anthropic does not charge extra for long context on Sonnet 4.6. A VS Code team member [confirmed the prices were set incorrectly](https://github.com/microsoft/vscode/issues/320027), and that GitHub corrected them and refunded affected users. Today's pricing page lists Sonnet 4.6 at a flat $3 / $15.
+
+Apart from that threshold, the only rate that differs from our catalog is Grok 4.5 cached input: Copilot bills $0.50 per 1M, the same as Grok 4.6 and 4.7, while our catalog lists $0.30. xAI's Grok 4.5 page shows both figures across its regional clusters.
 
 ## The 1M context setting, and where the price hides
 
@@ -61,9 +63,9 @@ In VS Code and Copilot CLI you can pick the default context window or the extend
 
 The model picker makes it look like the setting picks the price. Select Claude Haiku 5.5 with the 100K context size and the pricing details read 10 credits input, 50 output, 1 cache read and 12.5 cache write per 1M tokens. Switch to 1M and they read 50, 250, 5 and 62.5. Those are Anthropic's own two tiers, and the setting does not move every request onto the second one. Asked exactly this in [microsoft/vscode#319976](https://github.com/microsoft/vscode/issues/319976), a Copilot team member answered: "The cost is decided by the request input prompt size, so if you have selected the long context option, but do not exceed the default size, the long context pricing is not applied."
 
-The same thread has the catch worth knowing. Going over the default "switches the **whole** conversation over to the long context pricing", with no split between the tokens below and above the line. And in 1M mode, Copilot triggers automatic compaction less often, so conversation history fills the prompt and pushes it over the threshold more often. Every turn after that is billed at the long-context rate until you run `/compact`.
+The same thread has the catch worth knowing. Going over the default "switches the **whole** conversation over to the long context pricing", with no split between the tokens below and above the line. And in 1M mode, Copilot triggers automatic compaction less often, so conversation history fills the prompt and pushes it over the threshold more often. Every turn after that is billed at the long-context rate until the prompt shrinks again, through automatic compaction or `/compact`.
 
-None of this is obvious from the picker. "Pricing details" is collapsed by default, and the cost badge next to it reads "Low cost" for Haiku 5.5 at both 100K and 1M, even though the rates inside go up five times. Nothing in the chat tells you when a session has crossed the threshold; the request for a short-context versus long-context marker in the usage meter, [microsoft/vscode#320027](https://github.com/microsoft/vscode/issues/320027), is still open. A developer who picks 1M once and keeps working can pay the long-context rate on every turn without seeing a number change.
+None of this is obvious from the picker. "Pricing details" is collapsed by default, and the cost badge next to it reads "Low cost" for Haiku 5.5 at both 100K and 1M, even though the rates inside go up five times. Nothing in the chat tells you when a session has crossed the threshold; the request for a short-context versus long-context marker in the usage meter, [microsoft/vscode#320027](https://github.com/microsoft/vscode/issues/320027), is still open. A developer who picks 1M once and keeps working can pay the long-context rate on every turn with nothing in the UI flagging that the tier changed.
 
 ## The price cliff in real numbers
 
@@ -86,7 +88,7 @@ For comparison, the same 275K-token request on Claude Opus 5.5, with flat pricin
 
 The cliff comes from the providers, so it follows you to any tool that bills at their rates. What you can control is how often you hit it:
 
-- **Compact or restart long sessions.** Most coding agents can summarize history. Doing it before 272K (or 100K on Haiku 5.5) keeps every turn on the default tier.
+- **Compact or restart long sessions.** Most coding agents can summarize history. Doing it before 272K (200K on Grok and GPT-5.6 Luna, 100K on Haiku 5.5) keeps every turn on the default tier.
 - **Lean on cached input.** On the tiered GPT models, cached input costs 10% of the input rate or less, on either side of the threshold. A stable system prompt and file context that hit the cache cost far less than fresh tokens.
 - **Send huge contexts to flat-priced models.** For a 500K-token codebase review, Claude Opus 5.5 or Sonnet 5.5 cost the same per token at 500K as at 5K.
 - **Watch the tier on every request.** You cannot fix a cliff you cannot see.

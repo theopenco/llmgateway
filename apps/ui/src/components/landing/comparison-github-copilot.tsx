@@ -35,14 +35,14 @@ const comparisonData = [
 				description:
 					"Higher per-token rates once a prompt passes a size threshold",
 				llmgateway:
-					"Provider tiers billed at cost, with cost logged per request",
+					"Provider tiers billed at cost, with the tier logged per request",
 				copilot:
-					"Provider tiers passed through (>272K GPT-6, >200K Grok, >100K Haiku 5.5); rates collapsed in the model picker",
+					"Provider rates passed through (>272K most GPT, >200K Grok and GPT-5.6 Luna, >100K Haiku 5.5); pricing details collapsed in the model picker",
 			},
 			{
 				title: "Model and cost visibility",
 				description: "Know which model ran and what it cost",
-				llmgateway: "Model, provider, and cost in request logs",
+				llmgateway: "Model, provider, cost, and pricing tier in request logs",
 				copilot:
 					"Visible for most features; code review model undisclosed and also bills Actions minutes",
 			},
