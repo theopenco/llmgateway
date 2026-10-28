@@ -46,7 +46,6 @@ export const curatedCategoryModelIds: Record<
 		"deepseek-v4-flash",
 		"deepseek-v4.1-flash",
 		"deepseek-v4.1-flash-1017",
-		"grok-4-1-fast-non-reasoning",
 		"grok-4-3",
 		"kimi-k2",
 		"kimi-k2.5",
