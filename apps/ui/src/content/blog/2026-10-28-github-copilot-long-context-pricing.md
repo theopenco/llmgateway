@@ -22,7 +22,7 @@ That looks like a trick to squeeze more AI Credits out of customers. We checked 
 
 ## Which Copilot models have long-context pricing
 
-Since June 1, 2026, Copilot bills chat, agents, CLI and code review in AI Credits (1 credit = $0.01) at per-token rates. Some models have two rows on the pricing page, a default tier and a long-context tier, split by a threshold in input tokens. Prices are per 1M tokens:
+Since June 1, 2026, Copilot bills chat, agents, CLI and code review in AI Credits (1 credit = $0.01) at per-token rates. Some models have two rows on the [pricing page](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing), a default tier and a long-context tier, split by a threshold in input tokens. This is a snapshot as of October 28, 2026; check GitHub's page for current rates. Prices are per 1M tokens:
 
 | Model on Copilot   | Threshold | Default input / output | Long-context input / output |
 | ------------------ | --------- | ---------------------- | --------------------------- |
@@ -39,7 +39,7 @@ Since June 1, 2026, Copilot bills chat, agents, CLI and code review in AI Credit
 
 Cached input and cache writes double on the same boundary, and quintuple on Haiku 5.5.
 
-Every other model on the page has a single rate: Claude Opus 5.5 ($4 / $20), Claude Sonnet 5.5 ($2 / $10), Claude Fable 5.1 ($10 / $50), GPT-5.3-Codex, Gemini 4 Argon, Kimi K3 and the rest.
+Many other models on the page have a single rate, including Claude Opus 5.5 ($4 / $20), Claude Sonnet 5.5 ($2 / $10), Claude Fable 5.1 ($10 / $50), GPT-5.3-Codex, Gemini 4 Argon and Kimi K3.
 
 ## Is it a Copilot markup? We checked every tier
 
