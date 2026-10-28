@@ -64,6 +64,7 @@ import {
 	organizationTimeseriesQuery,
 	organizationTimeseriesSchema,
 } from "@/lib/organization-timeseries.js";
+import { managedProviderKeyName } from "@/lib/provider-key-label.js";
 import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -13407,7 +13408,7 @@ function describeProviderKey(
 	}
 	return {
 		providerKeyLabel: keyRow.managed
-			? keyRow.comment?.trim() || keyRow.tokenMasked
+			? managedProviderKeyName(keyRow)
 			: keyRow.description?.trim() || "Bring your own key",
 		providerKeyMaskedToken: keyRow.tokenMasked,
 		providerKeyManaged: keyRow.managed,
