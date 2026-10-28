@@ -10738,6 +10738,33 @@ describe("prepareRequestBody - tool strict, allowed_callers and eager_input_stre
 		).toBeUndefined();
 	});
 
+	test("Bedrock Converse keeps buffered streaming unless every tool opts in", async () => {
+		const body = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "Weather in Paris?" }],
+			true,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				strictTool,
+				{
+					...strictTool,
+					function: { ...strictTool.function, name: "get_time" },
+					eager_input_streaming: false,
+				},
+			],
+		)) as unknown as Record<string, any>;
+		expect(body.toolConfig.tools).toHaveLength(2);
+		expect(body.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
+	});
+
 	test("Google drops all of them", async () => {
 		const body = await prepare("google-ai-studio", "gemini-2.5-flash");
 		const declaration = body.tools[0].functionDeclarations[0];

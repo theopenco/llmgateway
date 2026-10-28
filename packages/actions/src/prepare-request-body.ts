@@ -1782,11 +1782,12 @@ export async function prepareRequestBody(
 	// eager tool loading instead of failing on an unknown property.
 	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
 	// Read before the strip below: Bedrock Converse has no per-tool field and
-	// takes fine-grained tool streaming as a request-wide beta instead.
+	// takes fine-grained tool streaming as a request-wide beta instead, so it
+	// only applies when every tool opted in to unvalidated partial input.
+	const functionToolsForEager = tools?.filter(isFunctionTool) ?? [];
 	const eagerToolInputStreaming =
-		tools?.some(
-			(tool) => isFunctionTool(tool) && tool.eager_input_streaming === true,
-		) ?? false;
+		functionToolsForEager.length > 0 &&
+		functionToolsForEager.every((tool) => tool.eager_input_streaming === true);
 	if (!anthropicMessagesApi) {
 		if (tools?.some(isToolSearchTool)) {
 			logger.warn(

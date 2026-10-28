@@ -336,7 +336,7 @@ export const completionsRequestSchema = z.object({
 					}),
 					eager_input_streaming: z.boolean().optional().openapi({
 						description:
-							"Anthropic only. Streams the tool input as the model generates it (fine-grained tool streaming) instead of buffering each parameter until it validates. Claude on AWS Bedrock gets it as the fine-grained tool streaming beta. Stripped for every other provider.",
+							"Anthropic only. Streams the tool input as the model generates it (fine-grained tool streaming) instead of buffering each parameter until it validates. Claude on AWS Bedrock gets it as the request-wide fine-grained tool streaming beta when every tool sets it. Stripped for every other provider.",
 					}),
 					defer_loading: z.boolean().optional().openapi({
 						description:
