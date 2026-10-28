@@ -71,6 +71,13 @@ Errors from the upstream provider follow different rules on the chat completions
 - **Connection failures and upstream timeouts** return **HTTP 502** (`upstream_error`/`fetch_failed`) or **HTTP 504** (`upstream_timeout`/`timeout`).
 - **Provider content-moderation blocks** (a recognized safety rejection, such as Azure's `ResponsibleAIPolicyViolation` or a provider's content-policy `403`) are not returned as errors at all: the gateway returns **HTTP 200** with a normal `chat.completion` whose message `content` is `null` and whose `finish_reason` is `"content_filter"` (on streaming, a chunk carrying that finish reason). Usage covers the prompt tokens, and the request is not logged as an error.
 
+## Enterprise-Only Models
+
+Some models are restricted to organizations on the enterprise plan. Requesting
+one from any other organization returns HTTP `403` with an `error.message`
+asking you to [contact us](mailto:contact@llmgateway.io) about enterprise, and
+`auto` routing never selects these models for you.
+
 ## Blocked Accounts
 
 When an administrator blocks an account, gateway requests return HTTP `410`.
