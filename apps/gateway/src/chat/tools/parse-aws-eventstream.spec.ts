@@ -133,15 +133,13 @@ describe("parseAwsEventStream malformed input", () => {
 		expect(parseAwsEventStreamFrames(new Uint8Array(16)).invalid).toBe(true);
 	});
 
-	it("rejects a total length above the protocol maximum", () => {
-		// 0xffffffff is never completed by more bytes, so treating it as merely
-		// incomplete would make the caller buffer the rest of the response.
+	it("leaves large incomplete frames to the caller's buffer limit", () => {
 		const buffer = new Uint8Array(16);
 		new DataView(buffer.buffer).setUint32(0, 0xffffffff, false);
 
 		expect(parseAwsEventStreamFrames(buffer)).toEqual({
 			messages: [],
-			invalid: true,
+			invalid: false,
 			bytesConsumed: 0,
 		});
 	});
@@ -257,4 +255,14 @@ describe("EventStream frame boundaries", () => {
 			invalid: true,
 		});
 	});
+});
+
+it("accepts the full 24 MiB payload plus framing overhead", () => {
+	const payloadLength = 24 * 1024 * 1024;
+	const buffer = new Uint8Array(payloadLength + 16);
+	new DataView(buffer.buffer).setUint32(0, buffer.length);
+	const result = parseAwsEventStreamFrames(buffer);
+	expect(result.invalid).toBe(false);
+	expect(result.bytesConsumed).toBe(buffer.length);
+	expect(result.messages[0]?.payload.length).toBe(payloadLength);
 });

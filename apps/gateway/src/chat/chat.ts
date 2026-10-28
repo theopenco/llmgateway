@@ -10680,6 +10680,7 @@ chat.openapi(completions, async (c) => {
 								});
 								malformedEventStreamFrame = true;
 								shouldTerminateStream = true;
+								binaryBuffer = new Uint8Array(0);
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE

@@ -101,54 +101,58 @@ describe("AWS EventStream framing", () => {
 		});
 	});
 
-	afterEach(() => vi.restoreAllMocks());
-
-	it.each([
-		"undersized",
-		"oversized headers",
-		"oversized frame",
-		"header field overrun",
-	])("aborts %s without reading more upstream bytes", async (kind) => {
-		const invalid = new Uint8Array(18);
-		const view = new DataView(invalid.buffer);
-		if (kind === "oversized headers") {
-			view.setUint32(0, 18);
-			view.setUint32(4, 3);
-		} else if (kind === "oversized frame") {
-			view.setUint32(0, 0xffffffff);
-		} else if (kind === "header field overrun") {
-			view.setUint32(0, 18);
-			view.setUint32(4, 2);
-			invalid[12] = 3;
-		}
-		const upstream = mockUpstream([invalid, new Uint8Array(16)]);
-		const text = await requestStream();
-		expectSingleErrorBeforeDone(text);
-		expect(text).toContain("malformed_event_stream");
-		expect(upstream.cancel).toHaveBeenCalledOnce();
-		expect(upstream.reads()).toBe(1);
-		const [log] = await waitForLogs(1);
-		expect(log.finishReason).toBe("upstream_error");
-		expect(log.errorDetails?.statusCode).toBe(502);
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 	});
 
-	it("delivers a valid prefix before the framing error", async () => {
-		mockUpstream([
-			combine(
-				buildAwsEventStreamMessage("contentBlockDelta", {
-					delta: { text: "hello" },
-					contentBlockIndex: 0,
-				}),
-				new Uint8Array(16),
-			),
-		]);
-		const text = await requestStream();
-		expectSingleErrorBeforeDone(text);
-		expect(text).toContain('"content":"hello"');
-		expect(text.indexOf('"content":"hello"')).toBeLessThan(
-			text.indexOf("event: error"),
-		);
-	});
+	it.each(["undersized", "oversized headers", "header field overrun"])(
+		"aborts %s without reading more upstream bytes",
+		async (kind) => {
+			const invalid = new Uint8Array(18);
+			const view = new DataView(invalid.buffer);
+			if (kind === "oversized headers") {
+				view.setUint32(0, 18);
+				view.setUint32(4, 3);
+			} else if (kind === "header field overrun") {
+				view.setUint32(0, 18);
+				view.setUint32(4, 2);
+				invalid[12] = 3;
+			}
+			const upstream = mockUpstream([invalid, new Uint8Array(16)]);
+			const text = await requestStream();
+			expectSingleErrorBeforeDone(text);
+			expect(text).toContain("malformed_event_stream");
+			expect(upstream.cancel).toHaveBeenCalledOnce();
+			expect(upstream.reads()).toBe(1);
+			const [log] = await waitForLogs(1);
+			expect(log.finishReason).toBe("upstream_error");
+			expect(log.errorDetails?.statusCode).toBe(502);
+		},
+	);
+
+	it.each([16, 2048])(
+		"delivers a valid prefix before rejecting a %i-byte tail",
+		async (tailLength) => {
+			vi.stubEnv("MAX_STREAMING_BUFFER_MB", "0.001");
+			mockUpstream([
+				combine(
+					buildAwsEventStreamMessage("contentBlockDelta", {
+						delta: { text: "hello" },
+						contentBlockIndex: 0,
+					}),
+					new Uint8Array(tailLength),
+				),
+			]);
+			const text = await requestStream();
+			expectSingleErrorBeforeDone(text);
+			expect(text).toContain("malformed_event_stream");
+			expect(text).toContain('"content":"hello"');
+			expect(text.indexOf('"content":"hello"')).toBeLessThan(
+				text.indexOf("event: error"),
+			);
+		},
+	);
 
 	it("preserves a provider exception without emitting errors after DONE", async () => {
 		mockUpstream([
@@ -172,7 +176,7 @@ describe("AWS EventStream framing", () => {
 		vi.stubEnv("MAX_STREAMING_BUFFER_MB", "0.001");
 		try {
 			const incomplete = new Uint8Array(2048);
-			new DataView(incomplete.buffer).setUint32(0, 4096);
+			new DataView(incomplete.buffer).setUint32(0, 0xffffffff);
 			const upstream = mockUpstream([incomplete, incomplete]);
 			const text = await requestStream();
 			expectSingleErrorBeforeDone(text);

@@ -36,13 +36,6 @@ export interface EventStreamParseResult {
  */
 const MIN_MESSAGE_LENGTH = 16;
 
-/**
- * Protocol maximum for a single message, matching the reference implementation
- * (awslabs/aws-c-event-stream). A larger declared length is corrupt, and would
- * otherwise keep the caller waiting for bytes that never complete the frame.
- */
-const MAX_MESSAGE_LENGTH = 24 * 1024 * 1024;
-
 export function parseAwsEventStreamFrames(
 	buffer: Uint8Array,
 ): EventStreamParseResult {
@@ -71,9 +64,7 @@ export function parseAwsEventStreamFrames(
 		// A total length below the fixed overhead cannot describe a real frame,
 		// and totalLength === 0 would advance offset by 0 below and loop
 		// forever, pushing empty messages until the process runs out of memory.
-		// Above the protocol maximum it is corrupt too, and would otherwise be
-		// treated as "wait for more bytes" for the rest of the response.
-		if (totalLength < MIN_MESSAGE_LENGTH || totalLength > MAX_MESSAGE_LENGTH) {
+		if (totalLength < MIN_MESSAGE_LENGTH) {
 			return { messages, invalid: true, bytesConsumed: offset };
 		}
 
