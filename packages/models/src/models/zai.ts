@@ -630,37 +630,6 @@ export const zaiModels = [
 				// answer in markdown prose. json_object is genuinely enforced.
 				jsonOutputSchema: false,
 			},
-			{
-				providerId: "cloudflare",
-				externalId: "@cf/zai-org/glm-5.2",
-				inputPrice: "1.4e-6",
-				cachedInputPrice: "0.26e-6",
-				outputPrice: "4.4e-6",
-				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 131072,
-				maxTemperature: 1,
-				streaming: true,
-				reasoning: true,
-				// reasoning_effort "none" still thinks; the chat-template flag
-				// turns it off.
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
-				chatTemplateThinkingKey: "thinking",
-				vision: false,
-				tools: true,
-				// tool_choice "none" returns an empty message.
-				supportedToolChoices: ["auto", "required", "function"],
-				jsonOutput: true,
-				jsonOutputSchema: true,
-			},
 		],
 	},
 	{
