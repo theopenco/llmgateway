@@ -50,6 +50,7 @@ const COLUMNS: {
 	key: SortBy;
 	label: string;
 	title?: string;
+	latency?: boolean;
 }[] = [
 	{ key: "requestCount", label: "Requests" },
 	{ key: "avgRps", label: "Avg req/s" },
@@ -65,8 +66,8 @@ const COLUMNS: {
 		label: "Client errors",
 		title: "Requests rejected as the caller's own error",
 	},
-	{ key: "avgDurationMs", label: "Avg duration" },
-	{ key: "avgTimeToFirstTokenMs", label: "Avg TTFT" },
+	{ key: "avgDurationMs", label: "Avg duration", latency: true },
+	{ key: "avgTimeToFirstTokenMs", label: "Avg TTFT", latency: true },
 ];
 
 const SORT_KEYS: SortBy[] = [
@@ -132,6 +133,7 @@ export function LoadBreakdownTable({
 	query,
 	groupLabel,
 	rowHref,
+	hideLatency = false,
 	defaultSortBy,
 	refetchInterval,
 }: {
@@ -139,6 +141,8 @@ export function LoadBreakdownTable({
 	groupLabel: string;
 	/** Detail page for a row, or null when the key has none. */
 	rowHref?: (key: string) => string | null;
+	/** Drop the latency columns for a grouping whose rollup has none. */
+	hideLatency?: boolean;
 	defaultSortBy: SortBy;
 	refetchInterval: number | false;
 }) {
@@ -209,6 +213,9 @@ export function LoadBreakdownTable({
 	const totalPages = Math.max(1, Math.ceil(totalKeys / PAGE_SIZE));
 	const offset = (page - 1) * PAGE_SIZE;
 	const groupNoun = groupLabel.toLowerCase();
+	const columns = hideLatency
+		? COLUMNS.filter((column) => !column.latency)
+		: COLUMNS;
 
 	const head = (column: (typeof COLUMNS)[number]) => (
 		<SortableHead
@@ -246,14 +253,14 @@ export function LoadBreakdownTable({
 								sortOrder={sortOrder}
 								onSort={onSort}
 							/>
-							{COLUMNS.map(head)}
+							{columns.map(head)}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{rows.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={COLUMNS.length + 1}
+									colSpan={columns.length + 1}
 									className="py-8 text-center text-sm text-muted-foreground"
 								>
 									{data ? "No traffic in this window." : "Loading…"}
@@ -308,12 +315,16 @@ export function LoadBreakdownTable({
 										>
 											{formatErrorRate(row.clientErrorRate)}
 										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatDurationMs(row.avgDurationMs)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatDurationMs(row.avgTimeToFirstTokenMs)}
-										</TableCell>
+										{hideLatency ? null : (
+											<>
+												<TableCell className="text-right tabular-nums">
+													{formatDurationMs(row.avgDurationMs)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatDurationMs(row.avgTimeToFirstTokenMs)}
+												</TableCell>
+											</>
+										)}
 									</TableRow>
 								);
 							})

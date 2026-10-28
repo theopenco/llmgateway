@@ -14,6 +14,7 @@ import {
 	truncateToLoadBucket,
 	type LoadBucket,
 } from "@/lib/load-buckets.js";
+import { managedProviderKeyName } from "@/lib/provider-key-label.js";
 import {
 	getTokenWindowStartDate,
 	tokenWindowSchema,
@@ -904,11 +905,9 @@ async function resolveLabels(
 				.from(tables.providerKey)
 				.where(inArray(tables.providerKey.id, ids));
 			for (const row of rows) {
-				// Providers routinely have several managed keys and the token is
-				// masked, so the operator note is what tells them apart.
 				const provider =
 					getProviderDefinition(row.provider)?.name ?? row.provider;
-				const name = `${provider} · ${row.comment?.trim() || row.tokenMasked}`;
+				const name = `${provider} · ${managedProviderKeyName(row)}`;
 				const scopes = [
 					row.variant === "default" ? null : row.variant,
 					row.region,
@@ -1069,15 +1068,16 @@ function openLoadSource(scope: LoadScope): LoadSource {
  * spike as the peak on one tab and an hourly average on the next.
  */
 function summaryScopeFor(query: LoadQuery, now: Date): LoadScope {
+	// Managed keys are a slice of credits traffic no other rollup can isolate,
+	// so this axis summarises from its own source.
+	if (query.groupBy === "provider-key") {
+		return resolveLoadScope(query, now);
+	}
 	const tenantFiltered = Boolean(
 		query.organizationId || query.projectId || query.apiKeyId,
 	);
 	return resolveLoadScope(
-		{
-			...query,
-			mode: modeFor(query),
-			groupBy: tenantFiltered ? "project" : "model",
-		},
+		{ ...query, groupBy: tenantFiltered ? "project" : "model" },
 		now,
 	);
 }

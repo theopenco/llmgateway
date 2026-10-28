@@ -1124,6 +1124,48 @@ describe("admin — gateway load", () => {
 			]);
 		});
 
+		test("scopes to a project", async () => {
+			const body = await fetchLoad(cookie, {
+				...query,
+				projectId: PROJECT_B,
+			});
+
+			expect(body.breakdown.map((row) => [row.key, row.requestCount])).toEqual([
+				[MANAGED_KEY, 600],
+				["unattributed", 300],
+			]);
+		});
+
+		test("summarises all credits traffic from the same rollup", async () => {
+			const body = await fetchLoad(cookie, query);
+
+			expect(body.summarySource).toBe("provider-key-stats");
+			expect(body.summary.totalRequests).toBe(8100);
+			// Project A's 60 upstream errors; client errors are excluded.
+			expect(body.summary.errorCount).toBe(60);
+			expect(body.summary.avgDurationMs).toBeNull();
+		});
+
+		test("keeps hourly peaks on a daily chart", async () => {
+			const weekly = { ...query, window: "7d", bucket: "day" };
+			const [overview, breakdown] = await Promise.all([
+				fetchLoad(cookie, weekly),
+				fetchBreakdown(cookie, weekly),
+			]);
+
+			expect(overview.bucket).toBe("day");
+			expect(
+				overview.breakdown.map((row) => [row.key, row.requestCount]),
+			).toEqual([
+				[MANAGED_KEY, 5600],
+				["unattributed", 2500],
+			]);
+			const [managed, unattributed] = overview.breakdown;
+			expect(managed.peakRps).toBeCloseTo(5600 / 3600, 6);
+			expect(unattributed.peakRps).toBeCloseTo(2500 / 3600, 6);
+			expect(breakdown.rows).toEqual(overview.breakdown);
+		});
+
 		test("rejects an API key filter", async () => {
 			const params = new URLSearchParams({ ...query, apiKeyId: API_KEY_A });
 			const res = await app.request(`/admin/load/overview?${params}`, {

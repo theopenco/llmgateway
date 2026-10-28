@@ -141,6 +141,28 @@ const GROUP_LABELS: Record<GroupBy, string> = {
 	"provider-key": "Provider key",
 };
 
+// The provider key rollup has no latency columns.
+const LATENCY_METRICS = new Set<LoadMetric>(["duration", "ttft"]);
+
+// The API's series key for credits traffic no managed key was attributed to.
+const UNATTRIBUTED_PROVIDER_KEY = "unattributed";
+
+function rowHrefFor(
+	groupBy: GroupBy,
+): ((key: string) => string | null) | undefined {
+	switch (groupBy) {
+		case "organization":
+			return (key) => `/organizations/${encodeURIComponent(key)}`;
+		case "provider-key":
+			return (key) =>
+				key === UNATTRIBUTED_PROVIDER_KEY
+					? null
+					: `/provider-credentials/${encodeURIComponent(key)}`;
+		default:
+			return undefined;
+	}
+}
+
 // Distinct, color-blind-friendly hues, matching the other admin analytics pages.
 const SERIES_COLORS = [
 	"hsl(221 83% 53%)",
@@ -380,8 +402,9 @@ function RequestLoadClient() {
 			: `Last ${Math.max(1, Math.round(currentSeconds / 60))} minutes`;
 
 	// Buckets aggregated before the latency columns existed have no samples.
-	const latencyHint =
-		data?.summary.avgDurationMs === null
+	const latencyHint = providerKeyAxis
+		? "Not tracked per provider key"
+		: data?.summary.avgDurationMs === null
 			? "No samples recorded in this window"
 			: `Across the last ${activeWindow}`;
 	const errorHint = `Excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
@@ -389,7 +412,7 @@ function RequestLoadClient() {
 	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =
 		data?.source === "provider-key-stats"
-			? `${grain === "day" ? "Daily" : "Hourly"} rollup of managed provider keys (BYOK excluded). Unattributed is credits traffic served by env-var credentials or failing before a key was picked.`
+			? `${grain === "day" ? "Daily" : "Hourly"} rollup of managed provider keys (BYOK excluded), cache hits included. Unattributed is credits traffic served by env-var credentials or failing before a key was picked.`
 			: data?.source === "mapping-history"
 				? data.bucket === "minute"
 					? "1-minute samples from the model rollup — refreshed every few seconds."
@@ -796,28 +819,10 @@ function RequestLoadClient() {
 				}}
 				groupLabel={GROUP_LABELS[groupBy]}
 				rowHref={rowHrefFor(groupBy)}
+				hideLatency={providerKeyAxis}
 				defaultSortBy={metric === "errors" ? "errorCount" : "requestCount"}
 				refetchInterval={live ? LIVE_REFRESH_INTERVAL_MS : false}
 			/>
 		</div>
 	);
-}
-const LATENCY_METRICS = new Set<LoadMetric>(["duration", "ttft"]);
-// The API's series key for credits traffic no managed key was attributed to.
-const UNATTRIBUTED_PROVIDER_KEY = "unattributed";
-
-function rowHrefFor(
-	groupBy: GroupBy,
-): ((key: string) => string | null) | undefined {
-	switch (groupBy) {
-		case "organization":
-			return (key) => `/organizations/${encodeURIComponent(key)}`;
-		case "provider-key":
-			return (key) =>
-				key === UNATTRIBUTED_PROVIDER_KEY
-					? null
-					: `/provider-credentials/${encodeURIComponent(key)}`;
-		default:
-			return undefined;
-	}
 }
