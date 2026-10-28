@@ -29,18 +29,16 @@ import type {
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
 
-/** TypeSafe's per-image file size limit. */
-const TYPESAFE_MAX_IMAGE_MB = 16;
-
 /** Decodes a data URL or downloads an image URL through the SSRF guard. */
 async function loadDecisionImage(
 	url: string,
+	maxSizeMB: number,
 ): Promise<{ data: string; mimeType: string }> {
 	try {
 		return await processImageUrl(
 			url,
 			process.env.NODE_ENV === "production",
-			TYPESAFE_MAX_IMAGE_MB,
+			maxSizeMB,
 		);
 	} catch (error) {
 		throw new HTTPException(400, {

@@ -83,12 +83,35 @@ const TYPESAFE_IMAGE_FORMATS: Record<string, TypeSafeImageAsset["format"]> = {
 	"image/jpg": "jpg",
 };
 
-/** Resolves an `input_image` URL to base64 image data and its MIME type. */
+/**
+ * Resolves an `input_image` URL to base64 image data and its MIME type,
+ * rejecting an image larger than `maxSizeMB`.
+ */
 export type DecisionImageLoader = (
 	url: string,
+	maxSizeMB: number,
 ) => Promise<{ data: string; mimeType: string }>;
 
-/** Loads every `input_image` part, in input order, as a TypeSafe asset. */
+/** Images per request; bounds the downloads a single request can trigger. */
+export const MAX_TYPESAFE_IMAGES = 16;
+/** TypeSafe's per-image file size limit. */
+const MAX_TYPESAFE_IMAGE_MB = 16;
+/** TypeSafe's limit for all images in a request together. */
+const MAX_TYPESAFE_TOTAL_IMAGE_MB = 32;
+
+const BYTES_PER_MB = 1024 * 1024;
+
+function decodedBase64Bytes(data: string): number {
+	const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+	const encodedBytes = (data.length * 3) / 4;
+	return encodedBytes - padding;
+}
+
+/**
+ * Loads every `input_image` part, in input order, as a TypeSafe asset. Images
+ * load one at a time so TypeSafe's total size limit also caps the memory a
+ * request can hold.
+ */
 export async function loadTypeSafeImages(
 	input: DecisionInput,
 	loadImage: DecisionImageLoader,
@@ -103,18 +126,35 @@ export async function loadTypeSafeImages(
 					part.type === "input_image" ? [part.image_url] : [],
 				),
 	);
-	return await Promise.all(
-		urls.map(async (url) => {
-			const { data, mimeType } = await loadImage(url);
-			const format = TYPESAFE_IMAGE_FORMATS[mimeType.toLowerCase()];
-			if (!format) {
-				throw badRequest(
-					`This decision model accepts PNG and JPEG images only, not ${mimeType}.`,
-				);
-			}
-			return { type: "image" as const, format, data_base64: data };
-		}),
-	);
+	if (urls.length > MAX_TYPESAFE_IMAGES) {
+		throw badRequest(
+			`This decision model accepts at most ${MAX_TYPESAFE_IMAGES} images per request.`,
+		);
+	}
+	const assets: TypeSafeImageAsset[] = [];
+	let usedBytes = 0;
+	for (const url of urls) {
+		const usedMB = usedBytes / BYTES_PER_MB;
+		const remainingMB = MAX_TYPESAFE_TOTAL_IMAGE_MB - usedMB;
+		if (remainingMB <= 0) {
+			throw badRequest(
+				`Images in one request may total at most ${MAX_TYPESAFE_TOTAL_IMAGE_MB}MB.`,
+			);
+		}
+		const { data, mimeType } = await loadImage(
+			url,
+			Math.min(MAX_TYPESAFE_IMAGE_MB, remainingMB),
+		);
+		const format = TYPESAFE_IMAGE_FORMATS[mimeType.toLowerCase()];
+		if (!format) {
+			throw badRequest(
+				`This decision model accepts PNG and JPEG images only, not ${mimeType}.`,
+			);
+		}
+		usedBytes += decodedBase64Bytes(data);
+		assets.push({ type: "image", format, data_base64: data });
+	}
+	return assets;
 }
 
 /**

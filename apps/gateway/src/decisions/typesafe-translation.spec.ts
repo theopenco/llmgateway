@@ -6,6 +6,7 @@ import {
 	loadTypeSafeImages,
 	toTypeSafeRequest,
 	type DecisionRequestBody,
+	MAX_TYPESAFE_IMAGES,
 } from "./typesafe-translation.js";
 
 describe("typesafe translation", () => {
@@ -43,6 +44,45 @@ describe("typesafe translation", () => {
 			data_base64: "second",
 		});
 		expect(body.state).toBe(`${first}\nbetween\n${second}`);
+	});
+
+	it("caps the image count before loading any image", async () => {
+		let loads = 0;
+		const input: DecisionRequestBody["input"] = [
+			{
+				role: "user",
+				content: Array.from({ length: MAX_TYPESAFE_IMAGES + 1 }, () => ({
+					type: "input_image" as const,
+					image_url: "x",
+				})),
+			},
+		];
+		await expect(
+			loadTypeSafeImages(input, async () => {
+				loads++;
+				return { data: "", mimeType: "image/png" };
+			}),
+		).rejects.toThrow(HTTPException);
+		expect(loads).toBe(0);
+	});
+
+	it("shrinks each image's size limit to what is left of the request total", async () => {
+		const limits: number[] = [];
+		const tenMB = "A".repeat((10 * 1024 * 1024 * 4) / 3);
+		const input: DecisionRequestBody["input"] = [
+			{
+				role: "user",
+				content: Array.from({ length: 4 }, () => ({
+					type: "input_image" as const,
+					image_url: "x",
+				})),
+			},
+		];
+		await loadTypeSafeImages(input, async (_url, maxSizeMB) => {
+			limits.push(maxSizeMB);
+			return { data: tenMB, mimeType: "image/png" };
+		});
+		expect(limits.map((limit) => Math.round(limit))).toEqual([16, 16, 12, 2]);
 	});
 
 	it("rejects image input it has no assets for", () => {

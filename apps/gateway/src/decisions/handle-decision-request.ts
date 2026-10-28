@@ -499,15 +499,6 @@ export async function handleDecisionRequest(
 		});
 	}
 
-	// Translate only once the caller is allowed to use the model, so a denied
-	// caller sees the access error rather than an input error.
-	const upstreamRequest = await endpoint.buildUpstreamRequest(
-		providerId,
-		upstreamModel,
-		apiKey.safetyIdentifier,
-		wireFormat,
-	);
-
 	// Carrier-set and admin caps for the pair apply as they do on chat.
 	const rateLimit = await checkProviderRateLimit(
 		project.organizationId,
@@ -528,6 +519,16 @@ export async function handleDecisionRequest(
 			message: `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`,
 		});
 	}
+
+	// Translate only once the caller is allowed to use the model and within its
+	// rate limit: a denied caller sees the access error rather than an input
+	// error, and image downloads never run for a rejected request.
+	const upstreamRequest = await endpoint.buildUpstreamRequest(
+		providerId,
+		upstreamModel,
+		apiKey.safetyIdentifier,
+		wireFormat,
+	);
 
 	const discount = new Decimal(
 		(
