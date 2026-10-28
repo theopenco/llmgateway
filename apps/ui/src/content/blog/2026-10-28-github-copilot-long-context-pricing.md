@@ -14,6 +14,11 @@ faqs:
     answer: "Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.1 and the other Claude models apart from Haiku 5.5 have one flat price across their full context window on Copilot. GPT-5.3-Codex, GPT-5.4 nano, Gemini, Kimi K3 and MAI-Code-1.1-Flash have no long-context tier either."
   - question: "How do I avoid the long-context price jump?"
     answer: "Keep prompts under the threshold by compacting or starting fresh sessions, lean on cached input (10% of the input rate or less on the tiered GPT models), and send very large contexts to a model with flat pricing. On LLM Gateway every request log shows the pricing tier it was billed at, and hard budgets per API key stop a runaway session."
+image:
+  src: "/blog/github-copilot-long-context-pricing.png"
+  alt: "A glowing price meter on a circuit-board chip whose bars step up sharply at a threshold, with a magnifying glass lifting a folded panel to reveal the higher long-context price"
+  width: 1536
+  height: 1024
 ---
 
 A developer sends a 270K-token prompt to GPT-5.6 Sol in Copilot and pays $1.18. The next turn adds 5K tokens of file context and the same request costs $2.35. Nothing about the task changed. The prompt crossed 272K input tokens, and **GitHub Copilot long-context pricing** kicked in.
