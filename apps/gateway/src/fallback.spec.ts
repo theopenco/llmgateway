@@ -211,13 +211,13 @@ describe("fallback and error status code handling", () => {
 				baseUrl: mockServerUrl,
 			},
 			{
-				id: "provider-key-cerebras",
+				id: "provider-key-novita",
 				...encryptProviderKeyForStorage(
-					"sk-cerebras-key",
-					"provider-key-cerebras",
+					"sk-novita-key",
+					"provider-key-novita",
 					"org-id",
 				),
-				provider: "cerebras",
+				provider: "novita",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
@@ -1498,7 +1498,7 @@ describe("fallback and error status code handling", () => {
 		beforeEach(async () => {
 			await setupMultiProviderKeys();
 			await setRoutingMetrics(modelId, "together-ai", 0);
-			await setRoutingMetrics(modelId, "cerebras", 100);
+			await setRoutingMetrics(modelId, "novita", 100);
 		});
 
 		test("does not reroute a 0% uptime provider when IAM only allows the requested provider", async () => {
@@ -1539,9 +1539,9 @@ describe("fallback and error status code handling", () => {
 		test("does not reroute a 0% uptime provider when IAM denies the fallback provider", async () => {
 			await insertIamRules([
 				{
-					id: "iam-deny-cerebras",
+					id: "iam-deny-novita",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -1578,9 +1578,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-deny-cerebras-combo",
+					id: "iam-deny-novita-combo",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -2377,10 +2377,10 @@ describe("fallback and error status code handling", () => {
 				expect(logs.length).toBe(1);
 
 				const log = logs[0];
-				expect(log.usedProvider).toBe("cerebras");
+				expect(log.usedProvider).toBe("novita");
 				expect(log.internalContentFilter).toBe(true);
 				expect(log.routingMetadata).toMatchObject({
-					selectedProvider: "cerebras",
+					selectedProvider: "novita",
 					contentFilterMatched: true,
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
@@ -3937,16 +3937,16 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
 		});
 
 		test("non-streaming: IAM deny_providers prevents retry fallback to a denied provider", async () => {
 			await setupMultiProviderKeys();
 			await insertIamRules([
 				{
-					id: "iam-retry-deny-cerebras",
+					id: "iam-retry-deny-novita",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -3967,7 +3967,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
 		});
 
 		test("non-streaming: combined IAM allow and deny rules prevent retry fallback to any disallowed provider", async () => {
@@ -3979,9 +3979,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-retry-deny-cerebras-combo",
+					id: "iam-retry-deny-novita-combo",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -4002,7 +4002,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
 		});
 	});
 });
