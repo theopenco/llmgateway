@@ -91,6 +91,7 @@ export const inclusionaiModels = [
 			{
 				providerId: "novita",
 				externalId: "inclusionai/ling-3.1-flash",
+				deactivatedAt: new Date("2026-10-20"),
 				inputPrice: "0",
 				// Cache hits are reported only intermittently, so caching is left
 				// undeclared; the rate would be 0 either way.

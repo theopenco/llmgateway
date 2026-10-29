@@ -4,8 +4,11 @@ slug: litellm
 title: Migrate from LiteLLM
 description: Switch from self-hosted LiteLLM to managed LLM Gateway. Same API format, zero infrastructure to maintain.
 date: 2026-01-20
-updatedAt: 2026-09-20
+updatedAt: 2026-10-21
 fromProvider: LiteLLM
+ogImage:
+  src: /migration/litellm-og.png
+  label: LiteLLM compromised again
 ---
 
 Running your own LiteLLM proxy works—until it doesn't. Scaling, monitoring, and keeping it running becomes another job. LLM Gateway gives you the same unified API with built-in analytics, caching, and a dashboard—without the infrastructure overhead.
@@ -24,18 +27,18 @@ Both services use OpenAI-compatible endpoints, so migration is a two-line change
 
 ## Why Teams Switch to LLM Gateway
 
-| What You Get             | LiteLLM (Self-Hosted) | LLM Gateway          |
-| ------------------------ | --------------------- | -------------------- |
-| OpenAI-compatible API    | Yes                   | Yes                  |
-| Infrastructure to manage | Yes (you run it)      | No (we run it)       |
-| Managed cloud option     | No                    | Yes                  |
-| Analytics dashboard      | Basic                 | Per-request detail   |
-| Response caching         | Manual setup          | Built-in, automatic  |
-| Cost tracking            | Via callbacks         | Native, real-time    |
-| Provider key management  | Config file           | Web UI with rotation |
-| Uptime & scaling         | You handle it         | 99.9% SLA (managed)  |
+| What You Get             | LiteLLM (Self-Hosted) | LLM Gateway            |
+| ------------------------ | --------------------- | ---------------------- |
+| OpenAI-compatible API    | Yes                   | Yes                    |
+| Infrastructure to manage | Yes (you run it)      | No (we run it)         |
+| Managed cloud option     | No                    | Yes                    |
+| Analytics dashboard      | Basic                 | Per-request detail     |
+| Response caching         | Manual setup          | Built-in, one toggle   |
+| Cost tracking            | Via callbacks         | Native, real-time      |
+| Provider key management  | Config file           | Web UI with rotation   |
+| Uptime & scaling         | You handle it         | 99.9% SLA (Enterprise) |
 
-Self-hosting also means you own the patch cycle. On March 24, 2026 two malicious `litellm` releases (1.82.7 and 1.82.8) reached PyPI and were pulled after about 40 minutes; they harvested credentials from unpinned pip installs, while pinned Docker deployments were unaffected. Pin versions wherever you self-host — LLM Gateway included — or use the managed gateway and skip the upkeep.
+Self-hosting also means you own the patch cycle, and LiteLLM has now been compromised twice this year. On March 24, 2026 two malicious `litellm` releases (1.82.7 and 1.82.8) reached PyPI and harvested credentials from unpinned pip installs. On October 21, 2026 [LiteLLM was compromised again](/blog/litellm-compromised-again): version 1.107.0 on PyPI and the official Docker image, including the `latest`, `main-latest` and `main-stable` tags, shipped an infostealer that dumped every provider key from the proxy's database and a remote access trojan. If you ran it, isolate those hosts, rotate every key from a clean machine right away, and rebuild them in parallel. Pin dependencies by hash and images by digest wherever you self-host, LLM Gateway included, or use the managed gateway and skip the upkeep.
 
 Still want to self-host? LLM Gateway is [open source under AGPLv3](/blog/how-to-self-host-llm-gateway)—same features, your infrastructure.
 
@@ -83,6 +86,8 @@ For more details on routing behavior, see the [routing documentation](https://do
 #### Python with OpenAI SDK
 
 ```python
+import os
+
 from openai import OpenAI
 
 # Before (LiteLLM proxy)
@@ -110,9 +115,11 @@ response = client.chat.completions.create(
 
 #### Python with LiteLLM Library
 
-If you're using the LiteLLM library directly, you can point it to LLM Gateway:
+If you're using the LiteLLM library directly, the safest move is to switch to the OpenAI SDK shown above and remove `litellm` from your dependencies. If you need to keep it for now, pin a known-good version by hash (`pip install --require-hashes`) and point it to LLM Gateway:
 
 ```python
+import os
+
 import litellm
 
 # Before (direct LiteLLM)
@@ -197,13 +204,15 @@ model_list:
 
 With LLM Gateway, you don't need a config file. Provider keys are managed in the web dashboard, or you can use the default LLM Gateway keys.
 
-If you want to use your own provider keys, configure them in the dashboard under Settings > Provider Keys.
+If you want to use your own provider keys, configure them in the dashboard under Organization > Provider Keys.
 
 ## Streaming Support
 
 LLM Gateway supports streaming identically to LiteLLM:
 
 ```python
+import os
+
 from openai import OpenAI
 
 client = OpenAI(
@@ -227,6 +236,8 @@ for chunk in stream:
 LLM Gateway supports function calling:
 
 ```python
+import os
+
 from openai import OpenAI
 
 client = OpenAI(
@@ -269,7 +280,7 @@ After verifying LLM Gateway works for your use case, you can decommission your L
 
 - **No servers to babysit** — We handle scaling, uptime, and updates
 - **Real-time cost visibility** — See what every request costs, broken down by model
-- **Automatic caching** — Repeated requests hit cache, reducing your spend
+- **Built-in caching** — Turn on response caching and repeated requests hit cache, reducing your spend
 - **Web-based management** — No more editing YAML files for config changes
 - **New models immediately** — Access new releases within 48 hours, no deployment needed
 

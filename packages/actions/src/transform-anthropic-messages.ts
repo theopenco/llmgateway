@@ -1,6 +1,7 @@
 import { logger } from "@llmgateway/logger";
 import {
 	type AnthropicMessage,
+	type AnthropicNativeBlock,
 	type BaseMessage,
 	type CacheControl,
 	isImageUrlContent,
@@ -13,6 +14,10 @@ import {
 } from "@llmgateway/models";
 
 import { anthropicThinkingBlocksFor } from "./anthropic-thinking.js";
+import {
+	isToolSearchBlock,
+	withoutWebFetchBlocks,
+} from "./anthropic-tool-search.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -78,6 +83,47 @@ export function getToolResultText(message: BaseMessage): string {
 			return content;
 		}),
 	);
+}
+
+async function toolResultBlocksWithImages(
+	parts: MessageContent[],
+	isProd: boolean,
+	maxImageSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
+): Promise<AnthropicNativeBlock[]> {
+	const blocks = await Promise.all(
+		parts.map(async (part): Promise<AnthropicNativeBlock | null> => {
+			if (isImageUrlContent(part)) {
+				try {
+					const { data, mimeType } = await processImageUrl(
+						part.image_url.url,
+						isProd,
+						maxImageSizeMB,
+						userPlan,
+					);
+					return {
+						type: "image",
+						source: { type: "base64", media_type: mimeType, data },
+					};
+				} catch (error) {
+					// Same contract as the user-turn path: a client rejection is the
+					// caller's to fix, a fetch failure degrades to a placeholder.
+					if (error instanceof RequestError) {
+						throw error;
+					}
+					logger.error("Failed to process tool result image for Anthropic", {
+						err: error instanceof Error ? error : new Error(String(error)),
+					});
+					return { type: "text", text: "[Image failed to load]" };
+				}
+			}
+			if (isTextContent(part)) {
+				return part.text?.trim() ? { type: "text", text: part.text } : null;
+			}
+			return { type: "text", text: JSON.stringify(part) };
+		}),
+	);
+	return blocks.filter((block): block is AnthropicNativeBlock => !!block);
 }
 
 /**
@@ -405,10 +451,22 @@ export async function transformAnthropicMessages(
 			// A client-side tool search returns `tool_reference` blocks in the
 			// tool_result content array. Stringifying that array would leave
 			// Anthropic nothing to expand, so replay the original blocks verbatim.
+			// An image part (a screenshot returned by a tool) has to stay a block:
+			// stringified, the model would read base64 as text. Text parts ride
+			// along as text blocks so the result keeps its order.
+			const imageResultBlocks =
+				Array.isArray(m.content) && m.content.some(isImageUrlContent)
+					? await toolResultBlocksWithImages(
+							m.content,
+							isProd,
+							maxImageSizeMB,
+							userPlan,
+						)
+					: undefined;
 			const resultContent: ToolResultContent["content"] =
 				m.anthropic_native_blocks && m.anthropic_native_blocks.length > 0
 					? m.anthropic_native_blocks
-					: toolResultContent;
+					: (imageResultBlocks ?? toolResultContent);
 
 			// If there are multiple mapped IDs, create tool_result blocks for each one
 			// This handles the case where we have duplicate tool_use but only one tool_result
@@ -452,14 +510,20 @@ export async function transformAnthropicMessages(
 				!(isTextContent(part) && (!part.text || part.text.trim() === "")),
 		);
 
-		// Anthropic-only blocks (the server-side tool search pair) that the client
-		// replayed from a previous assistant turn. They belong immediately before
-		// the tool_use blocks they led to, which is where Anthropic emitted them;
+		// Server tool blocks the client replayed from a previous assistant turn.
+		// A tool search pair belongs immediately before the tool_use blocks it
+		// led to, which is where Anthropic emitted it;
 		// Anthropic expands the `tool_reference` entries they carry throughout the
 		// history, so keeping them lets Claude reuse a tool it already discovered
 		// instead of searching for it again.
-		const nativeBlocks =
+		// Google Cloud has no web fetch, so a fetch from an earlier turn cannot
+		// be replayed there.
+		const assistantNativeBlocks =
 			m.role === "assistant" ? (m.anthropic_native_blocks ?? []) : [];
+		const nativeBlocks =
+			provider === "vertex-anthropic"
+				? withoutWebFetchBlocks(assistantNativeBlocks)
+				: assistantNativeBlocks;
 
 		// Ensure we have at least some content - if all content was filtered out but we have tool_calls, that's still valid
 		if (
@@ -476,20 +540,27 @@ export async function transformAnthropicMessages(
 		const anthropicRole =
 			m.role === "assistant" || m.role === "system" ? m.role : "user";
 
+		// Other server tool calls (web search, web fetch) go first: the text they
+		// were lowered with is the answer built on their results.
+		const toolSearchBlocks = nativeBlocks.filter(isToolSearchBlock);
+		const leadingNativeBlocks = nativeBlocks.filter(
+			(block) => !isToolSearchBlock(block),
+		);
 		let anthropicContent: AnthropicMessage["content"] = filteredContent;
-		if (nativeBlocks.length > 0) {
+		if (toolSearchBlocks.length > 0) {
 			const firstToolUseIdx = filteredContent.findIndex(
 				(part) => part.type === "tool_use",
 			);
 			anthropicContent =
 				firstToolUseIdx === -1
-					? [...filteredContent, ...nativeBlocks]
+					? [...filteredContent, ...toolSearchBlocks]
 					: [
 							...filteredContent.slice(0, firstToolUseIdx),
-							...nativeBlocks,
+							...toolSearchBlocks,
 							...filteredContent.slice(firstToolUseIdx),
 						];
 		}
+		anthropicContent = [...leadingNativeBlocks, ...anthropicContent];
 
 		// Thinking opens the turn, as Anthropic emitted it. Replaying it keeps the
 		// cached prefix of a tool loop intact.

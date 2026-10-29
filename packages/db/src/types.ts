@@ -44,7 +44,19 @@ export const webSearchTool = z.object({
 	max_uses: z.number().optional(),
 });
 
-export const tool = z.union([functionTool, webSearchTool, toolSearchTool]);
+export const webFetchTool = z.object({
+	type: z.literal("web_fetch"),
+	web_fetch_type: z.string(),
+	name: z.string().optional(),
+	max_uses: z.number().optional(),
+});
+
+export const tool = z.union([
+	functionTool,
+	webSearchTool,
+	toolSearchTool,
+	webFetchTool,
+]);
 
 export const toolChoice = z.union([
 	z.literal("none"),
@@ -206,6 +218,7 @@ type SerializedOrganizationBase = Omit<
 	| "complianceAlertSettings"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
+	| "devPlanDayStart"
 	| "devPlanStripeSubscriptionId"
 	| "devPlanCancelled"
 	| "devPlanExpiresAt"
@@ -236,6 +249,7 @@ type SerializedOrganizationBase = Omit<
 	trialEndDate: string | null;
 	devPlanBillingCycleStart: string | null;
 	devPlanPremiumWeekStart: string | null;
+	devPlanDayStart: string | null;
 	devPlanExpiresAt: string | null;
 	chatPlanBillingCycleStart: string | null;
 	chatPlanExpiresAt: string | null;
@@ -260,6 +274,8 @@ export const organizationBillingFields = {
 	devPlanCreditsLimit: true,
 	devPlanPremiumCreditsUsed: true,
 	devPlanPremiumWeekStart: true,
+	devPlanDailyCreditsUsed: true,
+	devPlanDayStart: true,
 	devPlanResetPassesLite: true,
 	devPlanResetPassesPro: true,
 	devPlanResetPassesMax: true,
@@ -299,6 +315,8 @@ export type SerializedApiKey = Omit<
 	// LLM SDK internals — hidden aggregate keys aren't surfaced here.
 	| "keyType"
 	| "endCustomerWalletId"
+	// Only ever travels gateway -> provider; surfaced in the admin dashboard.
+	| "safetyIdentifier"
 > & {
 	createdAt: string;
 	updatedAt: string;

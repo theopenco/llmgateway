@@ -1,0 +1,146 @@
+---
+title: Split deployments
+description: Connect separately deployed frontends to an isolated API and gateway.
+icon: Network
+---
+
+Deploying the frontends does not deploy their backends. The dashboard, docs,
+Lounge, DevPass, Airside, and admin need explicit service URLs when they run
+outside the backend network.
+
+## Backend topology
+
+Run `apps/api`, `apps/gateway`, and `apps/worker` as Node.js services, using
+[Docker Compose](/self-host/docker-compose) or [Kubernetes](/self-host/kubernetes).
+They share PostgreSQL, Redis, `GATEWAY_API_KEY_HASH_SECRET`, and compatible
+versions. Apply [database migrations](/self-host#database-migrations) before
+rolling out services. Configure `AUTH_SECRET` on the API and keep all backend
+secrets out of frontend environment variables.
+
+For a testing deployment, use separate databases, Redis instances, secrets,
+accounts, and provider credentials. Do not connect preview frontends to a
+production authenticated API. Provider calls can still incur charges.
+
+## Public and server-side URLs
+
+Use origins without a trailing slash or `/v1` suffix:
+
+| Variable               | Where to set it                                   | Purpose                                                                        |
+| ---------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `API_URL`              | All frontends, API, and gateway                   | Public management API origin; browser requests, auth callbacks, and MCP tools  |
+| `API_BACKEND_URL`      | All frontends and gateway                         | Server-side management API origin; defaults to `API_URL`                       |
+| `GATEWAY_URL`          | UI, docs, Lounge, admin, API, gateway, and worker | Public inference origin; server-side inference also uses it unless overridden  |
+| `GATEWAY_BACKEND_URL`  | Services making server-side inference calls       | Optional backend origin; defaults to `GATEWAY_URL`                             |
+| `MCP_GATEWAY_URL`      | Gateway                                           | Optional HTTPS origin for MCP generation; overrides both gateway URL variables |
+| `REALTIME_BACKEND_URL` | Lounge when realtime is served separately         | Optional realtime backend origin; otherwise uses the gateway backend           |
+
+Always set `GATEWAY_URL` explicitly on testing deployments. The shared gateway
+helper defaults to the hosted production gateway when `NODE_ENV=production`.
+`API_URL` instead defaults to `http://localhost:4002` in the frontends; in a
+browser, that means the visitor's own machine.
+
+A worker-based frontend cannot use a container's private DNS name or localhost
+to reach a separately hosted backend. Its server-side URL must be reachable
+from that runtime. Private HTTP backends are appropriate only over a trusted
+network; public endpoints require HTTPS. Keep public origins in `API_URL` and
+`GATEWAY_URL` even when server-side traffic uses a private backend.
+
+Unset `MCP_GATEWAY_URL` or set it to the testing gateway. MCP generation sends
+its API-key credential to that override, even when the other gateway URLs point
+to the testing deployment.
+
+## Product links
+
+Set these on the frontends and API so navigation, callbacks, and email links
+stay within the deployment:
+
+```dotenv
+APP_URL=https://ui.preview.example.com
+UI_URL=https://ui.preview.example.com
+PLAYGROUND_URL=https://lounge.preview.example.com
+CODE_URL=https://code.preview.example.com
+AIRSIDE_URL=https://airside.preview.example.com
+DOCS_URL=https://docs.preview.example.com
+ADMIN_URL=https://admin.preview.example.com
+API_URL=https://api.preview.example.com
+API_BACKEND_URL=https://api.preview.example.com
+GATEWAY_URL=https://gateway.preview.example.com
+```
+
+Set these before building **and** when running the frontends: rewrites and some
+public links are resolved at build time. The docs app uses `API_BACKEND_URL`
+(or `API_URL`) for its announcement banner, `GATEWAY_URL` and optionally
+`GATEWAY_BACKEND_URL` for its interactive API proxy, and `PLAYGROUND_URL` for
+its Lounge link. It does not need database credentials.
+
+### API explorer prerequisite
+
+The explorer's schema must list the testing gateway in `servers`. On builds
+without configured-origin explorer support, that list comes from
+`apps/gateway/src/app.ts`; setting `GATEWAY_URL` or regenerating the unchanged
+schema does not add a custom server. Upgrade and redeploy the docs with
+configured-origin support before using the explorer for that deployment.
+Until then, send testing requests directly to the explicit `GATEWAY_URL` from
+your API client. Do not select the hosted server as a fallback or enter a key
+while the explorer destination is wrong. Keep the proxy's target allowlist
+restricted to the configured gateway.
+
+## Cookies and CORS
+
+Use a parent domain you control exclusively for this environment, such as
+`preview.example.com`, with the API and frontends on sibling subdomains. On
+the API, configure:
+
+```dotenv
+COOKIE_DOMAIN=preview.example.com
+ORIGIN_URLS=https://ui.preview.example.com,https://lounge.preview.example.com,https://code.preview.example.com,https://airside.preview.example.com,https://docs.preview.example.com,https://admin.preview.example.com,https://api.preview.example.com
+```
+
+`ORIGIN_URLS` is both the credentialed CORS allowlist and Better Auth's trusted
+origin list. Use exact origins without spaces, paths, or wildcards. Configure
+OAuth callbacks against the testing API's `/auth/callback/github` or
+`/auth/callback/google` endpoint if those providers are enabled. Set
+`PASSKEY_RP_ID` to a compatible parent domain when enabling passkeys.
+
+The API shares session cookies across `COOKIE_DOMAIN`. Frontend server
+components forward that cookie to the API, while browser clients send it with
+credentials. An API-only cookie cannot authenticate server-rendered pages on
+other hosts. CORS alone does not fix cookie scope.
+
+Never use a hosting provider's shared parent domain as `COOKIE_DOMAIN`: it
+would share sessions with unrelated tenants, or be rejected as a public suffix.
+Keep preview and production cookie domains separate. Unrelated generated
+hostnames need custom domains or a separately designed same-origin proxy; URL
+variables alone cannot make shared sessions work safely.
+
+The inference gateway has a separate, non-credentialed allowlist:
+`GATEWAY_CORS_ORIGINS`. Leave it unset for server-to-server inference; add only
+origins that need direct browser access with an API key. It does not replace
+`ORIGIN_URLS`.
+
+## Client IP trust
+
+Set `CLIENT_IP_HEADER` consistently on frontends, API, and gateway to the header
+your trusted edge overwrites with the visitor's address. Server-side calls
+forward only that configured header. Ensure the backend path preserves it and
+cannot be reached by untrusted callers supplying it directly. A second public
+edge may replace it with the frontend worker's address; verify the complete
+hop before relying on IP restrictions. Never choose a header merely because a
+browser can send it.
+
+## Verify before enabling access
+
+1. From the frontend runtime, check API `/livez`, readiness `/`,
+   `/public/banner`, and `/models`; check gateway `/livez` and readiness `/`.
+2. Check browser preflight responses from every configured frontend origin:
+   the management API must return that exact origin and allow credentials.
+3. Sign in with an isolated test account. Confirm the session cookie's domain,
+   browser API requests, and server-rendered organization access after reload.
+   The admin dashboard additionally requires an authorized, verified account.
+4. Before entering a key in the docs API explorer, confirm its selected server
+   and browser network destination match the testing gateway; generated schemas
+   may contain hosted server URLs. Run inference with a testing key and check the
+   observed client IP. Never reuse a production key.
+5. Inspect runtime CPU-limit errors separately from connection, CORS, and auth
+   errors. Build memory and build-machine size do not determine request CPU
+   budgets; confirm the hosting runtime's effective request limit.

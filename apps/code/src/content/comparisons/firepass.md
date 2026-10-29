@@ -55,8 +55,6 @@ Fire Pass is intended for personal, non-production agentic coding, and keys must
 
 ## DevPass pricing and limits
 
-DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. As of September 27, these plans include $87, $237, and $537 of monthly model usage respectively, with separate premium weekly fair-use limits. Optional pay-as-you-go overflow costs extra.
-
-**Plan changes start October 15, 2026:** new subscriptions begin at 2× the plan price in monthly usage; existing subscriptions move to 2× at their first renewal on or after that date. Daily caps, tighter premium weekly caps, and revised Reset Pass benefits take effect October 15, including within existing billing cycles. Read the [plan-change terms](/legal/terms#october-2026-plan-changes) before subscribing.
+DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. New subscriptions include $58, $158, and $358 of monthly model usage respectively, with separate premium weekly fair-use limits. Optional pay-as-you-go overflow costs extra.
 
 Compare the live [coding catalog](/coding-models) and [plan details](/pricing). Client support depends on the API and custom-endpoint features of the coding tool; a DevPass key does not unlock every feature of a third-party editor.

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
@@ -17,11 +18,13 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getReferenceContextSize,
 	models as catalogueModels,
 	REASONING_EFFORTS,
 	type ModelDefinition,
 	type ProviderApiFormat,
 	type ToolChoiceMode,
+	type WebSearchFormat,
 } from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
@@ -105,7 +108,10 @@ async function claimProvider(
 
 // A passed preflight proving anything the model could claim, for tests that
 // edit or relist a listing but aren't about the preflight gate itself.
-async function passPreflight(modelId: string) {
+async function passPreflight(
+	modelId: string,
+	overrides: { webSearchFormat?: WebSearchFormat } = {},
+) {
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: modelId } },
 	});
@@ -132,6 +138,7 @@ async function passPreflight(modelId: string) {
 			webSearch: true,
 			contextSize: 100_000_000,
 			maxOutput: 100_000_000,
+			...overrides,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -186,7 +193,7 @@ async function createSecondUser(email: string) {
 	await db.insert(tables.account).values({
 		id: `${id}-account`,
 		providerId: "credential",
-		accountId: `${id}-account`,
+		accountId: id,
 		userId: id,
 		password:
 			"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",
@@ -204,6 +211,7 @@ async function createModel(
 	cookie: string,
 	providerCompanyId: string,
 	overrides: Record<string, unknown> = {},
+	verifiedPromptCaching?: boolean,
 ) {
 	const body: Record<string, unknown> = {
 		providerCompanyId,
@@ -247,9 +255,18 @@ async function createModel(
 					)
 				: null,
 			webSearch: body.webSearch === true,
+			webSearchFormat:
+				typeof body.webSearchFormat === "string"
+					? (body.webSearchFormat as WebSearchFormat)
+					: null,
 			contextSize:
 				typeof body.contextSize === "number" ? body.contextSize : null,
 			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
+			promptCaching:
+				verifiedPromptCaching ??
+				(body.pricing as { cachedInputPrice?: string }).cachedInputPrice !==
+					undefined,
+			...(body.decisions === true ? { decisions: true } : {}),
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -296,13 +313,51 @@ describe("airside provider portal", () => {
 				}),
 			]),
 		);
-		expect(oss?.prices.some((price) => price.providerId === "nanogpt")).toBe(
-			false,
-		);
+		expect(
+			oss?.prices.some((price) => price.providerId === "together-ai"),
+		).toBe(false);
 		const tiered = data.models.find((model) => model.id === "gemini-2.5-pro");
 		expect(
 			tiered?.prices.some((price) => price.providerId === "google-ai-studio"),
 		).toBe(false);
+	});
+
+	it("hides removed catalogue providers without deleting history", async () => {
+		await db
+			.insert(tables.provider)
+			.values([
+				{ id: "retired-catalogue", name: "Retired Carrier", description: "" },
+				{ id: "mistral", name: "Mistral", description: "" },
+			])
+			.onConflictDoNothing();
+		const response = await app.request("/internal/providers");
+		expect(response.status).toBe(200);
+		const data = (await response.json()) as {
+			providers: Array<{ id: string }>;
+		};
+		const ids = data.providers.map((provider) => provider.id);
+		expect(ids).toContain("mistral");
+		expect(ids).not.toContain("retired-catalogue");
+		resetModelSearchRowsMemo();
+		for (const query of ["Retired Carrier", "Mistral"]) {
+			const search = await app.request(
+				`/internal/models/search?q=${encodeURIComponent(query)}`,
+			);
+			expect(search.status).toBe(200);
+			const result = (await search.json()) as {
+				providers: Array<{ id: string }>;
+			};
+			const providerIds = result.providers.map((provider) => provider.id);
+			expect(providerIds).not.toContain("retired-catalogue");
+			if (query === "Mistral") {
+				expect(providerIds).toContain("mistral");
+			}
+		}
+		expect(
+			await db.query.provider.findFirst({
+				where: { id: { eq: "retired-catalogue" } },
+			}),
+		).toMatchObject({ status: "active" });
 	});
 
 	beforeEach(async () => {
@@ -311,6 +366,7 @@ describe("airside provider portal", () => {
 	});
 
 	afterEach(async () => {
+		resetModelSearchRowsMemo();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		if (originalAdminEmails === undefined) {
@@ -550,6 +606,69 @@ describe("airside provider portal", () => {
 			legalEntity: "Mistral AI SAS",
 			headquarters: "FR",
 			dataPolicy: null,
+			compliance: null,
+		});
+	});
+
+	it("lets catalogue carriers declare their own certifications", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const created = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(created.status).toBe(201);
+		const { claim } = await created.json();
+		const reviewed = claim.profile;
+		expect(reviewed).toMatchObject({ gdpr: true, soc2: 2, iso27001: true });
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/claims/${claim.id}/profile`,
+				json(cookie, body, "PATCH"),
+			);
+		await activateClaim();
+		await db
+			.insert(tables.provider)
+			.values({ id: "mistral", name: "Mistral", description: "" })
+			.onConflictDoNothing();
+		const listed = async () =>
+			(await (await app.request("/internal/providers")).json()).providers.find(
+				(p: { id: string }) => p.id === "mistral",
+			);
+		const facts = async () =>
+			(
+				await (await app.request("/internal/provider-facts")).json()
+			).providers.find((p: { id: string }) => p.id === "mistral");
+
+		const declared = await patch({ soc2: 1, iso27001: false });
+		expect(declared.status).toBe(200);
+		expect((await declared.json()).claim.profile).toEqual({
+			...reviewed,
+			soc2: 1,
+			iso27001: false,
+		});
+		expect((await listed()).airsideProfile.compliance).toEqual({
+			gdpr: null,
+			soc2: 1,
+			iso27001: false,
+		});
+		expect((await facts()).dataPolicy).toMatchObject({
+			apiTraining: false,
+			gdpr: true,
+			soc2: 1,
+			iso27001: false,
+		});
+
+		expect((await patch({ soc2: 0 })).status).toBe(200);
+		expect((await facts()).dataPolicy.soc2).toBeNull();
+
+		const restored = await patch({ soc2: null, iso27001: null });
+		expect(restored.status).toBe(200);
+		expect((await restored.json()).claim.profile).toEqual(reviewed);
+		expect((await listed()).airsideProfile.compliance).toBeNull();
+		expect((await facts()).dataPolicy).toMatchObject({
+			soc2: 2,
+			iso27001: true,
 		});
 	});
 
@@ -1109,7 +1228,9 @@ describe("airside provider portal", () => {
 			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
 		const blocked = await relist();
 		expect(blocked.status).toBe(409);
-		expect((await blocked.json()).message).toContain("before you relist");
+		expect((await blocked.json()).message).toContain(
+			"before you request a relist",
+		);
 	});
 
 	it("lists a listing's preflight history without naming our reviewers", async () => {
@@ -1234,6 +1355,40 @@ describe("airside provider portal", () => {
 		expect(stored?.checks.map((check) => check.id)).toContain("reasoning");
 	});
 
+	it("gates a web search format change behind a preflight in that format", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const created = await createModel(cookie, company.id, {
+			webSearch: true,
+			webSearchFormat: "web_search_options",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model).toMatchObject({
+			webSearch: true,
+			webSearchFormat: "web_search_options",
+		});
+
+		const patch = async () =>
+			await app.request(
+				`/airside/models/${model.id}`,
+				json(cookie, { webSearchFormat: "web_search_tool" }, "PATCH"),
+			);
+		// Web search proven in one shape says nothing about another.
+		await passPreflight(model.id, { webSearchFormat: "web_search_options" });
+		expect((await patch()).status).toBe(409);
+
+		await passPreflight(model.id, { webSearchFormat: "web_search_tool" });
+		const switched = await patch();
+		expect(switched.status).toBe(200);
+		expect((await switched.json()).model.webSearchFormat).toBe(
+			"web_search_tool",
+		);
+	});
+
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -1320,6 +1475,168 @@ describe("airside provider portal", () => {
 		expect(res.status).toBe(404);
 	});
 
+	it("rejects listing context sizes far from the model's reference window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const modelName = "deepseek-v4.1-flash";
+		const referenceContextSize = getReferenceContextSize(modelName)!;
+		expect(referenceContextSize).toBeGreaterThan(400_000);
+
+		const catalogue = await app.request(
+			"/airside/catalogue",
+			json(cookie, undefined, "GET"),
+		);
+		const catalogueModel = (await catalogue.json()).models.find(
+			(entry: { id: string }) => entry.id === modelName,
+		);
+		expect(catalogueModel.referenceContextSize).toBe(referenceContextSize);
+
+		for (const [contextSize, wording] of [
+			[200_000, "below"],
+			[referenceContextSize * 2, "above"],
+		] as const) {
+			const rejected = await createModel(cookie, company.id, {
+				modelName,
+				contextSize,
+			});
+			expect(rejected.status).toBe(400);
+			expect(await rejected.text()).toContain(`10% ${wording}`);
+		}
+
+		const created = await createModel(cookie, company.id, {
+			modelName,
+			contextSize: referenceContextSize,
+		});
+		expect(created.status, await created.clone().text()).toBe(201);
+		const { model } = await created.json();
+		const shrunk = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 200_000 }, "PATCH"),
+		);
+		expect(shrunk.status).toBe(400);
+	});
+
+	it("warns reviewers about a pending listing far below the reference window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const modelName = "deepseek-v4.1-flash";
+		// Filed before submissions were checked.
+		await db.insert(tables.providerDraftModel).values({
+			id: "legacy-short-window",
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			modelName,
+			externalId: modelName,
+			contextSize: 200_000,
+			streaming: true,
+			status: "draft",
+		});
+		await db.insert(tables.providerPriceFiling).values({
+			id: "legacy-short-window-filing",
+			draftModelId: "legacy-short-window",
+			providerCompanyId: company.id,
+			kind: "initial",
+			inputPrice: "1e-7",
+			outputPrice: "2e-7",
+			status: "pending",
+		});
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		expect((await queue.json()).filings[0].contextSizeWarning).toEqual({
+			contextSize: 200_000,
+			referenceContextSize: getReferenceContextSize(modelName),
+			deviation: "below",
+		});
+	});
+
+	it("warns reviewers about a cached input price close to the input price", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-cache-typo",
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				cachedInputPrice: "1.8e-6",
+				regionPrices: [
+					{ region: "eu", inputPrice: "2e-6", outputPrice: "6e-6" },
+					{
+						region: "us",
+						inputPrice: "2e-6",
+						outputPrice: "6e-6",
+						cachedInputPrice: "2e-7",
+					},
+				],
+			},
+		});
+		expect(created.status, await created.clone().text()).toBe(201);
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const [filing] = (await queue.json()).filings;
+		expect(filing.cachedPriceWarnings).toEqual([
+			expect.stringContaining("Cached input costs 90% of the input price"),
+			expect.stringMatching(/^eu: Cached input costs 90%/),
+		]);
+	});
+
+	it("lets admins list and delist a listing", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id);
+		const { model } = await created.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		const listed = await app.request(
+			"/admin/airside/listings?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(listed.status).toBe(200);
+		const [listing] = (await listed.json()).listings;
+		expect(listing).toMatchObject({
+			id: model.id,
+			modelName: "mistral-large-3",
+			status: "active",
+			contextDeviation: null,
+			autoRouteExcluded: false,
+		});
+		expect(listing.mappingIds.length).toBeGreaterThan(0);
+
+		const delisted = await app.request(
+			`/admin/airside/listings/${model.id}/delist`,
+			json(cookie),
+		);
+		expect(delisted.status).toBe(200);
+		expect((await delisted.json()).listing).toMatchObject({
+			status: "delisted",
+			delistReason: "admin",
+			mappingIds: [],
+		});
+		const again = await app.request(
+			`/admin/airside/listings/${model.id}/delist`,
+			json(cookie),
+		);
+		expect(again.status).toBe(409);
+	});
+
 	it("runs the approval lifecycle through the admin queue", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1341,6 +1658,8 @@ describe("airside provider portal", () => {
 			kind: "initial",
 			company: expect.objectContaining({ name: "Mistral Ops" }),
 			model: expect.objectContaining({ modelName: "mistral-large-3" }),
+			contextSizeWarning: null,
+			cachedPriceWarnings: [],
 		});
 
 		// Approve the initial filing → model activates, pricing becomes current.
@@ -1435,14 +1754,84 @@ describe("airside provider portal", () => {
 			.delete(tables.providerDraftModel)
 			.where(eq(tables.providerDraftModel.id, holder.id));
 
-		// Relisting restores service at the last approved fare, not the
-		// rejected update.
-		const relisted = await app.request(
-			`/airside/models/${model.id}/relist`,
+		// Relisting is a request: the model stays delisted until an admin
+		// approves it.
+		const requestRelist = async () =>
+			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
+		const requested = await requestRelist();
+		expect(requested.status).toBe(200);
+		expect((await requested.json()).model).toMatchObject({
+			status: "delisted",
+			relistRequestedAt: expect.any(String),
+		});
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { modelId: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+		expect((await requestRelist()).status).toBe(409);
+		const relistQueue = await app.request(
+			"/admin/airside/listings?relistRequested=true",
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await relistQueue.json()).listings).toEqual([
+			expect.objectContaining({
+				id: model.id,
+				relistRequestedAt: expect.any(String),
+			}),
+		]);
+
+		// A rejection leaves it delisted with the admin's note.
+		const relistRejected = await app.request(
+			`/admin/airside/listings/${model.id}/relist/reject`,
+			json(cookie, { reviewNote: "Context window too small" }),
+		);
+		expect(relistRejected.status).toBe(200);
+		const afterRelistReject = await app.request(
+			`/airside/models?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await afterRelistReject.json()).models[0]).toMatchObject({
+			status: "delisted",
+			relistRequestedAt: null,
+			relistReviewedAt: expect.any(String),
+			relistReviewNote: "Context window too small",
+		});
+
+		// The carrier can request again, and withdraw a pending request.
+		expect((await requestRelist()).status).toBe(200);
+		const withdrawn = await app.request(`/airside/models/${model.id}/relist`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(withdrawn.status).toBe(200);
+		expect((await withdrawn.json()).model.relistRequestedAt).toBeNull();
+		expect(
+			(
+				await app.request(
+					`/admin/airside/listings/${model.id}/relist/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(409);
+		expect((await requestRelist()).status).toBe(200);
+
+		// Approval restores service at the last approved fare, not the
+		// relistRejected update.
+		const relistApproved = await app.request(
+			`/admin/airside/listings/${model.id}/relist/approve`,
 			json(cookie),
 		);
-		expect(relisted.status).toBe(200);
-		expect((await relisted.json()).model).toMatchObject({
+		expect(relistApproved.status).toBe(200);
+		expect((await relistApproved.json()).listing).toMatchObject({
+			status: "active",
+			relistRequestedAt: null,
+		});
+		const relisted = await app.request(
+			`/airside/models?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await relisted.json()).models[0]).toMatchObject({
 			status: "active",
 			delistedAt: null,
 			delistReason: null,
@@ -1584,6 +1973,44 @@ describe("airside provider portal", () => {
 			);
 	});
 
+	it("filters a fleet model across regions before the incident result limit", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values([
+			...Array.from({ length: 201 }, (_, index) => ({
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: `mistral/other-${index}`,
+				usedProvider: "mistral",
+				requestCount: 10,
+				upstreamErrorCount: 10,
+			})),
+			...["mistral/mistral-large-3", "mistral/mistral-large-3:eu"].map(
+				(usedModel) => ({
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					usedModel,
+					usedProvider: "mistral",
+					requestCount: 10,
+					upstreamErrorCount: 1,
+				}),
+			),
+		]);
+		const response = await app.request(
+			`/airside/incidents?providerCompanyId=${company.id}&model=mistral/mistral-large-3`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(
+			body.mappings.map((row: { usedModel: string }) => row.usedModel).sort(),
+		).toEqual(["mistral/mistral-large-3", "mistral/mistral-large-3:eu"]);
+	});
+
 	it("returns per-mapping incidents scoped to claimed providers", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -1659,7 +2086,7 @@ describe("airside provider portal", () => {
 				errorDetails: {
 					statusCode: entry.statusCode,
 					statusText: "err",
-					responseText: `failed ${entry.statusCode}`,
+					responseText: `failed ${entry.statusCode} for request req_${i}a1b2c3d4e5f6a7b8`,
 				},
 				duration: 100,
 				usedMode: "credits" as const,
@@ -1798,7 +2225,7 @@ describe("airside provider portal", () => {
 			errorDetails: {
 				statusCode: 503,
 				statusText: "err",
-				responseText: "failed 503",
+				responseText: "failed 503 for request req_9a1b2c3d4e5f6a7b8",
 			},
 			duration: 100,
 			usedMode: "credits" as const,
@@ -1870,6 +2297,22 @@ describe("airside provider portal", () => {
 		const typesNotRetriedBody = await typesNotRetried.json();
 		expect(typesNotRetriedBody.sampledErrors).toBe(3);
 		expect(typesNotRetriedBody.errors).toHaveLength(2);
+
+		// Request ids are masked by default; without grouping each 503 is its
+		// own shape.
+		expect(typesBody.errors[0].responseText).toBe(
+			"failed 503 for request req_<id>",
+		);
+		const exactTypes = await app.request(`${typesBase}&groupSimilar=false`, {
+			headers: { Cookie: cookie },
+		});
+		const exactTypesBody = await exactTypes.json();
+		expect(exactTypesBody.sampledErrors).toBe(5);
+		expect(exactTypesBody.errors).toHaveLength(5);
+		const exactErrors = await app.request(`${errorsBase}&groupSimilar=false`, {
+			headers: { Cookie: cookie },
+		});
+		expect((await exactErrors.json()).errors).toHaveLength(4);
 
 		const foreignTypes = await app.request(`${typesBase}&providerId=openai`, {
 			headers: { Cookie: cookie },
@@ -2021,6 +2464,98 @@ describe("airside provider portal", () => {
 		expect((await adminTypes.json()).sampledErrors).toBe(3);
 	});
 
+	it("counts client errors on admin incidents when asked", async () => {
+		await setUserEmail("ops@mistral.ai");
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			requestCount: 10,
+			apiKeysRequestCount: 6,
+			errorCount: 4,
+			upstreamErrorCount: 1,
+			clientErrorCount: 3,
+		});
+		await db.insert(tables.log).values(
+			(
+				[
+					["credits", "upstream_error", "upstream down"],
+					["credits", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+					["api-keys", "client_error", "bad request"],
+				] as const
+			).map(([usedMode, unifiedFinishReason, responseText], i) => ({
+				id: `client-incident-log-${i}`,
+				requestId: `client-incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				unifiedFinishReason,
+				errorDetails: { statusCode: 400, statusText: "err", responseText },
+				duration: 100,
+				usedMode,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: usedMode,
+			})),
+		);
+
+		const get = async (path: string) =>
+			await (await app.request(path, { headers: { Cookie: cookie } })).json();
+		const base = "/admin/airside/incidents?providerId=mistral";
+		const defaults = (await get(base)).mappings;
+		expect(defaults).toEqual([
+			expect.objectContaining({ requestCount: 4, errorCount: 1 }),
+		]);
+		expect(defaults[0]).not.toHaveProperty("clientErrorCount");
+		expect((await get(`${base}&errorScope=all`)).mappings).toEqual([
+			expect.objectContaining({
+				requestCount: 4,
+				errorCount: 2,
+				clientErrorCount: 1,
+				errorRate: 0.5,
+			}),
+		]);
+		expect(
+			(await get(`${base}&errorScope=all&includeByok=true`)).mappings,
+		).toEqual([
+			expect.objectContaining({
+				requestCount: 10,
+				errorCount: 4,
+				clientErrorCount: 3,
+			}),
+		]);
+		expect((await get(`${base}&errorScope=client`)).mappings).toEqual([
+			expect.objectContaining({ errorCount: 1, clientErrorCount: 1 }),
+		]);
+
+		const types = "/admin/airside/incidents/error-types?providerId=mistral";
+		expect((await get(types)).sampledErrors).toBe(1);
+		expect((await get(`${types}&errorScope=all`)).sampledErrors).toBe(2);
+		expect(
+			(await get(`${types}&errorScope=all&includeByok=true`)).sampledErrors,
+		).toBe(4);
+		expect(
+			(await get(`${types}&errorScope=all&errorMessage=bad%20request`))
+				.sampledErrors,
+		).toBe(1);
+
+		const errors =
+			"/admin/unstable-mappings/errors?provider=mistral&model=mistral/mistral-large-3&incidentsOnly=true";
+		expect((await get(errors)).sampledErrors).toBe(1);
+		expect((await get(`${errors}&errorScope=all`)).sampledErrors).toBe(2);
+		expect((await get(`${errors}&errorScope=client`)).sampledErrors).toBe(1);
+	});
+
 	it("gates claims on the listing fee when configured", async () => {
 		process.env.AIRSIDE_LISTING_PRICE_ID = "price_test_airside";
 		await setUserEmail("ops@mistral.ai");
@@ -2087,6 +2622,10 @@ describe("airside provider portal", () => {
 		const { providers } = await providersRes.json();
 		const mistral = providers.find((p: { id: string }) => p.id === "mistral");
 		expect(mistral.airsideLogoUrl).toBe(logoUrl);
+
+		const marksRes = await app.request("/internal/provider-marks");
+		expect(marksRes.status).toBe(200);
+		expect((await marksRes.json()).marks).toEqual({ mistral: logoUrl });
 	});
 
 	it("round-trips carrier rate limits on models", async () => {
@@ -2379,6 +2918,27 @@ describe("airside provider portal", () => {
 		expect(pausedModel.pausedAt).toEqual(expect.any(String));
 		expect(pausedModel.currentPricing).not.toBeNull();
 		expect(await mappingStatus()).toEqual(["inactive"]);
+		// Admin sees why the listing is out of service.
+		const adminListings = await app.request(
+			"/admin/airside/listings?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await adminListings.json()).listings[0]).toMatchObject({
+			status: "active",
+			pausedAt: pausedModel.pausedAt,
+		});
+		const providerDetail = await app.request("/admin/providers/mistral", {
+			headers: { Cookie: cookie },
+		});
+		expect(providerDetail.status).toBe(200);
+		expect(
+			(await providerDetail.json()).models.find(
+				(row: { modelId: string }) => row.modelId === "mistral-large-3",
+			),
+		).toMatchObject({
+			status: "inactive",
+			airsidePausedAt: pausedModel.pausedAt,
+		});
 		const pausedAgain = await app.request(
 			`/airside/models/${model.id}/pause`,
 			json(cookie),
@@ -2907,6 +3467,21 @@ describe("airside provider portal", () => {
 		const listed = await createModel(cookie, company.id);
 		expect(listed.status).toBe(201);
 		const listedModel = (await listed.json()).model;
+		// An earlier delisted listing has a relist request under review.
+		const [awaitingRelist] = await db
+			.insert(tables.providerDraftModel)
+			.values({
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-small-4",
+				externalId: "mistral-small-4",
+				family: "mistral",
+				status: "delisted",
+				delistedAt: new Date(),
+				delistReason: "removed",
+				relistRequestedAt: new Date(),
+			})
+			.returning();
 
 		const revoked = await app.request(
 			`/admin/airside/claims/${claim.id}/revoke`,
@@ -2922,6 +3497,11 @@ describe("airside provider portal", () => {
 		});
 		expect(deadModel!.status).toBe("delisted");
 		expect(deadModel!.delistReason).toBe("claim_revoked");
+		// Revocation drops relist requests that could no longer be approved.
+		const droppedRequest = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: awaitingRelist.id } },
+		});
+		expect(droppedRequest!.relistRequestedAt).toBeNull();
 		// Without an active claim the listing stays history.
 		const relist = await app.request(
 			`/airside/models/${listedModel.id}/relist`,
@@ -2962,11 +3542,12 @@ describe("airside provider portal", () => {
 			.insert(tables.provider)
 			.values({ id: providerId, name: "Test Carrier", description: "" });
 		await db.insert(tables.providerKey).values(
-			["retired-linked", "retired-platform"].map((id) => ({
+			["retired-linked", "retired-platform", "retired-carrier"].map((id) => ({
 				id,
 				provider: providerId,
 				managed: true,
 				status: "active" as const,
+				carrierSubmitted: id === "retired-carrier",
 				...encryptProviderKeyForStorage("managed-provider-test-key", id, null),
 			})),
 		);
@@ -2980,6 +3561,7 @@ describe("airside provider portal", () => {
 				matchedDomain: "example.com",
 				customBaseUrl: "https://carrier.example.com",
 				providerKeyId: "retired-linked",
+				pendingProviderKeyId: "retired-carrier",
 			})
 			.returning();
 		await db.insert(tables.providerDraftModel).values({
@@ -2996,12 +3578,24 @@ describe("airside provider portal", () => {
 		);
 		expect(res.status).toBe(200);
 		expect((await res.json()).claim.status).toBe("revoked");
+		// Admin-added platform keys stay; the carrier's own submission goes.
 		expect(
 			await db.query.providerKey.findMany({
 				where: { provider: { eq: providerId } },
-				columns: { status: true },
+				columns: { id: true, status: true },
+				orderBy: { id: "asc" },
 			}),
-		).toEqual([{ status: "active" }, { status: "active" }]);
+		).toEqual([
+			{ id: "retired-carrier", status: "deleted" },
+			{ id: "retired-linked", status: "active" },
+			{ id: "retired-platform", status: "active" },
+		]);
+		expect(
+			await db.query.providerClaim.findFirst({
+				where: { id: { eq: claim.id } },
+				columns: { providerKeyId: true, pendingProviderKeyId: true },
+			}),
+		).toEqual({ providerKeyId: "retired-linked", pendingProviderKeyId: null });
 		expect(
 			await db.query.provider.findFirst({ where: { id: { eq: providerId } } }),
 		).toBeDefined();
@@ -3750,6 +4344,189 @@ describe("airside provider portal", () => {
 		expect(stored?.apiFormat).toBe("openai-responses");
 	});
 
+	it("lists a decision model for /v1/decisions and keeps it decisions-only", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const decisionListing = {
+			modelName: "mistral-decide-1",
+			decisions: true,
+			streaming: false,
+			tools: false,
+			vision: true,
+			contextSize: 8000,
+		};
+
+		// Preflight probes only what a decision model can claim.
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				...decisionListing,
+				tools: true,
+				reasoning: true,
+				apiKey: "provider-secret-for-test",
+			}),
+		);
+		expect(queued.status).toBe(202);
+		const { verification } = await queued.json();
+		expect(
+			verification.checks.map((check: { id: string }) => check.id),
+		).toEqual(["basic", "vision"]);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verification.id } },
+		});
+		expect(stored?.target).toMatchObject({
+			decisions: true,
+			vision: true,
+			tools: false,
+			reasoning: false,
+			streaming: false,
+		});
+
+		// Decisions bill input tokens only.
+		const priced = await createModel(cookie, company.id, {
+			...decisionListing,
+			pricing: { inputPrice: "8e-8", outputPrice: "1e-6" },
+		});
+		expect(priced.status).toBe(400);
+		expect((await priced.json()).message).toContain("output price of 0");
+
+		const created = await createModel(cookie, company.id, {
+			...decisionListing,
+			pricing: { inputPrice: "8e-8", outputPrice: "0" },
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model).toMatchObject({
+			decisions: true,
+			streaming: false,
+			tools: false,
+			vision: true,
+		});
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: "mistral-decide-1" } },
+		});
+		expect(mapping).toMatchObject({
+			decisions: true,
+			source: "airside",
+			status: "active",
+		});
+		const catalogueModel = await db.query.model.findFirst({
+			where: { id: { eq: "mistral-decide-1" } },
+		});
+		expect(catalogueModel?.output).toEqual(["decision"]);
+
+		// A decision listing cannot pick up chat capabilities.
+		const edited = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: true }, "PATCH"),
+		);
+		expect(edited.status).toBe(400);
+		expect((await edited.json()).message).toContain("tools");
+
+		// Or file cached or output fares.
+		const refiled = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, {
+				inputPrice: "9e-8",
+				outputPrice: "0",
+				cachedInputPrice: "1e-8",
+			}),
+		);
+		expect(refiled.status).toBe(400);
+
+		// A catalogue chat model cannot be listed as a decision model.
+		const chatModel = (catalogueModels as ModelDefinition[]).find(
+			(entry) =>
+				!entry.output?.includes("decision") &&
+				!entry.providers.some((mapping) => mapping.providerId === "mistral"),
+		)!;
+		const shadow = await createModel(cookie, company.id, {
+			...decisionListing,
+			modelName: chatModel.id,
+			pricing: { inputPrice: "8e-8", outputPrice: "0" },
+		});
+		expect(shadow.status).toBe(409);
+		expect((await shadow.json()).message).toContain("a chat model");
+	});
+
+	it("relists only one kind when opposite-kind relists race", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const listings = [
+			{ suffix: "chat", decisions: false },
+			{ suffix: "decide", decisions: true },
+		];
+		for (const { suffix, decisions } of listings) {
+			await db.insert(tables.providerCompany).values({
+				id: `race-company-${suffix}`,
+				name: `Race ${suffix}`,
+			});
+			await db.insert(tables.providerClaim).values({
+				id: `race-claim-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				providerId: `race-${suffix}`,
+				kind: "custom",
+				matchedDomain: `race-${suffix}.ai`,
+				customName: `Race ${suffix}`,
+				customBaseUrl: `https://api.race-${suffix}.ai`,
+				status: "active",
+			});
+			await db.insert(tables.providerDraftModel).values({
+				id: `race-model-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				providerId: `race-${suffix}`,
+				modelName: "race-contested-1",
+				externalId: "race-contested-1",
+				family: "race",
+				decisions,
+				streaming: !decisions,
+				status: "delisted",
+				delistedAt: new Date(),
+				delistReason: "removed",
+				relistRequestedAt: new Date(),
+			});
+			await db.insert(tables.providerPriceFiling).values({
+				draftModelId: `race-model-${suffix}`,
+				providerCompanyId: `race-company-${suffix}`,
+				kind: "initial",
+				inputPrice: "1e-7",
+				outputPrice: decisions ? "0" : "2e-7",
+				status: "approved",
+			});
+		}
+
+		const results = await Promise.all(
+			listings.map(({ suffix }) =>
+				app.request(
+					`/admin/airside/listings/race-model-${suffix}/relist/approve`,
+					json(cookie),
+				),
+			),
+		);
+		expect(results.map((res) => res.status).sort()).toEqual([200, 409]);
+		const live = await db.query.providerDraftModel.findMany({
+			where: {
+				modelName: { eq: "race-contested-1" },
+				status: { eq: "active" },
+			},
+		});
+		expect(live).toHaveLength(1);
+		const model = await db.query.model.findFirst({
+			where: { id: { eq: "race-contested-1" } },
+		});
+		expect(model?.output).toEqual(live[0].decisions ? ["decision"] : ["text"]);
+	});
+
 	it("stores reasoning efforts and audio on a listing", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -4004,6 +4781,28 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("requires a prompt-caching preflight for a cached input price", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(
+			cookie,
+			company.id,
+			{
+				modelName: "mistral-uncached-x",
+				pricing: {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					cachedInputPrice: "5e-7",
+				},
+			},
+			false,
+		);
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("changed after verification");
+	});
+
 	it("imports catalogue models as managed listings", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -4129,8 +4928,17 @@ describe("airside provider portal", () => {
 		});
 
 		await passPreflight(listing!.id);
-		const relisted = await app.request(
+		const requested = await app.request(
 			`/airside/models/${listing!.id}/relist`,
+			json(cookie),
+		);
+		expect(requested.status).toBe(200);
+		expect(await canonicalMapping()).toMatchObject({
+			source: "airside",
+			status: "inactive",
+		});
+		const relisted = await app.request(
+			`/admin/airside/listings/${listing!.id}/relist/approve`,
 			json(cookie),
 		);
 		expect(relisted.status).toBe(200);
@@ -4575,7 +5383,7 @@ describe("airside provider portal", () => {
 			);
 
 		// Pending registrations publish nothing.
-		expect((await listed()).airsideProfile).toBeNull();
+		expect(await listed()).toBeUndefined();
 		await activateClaim("acme-sky");
 		expect((await listed()).airsideProfile).toEqual({
 			website: carrierProfile.website,
@@ -4592,7 +5400,16 @@ describe("airside provider portal", () => {
 				soc2: 0,
 				iso27001: null,
 			},
+			compliance: null,
 		});
+		const search = await app.request("/internal/models/search?q=acme");
+		expect(search.status).toBe(200);
+		const result = (await search.json()) as {
+			providers: Array<{ id: string }>;
+		};
+		expect(
+			result.providers.some((provider) => provider.id === "acme-sky"),
+		).toBe(true);
 	});
 
 	it("reports missing profile fields on legacy custom claims", async () => {

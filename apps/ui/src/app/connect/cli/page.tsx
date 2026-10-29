@@ -27,6 +27,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import {
@@ -44,12 +45,18 @@ interface ConnectParams {
 	// connecting the DevPass subscription provider so usage bills the DevPass
 	// plan; pay-as-you-go connects keep using the default dashboard org.
 	org: "default" | "devpass";
+	// RFC 7636 S256 challenge. When present, the loopback receives a one-time
+	// code the CLI redeems with its verifier, so the key never appears in a URL.
+	// Older CLIs omit it and receive the key itself.
+	codeChallenge: string | null;
 }
+
+const CODE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 /**
  * Only local loopback callbacks are allowed. The CLI starts a short-lived HTTP
- * server on localhost and passes its address here; we hand the freshly minted
- * API key back to that loopback so it never leaves the user's machine.
+ * server on localhost and passes its address here; we hand the login result
+ * back to that loopback so it never leaves the user's machine.
  */
 function isLoopbackCallback(callback: string): boolean {
 	try {
@@ -58,7 +65,7 @@ function isLoopbackCallback(callback: string): boolean {
 			return false;
 		}
 		const host = url.hostname.toLowerCase();
-		return host === "localhost" || host === "127.0.0.1" || host === "::1";
+		return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
 	} catch {
 		return false;
 	}
@@ -81,7 +88,15 @@ function readParams(): ConnectParams | null {
 	const params = new URLSearchParams(window.location.search);
 	const callback = params.get("callback") ?? "";
 	const state = params.get("state") ?? "";
+	const codeChallenge = params.get("code_challenge");
 	if (!callback || !state) {
+		return null;
+	}
+	if (
+		codeChallenge !== null &&
+		(params.get("code_challenge_method") !== "S256" ||
+			!CODE_CHALLENGE_PATTERN.test(codeChallenge))
+	) {
 		return null;
 	}
 	return {
@@ -90,11 +105,13 @@ function readParams(): ConnectParams | null {
 		source: params.get("source") ?? "coding CLI",
 		name: (params.get("name") ?? "").slice(0, 80),
 		org: params.get("org") === "devpass" ? "devpass" : "default",
+		codeChallenge,
 	};
 }
 
 export default function ConnectCliPage() {
 	const api = useApi();
+	const { devpassUrl } = useAppConfig();
 	const posthog = usePostHog();
 	const { user, isLoading: userLoading } = useUser();
 
@@ -148,15 +165,48 @@ export default function ConnectCliPage() {
 			projectsQuery.isError ||
 			(!projectLoading && !pickedProject);
 
+	// The error renders under the button, so skip the global error toast.
 	const createApiKey = api.useMutation("post", "/keys/api", {
-		// The error renders under the button, so skip the global error toast.
+		onError: () => {},
+	});
+	const createApiKeyCode = api.useMutation("post", "/keys/cli-code", {
 		onError: () => {},
 	});
 
-	const budgetOrgId = wantsDevPassOrg
-		? devPassResult.data?.organization.id
-		: organization?.id;
-	const budgetQuery = useMyMemberBudget(budgetOrgId ?? "");
+	// DevPass orgs hold exactly one API key, so a DevPass connect rolls it
+	// instead of minting a second key.
+	const devPassStatus = api.useQuery(
+		"get",
+		"/dev-plans/status",
+		{},
+		{ enabled: wantsDevPassOrg && !!devPassResult.data },
+	);
+	const refetchDevPassStatus = () => {
+		void devPassStatus.refetch();
+	};
+	const rollDevPassKey = api.useMutation("post", "/dev-plans/rotate-api-key", {
+		onError: refetchDevPassStatus,
+	});
+	const rollDevPassKeyCode = api.useMutation(
+		"post",
+		"/dev-plans/rotate-api-key/cli-code",
+		{ onError: refetchDevPassStatus },
+	);
+	const devPassKeyId = devPassStatus.data?.apiKey?.id;
+	const devPassInactive =
+		wantsDevPassOrg && !!devPassStatus.data && !devPassKeyId;
+	const usesCode = !!params?.codeChallenge;
+	const keyMutation = wantsDevPassOrg
+		? usesCode
+			? rollDevPassKeyCode
+			: rollDevPassKey
+		: usesCode
+			? createApiKeyCode
+			: createApiKey;
+
+	const budgetQuery = useMyMemberBudget(
+		wantsDevPassOrg ? "" : (organization?.id ?? ""),
+	);
 	const keyLimits =
 		budgetQuery.data && !budgetQuery.isError
 			? mostRestrictiveApiKeyLimits([
@@ -177,40 +227,82 @@ export default function ConnectCliPage() {
 		? (agentLabel(params.source) ?? params.source)
 		: "";
 
+	const deliver = (
+		result: { key: string } | { code: string },
+		keyId: string,
+	) => {
+		if (!params) {
+			return;
+		}
+		posthog.capture("cli_connect_authorized", {
+			source: params.source,
+			keyId,
+			flow: "code" in result ? "code" : "key",
+		});
+
+		const target = new URL(params.callback);
+		if ("code" in result) {
+			target.searchParams.set("code", result.code);
+		} else {
+			target.searchParams.set("key", result.key);
+		}
+		target.searchParams.set("state", params.state);
+
+		setDone(true);
+		// Hand the login result back to the CLI's local loopback server.
+		window.location.href = target.toString();
+	};
+
 	const authorize = () => {
-		if (!params || !project?.id || !keyLimits || createApiKey.isPending) {
+		if (!params || keyMutation.isPending) {
+			return;
+		}
+		const codeChallenge = params.codeChallenge;
+
+		if (wantsDevPassOrg) {
+			if (!devPassKeyId) {
+				return;
+			}
+			if (codeChallenge) {
+				rollDevPassKeyCode.mutate(
+					{ body: { apiKeyId: devPassKeyId, codeChallenge } },
+					{ onSuccess: (data) => deliver({ code: data.code }, data.apiKeyId) },
+				);
+				return;
+			}
+			rollDevPassKey.mutate(
+				{ body: { apiKeyId: devPassKeyId } },
+				{ onSuccess: (data) => deliver({ key: data.apiKey }, data.apiKeyId) },
+			);
+			return;
+		}
+
+		if (!project?.id || !keyLimits) {
 			return;
 		}
 
 		const ttlMs = CLI_KEY_TTL_DAYS * 24 * 60 * 60 * 1000;
-		const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+		const body = {
+			description: `${displayName} (CLI)${
+				params.name ? ` — ${params.name}` : ""
+			}`.slice(0, 100),
+			projectId: project.id,
+			expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+			...keyLimits,
+		};
 
+		if (codeChallenge) {
+			createApiKeyCode.mutate(
+				{ body: { ...body, codeChallenge } },
+				{ onSuccess: (data) => deliver({ code: data.code }, data.apiKeyId) },
+			);
+			return;
+		}
 		createApiKey.mutate(
+			{ body },
 			{
-				body: {
-					description: `${displayName} (CLI)${
-						params.name ? ` — ${params.name}` : ""
-					}`.slice(0, 100),
-					projectId: project.id,
-					expiresAt,
-					...keyLimits,
-				},
-			},
-			{
-				onSuccess: (data) => {
-					posthog.capture("cli_connect_authorized", {
-						source: params.source,
-						keyId: data.apiKey.id,
-					});
-
-					const target = new URL(params.callback);
-					target.searchParams.set("key", data.apiKey.token);
-					target.searchParams.set("state", params.state);
-
-					setDone(true);
-					// Hand the credential back to the CLI's local loopback server.
-					window.location.href = target.toString();
-				},
+				onSuccess: (data) =>
+					deliver({ key: data.apiKey.token }, data.apiKey.id),
 			},
 		);
 	};
@@ -294,9 +386,10 @@ export default function ConnectCliPage() {
 				</div>
 				<CardTitle>Authorize {displayName}</CardTitle>
 				<CardDescription>
-					{displayName} wants to connect to your LLM Gateway account. Approving
-					will create an API key and send it back to the tool running in your
-					terminal.
+					{displayName} wants to connect to your LLM Gateway account.{" "}
+					{wantsDevPassOrg
+						? "Approving will roll your DevPass API key and send the new key to the tool running in your terminal. The previous key stops working."
+						: "Approving will create an API key and send it back to the tool running in your terminal."}
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3 text-sm">
@@ -374,9 +467,9 @@ export default function ConnectCliPage() {
 					</div>
 				) : null}
 				<p className="text-xs text-muted-foreground">
-					The key is delivered only to a local address on this machine, expires
-					in {CLI_KEY_TTL_DAYS} days, and can be revoked any time from the API
-					Keys page.
+					{wantsDevPassOrg
+						? "The key is delivered only to a local address on this machine and can be rolled any time from the DevPass dashboard."
+						: `The key is delivered only to a local address on this machine, expires in ${CLI_KEY_TTL_DAYS} days, and can be revoked any time from the API Keys page.`}
 					{caps
 						? ` Its spend is capped at ${caps} to match your organization limit.`
 						: null}
@@ -387,13 +480,12 @@ export default function ConnectCliPage() {
 					className="w-full"
 					onClick={authorize}
 					disabled={
-						createApiKey.isPending ||
+						keyMutation.isPending ||
 						projectLoading ||
-						!project?.id ||
-						!keyLimits
+						(wantsDevPassOrg ? !devPassKeyId : !project?.id || !keyLimits)
 					}
 				>
-					{createApiKey.isPending ? (
+					{keyMutation.isPending ? (
 						<>
 							<Loader2 className="mr-2 h-4 w-4 animate-spin" />
 							Authorizing…
@@ -402,7 +494,7 @@ export default function ConnectCliPage() {
 						`Authorize ${displayName}`
 					)}
 				</Button>
-				{projectError ? (
+				{projectError || devPassStatus.isError ? (
 					<p className="text-xs text-destructive">
 						{wantsDevPassOrg
 							? "Couldn't load your DevPass organization. Refresh this page and try again."
@@ -411,16 +503,30 @@ export default function ConnectCliPage() {
 								: "No project found on your account. Finish setup in the dashboard first."}
 					</p>
 				) : null}
+				{devPassInactive ? (
+					<p className="text-xs text-destructive">
+						No active DevPass subscription.{" "}
+						<Link
+							href={`${devpassUrl}/dashboard`}
+							className="whitespace-nowrap underline"
+							target="_blank"
+							rel="noreferrer"
+						>
+							Subscribe to DevPass
+						</Link>{" "}
+						and try again.
+					</p>
+				) : null}
 				{budgetQuery.isError ? (
 					<p className="text-xs text-destructive">
 						Couldn&apos;t load your organization limits. Refresh this page and
 						try again.
 					</p>
 				) : null}
-				{createApiKey.isError ? (
+				{keyMutation.isError ? (
 					<p className="text-xs text-destructive">
 						{getApiErrorMessage(
-							createApiKey.error,
+							keyMutation.error,
 							"Failed to authorize the CLI. Please try again.",
 						)}
 						{keysHref ? (

@@ -1,4 +1,4 @@
-import { perMillion } from "@/lib/discount";
+import { perMillion, applyDiscount } from "@/lib/discount";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -15,6 +15,8 @@ interface FaqProviderInfo {
 	contextSize?: number | null;
 	inputPrice?: string | number | null;
 	outputPrice?: string | number | null;
+	ocrPagePrice?: string | number | null;
+	discount?: string | null;
 	tools?: boolean | null;
 	jsonOutput?: boolean | null;
 	jsonOutputSchema?: boolean | null;
@@ -62,10 +64,19 @@ export function buildModelFaqs(
 		.map((p) => perMillion(p.outputPrice))
 		.filter((n): n is number => n !== null && Number.isFinite(n));
 
+	const ocrPagePrices = providers
+		.map((p) => applyDiscount(Number(p.ocrPagePrice ?? 0), p.discount))
+		.filter((n) => Number.isFinite(n) && n > 0);
+
 	if (modelDef.free) {
 		faqs.push({
 			question: `How much does ${displayName} cost?`,
 			answer: `${displayName} is currently free to use through LLM Gateway.`,
+		});
+	} else if (ocrPagePrices.length > 0) {
+		faqs.push({
+			question: `How much does ${displayName} cost?`,
+			answer: `${displayName} is billed per page processed, starting at $${(Math.min(...ocrPagePrices) * 1000).toFixed(2)} per 1,000 pages, depending on the provider. The pricing table above always reflects the current per-provider rates.`,
 		});
 	} else if (inputPrices.length > 0 && outputPrices.length > 0) {
 		const minInput = Math.min(...inputPrices);

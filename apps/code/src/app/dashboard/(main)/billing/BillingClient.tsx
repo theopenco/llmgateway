@@ -9,27 +9,20 @@ import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { plans } from "@/app/dashboard/plans";
+import { usePlans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
-import { useStripe } from "@/lib/stripe";
+import { loadStripeInstance } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
-import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatDateTime,
+	useDisplayTimeZone,
+	type DevPlanCancellationReason,
+} from "@llmgateway/shared";
 import { useRerenderAt } from "@llmgateway/shared/components";
 
 import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
@@ -43,6 +36,16 @@ type PaymentMethod =
 const ActivePlanChangeTier = dynamic(
 	() => import("@/app/dashboard/components/ActivePlanChangeTier"),
 );
+
+const CancelPlanDialog = dynamic(
+	() => import("@/app/dashboard/components/CancelPlanDialog"),
+);
+
+// The dialog only mounts on first open; preloading on hover/focus hides the
+// chunk download behind the user's intent.
+function preloadCancelPlanDialog() {
+	void import("@/app/dashboard/components/CancelPlanDialog");
+}
 
 const DevPassPaymentMethod = dynamic(
 	() => import("@/app/dashboard/components/DevPassPaymentMethod"),
@@ -94,9 +97,9 @@ export default function BillingClient({
 	const config = useAppConfig();
 	const { posthogKey } = config;
 	const posthog = usePostHog();
+	const plans = usePlans();
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const { stripe } = useStripe();
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
@@ -133,6 +136,10 @@ export default function BillingClient({
 	);
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
+	const [cancelOpen, setCancelOpen] = useState(false);
+	// Mounted on first open so the dialog's chunk isn't fetched on every
+	// billing view; stays mounted afterwards to keep the close animation.
+	const [cancelMounted, setCancelMounted] = useState(false);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
 	const [isCancellingDowngrade, setIsCancellingDowngrade] = useState(false);
@@ -178,6 +185,9 @@ export default function BillingClient({
 		// monthly/annual cadence by reading it from the org's stored devPlanCycle
 		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
+		// Start loading Stripe.js now so it races the change-tier request and is
+		// ready if the bank requires a 3DS challenge.
+		const stripePromise = loadStripeInstance(config.stripePublishableKey);
 		try {
 			const result = await changeTierMutation.mutateAsync({
 				body: { newTier, expectedAmountDueCents, timing },
@@ -187,6 +197,7 @@ export default function BillingClient({
 				// server left the change as a Stripe pending update; confirming the
 				// payment intent here completes it (the webhook then applies the
 				// tier), while abandoning the challenge leaves the plan unchanged.
+				const stripe = await stripePromise;
 				if (!stripe) {
 					throw new Error("Stripe is not ready. Please refresh and try again.");
 				}
@@ -251,14 +262,47 @@ export default function BillingClient({
 		}
 	};
 
-	const handleCancel = async (): Promise<void> => {
+	// The cancel dialog's save offer: a deferred downgrade needs no payment and
+	// keeps the subscription alive, so it closes the dialog on success.
+	const handleDowngrade = async (tier: PlanTier): Promise<void> => {
+		setSubscribingTier(tier);
+		try {
+			await changeTierMutation.mutateAsync({
+				body: { newTier: tier, timing: "next_cycle" },
+			});
+			await refreshAfterTierChange(tier, "next_cycle");
+			setCancelOpen(false);
+			toast.success(
+				`Switching to ${plans.find((p) => p.tier === tier)?.name ?? tier} at your next renewal`,
+				{ description: "You keep your current allowance until then." },
+			);
+		} catch (error) {
+			const message =
+				error && typeof error === "object" && "message" in error
+					? String((error as { message: unknown }).message)
+					: undefined;
+			toast.error("Failed to change plan", {
+				description: message,
+			});
+		} finally {
+			setSubscribingTier(null);
+		}
+	};
+
+	const handleCancel = async (
+		reason: DevPlanCancellationReason,
+		comments: string | undefined,
+	): Promise<void> => {
 		setIsCancelling(true);
 		try {
-			const result = await cancelMutation.mutateAsync({});
+			const result = await cancelMutation.mutateAsync({
+				body: { reason, comments },
+			});
 			await Promise.all([invalidateStatus(), invalidateInvoices()]);
 			if (posthogKey) {
-				posthog.capture("dev_plan_cancelled");
+				posthog.capture("dev_plan_cancelled", { reason });
 			}
+			setCancelOpen(false);
 			toast.success("Subscription cancelled", {
 				description: result.immediate
 					? "Your subscription has ended. No further renewal charges will be attempted."
@@ -304,14 +348,17 @@ export default function BillingClient({
 	}
 
 	const currentPlan = devPlanStatus.devPlan ?? null;
-	const hasActivePlan = currentPlan !== null && currentPlan !== "none";
+	const activeTier: PlanTier | null =
+		currentPlan === "lite" || currentPlan === "pro" || currentPlan === "max"
+			? currentPlan
+			: null;
 	const currentPlanData = plans.find((p) => p.tier === currentPlan);
 	// A plan that ended — or was refunded, which cancels immediately — clears the
 	// tier, but this page stays useful: invoices and receipts remain
 	// downloadable and an unused Reset Pass is still refundable. Everything that
 	// acts on a live subscription (payment method, tier changes, cancel/resume)
 	// is dropped, since those endpoints require one.
-	if (!hasActivePlan) {
+	if (activeTier === null) {
 		return (
 			<div className="space-y-10">
 				<BillingHeader />
@@ -466,37 +513,46 @@ export default function BillingClient({
 							Resume subscription
 						</Button>
 					) : (
-						<AlertDialog>
-							<AlertDialogTrigger asChild>
-								<Button
-									variant="ghost"
-									size="sm"
-									disabled={isCancelling}
-									className="text-muted-foreground"
-								>
-									{isCancelling && (
-										<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+						<>
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={isCancelling}
+								className="text-muted-foreground"
+								onMouseEnter={preloadCancelPlanDialog}
+								onFocus={preloadCancelPlanDialog}
+								onClick={() => {
+									setCancelMounted(true);
+									setCancelOpen(true);
+								}}
+								data-testid="cancel-plan-open"
+							>
+								{isCancelling && (
+									<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+								)}
+								Cancel subscription
+							</Button>
+							{cancelMounted && (
+								<CancelPlanDialog
+									open={cancelOpen}
+									onOpenChange={setCancelOpen}
+									tier={activeTier}
+									creditsUsed={parseFloat(
+										devPlanStatus.devPlanCreditsUsed ?? "0",
 									)}
-									Cancel subscription
-								</Button>
-							</AlertDialogTrigger>
-							<AlertDialogContent>
-								<AlertDialogHeader>
-									<AlertDialogTitle>Cancel your Dev Plan?</AlertDialogTitle>
-									<AlertDialogDescription>
-										{renewWhen
-											? `Your plan stays active until ${renewWhen}. You won't be charged again, and you can resume any time before then.`
-											: "Your plan stays active until the end of the current billing period. You won't be charged again, and you can resume any time before then."}
-									</AlertDialogDescription>
-								</AlertDialogHeader>
-								<AlertDialogFooter>
-									<AlertDialogCancel>Keep subscription</AlertDialogCancel>
-									<AlertDialogAction onClick={handleCancel}>
-										Cancel subscription
-									</AlertDialogAction>
-								</AlertDialogFooter>
-							</AlertDialogContent>
-						</AlertDialog>
+									creditsLimit={parseFloat(
+										devPlanStatus.devPlanCreditsLimit ?? "0",
+									)}
+									renewWhen={renewWhen}
+									pendingTier={pendingTier}
+									organizationId={devPlanStatus.organizationId ?? null}
+									isCancelling={isCancelling}
+									isDowngrading={subscribingTier !== null}
+									onCancel={handleCancel}
+									onDowngrade={handleDowngrade}
+								/>
+							)}
+						</>
 					)}
 				</div>
 

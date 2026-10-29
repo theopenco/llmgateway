@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
 
-import { db, inArray, tables } from "@llmgateway/db";
+import { db, inArray, tables, eq } from "@llmgateway/db";
 
 const PREFIX = "search-spec";
 const MODEL_IDS = [
@@ -35,6 +35,9 @@ async function clearFixtures() {
 		.where(inArray(tables.modelProviderMapping.modelId, MODEL_IDS));
 	await db.delete(tables.model).where(inArray(tables.model.id, MODEL_IDS));
 	await db
+		.delete(tables.providerCompany)
+		.where(eq(tables.providerCompany.id, PREFIX));
+	await db
 		.delete(tables.provider)
 		.where(inArray(tables.provider.id, PROVIDER_IDS));
 }
@@ -56,6 +59,18 @@ describe("GET /internal/models/search", () => {
 			},
 			{ id: `${PREFIX}-openai`, name: "Spec OpenAI", description: "test" },
 		]);
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: PREFIX, name: "Search Test Carrier" });
+		await db.insert(tables.providerClaim).values(
+			PROVIDER_IDS.map((providerId) => ({
+				providerCompanyId: PREFIX,
+				providerId,
+				matchedDomain: "example.com",
+				status: "active" as const,
+				kind: "custom" as const,
+			})),
+		);
 		await db.insert(tables.model).values([
 			{
 				id: `${PREFIX}-sonnet`,

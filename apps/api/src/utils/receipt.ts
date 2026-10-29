@@ -2,7 +2,11 @@ import { logger } from "@llmgateway/logger";
 import { formatStatementDescriptor } from "@llmgateway/shared";
 
 import { sendTransactionalEmail } from "./email.js";
-import { escapeHtml, generateInvoicePDF } from "./invoice.js";
+import {
+	escapeHtml,
+	generateInvoicePDF,
+	REFUND_ARRIVAL_NOTICE,
+} from "./invoice.js";
 
 import type { InvoiceDocumentType, InvoiceLineItem } from "./invoice.js";
 
@@ -111,7 +115,7 @@ export async function sendReceiptEmail(
 		const filenamePrefix = isCreditNote ? "credit-note" : "receipt";
 
 		const intro = isCreditNote
-			? "Your refund has been processed."
+			? `Your refund has been processed and is on its way. ${REFUND_ARRIVAL_NOTICE}`
 			: "Thank you for your payment!";
 
 		// The developer's support address is the one the payer recognises, so it

@@ -4,13 +4,13 @@ import { ArrowRight, Check, ShieldCheck, Zap } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 
-import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
 import { formatUsageRatio } from "@/lib/utils";
 
 import {
+	DEV_PLAN_DAILY_PERCENT,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
 	HIGH_COST_INPUT_PRICE,
@@ -39,7 +39,7 @@ const plans: PlanContent[] = [
 		description: "For evenings-and-weekends coding",
 		support: "Email",
 		features: [
-			"All 200+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
+			"All 100+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
 			"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge & any OpenAI-compatible tool",
 			"Real-time dashboard with per-request cost",
 		],
@@ -54,7 +54,6 @@ const plans: PlanContent[] = [
 			"Everything in Lite",
 			"Headroom for a full agent session every day",
 			"More frontier fair-use headroom than Lite",
-			"Priority routing on flagship models",
 		],
 	},
 	{
@@ -78,9 +77,6 @@ interface PricingPlansProps {
 export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 	return (
 		<div>
-			<div className="mb-6">
-				<DevPassPlanChangeNotice />
-			</div>
 			<div className="grid items-stretch gap-6 md:grid-cols-3">
 				{plans.map((plan, idx) => {
 					const monthlyPrice = DEV_PLAN_PRICES[plan.tier];
@@ -159,7 +155,16 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 										Model catalog
 									</dt>
 									<dd className="font-mono text-xs font-semibold tabular-nums">
-										200+ models
+										100+ models
+									</dd>
+								</div>
+								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
+									<dt className="text-xs text-muted-foreground">
+										Daily pacing
+									</dt>
+									<dd className="font-mono text-xs font-semibold tabular-nums">
+										{Math.round(DEV_PLAN_DAILY_PERCENT[plan.tier] * 100)}% of
+										credits / day
 									</dd>
 								</div>
 								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
@@ -170,7 +175,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 										{Math.round(
 											DEV_PLAN_PREMIUM_WEEKLY_PERCENT[plan.tier] * 100,
 										)}
-										% of credits
+										% of credits / week
 									</dd>
 								</div>
 								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
@@ -217,14 +222,16 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 			</div>
 
 			<p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-muted-foreground">
-				Frontier fair-use covers premium models — any model priced at $
-				{Math.round(HIGH_COST_INPUT_PRICE * 1_000_000)}+ per million input
-				tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per million
-				output tokens — as a weekly allowance on top of your monthly usage,
-				published right on the card. Every other model draws on your full
-				monthly allowance. No hidden throttling. And the allowance isn&apos;t a
-				wall: opt into pay-as-you-go overflow in your dashboard to keep coding
-				past it, billed from a credits balance at provider rates.
+				Daily pacing spreads your allowance across the cycle: each rolling
+				24-hour window can use the share of monthly credits shown on the card,
+				across every model. Frontier fair-use covers premium models — any model
+				priced at ${Math.round(HIGH_COST_INPUT_PRICE * 1_000_000)}+ per million
+				input tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per
+				million output tokens after any active public discount — as a weekly
+				allowance on top. Every other model draws on your full monthly
+				allowance. No hidden throttling. And none of it is a wall: opt into
+				pay-as-you-go overflow in your dashboard to keep coding past any of
+				them, billed from a credits balance at provider rates.
 			</p>
 
 			<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] p-6 text-center sm:flex-row sm:text-left">
@@ -259,11 +266,11 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 							No subscription? Pay as you go
 						</p>
 						<p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-							The same 200+ models are on{" "}
+							The same 100+ models are on{" "}
 							<span className="font-semibold text-foreground">LLM Gateway</span>{" "}
 							without a plan — top up credits and pay per token at provider
 							rates with a flat {MARKETING_STATS.platformFee} platform fee, or
-							bring your own provider keys for free. DevPass simply triples
+							bring your own provider keys for free. DevPass simply doubles
 							every dollar.
 						</p>
 					</div>

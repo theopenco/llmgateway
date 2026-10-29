@@ -10,6 +10,7 @@ import {
 	isClientAuthError,
 	isClientJsonError,
 	redisClient,
+	SIGN_IN_DAILY_LIMIT,
 } from "./config.js";
 
 describe("isClientJsonError", () => {
@@ -65,6 +66,48 @@ describe("isClientAuthError", () => {
 
 	test("matches the bare account_not_linked code Better Auth logs", () => {
 		expect(isClientAuthError("account_not_linked")).toBe(true);
+	});
+
+	test("matches calls to the disabled built-in change-email endpoint", () => {
+		expect(isClientAuthError("Change email is disabled.")).toBe(true);
+	});
+
+	test("matches OAuth callbacks that arrive without a state param", () => {
+		expect(isClientAuthError("State not found", [undefined])).toBe(true);
+		const missing = Object.assign(
+			new Error("State not found in OAuth callback"),
+			{ code: "state_not_found" },
+		);
+		expect(isClientAuthError("Failed to parse state", [missing])).toBe(true);
+	});
+
+	test("matches untrusted redirect targets rejected by the origin check", () => {
+		expect(
+			isClientAuthError("Invalid callbackURL: https://evil.example.com/pwn"),
+		).toBe(true);
+		expect(
+			isClientAuthError(
+				"Invalid redirectURL: https://llmgateway.io.evil.example",
+			),
+		).toBe(true);
+		expect(
+			isClientAuthError("Invalid newUserCallbackURL: https://evil.example"),
+		).toBe(true);
+	});
+
+	test("keeps untrusted origins at error severity", () => {
+		expect(isClientAuthError("Invalid origin: https://evil.example")).toBe(
+			false,
+		);
+	});
+
+	test("keeps state cookie mismatches at error severity", () => {
+		const mismatch = Object.assign(
+			new Error("State mismatch: auth state cookie not found"),
+			{ code: "state_mismatch" },
+		);
+		expect(isClientAuthError("Failed to parse state", [mismatch])).toBe(false);
+		expect(isClientAuthError("Failed to parse state")).toBe(false);
 	});
 
 	test("does not match genuine server errors", () => {
@@ -814,5 +857,70 @@ describe("Signup country blocking", () => {
 		);
 
 		expect(response.status).not.toBe(403);
+	});
+});
+
+describe("Email sign-in daily IP limit", () => {
+	let ip = "";
+	let key = "";
+
+	beforeEach(() => {
+		ip = `203.0.113.${randomInt(0, 255)}`;
+		key = `sign_in_daily:${ip}`;
+	});
+
+	afterEach(async () => {
+		await redisClient.del(key);
+	});
+
+	const signIn = () =>
+		apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": ip,
+				},
+				body: JSON.stringify({
+					email: `daily-${Date.now()}@example.com`,
+					password: "Password123!",
+				}),
+			}),
+		);
+
+	test("counts each attempt against a 24h window", async () => {
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
+		expect(await redisClient.get(key)).toBe("1");
+		expect(await redisClient.ttl(key)).toBeGreaterThan(23 * 60 * 60);
+	});
+
+	test("allows the attempt that reaches the daily limit", async () => {
+		await redisClient.set(key, SIGN_IN_DAILY_LIMIT - 1, "EX", 3600);
+
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
+		expect(await redisClient.get(key)).toBe(String(SIGN_IN_DAILY_LIMIT));
+	});
+
+	test("rejects attempts once the IP reaches the daily limit", async () => {
+		await redisClient.set(key, SIGN_IN_DAILY_LIMIT, "EX", 3600);
+
+		const response = await signIn();
+
+		expect(response.status).toBe(429);
+		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+		expect((await response.json()).error).toBe("too_many_requests");
+	});
+
+	test("fails open when the counter cannot be updated", async () => {
+		// A hash at the key makes INCR fail inside MULTI without aborting it.
+		await redisClient.hset(key, "attempts", "1");
+
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
 	});
 });

@@ -73,7 +73,7 @@ describe(
 			await db.insert(tables.account).values({
 				id: `account-${testId}`,
 				providerId: "credential",
-				accountId: `account-${testId}`,
+				accountId: userId,
 				userId: userId,
 				password:
 					"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",
@@ -143,8 +143,7 @@ describe(
 		test.each(testProviders)(
 			"POST /keys/provider with $name key",
 			async ({ providerId }) => {
-				// TODO temporarily skip nanogpt
-				if (providerId === "inference.net" || providerId === "nanogpt") {
+				if (providerId === "inference.net") {
 					return;
 				}
 				const envVarName = getProviderEnvVar(providerId);

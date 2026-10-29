@@ -53,13 +53,20 @@ import { formatDurationMs } from "@/lib/format-duration";
 import { formatErrorRate } from "@/lib/format-error-rate";
 import { formatRps } from "@/lib/format-rps";
 import { buildLoadChart, type LoadMetric } from "@/lib/load-chart";
+import { LOAD_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type { TokenWindow } from "@/lib/types";
 
-type GroupBy = "model" | "provider" | "organization" | "project" | "api-key";
+type GroupBy =
+	| "model"
+	| "provider"
+	| "organization"
+	| "project"
+	| "api-key"
+	| "provider-key";
 type ModelView = "mapping" | "canonical";
 
 const DEFAULT_WINDOW: TokenWindow = "1h";
@@ -70,6 +77,7 @@ const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
 	{ value: "organization", label: "Organization" },
 	{ value: "project", label: "Project" },
 	{ value: "api-key", label: "API key" },
+	{ value: "provider-key", label: "Provider key" },
 ];
 
 const MODEL_VIEW_OPTIONS: { value: ModelView; label: string }[] = [
@@ -130,7 +138,30 @@ const GROUP_LABELS: Record<GroupBy, string> = {
 	organization: "Organization",
 	project: "Project",
 	"api-key": "API key",
+	"provider-key": "Provider key",
 };
+
+// The provider key rollup has no latency columns.
+const LATENCY_METRICS = new Set<LoadMetric>(["duration", "ttft"]);
+
+// The API's series key for credits traffic no managed key was attributed to.
+const UNATTRIBUTED_PROVIDER_KEY = "unattributed";
+
+function rowHrefFor(
+	groupBy: GroupBy,
+): ((key: string) => string | null) | undefined {
+	switch (groupBy) {
+		case "organization":
+			return (key) => `/organizations/${encodeURIComponent(key)}`;
+		case "provider-key":
+			return (key) =>
+				key === UNATTRIBUTED_PROVIDER_KEY
+					? null
+					: `/provider-credentials/${encodeURIComponent(key)}`;
+		default:
+			return undefined;
+	}
+}
 
 // Distinct, color-blind-friendly hues, matching the other admin analytics pages.
 const SERIES_COLORS = [
@@ -222,8 +253,18 @@ function RequestLoadClient() {
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const modelView: ModelView =
 		searchParams.get("modelView") === "mapping" ? "mapping" : "canonical";
-	const mode = useUsageMode();
-	const metric = parseMetric(searchParams.get("metric"));
+	const mode = useUsageMode(LOAD_USAGE_MODE_DEFAULT);
+	// Managed keys only serve credits traffic and their rollup has no API key
+	// or latency dimension, so those controls do not apply.
+	const providerKeyAxis = groupBy === "provider-key";
+	const metricOptions = providerKeyAxis
+		? METRIC_OPTIONS.filter((option) => !LATENCY_METRICS.has(option.value))
+		: METRIC_OPTIONS;
+	const requestedMetric = parseMetric(searchParams.get("metric"));
+	const metric =
+		providerKeyAxis && LATENCY_METRICS.has(requestedMetric)
+			? "rps"
+			: requestedMetric;
 	// Stacking averages or rates is meaningless, and the "Other" band a stacked
 	// chart needs cannot be derived from one either, so every metric but req/s
 	// is always drawn as a line regardless of the chart param.
@@ -232,7 +273,9 @@ function RequestLoadClient() {
 	const live = searchParams.get("live") === "1";
 	const organizationId = searchParams.get("organizationId") || undefined;
 	const projectId = searchParams.get("projectId") || undefined;
-	const apiKeyId = searchParams.get("apiKeyId") || undefined;
+	const apiKeyId = providerKeyAxis
+		? undefined
+		: searchParams.get("apiKeyId") || undefined;
 
 	const setParam = useCallback(
 		(key: string, value: string | null) => {
@@ -358,27 +401,23 @@ function RequestLoadClient() {
 			? `Last completed ${currentSeconds >= 86400 ? "day" : "hour"}`
 			: `Last ${Math.max(1, Math.round(currentSeconds / 60))} minutes`;
 
-	// The tenant rollups carry one blended latency sum with no per-mode split,
-	// and buckets aggregated before the latency columns existed have no samples
-	// at all — both surface as nulls, so say which one it is.
-	const modeBlended =
-		mode !== "total" && data?.summarySource === "project-stats";
-	const latencyHint = modeBlended
-		? "Unavailable for a single billing mode"
+	// Buckets aggregated before the latency columns existed have no samples.
+	const latencyHint = providerKeyAxis
+		? "Not tracked per provider key"
 		: data?.summary.avgDurationMs === null
 			? "No samples recorded in this window"
 			: `Across the last ${activeWindow}`;
-	const errorHint = modeBlended
-		? "Unavailable for a single billing mode"
-		: `Excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
+	const errorHint = `Excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
 
 	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =
-		data?.source === "mapping-history"
-			? data.bucket === "minute"
-				? "1-minute samples from the model rollup — refreshed every few seconds."
-				: `${grain === "day" ? "Daily" : "Hourly"} rollup of the model history.`
-			: `${grain === "day" ? "Daily" : "Hourly"} tenant rollup — the in-progress ${grain} is pro-rated over its elapsed seconds.`;
+		data?.source === "provider-key-stats"
+			? `${grain === "day" ? "Daily" : "Hourly"} rollup of managed provider keys (BYOK excluded), cache hits included. Unattributed is credits traffic served by env-var credentials or failing before a key was picked.`
+			: data?.source === "mapping-history"
+				? data.bucket === "minute"
+					? "1-minute samples from the model rollup — refreshed every few seconds."
+					: `${grain === "day" ? "Daily" : "Hourly"} rollup of the model history.`
+				: `${grain === "day" ? "Daily" : "Hourly"} tenant rollup — the in-progress ${grain} is pro-rated over its elapsed seconds.`;
 
 	const exportCsv = useCallback(() => {
 		if (!data) {
@@ -470,13 +509,15 @@ function RequestLoadClient() {
 					param="metric"
 					value={metric}
 					defaultValue="rps"
-					options={METRIC_OPTIONS}
+					options={metricOptions}
 					compact
 					// A stacked bar chart is only meaningful for the additive
 					// metric, so selecting any other one drops the pin.
 					extraParams={{ chart: null }}
 				/>
-				<UsageModeSelector compact />
+				{providerKeyAxis ? null : (
+					<UsageModeSelector compact defaultMode={LOAD_USAGE_MODE_DEFAULT} />
+				)}
 				<LoadEntitySelector
 					type="organization"
 					param="organizationId"
@@ -491,13 +532,15 @@ function RequestLoadClient() {
 					allLabel="All projects"
 					searchPlaceholder="Search projects…"
 				/>
-				<LoadEntitySelector
-					type="api-key"
-					param="apiKeyId"
-					icon={KeyRound}
-					allLabel="All API keys"
-					searchPlaceholder="Search API keys…"
-				/>
+				{providerKeyAxis ? null : (
+					<LoadEntitySelector
+						type="api-key"
+						param="apiKeyId"
+						icon={KeyRound}
+						allLabel="All API keys"
+						searchPlaceholder="Search API keys…"
+					/>
+				)}
 				{metric === "rps" ? (
 					<ChartTypeToggle
 						value={chartType}
@@ -775,7 +818,8 @@ function RequestLoadClient() {
 					...(apiKeyId ? { apiKeyId } : {}),
 				}}
 				groupLabel={GROUP_LABELS[groupBy]}
-				linkOrganizations={groupBy === "organization"}
+				rowHref={rowHrefFor(groupBy)}
+				hideLatency={providerKeyAxis}
 				defaultSortBy={metric === "errors" ? "errorCount" : "requestCount"}
 				refetchInterval={live ? LIVE_REFRESH_INTERVAL_MS : false}
 			/>

@@ -1,13 +1,19 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
+	publicCertification,
+	publicCertificationSchema,
+} from "@/lib/airside-certification.js";
+import {
+	effectiveCarrierProfile,
 	publicAirsideProfile,
 	publicAirsideProfileSchema,
 } from "@/lib/airside-profile.js";
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	getEffectiveProviders,
@@ -62,6 +68,9 @@ const providerSchema = z.object({
 	airsideIconUrl: z.string().nullable(),
 	// Self-declared public profile of a custom Airside carrier (display only).
 	airsideProfile: publicAirsideProfileSchema.nullable(),
+	// Airworthy certificate, present only while it is active, unexpired and
+	// the carrier's live profile still matches what it attests.
+	airsideCertification: publicCertificationSchema.nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -560,17 +569,22 @@ async function fetchModelSearchRows(): Promise<ModelSearchRows> {
 			columns: { providerId: true, customName: true },
 		}),
 	]);
+	const publicProviderIds = getPublicProviderIds(claims);
 	const customNameByProvider = new Map(
 		claims.map((claim) => [claim.providerId, claim.customName]),
 	);
 	return {
 		models,
-		mappings,
-		providers: providers.map((provider) => ({
-			id: provider.id,
-			name:
-				customNameByProvider.get(provider.id) ?? provider.name ?? provider.id,
-		})),
+		mappings: mappings.filter((mapping) =>
+			publicProviderIds.has(mapping.providerId),
+		),
+		providers: providers
+			.filter((provider) => publicProviderIds.has(provider.id))
+			.map((provider) => ({
+				id: provider.id,
+				name:
+					customNameByProvider.get(provider.id) ?? provider.name ?? provider.id,
+			})),
 	};
 }
 
@@ -708,9 +722,11 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	const activeClaims = await db.query.providerClaim.findMany({
 		where: { status: { eq: "active" } },
 		columns: {
+			id: true,
 			providerId: true,
 			kind: true,
 			customName: true,
+			customDescription: true,
 			logoUrl: true,
 			iconUrl: true,
 			website: true,
@@ -728,26 +744,94 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			profileUpdatedAt: true,
 		},
 	});
+	const publicProviderIds = getPublicProviderIds(activeClaims);
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
 	);
 	const airsideProfileFor = (
 		claim: (typeof activeClaims)[number] | undefined,
 	) => (claim ? publicAirsideProfile(claim) : null);
+	const activeCertifications =
+		activeClaims.length > 0
+			? await db.query.providerCertification.findMany({
+					where: {
+						status: { eq: "active" },
+						providerClaimId: { in: activeClaims.map((claim) => claim.id) },
+					},
+				})
+			: [];
+	const certificationByClaim = new Map(
+		activeCertifications.map((row) => [row.providerClaimId, row]),
+	);
+	const airsideCertificationFor = (
+		claim: (typeof activeClaims)[number] | undefined,
+	) =>
+		claim
+			? publicCertification(
+					certificationByClaim.get(claim.id),
+					effectiveCarrierProfile(claim),
+				)
+			: null;
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
-		providers: providers.map((provider) => ({
-			...provider,
-			name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
-			modelCardBadge:
-				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
-				null,
-			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
-			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
-			airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
-		})),
+		providers: providers
+			.filter((provider) => publicProviderIds.has(provider.id))
+			.map((provider) => ({
+				...provider,
+				name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
+				// Custom carriers keep their description on the claim; the provider
+				// row only holds the snapshot taken at approval.
+				description:
+					brandingByProvider.get(provider.id)?.customDescription ??
+					provider.description,
+				modelCardBadge:
+					providerDefinitions.find((p) => p.id === provider.id)
+						?.modelCardBadge ?? null,
+				airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
+				airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
+				airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
+				airsideCertification: airsideCertificationFor(
+					brandingByProvider.get(provider.id),
+				),
+			})),
 	});
+});
+
+const getProviderMarksRoute = createRoute({
+	operationId: "internal_get_provider_marks",
+	summary: "Get uploaded provider marks",
+	description:
+		"Returns the mark (icon, else logo) each active Airside carrier uploaded, keyed by provider id",
+	method: "get",
+	path: "/provider-marks",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ marks: z.record(z.string()) }),
+				},
+			},
+			description: "Uploaded provider marks",
+		},
+	},
+});
+
+internalModels.openapi(getProviderMarksRoute, async (c) => {
+	const claims = await db.query.providerClaim.findMany({
+		where: { status: { eq: "active" } },
+		columns: { providerId: true, logoUrl: true, iconUrl: true },
+	});
+	const marks: Record<string, string> = {};
+	for (const claim of claims) {
+		const mark = claim.iconUrl ?? claim.logoUrl;
+		if (mark) {
+			marks[claim.providerId] = mark;
+		}
+	}
+	c.header("Cache-Control", "public, max-age=300");
+	return c.json({ marks });
 });
 
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats
@@ -774,7 +858,8 @@ const arenaBenchmarkSchema = z.object({
 	text: arenaScoreSchema.nullable(),
 	code: arenaScoreSchema.nullable(),
 	source: z.string(),
-	fetchedAt: z.string(),
+	// Null while Arena is unreachable and no earlier snapshot exists.
+	fetchedAt: z.string().nullable(),
 });
 
 const modelBenchmarksRoute = createRoute({
@@ -948,8 +1033,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	// Fetch Arena benchmarks
 	const arenaBenchmarks = await getArenaBenchmarks();
 
-	const textMatch = findArenaMatch(modelId, arenaBenchmarks.text);
-	const codeMatch = findArenaMatch(modelId, arenaBenchmarks.code);
+	const textMatch = arenaBenchmarks
+		? findArenaMatch(modelId, arenaBenchmarks.text)
+		: null;
+	const codeMatch = arenaBenchmarks
+		? findArenaMatch(modelId, arenaBenchmarks.code)
+		: null;
 
 	const arena = {
 		text: textMatch
@@ -967,7 +1056,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				}
 			: null,
 		source: "https://arena.ai/leaderboard",
-		fetchedAt: arenaBenchmarks.fetchedAt,
+		fetchedAt: arenaBenchmarks?.fetchedAt ?? null,
 	};
 
 	return c.json({ modelId, providers, arena });
@@ -1387,3 +1476,11 @@ internalModels.openapi(getProviderFacts, async (c) => {
 		})),
 	});
 });
+function getPublicProviderIds(
+	claims: readonly { providerId: string }[],
+): Set<string> {
+	return new Set([
+		...providerDefinitions.map((provider) => provider.id),
+		...claims.map((claim) => claim.providerId),
+	]);
+}

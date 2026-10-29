@@ -6,27 +6,28 @@ This file provides guidance to AI agents when working with code in this reposito
 
 Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area, and read the whole `SKILL.md` — never truncate it with `head`, `grep`, or a partial read:
 
-| Skill              | Use for                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| `local-stack`      | Isolated per-worktree Postgres, Redis, and app ports; `.envrc`; starting and tearing down stacks |
-| `testing`          | Unit and e2e tests, seeded accounts and tokens, provider pinning, test fixtures                  |
-| `verify`           | Launching and driving the stack to verify a change, screenshots                                  |
-| `database`         | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
-| `migrations`       | Generating, editing, and resolving conflicts in migrations                                       |
-| `gateway`          | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
-| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
-| `billing`          | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
-| `frontend`         | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
-| `infrastructure`   | Production hosting and hostnames, deploy ordering, client IP and country                         |
-| `legal-pages`      | Terms, privacy policy, and product supplemental terms                                            |
-| `pull-request`     | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
-| `model-benchmarks` | Model and mapping benchmarks                                                                     |
-| `changelog`        | Changelog entries                                                                                |
-| `blog`             | Marketing blog posts                                                                             |
-| `knowledge-base`   | Docs knowledge base pages                                                                        |
-| `core-web-vitals`  | Frontend performance                                                                             |
-| `skill-authoring`  | Creating or editing skills                                                                       |
-| `security-audit`   | Secure-by-default code, security reviews, full audits, the monthly audit routine                 |
+| Skill                 | Use for                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| `local-stack`         | Isolated per-worktree Postgres, Redis, and app ports; `.envrc`; starting and tearing down stacks |
+| `testing`             | Unit and e2e tests, seeded accounts and tokens, provider pinning, test fixtures                  |
+| `verify`              | Launching and driving the stack to verify a change, screenshots                                  |
+| `database`            | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
+| `migrations`          | Generating, editing, and resolving conflicts in migrations                                       |
+| `gateway`             | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
+| `internal-classifier` | Exporting internal content-filter classifier verdicts and fingerprints, vendor samples           |
+| `add-model`           | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
+| `billing`             | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
+| `frontend`            | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
+| `infrastructure`      | Production hosting and hostnames, deploy ordering, client IP and country                         |
+| `legal-pages`         | Terms, privacy policy, and product supplemental terms                                            |
+| `pull-request`        | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
+| `model-benchmarks`    | Model and mapping benchmarks                                                                     |
+| `changelog`           | Changelog entries                                                                                |
+| `blog`                | Marketing blog posts                                                                             |
+| `knowledge-base`      | Docs knowledge base pages                                                                        |
+| `core-web-vitals`     | Frontend performance                                                                             |
+| `skill-authoring`     | Creating or editing skills                                                                       |
+| `security-audit`      | Secure-by-default code, security reviews, full audits, the monthly audit routine                 |
 
 ## Development Commands
 
@@ -40,6 +41,7 @@ Run all `pnpm` commands from the repository root, not from app directories.
 - `pnpm build` - Build everything. ALWAYS run a full build after finishing a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 - `pnpm test:unit` / `pnpm test:e2e` - Unit (`*.spec.ts`) and e2e (`*.e2e.ts`) tests. Run unit tests after adding features, ALWAYS against the worktree's own isolated database (`local-stack` skill); details in the `testing` skill.
+- New or edited model mappings: ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them, locally or in CI (`/e2e` runs every model and bills real provider spend). Without local credentials, dispatch the e2e workflow with `test_models` set to the same mappings and `full_mode` on. Unscoped CI e2e is only for generic gateway code changes whose effect across models needs checking.
 
 To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`). NEVER use `pnpm --filter <app> build`: it skips rebuilding workspace dependencies and compiles against stale `dist/` artifacts.
 
@@ -81,7 +83,9 @@ Keep scratch files (PR bodies, logs) under the worktree's `.context/`; `/tmp` is
 - **Airside** (`apps/airside`) - Self-serve provider portal (Next.js App Router)
 - **Docs** (`apps/docs`) - Documentation site (Next.js + Fumadocs)
 - **Admin** (`ee/admin`) - Internal admin dashboard (Enterprise License)
-- **Packages**: `packages/db` (Drizzle schema and migrations), `packages/models` (model and provider catalogue), `packages/actions` (shared request/cost logic), `packages/shared` (shared utilities and components), `packages/cache` (Redis)
+- **Mobile** (`apps/mobile`) - React Native app
+- **Enterprise packages**: `ee/audit` (audit log), `ee/guardrails` (content guardrails)
+- **Packages**: `packages/db` (Drizzle schema and migrations), `packages/models` (model and provider catalogue), `packages/actions` (shared request/cost logic), `packages/shared` (shared utilities and components), `packages/cache` (Redis), `packages/logger`, `packages/instrumentation` (OpenTelemetry), `packages/canvas` (canvas chart specs), `packages/benchmarks` (model benchmarks), `packages/scripts` (one-off ops scripts)
 
 Production domain mapping (counterintuitive): `api.llmgateway.io` serves `apps/gateway`, and `internal.llmgateway.io` serves `apps/api`. Production runs entirely on GCP; see the `infrastructure` skill.
 
@@ -95,30 +99,34 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Always use the internal api (`apps/api/`) for backend operations, never Next.js API routes or server actions that wrap it. Mutate from the browser with the typed client (`$api.useMutation`); use a server API client only for SSR reads.
 - Never suppress errors with a silent `.catch(() => [])`, `.catch(() => ({}))`, or another empty/default fallback. Handle a deliberate recovery in the owning helper with explicit logging and last-known-good data when available; otherwise let the error propagate.
 - Do not use broad try/catch in API handlers unless to check for specific errors; let errors propagate to the global error handler.
-- Always use top-level `import`, never `require`. Dynamic imports are allowed only for the optional Jelly scene in `packages/shared/src/components/jelly/jelly-logo.tsx` and the DevPass card form in `apps/code/src/app/dashboard/components/DevPassPaymentMethod.tsx`.
+- Always use top-level `import`, never `require`. Dynamic imports are allowed only in frontend code (`next/dynamic` code splitting, lazy-loaded heavy client libraries, `content-collections`) and in tests; backend code uses static imports.
 - Apply DRY principles; when a helper exists in one app, extract it into a shared package instead of copying it.
 - Do not add caching or memoization around `process.env` reads unless there is a measured hot-path need.
 - Always use pnpm for package management.
 - Security gating is enforced server-side; UI gates are UX only.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
+- Chart tooltips list series by value, descending: use `ChartTooltipContent`, or `sortTooltipPayload`/`sortByValueDesc` from `@llmgateway/shared/chart-tooltip` in a custom tooltip.
 - NEVER query the `log` table from the gateway request path, and never fetch a user-supplied URL with a bare `fetch()` — see the `gateway` skill.
 - `log` can hold billions of rows of high-throughput, sensitive data (prompts and completions). Load the `database` skill before adding any `log` read.
 - Models and provider mappings on `origin/main` are never removed, only deactivated — see the `add-model` skill.
 
 ### Public repository
 
-NEVER put internal or private information into anything published to this public repository — commit titles and bodies, branch names, PR titles and descriptions, PR/issue comments, code comments, changelog entries, or docs. Never include real user or customer names, email addresses, customer/partner/company names, organization/project/user IDs, API keys, tokens, secrets or credentials (including partial or redacted-looking values), dollar amounts (revenue, credit balances, spend, invoice totals, contract values), internal dashboards, internal ticket/Slack/Linear links, or internal infrastructure hostnames. Describe the situation generically ("a customer organization", "a large credit balance"). Seeded fixtures already in the repo (`admin@example.com`, `test-token`, `Test Organization`) and public provider pricing from `packages/models` are fine.
+NEVER put internal or private information into anything published to this public repository — commit titles and bodies, branch names, PR titles and descriptions, PR/issue comments, code comments, changelog entries, or docs. Never include real user or customer names, email addresses, customer/partner/company names, organization/project/user IDs, API keys, tokens, secrets or credentials (including partial or redacted-looking values), dollar amounts (revenue, credit balances, spend, invoice totals, contract values), internal dashboards, internal ticket/Slack/Linear links, internal infrastructure hostnames, or the private infrastructure repository (its PRs, changes, alerting, or monitoring setup). Describe only what changes in this repository, even when a task spans both. Describe the situation generically ("a customer organization", "a large credit balance"). Seeded fixtures already in the repo (`admin@example.com`, `test-token`, `Test Organization`) and public provider pricing from `packages/models` are fine.
 
 ### Git and pull requests
 
-- Use conventional commit format for commits and PR titles, max 50 characters.
+- Use conventional commit format for commits and PR titles. Count the PR title before creating or editing it: at most 50 characters, `type(scope): ` included.
 - Do not `--amend` commits after pushing. Force-push only feature branches, never main.
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).
 - Sync a feature branch with main via a merge commit; rebase only when required or clearly better, and say why.
 - Resolve `pnpm-lock.yaml` conflicts by running `pnpm install`.
 - Never force-merge a PR (`gh pr merge --admin`, bypassing required checks or reviews). Merge only when every required check is green, or enable auto-merge and let it land.
-- Use the `pull-request` skill for opening and updating PRs. PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
+- Load the `pull-request` skill before every `gh pr create` or `gh pr edit`; do not write a PR from memory. The body follows `.github/pull_request_template.md`: Summary, Verification and a filled-in Rollback, with Database migration deleted when there is none.
+- After opening or pushing to a PR, wait for CodeRabbit, then fix every failed pre-merge check and every finding, or resolve it with a one-line reason, before handing off. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
+- Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR, a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
 
 ## License
 

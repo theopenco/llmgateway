@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -17,13 +17,21 @@ import {
 	latestListing,
 } from "@/lib/airside-carrier-keys.js";
 import {
-	dematerializeAirsideModel,
 	materializeAirsideModel,
 	setAirsideModelServing,
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { assertListingContextSize } from "@/lib/airside-context-size.js";
+import {
+	assertDecisionMetadataEdit,
+	assertDecisionPricing,
+	assertDecisionProvider,
+	assertListingKind,
+	DECISION_LISTING_CHAT_FIELDS,
+} from "@/lib/airside-decisions.js";
+import { delistAirsideListing } from "@/lib/airside-delist.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
 	claimableProvidersForDomains,
@@ -42,6 +50,7 @@ import {
 	quantizationValue,
 	REASONING_EFFORT_VALUES,
 	supportedToolChoicesValue,
+	webSearchFormatValue,
 } from "@/lib/airside-metadata.js";
 import {
 	assertNoRequiredCleared,
@@ -52,7 +61,7 @@ import {
 	carrierProfilePatchSchema,
 	carrierProfileRegistrationSchema,
 	carrierProfileSchema,
-	catalogueLinkColumns,
+	catalogueProfileColumns,
 	effectiveCarrierProfile,
 	profileColumns,
 	profileDefaults,
@@ -60,6 +69,7 @@ import {
 	serializeClaimProfile,
 	staticCarrierProfile,
 } from "@/lib/airside-profile.js";
+import { lockRelistableListing } from "@/lib/airside-relist.js";
 import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
@@ -76,6 +86,8 @@ import {
 } from "@/lib/mapping-error-shapes.js";
 import {
 	buildVerificationTarget,
+	declaresPromptCaching,
+	listingDeclaresPromptCaching,
 	clearClaimVerificationKey,
 	enqueueModelVerification,
 	modelVerificationSchema,
@@ -92,6 +104,7 @@ import {
 	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
+import { createRoute } from "@/utils/create-route.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
@@ -110,10 +123,13 @@ import {
 	eq,
 	gte,
 	inArray,
+	isNotNull,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import {
+	getReferenceContextSize,
 	models as catalogueModels,
 	modelIdProblem,
 	PROVIDER_API_FORMATS,
@@ -232,6 +248,9 @@ const verificationMappingSchema = z.object({
 	modelName: z.string().min(1).max(200),
 	externalId: z.string().min(1).max(200).optional(),
 	apiFormat: providerApiFormatValue.optional(),
+	// Serves typed decisions on the carrier's `POST /v1/decisions` instead
+	// of chat. Fixed once listed.
+	decisions: z.boolean().optional(),
 	streaming: z.boolean().optional(),
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
@@ -243,8 +262,11 @@ const verificationMappingSchema = z.object({
 	reasoningMaxTokens: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),
 	webSearch: z.boolean().optional(),
+	webSearchFormat: webSearchFormatValue.nullish(),
 	contextSize: z.number().int().positive().nullish(),
 	maxOutput: z.number().int().positive().nullish(),
+	// Set when the listing declares a cached input price.
+	promptCaching: z.boolean().optional(),
 });
 
 /** The capability subset a carrier can preflight before saving an edit. */
@@ -260,6 +282,7 @@ const proposedCapabilitiesSchema = z.object({
 	reasoningMaxTokens: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),
 	webSearch: z.boolean().optional(),
+	webSearchFormat: webSearchFormatValue.nullish(),
 	contextSize: z.number().int().positive().nullish(),
 	maxOutput: z.number().int().positive().nullish(),
 });
@@ -386,6 +409,8 @@ const modelSchema = z.object({
 	// The id sent to the provider's API; fixed at registration or import.
 	externalId: z.string(),
 	apiFormat: providerApiFormatValue,
+	// A decision model, served on `/v1/decisions`; fixed at registration.
+	decisions: z.boolean(),
 	displayName: z.string().nullable(),
 	description: z.string().nullable(),
 	family: z.string().nullable(),
@@ -404,6 +429,7 @@ const modelSchema = z.object({
 	// Supported unified reasoning_effort tiers; null = unsupported.
 	reasoningEfforts: z.array(z.enum(REASONING_EFFORT_VALUES)).nullable(),
 	webSearch: z.boolean(),
+	webSearchFormat: webSearchFormatValue.nullable(),
 	// Carrier-managed request caps; admin rate limits take precedence.
 	maxRpm: z.number().nullable(),
 	maxRpd: z.number().nullable(),
@@ -415,7 +441,12 @@ const modelSchema = z.object({
 	// Set while an active listing is paused by the carrier.
 	pausedAt: z.string().nullable(),
 	delistedAt: z.string().nullable(),
-	delistReason: z.enum(["removed", "claim_revoked"]).nullable(),
+	delistReason: z.enum(["removed", "claim_revoked", "admin"]).nullable(),
+	// Set while a relist request awaits LLM Gateway review.
+	relistRequestedAt: z.string().nullable(),
+	// The last rejected relist request's review.
+	relistReviewedAt: z.string().nullable(),
+	relistReviewNote: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
@@ -544,7 +575,10 @@ async function carrierKeySummaries(
 		return new Map();
 	}
 	const keys = await db.query.providerKey.findMany({
-		where: { id: { in: ids }, status: { ne: "deleted" } },
+		where: {
+			id: { in: ids },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
+		},
 		columns: { id: true, tokenMasked: true, createdAt: true },
 	});
 	return new Map(
@@ -572,7 +606,7 @@ async function credentialedProviderIds(
 	const keys = await db.query.providerKey.findMany({
 		where: {
 			managed: { eq: true },
-			status: { ne: "deleted" },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 			provider: { in: providerIds },
 		},
 		columns: { provider: true },
@@ -600,6 +634,7 @@ function verificationTarget(
 function draftVerificationTarget(
 	model: DraftModelRow,
 	proposed: CapabilityOverrides = {},
+	promptCaching = false,
 ): ProviderModelVerificationTarget {
 	// `null` is a meaningful proposal for the list-valued fields ("no
 	// restriction" / "parameter unsupported"), so they fall back on undefined
@@ -610,6 +645,7 @@ function draftVerificationTarget(
 		modelName: model.modelName,
 		externalId: model.externalId,
 		apiFormat: model.apiFormat,
+		decisions: model.decisions,
 		streaming: proposed.streaming ?? model.streaming,
 		vision: proposed.vision ?? model.vision,
 		audio: proposed.audio ?? model.audio,
@@ -627,12 +663,17 @@ function draftVerificationTarget(
 			: proposed.reasoningEfforts) ?? null) as
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: proposed.webSearch ?? model.webSearch,
+		webSearchFormat:
+			proposed.webSearchFormat === undefined
+				? model.webSearchFormat
+				: proposed.webSearchFormat,
 		contextSize:
 			proposed.contextSize === undefined
 				? model.contextSize
 				: proposed.contextSize,
 		maxOutput:
 			proposed.maxOutput === undefined ? model.maxOutput : proposed.maxOutput,
+		promptCaching,
 	});
 }
 
@@ -682,6 +723,7 @@ function serializeModel(
 		modelName: row.modelName,
 		externalId: row.externalId,
 		apiFormat: row.apiFormat,
+		decisions: row.decisions,
 		displayName: row.displayName,
 		description: row.description,
 		quantization: row.quantization,
@@ -700,6 +742,7 @@ function serializeModel(
 		reasoningEfforts: (row.reasoningEfforts ?? null) as
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: row.webSearch,
+		webSearchFormat: row.webSearchFormat ?? null,
 		maxRpm: row.maxRpm,
 		maxRpd: row.maxRpd,
 		rateLimitScope: row.rateLimitScope,
@@ -708,6 +751,13 @@ function serializeModel(
 		pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
 		delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
 		delistReason: row.delistReason,
+		relistRequestedAt: row.relistRequestedAt
+			? row.relistRequestedAt.toISOString()
+			: null,
+		relistReviewedAt: row.relistReviewedAt
+			? row.relistReviewedAt.toISOString()
+			: null,
+		relistReviewNote: row.relistReviewNote,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		currentPricing: approved ? serializeFiling(approved) : null,
@@ -2113,7 +2163,7 @@ airside.openapi(createClaim, async (c) => {
 				logoUrl: logoUrl ?? null,
 				iconUrl: iconUrl ?? null,
 				...(profile
-					? catalogueLinkColumns(staticCarrierProfile(providerId), profile)
+					? catalogueProfileColumns(staticCarrierProfile(providerId), profile)
 					: {}),
 				profileUpdatedAt: profile ? new Date() : null,
 				claimedBy: user.id,
@@ -2448,7 +2498,7 @@ airside.openapi(updateClaimProfile, async (c) => {
 	}
 	const changes =
 		effectiveClaimKind(claim) === "catalogue"
-			? catalogueLinkColumns(effectiveCarrierProfile(claim), body)
+			? catalogueProfileColumns(effectiveCarrierProfile(claim), body)
 			: profileColumns(body);
 	const [updated] = await cdb
 		.update(tables.providerClaim)
@@ -2608,6 +2658,7 @@ airside.openapi(submitProviderKey, async (c) => {
 			modelName: listing.modelName,
 			externalId: listing.externalId,
 			apiFormat: listing.apiFormat,
+			decisions: listing.decisions,
 		}),
 	);
 	const pendingProviderKey = await cdb.transaction(
@@ -2658,6 +2709,10 @@ const getCatalogue = createRoute({
 							z.object({
 								id: z.string(),
 								family: z.string(),
+								// Largest context window among the model's catalogue
+								// deployments. Listings more than 10% below it are left
+								// out of routing for requests that don't name a provider.
+								referenceContextSize: z.number().nullable(),
 								prices: z.array(
 									z.object({
 										providerId: z.string(),
@@ -2682,6 +2737,7 @@ airside.openapi(getCatalogue, (c) => {
 		models: catalogueModels.map((model) => ({
 			id: model.id,
 			family: model.family,
+			referenceContextSize: getReferenceContextSize(model.id, [], now) ?? null,
 			prices: model.providers.flatMap((entry) => {
 				const mapping: ProviderModelMapping = entry;
 				if (
@@ -2765,6 +2821,8 @@ airside.openapi(queueNewModelVerification, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	assertDecisionProvider(body.providerId, body.decisions ?? false);
+	await assertListingKind(body.modelName, body.decisions ?? false);
 	const target = verificationTarget(body);
 	const credential = await resolveVerificationCredential(
 		target,
@@ -2917,10 +2975,14 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 	}
 	// Without an explicit proposal, verify what the listing currently claims —
 	// including a capability edit still awaiting review.
-	const target = draftVerificationTarget(model, {
-		...(await pendingFiledCapabilities(model.id)),
-		...proposed,
-	});
+	const target = draftVerificationTarget(
+		model,
+		{
+			...(await pendingFiledCapabilities(model.id)),
+			...proposed,
+		},
+		await listingDeclaresPromptCaching(model.id),
+	);
 	const credential = await resolveVerificationCredential(target, apiKey, claim);
 	if (apiKey) {
 		await saveClaimVerificationKey(claim, apiKey);
@@ -3051,6 +3113,8 @@ const createModel = createRoute({
 						// Defaults to modelName. Immutable once listed.
 						externalId: z.string().min(1).max(200).optional(),
 						apiFormat: providerApiFormatValue.optional(),
+						// Serves typed decisions on `POST /v1/decisions`.
+						decisions: z.boolean().optional(),
 						displayName: z.string().max(200).optional(),
 						description: z.string().max(2000).optional(),
 						quantization: quantizationValue.nullish(),
@@ -3068,6 +3132,7 @@ const createModel = createRoute({
 						reasoningMaxTokens: z.boolean().optional(),
 						reasoningEfforts: reasoningEffortsValue.nullish(),
 						webSearch: z.boolean().optional(),
+						webSearchFormat: webSearchFormatValue.nullish(),
 						maxRpm: z.number().int().positive().optional(),
 						maxRpd: z.number().int().positive().optional(),
 						rateLimitScope: z.enum(["global", "per_org"]).optional(),
@@ -3136,6 +3201,14 @@ airside.openapi(createModel, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	assertDecisionProvider(body.providerId, body.decisions ?? false);
+	await assertListingKind(body.modelName, body.decisions ?? false);
+	assertDecisionPricing(body.decisions ?? false, body.pricing);
+	await assertListingContextSize(
+		body.modelName,
+		body.providerId,
+		body.contextSize,
+	);
 	const verification = await db.query.providerModelVerification.findFirst({
 		where: { id: { eq: body.verificationId } },
 	});
@@ -3158,9 +3231,12 @@ airside.openapi(createModel, async (c) => {
 			message: "This verification has already been used.",
 		});
 	}
-	if (
-		!verificationTargetsMatch(verification.target, verificationTarget(body))
-	) {
+	// A cached input price is a claim the preflight has to prove.
+	const target = verificationTarget({
+		...body,
+		promptCaching: declaresPromptCaching(body.pricing),
+	});
+	if (!verificationTargetsMatch(verification.target, target)) {
 		throw new HTTPException(409, {
 			message:
 				"The mapping changed after verification. Run verification again.",
@@ -3194,21 +3270,13 @@ airside.openapi(createModel, async (c) => {
 	}
 	if (firstProviderKey) {
 		await assertProviderKeyIsSeparate(claim, firstProviderKey);
-		await assertProviderKeyServes(
-			claim,
-			firstProviderKey,
-			verificationTarget(body),
-		);
+		await assertProviderKeyServes(claim, firstProviderKey, target);
 	} else if (effectiveClaimKind(claim) === "custom" && keyOnFile) {
 		const servingKey = await db.query.providerKey.findFirst({
 			where: { id: { eq: keyOnFile } },
 		});
 		if (servingKey) {
-			await assertProviderKeyServes(
-				claim,
-				readProviderKey(servingKey),
-				verificationTarget(body),
-			);
+			await assertProviderKeyServes(claim, readProviderKey(servingKey), target);
 		}
 	}
 
@@ -3240,11 +3308,19 @@ airside.openapi(createModel, async (c) => {
 					reasoningMaxTokens: body.reasoningMaxTokens ?? false,
 					reasoningEfforts: body.reasoningEfforts ?? null,
 					webSearch: body.webSearch ?? false,
+					webSearchFormat: body.webSearchFormat ?? null,
 					maxRpm: body.maxRpm ?? null,
 					maxRpd: body.maxRpd ?? null,
 					rateLimitScope: body.rateLimitScope ?? "global",
 					rateLimitMode: body.rateLimitMode ?? "strict",
 					createdBy: user.id,
+					...(body.decisions
+						? {
+								decisions: true,
+								apiFormat: "openai-chat-completions" as const,
+								...DECISION_LISTING_CHAT_FIELDS,
+							}
+						: {}),
 				})
 				.returning();
 			const [filing] = await tx
@@ -3402,6 +3478,9 @@ airside.openapi(importCatalogueModels, async (c) => {
 		// base band at the wrong rate — so those stay on the catalogue.
 		if (
 			listed.has(model.id) ||
+			// Catalogue decision models speak each provider's own protocol;
+			// listings are served on the OpenAI-compatible /v1/decisions.
+			mapping.decisions ||
 			!mapping.inputPrice ||
 			!mapping.outputPrice ||
 			(mapping.pricingTiers?.length ?? 0) > 0 ||
@@ -3437,6 +3516,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					reasoningMaxTokens: mapping.reasoningMaxTokens ?? false,
 					reasoningEfforts: mapping.reasoningEfforts ?? null,
 					webSearch: mapping.webSearch ?? false,
+					webSearchFormat: mapping.webSearchFormat ?? null,
 					catalogueMetadata: catalogueMetadataFromMapping(mapping),
 					status: "active",
 					createdBy: user.id,
@@ -3517,6 +3597,16 @@ airside.openapi(updateModel, async (c) => {
 	}
 	const changes = pickMetadataChanges(body);
 	const updates = diffMetadataChanges(model, changes);
+	assertDecisionMetadataEdit(model.decisions, updates);
+	// Any edit must leave the listing with an acceptable window, so listings
+	// filed before the check get fixed the next time they change.
+	if (Object.keys(updates).length > 0) {
+		await assertListingContextSize(
+			model.modelName,
+			model.providerId,
+			"contextSize" in updates ? updates.contextSize : model.contextSize,
+		);
+	}
 	// Claiming more than the listing does — a new capability, a higher
 	// limit, extra modes — needs a passing preflight of the edit. The review
 	// can rerun it; narrowing and non-capability edits need none.
@@ -3700,55 +3790,9 @@ airside.openapi(deleteModel, async (c) => {
 			.where(eq(tables.providerDraftModel.id, id));
 		return c.json({ status: "deleted" as const });
 	}
-	await cdb.transaction(async (tx) => {
-		await tx
-			.update(tables.providerDraftModel)
-			.set({
-				status: "delisted",
-				delistedAt: new Date(),
-				delistReason: "removed",
-				pausedAt: null,
-			})
-			.where(eq(tables.providerDraftModel.id, id));
-		// A delisted model's pending filing would otherwise linger in the admin
-		// queue and approve as a silent no-op.
-		await tx
-			.update(tables.providerPriceFiling)
-			.set({
-				status: "rejected",
-				reviewNote: "Model delisted",
-				reviewedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(tables.providerPriceFiling.draftModelId, id),
-					eq(tables.providerPriceFiling.status, "pending"),
-				),
-			);
-		await tx
-			.delete(tables.providerRoutingSettings)
-			.where(
-				and(
-					eq(tables.providerRoutingSettings.providerId, model.providerId),
-					eq(tables.providerRoutingSettings.modelId, model.modelName),
-				),
-			);
-		await tx
-			.update(tables.providerRoutingFiling)
-			.set({
-				status: "rejected",
-				reviewNote: "Model delisted",
-				reviewedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(tables.providerRoutingFiling.providerId, model.providerId),
-					eq(tables.providerRoutingFiling.modelId, model.modelName),
-					eq(tables.providerRoutingFiling.status, "pending"),
-				),
-			);
-		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
-	});
+	await cdb.transaction(
+		async (tx) => await delistAirsideListing(tx, model, "removed"),
+	);
 	return c.json({ status: "delisted" as const });
 });
 
@@ -3799,7 +3843,7 @@ const relistModel = createRoute({
 				},
 			},
 			description:
-				"The relisted model, back in service immediately at its last approved fares. Requires an active claim on the provider.",
+				"Files a relist request. The model stays delisted until LLM Gateway approves the request, then returns to service at its last approved fares. Requires an active claim on the provider and a preflight that passed since delisting.",
 		},
 	},
 });
@@ -3814,38 +3858,11 @@ airside.openapi(relistModel, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	// cdb: the gateway caches listing resolution off these tables.
-	const row = await cdb
-		.transaction(async (tx) => {
-			// Lock the claim first, in the revoker's claim-then-model order, so a
-			// concurrent revocation cannot commit between this check and the relist.
-			const [claim] = await tx
-				.select({ id: tables.providerClaim.id })
-				.from(tables.providerClaim)
-				.where(
-					and(
-						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
-						eq(tables.providerClaim.providerId, model.providerId),
-						eq(tables.providerClaim.status, "active"),
-					),
-				)
-				.for("update")
-				.$withCache(false);
-			if (!claim) {
-				throw new HTTPException(403, {
-					message:
-						"The company no longer holds an active claim on this provider, so its models cannot be relisted.",
-				});
-			}
-			const [locked] = await tx
-				.select()
-				.from(tables.providerDraftModel)
-				.where(eq(tables.providerDraftModel.id, id))
-				.for("update")
-				.$withCache(false);
-			if (!locked || locked.status !== "delisted") {
+	const row = await cdb.transaction(async (tx) => {
+		await lockRelistableListing(tx, model, async (locked) => {
+			if (locked.relistRequestedAt) {
 				throw new HTTPException(409, {
-					message: "Only delisted models can be relisted.",
+					message: "A relist request for this model is already under review.",
 				});
 			}
 			// The endpoint may have changed while the model was off the board.
@@ -3853,49 +3870,68 @@ airside.openapi(relistModel, async (c) => {
 				locked,
 				draftVerificationTarget(locked),
 				locked.delistedAt,
-				"relist",
+				"request a relist",
 			);
-			const [current] = await tx
-				.select()
-				.from(tables.providerPriceFiling)
-				.where(
-					and(
-						eq(tables.providerPriceFiling.draftModelId, id),
-						eq(tables.providerPriceFiling.status, "approved"),
-					),
-				)
-				.orderBy(desc(tables.providerPriceFiling.createdAt))
-				.limit(1)
-				.$withCache(false);
-			if (!current) {
-				throw new HTTPException(409, {
-					message: "This model has no approved fares to relist at.",
-				});
-			}
-			const [relisted] = await tx
-				.update(tables.providerDraftModel)
-				.set({
-					status: "active",
-					delistedAt: null,
-					delistReason: null,
-					pausedAt: null,
-				})
-				.where(eq(tables.providerDraftModel.id, id))
-				.returning();
-			await materializeAirsideModel(relisted, current, tx);
-			return relisted;
-		})
-		.catch((err: unknown) => {
-			// The partial unique index on live (provider, model) rows rejects a
-			// relist while another listing holds the name.
-			if (isUniqueViolation(err)) {
-				throw new HTTPException(409, {
-					message:
-						"Another model with this name is already listed for the provider.",
-				});
-			}
-			throw err;
 		});
+		const [requested] = await tx
+			.update(tables.providerDraftModel)
+			.set({
+				relistRequestedAt: new Date(),
+				relistRequestedBy: user.id,
+				relistReviewedAt: null,
+				relistReviewNote: null,
+			})
+			.where(eq(tables.providerDraftModel.id, id))
+			.returning();
+		return requested;
+	});
+	return c.json({ model: await serializeModelById(row) });
+});
+
+const withdrawRelist = createRoute({
+	method: "delete",
+	path: "/models/{id}/relist",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ model: modelSchema }),
+				},
+			},
+			description: "Withdraws a pending relist request.",
+		},
+	},
+});
+
+airside.openapi(withdrawRelist, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	const [row] = await cdb
+		.update(tables.providerDraftModel)
+		.set({ relistRequestedAt: null, relistRequestedBy: null })
+		.where(
+			and(
+				eq(tables.providerDraftModel.id, id),
+				eq(tables.providerDraftModel.status, "delisted"),
+				isNotNull(tables.providerDraftModel.relistRequestedAt),
+			),
+		)
+		.returning();
+	if (!row) {
+		throw new HTTPException(409, {
+			message: "This model has no relist request under review.",
+		});
+	}
 	return c.json({ model: await serializeModelById(row) });
 });
 
@@ -4137,6 +4173,7 @@ airside.openapi(createPriceFiling, async (c) => {
 				message: "Delisted models cannot receive price filings.",
 			});
 		}
+		assertDecisionPricing(locked.decisions, body);
 		const pending = await tx
 			.select({ id: tables.providerPriceFiling.id })
 			.from(tables.providerPriceFiling)
@@ -4448,6 +4485,7 @@ const incidentsRoute = createRoute({
 			providerId: z.string().optional(),
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
+			model: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
@@ -4484,6 +4522,7 @@ airside.openapi(incidentsRoute, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
+			model: query.model,
 			includeByok: query.includeByok === "true",
 		}),
 	});
@@ -4502,6 +4541,8 @@ const incidentErrorsRoute = createRoute({
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -4537,6 +4578,7 @@ airside.openapi(incidentErrorsRoute, async (c) => {
 				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
+			groupSimilar: query.groupSimilar !== "false",
 		}),
 	);
 });
@@ -4554,6 +4596,8 @@ const incidentErrorTypesRoute = createRoute({
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -4593,6 +4637,7 @@ airside.openapi(incidentErrorTypesRoute, async (c) => {
 				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
+			groupSimilar: query.groupSimilar !== "false",
 		}),
 	);
 });
