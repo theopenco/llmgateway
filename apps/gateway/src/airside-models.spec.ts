@@ -11,7 +11,12 @@ import {
 	tables,
 	getEffectiveProviders,
 } from "@llmgateway/db";
-import { models, providers, type ProviderDefinition } from "@llmgateway/models";
+import {
+	getReferenceContextSize,
+	models,
+	providers,
+	type ProviderDefinition,
+} from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -1247,7 +1252,8 @@ describe("airside-listed models", () => {
 			modelId: "ling-3.0-flash",
 			inputPrice: "2e-6",
 			outputPrice: "1e-5",
-			contextSize: 128000,
+			// The full window, or bare-id fallback would skip it.
+			contextSize: getReferenceContextSize("ling-3.0-flash"),
 		});
 
 		const requestId = "airside-fallback-req-1";
@@ -1283,9 +1289,11 @@ describe("airside-listed models", () => {
 			providerId?: string;
 			basePath?: string;
 			externalId?: string;
+			contextSize?: number;
 		} = {},
 	) {
 		const modelId = options.modelId ?? "sky-large";
+		const contextSize = options.contextSize ?? 64000;
 		const providerId = options.providerId ?? "acme-sky";
 		captured = [];
 		await clearCache();
@@ -1324,7 +1332,7 @@ describe("airside-listed models", () => {
 			externalId: modelId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
 			displayName: modelId === "gpt-5.6-luna" ? "GPT 5.6 Luna" : "Sky Large",
-			contextSize: 64000,
+			contextSize,
 			streaming: true,
 			status: "active",
 		});
@@ -1346,7 +1354,7 @@ describe("airside-listed models", () => {
 			outputPrice: "9e-6",
 			providerName: "Acme Sky",
 			modelName: "Sky Large",
-			contextSize: 64000,
+			contextSize,
 		});
 		if (options.managedCredential !== false) {
 			await db.insert(tables.providerKey).values({
@@ -1467,6 +1475,49 @@ describe("airside-listed models", () => {
 		const secondLog = await waitForLogByRequestId("airside-second-request");
 		expect(secondLog?.usedProvider).toBe("acme-sky");
 		expect(secondLog?.routingMetadata?.selectionReason).toBe("session-sticky");
+	});
+
+	test("bare-id routing skips a listing far below the model's context window", async () => {
+		const token = "airside-context-tier";
+		await setupCustomCarrier(token);
+		await setupCustomCarrier("airside-tier-cloud", {
+			providerId: "acme-cloud",
+		});
+		await setupCustomCarrier("airside-tier-third", {
+			providerId: "acme-third",
+		});
+		for (const providerId of ["acme-cloud", "acme-third"]) {
+			await materializeTestMapping({
+				providerId,
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 256000,
+			});
+		}
+		for (const providerId of ["acme-sky", "acme-cloud", "acme-third"]) {
+			await setRoutingUptime("sky-large", providerId, 100);
+		}
+		await clearCache();
+
+		const bare = await carrierRequest(token, "sky-large");
+		expect(bare.status, await bare.text()).toBe(200);
+		const bareLog = await waitForLogByRequestId(`${token}-request`);
+		expect(["acme-cloud", "acme-third"]).toContain(bareLog?.usedProvider);
+		expect(
+			bareLog?.routingMetadata?.filteredProviders?.find(
+				(filtered) => filtered.providerId === "acme-sky",
+			)?.codes,
+		).toContain("context_size");
+
+		const pinned = await carrierRequest(
+			"airside-tier-cloud",
+			"acme-sky/sky-large",
+		);
+		expect(pinned.status, await pinned.text()).toBe(200);
+		const pinnedLog = await waitForLogByRequestId("airside-tier-cloud-request");
+		expect(pinnedLog?.usedProvider).toBe("acme-sky");
 	});
 
 	test.each([false, true])(
@@ -2058,9 +2109,11 @@ describe("airside-listed models", () => {
 		async ({ fromAirside, stream }) => {
 			const token = `airside-catalogue-${fromAirside}-${stream}`;
 			const modelId = "gpt-5.6-luna";
+			// Both serve the full window, or bare-id fallback would skip one.
 			await setupCustomCarrier(token, {
 				modelId,
 				basePath: fromAirside ? "/fail" : "/carrier",
+				contextSize: getReferenceContextSize(modelId),
 			});
 			await materializeTestMapping({
 				providerId: "openai",
@@ -2068,7 +2121,7 @@ describe("airside-listed models", () => {
 				apiFormat: "openai-chat-completions",
 				inputPrice: fromAirside ? "30e-6" : "0.3e-6",
 				outputPrice: fromAirside ? "90e-6" : "0.9e-6",
-				contextSize: 64000,
+				contextSize: getReferenceContextSize(modelId),
 			});
 			await db.insert(tables.providerKey).values({
 				id: `${token}-openai`,
@@ -2686,6 +2739,11 @@ describe("airside-listed models", () => {
 			if (!catalogue.some((provider) => provider.id === "openai")) {
 				catalogue.splice(index, 0, definition);
 			}
+			// Later files sharing this worker's database enumerate openai's
+			// Airside listings, so this one must not outlive the test.
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, "transition-model"));
 		}
 	});
 });

@@ -40,9 +40,9 @@ export const metadata: Metadata = {
 const features = [
 	{
 		icon: CircleDollarSign,
-		title: "3× usage value",
+		title: "2× usage value",
 		description:
-			"Every dollar becomes $3 of model usage, metered transparently at provider rates. Lite $29/mo → $87, Pro $79/mo → $237, Max $179/mo → $537.",
+			"Every dollar becomes $2 of model usage, metered transparently at provider rates. Lite $29/mo → $58, Pro $79/mo → $158, Max $179/mo → $358.",
 	},
 	{
 		icon: KeyRound,
@@ -66,7 +66,7 @@ const features = [
 		icon: RefreshCw,
 		title: "Reset Passes",
 		description:
-			"Burned through your weekly premium allowance? Reset Passes instantly restore it — Pro and Max plans include them every month.",
+			"Burned through your weekly premium allowance? Reset Passes instantly restore it — Max includes two every month, and every tier can buy one in a click.",
 	},
 	{
 		icon: Wrench,
@@ -100,7 +100,7 @@ export default function DevPassProductPage() {
 					eyebrow="Product · DevPass"
 					title="One key. Every model. Three flat prices."
 					subtitle="All-access dev plans for AI coding."
-					description="DevPass turns every dollar into $3 of model usage at provider rates — metered transparently, with no token math and no lock-in. Best in DevPass Code, our first-party agent, and drop-in for every OpenAI-compatible tool."
+					description="DevPass turns every dollar into $2 of model usage at provider rates — metered transparently, with no token math and no lock-in. Best in DevPass Code, our first-party agent, and drop-in for every OpenAI-compatible tool."
 					ctas={[
 						{ label: "Get DevPass", href: DEVPASS_URL, external: true },
 						{
@@ -112,7 +112,7 @@ export default function DevPassProductPage() {
 					]}
 					stats={[
 						{ value: "200+", label: "Models" },
-						{ value: "3×", label: "Usage value" },
+						{ value: "2×", label: "Usage value" },
 						{ value: "$29/mo", label: "Starting price" },
 					]}
 				/>

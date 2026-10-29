@@ -1,8 +1,9 @@
 import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, tables, sql } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import {
 	handleChargeRefunded,
@@ -339,6 +340,12 @@ function makeInvoiceEvent(overrides: {
 	} as unknown as Stripe.InvoicePaymentSucceededEvent;
 }
 
+// The allotment a renewal or activation grants comes from the shared plan
+// constants, so assert against them rather than a literal that drifts.
+const LITE_ALLOTMENT = String(getDevPlanCreditsLimit("lite"));
+const PRO_ALLOTMENT = String(getDevPlanCreditsLimit("pro"));
+const MAX_ALLOTMENT = String(getDevPlanCreditsLimit("max"));
+
 describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	beforeEach(async () => {
 		await deleteAll();
@@ -381,14 +388,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe("237");
+		expect(txns[0].creditAmount).toBe(PRO_ALLOTMENT);
 	});
 
 	test("a duplicate delivery that races past the invoice guard is a no-op", async () => {
@@ -474,14 +481,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlan).toBe("lite");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("87");
+		expect(org?.devPlanCreditsLimit).toBe(LITE_ALLOTMENT);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe("87");
+		expect(txns[0].creditAmount).toBe(LITE_ALLOTMENT);
 	});
 
 	test("applies a scheduled upgrade at renewal: switches tier and grants the higher allotment", async () => {
@@ -515,14 +522,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("537");
+		expect(org?.devPlanCreditsLimit).toBe(MAX_ALLOTMENT);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe("537");
+		expect(txns[0].creditAmount).toBe(MAX_ALLOTMENT);
 	});
 
 	test("grants the billed tier and defers the pending change when the invoice billed the old tier", async () => {
@@ -563,14 +570,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			expect(org?.devPlan).toBe("max");
 			expect(org?.devPlanPendingTier).toBe("pro");
 			expect(org?.devPlanCreditsUsed).toBe("0");
-			expect(org?.devPlanCreditsLimit).toBe("537");
+			expect(org?.devPlanCreditsLimit).toBe(MAX_ALLOTMENT);
 
 			const txns = await db.query.transaction.findMany({
 				where: { organizationId: { eq: ORG_ID } },
 			});
 			expect(txns).toHaveLength(1);
 			expect(txns[0].type).toBe("dev_plan_renewal");
-			expect(txns[0].creditAmount).toBe("537");
+			expect(txns[0].creditAmount).toBe(MAX_ALLOTMENT);
 			expect(txns[0].description).toBe("Dev Plan MAX renewed");
 		} finally {
 			vi.unstubAllEnvs();
@@ -609,13 +616,13 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			});
 			expect(org?.devPlan).toBe("pro");
 			expect(org?.devPlanPendingTier).toBeNull();
-			expect(org?.devPlanCreditsLimit).toBe("237");
+			expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
 
 			const txns = await db.query.transaction.findMany({
 				where: { organizationId: { eq: ORG_ID } },
 			});
 			expect(txns).toHaveLength(1);
-			expect(txns[0].creditAmount).toBe("237");
+			expect(txns[0].creditAmount).toBe(PRO_ALLOTMENT);
 			expect(txns[0].description).toBe("Dev Plan PRO renewed");
 		} finally {
 			vi.unstubAllEnvs();
@@ -716,9 +723,10 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		// The change-tier endpoint normally resets state synchronously; this exercises
 		// the webhook fallback when that process died after Stripe collected payment.
 		// An upgrade invoice (`subscription_update`) starts a brand-new cycle: usage
-		// zeroes and the limit becomes the new tier's full allowance (537) plus the
+		// zeroes and the limit becomes the new tier's full allowance plus the
 		// unused remainder of the replaced cycle (237 - 150 = 87) rolled over. The
 		// target tier is read from the subscription metadata the update set.
+		const upgradedLimit = String(getDevPlanCreditsLimit("max") + 87);
 		await seedUsedDevPlanOrg();
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUB_ID,
@@ -740,7 +748,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("624");
+		expect(org?.devPlanCreditsLimit).toBe(upgradedLimit);
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 
 		const txns = await db.query.transaction.findMany({
@@ -748,7 +756,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBe("624");
+		expect(txns[0].creditAmount).toBe(upgradedLimit);
 		expect(txns[0].amount).toBe("179");
 		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
 	});
@@ -842,7 +850,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {
@@ -1842,6 +1850,214 @@ describe("handlePaymentIntentFailed — dunning email links", () => {
 		const html = sentHtml();
 		expect(html).toContain('href="https://code.test/dashboard/billing"');
 		expect(html).not.toContain("invoice.stripe.com");
+	});
+});
+
+describe("DevPass renewal atomicity", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+		await seedDevPlanOrg({ kind: "devpass" });
+		await db
+			.update(tables.organization)
+			.set({
+				credits: "100",
+				devPlanCreditsUsed: "150",
+				devPlanPremiumCreditsUsed: "25",
+				devPlanDailyCreditsUsed: "9",
+				devPlanIncludedResetPassesUsed: 1,
+				subscriptionPaymentStatus: "past_due",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	test("concurrent paired deliveries commit one reset and one email", async () => {
+		await db.insert(tables.organization).values({
+			id: "test-other-devpass",
+			name: "Other Test Organization",
+			billingEmail: "other@example.com",
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanCreditsUsed: "17",
+			devPlanStripeSubscriptionId: "sub_test_other",
+		});
+		let release!: () => void;
+		const bothRead = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let arrivals = 0;
+		const findFirst = db.query.transaction.findFirst.bind(db.query.transaction);
+		const readBeforeInsert: typeof db.query.transaction.findFirst = (
+			config,
+		) => {
+			const query = findFirst(config);
+			const execute = query.execute.bind(query);
+			vi.spyOn(query, "execute").mockImplementationOnce(async () => {
+				const result = await execute();
+				if (++arrivals === 2) {
+					release();
+				}
+				await bothRead;
+				return result;
+			});
+			return query;
+		};
+		const guard = vi
+			.spyOn(db.query.transaction, "findFirst")
+			.mockImplementationOnce(readBeforeInsert)
+			.mockImplementationOnce(readBeforeInsert);
+		const event = makeInvoiceEvent({
+			billingReason: "subscription_cycle",
+			amountPaid: 7900,
+			invoiceId: "in_atomic_concurrent",
+		});
+		try {
+			const results = await Promise.allSettled([
+				handleInvoicePaymentSucceeded(event),
+				handleInvoicePaymentSucceeded(event),
+			]);
+			expect(results.map((result) => result.status)).toEqual([
+				"fulfilled",
+				"fulfilled",
+			]);
+		} finally {
+			guard.mockRestore();
+		}
+		const rows = await db.query.transaction.findMany({
+			where: { stripeInvoiceId: { eq: event.data.object.id } },
+		});
+		expect(rows).toHaveLength(1);
+		expect(rows[0].organizationId).toBe(ORG_ID);
+		expect(rows[0].creditAmount).toBe(PRO_ALLOTMENT);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org).toMatchObject({
+			credits: "100",
+			devPlanCreditsUsed: "0",
+			devPlanPremiumCreditsUsed: "0",
+			devPlanDailyCreditsUsed: "0",
+			devPlanDayStart: null,
+			devPlanIncludedResetPassesUsed: 0,
+			subscriptionPaymentStatus: "current",
+		});
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		const other = await db.query.organization.findFirst({
+			where: { id: { eq: "test-other-devpass" } },
+		});
+		expect(other?.devPlanCreditsUsed).toBe("17");
+	});
+
+	test("a rejected reset rolls back its invoice marker and remains retryable", async () => {
+		const event = makeInvoiceEvent({
+			billingReason: "subscription_cycle",
+			amountPaid: 7900,
+			invoiceId: "in_atomic_retry",
+		});
+		await db.execute(
+			sql`ALTER TABLE organization ADD CONSTRAINT test_dev_plan_renewal_failure CHECK (id <> 'test-org-feedback' OR dev_plan_credits_used <> '0') NOT VALID`,
+		);
+		try {
+			await expect(handleInvoicePaymentSucceeded(event)).rejects.toThrow();
+			expect(
+				await db.query.transaction.findFirst({
+					where: { stripeInvoiceId: { eq: event.data.object.id } },
+				}),
+			).toBeUndefined();
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			expect(org).toMatchObject({
+				devPlanCreditsUsed: "150",
+				devPlanPremiumCreditsUsed: "25",
+				devPlanDailyCreditsUsed: "9",
+				subscriptionPaymentStatus: "past_due",
+			});
+			expect(sendEmailMock).not.toHaveBeenCalled();
+		} finally {
+			await db.execute(
+				sql`ALTER TABLE organization DROP CONSTRAINT test_dev_plan_renewal_failure`,
+			);
+		}
+		await handleInvoicePaymentSucceeded(event);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(
+			await db.query.transaction.findMany({
+				where: { stripeInvoiceId: { eq: event.data.object.id } },
+			}),
+		).toHaveLength(1);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("DevPass renewal webhook", () => {
+	test("signed paired invoice events preserve usage after the first reset", async () => {
+		await deleteAll();
+		await seedDevPlanOrg({ kind: "devpass" });
+		sendEmailMock.mockClear();
+		const secret = "local-renewal-webhook-fixture";
+		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+		process.env.STRIPE_WEBHOOK_SECRET = secret;
+		const signer = new Stripe(["sk", "test", "renewal"].join("_"));
+		const verify = vi
+			.spyOn(stripeMock.webhooks, "constructEvent")
+			.mockImplementation((payload, header, webhookSecret) =>
+				signer.webhooks.constructEvent(payload, header, webhookSecret),
+			);
+		const event = makeInvoiceEvent({
+			billingReason: "subscription_cycle",
+			amountPaid: 7900,
+			invoiceId: "in_signed_renewal",
+		});
+		try {
+			for (const type of ["invoice.payment_succeeded", "invoice.paid"]) {
+				const payload = JSON.stringify({ ...event, type });
+				const signature = signer.webhooks.generateTestHeaderString({
+					payload,
+					secret,
+				});
+				const response = await stripeRoutes.request("/webhook", {
+					method: "POST",
+					headers: { "stripe-signature": signature },
+					body: payload,
+				});
+				expect(response.status).toBe(200);
+				expect(await response.json()).toEqual({ received: true });
+				const org = await db.query.organization.findFirst({
+					where: { id: { eq: ORG_ID } },
+				});
+				expect(org?.devPlanCreditsUsed).toBe(
+					type === "invoice.paid" ? "2.125" : "0",
+				);
+				await db
+					.update(tables.organization)
+					.set({
+						devPlanCreditsUsed: sql`${tables.organization.devPlanCreditsUsed} + 2.125`,
+					})
+					.where(eq(tables.organization.id, ORG_ID));
+			}
+			expect(
+				await db.query.transaction.findMany({
+					where: { stripeInvoiceId: { eq: event.data.object.id } },
+				}),
+			).toHaveLength(1);
+			expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		} finally {
+			verify.mockRestore();
+			if (previousSecret === undefined) {
+				delete process.env.STRIPE_WEBHOOK_SECRET;
+			} else {
+				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+			}
+			await deleteAll();
+		}
 	});
 });
 

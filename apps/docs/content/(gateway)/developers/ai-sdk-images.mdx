@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 
 	const result = streamText({
 		model: llmgateway.chat("gemini-3-pro-image"),
-		messages: convertToModelMessages(messages),
+		messages: await convertToModelMessages(messages),
 	});
 
 	return result.toUIMessageStreamResponse();
@@ -80,7 +80,7 @@ On the client, image parts arrive as message file parts that you can render with
 
 ## Video and audio
 
-The AI SDK does not yet cover the gateway's video and speech endpoints — call them over REST instead:
+Video is covered by `llmgateway.video()` — see [Generate video](/developers/ai-sdk#generate-video). The provider does not cover the gateway's speech and transcription endpoints — call them over REST instead:
 
 - [Video Generation](/features/video-generation) — `POST /v1/videos` (async jobs with optional signed callbacks)
 - [Speech Generation](/features/speech-generation) — `POST /v1/audio/speech`

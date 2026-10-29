@@ -52,9 +52,11 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
+	isProviderBaseUrlOverrideAllowed,
 	parseContentFilterSettings,
 } from "@llmgateway/shared";
 import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
@@ -68,6 +70,11 @@ import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
+import {
+	getRateLimitedProviderKeyIds,
+	type ProviderKeyRateLimitExemption,
+	type ProviderKeyRateLimits,
+} from "./provider-key-rate-limit.js";
 
 import type { ApiKey } from "@llmgateway/db";
 import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
@@ -201,6 +208,31 @@ function selectProviderKeyWithFailover<T extends { id: string }>(
 	)[0];
 
 	return selectedItem?.item;
+}
+
+/**
+ * {@link selectProviderKeyWithFailover} over the keys that are not at one of
+ * their own RPM/RPD/TPM/TPD caps. A key at a cap drops out of rotation like an
+ * excluded one, unless its soft/lax mode exempts this request; when every key
+ * is capped there is nothing to select.
+ */
+async function selectAvailableProviderKey(
+	items: ProviderKey[],
+	selectionScope?: string,
+	excludedKeyIds: ReadonlySet<string> = new Set(),
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
+): Promise<ProviderKey | undefined> {
+	const rateLimited = await getRateLimitedProviderKeyIds(
+		items.filter((item) => !excludedKeyIds.has(item.id)),
+		rateLimitExemption,
+	);
+	return selectProviderKeyWithFailover(
+		items,
+		selectionScope,
+		rateLimited.size > 0
+			? new Set([...excludedKeyIds, ...rateLimited])
+			: excludedKeyIds,
+	);
 }
 
 /**
@@ -516,8 +548,25 @@ export async function findCustomProviderKey(
 	customProviderName: string,
 	selectionScope?: string,
 	excludedKeyIds?: ReadonlySet<string>,
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
 ): Promise<ProviderKey | undefined> {
-	const results = await swrWrap(
+	return await selectAvailableProviderKey(
+		await listCustomProviderKeys(organizationId, customProviderName),
+		selectionScope,
+		excludedKeyIds,
+		rateLimitExemption,
+	);
+}
+
+/**
+ * Every active key of an organization's custom provider, in selection order
+ * (cacheable).
+ */
+export async function listCustomProviderKeys(
+	organizationId: string,
+	customProviderName: string,
+): Promise<ProviderKey[]> {
+	return await swrWrap(
 		`providerKey:custom:${organizationId}:${customProviderName}`,
 		[providerKeyTableName],
 		async () =>
@@ -542,7 +591,6 @@ export async function findCustomProviderKey(
 					asc(providerKeyTable.id),
 				),
 	);
-	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
 }
 
 /**
@@ -831,6 +879,34 @@ export async function findActiveCustomModels(
 }
 
 /**
+ * Whether an organization-owned key may still be used where base URL overrides
+ * are disallowed (the hosted service). A key written before that restriction
+ * landed can carry a base URL for a catalogue provider, and the write-time
+ * check never sees it again — so routing drops it here instead.
+ *
+ * Dropping it rather than ignoring the base URL is deliberate: the key's token
+ * may only be valid for that private endpoint, and sending it to the provider's
+ * published host would hand the credential to a third party. Skipping the key
+ * lets a sibling key, another provider, or (in hybrid mode) credits serve the
+ * request. Platform-managed credentials are not affected: they are operator-
+ * authored and never organization-owned.
+ */
+function providerKeyBaseUrlAllowed(key: ProviderKey): boolean {
+	if (!key.baseUrl || key.provider === "custom") {
+		return true;
+	}
+	if (isProviderBaseUrlOverrideAllowed()) {
+		return true;
+	}
+	logger.warn("Skipping provider key with a disallowed base URL", {
+		providerKeyId: key.id,
+		organizationId: key.organizationId,
+		provider: key.provider,
+	});
+	return false;
+}
+
+/**
  * The organization's own keys for a provider that can serve this request, in
  * selection order (index 0 is the primary). This is exactly the candidate set
  * findProviderKey picks from, before health failover and per-attempt
@@ -866,7 +942,8 @@ export async function listEligibleProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
-	return filter ? results.filter(filter) : results;
+	const usable = results.filter(providerKeyBaseUrlAllowed);
+	return filter ? usable.filter(filter) : usable;
 }
 
 /**
@@ -878,16 +955,18 @@ export async function findProviderKey(
 	selectionScope?: string,
 	excludedKeyIds?: ReadonlySet<string>,
 	filter?: (key: ProviderKey) => boolean,
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
 ): Promise<ProviderKey | undefined> {
 	const eligible = await listEligibleProviderKeys(
 		organizationId,
 		provider,
 		filter,
 	);
-	return selectProviderKeyWithFailover(
+	return await selectAvailableProviderKey(
 		eligible,
 		selectionScope,
 		excludedKeyIds,
+		rateLimitExemption,
 	);
 }
 
@@ -897,7 +976,7 @@ export async function findProviderKey(
 export async function findActiveProviderKeys(
 	organizationId: string,
 ): Promise<ProviderKey[]> {
-	return await swrWrap(
+	const results = await swrWrap(
 		`providerKey:active:${organizationId}`,
 		[providerKeyTableName],
 		async () =>
@@ -920,6 +999,7 @@ export async function findActiveProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
+	return results.filter(providerKeyBaseUrlAllowed);
 }
 
 /**
@@ -933,7 +1013,7 @@ export async function findProviderKeysByProviders(
 		return [];
 	}
 	const providersKey = providers.slice().sort().join(",");
-	return await swrWrap(
+	const results = await swrWrap(
 		`providerKey:byProviders:${organizationId}:${providersKey}`,
 		[providerKeyTableName],
 		async () =>
@@ -957,6 +1037,33 @@ export async function findProviderKeysByProviders(
 					asc(providerKeyTable.id),
 				),
 	);
+	return results.filter(providerKeyBaseUrlAllowed);
+}
+
+/**
+ * A provider key (BYOK or managed) that a reasoning-credential pin may still
+ * use: active, or deleted but inside its teardown grace period (cacheable).
+ * Callers check ownership and provider themselves.
+ */
+export async function findPinnableProviderKey(
+	id: string,
+): Promise<ProviderKey | undefined> {
+	const rows = await swrWrap(
+		`providerKey:pinnable:${id}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.id, id),
+						inArray(providerKeyTable.status, ["active", "pending_deletion"]),
+					),
+				)
+				.limit(1),
+	);
+	return rows[0];
 }
 
 export interface FindManagedProviderKeyOptions {
@@ -975,6 +1082,7 @@ export interface FindManagedProviderKeyOptions {
 	selectionScope?: string;
 	excludedKeyIds?: ReadonlySet<string>;
 	filter?: (key: ProviderKey) => boolean;
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 }
 
 /**
@@ -1077,11 +1185,31 @@ export async function findManagedProviderKey(
 	provider: string,
 	options: FindManagedProviderKeyOptions = {},
 ): Promise<ProviderKey | undefined> {
+	return await selectAvailableProviderKey(
+		await listManagedProviderKeyCandidates(provider, options),
+		options.selectionScope,
+		options.excludedKeyIds,
+		options.rateLimitExemption,
+	);
+}
+
+/**
+ * The managed credentials {@link findManagedProviderKey} selects from: the
+ * provider's credentials narrowed by filter, variant and region, before
+ * exclusions, rate limits and health are applied.
+ */
+export async function listManagedProviderKeyCandidates(
+	provider: string,
+	options: Pick<
+		FindManagedProviderKeyOptions,
+		"variant" | "region" | "filter"
+	> = {},
+): Promise<ProviderKey[]> {
 	const results = await listManagedProviderKeys(provider);
 
 	const candidates = options.filter ? results.filter(options.filter) : results;
 	if (candidates.length === 0) {
-		return undefined;
+		return [];
 	}
 
 	const variant = options.variant ?? "default";
@@ -1091,17 +1219,7 @@ export async function findManagedProviderKey(
 			? variantMatches
 			: candidates.filter((key) => key.variant === "default");
 
-	const byRegion = narrowManagedKeysToRegion(
-		byVariant,
-		provider,
-		options.region,
-	);
-
-	return selectProviderKeyWithFailover(
-		byRegion,
-		options.selectionScope,
-		options.excludedKeyIds,
-	);
+	return narrowManagedKeysToRegion(byVariant, provider, options.region);
 }
 
 /**
@@ -1159,23 +1277,26 @@ export interface ManagedProviderAvailability {
 	pinnedRegions: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
-export async function findManagedProviderAvailability(
-	variant?: EnvVarVariant,
-	modelId?: string,
-): Promise<ManagedProviderAvailability> {
+function listManagedProviderScopes() {
 	// Fetched whole and narrowed in memory so the request's variant stays out
 	// of the cache key, the same way findManagedProviderKey keeps variant,
 	// region and exclusions out of its own.
-	const rows = await swrWrap(
+	return swrWrap(
 		`providerKey:managedProviderScopes`,
 		[providerKeyTableName],
 		async () =>
 			await db
 				.select({
+					id: providerKeyTable.id,
 					provider: providerKeyTable.provider,
 					variant: providerKeyTable.variant,
 					region: providerKeyTable.region,
 					allowedModels: providerKeyTable.allowedModels,
+					maxRpm: providerKeyTable.maxRpm,
+					maxRpd: providerKeyTable.maxRpd,
+					maxTpm: providerKeyTable.maxTpm,
+					maxTpd: providerKeyTable.maxTpd,
+					rateLimitMode: providerKeyTable.rateLimitMode,
 				})
 				.from(providerKeyTable)
 				.where(
@@ -1185,6 +1306,41 @@ export async function findManagedProviderAvailability(
 					),
 				),
 	);
+}
+
+/**
+ * Ids of every managed credential currently at one of its own caps. Lets a
+ * caller that checks availability for several models read the caps once.
+ */
+export async function findRateLimitedManagedKeyIds(
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
+): Promise<Set<string>> {
+	return await getRateLimitedProviderKeyIds(
+		await listManagedProviderScopes(),
+		rateLimitExemption,
+	);
+}
+
+export async function findManagedProviderAvailability(
+	variant?: EnvVarVariant,
+	modelId?: string,
+	rateLimitedKeyIds?: ReadonlySet<string>,
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
+): Promise<ManagedProviderAvailability> {
+	const rows = await listManagedProviderScopes();
+
+	// A credential at one of its own caps cannot serve this request, so a
+	// provider whose every credential is capped is not advertised as usable.
+	const rateLimited =
+		rateLimitedKeyIds ??
+		(await getRateLimitedProviderKeyIds(
+			modelId
+				? rows.filter((row) =>
+						providerKeyAllowsModel(row.allowedModels, modelId),
+					)
+				: rows,
+			rateLimitExemption,
+		));
 
 	const configured = new Set<string>();
 	const pinnedRegions = new Map<string, Set<string>>();
@@ -1200,6 +1356,9 @@ export async function findManagedProviderAvailability(
 			}
 		}
 		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
+			continue;
+		}
+		if (rateLimited.has(row.id)) {
 			continue;
 		}
 		const existing = byProvider.get(row.provider);
@@ -1234,6 +1393,34 @@ export async function findManagedProviderAvailability(
 		}
 	}
 	return { configured, usable, defaultRegionUsable, pinnedRegions };
+}
+
+/**
+ * A provider key's own RPM/RPD/TPM/TPD caps by id (cacheable), for counting a
+ * logged request against them. Undefined when the key no longer exists.
+ */
+export async function findProviderKeyRateLimits(
+	id: string,
+): Promise<ProviderKeyRateLimits | undefined> {
+	const rows = await swrWrap(
+		`providerKey:rateLimits:${id}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select({
+					id: providerKeyTable.id,
+					provider: providerKeyTable.provider,
+					rateLimitMode: providerKeyTable.rateLimitMode,
+					maxRpm: providerKeyTable.maxRpm,
+					maxRpd: providerKeyTable.maxRpd,
+					maxTpm: providerKeyTable.maxTpm,
+					maxTpd: providerKeyTable.maxTpd,
+				})
+				.from(providerKeyTable)
+				.where(eq(providerKeyTable.id, id))
+				.limit(1),
+	);
+	return rows[0];
 }
 
 /**

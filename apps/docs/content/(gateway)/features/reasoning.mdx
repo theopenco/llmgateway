@@ -14,8 +14,8 @@ You can find all reasoning-enabled models on our [models page with reasoning fil
 
 - OpenAI's GPT-5 series (e.g., `gpt-5`, `gpt-5-mini`)
   - Note: GPT-5 models use reasoning but currently do not return the reasoning content in the response.
-- Anthropic's Claude 3.7 Sonnet
-- Google's Gemini 2.0 Flash Thinking and Gemini 2.5 Pro
+- Anthropic's Claude thinking models (e.g., Claude Sonnet 4.6, Claude Opus 4.5)
+- Google's Gemini thinking models (e.g., Gemini 2.5 Pro, Gemini 3.1 Pro Preview)
 - GPT OSS models such as `gpt-oss-120b` and `gpt-oss-20b`
 - Z.AI's reasoning models
 
@@ -151,7 +151,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "anthropic/claude-sonnet-4-20250514",
+    "model": "anthropic/claude-sonnet-4-6",
     "messages": [
       {
         "role": "user",
@@ -168,8 +168,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 The `reasoning.max_tokens` parameter is supported by:
 
-- **Anthropic Claude**: Claude 3.7 Sonnet, Claude Sonnet 4, Claude Opus 4, Claude Opus 4.5
-- **Google Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 3 Pro Preview
+- **Anthropic Claude**: Claude Sonnet 4.5, Claude Sonnet 4.6, Claude Haiku 4.5, Claude Opus 4.5
+- **Google Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 3.1 Pro Preview
 
 When using auto-routing or canonical models with `reasoning.max_tokens`, only providers that support this feature will be considered.
 
@@ -185,7 +185,7 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 ```json
 {
 	"error": {
-		"message": "Model gpt-4o does not support reasoning.max_tokens. Remove the reasoning parameter or use a model that supports explicit reasoning token budgets.",
+		"message": "Model gpt-4o does not support reasoning.max_tokens. Remove the reasoning.max_tokens parameter or use a model that supports explicit reasoning token budgets (Anthropic or Google thinking models).",
 		"type": "invalid_request_error",
 		"code": "model_not_supported"
 	}

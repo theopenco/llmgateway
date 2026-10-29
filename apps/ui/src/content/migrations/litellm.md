@@ -24,16 +24,16 @@ Both services use OpenAI-compatible endpoints, so migration is a two-line change
 
 ## Why Teams Switch to LLM Gateway
 
-| What You Get             | LiteLLM (Self-Hosted) | LLM Gateway          |
-| ------------------------ | --------------------- | -------------------- |
-| OpenAI-compatible API    | Yes                   | Yes                  |
-| Infrastructure to manage | Yes (you run it)      | No (we run it)       |
-| Managed cloud option     | No                    | Yes                  |
-| Analytics dashboard      | Basic                 | Per-request detail   |
-| Response caching         | Manual setup          | Built-in, automatic  |
-| Cost tracking            | Via callbacks         | Native, real-time    |
-| Provider key management  | Config file           | Web UI with rotation |
-| Uptime & scaling         | You handle it         | 99.9% SLA (managed)  |
+| What You Get             | LiteLLM (Self-Hosted) | LLM Gateway            |
+| ------------------------ | --------------------- | ---------------------- |
+| OpenAI-compatible API    | Yes                   | Yes                    |
+| Infrastructure to manage | Yes (you run it)      | No (we run it)         |
+| Managed cloud option     | No                    | Yes                    |
+| Analytics dashboard      | Basic                 | Per-request detail     |
+| Response caching         | Manual setup          | Built-in, one toggle   |
+| Cost tracking            | Via callbacks         | Native, real-time      |
+| Provider key management  | Config file           | Web UI with rotation   |
+| Uptime & scaling         | You handle it         | 99.9% SLA (Enterprise) |
 
 Self-hosting also means you own the patch cycle. On March 24, 2026 two malicious `litellm` releases (1.82.7 and 1.82.8) reached PyPI and were pulled after about 40 minutes; they harvested credentials from unpinned pip installs, while pinned Docker deployments were unaffected. Pin versions wherever you self-host — LLM Gateway included — or use the managed gateway and skip the upkeep.
 
@@ -197,7 +197,7 @@ model_list:
 
 With LLM Gateway, you don't need a config file. Provider keys are managed in the web dashboard, or you can use the default LLM Gateway keys.
 
-If you want to use your own provider keys, configure them in the dashboard under Settings > Provider Keys.
+If you want to use your own provider keys, configure them in the dashboard under Organization > Provider Keys.
 
 ## Streaming Support
 
@@ -269,7 +269,7 @@ After verifying LLM Gateway works for your use case, you can decommission your L
 
 - **No servers to babysit** — We handle scaling, uptime, and updates
 - **Real-time cost visibility** — See what every request costs, broken down by model
-- **Automatic caching** — Repeated requests hit cache, reducing your spend
+- **Built-in caching** — Turn on response caching and repeated requests hit cache, reducing your spend
 - **Web-based management** — No more editing YAML files for config changes
 - **New models immediately** — Access new releases within 48 hours, no deployment needed
 

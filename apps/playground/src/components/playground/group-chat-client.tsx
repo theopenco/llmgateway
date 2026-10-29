@@ -253,6 +253,13 @@ export default function GroupChatClient({
 					: "The discussion could not continue.",
 			);
 		} finally {
+			const unfinishedId = tempMessageIdRef.current;
+			setMessages((previous) =>
+				previous.filter(
+					(message) =>
+						message.id !== unfinishedId || message.content.trim().length > 0,
+				),
+			);
 			tempMessageIdRef.current = null;
 			setIsStreaming(false);
 		}
