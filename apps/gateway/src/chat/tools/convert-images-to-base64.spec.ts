@@ -1,3 +1,6 @@
+import { once } from "node:events";
+import { createServer } from "node:http";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -55,7 +58,7 @@ describe("convertImagesToBase64 URL safety", () => {
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockImplementation((_url, init) => {
-				expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+				expect(init?.signal).toBeInstanceOf(AbortSignal);
 				return Promise.reject(
 					Object.assign(new Error("The operation was aborted"), {
 						name: "TimeoutError",
@@ -67,8 +70,35 @@ describe("convertImagesToBase64 URL safety", () => {
 		// Must resolve (fall back to the original image), never hang.
 		await expect(convertImagesToBase64([input])).resolves.toEqual([input]);
 		expect(fetchSpy).toHaveBeenCalled();
-		const firstCall = fetchSpy.mock.calls[0];
-		expect((firstCall?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+		expect(fetchSpy.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it("gives up on a host that never finishes sending the image", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "50");
+		// Models undici: the response body stream is errored when the fetch signal
+		// aborts mid-download. bodyTimeout is refreshed on every chunk, so only the
+		// signal bounds a host that answers and then trickles nothing.
+		vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+			const signal = init?.signal;
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					signal?.addEventListener("abort", () => {
+						controller.error(signal.reason);
+					});
+				},
+				pull() {
+					return new Promise<void>(() => {});
+				},
+			});
+			return Promise.resolve(
+				new Response(body, { headers: { "content-type": "image/png" } }),
+			);
+		});
+
+		const input = image("https://cdn.example.com/trickle.png");
+		// Falls back to the original image instead of hanging on arrayBuffer().
+		await expect(convertImagesToBase64([input])).resolves.toEqual([input]);
 	});
 });
 
@@ -82,7 +112,7 @@ describe("resolveImageFetchTimeoutMs", () => {
 		expect(resolveImageFetchTimeoutMs()).toBe(15_000);
 	});
 
-	it.each(["-1", "Infinity", "1.5", "not-a-number", "", "   "])(
+	it.each(["0", "-1", "Infinity", "1.5", "not-a-number", "", "   "])(
 		"falls back to 15000 for invalid value %s (never throws)",
 		(value) => {
 			vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", value);
@@ -98,8 +128,47 @@ describe("resolveImageFetchTimeoutMs", () => {
 		expect(resolveImageFetchTimeoutMs()).toBe(5000);
 	});
 
-	it("honours 0", () => {
+	it("rejects 0 rather than aborting every fetch", () => {
 		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "0");
-		expect(resolveImageFetchTimeoutMs()).toBe(0);
+		expect(resolveImageFetchTimeoutMs()).toBe(15_000);
 	});
+});
+
+describe("convertImagesToBase64 network deadline", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it.each(["headers", "body"])(
+		"bounds a stalled %s over HTTP",
+		async (stage) => {
+			vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+			vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "250");
+			let attempts = 0;
+			const server = createServer((_request, response) => {
+				attempts++;
+				if (stage === "body") {
+					response.writeHead(200, { "content-type": "image/png" });
+					response.write(new Uint8Array([1]));
+				}
+			});
+			server.listen(0, "127.0.0.1");
+			await once(server, "listening");
+			try {
+				const address = server.address();
+				if (!address || typeof address === "string") {
+					throw new Error("Expected a TCP listener");
+				}
+				const input = image(`http://127.0.0.1:${address.port}/image.png`);
+				await expect(convertImagesToBase64([input])).resolves.toEqual([input]);
+				expect(attempts).toBe(3);
+			} finally {
+				server.closeAllConnections();
+				await new Promise<void>((resolve, reject) => {
+					server.close((error) => (error ? reject(error) : resolve()));
+				});
+			}
+		},
+		5000,
+	);
 });
