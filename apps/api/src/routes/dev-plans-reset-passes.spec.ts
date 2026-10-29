@@ -699,7 +699,7 @@ describe("reset pass lifecycle and status", () => {
 		await db.insert(tables.transaction).values({
 			organizationId: ORG_ID,
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: DEV_PLAN_RESET_PASS_PRICES.pro.toString(),
 			currency: "USD",
 			status: "completed",
 			stripePaymentIntentId: paymentIntentId,
@@ -760,7 +760,7 @@ describe("reset pass lifecycle and status", () => {
 		await insertOrg({ devPlanResetPassesPro: 2 });
 		await insertPassPurchaseTransaction("pi_refund_listed");
 		stripeMock.refunds.list.mockResolvedValue({
-			data: [{ id: "re_listed", amount: 2900, reason: null }],
+			data: [{ id: "re_listed", amount: PRO_PASS_CENTS, reason: null }],
 		});
 		stripeMock.paymentIntents.retrieve.mockResolvedValue({
 			id: "pi_refund_listed",
@@ -777,7 +777,7 @@ describe("reset pass lifecycle and status", () => {
 		await db
 			.update(tables.transaction)
 			.set({
-				description: "Credit refund: $29.00 (100.0% of original purchase)",
+				description: `Credit refund: $${DEV_PLAN_RESET_PASS_PRICES.pro.toFixed(2)} (100.0% of original purchase)`,
 			})
 			.where(eq(tables.transaction.stripeRefundId, "re_listed"));
 
