@@ -4822,6 +4822,7 @@ export const auditLogActions = [
 	"referral_bonus.update",
 	// Organization-scoped pricing and limits set by an administrator.
 	"discount.create",
+	"discount.update",
 	"discount.delete",
 	"rate_limit.create",
 	"rate_limit.update",

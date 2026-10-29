@@ -1820,7 +1820,6 @@ export function transformStreamingToOpenai(
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
-		case "embercloud":
 		case "ranoai":
 		case "baidu":
 		case "atria":

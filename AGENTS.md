@@ -6,27 +6,28 @@ This file provides guidance to AI agents when working with code in this reposito
 
 Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area, and read the whole `SKILL.md` — never truncate it with `head`, `grep`, or a partial read:
 
-| Skill              | Use for                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| `local-stack`      | Isolated per-worktree Postgres, Redis, and app ports; `.envrc`; starting and tearing down stacks |
-| `testing`          | Unit and e2e tests, seeded accounts and tokens, provider pinning, test fixtures                  |
-| `verify`           | Launching and driving the stack to verify a change, screenshots                                  |
-| `database`         | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
-| `migrations`       | Generating, editing, and resolving conflicts in migrations                                       |
-| `gateway`          | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
-| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
-| `billing`          | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
-| `frontend`         | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
-| `infrastructure`   | Production hosting and hostnames, deploy ordering, client IP and country                         |
-| `legal-pages`      | Terms, privacy policy, and product supplemental terms                                            |
-| `pull-request`     | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
-| `model-benchmarks` | Model and mapping benchmarks                                                                     |
-| `changelog`        | Changelog entries                                                                                |
-| `blog`             | Marketing blog posts                                                                             |
-| `knowledge-base`   | Docs knowledge base pages                                                                        |
-| `core-web-vitals`  | Frontend performance                                                                             |
-| `skill-authoring`  | Creating or editing skills                                                                       |
-| `security-audit`   | Secure-by-default code, security reviews, full audits, the monthly audit routine                 |
+| Skill                 | Use for                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| `local-stack`         | Isolated per-worktree Postgres, Redis, and app ports; `.envrc`; starting and tearing down stacks |
+| `testing`             | Unit and e2e tests, seeded accounts and tokens, provider pinning, test fixtures                  |
+| `verify`              | Launching and driving the stack to verify a change, screenshots                                  |
+| `database`            | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
+| `migrations`          | Generating, editing, and resolving conflicts in migrations                                       |
+| `gateway`             | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
+| `internal-classifier` | Exporting internal content-filter classifier verdicts and fingerprints, vendor samples           |
+| `add-model`           | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
+| `billing`             | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
+| `frontend`            | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
+| `infrastructure`      | Production hosting and hostnames, deploy ordering, client IP and country                         |
+| `legal-pages`         | Terms, privacy policy, and product supplemental terms                                            |
+| `pull-request`        | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
+| `model-benchmarks`    | Model and mapping benchmarks                                                                     |
+| `changelog`           | Changelog entries                                                                                |
+| `blog`                | Marketing blog posts                                                                             |
+| `knowledge-base`      | Docs knowledge base pages                                                                        |
+| `core-web-vitals`     | Frontend performance                                                                             |
+| `skill-authoring`     | Creating or editing skills                                                                       |
+| `security-audit`      | Secure-by-default code, security reviews, full audits, the monthly audit routine                 |
 
 ## Development Commands
 

@@ -440,43 +440,6 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
-				// Embercloud's upstream routing for this model is broken: streaming
-				// returns finish_reason "error" with null content, and non-streaming
-				// returns "Temporary routing error (400)". Deactivated until fixed.
-				deactivatedAt: new Date("2026-06-03"),
-				providerId: "embercloud",
-				externalId: "minimax-m2.5",
-				inputPrice: "0.2e-6",
-				outputPrice: "1.2e-6",
-				cachedInputPrice: "0.04e-6",
-				requestPrice: "0",
-				contextSize: 196608,
-				maxOutput: 196608,
-				streaming: true,
-				reasoning: true,
-				reasoningOutput: "omit",
-				vision: false,
-				tools: true,
-				// Embercloud leaks <think> tags into JSON output, breaking json_object mode
-				jsonOutput: false,
-				supportedParameters: [
-					"messages",
-					"model",
-					"stream",
-					"stream_options",
-					"temperature",
-					"top_p",
-					"max_tokens",
-					"max_completion_tokens",
-					"seed",
-					"stop",
-					"response_format",
-					"tools",
-					"tool_choice",
-					"parallel_tool_calls",
-				],
-			},
-			{
 				providerId: "nebius",
 				// Streaming tool calls and response_format: json_object are unreliable on Nebius
 				stability: "unstable",

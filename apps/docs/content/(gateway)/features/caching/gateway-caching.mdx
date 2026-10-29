@@ -122,7 +122,7 @@ The default cache duration is 60 seconds. Adjust this based on your use case—l
 
 A cache hit replays the stored completion — same `id`, same content, same token counts. The `metadata` envelope is rebuilt for the current request (fresh `log_id`, and a fresh `request_id` on non-streaming responses) and all cost fields are zeroed, so the body is not byte-for-byte identical to the original response. Two markers tell you it was a replay:
 
-- the `x-llmgateway-cache: HIT` response header — set on `/v1/chat/completions`, `/v1/messages` (which has no metadata envelope), and streaming AI SDK requests; it is not surfaced on `/v1/responses` or on non-streaming AI SDK responses
+- the `x-llmgateway-cache: HIT` response header — set on `/v1/chat/completions`, `/v1/messages` (which has no metadata envelope), `/v1/responses`, and streaming AI SDK requests; it is not surfaced on non-streaming AI SDK responses
 - `metadata.cached: true` on the response body (and on the final metadata chunk of a streamed replay)
 
 All cost fields are zeroed on a replay, because no upstream call was made:
@@ -150,7 +150,7 @@ Token counts are **not** zeroed — they still describe the completion you are r
 
 ## Bypassing the Cache for a Single Request
 
-Send `x-no-cache: true` to skip the cache for one request — the call goes upstream and its response is not stored. Useful when a client retries an identical request and expects a fresh sample (for example an agent loop) without disabling caching for the whole project. The header works on `/v1/chat/completions`, `/v1/messages`, and the AI SDK endpoints; it is not forwarded on `/v1/responses`.
+Send `x-no-cache: true` to skip the cache for one request — the call goes upstream and its response is not stored. Useful when a client retries an identical request and expects a fresh sample (for example an agent loop) without disabling caching for the whole project. The header works on `/v1/chat/completions`, `/v1/messages`, `/v1/responses`, and the AI SDK endpoints.
 
 ```bash
 curl https://api.llmgateway.io/v1/chat/completions \

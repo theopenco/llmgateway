@@ -39,7 +39,6 @@ export const providerLogoUrls: Partial<
 	minimax: ProviderIcons.minimax,
 	bytedance: ProviderIcons.bytedance,
 	xiaomi: ProviderIcons.xiaomi,
-	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
