@@ -3899,6 +3899,66 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
+		test.each([false, true])(
+			"records every key on the final log when all keys time out (stream=%s)",
+			async (stream) => {
+				await setupSingleProviderWithMultipleKeys("together-ai");
+				const primaryKeyHash = getApiKeyFingerprint(
+					"together-ai-primary-token",
+				);
+				const secondaryKeyHash = getApiKeyFingerprint(
+					"together-ai-secondary-token",
+				);
+				const timeoutVar = stream ? "AI_STREAMING_TIMEOUT_MS" : "AI_TIMEOUT_MS";
+				const originalTimeout = process.env[timeoutVar];
+				process.env[timeoutVar] = "75";
+
+				try {
+					const res = await app.request("/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer real-token",
+							"X-No-Fallback": "true",
+						},
+						body: JSON.stringify({
+							model: "together-ai/glm-4.7",
+							messages: [{ role: "user", content: "TRIGGER_TIMEOUT_300" }],
+							stream,
+						}),
+					});
+					await res.text();
+
+					const logs = await waitForLogs(2);
+					const terminalLog = logs.find((log: Log) => !log.retried);
+					const retriedLogs = logs.filter((log: Log) => log.retried);
+					expect(terminalLog?.hasError).toBe(true);
+					expect(retriedLogs.length).toBeGreaterThan(0);
+					for (const log of retriedLogs) {
+						expect(log.retriedByLogId).toBe(terminalLog?.id);
+					}
+					const routing = terminalLog?.routingMetadata?.routing ?? [];
+					expect(routing).toHaveLength(logs.length);
+					expect(routing.every((attempt) => !attempt.succeeded)).toBe(true);
+					expect(routing.at(-1)?.logId).toBe(terminalLog?.id);
+					expect(new Set(routing.map((attempt) => attempt.apiKeyHash))).toEqual(
+						new Set([primaryKeyHash, secondaryKeyHash]),
+					);
+					expect(
+						terminalLog?.routingMetadata?.providerScores?.find(
+							(score) => score.providerId === "together-ai",
+						)?.failed,
+					).toBe(true);
+				} finally {
+					if (originalTimeout === undefined) {
+						Reflect.deleteProperty(process.env, timeoutVar);
+					} else {
+						process.env[timeoutVar] = originalTimeout;
+					}
+				}
+			},
+		);
+
 		test("streaming: retries when immediate SSE error omits status fields", async () => {
 			await setupMultiProviderKeys();
 

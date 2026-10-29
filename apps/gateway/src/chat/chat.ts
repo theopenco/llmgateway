@@ -128,7 +128,11 @@ import {
 import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
-import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import {
+	directProviderRoutingMetadata,
+	getNoFallbackRoutingMetadata,
+	withRoutingAttempts,
+} from "@/lib/routing-metadata.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -6800,6 +6804,39 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
+	// Records a failed upstream attempt before its log row is written, so the
+	// row carries the full routing trail. A terminal attempt takes finalLogId,
+	// which is what earlier attempts' retriedByLogId points at.
+	function recordFailedAttempt(
+		attempts: RoutingAttempt[],
+		provider: string,
+		statusCode: number,
+		errorType: string,
+		willRetry: boolean,
+	): string {
+		const logId = willRetry ? shortid() : finalLogId;
+		attempts.push(
+			buildRoutingAttempt(
+				provider,
+				usedInternalModel,
+				statusCode,
+				errorType,
+				false,
+				{
+					region: usedRegion,
+					apiKeyHash: usedApiKeyHash,
+					credentialSource: currentCredentialSource(),
+					...currentProviderKeyIdentity(),
+					logId,
+				},
+			),
+		);
+		routingMetadata = withRoutingAttempts(
+			routingMetadata ?? directProviderRoutingMetadata(provider),
+			attempts,
+		);
+		return logId;
+	}
 	// The credential the current attempt sends, as recorded against the
 	// account-bound reasoning it produces.
 	function currentReasoningCredential(): ReasoningCredential | undefined {
@@ -9471,6 +9508,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null, // Not applicable for canceled request
@@ -9821,32 +9859,13 @@ chat.openapi(completions, async (c) => {
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
-							const attemptLogId = willRetryRequest ? shortid() : finalLogId;
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									0,
-									getErrorType(0),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
 							);
-							routingMetadata = {
-								...(routingMetadata ?? {
-									availableProviders: [usedProvider],
-									selectedProvider: usedProvider,
-									selectionReason: "direct-provider-specified",
-									providerScores: [],
-								}),
-								routing: [...routingAttempts],
-							};
 
 							const baseLogEntry = createLogEntry(
 								requestId,
@@ -10039,32 +10058,13 @@ chat.openapi(completions, async (c) => {
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
-							const attemptLogId = willRetryRequest ? shortid() : finalLogId;
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									0,
-									getErrorType(0),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
 							);
-							routingMetadata = {
-								...(routingMetadata ?? {
-									availableProviders: [usedProvider],
-									selectedProvider: usedProvider,
-									selectionReason: "direct-provider-specified",
-									providerScores: [],
-								}),
-								routing: [...routingAttempts],
-							};
 
 							const baseLogEntry = createLogEntry(
 								requestId,
@@ -10345,32 +10345,16 @@ chat.openapi(completions, async (c) => {
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
-						const attemptLogId = willRetryRequest ? shortid() : finalLogId;
-						routingAttempts.push(
-							buildRoutingAttempt(
-								usedProvider,
-								usedInternalModel,
-								res.status,
-								getErrorType(res.status),
-								false,
-								{
-									region: usedRegion,
-									apiKeyHash: usedApiKeyHash,
-									credentialSource: currentCredentialSource(),
-									...currentProviderKeyIdentity(),
-									logId: attemptLogId,
-								},
-							),
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							res.status,
+							finishReason === "content_filter" ||
+								finishReason === "client_error"
+								? finishReason
+								: getErrorType(res.status),
+							willRetryRequest,
 						);
-						routingMetadata = {
-							...(routingMetadata ?? {
-								availableProviders: [usedProvider],
-								selectedProvider: usedProvider,
-								selectionReason: "direct-provider-specified",
-								providerScores: [],
-							}),
-							routing: [...routingAttempts],
-						};
 
 						const baseLogEntry = createLogEntry(
 							requestId,
@@ -10716,32 +10700,13 @@ chat.openapi(completions, async (c) => {
 							willRetryStreamingError ||
 							willRetrySameKey;
 
-						const attemptLogId = willRetryRequest ? shortid() : finalLogId;
-						routingAttempts.push(
-							buildRoutingAttempt(
-								usedProvider,
-								usedInternalModel,
-								inferredStatusCode,
-								getErrorType(inferredStatusCode),
-								false,
-								{
-									region: usedRegion,
-									apiKeyHash: usedApiKeyHash,
-									credentialSource: currentCredentialSource(),
-									...currentProviderKeyIdentity(),
-									logId: attemptLogId,
-								},
-							),
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							inferredStatusCode,
+							getErrorType(inferredStatusCode),
+							willRetryRequest,
 						);
-						routingMetadata = {
-							...(routingMetadata ?? {
-								availableProviders: [usedProvider],
-								selectedProvider: usedProvider,
-								selectionReason: "direct-provider-specified",
-								providerScores: [],
-							}),
-							routing: [...routingAttempts],
-						};
 
 						const baseLogEntry = createLogEntry(
 							requestId,
@@ -10918,28 +10883,10 @@ chat.openapi(completions, async (c) => {
 
 				// Update routingMetadata with all routing attempts for DB logging
 				if (routingMetadata) {
-					// Enrich providerScores with failure info from routing attempts
-					const failedMap = new Map(
-						routingAttempts
-							.filter((a) => !a.succeeded)
-							.map((f) => [f.provider, f]),
+					routingMetadata = withRoutingAttempts(
+						routingMetadata,
+						routingAttempts,
 					);
-					routingMetadata = {
-						...routingMetadata,
-						routing: routingAttempts,
-						providerScores: routingMetadata.providerScores.map((score) => {
-							const failure = failedMap.get(score.providerId);
-							if (failure) {
-								return {
-									...score,
-									failed: true,
-									status_code: failure.status_code,
-									error_type: failure.error_type,
-								};
-							}
-							return score;
-						}),
-					};
 				}
 
 				// If all retries exhausted without a successful response
@@ -13938,6 +13885,7 @@ chat.openapi(completions, async (c) => {
 
 		await insertLogEntry({
 			...baseLogEntry,
+			id: finalLogId,
 			providerKeyId: trackedKeyHealthId ?? null,
 			duration: Date.now() - startTime,
 			timeToFirstToken: null, // Not applicable for canceled request
@@ -14308,32 +14256,13 @@ chat.openapi(completions, async (c) => {
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
-			const attemptLogId = willRetryRequest ? shortid() : finalLogId;
-			routingAttempts.push(
-				buildRoutingAttempt(
-					usedProvider,
-					usedInternalModel,
-					0,
-					getErrorType(0),
-					false,
-					{
-						region: usedRegion,
-						apiKeyHash: usedApiKeyHash,
-						credentialSource: currentCredentialSource(),
-						...currentProviderKeyIdentity(),
-						logId: attemptLogId,
-					},
-				),
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				0,
+				getErrorType(0),
+				willRetryRequest,
 			);
-			routingMetadata = {
-				...(routingMetadata ?? {
-					availableProviders: [usedProvider],
-					selectedProvider: usedProvider,
-					selectionReason: "direct-provider-specified",
-					providerScores: [],
-				}),
-				routing: [...routingAttempts],
-			};
 
 			const baseLogEntry = createLogEntry(
 				requestId,
@@ -14536,6 +14465,13 @@ chat.openapi(completions, async (c) => {
 						},
 					);
 
+					recordFailedAttempt(
+						routingAttempts,
+						usedProvider!,
+						res.status,
+						isTimeoutBody ? "upstream_timeout" : "upstream_error",
+						false,
+					);
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
 						requestId,
@@ -14575,6 +14511,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
@@ -14740,32 +14677,15 @@ chat.openapi(completions, async (c) => {
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 
-			const attemptLogId = willRetryRequest ? shortid() : finalLogId;
-			routingAttempts.push(
-				buildRoutingAttempt(
-					usedProvider,
-					usedInternalModel,
-					res.status,
-					getErrorType(res.status),
-					false,
-					{
-						region: usedRegion,
-						apiKeyHash: usedApiKeyHash,
-						credentialSource: currentCredentialSource(),
-						...currentProviderKeyIdentity(),
-						logId: attemptLogId,
-					},
-				),
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				res.status,
+				finishReason === "content_filter" || finishReason === "client_error"
+					? finishReason
+					: getErrorType(res.status),
+				willRetryRequest,
 			);
-			routingMetadata = {
-				...(routingMetadata ?? {
-					availableProviders: [usedProvider],
-					selectedProvider: usedProvider,
-					selectionReason: "direct-provider-specified",
-					providerScores: [],
-				}),
-				routing: [...routingAttempts],
-			};
 
 			const baseLogEntry = createLogEntry(
 				requestId,
@@ -15083,26 +15003,7 @@ chat.openapi(completions, async (c) => {
 
 	// Update routingMetadata with all routing attempts for DB logging
 	if (routingMetadata) {
-		// Enrich providerScores with failure info from routing attempts
-		const failedMap = new Map(
-			routingAttempts.filter((a) => !a.succeeded).map((f) => [f.provider, f]),
-		);
-		routingMetadata = {
-			...routingMetadata,
-			routing: routingAttempts,
-			providerScores: routingMetadata.providerScores.map((score) => {
-				const failure = failedMap.get(score.providerId);
-				if (failure) {
-					return {
-						...score,
-						failed: true,
-						status_code: failure.status_code,
-						error_type: failure.error_type,
-					};
-				}
-				return score;
-			}),
-		};
+		routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 	}
 
 	if (!res || !res.ok) {
@@ -15269,6 +15170,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...sseLogEntry,
+					id: finalLogId,
 					providerKeyId: trackedKeyHealthId ?? null,
 					duration: Date.now() - startTime,
 					timeToFirstToken: null,
@@ -15468,27 +15370,7 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 			if (routingMetadata) {
-				const failedMap = new Map(
-					routingAttempts
-						.filter((a) => !a.succeeded)
-						.map((f) => [f.provider, f]),
-				);
-				routingMetadata = {
-					...routingMetadata,
-					routing: routingAttempts,
-					providerScores: routingMetadata.providerScores.map((score) => {
-						const failure = failedMap.get(score.providerId);
-						if (failure) {
-							return {
-								...score,
-								failed: true,
-								status_code: failure.status_code,
-								error_type: failure.error_type,
-							};
-						}
-						return score;
-					}),
-				};
+				routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 			}
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -15530,6 +15412,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				id: finalLogId,
 				providerKeyId: trackedKeyHealthId ?? null,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
