@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+	DEV_PLAN_DAILY_PERCENT,
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
@@ -8,15 +10,19 @@ import {
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
+	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getIncludedResetPassesRemaining,
+	getRemainingDailyAllowance,
+	getRemainingPremiumWeeklyAllowance,
+	isDailyWindowExpired,
 } from "./dev-plans.js";
 
 describe("getDevPlanCreditsLimit", () => {
 	const original = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
 
 	beforeEach(() => {
-		process.env.DEV_PLAN_CREDITS_MULTIPLIER = "3";
+		process.env.DEV_PLAN_CREDITS_MULTIPLIER = "2";
 	});
 
 	afterEach(() => {
@@ -28,9 +34,9 @@ describe("getDevPlanCreditsLimit", () => {
 	});
 
 	it("multiplies the tier price by the credits multiplier", () => {
-		expect(getDevPlanCreditsLimit("lite")).toBe(DEV_PLAN_PRICES.lite * 3);
-		expect(getDevPlanCreditsLimit("pro")).toBe(DEV_PLAN_PRICES.pro * 3);
-		expect(getDevPlanCreditsLimit("max")).toBe(DEV_PLAN_PRICES.max * 3);
+		expect(getDevPlanCreditsLimit("lite")).toBe(DEV_PLAN_PRICES.lite * 2);
+		expect(getDevPlanCreditsLimit("pro")).toBe(DEV_PLAN_PRICES.pro * 2);
+		expect(getDevPlanCreditsLimit("max")).toBe(DEV_PLAN_PRICES.max * 2);
 	});
 
 	it("grants a higher tier a strictly larger allowance", () => {
@@ -47,7 +53,7 @@ describe("reset passes", () => {
 	const original = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
 
 	beforeEach(() => {
-		process.env.DEV_PLAN_CREDITS_MULTIPLIER = "3";
+		process.env.DEV_PLAN_CREDITS_MULTIPLIER = "2";
 	});
 
 	afterEach(() => {
@@ -77,7 +83,7 @@ describe("reset passes", () => {
 
 	it("computes remaining included passes, clamping at zero", () => {
 		expect(getIncludedResetPassesRemaining("lite", 0)).toBe(0);
-		expect(getIncludedResetPassesRemaining("pro", 0)).toBe(1);
+		expect(getIncludedResetPassesRemaining("pro", 0)).toBe(0);
 		expect(getIncludedResetPassesRemaining("pro", 1)).toBe(0);
 		expect(getIncludedResetPassesRemaining("max", 0)).toBe(2);
 		expect(getIncludedResetPassesRemaining("max", 1)).toBe(1);
@@ -85,6 +91,123 @@ describe("reset passes", () => {
 		expect(getIncludedResetPassesRemaining("max", null)).toBe(
 			DEV_PLAN_INCLUDED_RESET_PASSES.max,
 		);
+	});
+});
+
+describe("daily pacing allowance", () => {
+	const original = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
+
+	beforeEach(() => {
+		process.env.DEV_PLAN_CREDITS_MULTIPLIER = "2";
+	});
+
+	afterEach(() => {
+		if (original === undefined) {
+			delete process.env.DEV_PLAN_CREDITS_MULTIPLIER;
+		} else {
+			process.env.DEV_PLAN_CREDITS_MULTIPLIER = original;
+		}
+	});
+
+	it("derives the daily limit from the monthly allowance", () => {
+		for (const tier of ["lite", "pro", "max"] as const) {
+			expect(getDevPlanDailyLimit(tier)).toBeCloseTo(
+				getDevPlanCreditsLimit(tier) * DEV_PLAN_DAILY_PERCENT[tier],
+			);
+		}
+	});
+
+	it("scales the daily limit with the stored cycle allowance", () => {
+		expect(getDevPlanDailyLimit("max", "537")).toBeCloseTo(53.7);
+		expect(getDevPlanDailyLimit("max", "568.52")).toBeCloseTo(56.852);
+		expect(getDevPlanDailyLimit("pro", "0")).toBe(getDevPlanDailyLimit("pro"));
+		expect(getDevPlanDailyLimit("pro", null)).toBe(getDevPlanDailyLimit("pro"));
+		const now = new Date("2026-09-12T12:00:00Z");
+		expect(
+			getRemainingDailyAllowance(
+				"max",
+				"537",
+				"10",
+				new Date(now.getTime() - 60_000),
+				now,
+			),
+		).toBeCloseTo(43.7);
+	});
+
+	it("scales the weekly premium limit with the stored cycle allowance", () => {
+		expect(getDevPlanPremiumWeeklyLimit("max", "537")).toBeCloseTo(80.55);
+		expect(getDevPlanPremiumWeeklyLimit("pro", null)).toBe(
+			getDevPlanPremiumWeeklyLimit("pro"),
+		);
+		const now = new Date("2026-09-12T12:00:00Z");
+		expect(
+			getRemainingPremiumWeeklyAllowance(
+				"max",
+				"537",
+				"20",
+				new Date(now.getTime() - 60_000),
+				now,
+			),
+		).toBeCloseTo(60.55);
+	});
+
+	it("keeps the daily limit above the weekly premium pace", () => {
+		// A subscriber who only uses premium models must be able to spend a
+		// full week's premium allowance within the week.
+		for (const tier of ["lite", "pro", "max"] as const) {
+			expect(getDevPlanDailyLimit(tier) * 7).toBeGreaterThan(
+				getDevPlanPremiumWeeklyLimit(tier),
+			);
+		}
+	});
+
+	it("treats a missing or stale window start as expired", () => {
+		const now = new Date("2026-09-12T12:00:00Z");
+		expect(isDailyWindowExpired(null, now)).toBe(true);
+		expect(
+			isDailyWindowExpired(
+				new Date(now.getTime() - DEV_PLAN_DAY_LENGTH_MS),
+				now,
+			),
+		).toBe(true);
+		expect(
+			isDailyWindowExpired(
+				new Date(now.getTime() - DEV_PLAN_DAY_LENGTH_MS + 1),
+				now,
+			),
+		).toBe(false);
+	});
+
+	it("returns the full limit once the window has rolled over", () => {
+		const now = new Date("2026-09-12T12:00:00Z");
+		const limit = getDevPlanDailyLimit("pro");
+		expect(
+			getRemainingDailyAllowance(
+				"pro",
+				null,
+				"99",
+				new Date(now.getTime() - DEV_PLAN_DAY_LENGTH_MS),
+				now,
+			),
+		).toBe(limit);
+		expect(
+			getRemainingDailyAllowance(
+				"pro",
+				null,
+				"1.5",
+				new Date(now.getTime() - 60_000),
+				now,
+			),
+		).toBeCloseTo(limit - 1.5);
+		expect(
+			getRemainingDailyAllowance(
+				"pro",
+				null,
+				String(limit + 10),
+				new Date(now.getTime() - 60_000),
+				now,
+			),
+		).toBe(0);
 	});
 });
 

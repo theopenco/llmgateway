@@ -1,23 +1,29 @@
 ---
-title: System One
-description: Get typed, probabilistic decisions instead of generated text with the /v1/systemone endpoint
+title: System One (legacy)
+description: The TypeSafe-compatible /v1/systemone endpoint, to be deprecated soon in favor of the OpenAI-compatible /v1/decisions
 icon: SlidersHorizontal
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-LLMGateway exposes a `/v1/systemone` endpoint for **System One** models: models
-that read a state, answer questions you name, and return typed decisions with
-calibrated probabilities. There is no free-form text in the response — every
-answer is a value your code can branch on directly.
+<Callout type="warn" title="Deprecated soon">
+	`/v1/systemone` will be deprecated soon in favor of the OpenAI-compatible
+	[`/v1/decisions`](/features/decisions) endpoint. It keeps working for existing
+	integrations, but it serves TypeSafe models (Jev) only and gets no new models
+	— `gpt-6-luna-decisions` and future decision models are available on
+	`/v1/decisions` only. Jev works on `/v1/decisions` at the same price; see
+	[Migrating from
+	/v1/systemone](/features/decisions#migrating-from-v1systemone).
+</Callout>
 
-Use it when a model call exists only to make a decision: routing a support
-ticket, scoring a retrieved passage, checking whether a citation supports a
-claim, or classifying a record. A chat model can do these too, but you then have
-to parse prose, and you get no probability to threshold on.
+LLMGateway exposes a TypeSafe-compatible `/v1/systemone` endpoint for **System
+One** models: models that read a state, answer questions you name, and return
+typed decisions with calibrated probabilities. There is no free-form text in the
+response — every answer is a value your code can branch on directly.
 
-Browse available decision models on the
-[models page](https://llmgateway.io/models?filters=1).
+New integrations should use [`/v1/decisions`](/features/decisions) instead.
+Requesting a non-TypeSafe decision model here returns a 400 pointing you at
+`/v1/decisions`.
 
 For the full request and response schema, see the
 [API reference](/v1_systemone).
@@ -44,7 +50,7 @@ curl -X POST "https://api.llmgateway.io/v1/systemone" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "jev-1.13.0",
+    "model": "jev-1.14.0",
     "state": "Help! My payouts have been failing for 3 days.",
     "questions": {
       "department": {
@@ -71,7 +77,7 @@ curl -X POST "https://api.llmgateway.io/v1/systemone" \
 
 ```json
 {
-	"model": "typesafe/jev-1.13.0",
+	"model": "typesafe/jev-1.14.0",
 	"answers": {
 		"department": {
 			"type": "choice",
@@ -104,6 +110,37 @@ request is always billed and logged against the version you can read prices for.
 | `model`     | `string`                    | Decision model to use. Optionally prefixed with a provider (`typesafe/…`). |
 | `state`     | `string \| object \| array` | The content to evaluate. Structured data lets questions reference fields.  |
 | `questions` | `map<string, Question>`     | At least one typed question, keyed by ids you choose.                      |
+| `assets`    | `map<string, Asset>`        | Optional images, keyed by a reference string. See below.                   |
+
+## Images
+
+Each image goes in `assets` as `{ "type": "image", "format": "png" | "jpg", "data_base64": "…" }`
+(base64 without a `data:` prefix), keyed by a reference string. Write the
+reference anywhere in `state`, `instructions` or `criteria` and the model
+receives the image in its place. Use a fresh UUID per image so the reference
+can't match your text by accident. The gateway sends TypeSafe's
+`TypeSafe-Danger-Zone-Images` opt-in for you. Image input is experimental at
+TypeSafe; multipart uploads are not supported.
+
+```json
+{
+	"model": "jev-1.14.0",
+	"state": { "photo": "a3f1c2e8-photo" },
+	"assets": {
+		"a3f1c2e8-photo": {
+			"type": "image",
+			"format": "jpg",
+			"data_base64": "/9j/4AAQ…"
+		}
+	},
+	"questions": {
+		"damaged": {
+			"type": "noul",
+			"instructions": "Is the item in `photo` damaged?"
+		}
+	}
+}
+```
 
 ## Deciding in code
 
@@ -119,7 +156,7 @@ const res = await fetch("https://api.llmgateway.io/v1/systemone", {
 		"Content-Type": "application/json",
 	},
 	body: JSON.stringify({
-		model: "jev-1.13.0",
+		model: "jev-1.14.0",
 		state: ticket,
 		questions: {
 			department: {
@@ -156,8 +193,9 @@ answer makes them relevant.
 </Callout>
 
 <Callout type="warn">
-	Decision models only work on `/v1/systemone`. Requesting one on
-	`/v1/chat/completions` returns a 400 pointing you at the right endpoint, they
-	cannot generate text or call tools, and they are not available in the
-	playground. Input is text only.
+	Decision models only work on `/v1/decisions` and `/v1/systemone`. Requesting
+	one on `/v1/chat/completions` returns a 400 pointing you at the right
+	endpoint, they cannot generate text or call tools, and they are not available
+	in the playground. `/v1/systemone` takes text or JSON state only; image input
+	is available on `/v1/decisions` for models that support it.
 </Callout>

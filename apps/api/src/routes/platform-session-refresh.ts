@@ -1,8 +1,9 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { endUserSessionAuth } from "@/lib/end-user-session-auth.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db, eq, shortid, tables } from "@llmgateway/db";
 import { hashTokenForStorage } from "@llmgateway/shared/api-key-hash";

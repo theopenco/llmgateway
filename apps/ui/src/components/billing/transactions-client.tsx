@@ -37,7 +37,7 @@ import { useFetchClient } from "@/lib/fetch-client";
 
 import {
 	isRefundFeedbackComplete,
-	SELF_REFUND_USAGE_PERCENT,
+	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
 	type RefundReason,
 } from "@llmgateway/shared";
@@ -93,7 +93,7 @@ const REFUND_INELIGIBILITY_COPY: Record<
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent purchase can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
-	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
+	usage_exceeded: "This payment has reached its refund usage limit",
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
@@ -152,8 +152,8 @@ function RefundButton({
 			toast({
 				title: "Refund processing",
 				description: isPlanPayment(transaction.type)
-					? "Your subscription has been cancelled and the refund will appear in your transaction history shortly."
-					: "Your refund has been submitted and will appear in your transaction history shortly.",
+					? `Your subscription has been cancelled and the refund is on its way. It may take 5–10 business days to appear on your bank statement.`
+					: `Your refund is on its way. It may take 5–10 business days to appear on your bank statement.`,
 			});
 			setOpen(false);
 			setReason(null);
@@ -184,7 +184,9 @@ function RefundButton({
 						</span>
 					</TooltipTrigger>
 					<TooltipContent>
-						{REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"]}
+						{refund.reason === "usage_exceeded"
+							? `At least ${getSelfRefundUsagePercent(transaction.createdAt)}% of these credits have been used`
+							: REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"]}
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>

@@ -1,0 +1,105 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Review guidance lives in REVIEW.md; this file wires it into CodeRabbit.
+# pr-risk.yml parses the "Merge Risk" line of the walkthrough, so keep the
+# walkthrough on.
+language: en-US
+inheritance: true
+
+reviews:
+  profile: chill
+  poem: false
+  sequence_diagrams: false
+  estimate_code_review_effort: true
+  path_filters:
+    - "!pnpm-lock.yaml"
+    - "!**/snapshot.json"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.webp"
+    - "!**/*.svg"
+    - "!apps/mobile/ios/**"
+    - "!apps/mobile/android/**"
+    - "!**/dist/**"
+    - "!**/.next/**"
+  path_instructions:
+    - path: "**"
+      instructions: |
+        Follow REVIEW.md. Evidence is a file and line in this repository, not a guess
+        from a name. Tag each finding Important, Nit, or Pre-existing; at most three
+        nits; no formatting, diagnostics, or cleanup-only findings. Start the summary
+        with a count and say plainly when there is nothing to fix.
+    - path: "packages/db/migrations/**"
+      instructions: |
+        Failure here is a locked or rewritten live table. Flag any statement that holds
+        ACCESS EXCLUSIVE beyond a metadata change, any index without IF [NOT] EXISTS,
+        and any change the deployed code cannot run both before and after
+        (expand/contract). See the migrations skill.
+    - path: "apps/gateway/src/**"
+      instructions: |
+        Failure here is misrouting, double billing, a leaked provider key, cross-org
+        data, or a log table read on the request path. Check error classification and
+        that user-supplied URLs never hit a bare fetch(). See the gateway skill.
+    - path: "apps/api/src/**"
+      instructions: |
+        Failure here is cross-organization data exposure or a missing server-side
+        permission check. UI gating is never a substitute. Webhook handlers must be
+        idempotent under retries.
+    - path: "packages/models/src/**"
+      instructions: |
+        Failure here is wrong pricing or capabilities. Models and mappings are
+        deactivated, never removed. Compare prices against the provider's public
+        pricing page. See the add-model skill.
+    - path: "packages/actions/src/**"
+      instructions: |
+        Failure here is a request body the provider rejects or a wrong cost. All money
+        math uses Decimal from decimal.js.
+    - path: ".github/workflows/**"
+      instructions: |
+        Failure here is running fork code with a write token or letting a red check
+        merge. pull_request_target and issue_comment jobs must not check out or
+        execute PR code.
+    - path: "apps/docs/**"
+      instructions: |
+        Failure here is prose that lies about current behaviour, or a hardcoded list of
+        models, providers, or countries (link the live pages instead).
+  pre_merge_checks:
+    title:
+      mode: error
+      requirements: "Conventional commit format type(scope): description, at most 50 characters."
+    description:
+      mode: warning
+    custom_checks:
+      - name: "Rollback plan"
+        mode: warning
+        instructions: |
+          Pass when the PR description has a "Rollback" section that either confirms
+          a plain revert of the squash commit is safe, or lists the steps to undo the
+          change (flag or env var to flip, contract migration to run first). Fail when
+          the section is missing or still contains only the template comment.
+      - name: "Verification shown"
+        mode: warning
+        instructions: |
+          Pass when the "Verification" section states what was run and what it showed
+          (a test command, a request and its response, a screenshot, an e2e run).
+          Fail when it is empty, says only "tested locally", or only claims that CI
+          passes.
+  tools:
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    gitleaks:
+      enabled: true
+    squawk:
+      enabled: true
+    eslint:
+      enabled: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "REVIEW.md"
+      - "AGENTS.md"
+      - ".agents/skills/**/SKILL.md"

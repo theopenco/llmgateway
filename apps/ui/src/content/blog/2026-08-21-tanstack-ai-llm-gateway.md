@@ -176,7 +176,7 @@ The adapter is thin on purpose — the routing intelligence lives in the gateway
 - **Automatic failover** — if a provider goes down mid-launch-day, requests route to the next healthy one
 - **Per-request cost tracking** — every TanStack AI request lands in your [dashboard](https://llmgateway.io/dashboard) with tokens, cost, and latency
 - **Response caching** — repeated requests are served from cache and cost nothing
-- **Budgets and limits** — hard caps per organization, project, and API key, enforced at the gateway
+- **Budgets and limits** — hard caps per organization member and API key, enforced at the gateway
 
 None of that requires code in your TanStack AI app. It comes with the endpoint.
 

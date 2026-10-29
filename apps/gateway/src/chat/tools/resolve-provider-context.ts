@@ -21,9 +21,13 @@ import {
 	prepareRequestBody,
 	providerKeyLabel,
 	readProviderKey,
+	routeProjectlessVertexEndpoint,
 	selectProviderMapping,
 } from "@llmgateway/actions";
-import { providerKeyAllowsModel } from "@llmgateway/db";
+import {
+	providerKeyAllowsModel,
+	isPremiumModelAfterDiscounts,
+} from "@llmgateway/db";
 import {
 	type BaseMessage,
 	getRegionSpecificEnvVarName,
@@ -45,13 +49,15 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import {
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	getRemainingDailyAllowance,
 	type DevPlanTier,
 	getRemainingPremiumWeeklyAllowance,
-	isPremiumModel,
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
+import { assertProviderKeysNotRateLimited } from "./provider-key-rate-limit-error.js";
 import { resolveAirsideProviderBaseUrl } from "./resolve-airside-model.js";
 import { resolvePlatformCredential } from "./resolve-platform-credential.js";
 import {
@@ -60,6 +66,7 @@ import {
 	providerKeySupportsServiceTier,
 } from "./service-tier.js";
 
+import type { ProviderKeyRateLimitExemption } from "@/lib/provider-key-rate-limit.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
@@ -105,6 +112,12 @@ export interface ProviderContext {
 	supportsReasoning: boolean;
 	splitTaggedReasoning: boolean;
 	healStreamingJsonOutput: boolean;
+	/**
+	 * The effort the prepared body was built with. A fallback re-picks an
+	 * auto-routed effort per mapping, so the caller mirrors this into the
+	 * value it logs.
+	 */
+	reasoning_effort: ProviderContextOptions["reasoning_effort"];
 	temperature: number | undefined;
 	max_tokens: number | undefined;
 	top_p: number | undefined;
@@ -163,6 +176,8 @@ export interface ProviderContextOptions {
 	prompt_cache_retention: PromptCacheRetention | undefined;
 	prompt_cache_options: PromptCacheOptions | undefined;
 	session_id: string | undefined;
+	/** Opaque per-API-key identifier forwarded to providers for abuse attribution. */
+	safetyIdentifier: string;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -182,6 +197,8 @@ export interface ProviderContextOptions {
 	customProviderName: string | undefined;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	/** Lets soft/lax-capped provider keys serve this request. */
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 	n?: number;
 	providerCacheControlMode: ProviderCacheControlMode;
 	providerCacheAutoTtl?: "5m" | "1h";
@@ -194,6 +211,7 @@ export interface ProviderContextOptions {
 	 */
 	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
+	parallel_tool_calls?: boolean;
 }
 
 interface ProjectInfo {
@@ -203,8 +221,6 @@ interface ProjectInfo {
 
 interface OrgInfo {
 	id: string;
-	/** Opaque per-org identifier forwarded to providers for abuse attribution. */
-	safetyIdentifier: string;
 	credits: string | null;
 	plan: string;
 	kind: string;
@@ -214,6 +230,8 @@ interface OrgInfo {
 	devPlanCreditsUsed: string | null;
 	devPlanPremiumCreditsUsed: string | null;
 	devPlanPremiumWeekStart: Date | null;
+	devPlanDailyCreditsUsed: string | null;
+	devPlanDayStart: Date | null;
 	devPlanExpiresAt: Date | null;
 	chatPlan: string;
 	chatPlanCreditsLimit: string | null;
@@ -316,7 +334,7 @@ export function buildDevPlanCreditLimitError(
  * tracking there would emit one event per fallback candidate — including for
  * requests that ultimately succeed on another key.
  */
-export function assertDevPlanPremiumCapNotExceeded(
+export async function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
 		| "id"
@@ -333,16 +351,17 @@ export function assertDevPlanPremiumCapNotExceeded(
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
 	trackRejection = false,
-): void {
+): Promise<void> {
 	if (organization.devPlan === "none") {
 		return;
 	}
-	if (!isPremiumModel(modelInfo.id)) {
+	if (!(await isPremiumModelAfterDiscounts(modelInfo.id))) {
 		return;
 	}
 	const tier = organization.devPlan as DevPlanTier;
 	const remaining = getRemainingPremiumWeeklyAllowance(
 		tier,
+		organization.devPlanCreditsLimit,
 		organization.devPlanPremiumCreditsUsed,
 		organization.devPlanPremiumWeekStart,
 	);
@@ -408,6 +427,83 @@ export function assertDevPlanPremiumCapNotExceeded(
 }
 
 /**
+ * Throws when a DevPass subscriber has spent the daily pacing allowance for
+ * the current rolling 24-hour window. Applies to every model; no-op for
+ * non-DevPass orgs. Same trackRejection discipline as the premium gate.
+ */
+export function assertDevPlanDailyCapNotExceeded(
+	organization: Pick<
+		OrgInfo,
+		| "id"
+		| "credits"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "devPlanDailyCreditsUsed"
+		| "devPlanDayStart"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
+	>,
+	trackRejection = false,
+): void {
+	if (organization.devPlan === "none") {
+		return;
+	}
+	const tier = organization.devPlan as DevPlanTier;
+	const remaining = getRemainingDailyAllowance(
+		tier,
+		organization.devPlanCreditsLimit,
+		organization.devPlanDailyCreditsUsed,
+		organization.devPlanDayStart,
+	);
+	if (remaining > 0) {
+		return;
+	}
+	// Same rule as the premium cap: the daily allowance paces the plan pool,
+	// not the org's own money. With overflow opted in, over-cap spend is held
+	// out of the pool by the worker and billed to the credits balance.
+	if (organization.devPlanPaygEnabled) {
+		const { regularCredits, devPlanCreditsRemaining } =
+			getAvailableCredits(organization);
+		if (devPlanCreditsRemaining <= 0 || regularCredits > 0) {
+			return;
+		}
+	}
+	const dayStart = organization.devPlanDayStart
+		? new Date(organization.devPlanDayStart)
+		: new Date();
+	const msUntilReset = Math.max(
+		0,
+		dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS - Date.now(),
+	);
+	if (trackRejection) {
+		try {
+			posthog.capture({
+				distinctId: organization.id,
+				event: "devpass_daily_cap_rejected",
+				groups: { organization: organization.id },
+				properties: {
+					devPlan: tier,
+					msUntilReset,
+					organization: organization.id,
+					$process_person_profile: false,
+				},
+			});
+		} catch {
+			// Telemetry must never turn this billing gate into a 500.
+		}
+	}
+	const paygHint = organization.devPlanPaygEnabled
+		? " Pay-as-you-go overflow is enabled but your credits balance is empty — top up from your DevPass dashboard to keep going."
+		: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily pace.";
+	throw new HTTPException(402, {
+		message: `You've reached the daily pacing allowance on the ${tier} plan. Upgrade for a higher daily allowance, or wait for the window to roll over — resets in ${formatTimeUntilReset(msUntilReset)}.${paygHint}`,
+	});
+}
+
+/**
  * Formats a duration as "N days and M hours", dropping zero components and
  * rounding up to the next hour so the wait is never understated.
  */
@@ -432,15 +528,16 @@ export function formatTimeUntilReset(ms: number): string {
 // switch to LLMGateway env-var tokens cannot be used to bill an organization
 // with non-positive credits. Free models (explicitly flagged in the catalog)
 // are exempt.
-function assertOrganizationHasCreditsForEnvFallback(
+async function assertOrganizationHasCreditsForEnvFallback(
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
 	sponsoredOnboarding = false,
-): void {
+): Promise<void> {
 	if (modelInfo.free) {
 		return;
 	}
-	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
+	await assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
+	assertDevPlanDailyCapNotExceeded(organization);
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -611,6 +708,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -619,10 +717,21 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
 		if (!providerKey) {
+			await assertProviderKeysNotRateLimited(
+				project.organizationId,
+				usedProvider,
+				{
+					customProviderName: options.customProviderName,
+					filter: byokKeyFilter,
+					excludedKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
+				},
+			);
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${usedProvider}`,
 			});
@@ -630,7 +739,7 @@ export async function resolveProviderContext(
 
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertOrganizationHasCreditsForEnvFallback(
+		await assertOrganizationHasCreditsForEnvFallback(
 			organization,
 			modelInfo,
 			options.sponsoredOnboarding,
@@ -645,6 +754,7 @@ export async function resolveProviderContext(
 				requiresServiceTier: serviceTierKeyFilter !== undefined,
 				excludedEnvIndices: options.excludedEnvKeyIndices,
 				excludedProviderKeyIds: options.excludedProviderKeyIds,
+				rateLimitExemption: options.rateLimitExemption,
 			},
 		);
 		managedKey = platformCredential.managedKey;
@@ -658,6 +768,7 @@ export async function resolveProviderContext(
 				options.customProviderName,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				options.rateLimitExemption,
 			);
 		} else {
 			providerKey = await findProviderKey(
@@ -666,13 +777,26 @@ export async function resolveProviderContext(
 				usedInternalModel,
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
+				options.rateLimitExemption,
 			);
 		}
 
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
-			assertOrganizationHasCreditsForEnvFallback(
+			// Custom providers have no platform credential to fall back to.
+			if (usedProvider === "custom") {
+				await assertProviderKeysNotRateLimited(
+					project.organizationId,
+					usedProvider,
+					{
+						customProviderName: options.customProviderName,
+						excludedKeyIds: options.excludedProviderKeyIds,
+						rateLimitExemption: options.rateLimitExemption,
+					},
+				);
+			}
+			await assertOrganizationHasCreditsForEnvFallback(
 				organization,
 				modelInfo,
 				options.sponsoredOnboarding,
@@ -687,6 +811,7 @@ export async function resolveProviderContext(
 					requiresServiceTier: serviceTierKeyFilter !== undefined,
 					excludedEnvIndices: options.excludedEnvKeyIndices,
 					excludedProviderKeyIds: options.excludedProviderKeyIds,
+					rateLimitExemption: options.rateLimitExemption,
 				},
 			);
 			managedKey = platformCredential.managedKey;
@@ -833,30 +958,42 @@ export async function resolveProviderContext(
 				: undefined;
 	const airsideCustomBaseUrl =
 		await resolveAirsideProviderBaseUrl(usedProvider);
-	const url = getProviderEndpoint(
-		airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
-		credentialBaseUrl ?? airsideCustomBaseUrl,
-		upstreamModelName,
-		usedProvider === "google-ai-studio" ||
-			usedProvider === "glacier" ||
-			usedProvider === "google-vertex" ||
-			usedProvider === "quartz" ||
-			usedProvider === "vertex-anthropic" ||
-			transportProvider === "google-vertex"
+	const buildUrl = (endpointOptions: typeof credentialOptions) =>
+		getProviderEndpoint(
+			airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
+			credentialBaseUrl ?? airsideCustomBaseUrl,
+			upstreamModelName,
+			usedProvider === "google-ai-studio" ||
+				usedProvider === "glacier" ||
+				usedProvider === "google-vertex" ||
+				usedProvider === "quartz" ||
+				usedProvider === "vertex-anthropic" ||
+				usedProvider === "vertex-openai" ||
+				transportProvider === "google-vertex"
+				? usedToken
+				: undefined,
+			options.stream,
+			supportsReasoning,
+			options.hasExistingToolCalls,
+			endpointOptions,
+			configIndex,
+			isImageGeneration,
+			usedRegion,
+			usesDatabaseCredential,
+			usedInternalModel,
+			vertexTokenType,
+			envVariant,
+			apiFormat,
+		);
+	const url = await routeProjectlessVertexEndpoint(
+		buildUrl(credentialOptions),
+		usedProvider === "google-vertex" &&
+			!airsideCustomBaseUrl &&
+			vertexTokenType === "api-key"
 			? usedToken
 			: undefined,
-		options.stream,
-		supportsReasoning,
-		options.hasExistingToolCalls,
-		credentialOptions,
-		configIndex,
-		isImageGeneration,
-		usedRegion,
-		usesDatabaseCredential,
-		usedInternalModel,
-		vertexTokenType,
-		envVariant,
-		apiFormat,
+		(project) =>
+			buildUrl({ ...credentialOptions, google_vertex_project_id: project }),
 	);
 
 	if (!url) {
@@ -1006,10 +1143,13 @@ export async function resolveProviderContext(
 		options.prompt_cache_options,
 		options.session_id,
 		undefined,
-		organization.safetyIdentifier,
+		options.safetyIdentifier,
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,
+		options.parallel_tool_calls,
+		providerMappingForSelected?.webSearchFormat,
+		providerKey?.forwardCacheControl,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -1097,6 +1237,7 @@ export async function resolveProviderContext(
 		supportsReasoning,
 		splitTaggedReasoning,
 		healStreamingJsonOutput,
+		reasoning_effort: options.reasoning_effort,
 		temperature,
 		max_tokens,
 		top_p,

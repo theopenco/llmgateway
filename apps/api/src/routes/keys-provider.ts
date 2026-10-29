@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -11,16 +11,25 @@ import {
 	pickAllowedValidationModel,
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
+import {
+	pickProviderKeyRateLimits,
+	providerKeyRateLimitChanges,
+	providerKeyRateLimitsInputShape,
+	providerKeyRateLimitsOutputShape,
+	providerKeyRateLimitUpdates,
+} from "@/lib/provider-key-rate-limits.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import {
 	getActiveUserOrganizationIds,
 	getAdminOrganizationIds,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	encryptProviderKey,
 	readProviderKeyMask,
 	redactToken,
+	resolveVertexApiKeyProject,
 	validateProviderKey,
 } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -30,8 +39,11 @@ import {
 	cdb,
 	db,
 	eq,
+	deletedProviderKeyStatus,
 	inArray,
-	ne,
+	isRemovedProviderKeyStatus,
+	notInArray,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	shortid,
 	sql,
 	tables,
@@ -39,13 +51,19 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	isStealthProvider,
+	providers,
 	regionEndpointRequiresWorkspaceId,
 } from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	isProviderBaseUrlOverrideAllowed,
+	PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
+	PROVIDER_HOSTNAME_LABEL_REGEX,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -129,10 +147,12 @@ export const providerKeySchema = z.object({
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
 			vertex_openai_project_id: z.string().optional(),
+			cloudflare_account_id: z.string().optional(),
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	customModelsOnly: z.boolean(),
+	forwardCacheControl: z.boolean(),
 	complianceAttestation: complianceAttestationSchema
 		.extend({
 			attestedAt: z.string().optional(),
@@ -157,6 +177,7 @@ export const providerKeyPublicSchema = z.object({
 	options: providerKeySchema.shape.options,
 	status: providerKeySchema.shape.status,
 	customModelsOnly: providerKeySchema.shape.customModelsOnly,
+	forwardCacheControl: providerKeySchema.shape.forwardCacheControl,
 	complianceAttestation: providerKeySchema.shape.complianceAttestation,
 	organizationId: z.string(),
 	/** USD spend cap; the key auto-deactivates when usage reaches it. */
@@ -170,9 +191,17 @@ export const providerKeyPublicSchema = z.object({
 	 * key serves the provider's full catalogue.
 	 */
 	allowedModels: z.array(z.string()).nullable(),
+	/** Request and token caps for this key; it leaves rotation while at one. */
+	...providerKeyRateLimitsOutputShape,
 });
 
 type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
+
+// A key in its teardown grace period is deleted as far as its owner is
+// concerned.
+function publicProviderKeyStatus(status: ProviderKeyRow["status"]) {
+	return status === "pending_deletion" ? "deleted" : status;
+}
 
 // Every row served by these routes is organization-owned: they all query by
 // organizationId. Platform-managed credentials (organizationId NULL) are
@@ -188,8 +217,9 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		description: row.description,
 		baseUrl: row.baseUrl,
 		options: row.options,
-		status: row.status,
+		status: publicProviderKeyStatus(row.status),
 		customModelsOnly: row.customModelsOnly,
+		forwardCacheControl: row.forwardCacheControl,
 		// The organization's own compliance attestation for its custom provider,
 		// shown back in the dashboard. Not secret-bearing.
 		complianceAttestation: row.complianceAttestation,
@@ -198,6 +228,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		usage: row.usage,
 		maskedToken: readProviderKeyMask(row),
 		allowedModels: row.allowedModels,
+		...pickProviderKeyRateLimits(row),
 	};
 }
 
@@ -217,20 +248,29 @@ function assertAllowedModelsSupported(provider: string) {
 }
 
 /**
- * Creating or editing custom providers is an enterprise feature. Existing keys
- * on other plans keep serving and can still be toggled or deleted.
+ * Custom providers and base URL overrides on built-in providers point upstream
+ * traffic at a host the organization controls, so creating or editing them is
+ * an enterprise feature. Existing keys on other plans keep serving and can
+ * still be toggled or deleted.
  */
-function assertCustomProviderEnterprise(
+function assertEnterpriseFeature(
 	organization: { id: string; plan: string } | null | undefined,
+	feature: string,
 ) {
 	if (!hasOrganizationEnterpriseAccess(organization?.id, organization?.plan)) {
 		throw new HTTPException(403, {
-			message: "Custom providers require an enterprise plan",
+			message: `${feature} require an enterprise plan`,
 		});
 	}
 }
 
-// The custom provider name is the routing segment used in `custom/<name>/<model>`
+function assertCustomProviderEnterprise(
+	organization: { id: string; plan: string } | null | undefined,
+) {
+	assertEnterpriseFeature(organization, "Custom providers");
+}
+
+// The custom provider name is the routing prefix used in `<name>/<model>`
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
@@ -239,6 +279,13 @@ export const customProviderNameSchema = z
 		(name) =>
 			!(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(name),
 		RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	)
+	// Catalogue provider ids (e.g. "openai", "custom") always win the
+	// `<name>/<model>` prefix in parseModelInput, so a colliding custom
+	// provider would be unaddressable.
+	.refine(
+		(name) => !providers.some((provider) => provider.id === name),
+		"This name matches a built-in provider id and cannot be used as a custom provider name",
 	);
 
 export async function assertCustomProviderNameAvailable(
@@ -340,12 +387,28 @@ export function isValidProviderToken(value: string): boolean {
 	}
 }
 
-// The workspace id becomes a hostname label on the workspace-dedicated
-// endpoint, so it is restricted to what Model Studio issues rather than
-// accepted verbatim.
-const WORKSPACE_ID_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
+// Every option below ends up inside the URL the gateway calls, so each is
+// restricted to the shape the provider itself issues. A resource or workspace
+// id becomes a hostname label — `evil.example.com/` would otherwise smuggle a
+// different host into the endpoint — while a deployment name, model or api
+// version lands in the path or query and must not be able to reshape it.
 const WORKSPACE_ID_MESSAGE =
 	"Workspace ID must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_RESOURCE_MESSAGE =
+	"Azure resource must be 1-64 characters of letters, digits, or hyphens";
+const AZURE_PATH_SEGMENT_MESSAGE =
+	"Must be 1-128 characters of letters, digits, dots, underscores, or hyphens";
+const GCP_PROJECT_ID_MESSAGE =
+	"Project ID must be 6-30 characters: a lowercase letter, then lowercase letters, digits or hyphens";
+const azureResourceSchema = z
+	.string()
+	.regex(PROVIDER_HOSTNAME_LABEL_REGEX, AZURE_RESOURCE_MESSAGE);
+const azurePathSegmentSchema = z
+	.string()
+	.regex(/^[A-Za-z0-9._-]{1,128}$/, AZURE_PATH_SEGMENT_MESSAGE);
+const gcpProjectIdSchema = z
+	.string()
+	.regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, GCP_PROJECT_ID_MESSAGE);
 
 /**
  * A workspace id is optional: a region whose endpoint is workspace-scoped
@@ -400,26 +463,30 @@ const createProviderKeySchema = z.object({
 					"ap-southeast-2",
 				])
 				.optional(),
-			azure_resource: z.string().optional(),
-			azure_api_version: z.string().optional(),
+			azure_resource: azureResourceSchema.optional(),
+			azure_api_version: azurePathSegmentSchema.optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
-			azure_validation_model: z.string().optional(),
-			azure_deployment_name: z.string().min(1).optional(),
-			azure_ai_foundry_resource: z.string().optional(),
-			azure_ai_foundry_api_version: z.string().optional(),
-			azure_anthropic_resource: z.string().optional(),
+			azure_validation_model: azurePathSegmentSchema.optional(),
+			azure_deployment_name: azurePathSegmentSchema.optional(),
+			azure_ai_foundry_resource: azureResourceSchema.optional(),
+			azure_ai_foundry_api_version: azurePathSegmentSchema.optional(),
+			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
 			alibaba_workspace_id: z
 				.string()
-				.regex(WORKSPACE_ID_REGEX, WORKSPACE_ID_MESSAGE)
+				.regex(PROVIDER_HOSTNAME_LABEL_REGEX, WORKSPACE_ID_MESSAGE)
 				.optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
-			google_vertex_project_id: z.string().optional(),
-			vertex_openai_project_id: z.string().optional(),
+			google_vertex_project_id: gcpProjectIdSchema.optional(),
+			vertex_openai_project_id: gcpProjectIdSchema.optional(),
+			cloudflare_account_id: z
+				.string()
+				.regex(CLOUDFLARE_ACCOUNT_ID_REGEX, CLOUDFLARE_ACCOUNT_ID_MESSAGE)
+				.optional(),
 		})
 		.superRefine(validateWorkspaceScopedRegion)
 		.optional(),
@@ -430,6 +497,9 @@ const createProviderKeySchema = z.object({
 	// Optional allowlist of canonical model ids this key may serve. Empty/null
 	// means the provider's full catalogue.
 	allowedModels: allowedModelsSchema,
+	// Custom providers only: forward caller `cache_control` markers upstream.
+	forwardCacheControl: z.boolean().optional(),
+	...providerKeyRateLimitsInputShape,
 });
 
 // Schema for updating a provider key status / settings
@@ -446,18 +516,24 @@ const updateProviderKeyStatusSchema = z
 		description: z.string().trim().max(200).nullable().optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
+		// Custom providers only: forward caller `cache_control` markers upstream
+		// instead of stripping them.
+		forwardCacheControl: z.boolean().optional(),
 		// Custom providers only: self-attested compliance posture. `null` clears
 		// the attestation (restoring the fail-closed blocked state).
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 		// USD spend cap; `null` clears it.
 		usageLimit: createNullableLimitSchema("Usage limit").optional(),
+		...providerKeyRateLimitsInputShape,
 	})
 	.refine(
 		(v) =>
+			Object.keys(providerKeyRateLimitUpdates(v)).length > 0 ||
 			v.status !== undefined ||
 			v.name !== undefined ||
 			v.description !== undefined ||
 			v.customModelsOnly !== undefined ||
+			v.forwardCacheControl !== undefined ||
 			v.complianceAttestation !== undefined ||
 			v.usageLimit !== undefined ||
 			v.allowedModels !== undefined,
@@ -511,6 +587,8 @@ keysProvider.openapi(create, async (c) => {
 		organizationId,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		forwardCacheControl,
+		...rateLimitInput
 	} = c.req.valid("json");
 
 	const allowedModels = normalizeAllowedModels(requestedAllowedModels);
@@ -560,6 +638,11 @@ keysProvider.openapi(create, async (c) => {
 	) {
 		throw new HTTPException(400, { message: "Invalid or inactive provider." });
 	}
+	if (forwardCacheControl !== undefined && provider !== "custom") {
+		throw new HTTPException(400, {
+			message: "forwardCacheControl can only be set on custom provider keys",
+		});
+	}
 	if (provider === "custom") {
 		assertCustomProviderEnterprise(userOrgs[0]?.organization);
 		if (!name || !baseUrl) {
@@ -567,6 +650,16 @@ keysProvider.openapi(create, async (c) => {
 				message: "Custom providers require both a name and base URL",
 			});
 		}
+	}
+
+	if (
+		provider === "cloudflare" &&
+		!baseUrl &&
+		!options?.cloudflare_account_id
+	) {
+		throw new HTTPException(400, {
+			message: "Cloudflare keys require an account ID",
+		});
 	}
 
 	// Stealth providers have no default base URL and an undisclosed platform, so
@@ -579,6 +672,18 @@ keysProvider.openapi(create, async (c) => {
 	}
 
 	if (baseUrl) {
+		if (provider !== "custom") {
+			// A catalogue provider is reached at its published endpoint, derived from
+			// the key's own settings (an Azure resource, a Bedrock region). A base URL
+			// would replace that endpoint wholesale, which the hosted service does not
+			// offer on any plan; only custom providers are defined by their URL.
+			if (!isProviderBaseUrlOverrideAllowed()) {
+				throw new HTTPException(400, {
+					message: PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
+				});
+			}
+			assertEnterpriseFeature(userOrgs[0]?.organization, "Custom base URLs");
+		}
 		await assertProviderBaseUrlAllowed(baseUrl);
 	}
 
@@ -687,6 +792,20 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// A Vertex API key without a project ID would use the project-less
+	// endpoint, which does not serve every model. Store the key's own project
+	// so requests use `projects/<n>/locations/global` from the start.
+	const vertexApiKeyProject =
+		provider === "google-vertex" &&
+		!baseUrl &&
+		!options?.google_vertex_project_id &&
+		!(process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true")
+			? await resolveVertexApiKeyProject(userToken)
+			: undefined;
+	const storedOptions = vertexApiKeyProject
+		? { ...options, google_vertex_project_id: vertexApiKeyProject }
+		: options;
+
 	// Encrypt the user-provided token at rest. Generate the id in application
 	// code so the AAD (which binds ciphertext to the row id + organization id)
 	// can be computed before the INSERT, keeping the write a single statement.
@@ -710,9 +829,14 @@ keysProvider.openapi(create, async (c) => {
 			name,
 			description: description || null,
 			baseUrl,
-			options,
+			options: storedOptions,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
+			// New custom keys forward by default; the column default (false) keeps
+			// keys created before this setting existed on the old behaviour.
+			forwardCacheControl:
+				provider === "custom" ? (forwardCacheControl ?? true) : false,
+			...providerKeyRateLimitUpdates(rateLimitInput),
 		})
 		.returning();
 
@@ -726,6 +850,7 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
+			...(providerKey.forwardCacheControl && { forwardCacheControl: true }),
 		},
 	});
 
@@ -848,7 +973,12 @@ keysProvider.openapi(listActive, async (c) => {
 		},
 	});
 
-	return c.json({ providerKeys });
+	return c.json({
+		providerKeys: providerKeys.map((key) => ({
+			provider: key.provider,
+			status: publicProviderKeyStatus(key.status),
+		})),
+	});
 });
 
 // Soft-delete a provider key
@@ -927,10 +1057,20 @@ keysProvider.openapi(deleteKey, async (c) => {
 
 	assertOrganizationProviderKey(providerKey);
 
+	if (isRemovedProviderKeyStatus(providerKey.status)) {
+		return c.json({
+			message: "Provider key deleted successfully",
+		});
+	}
+
+	// Conversations whose replayed reasoning only this key can verify keep
+	// using it through the grace period; nothing else routes to it.
+	const status = deletedProviderKeyStatus(providerKey);
 	await cdb
 		.update(tables.providerKey)
 		.set({
-			status: "deleted",
+			status,
+			deletionRequestedAt: status === "pending_deletion" ? new Date() : null,
 		})
 		.where(eq(tables.providerKey.id, id));
 
@@ -1015,10 +1155,13 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name,
 		description,
 		customModelsOnly,
+		forwardCacheControl,
 		complianceAttestation,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		...rateLimitInput
 	} = c.req.valid("json");
+	const rateLimitUpdates = providerKeyRateLimitUpdates(rateLimitInput);
 
 	// Get all active organization IDs the user has access to
 	const organizationIds = await getAdminOrganizationIds(user.id);
@@ -1038,7 +1181,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		},
 	});
 
-	if (!providerKey) {
+	if (!providerKey || isRemovedProviderKeyStatus(providerKey.status)) {
 		throw new HTTPException(404, {
 			message: "Provider key not found",
 		});
@@ -1050,8 +1193,10 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name !== undefined ||
 		description !== undefined ||
 		customModelsOnly !== undefined ||
+		forwardCacheControl !== undefined ||
 		complianceAttestation !== undefined ||
 		usageLimit !== undefined ||
+		Object.keys(rateLimitUpdates).length > 0 ||
 		requestedAllowedModels !== undefined;
 	if (providerKey.provider === "custom" && editsConfiguration) {
 		assertCustomProviderEnterprise(providerKey.organization);
@@ -1075,6 +1220,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 				message: "customModelsOnly can only be set on custom provider keys",
 			});
 		}
+	}
+
+	if (forwardCacheControl !== undefined && providerKey.provider !== "custom") {
+		throw new HTTPException(400, {
+			message: "forwardCacheControl can only be set on custom provider keys",
+		});
 	}
 
 	// Only the catalogue is checked here, not the key upstream: a PATCH cannot
@@ -1126,10 +1277,16 @@ keysProvider.openapi(updateStatus, async (c) => {
 		name?: string;
 		description?: string | null;
 		customModelsOnly?: boolean;
+		forwardCacheControl?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
-	} = {};
+		maxRpm?: number | null;
+		maxRpd?: number | null;
+		maxTpm?: number | null;
+		maxTpd?: number | null;
+		rateLimitMode?: "strict" | "soft" | "lax";
+	} = { ...rateLimitUpdates };
 	if (status !== undefined) {
 		updates.status = status;
 	}
@@ -1148,6 +1305,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
 	}
+	if (forwardCacheControl !== undefined) {
+		updates.forwardCacheControl = forwardCacheControl;
+	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
 			complianceAttestation,
@@ -1155,14 +1315,30 @@ keysProvider.openapi(updateStatus, async (c) => {
 		);
 	}
 
-	// Update the provider key
+	// Update the provider key. The status predicate keeps a DELETE that lands
+	// between the read above and this write from being undone (e.g. a status
+	// edit flipping a "pending_deletion" key back to "active").
 	const [updatedProviderKey] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
-		.where(eq(tables.providerKey.id, id))
+		.where(
+			and(
+				eq(tables.providerKey.id, id),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
+			),
+		)
 		.returning();
 
-	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (!updatedProviderKey) {
+		throw new HTTPException(404, {
+			message: "Provider key not found",
+		});
+	}
+
+	const changes: Record<string, { old: unknown; new: unknown }> =
+		providerKeyRateLimitChanges(providerKey, rateLimitUpdates);
 	if (status !== undefined && providerKey.status !== status) {
 		changes.status = { old: providerKey.status, new: status };
 	}
@@ -1185,6 +1361,15 @@ keysProvider.openapi(updateStatus, async (c) => {
 		changes.customModelsOnly = {
 			old: providerKey.customModelsOnly,
 			new: customModelsOnly,
+		};
+	}
+	if (
+		forwardCacheControl !== undefined &&
+		providerKey.forwardCacheControl !== forwardCacheControl
+	) {
+		changes.forwardCacheControl = {
+			old: providerKey.forwardCacheControl,
+			new: forwardCacheControl,
 		};
 	}
 	if (complianceAttestation !== undefined) {
@@ -1337,7 +1522,7 @@ keysProvider.openapi(reorder, async (c) => {
 			organizationId: { eq: organizationId },
 			provider: { eq: provider },
 			managed: { eq: false },
-			status: { ne: "deleted" },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 		},
 		columns: { id: true, sortOrder: true, createdAt: true },
 	});
@@ -1376,7 +1561,9 @@ keysProvider.openapi(reorder, async (c) => {
 				eq(tables.providerKey.organizationId, organizationId),
 				eq(tables.providerKey.provider, provider),
 				eq(tables.providerKey.managed, false),
-				ne(tables.providerKey.status, "deleted"),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
 			),
 		)
 		.returning();

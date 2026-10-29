@@ -2,9 +2,10 @@ import {
 	buildGoogleReasoningDetails,
 	type AnthropicThinkingBlock,
 	type GoogleThoughtSignatureState,
+	isAnthropicServerToolBlock,
+	isForwardedServerToolName,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
-	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
@@ -69,15 +70,34 @@ function normalizeAnthropicUsage(usage: any): any {
 }
 
 /**
- * Per-stream accumulator for Anthropic's server-side tool search calls, keyed
- * by content block index. The search input arrives as `input_json_delta`
- * chunks, so the `server_tool_use` block can only be emitted once its
- * `tool_search_tool_result` shows up — which is also when it is useful.
+ * Per-stream accumulator for Anthropic's server tool calls, keyed by content
+ * block index. The call input arrives as `input_json_delta` chunks, so the
+ * `server_tool_use` block is emitted at its `content_block_stop`; its result
+ * block is forwarded only when the call was.
  */
 export type AnthropicToolSearchState = Map<
 	number,
-	{ id: string; name: string; input: string }
+	{ block: AnthropicNativeBlock; input: string; emitted: boolean }
 >;
+
+type PendingServerToolCall =
+	AnthropicToolSearchState extends Map<number, infer V> ? V : never;
+
+/** The call block with its streamed input, marked as forwarded. */
+function completeServerToolCall(
+	call: PendingServerToolCall,
+): AnthropicNativeBlock {
+	call.emitted = true;
+	let input: unknown = call.block.input ?? {};
+	if (call.input) {
+		try {
+			input = JSON.parse(call.input);
+		} catch {
+			// A truncated input is not worth failing the stream over.
+		}
+	}
+	return { ...call.block, input };
+}
 
 /**
  * Per-stream thinking text keyed by content block index. The signature that
@@ -267,18 +287,17 @@ export function transformStreamingToOpenai(
 				if (serverToolUseIndices && data.index !== undefined) {
 					serverToolUseIndices.add(data.index);
 				}
-				// Tool search calls are replayable, so hold on to this one until
-				// its result block arrives and completes the pair.
+				// Calls to a forwarded server tool are replayable. Their input
+				// streams in, so the block is emitted at its content_block_stop.
 				if (
 					toolSearchState &&
 					data.index !== undefined &&
-					typeof data.content_block.name === "string" &&
-					data.content_block.name.startsWith(TOOL_SEARCH_TOOL_TYPE_PREFIX)
+					isForwardedServerToolName(data.content_block.name)
 				) {
 					toolSearchState.set(data.index, {
-						id: data.content_block.id,
-						name: data.content_block.name,
+						block: { ...data.content_block },
 						input: "",
+						emitted: false,
 					});
 				}
 				transformedData = {
@@ -391,22 +410,44 @@ export function transformStreamingToOpenai(
 				}
 			} else if (
 				data.type === "content_block_start" &&
-				data.content_block?.type === "web_search_tool_result"
+				data.content_block?.type !== "server_tool_use" &&
+				isAnthropicServerToolBlock(data.content_block)
 			) {
-				// Handle web search tool result start - extract citations. A failed
-				// search carries an error object instead of a result array.
-				const content = data.content_block?.content;
-				const webSearchResults = Array.isArray(content) ? content : [];
+				// A server tool result (tool search, web search, web fetch) has no
+				// OpenAI representation, so forward it verbatim for the
+				// /v1/messages layer to re-emit, after its call if that has not
+				// gone out yet. A result whose call was not forwarded is dropped.
+				const resultBlock = data.content_block;
+				const call = toolSearchState
+					? [...toolSearchState.values()].find(
+							(pending) => pending.block.id === resultBlock.tool_use_id,
+						)
+					: undefined;
+				const nativeBlocks: AnthropicNativeBlock[] = [];
+				if (call && !call.emitted) {
+					nativeBlocks.push(completeServerToolCall(call));
+				}
+				if (call) {
+					nativeBlocks.push({ ...resultBlock });
+				}
+				// Web search results double as url_citation annotations for chat
+				// completions clients. A failed search carries an error object
+				// instead of a result array.
 				const annotations: Annotation[] = [];
-				for (const result of webSearchResults) {
-					if (result.type === "web_search_result") {
-						annotations.push({
-							type: "url_citation",
-							url_citation: {
-								url: result.url ?? "",
-								title: result.title,
-							},
-						});
+				if (
+					resultBlock.type === "web_search_tool_result" &&
+					Array.isArray(resultBlock.content)
+				) {
+					for (const result of resultBlock.content) {
+						if (result.type === "web_search_result") {
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: result.url ?? "",
+									title: result.title,
+								},
+							});
+						}
 					}
 				}
 				transformedData = {
@@ -420,6 +461,9 @@ export function transformStreamingToOpenai(
 							delta: {
 								role: "assistant",
 								...(annotations.length > 0 && { annotations }),
+								...(nativeBlocks.length > 0 && {
+									anthropic_native_blocks: nativeBlocks,
+								}),
 							},
 							finish_reason: null,
 						},
@@ -428,45 +472,13 @@ export function transformStreamingToOpenai(
 				};
 			} else if (
 				data.type === "content_block_start" &&
-				data.content_block?.type === "tool_search_tool_result"
+				data.content_block?.type === "text" &&
+				serverToolUseIndices !== undefined &&
+				serverToolUseIndices.size > 0
 			) {
-				// The tool search pair has no OpenAI representation, so forward both
-				// blocks verbatim for the /v1/messages layer to re-emit. The result
-				// block arriving is what tells us the matching server_tool_use call
-				// is complete, so they are emitted together.
-				const resultBlock = data.content_block;
-				let searchCall: { id: string; name: string; input: string } | undefined;
-				if (toolSearchState) {
-					for (const [index, pending] of toolSearchState) {
-						if (pending.id === resultBlock.tool_use_id) {
-							searchCall = pending;
-							toolSearchState.delete(index);
-							break;
-						}
-					}
-				}
-				const nativeBlocks: AnthropicNativeBlock[] = [];
-				if (searchCall) {
-					let input: unknown = {};
-					try {
-						input = searchCall.input ? JSON.parse(searchCall.input) : {};
-					} catch {
-						// A truncated search input is not worth failing the stream over;
-						// the result block below is what carries the discovered tools.
-						input = {};
-					}
-					nativeBlocks.push({
-						type: "server_tool_use",
-						id: searchCall.id,
-						name: searchCall.name,
-						input,
-					});
-				}
-				nativeBlocks.push({
-					type: "tool_search_tool_result",
-					tool_use_id: resultBlock.tool_use_id,
-					content: resultBlock.content,
-				});
+				// After a server tool call Anthropic answers in several text blocks,
+				// each with its own citations. Mark where one starts so the
+				// /v1/messages layer keeps them apart.
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -477,12 +489,59 @@ export function transformStreamingToOpenai(
 							index: 0,
 							delta: {
 								role: "assistant",
-								anthropic_native_blocks: nativeBlocks,
+								anthropic_text_block_start: true,
 							},
 							finish_reason: null,
 						},
 					],
 					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (
+				data.type === "content_block_delta" &&
+				data.delta?.type === "citations_delta" &&
+				data.delta.citation
+			) {
+				transformedData = {
+					id: data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								anthropic_citation: data.delta.citation,
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (
+				data.type === "content_block_stop" &&
+				toolSearchState?.get(data.index)?.emitted === false
+			) {
+				// The call's input is complete: forward it now, so it survives a
+				// turn that ends before its result (a parallel client tool call,
+				// pause_turn, max_tokens).
+				transformedData = {
+					id: data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								anthropic_native_blocks: [
+									completeServerToolCall(toolSearchState.get(data.index)!),
+								],
+							},
+							finish_reason: null,
+						},
+					],
 				};
 			} else if (
 				data.type === "content_block_start" ||
@@ -527,7 +586,12 @@ export function transformStreamingToOpenai(
 					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_stop" || data.stop_reason) {
-				const stopReason = data.stop_reason ?? "end_turn";
+				// message_stop carries no stop_reason; the terminal reason was
+				// already emitted from the preceding message_delta. Mapping it to
+				// "stop" sent a second finish_reason that overrode "tool_calls" for
+				// clients that take the last one. When no message_delta carried a
+				// reason, chat.ts synthesizes the finish chunk at stream end.
+				const stopReason = data.stop_reason;
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -539,7 +603,9 @@ export function transformStreamingToOpenai(
 							delta: {
 								role: "assistant",
 							},
-							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
+							finish_reason: stopReason
+								? mapFinishReasonToOpenai(stopReason, usedProvider)
+								: null,
 						},
 					],
 					usage: normalizeAnthropicUsage(usage),
@@ -1749,20 +1815,15 @@ export function transformStreamingToOpenai(
 		case "canopywave":
 		case "inference.net":
 		case "together-ai":
-		case "scx-ai":
-		case "scx-ai-gp":
 		case "deepinfra":
 		case "custom":
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
-		case "embercloud":
-		case "runware":
-		case "gonka24":
 		case "ranoai":
 		case "baidu":
-		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":

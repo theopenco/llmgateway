@@ -725,11 +725,12 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Available Alibaba models (see the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for current pricing):
 
-| Model                        | Description                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------ |
-| `alibaba/qwen-image-2.1-pro` | Generation and editing from up to 10 reference images, flat price per output image   |
-| `alibaba/qwen-image-3.0`     | Third-generation image generation and editing                                        |
-| `alibaba/qwen-image-3.0-pro` | Highest quality third-generation generation and editing. Priced per output size tier |
+| Model                          | Description                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `alibaba/qwen-image-2.1-pro`   | Generation and editing from up to 10 reference images, flat price per output image                |
+| `alibaba/qwen-image-2.1-turbo` | Fast, low-cost generation and editing from up to 10 reference images, flat price per output image |
+| `alibaba/qwen-image-3.0`       | Third-generation image generation and editing                                                     |
+| `alibaba/qwen-image-3.0-pro`   | Highest quality third-generation generation and editing. Priced per output size tier              |
 
 <Callout type="info">
 	Alibaba models use explicit pixel dimensions (e.g., `"1024x1536"`) instead of

@@ -1,4 +1,4 @@
-import { isPremiumModel } from "@llmgateway/shared";
+import { isPremiumModel, discountLookupFromMappings } from "@llmgateway/shared";
 
 import type {
 	ApiModel,
@@ -178,7 +178,7 @@ export function adaptModel(
 ): AdaptedModel {
 	return {
 		id: modelDef.id,
-		premium: isPremiumModel(modelDef.id),
+		premium: isPremiumModel(modelDef.id, discountLookupFromMappings(providers)),
 		createdAt: "",
 		releasedAt: modelDef.releasedAt?.toISOString() ?? null,
 		name: modelDef.name ?? null,

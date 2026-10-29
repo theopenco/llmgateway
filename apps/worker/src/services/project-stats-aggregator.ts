@@ -1,3 +1,4 @@
+import { redisClient } from "@llmgateway/cache";
 import {
 	type AnyColumn,
 	type SQL,
@@ -270,20 +271,55 @@ export function getCommonAggregationFields() {
 }
 
 /**
- * BYOK subset of the gateway/upstream error counts. Only
- * project_hourly_model_stats carries these, for platform-only incident views.
+ * BYOK subset of the error and latency fields, carried by the project and
+ * API key hourly (model) stats so every metric can be split by billing mode.
  */
-function apiKeysErrorFields() {
+export function getApiKeysModeFields() {
+	const byok = sql`${log.usedMode} = 'api-keys'`;
+	const errors = (reason: string, alias: string) =>
+		sql<number>`sum(case when ${byok} and ${log.unifiedFinishReason} = ${reason} then 1 else 0 end)::int`.as(
+			alias,
+		);
+	const total = (column: AnyColumn, alias: string) =>
+		sql<number>`coalesce(sum(${column}) filter (where ${byok}), 0)::bigint`.as(
+			alias,
+		);
+	const samples = (column: AnyColumn, alias: string) =>
+		sql<number>`(count(${column}) filter (where ${byok}))::int`.as(alias);
 	return {
-		apiKeysGatewayErrorCount:
-			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
-				"apiKeysGatewayErrorCount",
-			),
-		apiKeysUpstreamErrorCount:
-			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
-				"apiKeysUpstreamErrorCount",
-			),
+		apiKeysClientErrorCount: errors("client_error", "apiKeysClientErrorCount"),
+		apiKeysGatewayErrorCount: errors(
+			"gateway_error",
+			"apiKeysGatewayErrorCount",
+		),
+		apiKeysUpstreamErrorCount: errors(
+			"upstream_error",
+			"apiKeysUpstreamErrorCount",
+		),
+		apiKeysTotalDuration: total(log.duration, "apiKeysTotalDuration"),
+		apiKeysDurationCount: samples(log.duration, "apiKeysDurationCount"),
+		apiKeysTotalTimeToFirstToken: total(
+			log.timeToFirstToken,
+			"apiKeysTotalTimeToFirstToken",
+		),
+		apiKeysTimeToFirstTokenCount: samples(
+			log.timeToFirstToken,
+			"apiKeysTimeToFirstTokenCount",
+		),
+		apiKeysTotalTimeToFirstReasoningToken: total(
+			log.timeToFirstReasoningToken,
+			"apiKeysTotalTimeToFirstReasoningToken",
+		),
+		apiKeysTimeToFirstReasoningTokenCount: samples(
+			log.timeToFirstReasoningToken,
+			"apiKeysTimeToFirstReasoningTokenCount",
+		),
 	};
+}
+
+/** Aggregation fields of the four tenant tables the BYOK split lives on. */
+function getTenantAggregationFields() {
+	return { ...getCommonAggregationFields(), ...getApiKeysModeFields() };
 }
 
 // Bound aggregation working sets and keep wide INSERTs below the parameter limit.
@@ -350,7 +386,7 @@ async function recalculateProjectHourlyStats(
 	const database = db;
 
 	const rows = await database
-		.select({ projectId: log.projectId, ...getCommonAggregationFields() })
+		.select({ projectId: log.projectId, ...getTenantAggregationFields() })
 		.from(log)
 		.where(
 			and(
@@ -377,7 +413,7 @@ async function recalculateProjectHourlyStats(
 				// The parent timestamp is the stale-bucket watermark, even when totals match.
 				...statsUpdate(
 					getTableColumns(projectHourlyStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					false,
 					window.accumulate,
 				),
@@ -400,8 +436,7 @@ export async function recalculateProjectHourlyModelStats(
 			projectId: log.projectId,
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			...getCommonAggregationFields(),
-			...apiKeysErrorFields(),
+			...getTenantAggregationFields(),
 			providerMarginAmount: providerMarginAmountField(),
 		})
 		.from(log)
@@ -432,8 +467,7 @@ export async function recalculateProjectHourlyModelStats(
 				...statsUpdate(
 					getTableColumns(projectHourlyModelStats),
 					{
-						...getCommonAggregationFields(),
-						...apiKeysErrorFields(),
+						...getTenantAggregationFields(),
 						providerMarginAmount: providerMarginAmountField(),
 					},
 					true,
@@ -657,7 +691,7 @@ async function recalculateApiKeyHourlyStats(
 		.select({
 			projectId: log.projectId,
 			apiKeyId: log.apiKeyId,
-			...getCommonAggregationFields(),
+			...getTenantAggregationFields(),
 		})
 		.from(log)
 		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
@@ -683,7 +717,7 @@ async function recalculateApiKeyHourlyStats(
 				target: [apiKeyHourlyStats.apiKeyId, apiKeyHourlyStats.hourTimestamp],
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -707,7 +741,7 @@ async function recalculateApiKeyHourlyModelStats(
 			apiKeyId: log.apiKeyId,
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			...getCommonAggregationFields(),
+			...getTenantAggregationFields(),
 		})
 		.from(log)
 		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
@@ -738,7 +772,7 @@ async function recalculateApiKeyHourlyModelStats(
 				],
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyModelStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -919,7 +953,7 @@ async function recalculateProviderKeyHourlyStats(
  * backfill) go through this so a newly added stats table cannot be wired into
  * one path and silently forgotten in the others.
  */
-async function recalculateBucket(
+export async function recalculateBucket(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
@@ -1204,13 +1238,41 @@ const LIVE_FULL_REFRESH_MS = 5 * 60 * 1000;
 // Closed hours are re-checked for late logs at most this often.
 const STALE_CHECK_INTERVAL_MS = 60 * 1000;
 
-let liveRefresh: { watermark: string; fullRefreshedAt: number } | undefined;
+// Accumulating is only correct when every pass continues from the point the
+// previous one stopped, whichever worker replica ran it. The watermark lives
+// in Redis and the worker holds a lock around each pass; the key expires when
+// a full refresh would be due anyway.
+const LIVE_REFRESH_KEY = `project_stats_live_refresh_${process.env.NODE_ENV}`;
+
+interface LiveRefreshState {
+	watermark: string;
+	fullRefreshedAt: number;
+}
+
+async function readLiveRefresh(): Promise<LiveRefreshState | undefined> {
+	const raw = await redisClient.get(LIVE_REFRESH_KEY);
+	return raw ? (JSON.parse(raw) as LiveRefreshState) : undefined;
+}
+
+async function writeLiveRefresh(state: LiveRefreshState) {
+	await redisClient.set(
+		LIVE_REFRESH_KEY,
+		JSON.stringify(state),
+		"PX",
+		LIVE_FULL_REFRESH_MS,
+	);
+}
+
+async function clearLiveRefresh() {
+	await redisClient.del(LIVE_REFRESH_KEY);
+}
+
 let finalizedHour: string | undefined;
 let lastStaleCheckAt = 0;
 
-/** Forget the in-memory refresh watermarks (tests). */
-export function resetProjectStatsRefreshState() {
-	liveRefresh = undefined;
+/** Forget the refresh watermarks (tests). */
+export async function resetProjectStatsRefreshState() {
+	await clearLiveRefresh();
 	finalizedHour = undefined;
 	lastStaleCheckAt = 0;
 }
@@ -1218,27 +1280,30 @@ export function resetProjectStatsRefreshState() {
 async function refreshLiveStats() {
 	const now = Date.now();
 	const until = formatUTCTimestamp(new Date(now - LIVE_SETTLE_MS));
+	const state = await readLiveRefresh();
 
-	if (
-		!liveRefresh ||
-		now - liveRefresh.fullRefreshedAt >= LIVE_FULL_REFRESH_MS
-	) {
+	if (!state || now - state.fullRefreshedAt >= LIVE_FULL_REFRESH_MS) {
 		await refreshCurrentHourStats(new Date(now - LIVE_SETTLE_MS));
-		liveRefresh = { watermark: until, fullRefreshedAt: now };
+		await writeLiveRefresh({ watermark: until, fullRefreshedAt: now });
 		return;
 	}
 
-	if (until <= liveRefresh.watermark) {
+	if (until <= state.watermark) {
 		return;
 	}
 
-	const since = liveRefresh.watermark;
+	const since = state.watermark;
+	// Drop the watermark before adding the slice: if the pass fails partway,
+	// the process dies, or the watermark write below fails, some tables may
+	// already hold the slice, so the next pass must recompute rather than add
+	// it again.
+	await clearLiveRefresh();
 	const projects = await refreshHourStats(getCurrentHourStart(), {
 		since,
 		until,
 		accumulate: true,
 	});
-	liveRefresh.watermark = until;
+	await writeLiveRefresh({ ...state, watermark: until });
 
 	logger.info(
 		`Added live stats for ${projects} projects (${since} to ${until})`,

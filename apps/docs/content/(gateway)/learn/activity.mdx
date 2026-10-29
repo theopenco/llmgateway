@@ -29,6 +29,17 @@ Filter the activity log using the controls at the top:
 | **Models**                  | Show requests for specific models only                                      |
 | **Custom header key/value** | Filter by custom metadata headers attached to requests                      |
 
+Reason, provider, model, source, billing mode, prompt, and custom header
+filters search the last 7 days unless you pick a time range, and a range can
+span at most 31 days. Unfiltered browsing and the error, API key, session, and
+request ID filters reach your full history.
+
+A search that runs longer than 10 seconds is canceled; narrow the time range
+or filters and try again. Each account can run 3 searches at once and each
+organization 6; further searches return `429` until one finishes. Model and
+provider filter options list what your project used in the last 90 days and
+can lag new traffic by up to an hour.
+
 ## Activity List
 
 Each activity entry shows:
@@ -103,3 +114,7 @@ The model parameters sent with the request:
 - Temperature, Max Tokens, Top P
 - Frequency Penalty, Reasoning Effort
 - Response Format
+
+## Admin request logs
+
+Administrators can also inspect request logs on organization and project pages in the admin dashboard. Failed loads display an error with a **Refresh** action; previously loaded logs remain visible if a refresh or pagination request fails. “No logs found” appears only after a successful empty response.

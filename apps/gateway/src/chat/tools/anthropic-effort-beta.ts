@@ -28,3 +28,58 @@ export function anthropicRequestNeedsEffortBeta(
 		body.output_config?.effort !== undefined
 	);
 }
+
+/**
+ * Betas the Anthropic API needs for tools the body carries: `strict` rides on
+ * structured outputs, `allowed_callers` on programmatic tool calling, and the
+ * first web fetch tool version on its own beta, which Microsoft Foundry takes
+ * too. All are ignored, or rejected, without their header.
+ */
+export function anthropicToolBetas(
+	usedProvider: string,
+	requestBody: ProviderRequestBody | FormData,
+): string[] {
+	if (
+		(usedProvider !== "anthropic" && usedProvider !== "azure-anthropic") ||
+		requestBody instanceof FormData
+	) {
+		return [];
+	}
+	const tools = (requestBody as AnthropicRequestBody).tools ?? [];
+	const betas: string[] = [];
+	if (
+		usedProvider === "anthropic" &&
+		tools.some((tool) => tool.strict === true)
+	) {
+		betas.push("structured-outputs-2025-11-13");
+	}
+	if (
+		usedProvider === "anthropic" &&
+		tools.some((tool) => tool.allowed_callers !== undefined)
+	) {
+		betas.push("advanced-tool-use-2025-11-20");
+	}
+	if (
+		tools.some(
+			(tool) => (tool as { type?: unknown }).type === "web_fetch_20250910",
+		)
+	) {
+		betas.push("web-fetch-2025-09-10");
+	}
+	return betas;
+}
+
+/** Append a beta to `anthropic-beta`, keeping the header free of duplicates. */
+export function appendAnthropicBeta(
+	headers: Record<string, string>,
+	beta: string,
+): void {
+	const current = headers["anthropic-beta"];
+	if (!current) {
+		headers["anthropic-beta"] = beta;
+		return;
+	}
+	if (!current.split(",").some((entry) => entry.trim() === beta)) {
+		headers["anthropic-beta"] = `${current},${beta}`;
+	}
+}

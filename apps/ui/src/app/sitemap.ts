@@ -265,6 +265,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		},
 		{
+			url: `${baseUrl}/models/decisions`,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/models/tools`,
 			changeFrequency: "weekly",
 			priority: 0.8,
@@ -296,6 +301,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/models/math`,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/cyber-security`,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/reverse-engineering`,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
@@ -486,11 +501,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		}));
 
 	// Feature pages
-	const featurePages: MetadataRoute.Sitemap = features.map((feature) => ({
-		url: `${baseUrl}/features/${feature.slug}`,
-		changeFrequency: "monthly",
-		priority: 0.7,
-	}));
+	const featurePages: MetadataRoute.Sitemap = [
+		{
+			url: `${baseUrl}/features`,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		...features.map((feature) => ({
+			url: `${baseUrl}/features/${feature.slug}`,
+			changeFrequency: "monthly" as const,
+			priority: 0.7,
+		})),
+	];
 
 	// Enterprise feature subpages
 	const enterpriseFeaturePages: MetadataRoute.Sitemap = enterpriseFeatures.map(

@@ -90,7 +90,10 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
-import { matchesCapability } from "./capability-filters";
+import {
+	matchesCapability,
+	matchesOutputCapabilities,
+} from "./capability-filters";
 import {
 	formatDeprecationDate,
 	formatPerImagePriceRange,
@@ -102,6 +105,7 @@ import { applyCategoryFilter } from "./model-category-filters";
 import {
 	compareSortValues,
 	effectiveTokenPrice,
+	getInputAudioHourPrice,
 	getInputCharacterPricePer1K,
 	getMaxPerSecondPrice,
 	getMinPerSecondPrice,
@@ -163,6 +167,11 @@ interface AllModelsProps {
 	 */
 	showPricingTierFilter?: boolean;
 	/**
+	 * Show the Lounge membership filter and the per-row "Plus" marker. Only
+	 * surfaces fed by fetchModelsFromApi carry `loungePlan`, so it is opt-in.
+	 */
+	showLoungePlanFilter?: boolean;
+	/**
 	 * Use Case category applied when the URL has no `category` param
 	 * (e.g. DevPass pins its directory to `code`).
 	 */
@@ -215,6 +224,13 @@ const PRICE_UNIT_OPTIONS: {
 		iconClass: "text-rose-500",
 		name: "Speech",
 		unit: "$/1K chars",
+	},
+	{
+		field: "inputAudioHourPrice",
+		Icon: Mic,
+		iconClass: "text-sky-500",
+		name: "Transcription",
+		unit: "$/hour",
 	},
 ];
 
@@ -397,10 +413,54 @@ const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	imageGeneration: "Image Generation",
 	videoGeneration: "Video Generation",
 	audioGeneration: "Speech Generation",
+	transcription: "Transcription",
 	embedding: "Embeddings",
 	rerank: "Rerank",
+	decisions: "Decisions",
+	searchApi: "Search API",
 	webSearch: "Web Search",
 };
+
+function shouldShowStabilityWarning(
+	stability?: StabilityLevel | null,
+): boolean {
+	return (
+		stability !== null &&
+		stability !== undefined &&
+		["unstable", "experimental"].includes(stability)
+	);
+}
+
+function formatPrice(
+	price: string | null | undefined,
+	discount?: string | null,
+) {
+	const priceNum = parseStrictPrice(price);
+	if (priceNum === null) {
+		return "—";
+	}
+	const discountNum = discountFraction(discount);
+	const originalPrice = (priceNum * 1e6).toFixed(2);
+	if (discountNum > 0) {
+		const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
+		return (
+			<div className="flex flex-col items-end">
+				<div className="flex items-center gap-1">
+					<span className="line-through text-muted-foreground text-xs">
+						${originalPrice}
+					</span>
+					<span className="text-green-600 font-semibold">
+						${discountedPrice}
+					</span>
+				</div>
+				<span className="text-[10px] text-green-600">
+					-{Math.round(discountNum * 100)}% off
+				</span>
+			</div>
+		);
+	}
+	return `$${originalPrice}`;
+}
 
 // Memoized table row component for performance
 const ModelTableRow = React.memo(
@@ -414,19 +474,21 @@ const ModelTableRow = React.memo(
 		formatPrice,
 		modelHref,
 		pinnedCapabilityKeys,
+		showLoungePlan,
 	}: {
 		row: FlattenedModelRow;
 		isExpanded: boolean;
 		copiedModel: string | null;
-		onToggleExpand: () => void;
+		onToggleExpand: (rowKey: string) => void;
 		onCopy: (text: string, key: string, e: React.MouseEvent) => void;
-		onNavigate: () => void;
+		onNavigate: (row: FlattenedModelRow) => void;
 		formatPrice: (
 			price: string | null | undefined,
 			discount?: string | null,
 		) => React.ReactNode;
 		modelHref: (path: string) => string;
 		pinnedCapabilityKeys: string[];
+		showLoungePlan: boolean;
 	}) => {
 		const { ProviderIcon } = row;
 		const isCustom = row.model.source === "custom";
@@ -448,12 +510,19 @@ const ModelTableRow = React.memo(
 		const perThousandChars = getInputCharacterPricePer1K(row.provider);
 		const hasCharacterPricing =
 			(parseStrictPrice(row.provider.inputCharacterPrice) ?? 0) > 0;
+		// OCR bills per page; its zero token prices would read as "free".
+		const ocrPagePrice = parseStrictPrice(row.provider.ocrPagePrice) ?? 0;
+		const ocrPerThousandPages =
+			ocrPagePrice > 0 && !inputTokenPrice && !outputTokenPrice
+				? ocrPagePrice * 1000 * (1 - discountFraction(row.provider.discount))
+				: null;
 		const perSecondPrices = row.provider.perSecondPrice;
 		const perSecondLabel = perSecondPrices
 			? (formatPerSecondPriceLabel(perSecondPrices, row.provider.discount)
 					?.value ??
 				(minPerSecond !== null ? formatPerUnitPrice(minPerSecond) : null))
 			: null;
+		const audioHourPrice = getInputAudioHourPrice(row.provider);
 
 		return (
 			<>
@@ -463,7 +532,7 @@ const ModelTableRow = React.memo(
 						isCustom ? "cursor-default" : "cursor-pointer",
 						isBlocked && "opacity-60",
 					)}
-					onClick={onNavigate}
+					onClick={() => onNavigate(row)}
 				>
 					{/* Provider Column */}
 					<TableCell className="font-medium">
@@ -472,7 +541,7 @@ const ModelTableRow = React.memo(
 								<button
 									onClick={(e) => {
 										e.stopPropagation();
-										onToggleExpand();
+										onToggleExpand(row.rowKey);
 									}}
 									className="p-0.5 hover:bg-muted rounded"
 									aria-label="Toggle additional pricing details"
@@ -624,8 +693,35 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier / $5+/M input or $15+/M output. Subject to
-											the weekly fair-use allowance on DevPass plans.
+											Premium tier / $5+/M input or $15+/M output after public
+											discounts. Subject to the weekly fair-use allowance on
+											DevPass plans.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{showLoungePlan && row.model.loungePlan === "plus" && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span
+											tabIndex={0}
+											className="shrink-0 cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										>
+											<Badge
+												variant="outline"
+												className="px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+											>
+												Plus
+											</Badge>
+											<span className="sr-only">
+												: needs a Lounge Plus or Pro membership
+											</span>
+										</span>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p className="text-xs">
+											Frontier model. In Lounge it needs a Plus or Pro
+											membership; Starter doesn&apos;t include it.
 										</p>
 									</TooltipContent>
 								</Tooltip>
@@ -664,6 +760,19 @@ const ModelTableRow = React.memo(
 								</TooltipTrigger>
 								<TooltipContent>
 									<p className="text-xs">Video per-second pricing</p>
+								</TooltipContent>
+							</Tooltip>
+						) : ocrPerThousandPages !== null ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										${ocrPerThousandPages.toFixed(2)}/1K pages
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-page OCR pricing (not per token)
+									</p>
 								</TooltipContent>
 							</Tooltip>
 						) : hasCharacterPricing &&
@@ -717,6 +826,19 @@ const ModelTableRow = React.memo(
 									</p>
 								</TooltipContent>
 							</Tooltip>
+						) : audioHourPrice !== null && !inputTokenPrice ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										{formatPerUnitPrice(audioHourPrice)}/hour
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Audio transcription per-hour pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
 						) : (
 							formatPrice(row.provider.inputPrice, row.provider.discount)
 						)}
@@ -735,14 +857,16 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.outputPrice ||
+						) : ocrPerThousandPages !== null ||
+						  ((!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  ((row.provider.requestPrice &&
-								parseFloat(row.provider.requestPrice) > 0) ||
-								(row.provider.perImagePrice &&
-									Object.keys(row.provider.perImagePrice).length > 0) ||
-								(row.provider.inputCharacterPrice &&
-									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
+								((row.provider.requestPrice &&
+									parseFloat(row.provider.requestPrice) > 0) ||
+									(row.provider.perImagePrice &&
+										Object.keys(row.provider.perImagePrice).length > 0) ||
+									(row.provider.inputCharacterPrice &&
+										parseFloat(row.provider.inputCharacterPrice) > 0) ||
+									audioHourPrice !== null)) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)
@@ -875,6 +999,27 @@ const ModelTableRow = React.memo(
 	},
 );
 
+const GridModelCard = React.memo(
+	({
+		model,
+		onNavigate,
+		renderCta,
+	}: {
+		model: ModelWithProviders;
+		onNavigate: (model: ModelWithProviders) => void;
+		renderCta: AllModelsProps["renderCta"];
+	}) => (
+		<ModelCard
+			shouldShowStabilityWarning={shouldShowStabilityWarning}
+			getCapabilityIcons={computeCapabilities}
+			model={model}
+			goToModel={() => onNavigate(model)}
+			formatPrice={formatPrice}
+			renderCta={renderCta}
+		/>
+	),
+);
+
 const TABLE_ROWS_PER_PAGE = 50;
 const GRID_MODELS_PER_PAGE = 12;
 
@@ -890,6 +1035,7 @@ export function AllModels({
 	renderCta,
 	modelHrefBase = "",
 	showPricingTierFilter = false,
+	showLoungePlanFilter = false,
 	defaultCategory = "all",
 	hideUseCaseFilter = false,
 	hideHeader = false,
@@ -899,7 +1045,10 @@ export function AllModels({
 	const searchParams = useSearchParams();
 	const isMobile = useIsMobile();
 
-	const modelHref = (path: string) => `${modelHrefBase}${path}`;
+	const modelHref = useCallback(
+		(path: string) => `${modelHrefBase}${path}`,
+		[modelHrefBase],
+	);
 
 	const [viewMode, setViewMode] = useState<"table" | "grid">(
 		(searchParams.get("view") as "table" | "grid") === "grid"
@@ -976,8 +1125,11 @@ export function AllModels({
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			videoGeneration: searchParams.get("videoGeneration") === "true",
 			audioGeneration: searchParams.get("audioGeneration") === "true",
+			transcription: searchParams.get("transcription") === "true",
 			embedding: searchParams.get("embedding") === "true",
 			rerank: searchParams.get("rerank") === "true",
+			decisions: searchParams.get("decisions") === "true",
+			searchApi: searchParams.get("searchApi") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -993,6 +1145,9 @@ export function AllModels({
 		return {
 			category,
 			tier: searchParams.get("tier") ?? "all",
+			loungePlan: showLoungePlanFilter
+				? (searchParams.get("lounge") ?? "all")
+				: "all",
 			capabilities,
 			selectedProvider: searchParams.get("provider") ?? "all",
 			status: getStatusFilterFromUrl(searchParams),
@@ -1017,6 +1172,25 @@ export function AllModels({
 		};
 	});
 
+	// Same-page links (e.g. the Lounge plan lists on /models) change the query
+	// without remounting, so follow the URL for the Lounge plan and panel.
+	const urlLoungePlan = showLoungePlanFilter
+		? (searchParams.get("lounge") ?? "all")
+		: "all";
+	const urlShowFilters = searchParams.get("filters") === "1";
+	useEffect(() => {
+		setFilters((prev) =>
+			prev.loungePlan === urlLoungePlan
+				? prev
+				: { ...prev, loungePlan: urlLoungePlan },
+		);
+	}, [urlLoungePlan]);
+	useEffect(() => {
+		if (urlShowFilters) {
+			setShowFilters(true);
+		}
+	}, [urlShowFilters]);
+
 	// Org-directory extensions: the Source and Eligibility filters only appear
 	// when the surface actually mixes in custom models or compliance data.
 	const hasCustomModels = useMemo(
@@ -1031,7 +1205,8 @@ export function AllModels({
 		[models],
 	);
 	// The per-unit toggles only appear when the current category has image,
-	// video or speech pricing; a unit left in the URL is ignored until then.
+	// video, speech or per-hour audio pricing; a unit left in the URL is
+	// ignored until then.
 	const hasPerUnitData = useMemo(() => {
 		const inScope = (model: ApiModel) =>
 			(!categoryFilter ||
@@ -1225,6 +1400,15 @@ export function AllModels({
 				return false;
 			}
 
+			// Lounge plan filter: "starter" lists what every membership includes,
+			// "plus" the frontier models that need Plus or Pro
+			if (
+				(filters.loungePlan === "starter" || filters.loungePlan === "plus") &&
+				model.loungePlan !== filters.loungePlan
+			) {
+				return false;
+			}
+
 			// Capability filters
 			if (
 				filters.capabilities.streaming &&
@@ -1282,31 +1466,7 @@ export function AllModels({
 			) {
 				return false;
 			}
-			if (
-				filters.capabilities.imageGeneration &&
-				!model.output?.includes("image")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.videoGeneration &&
-				!model.output?.includes("video")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.audioGeneration &&
-				!model.output?.includes("audio")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.embedding &&
-				!model.output?.includes("embedding")
-			) {
-				return false;
-			}
-			if (filters.capabilities.rerank && !model.output?.includes("rerank")) {
+			if (!matchesOutputCapabilities(filters.capabilities, model.output)) {
 				return false;
 			}
 			if (
@@ -1574,6 +1734,7 @@ export function AllModels({
 		searchQuery ||
 		(filters.category && filters.category !== defaultCategory) ||
 		(filters.tier && filters.tier !== "all") ||
+		filters.loungePlan !== "all" ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
 		filters.status !== null ||
@@ -1668,6 +1829,37 @@ export function AllModels({
 		[],
 	);
 
+	const openModelPage = useCallback(
+		(model: ApiModel, path: string) => {
+			// Custom models have no public model page to navigate to.
+			if (model.source === "custom") {
+				return;
+			}
+			const url = modelHref(path);
+			if (modelHrefBase) {
+				window.open(url, "_blank");
+			} else {
+				router.push(url);
+			}
+		},
+		[modelHref, modelHrefBase, router],
+	);
+
+	const navigateToRow = useCallback(
+		(row: FlattenedModelRow) =>
+			openModelPage(
+				row.model,
+				`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
+			),
+		[openModelPage],
+	);
+
+	const navigateToModel = useCallback(
+		(model: ModelWithProviders) =>
+			openModelPage(model, `/models/${encodeURIComponent(model.id)}`),
+		[openModelPage],
+	);
+
 	const handleSort = (field: SortField) => {
 		if (sortField === field) {
 			const newDir: SortDirection = sortDirection === "asc" ? "desc" : "asc";
@@ -1691,54 +1883,12 @@ export function AllModels({
 		);
 	};
 
-	const shouldShowStabilityWarning = (
-		stability?: StabilityLevel | null,
-	): boolean => {
-		return (
-			stability !== null &&
-			stability !== undefined &&
-			["unstable", "experimental"].includes(stability)
-		);
-	};
-
-	const formatPrice = (
-		price: string | null | undefined,
-		discount?: string | null,
-	) => {
-		const priceNum = parseStrictPrice(price);
-		if (priceNum === null) {
-			return "—";
-		}
-		const discountNum = discountFraction(discount);
-		const originalPrice = (priceNum * 1e6).toFixed(2);
-		if (discountNum > 0) {
-			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
-			return (
-				<div className="flex flex-col items-end">
-					<div className="flex items-center gap-1">
-						<span className="line-through text-muted-foreground text-xs">
-							${originalPrice}
-						</span>
-						<span className="text-green-600 font-semibold">
-							${discountedPrice}
-						</span>
-					</div>
-					<span className="text-[10px] text-green-600">
-						-{Math.round(discountNum * 100)}% off
-					</span>
-				</div>
-			);
-		}
-		return `$${originalPrice}`;
-	};
-
-	const getCapabilityIcons = computeCapabilities;
-
 	const clearFilters = () => {
 		setSearchQuery("");
 		setFilters({
 			category: defaultCategory,
 			tier: "all",
+			loungePlan: "all",
 			capabilities: {
 				streaming: false,
 				vision: false,
@@ -1750,8 +1900,11 @@ export function AllModels({
 				imageGeneration: false,
 				videoGeneration: false,
 				audioGeneration: false,
+				transcription: false,
 				embedding: false,
 				rerank: false,
+				decisions: false,
+				searchApi: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1772,6 +1925,7 @@ export function AllModels({
 			q: undefined,
 			category: undefined,
 			tier: undefined,
+			lounge: undefined,
 			streaming: undefined,
 			vision: undefined,
 			tools: undefined,
@@ -1782,8 +1936,11 @@ export function AllModels({
 			imageGeneration: undefined,
 			videoGeneration: undefined,
 			audioGeneration: undefined,
+			transcription: undefined,
 			embedding: undefined,
 			rerank: undefined,
+			decisions: undefined,
+			searchApi: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -1897,6 +2054,12 @@ export function AllModels({
 												Multimodal (Vision)
 											</div>
 										</SelectItem>
+										<SelectItem value="decisions">
+											<div className="flex items-center gap-2">
+												<SlidersHorizontal className="h-4 w-4 text-teal-500" />
+												Decisions
+											</div>
+										</SelectItem>
 									</SelectContent>
 								</Select>
 							</>
@@ -1939,6 +2102,46 @@ export function AllModels({
 											<div className="flex items-center gap-2">
 												<Zap className="h-4 w-4 text-emerald-500" />
 												Standard
+											</div>
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</>
+						) : null}
+
+						{showLoungePlanFilter ? (
+							<>
+								<div className="font-medium text-sm">Lounge Plan</div>
+								<Select
+									value={filters.loungePlan}
+									onValueChange={(value) => {
+										setFilters((prev) => ({ ...prev, loungePlan: value }));
+										updateUrlWithFilters({
+											lounge: value !== "all" ? value : undefined,
+											page: undefined,
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="All Plans" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">
+											<div className="flex items-center gap-2">
+												<List className="h-4 w-4 text-muted-foreground" />
+												All Plans
+											</div>
+										</SelectItem>
+										<SelectItem value="starter">
+											<div className="flex items-center gap-2">
+												<MessageSquare className="h-4 w-4 text-emerald-500" />
+												Included on Starter
+											</div>
+										</SelectItem>
+										<SelectItem value="plus">
+											<div className="flex items-center gap-2">
+												<Sparkles className="h-4 w-4 text-amber-500" />
+												Plus &amp; Pro only
 											</div>
 										</SelectItem>
 									</SelectContent>
@@ -2013,6 +2216,12 @@ export function AllModels({
 									color: "text-rose-500",
 								},
 								{
+									key: "transcription",
+									label: "Transcription",
+									icon: Mic,
+									color: "text-sky-500",
+								},
+								{
 									key: "embedding",
 									label: "Embeddings",
 									icon: Boxes,
@@ -2023,6 +2232,18 @@ export function AllModels({
 									label: "Rerank",
 									icon: ListOrdered,
 									color: "text-amber-500",
+								},
+								{
+									key: "decisions",
+									label: "Decisions",
+									icon: SlidersHorizontal,
+									color: "text-teal-500",
+								},
+								{
+									key: "searchApi",
+									label: "Search API",
+									icon: Search,
+									color: "text-sky-500",
 								},
 								{
 									key: "webSearch",
@@ -2535,25 +2756,13 @@ export function AllModels({
 									row={row}
 									isExpanded={expandedRows.has(row.rowKey)}
 									copiedModel={copiedModel}
-									onToggleExpand={() => toggleRowExpanded(row.rowKey)}
+									onToggleExpand={toggleRowExpanded}
 									onCopy={copyToClipboard}
-									onNavigate={() => {
-										// Custom models have no public model page to navigate to.
-										if (row.model.source === "custom") {
-											return;
-										}
-										const url = modelHref(
-											`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
-										);
-										if (modelHrefBase) {
-											window.open(url, "_blank");
-										} else {
-											router.push(url);
-										}
-									}}
+									onNavigate={navigateToRow}
 									formatPrice={formatPrice}
 									modelHref={modelHref}
 									pinnedCapabilityKeys={pinnedCapabilityKeys}
+									showLoungePlan={showLoungePlanFilter}
 								/>
 							))}
 						</TableBody>
@@ -2566,24 +2775,10 @@ export function AllModels({
 	const renderGridView = () => (
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 			{paginatedModels.map((model) => (
-				<ModelCard
+				<GridModelCard
 					key={`${model.id}-${model.providerDetails[0].provider.providerId}-${model.providerDetails[0].provider.region ?? ""}`}
-					shouldShowStabilityWarning={shouldShowStabilityWarning}
-					getCapabilityIcons={getCapabilityIcons}
 					model={model}
-					goToModel={() => {
-						// Custom models have no public model page to navigate to.
-						if (model.source === "custom") {
-							return;
-						}
-						const url = modelHref(`/models/${encodeURIComponent(model.id)}`);
-						if (modelHrefBase) {
-							window.open(url, "_blank");
-						} else {
-							router.push(url);
-						}
-					}}
-					formatPrice={formatPrice}
+					onNavigate={navigateToModel}
 					renderCta={renderCta}
 				/>
 			))}
@@ -2685,6 +2880,7 @@ export function AllModels({
 														? 1
 														: 0,
 													filters.tier && filters.tier !== "all" ? 1 : 0,
+													filters.loungePlan !== "all" ? 1 : 0,
 													filters.selectedProvider &&
 													filters.selectedProvider !== "all"
 														? 1

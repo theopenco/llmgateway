@@ -24,4 +24,9 @@ export type ApiKey = Omit<SerializedApiKey, "token"> & {
 	// Effective member budget of the key's creator, returned by GET /keys/api so
 	// the limits editor validates against the cap that actually applies.
 	ownerBudget?: ApiKeyLimitConstraints | null;
+	// Spend and requests inside the selected usage period; null for all time.
+	periodUsage?: string | null;
+	periodRequestCount?: number | null;
+	// Start of the latest hour in which the key served a request.
+	lastUsedAt?: string | null;
 };

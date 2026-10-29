@@ -2,6 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { ContentFilterSettingsForm } from "@/components/content-filter-settings-form";
+import { InternalClassifierCheckExport } from "@/components/internal-classifier-check-export";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -141,6 +142,16 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
+const usdFormatter = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	maximumFractionDigits: 0,
+});
+
+function formatUsd(value: number): string {
+	return value === 0 ? "—" : usdFormatter.format(value);
+}
+
 function SignInPrompt() {
 	return (
 		<div className="flex min-h-screen items-center justify-center px-4">
@@ -225,19 +236,26 @@ export default async function ContentFilterPage({
 
 	return (
 		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
-			<header className="flex items-center gap-3">
-				<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-					<ShieldCheck className="h-5 w-5" />
+			<header className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex items-center gap-3">
+					<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+						<ShieldCheck className="h-5 w-5" />
+					</div>
+					<div>
+						<h1 className="text-2xl font-semibold tracking-tight">
+							Content Filter
+						</h1>
+						<p className="text-sm text-muted-foreground">
+							Tiered gateway moderation: sampling, enforcement and per-provider
+							rollout
+						</p>
+					</div>
 				</div>
-				<div>
-					<h1 className="text-2xl font-semibold tracking-tight">
-						Content Filter
-					</h1>
-					<p className="text-sm text-muted-foreground">
-						Tiered gateway moderation: sampling, enforcement and per-provider
-						rollout
-					</p>
-				</div>
+				<Button asChild variant="outline" size="sm">
+					<Link href={`/content-filter/errors?window=${window}`}>
+						Moderation errors
+					</Link>
+				</Button>
 			</header>
 
 			<Card>
@@ -253,6 +271,20 @@ export default async function ContentFilterPage({
 				</CardHeader>
 				<CardContent>
 					<ContentFilterSettingsForm settings={settings} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Internal classifier checks</CardTitle>
+					<CardDescription>
+						Every internal classifier verdict, passes included, with the audit
+						CSV&apos;s columns and prompt fingerprints, read from request logs.
+						Up to 24 hours per export; logs keep them for 30 days.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<InternalClassifierCheckExport />
 				</CardContent>
 			</Card>
 
@@ -336,14 +368,28 @@ export default async function ContentFilterPage({
 									<TableRow>
 										<TableHead>Organization</TableHead>
 										<TableHead>Billing email</TableHead>
+										<TableHead
+											className="text-right"
+											title="All-time credit top-ups and manual payments, net of refunds"
+										>
+											Top-ups (net)
+										</TableHead>
+										<TableHead
+											className="text-right"
+											title="All-time DevPass, Chat Plan and Pro subscription payments, net of refunds"
+										>
+											Subscriptions
+										</TableHead>
 										<TableHead className="text-right">Sampled</TableHead>
 										<TableHead className="text-right">Violations</TableHead>
 										<TableHead className="text-right">Rate</TableHead>
 										<TableHead className="text-right">Blocked</TableHead>
 										<TableHead>Top categories</TableHead>
 										<TableHead>Top providers</TableHead>
+										<TableHead>Top categories by provider</TableHead>
 										<TableHead>Top models</TableHead>
 										<TableHead>Top mappings</TableHead>
+										<TableHead>Top API keys</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -364,6 +410,12 @@ export default async function ContentFilterPage({
 											</TableCell>
 											<TableCell className="text-sm">
 												{org.billingEmail ?? "—"}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{formatUsd(org.topUpNet)}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{formatUsd(org.subscriptionNet)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
 												{formatNumber(org.sampledCount)}
@@ -399,6 +451,35 @@ export default async function ContentFilterPage({
 												)}
 											</TableCell>
 											<TableCell className="text-xs text-muted-foreground">
+												{org.topProviders.every(
+													(p) => p.topCategories.length === 0,
+												) ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topProviders
+															.filter((p) => p.topCategories.length > 0)
+															.map((p) => (
+																<span
+																	key={p.usedProvider}
+																	className="whitespace-nowrap"
+																>
+																	<span className="font-medium text-foreground">
+																		{p.usedProvider}
+																	</span>
+																	:{" "}
+																	{p.topCategories
+																		.map(
+																			(c) =>
+																				`${c.category} (${formatNumber(c.violationCount)})`,
+																		)
+																		.join(", ")}
+																</span>
+															))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
 												{org.topModels.length === 0 ? (
 													"—"
 												) : (
@@ -426,6 +507,24 @@ export default async function ContentFilterPage({
 																className="whitespace-nowrap"
 															>
 																{m.usedModel} ({formatNumber(m.violationCount)})
+															</span>
+														))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{org.topApiKeys.length === 0 ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topApiKeys.map((k) => (
+															<span
+																key={k.apiKeyId}
+																className="whitespace-nowrap"
+																title={k.apiKeyId}
+															>
+																{k.description ?? k.apiKeyId} (
+																{formatNumber(k.violationCount)})
 															</span>
 														))}
 													</div>
