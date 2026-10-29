@@ -403,6 +403,39 @@ describe("admin routing analytics endpoint", () => {
 		]);
 	});
 
+	it("limits short windows to their most recent hourly buckets", async () => {
+		const hour = currentHourStart();
+		const mappingId = `${testModel.id}-${providerA}`;
+		const threeHoursMs = 3 * 3_600_000;
+		await db.insert(tables.modelProviderMappingHistoryHourly).values([
+			{
+				id: "routing-short-window-current",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: mappingId,
+				hourTimestamp: hour,
+				logsCount: 5,
+			},
+			{
+				id: "routing-short-window-old",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: mappingId,
+				hourTimestamp: new Date(hour.getTime() - threeHoursMs),
+				logsCount: 50,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=2h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.window).toBe("2h");
+		expect(body.hourly).toHaveLength(2);
+		expect(body.summary).toContainEqual(
+			expect.objectContaining({ providerId: providerA, requestCount: 5 }),
+		);
+	});
+
 	it("derives hourly metrics and scores from mapping history", async () => {
 		const hour = currentHourStart();
 		await db.insert(tables.modelProviderMappingHistoryHourly).values([
