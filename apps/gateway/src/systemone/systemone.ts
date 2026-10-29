@@ -315,6 +315,7 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 	const { state, questions, plan, partsByRef } = extractInlineImages(
 		validationResult.data.state,
 		validationResult.data.questions,
+		Object.keys(assets ?? {}).length,
 	);
 	const hasAssets = assets !== undefined && Object.keys(assets).length > 0;
 	const hasImageInput = hasAssets || plan.urls.length > 0;

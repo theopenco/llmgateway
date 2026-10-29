@@ -152,8 +152,9 @@ function newImageRef(): string {
 	return `image-${randomUUID()}`;
 }
 
-function checkTypeSafeImageUrls(urls: string[]): void {
-	if (urls.length > MAX_TYPESAFE_IMAGES) {
+/** `otherImages` counts images already in the request, such as caller assets. */
+function checkTypeSafeImageUrls(urls: string[], otherImages = 0): void {
+	if (urls.length > 0 && urls.length + otherImages > MAX_TYPESAFE_IMAGES) {
 		throw badRequest(
 			`This decision model accepts at most ${MAX_TYPESAFE_IMAGES} images per request.`,
 		);
@@ -295,12 +296,13 @@ export interface InlineImageExtraction<S, Q> {
  * `instructions` and `criteria`, as OpenRouter does for Jev: each part becomes
  * a fresh reference, and `plan` lists the images to load as `assets`. TypeSafe
  * reads images only from `assets`; a part left inline reaches the model as
- * base64 text.
+ * base64 text. `callerAssetCount` images the caller sent in `assets` count
+ * toward the per-request image cap.
  */
 export function extractInlineImages<
 	S,
 	Q extends Record<string, { instructions: unknown; criteria?: unknown }>,
->(state: S, questions: Q): InlineImageExtraction<S, Q> {
+>(state: S, questions: Q, callerAssetCount = 0): InlineImageExtraction<S, Q> {
 	const urls: string[] = [];
 	const refs: string[] = [];
 	const partsByRef = new Map<string, unknown>();
@@ -324,7 +326,7 @@ export function extractInlineImages<
 			},
 		]),
 	) as Q;
-	checkTypeSafeImageUrls(urls);
+	checkTypeSafeImageUrls(urls, callerAssetCount);
 	return {
 		state: nextState,
 		questions: nextQuestions,

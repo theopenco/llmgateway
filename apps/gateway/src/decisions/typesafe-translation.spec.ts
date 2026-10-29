@@ -140,6 +140,13 @@ describe("typesafe translation", () => {
 		expect(() =>
 			extractInlineImages({ type: "image_url", image_url: {} }, {}),
 		).toThrow("image_url.url");
+		const inline = { type: "image_url", image_url: { url: "x" } };
+		expect(() =>
+			extractInlineImages([inline], {}, MAX_TYPESAFE_IMAGES),
+		).toThrow("at most");
+		expect(
+			extractInlineImages([inline], {}, MAX_TYPESAFE_IMAGES - 1).plan.urls,
+		).toHaveLength(1);
 	});
 
 	it("opts into images and long context the way OpenRouter does", () => {
