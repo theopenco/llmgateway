@@ -44,12 +44,11 @@ raise the misclassification risk and confirm first.
 ## Content filter
 
 The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) is stateless and
-receives only the prompt. Every verdict, passes included, comes back with the
-prompt fingerprint (`VECTORAL_SAFETY_HASH_ALL`) and is stored on the log's
-content filter response; the admin export
-(`/admin/content-filter/internal-checks/export`) is the only record. The
-content filter log columns never leave the admin surface: customer-facing log
-APIs omit them.
+receives only the prompt. Every verdict, passes included, is stored on the log's
+content filter response, the only record; it carries the prompt fingerprint
+while the classifier runs with its hash-all option. Exports, including the
+pseudonymized vendor sample, are in the `internal-classifier` skill.
+Customer-facing log APIs never return the content filter log columns.
 
 Every classifier fails open. OpenAI moderation retries a network error or 5xx
 once and logs the retried attempt at `warn`. Final failures log at
