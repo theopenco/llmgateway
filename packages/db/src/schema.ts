@@ -2947,16 +2947,13 @@ export const videoJob = snakeCase.table(
 		// later — often from the worker — and some providers scope job
 		// visibility to the creating credential, so the exact row is pinned here
 		// rather than re-selected. NULL means the job was created from an
-		// organization's BYOK key or from the provider's LLM_* env vars, both of
-		// which are re-resolved the way they always were.
+		// organization's BYOK key or from the provider's LLM_* env vars.
 		managedProviderKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
-		// BYOK provider key that created the job, for spend attribution on the
-		// final log row. Unlike managedProviderKeyId this does not pin polling:
-		// BYOK polls re-resolve the org's active key as they always did, so a
-		// job's spend may attribute to the creating key even if the org rotated
-		// keys mid-job — acceptable for the approximate spend-limit feature.
+		// BYOK credential used at submission, for spend attribution. Account-scoped
+		// queues (fal) also pin polling to this key; other providers re-resolve
+		// an active organization key.
 		providerKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),

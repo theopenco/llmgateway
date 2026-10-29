@@ -19,6 +19,9 @@ and point the user to https://airside.llmgateway.io. A maintainer adding a
 provider to the catalogue on our own account (e.g. Cloudflare Workers AI) is
 not onboarding and belongs here.
 
+Configure new production platform credentials in **Admin → Provider credentials**.
+Use `LLM_*` environment keys for local testing, not production credential setup.
+
 ## 1. Scope
 
 List every `(model, provider, region)` triple that is new or changed. Regions in

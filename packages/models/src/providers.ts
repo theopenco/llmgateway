@@ -329,6 +329,24 @@ export interface ProviderDefinition {
 
 export const providers: ProviderDefinition[] = [
 	{
+		id: "fal-ai",
+		name: "fal",
+		forwardsSafetyIdentifier: false,
+		description: "fal is a platform for generative media inference.",
+		env: {
+			required: { apiKey: "LLM_FAL_AI_API_KEY" },
+			optional: { baseUrl: "LLM_FAL_AI_BASE_URL" },
+		},
+		website: "https://fal.ai",
+		apiKeyInstructions: "Create an API key in the fal dashboard.",
+		learnMore: "https://fal.ai/dashboard/keys",
+		termsUrl: "https://fal.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://fal.ai/legal/privacy-policy",
+		usagePolicyUrl: "https://fal.ai/legal/acceptable-use-policy",
+		legalEntity: "Features & Labels, Inc.",
+		dataPolicy: null,
+	},
+	{
 		id: "llmgateway",
 		name: "LLM Gateway",
 		forwardsSafetyIdentifier: false,

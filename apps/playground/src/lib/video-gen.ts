@@ -1,8 +1,22 @@
+import { supportsVideoReasoningEffort } from "@llmgateway/shared/video-generation-config";
+
 import type { paths } from "@/lib/api/v1";
-import type { VideoJob } from "@llmgateway/shared/video-generation-config";
+import type {
+	VideoJob,
+	VideoReasoningEffort,
+} from "@llmgateway/shared/video-generation-config";
 import type { Client } from "openapi-fetch";
 
 export * from "@llmgateway/shared/video-generation-config";
+
+export function getVideoReasoningRequestFields(
+	modelId: string,
+	reasoningEffort: VideoReasoningEffort,
+): { reasoning_effort?: VideoReasoningEffort } {
+	return supportsVideoReasoningEffort(modelId)
+		? { reasoning_effort: reasoningEffort }
+		: {};
+}
 
 export function downloadVideo(url: string, filename?: string) {
 	const name = filename ?? `video-${Date.now()}.mp4`;

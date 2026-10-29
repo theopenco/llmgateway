@@ -6,6 +6,9 @@ import {
 	getSupportedVideoSizesForSelection,
 	getNormalizedVideoRequestSelection,
 	isPendingVideoModel,
+	getVideoReasoningRequestFields,
+	getVideoResolutions,
+	getVideoOrientations,
 	requiresVideoLipSyncInputs,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
@@ -499,6 +502,74 @@ describe("Grok Imagine Video 1.5 capabilities", () => {
 			true,
 		);
 	});
+});
+
+describe("FLUX 3 Max studio options", () => {
+	const sizes = ["1280x720", "720x1280", "1920x1080", "1080x1920"];
+	const durations = Array.from({ length: 16 }, (_, i) => i + 5);
+	const model = makeModel(
+		[
+			makeMapping({
+				modelId: "flux-3-max",
+				providerId: "fal-ai",
+				externalId: "blackforestlabs/flux-3-max",
+				supportedVideoSizes: sizes,
+				supportedVideoDurationsSeconds: durations,
+				supportedVideoDurationsSecondsImageToVideo: null,
+			}),
+		],
+		"flux-3-max",
+	);
+
+	test.each(["none", "frames"] as const)(
+		"offers both resolutions and 5–20s in %s mode",
+		(mode) => {
+			const options = getSupportedVideoRequestOptions(
+				[model],
+				["fal-ai/flux-3-max"],
+				mode,
+			);
+			expect(options).toEqual({ sizes, durations });
+			expect(getVideoResolutions(options.sizes)).toEqual(["720p", "1080p"]);
+			for (const resolution of ["720p", "1080p"] as const) {
+				expect(getVideoOrientations(options.sizes, resolution)).toEqual([
+					"landscape",
+					"portrait",
+				]);
+			}
+			expect(
+				getNormalizedVideoRequestSelection(
+					[model],
+					[model.id],
+					mode,
+					"1280x720",
+					4,
+				),
+			).toEqual({ size: "1280x720", duration: 5 });
+		},
+	);
+
+	test.each(["low", "high"] as const)(
+		"forwards %s prompt reasoning only to FLUX requests",
+		(effort) => {
+			for (const modelId of [
+				"flux-3-max",
+				"fal-ai/flux-3-max",
+				"fal-ai/flux-3-max:us",
+			]) {
+				expect(getVideoReasoningRequestFields(modelId, effort)).toEqual({
+					reasoning_effort: effort,
+				});
+			}
+			for (const modelId of [
+				"seedance-2-5",
+				"openai/flux-3-max",
+				"fal-ai/blackforestlabs/flux-3-max",
+			]) {
+				expect(getVideoReasoningRequestFields(modelId, effort)).toEqual({});
+			}
+		},
+	);
 });
 
 describe("saved video model results", () => {

@@ -47,6 +47,11 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return {
+				...requestIdHeader,
+				Authorization: `Key ${token}`,
+			};
 		case "anthropic":
 			return {
 				...requestIdHeader,
