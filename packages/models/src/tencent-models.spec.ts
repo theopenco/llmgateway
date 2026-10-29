@@ -131,7 +131,9 @@ describe("Tencent sampling metadata", () => {
 	] as const)(
 		"keeps only verified temperature ceilings for %s",
 		(model, expected) => {
-			expect(tencentMapping(model)?.maxTemperature).toBe(expected);
+			const mapping = tencentMapping(model);
+			expect(mapping).toBeDefined();
+			expect(mapping?.maxTemperature).toBe(expected);
 		},
 	);
 
