@@ -569,17 +569,22 @@ async function fetchModelSearchRows(): Promise<ModelSearchRows> {
 			columns: { providerId: true, customName: true },
 		}),
 	]);
+	const publicProviderIds = getPublicProviderIds(claims);
 	const customNameByProvider = new Map(
 		claims.map((claim) => [claim.providerId, claim.customName]),
 	);
 	return {
 		models,
-		mappings,
-		providers: providers.map((provider) => ({
-			id: provider.id,
-			name:
-				customNameByProvider.get(provider.id) ?? provider.name ?? provider.id,
-		})),
+		mappings: mappings.filter((mapping) =>
+			publicProviderIds.has(mapping.providerId),
+		),
+		providers: providers
+			.filter((provider) => publicProviderIds.has(provider.id))
+			.map((provider) => ({
+				id: provider.id,
+				name:
+					customNameByProvider.get(provider.id) ?? provider.name ?? provider.id,
+			})),
 	};
 }
 
@@ -739,6 +744,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			profileUpdatedAt: true,
 		},
 	});
+	const publicProviderIds = getPublicProviderIds(activeClaims);
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
 	);
@@ -770,12 +776,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
 		providers: providers
-			.filter(
-				(provider) =>
-					providerDefinitions.some(
-						(definition) => definition.id === provider.id,
-					) || brandingByProvider.has(provider.id),
-			)
+			.filter((provider) => publicProviderIds.has(provider.id))
 			.map((provider) => ({
 				...provider,
 				name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
@@ -1475,3 +1476,11 @@ internalModels.openapi(getProviderFacts, async (c) => {
 		})),
 	});
 });
+function getPublicProviderIds(
+	claims: readonly { providerId: string }[],
+): Set<string> {
+	return new Set([
+		...providerDefinitions.map((provider) => provider.id),
+		...claims.map((claim) => claim.providerId),
+	]);
+}
