@@ -57,40 +57,45 @@ async function setTopicOptIn(
 	resend: Resend,
 	id: string,
 	topicId: string,
+	segmentId: string,
 ): Promise<boolean> {
-	const contact = await requestWithRetry(() => resend.contacts.get({ id }));
-	if (contact.unsubscribed !== false) {
-		return false;
-	}
-	let after: string | undefined;
-	while (true) {
-		const topics = await requestWithRetry(() =>
-			resend.contacts.topics.list({
-				id,
-				limit: 100,
-				...(after ? { after } : {}),
-			}),
-		);
-		// Backfill missing state only; never override an existing preference.
-		if (topics.data.some((topic) => topic.id === topicId)) {
-			return false;
+	// Consent can change after a throttled write; recheck before every attempt.
+	return await requestWithRetry(async () => {
+		const contact = await requestWithRetry(() => resend.contacts.get({ id }));
+		if (contact.unsubscribed !== false) {
+			return { data: false, error: null };
 		}
-		if (!topics.has_more) {
-			break;
+		let after: string | undefined;
+		while (true) {
+			const topics = await requestWithRetry(() =>
+				resend.contacts.topics.list({
+					id,
+					limit: 100,
+					...(after ? { after } : {}),
+				}),
+			);
+			// Backfill missing state only; never override an existing preference.
+			if (topics.data.some((topic) => topic.id === topicId)) {
+				return { data: false, error: null };
+			}
+			if (!topics.has_more) {
+				break;
+			}
+			const next = topics.data.at(-1)?.id;
+			if (!next || next === after) {
+				throw new Error("Resend returned an invalid topics cursor");
+			}
+			after = next;
 		}
-		const next = topics.data.at(-1)?.id;
-		if (!next || next === after) {
-			throw new Error("Resend returned an invalid topics cursor");
+		if (!(await isCurrentSegmentMember(resend, id, segmentId))) {
+			return { data: false, error: null };
 		}
-		after = next;
-	}
-	await requestWithRetry(() =>
-		resend.contacts.topics.update({
+		const { error } = await resend.contacts.topics.update({
 			id,
 			topics: [{ id: topicId, subscription: "opt_in" }],
-		}),
-	);
-	return true;
+		});
+		return { data: error ? null : true, error };
+	});
 }
 
 export async function main() {
@@ -108,6 +113,7 @@ export async function main() {
 		);
 	}
 	const newsletterTopicId = topicId;
+	const newsletterSegmentId = segmentId;
 	const resend = createResendClient(apiKey, 10_000);
 	console.log(`Mode: ${apply ? "APPLY" : "DRY-RUN"}`);
 	const contacts = await listAllContacts(resend, segmentId);
@@ -128,7 +134,14 @@ export async function main() {
 		while (next < eligible.length) {
 			const contact = eligible[next++];
 			try {
-				if (await setTopicOptIn(resend, contact.id, newsletterTopicId)) {
+				if (
+					await setTopicOptIn(
+						resend,
+						contact.id,
+						newsletterTopicId,
+						newsletterSegmentId,
+					)
+				) {
 					done++;
 				} else {
 					skipped++;
@@ -166,7 +179,7 @@ async function requestWithRetry<T>(
 ): Promise<T> {
 	for (let attempt = 0; attempt < 5; attempt++) {
 		const { data, error } = await request();
-		if (!error && data) {
+		if (!error && data !== null) {
 			return data;
 		}
 		const retryable =
@@ -182,4 +195,31 @@ async function requestWithRetry<T>(
 		await sleep(backoffMs(attempt));
 	}
 	throw new Error("Resend retry limit exceeded");
+}
+async function isCurrentSegmentMember(
+	resend: Resend,
+	contactId: string,
+	segmentId: string,
+): Promise<boolean> {
+	let after: string | undefined;
+	while (true) {
+		const segments = await requestWithRetry(() =>
+			resend.contacts.segments.list({
+				contactId,
+				limit: 100,
+				...(after ? { after } : {}),
+			}),
+		);
+		if (segments.data.some((segment) => segment.id === segmentId)) {
+			return true;
+		}
+		if (!segments.has_more) {
+			return false;
+		}
+		const next = segments.data.at(-1)?.id;
+		if (!next || next === after) {
+			throw new Error("Resend returned an invalid segments cursor");
+		}
+		after = next;
+	}
 }

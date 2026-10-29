@@ -5,6 +5,7 @@ import { main } from "./subscribe-existing-to-topic.js";
 const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
 	get: vi.fn(),
+	listSegments: vi.fn(),
 	listTopics: vi.fn(),
 	updateTopics: vi.fn(),
 }));
@@ -14,6 +15,7 @@ vi.mock("@llmgateway/shared/email", () => ({
 		contacts: {
 			list: mocks.list,
 			get: mocks.get,
+			segments: { list: mocks.listSegments },
 			topics: { list: mocks.listTopics, update: mocks.updateTopics },
 		},
 	}),
@@ -46,6 +48,7 @@ beforeEach(() => {
 	mocks.list.mockResolvedValue(page([contact]));
 	mocks.get.mockResolvedValue({ data: contact, error: null });
 	mocks.listTopics.mockResolvedValue(page([]));
+	mocks.listSegments.mockResolvedValue(page([{ id: "legacy-newsletter" }]));
 	mocks.updateTopics.mockResolvedValue({
 		data: { id: contact.id },
 		error: null,
@@ -197,4 +200,100 @@ describe("newsletter backfill", () => {
 		await expect(main()).rejects.toThrow("cursor");
 		expect(mocks.updateTopics).not.toHaveBeenCalled();
 	});
+});
+
+describe("current newsletter consent", () => {
+	test("skips a contact removed from the segment after the initial snapshot", async () => {
+		mocks.listSegments.mockResolvedValue(page([]));
+		await main();
+		expect(mocks.updateTopics).not.toHaveBeenCalled();
+		expect(process.exitCode).not.toBe(1);
+	});
+
+	test("paginates current segment membership before opting in", async () => {
+		mocks.listSegments
+			.mockResolvedValueOnce(page([{ id: "other-segment" }], true))
+			.mockResolvedValueOnce(page([{ id: "legacy-newsletter" }]));
+		await main();
+		expect(mocks.listSegments).toHaveBeenNthCalledWith(1, {
+			contactId: contact.id,
+			limit: 100,
+		});
+		expect(mocks.listSegments).toHaveBeenNthCalledWith(2, {
+			contactId: contact.id,
+			limit: 100,
+			after: "other-segment",
+		});
+		expect(mocks.updateTopics).toHaveBeenCalledTimes(1);
+	});
+
+	test("does not write when current membership cannot be read", async () => {
+		mocks.listSegments.mockResolvedValue(failure(403));
+		await main();
+		expect(mocks.updateTopics).not.toHaveBeenCalled();
+		expect(process.exitCode).toBe(1);
+	});
+
+	test("rejects malformed segment pagination without writing", async () => {
+		mocks.listSegments.mockResolvedValue(page([], true));
+		await main();
+		expect(mocks.updateTopics).not.toHaveBeenCalled();
+		expect(process.exitCode).toBe(1);
+	});
+
+	test("retries a transient membership read before the write", async () => {
+		vi.useFakeTimers();
+		mocks.listSegments.mockResolvedValueOnce(failure(429));
+		const run = main();
+		await vi.runAllTimersAsync();
+		await run;
+		expect(mocks.listSegments).toHaveBeenCalledTimes(2);
+		expect(mocks.updateTopics).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("consent changes between write attempts", () => {
+	test.each(["removed", "unverifiable"] as const)(
+		"stops retrying when membership becomes %s",
+		async (state) => {
+			vi.useFakeTimers();
+			mocks.listSegments
+				.mockResolvedValueOnce(page([{ id: "legacy-newsletter" }]))
+				.mockResolvedValueOnce(state === "removed" ? page([]) : failure(403));
+			mocks.updateTopics.mockResolvedValueOnce(failure(429));
+			const run = main();
+			await vi.runAllTimersAsync();
+			await run;
+			expect(mocks.listSegments).toHaveBeenCalledTimes(2);
+			expect(mocks.updateTopics).toHaveBeenCalledTimes(1);
+			expect(process.exitCode).toBe(state === "unverifiable" ? 1 : 0);
+		},
+	);
+
+	test.each(["global", "topic"] as const)(
+		"preserves a new %s opt-out before retrying",
+		async (state) => {
+			vi.useFakeTimers();
+			if (state === "global") {
+				mocks.get
+					.mockResolvedValueOnce({ data: contact, error: null })
+					.mockResolvedValueOnce({
+						data: { ...contact, unsubscribed: true },
+						error: null,
+					});
+			} else {
+				mocks.listTopics
+					.mockResolvedValueOnce(page([]))
+					.mockResolvedValueOnce(
+						page([{ id: "newsletter-topic", subscription: "opt_out" }]),
+					);
+			}
+			mocks.updateTopics.mockResolvedValueOnce(failure(429));
+			const run = main();
+			await vi.runAllTimersAsync();
+			await run;
+			expect(mocks.updateTopics).toHaveBeenCalledTimes(1);
+			expect(process.exitCode).not.toBe(1);
+		},
+	);
 });
