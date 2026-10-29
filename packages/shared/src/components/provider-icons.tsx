@@ -1323,6 +1323,34 @@ export const TypeSafeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const FalIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M15.477 0c.415 0 .749.338.788.752a7.775 7.775 0 006.985 6.984c.413.04.752.373.752.788v6.952c0 .415-.338.748-.752.788a7.775 7.775 0 00-6.985 6.984c-.04.414-.373.752-.788.752H8.525c-.416 0-.749-.338-.789-.752a7.775 7.775 0 00-6.984-6.984c-.414-.04-.752-.373-.752-.788V8.524c0-.415.338-.748.752-.788A7.775 7.775 0 007.736.752C7.776.338 8.11 0 8.526 0h6.95zM4.819 11.98a7.226 7.226 0 007.223 7.23 7.226 7.226 0 007.223-7.23c0-3.994-3.234-7.23-7.223-7.23a7.227 7.227 0 00-7.223 7.23z"
+		/>
+	</svg>
+);
+
+export const BlackForestLabsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<path d="M17.113 10.248H14.56l-2.553-3.616-7.963 11.27h2.558l5.405-7.654h2.552l-5.404 7.653h2.565l5.392-7.653L24 20 19.97 20v-2.091l-2.857-4.044-2.842 4.037V20H0L12.008 3l5.105 7.249z" />
+	</svg>
+);
+
 export const ProviderIcons = {
 	atlascloud: AtlasCloudIcon,
 	anthropic: AnthropicIcon,
@@ -1369,6 +1397,7 @@ export const ProviderIcons = {
 	tencent: TencentCloudIcon,
 	typesafe: TypeSafeIcon,
 	cloudflare: CloudflareIcon,
+	"fal-ai": FalIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1456,6 +1485,7 @@ const bundledProviderLogos: Partial<
 	tencent: ProviderIcons.tencent,
 	typesafe: ProviderIcons.typesafe,
 	cloudflare: ProviderIcons.cloudflare,
+	"fal-ai": ProviderIcons["fal-ai"],
 };
 
 export const providerLogoUrls: Partial<
@@ -1504,6 +1534,7 @@ export const ModelFamilyIcons: Record<
 	alibaba: AlibabaIcon,
 	anthropic: AnthropicIcon,
 	atlascloud: AtlasCloudIcon,
+	"black-forest-labs": BlackForestLabsIcon,
 	bytedance: BytedanceIcon,
 	deepseek: DeepseekIcon,
 	elevenlabs: ElevenLabsIcon,
