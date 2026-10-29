@@ -18,6 +18,8 @@ const TERMINAL_VIDEO_STATUSES = new Set([
 	"expired",
 ]);
 
+const RESULT_LOG_GRACE_MS = 2 * 60 * 1000;
+
 function toUnixTimestamp(date: Date | null): number | null {
 	return date ? Math.floor(date.getTime() / 1000) : null;
 }
@@ -133,7 +135,14 @@ video.openapi(getVideoStatus, async (c) => {
 	// playback is served from. Until that log exists the job is not playable,
 	// so report it as still finishing; otherwise a poller that lands in that
 	// gap treats the job as done and its player fails until the page reloads.
-	const awaitingResultLog = job.status === "completed" && !job.logId;
+	// The worker retries finalization every tick, so the gap is normally
+	// seconds; past the grace window the terminal status wins, so a job whose
+	// log keeps failing cannot hold pollers on "in progress".
+	const awaitingResultLog =
+		job.status === "completed" &&
+		!job.logId &&
+		(!job.completedAt ||
+			Date.now() - job.completedAt.getTime() < RESULT_LOG_GRACE_MS);
 
 	return c.json(
 		{
@@ -149,7 +158,7 @@ video.openapi(getVideoStatus, async (c) => {
 						: job.progress
 					: job.progress,
 			created_at: Math.floor(job.createdAt.getTime() / 1000),
-			completed_at: toUnixTimestamp(job.completedAt),
+			completed_at: awaitingResultLog ? null : toUnixTimestamp(job.completedAt),
 			expires_at: toUnixTimestamp(job.expiresAt),
 			error: job.error ?? null,
 			content,

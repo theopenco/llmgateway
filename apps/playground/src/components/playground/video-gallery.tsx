@@ -51,8 +51,9 @@ interface VideoGalleryProps {
 	onSuggestionClick?: (prompt: string) => void;
 }
 
-// A finished job's content can take a moment to become playable, so a failed
-// load is retried a few times before the video is reported unavailable.
+// A job that just finished in this session can take a moment to become
+// playable, so its failed load is retried a few times before the video is
+// reported unavailable. Saved results fail straight away.
 const LOAD_RETRY_DELAYS_MS = [1_000, 3_000, 6_000];
 
 function withRetryParam(url: string, attempt: number): string {
@@ -67,11 +68,13 @@ const VideoPlayer = memo(
 		url,
 		modelName,
 		expiresAt,
+		retryOnError,
 		onLoadError,
 	}: {
 		url: string;
 		modelName?: string;
 		expiresAt?: number | null;
+		retryOnError: boolean;
 		onLoadError: () => void;
 	}) => {
 		const [attempt, setAttempt] = useState(0);
@@ -87,7 +90,7 @@ const VideoPlayer = memo(
 		}, [url]);
 
 		const handleError = useCallback(() => {
-			const delay = LOAD_RETRY_DELAYS_MS[attempt];
+			const delay = retryOnError ? LOAD_RETRY_DELAYS_MS[attempt] : undefined;
 			if (delay === undefined) {
 				onLoadError();
 				return;
@@ -96,7 +99,7 @@ const VideoPlayer = memo(
 				() => setAttempt((current) => current + 1),
 				delay,
 			);
-		}, [attempt, onLoadError]);
+		}, [attempt, retryOnError, onLoadError]);
 
 		const expiringSoon = isExpiringSoon(expiresAt ?? null);
 
@@ -166,14 +169,15 @@ function VideoProgress({
 }) {
 	const [now, setNow] = useState(() => Date.now());
 	const reportsProgress = progress !== null && progress > 0;
+	const showsElapsed = status !== "queued" && !reportsProgress;
 
 	useEffect(() => {
-		if (reportsProgress) {
+		if (!showsElapsed) {
 			return;
 		}
 		const timer = setInterval(() => setNow(Date.now()), 1_000);
 		return () => clearInterval(timer);
-	}, [reportsProgress]);
+	}, [showsElapsed]);
 
 	const elapsedSeconds = Math.max(0, Math.floor(now / 1000) - createdAt);
 	const label =
@@ -333,6 +337,7 @@ function SingleModeItem({ item }: { item: VideoGalleryItem }) {
 						<VideoPlayer
 							url={model.videoUrl}
 							expiresAt={model.expiresAt}
+							retryOnError={model.job !== null}
 							onLoadError={() => setLoadError(true)}
 						/>
 					)}
@@ -411,6 +416,7 @@ function ComparisonModeItem({ item }: { item: VideoGalleryItem }) {
 										url={model.videoUrl}
 										modelName={model.modelName}
 										expiresAt={model.expiresAt}
+										retryOnError={model.job !== null}
 										onLoadError={() => handleLoadError(model.modelId)}
 									/>
 								)

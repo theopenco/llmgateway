@@ -639,6 +639,7 @@ describe("pollVideoJob", () => {
 			const started = Date.now();
 			expect((await next).value?.status).toBe("completed");
 			expect(Date.now() - started).toBeLessThan(1_000);
+			expect(fetchClient.GET).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.unstubAllGlobals();
 		}

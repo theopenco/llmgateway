@@ -78,6 +78,7 @@ function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
 		const cleanup = () => {
 			clearTimeout(timer);
 			doc?.removeEventListener("visibilitychange", onVisibilityChange);
+			signal?.removeEventListener("abort", onAbort);
 		};
 		const onVisibilityChange = () => {
 			if (doc?.visibilityState === "visible") {
@@ -85,19 +86,16 @@ function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
 				resolve();
 			}
 		};
+		const onAbort = () => {
+			cleanup();
+			reject(new DOMException("Aborted", "AbortError"));
+		};
 		const timer = setTimeout(() => {
 			cleanup();
 			resolve();
 		}, ms);
 		doc?.addEventListener("visibilitychange", onVisibilityChange);
-		signal?.addEventListener(
-			"abort",
-			() => {
-				cleanup();
-				reject(new DOMException("Aborted", "AbortError"));
-			},
-			{ once: true },
-		);
+		signal?.addEventListener("abort", onAbort, { once: true });
 	});
 }
 
