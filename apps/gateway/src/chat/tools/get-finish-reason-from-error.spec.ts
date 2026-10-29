@@ -403,7 +403,7 @@ describe("Mistral guardrail classification", () => {
 			expect(
 				getFinishReasonFromError(
 					status,
-					'{"object":"error","message":"Forbidden","type":"permission_error","code":"1920"}',
+					'{"object":"error","message":"Access to guardrail_violation is disabled","type":"permission_error","code":"1920"}',
 				),
 			).toBe("gateway_error");
 		},

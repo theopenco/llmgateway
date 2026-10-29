@@ -132,7 +132,7 @@ describe("Mistral content filter", () => {
 			upstreamBody = {
 				...guardrailError,
 				type: "permission_error",
-				message: "Forbidden",
+				message: "Access to guardrail_violation is disabled",
 			};
 			const requestId = randomUUID();
 			const res = await request("/v1/chat/completions", stream, requestId);
