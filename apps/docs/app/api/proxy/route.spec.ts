@@ -155,3 +155,47 @@ test.each([false, true])(
 		expect(await file.text()).toBe("audio fixture");
 	},
 );
+test.each([
+	[
+		"https://gateway.example.com/public",
+		"http://localhost:4301/internal",
+		"http://localhost:4301/internal/v1/audio/speech?test=1",
+	],
+	[
+		"https://gateway.example.com/public/",
+		"http://localhost:4301/internal/",
+		"http://localhost:4301/internal/v1/audio/speech?test=1",
+	],
+	[
+		"https://gateway.example.com/public",
+		undefined,
+		"https://gateway.example.com/public/v1/audio/speech?test=1",
+	],
+])(
+	"maps public base %s to backend %s",
+	async (
+		publicBase: string,
+		backendBase: string | undefined,
+		expected: string,
+	) => {
+		vi.stubEnv("GATEWAY_URL", publicBase);
+		vi.stubEnv("GATEWAY_BACKEND_URL", backendBase);
+		const target = `${publicBase.replace(/\/+$/, "")}/v1/audio/speech?test=1`;
+		const upstream = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json({ ok: true }));
+		const response = await POST(
+			new Request(
+				`http://localhost/api/proxy?url=${encodeURIComponent(target)}`,
+				{ method: "POST" },
+			),
+		);
+		expect(response.status).toBe(200);
+		expect(upstream).toHaveBeenCalledOnce();
+		const forwarded = upstream.mock.calls[0][0];
+		if (!(forwarded instanceof Request)) {
+			throw new Error("Expected a proxied Request");
+		}
+		expect(forwarded.url).toBe(expected);
+	},
+);

@@ -7,7 +7,8 @@ import {
 } from "@llmgateway/shared/gateway-url";
 
 async function proxy(request: Request) {
-	const gatewayOrigin = new URL(getGatewayPublicBaseUrl()).origin;
+	const gatewayBase = new URL(getGatewayPublicBaseUrl());
+	const gatewayOrigin = gatewayBase.origin;
 	// Skip Fumadocs' buffering path; the override forwards the original stream.
 	const proxyHeaders = new Headers(request.headers);
 	proxyHeaders.delete("content-length");
@@ -38,7 +39,15 @@ async function proxy(request: Request) {
 						return forwarded;
 					}
 					const backend = new URL(getGatewayBackendBaseUrl());
-					backend.pathname = target.pathname;
+					const publicPath = gatewayBase.pathname.replace(/\/+$/, "");
+					let targetPath = target.pathname;
+					if (
+						targetPath === publicPath ||
+						targetPath.startsWith(`${publicPath}/`)
+					) {
+						targetPath = targetPath.slice(publicPath.length) || "/";
+					}
+					backend.pathname = `${backend.pathname.replace(/\/+$/, "")}${targetPath}`;
 					backend.search = target.search;
 					return new Request(new Request(backend, forwarded), {
 						headers: {

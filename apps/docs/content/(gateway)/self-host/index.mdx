@@ -70,7 +70,8 @@ Set `GATEWAY_URL` on the docs service to your public gateway URL. The API refere
 uses that server in its examples and sends interactive requests through the docs
 service's `/api/proxy`. Set `GATEWAY_BACKEND_URL` when the docs server should reach
 the gateway over a separate internal URL; API keys and the configured client-IP
-header are forwarded to it.
+header are forwarded to it. Public and internal base paths may differ; the proxy
+preserves the operation path and query.
 
 Without `GATEWAY_URL`, production uses `https://api.llmgateway.io` and development
 uses `http://localhost:4001`. Set it explicitly on isolated deployments to avoid
