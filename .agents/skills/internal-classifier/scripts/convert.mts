@@ -79,14 +79,10 @@ const VENDOR_HEADERS = [
 	"request_key",
 	"chunk_index",
 ];
-// Classifier values are slugs, numbers, hashes and base64: none contains a
-// comma or quote, so they are written verbatim (asserted here).
+// RFC 4180 quoting; values are otherwise written verbatim.
 const plain = (v: unknown) => {
 	const s = v === null || v === undefined ? "" : String(v);
-	if (/[",\n\r]/.test(s)) {
-		throw new Error(`unexpected CSV metacharacter in ${s}`);
-	}
-	return s;
+	return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 // Free-text fields (rule, reasons, tags) get a spreadsheet formula guard;
 // hashes and base64 stay raw, since a guard would change their value.

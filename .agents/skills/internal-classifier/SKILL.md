@@ -39,7 +39,8 @@ read-only transaction, through `log_content_filter_created_at_idx`.
    Retried attempts are skipped: the final attempt carries the same verdicts and
    the model that served the request.
 
-2. **Convert** with the admin export's own code:
+2. **Convert** with the admin export's own code. It imports workspace packages
+   from their `dist/`, so run `pnpm build:core` first on a fresh checkout:
 
    ```bash
    pnpm exec tsx --tsconfig apps/api/tsconfig.json \
