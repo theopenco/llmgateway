@@ -48,6 +48,7 @@ export const providerLogoUrls: Partial<
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
 	cloudflare: ProviderIcons.cloudflare,
+	"fal-ai": ProviderIcons["fal-ai"],
 };
 
 export const getProviderLogoDarkModeClasses = () => {
