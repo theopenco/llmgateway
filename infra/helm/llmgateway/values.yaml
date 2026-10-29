@@ -521,7 +521,6 @@ llmProviders:
   # LLM_AWS_MANTLE_API_KEY: ""
   # LLM_AZURE_API_KEY: ""
   # LLM_INFERENCE_NET_API_KEY: ""
-  # LLM_NANO_GPT_API_KEY: ""
 
 # =============================================================================
 # Stripe / Billing (optional)

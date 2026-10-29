@@ -4,7 +4,6 @@ import {
 	AzureIcon,
 	GoogleStudioAIIcon,
 	MinimaxIcon,
-	NanoGPTIcon,
 } from "@llmgateway/shared/components";
 
 import type { ComponentType, SVGProps } from "react";
@@ -18,7 +17,6 @@ const GRADIENT_LOGOS: Partial<
 	azure: AzureIcon,
 	"azure-ai-foundry": AzureIcon,
 	"azure-anthropic": AzureIcon,
-	nanogpt: NanoGPTIcon,
 };
 
 export function ProviderLogo({

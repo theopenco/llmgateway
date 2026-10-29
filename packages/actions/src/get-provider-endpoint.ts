@@ -238,7 +238,6 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
-	nanogpt: "https://nano-gpt.com/api",
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
@@ -1135,7 +1134,6 @@ export function getProviderEndpoint(
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
-		case "nanogpt":
 		case "canopywave":
 		case "minimax":
 		case "xiaomi":

@@ -1817,7 +1817,6 @@ export function transformStreamingToOpenai(
 		case "together-ai":
 		case "deepinfra":
 		case "custom":
-		case "nanogpt":
 		case "bytedance":
 		case "minimax":
 		case "ranoai":
