@@ -1,6 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
+
+import { logger } from "@llmgateway/logger";
 
 // Better Auth's sso() plugin mounts its own provider-management endpoints under
 // the /auth/* catch-all. They only require a session, so `handler.ts` blocks
@@ -38,6 +40,33 @@ function isOurBlock(status: number, body: unknown): boolean {
 		(body as { message?: string }).message === "Not found"
 	);
 }
+
+describe("OAuth callback without state", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	// The social callback guards a missing state itself ("State not found");
+	// the SSO OIDC callback reaches parseState ("Failed to parse state").
+	test.each(["/auth/callback/github?code=abc", "/auth/sso/callback/acme"])(
+		"redirects %s to the UI login page and logs at warn",
+		async (path) => {
+			const errorSpy = vi.spyOn(logger, "error");
+			const warnSpy = vi.spyOn(logger, "warn");
+			const isBetterAuthLog = ([msg]: unknown[]) =>
+				String(msg).startsWith("[Better Auth]");
+
+			const response = await app.request(path, { method: "GET" });
+
+			expect(response.status).toBe(302);
+			const location = new URL(response.headers.get("location") ?? "");
+			expect(location.pathname).toBe("/login");
+			expect(location.searchParams.get("error")).toBe("state_not_found");
+			expect(errorSpy.mock.calls.some(isBetterAuthLog)).toBe(false);
+			expect(warnSpy.mock.calls.some(isBetterAuthLog)).toBe(true);
+		},
+	);
+});
 
 describe("SSO plugin management endpoint blocking", () => {
 	test.each(BLOCKED_PATHS)("blocks POST %s with 404", async (path) => {

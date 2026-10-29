@@ -16,6 +16,7 @@ const DAILY_POINT_CAPS: Record<LoungePointKind, number> = {
 	image_generation: 100,
 	video_generation: 150,
 	audio_generation: 100,
+	decision_run: 100,
 	sandbox_escape: 150,
 };
 

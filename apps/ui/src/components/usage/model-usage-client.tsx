@@ -22,18 +22,26 @@ import {
 import { useApi } from "@/lib/fetch-client";
 
 import {
-	parseGroupBy,
+	isModelGroupBy,
+	parseModelUsageGroupBy,
 	resolveGroupBy,
 	shouldStripApiKeyId,
-	type GroupBy,
+	type ModelUsageGroupBy,
 } from "./group-by";
 
 interface ModelUsageClientProps {
 	projectId: string;
 }
 
-const GROUP_BY_LABELS: Record<GroupBy, { option: string; heading: string }> = {
+const GROUP_BY_LABELS: Record<
+	ModelUsageGroupBy,
+	{ option: string; heading: string }
+> = {
 	model: { option: "Breakdown by model", heading: "Usage by model" },
+	mapping: {
+		option: "Breakdown by mapping",
+		heading: "Usage by model mapping",
+	},
 	apiKey: { option: "Breakdown by API key", heading: "Usage by API key" },
 	user: { option: "Breakdown by user", heading: "Usage by user" },
 };
@@ -80,7 +88,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 
 	// Get groupBy, apiKeyId and timeRange from URL.
 	const groupBy = resolveGroupBy(
-		parseGroupBy(searchParams.get("groupBy")),
+		parseModelUsageGroupBy(searchParams.get("groupBy")),
 		canGroupByUser,
 	);
 	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
@@ -108,19 +116,21 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 		router.push(`${buildUrl("model-usage")}?${params.toString()}`);
 	};
 
-	const updateGroupBy = (newGroupBy: GroupBy) => {
+	const updateGroupBy = (newGroupBy: ModelUsageGroupBy) => {
 		const params = new URLSearchParams(searchParams);
 		if (newGroupBy === "model") {
 			params.delete("groupBy");
 		} else {
 			params.set("groupBy", newGroupBy);
-			// Clear api key filter when grouping by another dimension
+		}
+		// Clear api key filter when grouping by another dimension
+		if (!isModelGroupBy(newGroupBy)) {
 			params.delete("apiKeyId");
 		}
 		router.push(`${buildUrl("model-usage")}?${params.toString()}`);
 	};
 
-	const apiKeyFilterDisabled = groupBy !== "model";
+	const apiKeyFilterDisabled = !isModelGroupBy(groupBy);
 	const effectiveApiKeyId = apiKeyFilterDisabled ? undefined : apiKeyId;
 
 	// Normalize stale URLs: a non-model groupBy should never coexist with apiKeyId.
@@ -143,14 +153,17 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 					<div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
 						<Select
 							value={groupBy}
-							onValueChange={(v) => updateGroupBy(v as GroupBy)}
+							onValueChange={(v) => updateGroupBy(v as ModelUsageGroupBy)}
 						>
-							<SelectTrigger size="sm" className="w-full sm:w-[180px]">
+							<SelectTrigger size="sm" className="w-full sm:w-[220px]">
 								<SelectValue placeholder="Group by" />
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="model">
 									{GROUP_BY_LABELS.model.option}
+								</SelectItem>
+								<SelectItem value="mapping">
+									{GROUP_BY_LABELS.mapping.option}
 								</SelectItem>
 								<SelectItem value="apiKey">
 									{GROUP_BY_LABELS.apiKey.option}

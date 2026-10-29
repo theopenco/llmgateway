@@ -13,6 +13,11 @@ import {
 } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	createQueuedDecisionVerificationChecks,
+	runDecisionKeySmokeTest,
+	runDecisionVerification,
+} from "./decision-verification.js";
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
@@ -26,6 +31,11 @@ import {
 	encryptProviderKey,
 } from "./provider-key/crypto.js";
 import { redactToken } from "./provider-key/redact.js";
+import { RED_IMAGE_DATA_URL } from "./verification-image.js";
+import {
+	promptTokensShowSearchContext,
+	reportedWebSearchCount,
+} from "./web-search-format.js";
 
 import type {
 	ProviderKeyOptions,
@@ -46,7 +56,8 @@ export type ModelVerificationCheckId =
 	| "reasoning_budget"
 	| "web_search"
 	| "context_size"
-	| "max_output";
+	| "max_output"
+	| "prompt_caching";
 
 export interface ModelVerificationRequest {
 	model: string;
@@ -64,6 +75,8 @@ interface ModelVerificationDefinition {
 	id: ModelVerificationCheckId;
 	label: string;
 	request: ModelVerificationRequest;
+	/** Only measures the reported input tokens; the response is not judged. */
+	calibration?: boolean;
 }
 
 export interface RunModelVerificationOptions {
@@ -98,12 +111,6 @@ export interface ModelVerificationRunResult {
 	 */
 	unsupportedReasoningEfforts?: ReasoningEffort[];
 }
-
-// A 64x64 solid red PNG. Deliberately not a 1x1 pixel: several OpenAI-compatible
-// serving stacks reject a degenerate image before the model ever sees it, which
-// fails the check on endpoints whose vision support is fine.
-const RED_IMAGE_DATA_URL =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
 const COUNTRY_SCHEMA = {
 	type: "object",
@@ -331,12 +338,16 @@ export function createWebSearchVerificationRequest(
 	};
 }
 
-// Natural-English prose runs ~4 chars/token; 3 keeps the prompt under the
-// declared window even on a denser tokenizer.
-const CONTEXT_CHARS_PER_TOKEN = 3;
-const CONTEXT_FILL_RATIO = 0.7;
-// Tokenizers vary, so the reported input only has to reach half the target.
-const CONTEXT_MIN_REPORTED_RATIO = 0.5;
+// The probe is sized with the upstream's own chars/token, measured by a
+// calibration request first. Without reported usage it falls back to 3, which
+// stays under the declared window on any tokenizer.
+const CONTEXT_FALLBACK_CHARS_PER_TOKEN = 3;
+const CONTEXT_MIN_CHARS_PER_TOKEN = 2;
+const CONTEXT_MAX_CHARS_PER_TOKEN = 6;
+const CONTEXT_CALIBRATION_TOKENS = 10_000;
+const CONTEXT_FILL_RATIO = 0.9;
+// The processed input must reach this share of the probe (~80% of the window).
+const CONTEXT_MIN_REPORTED_RATIO = 0.9;
 const CONTEXT_FILLER_SENTENCE =
 	"The quick brown fox jumps over the lazy dog near the riverbank, while curious sparrows watched from the old oak tree branches above. ";
 
@@ -351,12 +362,10 @@ function contextSizeTargetTokens(contextSize: number): number {
 	);
 }
 
-/** A prompt filling most of the declared context window. */
-export function createContextSizeVerificationRequest(
+function contextPromptRequest(
 	model: string,
-	contextSize: number,
+	chars: number,
 ): ModelVerificationRequest {
-	const chars = contextSizeTargetTokens(contextSize) * CONTEXT_CHARS_PER_TOKEN;
 	const filler = CONTEXT_FILLER_SENTENCE.repeat(
 		Math.ceil(chars / CONTEXT_FILLER_SENTENCE.length),
 	).slice(0, chars);
@@ -371,6 +380,65 @@ export function createContextSizeVerificationRequest(
 		max_tokens: 64,
 	};
 }
+
+/**
+ * A prompt filling most of the declared context window, sized with the
+ * upstream's measured chars/token.
+ */
+export function createContextSizeVerificationRequest(
+	model: string,
+	contextSize: number,
+	charsPerToken: number = CONTEXT_FALLBACK_CHARS_PER_TOKEN,
+): ModelVerificationRequest {
+	return contextPromptRequest(
+		model,
+		Math.floor(contextSizeTargetTokens(contextSize) * charsPerToken),
+	);
+}
+
+/** The filler length of the calibration request for a declared window. */
+function contextCalibrationChars(contextSize: number): number {
+	return (
+		Math.min(CONTEXT_CALIBRATION_TOKENS, Math.floor(contextSize * 0.25)) *
+		CONTEXT_FALLBACK_CHARS_PER_TOKEN
+	);
+}
+
+// Above the minimum cacheable prefix of common serving stacks (1,024 tokens
+// on OpenAI-style caches, up to 4,096 on some Anthropic models).
+const PROMPT_CACHE_PREFIX_CHARS = 24_000;
+
+/**
+ * A long system prompt sent repeatedly, so a deployment that caches prompts
+ * reports cached input tokens on a repeat. The run's nonce leads the prefix so
+ * the first request starts cold.
+ */
+export function createPromptCachingVerificationRequest(
+	model: string,
+	nonce: string,
+): ModelVerificationRequest {
+	const filler = CONTEXT_FILLER_SENTENCE.repeat(
+		Math.ceil(PROMPT_CACHE_PREFIX_CHARS / CONTEXT_FILLER_SENTENCE.length),
+	).slice(0, PROMPT_CACHE_PREFIX_CHARS);
+	return {
+		model,
+		messages: [
+			{
+				role: "system",
+				content: `Verification run ${nonce}. Reference text follows.\n\n${filler}`,
+			},
+			{ role: "user", content: "Reply with exactly OK." },
+		],
+		max_tokens: 64,
+	};
+}
+
+/**
+ * Waits before each repeat of the prompt-caching request. Some stacks write
+ * the cache asynchronously or spread requests across replicas, so one
+ * immediate repeat is not enough evidence that caching is missing.
+ */
+export const PROMPT_CACHE_REPEAT_DELAYS_MS = [1_000, 3_000, 5_000, 10_000];
 
 /**
  * Asks for the full declared output budget. An endpoint with a lower cap
@@ -513,7 +581,9 @@ function verificationDefinitions(
 	if (target.webSearch) {
 		definitions.push({
 			id: "web_search",
-			label: "Web search",
+			label: target.webSearchFormat
+				? `Web search (${target.webSearchFormat})`
+				: "Web search",
 			request: createWebSearchVerificationRequest(target.modelName),
 		});
 	}
@@ -531,6 +601,16 @@ function verificationDefinitions(
 					contextSize,
 				));
 			},
+		});
+	}
+	if (target.promptCaching) {
+		definitions.push({
+			id: "prompt_caching",
+			label: "Prompt caching",
+			request: createPromptCachingVerificationRequest(
+				target.modelName,
+				crypto.randomUUID(),
+			),
 		});
 	}
 	if (target.maxOutput) {
@@ -590,6 +670,9 @@ export function disprovedCapabilities(
 export function createQueuedModelVerificationChecks(
 	target: ProviderModelVerificationTarget,
 ): ProviderModelVerificationCheck[] {
+	if (target.decisions) {
+		return createQueuedDecisionVerificationChecks(target);
+	}
 	return verificationDefinitions(target).map(({ id, label }) => ({
 		id,
 		label,
@@ -1038,6 +1121,8 @@ function validateResponse(
 	id: ModelVerificationCheckId,
 	body: unknown,
 	target: ProviderModelVerificationTarget,
+	/** The prompt grew past what the request could encode to: see `promptTokensShowSearchContext`. */
+	searchContext = false,
 ): string | null {
 	const assistantText = extractAssistantText(body);
 	switch (id) {
@@ -1045,6 +1130,8 @@ function validateResponse(
 		// reasoning model with no visible text.
 		case "context_size":
 			return validateContextSize(body, target.contextSize ?? 0);
+		case "prompt_caching":
+			return null;
 		case "vision":
 			return /\bred\b/i.test(assistantText)
 				? null
@@ -1080,7 +1167,9 @@ function validateResponse(
 			if (!assistantText) {
 				return "The provider returned no assistant content.";
 			}
-			return containsWebSearchEvidence(body)
+			return containsWebSearchEvidence(body) ||
+				reportedWebSearchCount(body) > 0 ||
+				searchContext
 				? null
 				: "The response did not contain evidence of a web search.";
 		default:
@@ -1201,7 +1290,10 @@ function upstreamErrorMessage(body: string, status: number): string {
 	return body.trim().slice(0, 500) || `Provider returned HTTP ${status}.`;
 }
 
-function splitTools(tools: OpenAIToolInput[] | undefined): {
+function splitTools(
+	tools: OpenAIToolInput[] | undefined,
+	toolChoice: ModelVerificationRequest["tool_choice"],
+): {
 	functionTools: OpenAIToolInput[] | undefined;
 	webSearchTool: WebSearchTool | undefined;
 } {
@@ -1218,6 +1310,10 @@ function splitTools(tools: OpenAIToolInput[] | undefined): {
 						type: "web_search",
 						search_context_size: search.search_context_size,
 						max_uses: search.max_uses,
+						// As the gateway does: a web_search tool_choice demands the search.
+						forced:
+							typeof toolChoice === "object" &&
+							toolChoice?.type === "web_search",
 					}
 				: undefined,
 	};
@@ -1249,6 +1345,8 @@ interface CheckFailure {
 	 * a transport error says nothing and must never narrow a listing.
 	 */
 	rejected: boolean;
+	/** Not the upstream's verdict (timeout, 5xx, auth): never narrows a listing. */
+	transient?: boolean;
 	/**
 	 * The response was served but carries a protocol defect no other probe
 	 * variant would fix, so a ladder stops instead of narrowing the listing.
@@ -1265,6 +1363,10 @@ interface CheckContext {
 	basicUsage?: ReportedUsage;
 	/** A key smoke test proves the key works; optional checks are preflight's. */
 	keyOnly?: boolean;
+	/** Input tokens the last parsed response reported. */
+	lastInputTokens?: number;
+	/** Cached input tokens the last parsed response reported. */
+	lastCachedTokens?: number;
 }
 
 /**
@@ -1307,6 +1409,7 @@ async function attemptCheck(
 					? `${message} (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts)`
 					: message,
 				rejected: false,
+				transient: true,
 			};
 		}
 	}
@@ -1439,7 +1542,7 @@ function explainLimitRefusal(
 		probe =
 			sent === CONTEXT_MAX_PROBE_TOKENS
 				? `a test prompt of about ${tokens(sent)} tokens, the most preflight sends for the declared ${tokens(target.contextSize)}-token context size`
-				: `a test prompt filling about 70% of the declared ${tokens(target.contextSize)}-token context size`;
+				: `a test prompt filling about ${CONTEXT_FILL_RATIO * 100}% of the declared ${tokens(target.contextSize)}-token context size`;
 	} else if (id === "max_output" && target.maxOutput) {
 		probe = `a request for the declared max output of ${tokens(target.maxOutput)} tokens`;
 	} else {
@@ -1448,6 +1551,114 @@ function explainLimitRefusal(
 	return {
 		...failure,
 		message: `Your endpoint refused ${probe}. It answered: "${failure.message}"`,
+	};
+}
+
+/**
+ * Measure the upstream's chars/token on a small prompt of the same filler, then
+ * send a probe that really fills ~90% of the declared window: a static
+ * chars/token guess either overflows dense tokenizers or under-fills sparse
+ * ones.
+ */
+async function runContextSizeCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	context: CheckContext,
+	contextSize: number,
+	onTimeout: TimeoutReporter,
+): Promise<CheckFailure | null> {
+	const calibrationChars = contextCalibrationChars(contextSize);
+	context.lastInputTokens = undefined;
+	const calibrationFailure = await attemptCheck(
+		{
+			...definition,
+			request: contextPromptRequest(options.target.modelName, calibrationChars),
+			calibration: true,
+		},
+		options,
+		context,
+		onTimeout,
+	);
+	if (calibrationFailure) {
+		return calibrationFailure;
+	}
+	const measured = context.lastInputTokens;
+	const charsPerToken = measured
+		? Math.min(
+				Math.max(calibrationChars / measured, CONTEXT_MIN_CHARS_PER_TOKEN),
+				CONTEXT_MAX_CHARS_PER_TOKEN,
+			)
+		: CONTEXT_FALLBACK_CHARS_PER_TOKEN;
+	return explainLimitRefusal(
+		definition.id,
+		options.target,
+		await attemptCheck(
+			{
+				...definition,
+				request: createContextSizeVerificationRequest(
+					options.target.modelName,
+					contextSize,
+					charsPerToken,
+				),
+			},
+			options,
+			context,
+			onTimeout,
+		),
+	);
+}
+
+/**
+ * A listing with a cached input price is routed and billed as caching, so a
+ * deployment that never reports cached tokens bills every request at the full
+ * input price while routing ranks it on the cached one. Repeats one prompt
+ * until a response reports cached input tokens.
+ */
+async function runPromptCachingCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	context: CheckContext,
+	reportProbes: ProbeReporter,
+	onTimeout: TimeoutReporter,
+): Promise<CheckOutcome> {
+	const probes: ProviderModelVerificationProbe[] = [];
+	const delays = [0, ...PROMPT_CACHE_REPEAT_DELAYS_MS];
+	for (const [index, delay] of delays.entries()) {
+		if (delay > 0) {
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+		context.lastInputTokens = undefined;
+		context.lastCachedTokens = undefined;
+		const failure = await attemptCheck(definition, options, context, onTimeout);
+		const label = `Request ${index + 1}`;
+		if (failure) {
+			probes.push(probeResult(label, failure));
+			await reportProbes(probes);
+			return { failure, probes };
+		}
+		const cached = context.lastCachedTokens ?? 0;
+		const input = context.lastInputTokens;
+		probes.push({
+			label,
+			status: "passed",
+			feedback: `${cached} of ${input ?? "unreported"} input tokens cached.`,
+		});
+		await reportProbes(probes);
+		if (cached > 0) {
+			return {
+				failure: null,
+				probes,
+				feedback: `Request ${index + 1} reported ${cached} cached input tokens.`,
+			};
+		}
+	}
+	return {
+		failure: {
+			message: `The listing declares a cached input price, but ${delays.length} identical requests reported no cached input tokens. Report cache hits in usage (prompt_tokens_details.cached_tokens for Chat Completions), or remove the cached input price.`,
+			rejected: false,
+			conclusive: true,
+		},
+		probes,
 	};
 }
 
@@ -1468,6 +1679,26 @@ async function runCheck(
 			reportProbes,
 			onTimeout,
 		);
+	}
+	if (definition.id === "prompt_caching") {
+		return await runPromptCachingCheck(
+			definition,
+			options,
+			context,
+			reportProbes,
+			onTimeout,
+		);
+	}
+	if (definition.id === "context_size" && options.target.contextSize) {
+		return {
+			failure: await runContextSizeCheck(
+				definition,
+				options,
+				context,
+				options.target.contextSize,
+				onTimeout,
+			),
+		};
 	}
 	if (definition.id !== "tools") {
 		return {
@@ -1503,6 +1734,9 @@ async function runCheck(
 		await reportProbes(probes);
 		if (!failure) {
 			return { failure: null, unsupportedToolChoices, probes };
+		}
+		if (failure.transient) {
+			return { failure, probes };
 		}
 		if (failure.conclusive) {
 			break;
@@ -1569,7 +1803,21 @@ async function executeCheck(
 		options.target.apiFormat,
 	);
 	const useResponsesApi = options.target.apiFormat === "openai-responses";
-	const { functionTools, webSearchTool } = splitTools(definition.request.tools);
+	const { functionTools, webSearchTool } = splitTools(
+		definition.request.tools,
+		definition.request.tool_choice,
+	);
+	// The gateway forces the tool shape with "required"; a listing that does not
+	// take that mode is probed the way it will be served, unforced.
+	const declaredToolChoices = options.target.supportedToolChoices;
+	if (
+		webSearchTool?.forced &&
+		options.target.webSearchFormat === "web_search_tool" &&
+		declaredToolChoices?.length &&
+		!declaredToolChoices.includes("required")
+	) {
+		webSearchTool.forced = false;
+	}
 	let payload = await prepareRequestBody(
 		transportProvider,
 		options.target.modelName,
@@ -1602,6 +1850,21 @@ async function executeCheck(
 		webSearchTool,
 		definition.id === "reasoning_budget" ? 256 : undefined,
 		useResponsesApi,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		options.target.webSearchFormat ?? undefined,
 	);
 	// The OpenAI Responses body always carries a reasoning block (every OpenAI
 	// model on that surface reasons). A carrier listing that declares no
@@ -1654,7 +1917,8 @@ async function executeCheck(
 				upstreamErrorMessage(bodyText, response.status),
 				context.secrets,
 			),
-			rejected: response.status >= 400 && response.status < 500,
+			rejected: response.status === 400 || response.status === 422,
+			transient: response.status !== 400 && response.status !== 422,
 		};
 	}
 	if (definition.request.stream) {
@@ -1683,7 +1947,18 @@ async function executeCheck(
 	if (definition.id === "basic") {
 		context.basicUsage = reportedUsage(body);
 	}
-	const invalid = validateResponse(definition.id, body, options.target);
+	context.lastInputTokens = reportedInputTokens(body);
+	context.lastCachedTokens = reportedUsage(body).cached;
+	if (definition.calibration) {
+		return null;
+	}
+	const invalid = validateResponse(
+		definition.id,
+		body,
+		options.target,
+		definition.id === "web_search" &&
+			promptTokensShowSearchContext(reportedInputTokens(body), payload),
+	);
 	if (invalid) {
 		return { message: invalid, rejected: false };
 	}
@@ -1715,6 +1990,9 @@ function optionalDefect(
 export async function runProviderModelVerification(
 	options: RunModelVerificationOptions,
 ): Promise<ModelVerificationRunResult> {
+	if (options.target.decisions) {
+		return await runDecisionVerification(options);
+	}
 	const definitions = verificationDefinitions(options.target);
 	const checks = createQueuedModelVerificationChecks(options.target);
 	const context: CheckContext = {
@@ -1835,6 +2113,9 @@ export async function runProviderModelVerification(
 export async function runProviderKeySmokeTest(
 	options: Omit<RunModelVerificationOptions, "onCheck">,
 ): Promise<string | null> {
+	if (options.target.decisions) {
+		return await runDecisionKeySmokeTest(options);
+	}
 	const outcome = await runCheck(
 		{
 			id: "basic",

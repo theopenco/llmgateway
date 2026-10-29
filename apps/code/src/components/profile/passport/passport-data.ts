@@ -2,7 +2,6 @@ import {
 	AGENTS,
 	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
-import { resolveCanonicalModel } from "@/lib/model-family";
 
 import type { ProfileData } from "@/components/profile/ProfileView";
 
@@ -143,7 +142,7 @@ export function spreadSummary(model: PassportModel, turned: number): string {
 export function buildPassportModel(profile: ProfileData): PassportModel {
 	const airportMap = new Map<string, PassportAirport>();
 	for (const row of profile.models) {
-		const resolved = resolveCanonicalModel(row.id);
+		const resolved = row.canonical;
 		const key = resolved.known ? resolved.iconKey : row.provider;
 		const label = familyLabel(key);
 		const existing = airportMap.get(label);
@@ -176,7 +175,7 @@ export function buildPassportModel(profile: ProfileData): PassportModel {
 	}
 
 	const stamps: PassportStampData[] = profile.models.slice(0, 6).map((row) => {
-		const resolved = resolveCanonicalModel(row.id);
+		const resolved = row.canonical;
 		return {
 			model: resolved.name,
 			family: familyLabel(resolved.known ? resolved.iconKey : row.provider),

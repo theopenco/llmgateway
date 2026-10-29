@@ -18,6 +18,13 @@ export async function POST(req: Request) {
 		headers["user-agent"] = userAgent;
 	}
 
+	// The API requires a signed-in session, so the browser's auth cookie has to
+	// travel with the proxied request.
+	const cookie = req.headers.get("cookie");
+	if (cookie) {
+		headers.cookie = cookie;
+	}
+
 	Object.assign(headers, forwardedIpHeaders(req.headers));
 
 	const upstream = await fetch(target, {

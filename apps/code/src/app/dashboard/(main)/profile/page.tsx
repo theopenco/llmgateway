@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { attachCanonicalModels } from "@/lib/model-family";
 import { fetchServerData, getUserMe } from "@/lib/server-api";
 
 import { ProfilePageClient } from "./ProfilePageClient";
@@ -25,10 +26,16 @@ export default async function ProfilePage() {
 		redirect("/login?returnUrl=/dashboard/profile");
 	}
 
+	// Canonical models are resolved here so the client bundle never imports
+	// the full model catalogue.
+	const profile = profileData?.profile
+		? {
+				...profileData.profile,
+				models: attachCanonicalModels(profileData.profile.models),
+			}
+		: null;
+
 	return (
-		<ProfilePageClient
-			initialProfile={profileData?.profile ?? null}
-			initialUser={userData.user}
-		/>
+		<ProfilePageClient initialProfile={profile} initialUser={userData.user} />
 	);
 }

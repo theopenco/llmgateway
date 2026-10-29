@@ -78,6 +78,26 @@ describe("selectProviderMapping", () => {
 		expect(mapping?.region).toBeUndefined();
 	});
 
+	it("falls back to a concrete-region entry when the root was replaced (Airside pricing override)", () => {
+		// The Airside override leaves one concrete-region entry per provider; a
+		// fallback to another region must still see its reasoningEfforts.
+		const providers: ProviderModelMapping[] = [
+			{
+				providerId: "aws-bedrock",
+				externalId: "anthropic.claude-opus-4-6-v1",
+				streaming: true,
+				region: "us",
+				reasoning: true,
+				reasoningEfforts: ["xhigh", "max"],
+			},
+		];
+
+		const mapping = selectProviderMapping(providers, "aws-bedrock", "eu");
+
+		expect(mapping?.region).toBe("us");
+		expect(mapping?.reasoningEfforts).toEqual(["xhigh", "max"]);
+	});
+
 	it("returns undefined when no mapping matches the provider", () => {
 		const providers: ProviderModelMapping[] = [
 			{

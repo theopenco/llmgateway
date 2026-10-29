@@ -49,6 +49,11 @@ function stalledImageResponse(signal?: AbortSignal): Response {
 }
 
 describe("processImageUrl size limits", () => {
+	it("accepts case-insensitive data URL schemes and media types", async () => {
+		await expect(
+			processImageUrl("DATA:IMAGE/PNG;BASE64,YQ=="),
+		).resolves.toEqual({ data: "YQ==", mimeType: "image/png" });
+	});
 	beforeEach(() => {
 		// The message gains an upsell sentence under HOSTED + PAID_MODE, so pin
 		// both rather than inheriting whatever the developer's shell exports.
@@ -287,6 +292,28 @@ describe("processImageUrl size limits", () => {
 		expect(error).toBeInstanceOf(RequestError);
 		expect((error as Error).message).toBe("Timed out fetching image from URL");
 	}, 2000);
+
+	it("stops a download when the caller's signal aborts", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		const controller = new AbortController();
+		const reason = new DOMException("deadline", "TimeoutError");
+		// A stalled server: the fetch only settles when its signal aborts.
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+			async (_input, init) =>
+				await new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(reason));
+					controller.abort(reason);
+				}),
+		);
+
+		await expect(
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, null, controller.signal),
+		).rejects.toBe(reason);
+		expect(fetchSpy).toHaveBeenCalledWith(REMOTE_URL, {
+			signal: expect.any(AbortSignal),
+			redirect: "error",
+		});
+	});
 });
 
 describe("processImageUrl data URLs", () => {

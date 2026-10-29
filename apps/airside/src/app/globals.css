@@ -258,10 +258,38 @@
 	animation: strobe 2.6s linear infinite;
 }
 
+/* Airworthy stamp: lifted, pressed, settled at its tilt */
+@keyframes stamp-press {
+	0%,
+	35% {
+		opacity: 0;
+		transform: scale(1.5) rotate(-4deg);
+	}
+	55% {
+		opacity: 1;
+		transform: scale(0.94) rotate(-13deg);
+	}
+	70% {
+		transform: scale(1.02) rotate(-11.5deg);
+	}
+	100% {
+		opacity: 1;
+		transform: scale(1) rotate(-12deg);
+	}
+}
+
+@utility animate-stamp-press {
+	animation: stamp-press 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.animate-flap,
 	.animate-beacon {
 		animation: none;
+	}
+	.animate-stamp-press {
+		animation: none;
+		transform: rotate(-12deg);
 	}
 }
 

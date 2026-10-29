@@ -119,12 +119,45 @@ describe("systemone", () => {
 		});
 
 		expect(res.status).toBe(200);
-		expect((await res.json()).model).toBe("typesafe/jev-1.13.0");
+		expect((await res.json()).model).toBe("typesafe/jev-1.14.0");
 
 		const logs = await waitForLogs(1);
 		expect(
-			logs.find((l) => l.usedModel === "typesafe/jev-1.13.0")?.usedModelMapping,
-		).toBe("jev-1.13.0");
+			logs.find((l) => l.usedModel === "typesafe/jev-1.14.0")?.usedModelMapping,
+		).toBe("jev-1.14.0");
+	});
+
+	test("/v1/systemone forwards image assets with TypeSafe's image opt-in", async () => {
+		await seedKeys("systemone-assets");
+		await seedProviderKey("systemone-assets");
+
+		const assets = {
+			"a3f1c2e8-door": {
+				type: "image",
+				format: "jpg",
+				data_base64: "/9j/4AAQSkZJRg==",
+			},
+		};
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-assets",
+			},
+			body: JSON.stringify({
+				model: "jev-1.14.0",
+				state: { door: "a3f1c2e8-door" },
+				assets,
+				questions: { urgency: QUESTIONS.urgency },
+			}),
+		});
+
+		// The mock rejects assets sent without the opt-in header.
+		expect(res.status, await res.clone().text()).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.14.0");
+		expect(log?.upstreamRequest).toMatchObject({ assets });
 	});
 
 	test("/v1/systemone rejects a chat model", async () => {
@@ -145,6 +178,28 @@ describe("systemone", () => {
 
 		expect(res.status).toBe(400);
 		expect((await res.json()).error.code).toBe("model_not_found");
+	});
+
+	test("/v1/systemone points non-TypeSafe decision models at /v1/decisions", async () => {
+		await seedKeys("systemone-openai-model");
+
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-openai-model",
+			},
+			body: JSON.stringify({
+				model: "gpt-6-luna-decisions",
+				state: "hello",
+				questions: { urgency: QUESTIONS.urgency },
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("model_not_found");
+		expect(json.error.message).toContain("/v1/decisions");
 	});
 
 	test("/v1/systemone rejects a request with no questions", async () => {

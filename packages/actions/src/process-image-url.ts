@@ -110,33 +110,41 @@ function getImageSizeErrorMessage(
  * `maxSizeBytes` so an unbounded (or misdeclared) body cannot be buffered in
  * full before the size check runs.
  */
-async function readBodyWithLimit(
+export async function readImageBody(
 	response: Response,
-	maxSizeBytes: number,
-	maxSizeMB: number,
-	userPlan: "free" | "pro" | "enterprise" | null,
-): Promise<Buffer> {
+	signal: AbortSignal,
+	maxSizeMB?: number,
+	userPlan: "free" | "pro" | "enterprise" | null = null,
+): Promise<Buffer<ArrayBuffer>> {
 	if (!response.body) {
 		return Buffer.alloc(0);
 	}
-
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let received = 0;
-
+	const cancel = () => {
+		void reader.cancel(signal.reason).catch((error: unknown) => {
+			if (error !== signal.reason) {
+				logger.warn("Failed to cancel image body", { error });
+			}
+		});
+	};
+	// Cancel the reader directly: some fetch runtimes lose body abort propagation under GC.
+	signal.addEventListener("abort", cancel, { once: true });
 	try {
 		for (;;) {
+			signal.throwIfAborted();
 			const { done, value } = await reader.read();
+			signal.throwIfAborted();
 			if (done) {
 				break;
 			}
 			if (!value) {
 				continue;
 			}
-
 			received += value.byteLength;
-			if (received > maxSizeBytes) {
-				await reader.cancel();
+			if (maxSizeMB !== undefined && received > maxSizeMB * 1024 * 1024) {
+				cancel();
 				const actualSizeMB = received / (1024 * 1024);
 				logger.warn("Image size exceeds limit while downloading", {
 					size: received,
@@ -147,13 +155,12 @@ async function readBodyWithLimit(
 					getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 				);
 			}
-
 			chunks.push(value);
 		}
 	} finally {
+		signal.removeEventListener("abort", cancel);
 		reader.releaseLock();
 	}
-
 	return Buffer.concat(chunks);
 }
 
@@ -167,16 +174,18 @@ export async function processImageUrl(
 	isProd = false,
 	maxSizeMB = 20,
 	userPlan: "free" | "pro" | "enterprise" | null = null,
+	signal?: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
-	if (url.startsWith("data:")) {
+	if (url.slice(0, 5).toLowerCase() === "data:") {
 		const parsed = parseDataUrl(url);
 		if (!parsed) {
 			logger.warn("Invalid data URL format provided");
 			throw new RequestError("Invalid image data URL format");
 		}
 
-		const { mediaType: mimeType, data, isBase64 } = parsed;
+		const { data, isBase64 } = parsed;
+		const mimeType = parsed.mediaType.toLowerCase();
 
 		// Validate it's an image MIME type
 		if (!mimeType.startsWith("image/")) {
@@ -241,14 +250,12 @@ export async function processImageUrl(
 	// SSRF: remote content must not resolve to an internal host. This also
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
 	await assertSafeUserContentUrl(url);
+	signal?.throwIfAborted();
 
-	const timeoutMs = resolveImageFetchTimeoutMs();
+	const deadline = createImageFetchDeadline(signal);
+	const { timeoutMs } = deadline;
 	try {
-		const response = await fetchNoRedirect(url, {
-			// Bounds the whole download, headers and body. undici's bodyTimeout is
-			// refreshed on every chunk, so a host that trickles bytes never trips it.
-			signal: AbortSignal.timeout(timeoutMs),
-		});
+		const response = await fetchNoRedirect(url, { signal: deadline.signal });
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -263,7 +270,11 @@ export async function processImageUrl(
 		// Content type first: an oversized non-image would otherwise be reported
 		// as a size problem, sending the user off to shrink a file that was never
 		// going to be accepted.
-		const contentType = response.headers.get("content-type");
+		const contentType = response.headers
+			.get("content-type")
+			?.split(";")[0]
+			.trim()
+			.toLowerCase();
 		if (!contentType || !contentType.startsWith("image/")) {
 			logger.warn("Invalid content type for image URL", {
 				contentType,
@@ -289,9 +300,9 @@ export async function processImageUrl(
 		// Read with a running cap rather than buffering the whole body first: a
 		// response with no (or an understated) Content-Length would otherwise be
 		// fully resident in memory before the size check ever runs.
-		const imageBytes = await readBodyWithLimit(
+		const imageBytes = await readImageBody(
 			response,
-			maxSizeBytes,
+			deadline.signal,
 			maxSizeMB,
 			userPlan,
 		);
@@ -304,6 +315,10 @@ export async function processImageUrl(
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
+		}
+		// The caller cancelled or timed out the download; it decides how to report it.
+		if (signal?.aborted) {
+			throw signal.reason;
 		}
 
 		const timedOut = imageFetchTimeoutError(error, url, timeoutMs);
@@ -319,5 +334,27 @@ export async function processImageUrl(
 
 		// Generic error for all other cases
 		throw new Error("Failed to process image from URL");
+	} finally {
+		deadline.dispose();
 	}
+}
+export function createImageFetchDeadline(callerSignal?: AbortSignal) {
+	const timeoutMs = resolveImageFetchTimeoutMs();
+	const controller = new AbortController();
+	const timer = setTimeout(() => {
+		controller.abort(
+			new DOMException("Image download deadline exceeded", "TimeoutError"),
+		);
+	}, timeoutMs);
+	timer.unref();
+	return {
+		timeoutMs,
+		signal: callerSignal
+			? AbortSignal.any([callerSignal, controller.signal])
+			: controller.signal,
+		dispose() {
+			clearTimeout(timer);
+			controller.abort();
+		},
+	};
 }

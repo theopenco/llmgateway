@@ -12,6 +12,7 @@ import {
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
+import { TokenUsageCard } from "@/components/analytics/token-usage-card";
 import {
 	UsageModeSelector,
 	useUsageMode,
@@ -117,6 +118,7 @@ export function ApiKeyStatsClient({
 		},
 	);
 
+	const rawActivity = useMemo(() => data?.activity ?? [], [data]);
 	const activity = useMemo(
 		() =>
 			(data?.activity ?? []).map((day) =>
@@ -128,7 +130,8 @@ export function ApiKeyStatsClient({
 	const summary = useMemo(() => {
 		return activity.reduce(
 			(acc, row) => {
-				acc.cost += row.cost;
+				// Data retention is billed on top of inference.
+				acc.cost += row.cost + row.dataStorageCost;
 				acc.totalTokens += row.totalTokens;
 				acc.requestCount += row.requestCount;
 				acc.errorCount += row.errorCount;
@@ -221,6 +224,7 @@ export function ApiKeyStatsClient({
 					loading={isLoading}
 					description="Stacked breakdown of the top 10 models used by this API key"
 				/>
+				<TokenUsageCard activity={rawActivity} loading={isLoading} />
 				<CostByModelCard
 					activity={activity}
 					loading={isLoading}

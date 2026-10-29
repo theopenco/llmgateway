@@ -26,11 +26,8 @@ export async function getProjectRoutingUsage(
 		providerId: string;
 		region?: string;
 	}>,
-): Promise<Map<string, { cacheHitRate: number; cacheOutputRatio: number }>> {
-	const result = new Map<
-		string,
-		{ cacheHitRate: number; cacheOutputRatio: number }
-	>();
+): Promise<Map<string, ProjectRoutingUsage>> {
+	const result = new Map<string, ProjectRoutingUsage>();
 	if (combinations.length === 0) {
 		return result;
 	}
@@ -82,6 +79,38 @@ export async function getProjectRoutingUsage(
 
 	const byProvider = new Map<string, TokenUsage>();
 	const byModel = new Map<string, TokenUsage>();
+	// Providers below the sample threshold, pooled per model.
+	const unsampledByModel = new Map<string, TokenUsage>();
+	// An unsampled provider is assumed to cache as well as the best observed
+	// one: a low hit rate is a property of the provider that served it, so a
+	// provider that never caches must not make every alternative look uncached
+	// and keep the project routed to it.
+	const bestHitRateByModel = new Map<string, number>();
+	const add = (
+		map: Map<string, TokenUsage>,
+		key: string,
+		usage: TokenUsage,
+	) => {
+		const total = map.get(key) ?? {
+			requests: 0,
+			input: 0,
+			cached: 0,
+			output: 0,
+		};
+		for (const field of Object.keys(total) as Array<keyof TokenUsage>) {
+			total[field] += usage[field];
+		}
+		map.set(key, total);
+	};
+	const observe = (modelId: string, usage: TokenUsage) => {
+		bestHitRateByModel.set(
+			modelId,
+			Math.max(
+				bestHitRateByModel.get(modelId) ?? 0,
+				usage.cached / usage.input,
+			),
+		);
+	};
 	for (const row of rows) {
 		const usage: TokenUsage = {
 			requests: Number(row.requests),
@@ -94,34 +123,46 @@ export async function getProjectRoutingUsage(
 		}
 		usage.cached = Math.min(usage.cached, usage.input);
 		byProvider.set(metricsKey(row.modelId, row.providerId), usage);
-		const total = byModel.get(row.modelId) ?? {
-			requests: 0,
-			input: 0,
-			cached: 0,
-			output: 0,
-		};
-		for (const key of Object.keys(total) as Array<keyof TokenUsage>) {
-			total[key] += usage[key];
+		add(byModel, row.modelId, usage);
+		if (hasEnoughUsage(usage)) {
+			observe(row.modelId, usage);
+		} else {
+			add(unsampledByModel, row.modelId, usage);
 		}
-		byModel.set(row.modelId, total);
+	}
+	for (const [modelId, usage] of unsampledByModel) {
+		if (hasEnoughUsage(usage)) {
+			observe(modelId, usage);
+		}
 	}
 
 	for (const candidate of combinations) {
 		const total = byModel.get(candidate.modelId);
-		if (!total || !hasEnoughUsage(total)) {
+		const bestHitRate = bestHitRateByModel.get(candidate.modelId);
+		if (!total || bestHitRate === undefined) {
 			continue;
 		}
 		const provider = byProvider.get(
 			metricsKey(candidate.modelId, candidate.providerId),
 		);
-		const usage = provider && hasEnoughUsage(provider) ? provider : total;
+		const sampled = provider !== undefined && hasEnoughUsage(provider);
 		result.set(
 			metricsKey(candidate.modelId, candidate.providerId, candidate.region),
 			{
-				cacheHitRate: usage.cached / usage.input,
+				cacheHitRate: sampled ? provider.cached / provider.input : bestHitRate,
 				cacheOutputRatio: total.output / total.input,
+				sampled,
 			},
 		);
 	}
 	return result;
+}
+/**
+ * `sampled`: the hit rate is this provider's own; otherwise it is the best
+ * rate observed for the model, an optimistic estimate of the workload.
+ */
+export interface ProjectRoutingUsage {
+	cacheHitRate: number;
+	cacheOutputRatio: number;
+	sampled: boolean;
 }

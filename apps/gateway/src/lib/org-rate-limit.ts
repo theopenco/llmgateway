@@ -205,11 +205,7 @@ export interface RateLimitResult {
  * error the request is allowed so that limiter outages never block traffic.
  *
  * The base limit depends on the org's `planClass` (dev/chat plans are much
- * tighter). `getMultiplier` is resolved lazily: the spend tier only matters
- * once the org is already at or above its base limit, so the (cached but still
- * extra) spend lookup is skipped entirely for the common under-limit case.
- * Higher tiers can only raise the limit, so a request under the base limit is
- * always allowed regardless of tier.
+ * tighter) and is scaled by the spend-tier multiplier from `getMultiplier`.
  */
 export async function checkOrgRateLimit(
 	organizationId: string,
@@ -233,17 +229,14 @@ export async function checkOrgRateLimit(
 		// eslint-disable-next-line no-mixed-operators
 		const windowStart = now - window * 1000;
 
-		await redisClient.zremrangebyscore(key, "-inf", windowStart);
+		// Resolve the tier eagerly (it is cached, and the spend-cap check reads
+		// the same entry) so the advertised limit is always the effective one.
+		const [multiplier] = await Promise.all([
+			getMultiplier(),
+			redisClient.zremrangebyscore(key, "-inf", windowStart),
+		]);
+		const limit = Math.floor(baseLimit * multiplier);
 		const currentCount = await redisClient.zcard(key);
-
-		// Only resolve the spend tier (an extra DB/Redis lookup) once the base
-		// limit is reached; below it the request is admitted without it.
-		let limit = baseLimit;
-		let multiplier = 1;
-		if (currentCount >= baseLimit) {
-			multiplier = await getMultiplier();
-			limit = Math.floor(baseLimit * multiplier);
-		}
 
 		if (currentCount >= limit) {
 			const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");

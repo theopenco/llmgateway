@@ -182,6 +182,11 @@ export interface RoutingMetadata {
 	serviceTierSource?: "request" | "coding-plan-default";
 	// Parameters that were stripped from the request because the selected provider doesn't support them
 	strippedParameters?: string[];
+	/**
+	 * Set when a retry dropped the conversation's OpenAI-format encrypted
+	 * reasoning to move to a credential that could not verify it.
+	 */
+	encryptedReasoningDropped?: boolean;
 	// Set when the request was resolved through a named dynamic route
 	dynamicRoute?: {
 		name: string;
@@ -398,7 +403,8 @@ export interface CachePricingContext {
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "hd" | "1080p" | "4k" | "768p" | "720p" | "480p";
+	resolution:
+		"default" | "hd" | "1080p" | "4k" | "768p" | "720p" | "480p" | "360p";
 }
 
 function getPerSecondBillingKeys(
@@ -445,6 +451,12 @@ function getPerSecondBillingKeys(
 		return videoPricing.includeAudio
 			? ["480p_audio", "default_audio", "480p", "default"]
 			: ["480p_video", "default_video", "480p", "default"];
+	}
+
+	if (videoPricing.resolution === "360p") {
+		return videoPricing.includeAudio
+			? ["360p_audio", "default_audio", "360p", "default"]
+			: ["360p_video", "default_video", "360p", "default"];
 	}
 
 	return videoPricing.includeAudio

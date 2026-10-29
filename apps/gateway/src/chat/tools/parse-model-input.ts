@@ -34,6 +34,7 @@ export interface ParseModelInputResult {
  * - "provider/model" -> specific provider and model
  * - "provider/model:region" -> specific provider, model, and region
  * - "customProvider/model" -> custom provider with any model name
+ * - "custom/..." -> rejected (legacy spelling; use "customProvider/model")
  * - "model-id" -> model ID lookup
  *
  * @throws HTTPException if the model or provider is not supported
@@ -73,9 +74,15 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 		const providerCandidate = split[0];
 
 		// Custom provider keys are always addressed by their configured name.
+		// "custom" is a catalogue provider id, so the legacy
+		// "custom/<name>/<model>" spelling would otherwise parse with no custom
+		// provider name. Reject it, suggesting the concrete rewrite when the rest
+		// of the string already has the "<name>/<model>" shape.
 		if (providerCandidate === "custom" || providerCandidate === "") {
+			const rest = split.slice(1).join("/");
+			const example = rest.includes("/") ? rest : "my-provider/model-name";
 			throw new HTTPException(400, {
-				message: `Invalid model "${modelInput}". Address a custom provider by its configured name, e.g. "my-provider/model-name".`,
+				message: `Invalid model "${modelInput}". Address a custom provider by its configured name, e.g. "${example}".`,
 			});
 		}
 

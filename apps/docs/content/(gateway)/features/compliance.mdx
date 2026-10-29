@@ -18,6 +18,9 @@ For providers managed entirely through Airside, policy checks use the active
 carrier's self-declared profile, including subsequent edits. No separate
 compliance review is required. Missing facts fail the corresponding policy
 requirement; provider allowlists and blocklists keep using the same provider ID.
+Catalogue providers claimed in Airside can also declare their own SOC 2, ISO
+27001 and GDPR status: a declared value replaces the reviewed catalogue value,
+and an unstated one keeps it.
 
 ## Requirements
 
@@ -102,7 +105,7 @@ When no available provider for a model meets the policy — or a pinned provider
 This applies to both routing modes:
 
 - **Automatic routing** — non-compliant providers are removed from the candidate set, and the request is blocked if none remain.
-- **Pinned providers** — a request such as `deepseek/deepseek-v3.2` is blocked when that specific provider does not meet the policy.
+- **Pinned providers** — a request such as `deepseek/deepseek-v4-pro` is blocked when that specific provider does not meet the policy.
 
 Each block is recorded as a **security event** so administrators can review what was rejected and why.
 
@@ -139,9 +142,9 @@ Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for 
 
 ## Safety identifiers
 
-Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per organization. It contains no personal data — no email address, user id or organization name — and it is the only thing that ties a report of abusive traffic back to an account.
+Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per API key. It contains no personal data — no email address, user id, organization name or key id — and it is the only thing that ties a report of abusive traffic back to the exact API key that sent it.
 
-Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from your organization.
+Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from the API key that authenticated the request.
 
 ## Access Control
 

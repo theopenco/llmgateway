@@ -13,7 +13,8 @@ Assume Drizzle applies migrations cleanly and tracks which have run.
 Generate, review, and commit the migration without adapting its SQL by default.
 
 Do not add `IF NOT EXISTS`, `IF EXISTS`, existence probes, or duplicate-object
-handlers for hypothetical reruns, partial application, or schema drift.
+handlers for hypothetical reruns, partial application, or schema drift. The one
+exception is index changes on existing tables (see Locking).
 Regenerating an unmerged migration after syncing with `main` does not justify
 compatibility with its earlier branch version. A speculative review warning is
 not evidence that a migration ran outside the normal workflow.
@@ -35,19 +36,65 @@ not evidence that a migration ran outside the normal workflow.
 - If one migration mixes changes, name the destructive one; if that is unclear, split the schema change into separate migrations.
 - Review the new `packages/db/migrations/<timestamp>_<name>/` folder; confirm the SQL matches the name.
 
+## How migrations run
+
+`runMigrations` (`packages/db/src/migrate.ts`) applies each pending migration in
+its own transaction on one connection with `lock_timeout` (5s), a
+`statement_timeout`, and an advisory lock that serializes runners. A lock
+timeout or deadlock rolls that migration back and retries with backoff, then
+fails naming the blocking sessions. `pnpm migrate` applies; `pnpm migrate
+--check` is a read-only preflight. Production runs the same entry point
+(`node dist/migrate.js`) as a job before rollout, with
+`MIGRATIONS_REQUIRE_PREBUILT_INDEXES=true`.
+
+## Locking
+
+Every `ALTER TABLE` takes ACCESS EXCLUSIVE until the migration commits, and
+queued app queries wait behind the request. `pnpm migrations:lint` (CI) checks
+migrations created since the lint was added:
+
+- Index changes on existing tables use `CREATE INDEX IF NOT EXISTS` / `DROP INDEX IF EXISTS`. With `MIGRATIONS_REQUIRE_PREBUILT_INDEXES=true` the deploy refuses until the index was built or dropped `CONCURRENTLY` and prints the commands; list them under "Manual steps" in the PR. Indexes on tables the migration creates are exempt; `-- migrate:allow-blocking-index` above a statement opts out for a small table.
+- Flagged unless acknowledged: altering more than one existing table in one migration, `ALTER COLUMN ... TYPE`, `SET NOT NULL`, a `FOREIGN KEY` without `NOT VALID`, and `ADD COLUMN` with a volatile default. Prefer expand/contract (add, backfill in batches, then constrain in a later PR). Otherwise acknowledge with `-- migrate:reviewed <why this is safe or the manual step>` above the statement (anywhere in the file for the multi-table rule).
+
+## Backward compatibility
+
+Migrations run before rollout and are never reverted, so the previous release
+runs on the new schema during every rollout and after any rollback. Full-row
+Drizzle queries (`select()`, relational queries without `columns`,
+`returning()`) name every `schema.ts` column, as does code that references one
+directly, so a column the previous release still declares must still exist.
+Additive changes (new tables, nullable columns, columns with a DEFAULT) are
+safe.
+
+Remove a column or table in two deployed PRs:
+
+1. Remove every use and the field from `schema.ts`, without a migration.
+2. After step 1 is deployed, run `pnpm migrations --name drop_<table>_<column>`
+   and put `-- migrate:contract #<step 1 PR>` above the DROP. Until it merges,
+   every `pnpm migrations` run emits that DROP.
+
+Rename by adding the new column, writing both, backfilling, switching reads,
+then dropping the old one. Change a unique constraint or index by adding the new
+one first and dropping the old one once no deployed `onConflict` targets it.
+`pnpm migrations:lint` flags DROP TABLE/COLUMN/INDEX, RENAME, DROP CONSTRAINT
+(except `*_fk`), DROP DEFAULT, and ADD COLUMN NOT NULL without DEFAULT unless
+the statement carries `-- migrate:contract <reason>`. A `-- migrate:reviewed`
+reason on SET NOT NULL or a type change must also cover what the previous
+release writes.
+
 ## Editing generated migrations
 
 - Do not write a migration by hand from scratch. Generate it first with `pnpm migrations --name <name>`.
 - The operational exception is avoiding locks on huge tables, especially when creating indexes. Treat all history tables as large when reviewing locking behavior.
-- If that requires adaptation, edit only the generated `migration.sql`.
+- If that requires adaptation (including `IF [NOT] EXISTS` on index changes and lint markers), edit only the generated `migration.sql`.
 - Never manually edit any `snapshot.json`.
 - If the TypeScript schema is wrong, fix `packages/db/src/schema.ts` and regenerate instead of patching snapshots.
 - Use snake_case column names in SQL.
 
-For a large-table index change, a staged rollout may require splitting the
-change into two generated migrations and running `CREATE INDEX CONCURRENTLY`
-manually between them, outside a transaction. Document the required order in
-the SQL. Keep the generated snapshots exactly as Drizzle wrote them.
+For a large-table index change, run `CREATE INDEX CONCURRENTLY IF NOT EXISTS`
+manually, outside a transaction, before the deploy; the migration's
+`IF NOT EXISTS` statement is then a no-op. Keep the generated snapshots exactly
+as Drizzle wrote them.
 
 ## Syncing with main
 
@@ -69,5 +116,5 @@ Never resolve conflicts in migration SQL or snapshot JSON by hand.
 
 - Inspect `git diff packages/db/src/schema.ts packages/db/migrations/`.
 - Confirm snapshot changes came from `pnpm migrations`, not manual edits.
-- Run `pnpm format` after changes.
+- Run `pnpm migrations:lint` and `pnpm format` after changes.
 - Run `pnpm build` after schema or migration changes.

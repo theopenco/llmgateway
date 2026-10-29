@@ -21,9 +21,10 @@
 		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check .",
-		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
+		"migrate": "tsx src/migrate-cli.ts",
 		"migrations": "pnpm drizzle-kit generate --config drizzle.config.ts",
 		"migrations:check": "pnpm drizzle-kit check --config drizzle.config.ts",
+		"migrations:lint": "tsx src/migration-lint-cli.ts",
 		"push": "pnpm drizzle-kit push --force --config drizzle.config.ts",
 		"seed": "node dist/seed.js",
 		"seed-demo": "node dist/seed-demo.js"
@@ -35,14 +36,14 @@
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
-		"drizzle-orm": "1.0.0-rc.4",
+		"drizzle-orm": "1.0.0-rc.5-5935859",
 		"nanoid": "5.1.16",
 		"pg": "^8.16.3",
 		"zod": "3.25.76"
 	},
 	"devDependencies": {
 		"@types/pg": "^8.15.5",
-		"drizzle-kit": "1.0.0-rc.4",
+		"drizzle-kit": "1.0.0-rc.5-5935859",
 		"ioredis": "5.7.0"
 	}
 }

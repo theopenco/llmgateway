@@ -46,10 +46,14 @@ import { useApi } from "@/lib/fetch-client";
 import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
 import {
+	CONTEXT_TIER_TOLERANCE,
+	getContextSizeDeviation,
 	isValidModelId,
 	modelIdProblem,
 	suggestModelId,
 } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
+import { cachedInputPriceWarning } from "@llmgateway/shared/prompt-cache";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
@@ -167,6 +171,51 @@ function QuantizationField({
 	);
 }
 
+/**
+ * Blocks a listing whose context size is more than 10% away from the largest
+ * window the model is served with; the API rejects it as well.
+ */
+function ContextSizeWarning({
+	contextSize,
+	referenceContextSize,
+	modelName,
+}: {
+	contextSize: string;
+	referenceContextSize: number | null | undefined;
+	modelName: string;
+}) {
+	const value = Number(contextSize);
+	const deviation = getContextSizeDeviation(value, referenceContextSize);
+	if (!deviation || !referenceContextSize) {
+		return null;
+	}
+	const tolerance = `${CONTEXT_TIER_TOLERANCE * 100}%`;
+	return (
+		<div
+			role="alert"
+			data-testid="context-size-warning"
+			className="border-destructive bg-destructive/10 flex gap-3 rounded-md border-2 p-4"
+		>
+			<AlertTriangle className="text-destructive size-6 shrink-0" aria-hidden />
+			<div className="space-y-1 text-sm">
+				<p className="font-semibold">
+					{deviation === "below"
+						? `Context size too far below ${modelName}'s window`
+						: `Context size too far above ${modelName}'s window`}
+				</p>
+				<p>
+					{modelName} is served with up to {formatNumber(referenceContextSize)}{" "}
+					tokens of context. Listings must declare a window within {tolerance}{" "}
+					of it, so {formatNumber(value)} tokens can&apos;t be submitted.{" "}
+					{deviation === "below"
+						? "A deployment with a smaller window can't be listed for this model."
+						: "Declare the window your deployment really accepts: preflight sends a prompt filling about 90% of it."}
+				</p>
+			</div>
+		</div>
+	);
+}
+
 function useInvalidateModels(providerCompanyId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -187,6 +236,11 @@ function useInvalidateModels(providerCompanyId: string) {
 		});
 	};
 }
+
+/** Decision models declare image input only. */
+const DECISION_CAPABILITIES = [
+	{ key: "vision", label: "Image input" },
+] as const;
 
 const CAPABILITIES = [
 	{ key: "streaming", label: "Streaming" },
@@ -493,6 +547,25 @@ function regionFaresToBody(rows: RegionFareRow[]) {
  * region with `provider/model:region`; every other request pays the default
  * fares.
  */
+function CachedPriceWarning({
+	inputPrice,
+	cachedInputPrice,
+}: {
+	inputPrice: string;
+	cachedInputPrice: string;
+}) {
+	const warning = cachedInputPriceWarning(inputPrice, cachedInputPrice);
+	return warning ? (
+		<p
+			className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400"
+			data-testid="cached-price-warning"
+		>
+			<AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+			{warning}
+		</p>
+	) : null;
+}
+
 function RegionFaresEditor({
 	idPrefix,
 	rows,
@@ -594,6 +667,10 @@ function RegionFaresEditor({
 								}
 								placeholder="same as default"
 							/>
+							<CachedPriceWarning
+								inputPrice={row.inputPrice}
+								cachedInputPrice={row.cachedInputPrice}
+							/>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor={`${idPrefix}-region-request-${index}`}>
@@ -656,6 +733,59 @@ function toolChoicePayload(
 }
 
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
+
+// The OpenAI-compatible shapes an endpoint may take a web search in.
+const WEB_SEARCH_FORMATS = [
+	{ value: "web_search_options", label: "web_search_options" },
+	{ value: "web_search_tool", label: 'tools: [{type: "web_search"}]' },
+] as const;
+type WebSearchFormatOption = (typeof WEB_SEARCH_FORMATS)[number]["value"];
+
+function WebSearchFormatPicker({
+	value,
+	onChange,
+	disabled,
+	testIdPrefix,
+}: {
+	value: WebSearchFormatOption | null;
+	onChange: (value: WebSearchFormatOption) => void;
+	disabled: boolean;
+	testIdPrefix: string;
+}) {
+	return (
+		<div className="space-y-1 pt-1">
+			<Label className="text-muted-foreground text-xs">
+				Web search request format
+			</Label>
+			<div className="flex flex-wrap gap-1.5">
+				{WEB_SEARCH_FORMATS.map((format) => {
+					const active = value === format.value;
+					return (
+						<button
+							key={format.value}
+							type="button"
+							aria-pressed={active}
+							disabled={disabled}
+							data-testid={`${testIdPrefix}${format.value}`}
+							onClick={() => onChange(format.value)}
+							className={
+								active
+									? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+									: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+							}
+						>
+							{format.label}
+						</button>
+					);
+				})}
+			</div>
+			<p className="text-muted-foreground text-xs">
+				How your Chat Completions endpoint takes a web search. Preflight sends
+				it in this shape and passes only when the response shows a search ran.
+			</p>
+		</div>
+	);
+}
 
 type RateLimitScope = "global" | "per_org";
 type RateLimitMode = "strict" | "soft";
@@ -786,6 +916,7 @@ export function RegisterModelDialog({
 	const [externalId, setExternalId] = useState("");
 	const [apiFormat, setApiFormat] =
 		useState<AirsideModel["apiFormat"]>("provider-native");
+	const [decisions, setDecisions] = useState(false);
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
@@ -825,6 +956,8 @@ export function RegisterModelDialog({
 	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>([
 		...TOOL_CHOICE_MODES,
 	]);
+	const [webSearchFormat, setWebSearchFormat] =
+		useState<WebSearchFormatOption>("web_search_options");
 	const sortedProviderIds = [...providerIds].sort();
 	const [providerId, setProviderId] = useState(sortedProviderIds[0] ?? "");
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
@@ -887,6 +1020,7 @@ export function RegisterModelDialog({
 			setModelName("");
 			setExternalId("");
 			setApiFormat("provider-native");
+			setDecisions(false);
 			setDisplayName("");
 			setDescription("");
 			setFamily("");
@@ -910,22 +1044,34 @@ export function RegisterModelDialog({
 		},
 	});
 
+	// A decision model declares only image input and its input window; the
+	// server pins every chat capability off for it.
+	const declaredCapabilities = decisions
+		? { decisions: true, vision: capabilities.vision }
+		: {
+				apiFormat,
+				maxOutput: Number(maxOutput) || undefined,
+				...capabilities,
+				supportedToolChoices: capabilities.tools
+					? toolChoicePayload(toolChoices)
+					: null,
+				reasoningEfforts:
+					capabilities.reasoning && reasoningEfforts.length > 0
+						? reasoningEfforts
+						: undefined,
+				webSearchFormat: capabilities.webSearch ? webSearchFormat : undefined,
+			};
 	const verificationMapping = {
 		providerCompanyId,
 		providerId: effectiveProviderId,
 		modelName: modelName.trim(),
 		externalId: externalId || undefined,
-		apiFormat,
 		contextSize: Number(contextSize) || undefined,
-		maxOutput: Number(maxOutput) || undefined,
-		...capabilities,
-		supportedToolChoices: capabilities.tools
-			? toolChoicePayload(toolChoices)
-			: null,
-		reasoningEfforts:
-			capabilities.reasoning && reasoningEfforts.length > 0
-				? reasoningEfforts
-				: undefined,
+		promptCaching:
+			!decisions &&
+			(Boolean(cachedInputPrice) ||
+				regionFares.some((fare) => Boolean(fare.cachedInputPrice))),
+		...declaredCapabilities,
 	};
 
 	return (
@@ -972,6 +1118,15 @@ export function RegisterModelDialog({
 							toast.error("Load the catalogue before saving.");
 							return;
 						}
+						if (
+							getContextSizeDeviation(
+								Number(contextSize),
+								canonicalModel?.referenceContextSize,
+							)
+						) {
+							toast.error("Fix the context size before saving.");
+							return;
+						}
 						if (verification?.status !== "passed") {
 							queueVerification.mutate({
 								body: {
@@ -989,7 +1144,6 @@ export function RegisterModelDialog({
 								providerId: effectiveProviderId,
 								modelName: modelName.trim(),
 								externalId: externalId || undefined,
-								apiFormat,
 								displayName: canonicalModel
 									? undefined
 									: displayName || undefined,
@@ -999,28 +1153,26 @@ export function RegisterModelDialog({
 								family: canonicalModel?.family ?? family,
 								quantization,
 								contextSize: Number(contextSize) || undefined,
-								maxOutput: Number(maxOutput) || undefined,
-								...capabilities,
-								supportedToolChoices: capabilities.tools
-									? toolChoicePayload(toolChoices)
-									: null,
-								reasoningEfforts:
-									capabilities.reasoning && reasoningEfforts.length > 0
-										? reasoningEfforts
-										: undefined,
+								...declaredCapabilities,
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
 								rateLimitScope,
 								rateLimitMode,
-								pricing: {
-									inputPrice: perMillionToPerToken(inputPrice),
-									outputPrice: perMillionToPerToken(outputPrice),
-									cachedInputPrice: cachedInputPrice
-										? perMillionToPerToken(cachedInputPrice)
-										: undefined,
-									requestPrice: requestPrice || undefined,
-									regionPrices: regionFaresToBody(regionFares),
-								},
+								pricing: decisions
+									? {
+											inputPrice: perMillionToPerToken(inputPrice),
+											outputPrice: "0",
+											requestPrice: requestPrice || undefined,
+										}
+									: {
+											inputPrice: perMillionToPerToken(inputPrice),
+											outputPrice: perMillionToPerToken(outputPrice),
+											cachedInputPrice: cachedInputPrice
+												? perMillionToPerToken(cachedInputPrice)
+												: undefined,
+											requestPrice: requestPrice || undefined,
+											regionPrices: regionFaresToBody(regionFares),
+										},
 								note: note || undefined,
 							},
 						});
@@ -1152,35 +1304,74 @@ export function RegisterModelDialog({
 							</div>
 						)}
 						<div className="space-y-2 sm:col-span-2">
-							<Label htmlFor="model-api-format">Upstream API</Label>
+							<Label htmlFor="model-kind">Model type</Label>
 							<Select
-								value={apiFormat}
+								value={decisions ? "decisions" : "chat"}
 								onValueChange={(value) => {
-									setApiFormat(value as AirsideModel["apiFormat"]);
+									setDecisions(value === "decisions");
 									resetVerification();
 								}}
 								disabled={verificationInProgress}
 							>
-								<SelectTrigger
-									id="model-api-format"
-									data-testid="model-api-format"
-								>
+								<SelectTrigger id="model-kind" data-testid="model-kind">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{API_FORMATS.map((format) => (
-										<SelectItem key={format.value} value={format.value}>
-											{format.label}
-										</SelectItem>
-									))}
+									<SelectItem value="chat">Chat completions</SelectItem>
+									<SelectItem value="decisions">
+										Typed decisions (/v1/decisions)
+									</SelectItem>
 								</SelectContent>
 							</Select>
 							<p className="text-muted-foreground text-xs">
-								Used for preflight and every gateway request. Fixed once listed.
+								{decisions ? (
+									<>
+										Your API must serve the OpenAI-compatible{" "}
+										<span className="font-mono">POST /v1/decisions</span> and
+										report <span className="font-mono">usage.input_tokens</span>
+										. Decisions are billed on input tokens only. Fixed once
+										listed.
+									</>
+								) : (
+									"Fixed once listed."
+								)}
 							</p>
 						</div>
+						{decisions ? null : (
+							<div className="space-y-2 sm:col-span-2">
+								<Label htmlFor="model-api-format">Upstream API</Label>
+								<Select
+									value={apiFormat}
+									onValueChange={(value) => {
+										setApiFormat(value as AirsideModel["apiFormat"]);
+										resetVerification();
+									}}
+									disabled={verificationInProgress}
+								>
+									<SelectTrigger
+										id="model-api-format"
+										data-testid="model-api-format"
+									>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{API_FORMATS.map((format) => (
+											<SelectItem key={format.value} value={format.value}>
+												{format.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-muted-foreground text-xs">
+									Used for preflight and every gateway request. Fixed once
+									listed.
+								</p>
+							</div>
+						)}
 						<div className="space-y-2">
-							<Label htmlFor="model-context">Context size</Label>
+							<Label htmlFor="model-context">
+								{decisions ? "Max input tokens" : "Context size"}
+							</Label>
 							<Input
 								id="model-context"
 								value={contextSize}
@@ -1193,21 +1384,23 @@ export function RegisterModelDialog({
 								min={1}
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="model-max-output">Max output tokens</Label>
-							<Input
-								id="model-max-output"
-								value={maxOutput}
-								onChange={(e) => {
-									setMaxOutput(e.target.value);
-									resetVerification();
-								}}
-								disabled={verificationInProgress}
-								type="number"
-								min={1}
-								placeholder="optional"
-							/>
-						</div>
+						{decisions ? null : (
+							<div className="space-y-2">
+								<Label htmlFor="model-max-output">Max output tokens</Label>
+								<Input
+									id="model-max-output"
+									value={maxOutput}
+									onChange={(e) => {
+										setMaxOutput(e.target.value);
+										resetVerification();
+									}}
+									disabled={verificationInProgress}
+									type="number"
+									min={1}
+									placeholder="optional"
+								/>
+							</div>
+						)}
 						<QuantizationField
 							id="model-quantization"
 							value={quantization}
@@ -1222,6 +1415,11 @@ export function RegisterModelDialog({
 							/>
 						)}
 					</div>
+					<ContextSizeWarning
+						contextSize={contextSize}
+						referenceContextSize={canonicalModel?.referenceContextSize}
+						modelName={trimmedModelName}
+					/>
 
 					{catalogue.isSuccess && !canonicalModel && (
 						<div className="space-y-2">
@@ -1239,7 +1437,7 @@ export function RegisterModelDialog({
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
 						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-							{CAPABILITIES.map((cap) => (
+							{(decisions ? DECISION_CAPABILITIES : CAPABILITIES).map((cap) => (
 								<label
 									key={cap.key}
 									className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
@@ -1259,7 +1457,7 @@ export function RegisterModelDialog({
 								</label>
 							))}
 						</div>
-						{capabilities.tools ? (
+						{!decisions && capabilities.tools ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
 									Accepted tool_choice modes
@@ -1299,7 +1497,18 @@ export function RegisterModelDialog({
 								</p>
 							</div>
 						) : null}
-						{capabilities.reasoning ? (
+						{!decisions && capabilities.webSearch ? (
+							<WebSearchFormatPicker
+								value={webSearchFormat}
+								disabled={verificationInProgress}
+								testIdPrefix="web-search-format-"
+								onChange={(value) => {
+									setWebSearchFormat(value);
+									resetVerification();
+								}}
+							/>
+						) : null}
+						{!decisions && capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
 									Supported reasoning efforts
@@ -1381,7 +1590,7 @@ export function RegisterModelDialog({
 						<div className="text-primary font-mono text-[0.65rem] tracking-[0.25em] uppercase">
 							Initial tariff — requires approval
 						</div>
-						{canonicalModel && (
+						{canonicalModel && !decisions && (
 							<CataloguePriceButton
 								model={canonicalModel}
 								providerId={effectiveProviderId}
@@ -1408,29 +1617,39 @@ export function RegisterModelDialog({
 									required
 								/>
 							</div>
-							<div className="space-y-2">
-								<Label htmlFor="model-output-price">Output $/1M tokens</Label>
-								<Input
-									id="model-output-price"
-									data-testid="output-price"
-									value={outputPrice}
-									onChange={(e) => setOutputPrice(e.target.value)}
-									placeholder="6"
-									required
-								/>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="model-cached-price">
-									Cached input $/1M tokens
-								</Label>
-								<Input
-									id="model-cached-price"
-									data-testid="cached-input-price"
-									value={cachedInputPrice}
-									onChange={(e) => setCachedInputPrice(e.target.value)}
-									placeholder="0.5"
-								/>
-							</div>
+							{decisions ? null : (
+								<>
+									<div className="space-y-2">
+										<Label htmlFor="model-output-price">
+											Output $/1M tokens
+										</Label>
+										<Input
+											id="model-output-price"
+											data-testid="output-price"
+											value={outputPrice}
+											onChange={(e) => setOutputPrice(e.target.value)}
+											placeholder="6"
+											required
+										/>
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="model-cached-price">
+											Cached input $/1M tokens
+										</Label>
+										<Input
+											id="model-cached-price"
+											data-testid="cached-input-price"
+											value={cachedInputPrice}
+											onChange={(e) => setCachedInputPrice(e.target.value)}
+											placeholder="0.5"
+										/>
+										<CachedPriceWarning
+											inputPrice={inputPrice}
+											cachedInputPrice={cachedInputPrice}
+										/>
+									</div>
+								</>
+							)}
 							<div className="space-y-2">
 								<Label htmlFor="model-request-price">Per-request $</Label>
 								<Input
@@ -1442,11 +1661,13 @@ export function RegisterModelDialog({
 								/>
 							</div>
 						</div>
-						<RegionFaresEditor
-							idPrefix="register"
-							rows={regionFares}
-							onChange={setRegionFares}
-						/>
+						{decisions ? null : (
+							<RegionFaresEditor
+								idPrefix="register"
+								rows={regionFares}
+								onChange={setRegionFares}
+							/>
+						)}
 						<div className="space-y-2">
 							<Label htmlFor="model-note">Note to the regulator</Label>
 							<Textarea
@@ -1466,7 +1687,10 @@ export function RegisterModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -1620,7 +1844,7 @@ export function VerifyModelDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Verify {model.modelName}
@@ -1644,7 +1868,10 @@ export function VerifyModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -1746,6 +1973,8 @@ export function EditModelDialog({
 	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>(
 		toolChoiceSelection(proposed.supportedToolChoices),
 	);
+	const [webSearchFormat, setWebSearchFormat] =
+		useState<WebSearchFormatOption | null>(proposed.webSearchFormat ?? null);
 	const [maxRpm, setMaxRpm] = useState(
 		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
@@ -1781,6 +2010,7 @@ export function EditModelDialog({
 			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
 		setToolChoices(toolChoiceSelection(proposed.supportedToolChoices));
+		setWebSearchFormat(proposed.webSearchFormat ?? null);
 		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
 		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
 		setRateLimitScope(proposed.rateLimitScope);
@@ -1800,6 +2030,9 @@ export function EditModelDialog({
 			capabilities.reasoning && reasoningEfforts.length > 0
 				? reasoningEfforts
 				: null,
+		webSearchFormat: capabilities.webSearch
+			? (webSearchFormat ?? undefined)
+			: undefined,
 	};
 	const [apiKey, setApiKey] = useState("");
 	const [verificationId, setVerificationId] = useState("");
@@ -1913,6 +2146,15 @@ export function EditModelDialog({
 							toast.error("Load the catalogue before saving.");
 							return;
 						}
+						if (
+							getContextSizeDeviation(
+								Number(contextSize),
+								canonicalModel?.referenceContextSize,
+							)
+						) {
+							toast.error("Fix the context size before saving.");
+							return;
+						}
 						updateModel.mutate({
 							params: { path: { id: model.id } },
 							body: {
@@ -1930,6 +2172,9 @@ export function EditModelDialog({
 									capabilities.reasoning && reasoningEfforts.length > 0
 										? reasoningEfforts
 										: null,
+								webSearchFormat: capabilities.webSearch
+									? (webSearchFormat ?? undefined)
+									: undefined,
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
 								rateLimitScope,
@@ -1964,7 +2209,9 @@ export function EditModelDialog({
 							</div>
 						)}
 						<div className="space-y-2">
-							<Label htmlFor="edit-context">Context size</Label>
+							<Label htmlFor="edit-context">
+								{model.decisions ? "Max input tokens" : "Context size"}
+							</Label>
 							<Input
 								id="edit-context"
 								value={contextSize}
@@ -1977,20 +2224,22 @@ export function EditModelDialog({
 								min={1}
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="edit-max-output">Max output tokens</Label>
-							<Input
-								id="edit-max-output"
-								value={maxOutput}
-								onChange={(e) => {
-									setMaxOutput(e.target.value);
-									resetVerification();
-								}}
-								disabled={verificationInProgress}
-								type="number"
-								min={1}
-							/>
-						</div>
+						{model.decisions ? null : (
+							<div className="space-y-2">
+								<Label htmlFor="edit-max-output">Max output tokens</Label>
+								<Input
+									id="edit-max-output"
+									value={maxOutput}
+									onChange={(e) => {
+										setMaxOutput(e.target.value);
+										resetVerification();
+									}}
+									disabled={verificationInProgress}
+									type="number"
+									min={1}
+								/>
+							</div>
+						)}
 						<QuantizationField
 							id="edit-quantization"
 							value={quantization}
@@ -2005,6 +2254,11 @@ export function EditModelDialog({
 							/>
 						)}
 					</div>
+					<ContextSizeWarning
+						contextSize={contextSize}
+						referenceContextSize={canonicalModel?.referenceContextSize}
+						modelName={model.modelName}
+					/>
 					{catalogue.isSuccess && !canonicalModel && (
 						<div className="space-y-2">
 							<Label htmlFor="edit-description">Description</Label>
@@ -2019,25 +2273,27 @@ export function EditModelDialog({
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
 						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-							{CAPABILITIES.map((cap) => (
-								<label
-									key={cap.key}
-									className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-								>
-									{cap.label}
-									<Switch
-										checked={capabilities[cap.key]}
-										disabled={verificationInProgress}
-										onCheckedChange={(checked) => {
-											setCapabilities((prev) => ({
-												...prev,
-												[cap.key]: checked,
-											}));
-											resetVerification();
-										}}
-									/>
-								</label>
-							))}
+							{(model.decisions ? DECISION_CAPABILITIES : CAPABILITIES).map(
+								(cap) => (
+									<label
+										key={cap.key}
+										className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+									>
+										{cap.label}
+										<Switch
+											checked={capabilities[cap.key]}
+											disabled={verificationInProgress}
+											onCheckedChange={(checked) => {
+												setCapabilities((prev) => ({
+													...prev,
+													[cap.key]: checked,
+												}));
+												resetVerification();
+											}}
+										/>
+									</label>
+								),
+							)}
 						</div>
 						{capabilities.tools ? (
 							<div className="space-y-1 pt-1">
@@ -2078,6 +2334,17 @@ export function EditModelDialog({
 									it fall back to auto instead of reaching the deployment.
 								</p>
 							</div>
+						) : null}
+						{capabilities.webSearch ? (
+							<WebSearchFormatPicker
+								value={webSearchFormat}
+								disabled={verificationInProgress}
+								testIdPrefix="edit-web-search-format-"
+								onChange={(value) => {
+									setWebSearchFormat(value);
+									resetVerification();
+								}}
+							/>
 						) : null}
 						{capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
@@ -2166,7 +2433,10 @@ export function EditModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -2313,20 +2583,28 @@ export function FileFareDialog({
 						e.preventDefault();
 						fileFare.mutate({
 							params: { path: { id: model.id } },
-							body: {
-								inputPrice: perMillionToPerToken(inputPrice),
-								outputPrice: perMillionToPerToken(outputPrice),
-								cachedInputPrice: cachedInputPrice
-									? perMillionToPerToken(cachedInputPrice)
-									: undefined,
-								requestPrice: requestPrice || undefined,
-								regionPrices: regionFaresToBody(regionFares),
-								note: note || undefined,
-							},
+							// Decision models bill input tokens and requests only.
+							body: model.decisions
+								? {
+										inputPrice: perMillionToPerToken(inputPrice),
+										outputPrice: "0",
+										requestPrice: requestPrice || undefined,
+										note: note || undefined,
+									}
+								: {
+										inputPrice: perMillionToPerToken(inputPrice),
+										outputPrice: perMillionToPerToken(outputPrice),
+										cachedInputPrice: cachedInputPrice
+											? perMillionToPerToken(cachedInputPrice)
+											: undefined,
+										requestPrice: requestPrice || undefined,
+										regionPrices: regionFaresToBody(regionFares),
+										note: note || undefined,
+									},
 						});
 					}}
 				>
-					{canonicalModel && (
+					{canonicalModel && !model.decisions && (
 						<CataloguePriceButton
 							model={canonicalModel}
 							providerId={model.providerId}
@@ -2352,27 +2630,35 @@ export function FileFareDialog({
 								required
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="fare-output">Output $/1M tokens</Label>
-							<Input
-								id="fare-output"
-								data-testid="fare-output-price"
-								value={outputPrice}
-								onChange={(e) => setOutputPrice(e.target.value)}
-								placeholder="6"
-								required
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="fare-cached">Cached input $/1M tokens</Label>
-							<Input
-								id="fare-cached"
-								data-testid="fare-cached-input-price"
-								value={cachedInputPrice}
-								onChange={(e) => setCachedInputPrice(e.target.value)}
-								placeholder="0.5"
-							/>
-						</div>
+						{model.decisions ? null : (
+							<>
+								<div className="space-y-2">
+									<Label htmlFor="fare-output">Output $/1M tokens</Label>
+									<Input
+										id="fare-output"
+										data-testid="fare-output-price"
+										value={outputPrice}
+										onChange={(e) => setOutputPrice(e.target.value)}
+										placeholder="6"
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="fare-cached">Cached input $/1M tokens</Label>
+									<Input
+										id="fare-cached"
+										data-testid="fare-cached-input-price"
+										value={cachedInputPrice}
+										onChange={(e) => setCachedInputPrice(e.target.value)}
+										placeholder="0.5"
+									/>
+									<CachedPriceWarning
+										inputPrice={inputPrice}
+										cachedInputPrice={cachedInputPrice}
+									/>
+								</div>
+							</>
+						)}
 						<div className="space-y-2">
 							<Label htmlFor="fare-request">Per-request $</Label>
 							<Input
@@ -2384,11 +2670,13 @@ export function FileFareDialog({
 							/>
 						</div>
 					</div>
-					<RegionFaresEditor
-						idPrefix="fare"
-						rows={regionFares}
-						onChange={setRegionFares}
-					/>
+					{model.decisions ? null : (
+						<RegionFaresEditor
+							idPrefix="fare"
+							rows={regionFares}
+							onChange={setRegionFares}
+						/>
+					)}
 					<div className="space-y-2">
 						<Label htmlFor="fare-note">Note</Label>
 						<Textarea

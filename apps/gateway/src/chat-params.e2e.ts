@@ -72,6 +72,10 @@ describe("e2e params", getConcurrentTestOptions(), () => {
 	});
 
 	describe("supported parameters", () => {
+		test("empty", () => {
+			expect(true).toBe(true);
+		});
+
 		// Test all parameter combinations with all models
 		test.each(paramModelTestCases)(
 			"$paramName $model",

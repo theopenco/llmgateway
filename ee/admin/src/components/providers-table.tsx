@@ -18,6 +18,11 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useHistoryClient } from "@/lib/history-client";
+import {
+	CATALOG_USAGE_MODE_DEFAULT,
+	catalogModeParam,
+	type UsageMode,
+} from "@/lib/usage-mode";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -25,7 +30,6 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ProviderStats } from "@/lib/types";
-import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -83,7 +87,7 @@ function SortableHeader({
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const modeParam = catalogModeParam(usageMode, "&");
 	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
@@ -151,7 +155,7 @@ function ProviderRow({
 						<ProviderIcon className="h-5 w-5 shrink-0 dark:text-white" />
 						<div>
 							<Link
-								href={`/providers/${encodeURIComponent(provider.id)}`}
+								href={`/providers/${encodeURIComponent(provider.id)}${catalogModeParam(usageMode, "?")}`}
 								className="font-medium hover:underline"
 								onClick={(e) => e.stopPropagation()}
 							>
@@ -236,7 +240,7 @@ export function ProvidersTable({
 	sortBy = "logsCount",
 	sortOrder = "desc",
 	pageWindow,
-	usageMode = "total",
+	usageMode = CATALOG_USAGE_MODE_DEFAULT,
 	filterQuery = "",
 }: {
 	providers: ProviderStats[];

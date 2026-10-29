@@ -1,8 +1,9 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { getMcpUsage, getMcpUsageBreakdown } from "@/lib/mcp-usage.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db, getApiKeyCurrentPeriodState } from "@llmgateway/db";
 import {

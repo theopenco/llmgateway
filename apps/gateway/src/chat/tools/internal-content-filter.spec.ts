@@ -126,7 +126,7 @@ describe("checkInternalContentFilter", () => {
 		}
 	});
 
-	it("posts the prompt and keeps the raw verdict on the response", async () => {
+	it("posts only the prompt", async () => {
 		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			verdict({
 				tags: ["sexual_content"],
@@ -145,6 +145,7 @@ describe("checkInternalContentFilter", () => {
 			"http://classifier.test/v1/classify",
 			expect.objectContaining({
 				method: "POST",
+				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ prompt: "user: bad prompt" }),
 			}),
 		);

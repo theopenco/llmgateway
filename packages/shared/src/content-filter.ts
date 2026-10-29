@@ -34,6 +34,9 @@ export const CONTENT_FILTER_INTERNAL_SCOPES = ["full", "latest_turn"] as const;
 export type ContentFilterInternalScope =
 	(typeof CONTENT_FILTER_INTERNAL_SCOPES)[number];
 
+/** Model name on the internal classifier's stored moderation responses. */
+export const INTERNAL_CLASSIFIER_MODEL = "internal-classifier";
+
 export const contentFilterSettingsSchema = z.object({
 	// Master switch for sampling requests through the moderation API.
 	enabled: z.boolean().default(true),
@@ -93,6 +96,8 @@ export const GATEWAY_CONTENT_FILTER_MESSAGE =
  * - xAI video generation: `imagine:content-moderated`
  * - Z.AI / Zhipu (GLM, code 1301): `System detected potentially unsafe or
  *   sensitive content in input or generation`
+ * - OpenAI cybersecurity policy: `cyber_policy`, `flagged for possible
+ *   cybersecurity risk`
  */
 const CONTENT_FILTER_ERROR_SIGNALS = [
 	"ResponsibleAIPolicyViolation",
@@ -105,6 +110,8 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"Your request was rejected by the safety system",
 	"imagine:content-moderated",
 	"System detected potentially unsafe or sensitive content in input or generation",
+	"cyber_policy",
+	"flagged for possible cybersecurity risk",
 ];
 
 /**
