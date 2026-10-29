@@ -45,9 +45,9 @@ raise the misclassification risk and confirm first.
 
 The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) is stateless and
 receives only the prompt. Every verdict, passes included, comes back with the
-prompt fingerprint (`VECTORAL_SAFETY_HASH_ALL`) and is stored on the log's
-content filter response; the admin export
-(`/admin/content-filter/internal-checks/export`) is the only record. The
+prompt fingerprint (the classifier's hash-all option) and is stored on the
+log's content filter response, the only record; exports are in the
+`internal-classifier` skill. The
 content filter log columns never leave the admin surface: customer-facing log
 APIs omit them.
 
