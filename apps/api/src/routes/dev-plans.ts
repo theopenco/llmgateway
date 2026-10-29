@@ -1,11 +1,20 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
+import {
+	CLI_CODE_CHALLENGE_PATTERN,
+	issueCliAuthCode,
+} from "@/lib/cli-auth-code.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
+import {
+	devPlanCancellationCommentsSchema,
+	devPlanCancellationReasonSchema,
+	refineCancellationComments,
+} from "@/lib/dev-plan-cancellation.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	renewalPaymentResultSchema,
@@ -31,6 +40,7 @@ import {
 	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
+import { createRoute } from "@/utils/create-route.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
 	claimDevPlanCardFingerprint,
@@ -77,6 +87,7 @@ import {
 	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
@@ -86,10 +97,12 @@ import {
 	buildRefundDescription,
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
+	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
+	isDailyWindowExpired,
 	isPremiumWeekExpired,
 	type DevPlanCycle,
 	type DevPlanTier,
@@ -405,6 +418,8 @@ async function resetEndedDevPlan(
 			devPlanCreditsUsed: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekStart: null,
+			devPlanDailyCreditsUsed: "0",
+			devPlanDayStart: null,
 			// Included passes are a per-cycle grant, so their used-counter clears
 			// with the plan; purchased passes were paid for and survive to a
 			// future resubscribe.
@@ -435,6 +450,10 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
+						// Opt into pay-as-you-go overflow at signup. Written before
+						// checkout so the plan activates with overflow already on; the
+						// gateway ignores the flag until a plan is active.
+						paygEnabled: z.boolean().optional(),
 					}),
 				},
 			},
@@ -456,7 +475,7 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier } = c.req.valid("json");
+	const { tier, paygEnabled } = c.req.valid("json");
 
 	// Dev plans are billed monthly only; the Stripe monthly cycle drives credit
 	// refreshes. (Legacy annual subscriptions are still serviced on read.)
@@ -517,7 +536,19 @@ devPlans.openapi(subscribe, async (c) => {
 		// the card fingerprint against existing DevPass orgs; if it conflicts
 		// we reject the activation without ever creating a Stripe subscription
 		// or charging the user. The shared metadata carries everything the
-		// finalize step needs to create the subscription server-side.
+		// finalize step needs to create the subscription server-side,
+		// including the pay-as-you-go opt-in, which is applied only on activation.
+		const checkoutMetadata = {
+			organizationId: personalOrg.id,
+			subscriptionType: "dev_plan",
+			devPlan: tier,
+			devPlanCycle: cycle,
+			priceId,
+			userEmail: user.email,
+			...(paygEnabled !== undefined
+				? { devPlanPaygEnabled: String(paygEnabled) }
+				: {}),
+		};
 		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "setup",
@@ -525,24 +556,8 @@ devPlans.openapi(subscribe, async (c) => {
 			...(await forcedDevPlanThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
-			metadata: {
-				organizationId: personalOrg.id,
-				subscriptionType: "dev_plan",
-				devPlan: tier,
-				devPlanCycle: cycle,
-				priceId,
-				userEmail: user.email,
-			},
-			setup_intent_data: {
-				metadata: {
-					organizationId: personalOrg.id,
-					subscriptionType: "dev_plan",
-					devPlan: tier,
-					devPlanCycle: cycle,
-					priceId,
-					userEmail: user.email,
-				},
-			},
+			metadata: checkoutMetadata,
+			setup_intent_data: { metadata: checkoutMetadata },
 		});
 
 		if (!session.url) {
@@ -559,6 +574,7 @@ devPlans.openapi(subscribe, async (c) => {
 			metadata: {
 				tier,
 				cycle,
+				paygEnabled: paygEnabled === true,
 			},
 		});
 
@@ -720,11 +736,27 @@ devPlans.openapi(finalize, async (c) => {
 	}
 });
 
-// Cancel dev plan subscription
+// Cancel dev plan subscription. The cancel dialog collects the survey answer
+// up front and sends it here, so the feedback row is written in the same
+// request instead of waiting for the webhook to flip devPlanCancelled.
 const cancel = createRoute({
 	method: "post",
 	path: "/cancel",
-	request: {},
+	request: {
+		body: {
+			required: false,
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							reason: devPlanCancellationReasonSchema.optional(),
+							comments: devPlanCancellationCommentsSchema,
+						})
+						.superRefine(refineCancellationComments),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -750,6 +782,12 @@ devPlans.openapi(cancel, async (c) => {
 			message: "Unauthorized",
 		});
 	}
+
+	// The body is optional; without a JSON payload the validator yields nothing.
+	const { reason, comments } = c.req.valid("json") ?? {
+		reason: undefined,
+		comments: undefined,
+	};
 
 	// Find personal org
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -777,10 +815,11 @@ devPlans.openapi(cancel, async (c) => {
 		});
 	}
 
+	let immediate: boolean;
 	try {
-		const { immediate } = await cancelPlanSubscription(
+		({ immediate } = await cancelPlanSubscription(
 			personalOrg.devPlanStripeSubscriptionId,
-		);
+		));
 		if (immediate) {
 			await resetEndedDevPlan(
 				personalOrg.id,
@@ -796,18 +835,9 @@ devPlans.openapi(cancel, async (c) => {
 			resourceId: personalOrg.devPlanStripeSubscriptionId,
 			metadata: {
 				tier: personalOrg.devPlan,
+				reason: reason ?? null,
 				immediate,
 			},
-		});
-
-		if (!immediate) {
-			// Wait for the scheduled-cancellation webhook.
-			await new Promise((resolve) => setTimeout(resolve, 3000));
-		}
-
-		return c.json({
-			success: true,
-			immediate,
 		});
 	} catch (error) {
 		logger.error(
@@ -818,6 +848,58 @@ devPlans.openapi(cancel, async (c) => {
 			message: "Failed to cancel dev plan subscription",
 		});
 	}
+
+	// The subscription is already cancelled at this point, so a failure here
+	// must not turn the response into a 500 the dialog would read as "not
+	// cancelled". Log it and keep going.
+	if (reason) {
+		const previousDevPlan =
+			personalOrg.devPlan === "lite" ||
+			personalOrg.devPlan === "pro" ||
+			personalOrg.devPlan === "max"
+				? personalOrg.devPlan
+				: null;
+		const trimmedComments = comments?.trim() || null;
+		try {
+			await db
+				.insert(tables.devPlanCancellationFeedback)
+				.values({
+					organizationId: personalOrg.id,
+					userId: user.id,
+					devPlanStripeSubscriptionId: personalOrg.devPlanStripeSubscriptionId,
+					previousDevPlan,
+					reason,
+					comments: trimmedComments,
+				})
+				.onConflictDoUpdate({
+					target: [
+						tables.devPlanCancellationFeedback.organizationId,
+						tables.devPlanCancellationFeedback.devPlanStripeSubscriptionId,
+					],
+					set: {
+						reason,
+						comments: trimmedComments,
+						userId: user.id,
+						updatedAt: new Date(),
+					},
+				});
+		} catch (error) {
+			logger.error(
+				"Failed to record dev plan cancellation feedback",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+	}
+
+	if (!immediate) {
+		// Wait for the scheduled-cancellation webhook.
+		await new Promise((resolve) => setTimeout(resolve, 3000));
+	}
+
+	return c.json({
+		success: true,
+		immediate,
+	});
 });
 
 // Resume cancelled dev plan subscription
@@ -1498,6 +1580,8 @@ devPlans.openapi(changeTier, async (c) => {
 							devPlanCreditsUsed: "0",
 							devPlanPremiumCreditsUsed: "0",
 							devPlanPremiumWeekStart: new Date(),
+							devPlanDailyCreditsUsed: "0",
+							devPlanDayStart: null,
 							devPlanIncludedResetPassesUsed: 0,
 							devPlanBillingCycleStart: new Date(),
 							devPlanExpiresAt: newExpiresAt,
@@ -1838,6 +1922,11 @@ const getStatus = createRoute({
 						devPlanPremiumWeeklyLimit: z.string(),
 						devPlanPremiumCreditsUsed: z.string(),
 						devPlanPremiumWeekResetsAt: z.string().nullable(),
+						// Daily pacing allowance: plan credits per rolling 24-hour
+						// window, how much of it is used, and when the window rolls.
+						devPlanDailyLimit: z.string(),
+						devPlanDailyCreditsUsed: z.string(),
+						devPlanDayResetsAt: z.string().nullable(),
 						// Purchased Reset Passes redeemable on the current tier
 						// (purchased inventory is tier-bound).
 						devPlanResetPasses: z.number(),
@@ -1922,6 +2011,9 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanPremiumWeeklyLimit: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekResetsAt: null,
+			devPlanDailyLimit: "0",
+			devPlanDailyCreditsUsed: "0",
+			devPlanDayResetsAt: null,
 			devPlanResetPasses: 0,
 			devPlanIncludedResetPasses: 0,
 			devPlanIncludedResetPassesRemaining: 0,
@@ -1971,7 +2063,10 @@ devPlans.openapi(getStatus, async (c) => {
 	// reset date — the full allowance is already available again.
 	const premiumWeeklyLimit =
 		personalOrg.devPlan !== "none"
-			? getDevPlanPremiumWeeklyLimit(personalOrg.devPlan)
+			? getDevPlanPremiumWeeklyLimit(
+					personalOrg.devPlan,
+					personalOrg.devPlanCreditsLimit,
+				)
 			: 0;
 	const premiumWeekExpired = isPremiumWeekExpired(
 		personalOrg.devPlanPremiumWeekStart,
@@ -1984,6 +2079,25 @@ devPlans.openapi(getStatus, async (c) => {
 			? new Date(
 					personalOrg.devPlanPremiumWeekStart.getTime() +
 						DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+				).toISOString()
+			: null;
+
+	// Daily pacing allowance, same semantics as the weekly window above.
+	const dailyLimit =
+		personalOrg.devPlan !== "none"
+			? getDevPlanDailyLimit(
+					personalOrg.devPlan,
+					personalOrg.devPlanCreditsLimit,
+				)
+			: 0;
+	const dayExpired = isDailyWindowExpired(personalOrg.devPlanDayStart);
+	const dailyCreditsUsed = dayExpired
+		? 0
+		: parseFloat(personalOrg.devPlanDailyCreditsUsed ?? "0");
+	const dayResetsAt =
+		!dayExpired && personalOrg.devPlanDayStart
+			? new Date(
+					personalOrg.devPlanDayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS,
 				).toISOString()
 			: null;
 
@@ -2030,6 +2144,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
 		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
 		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
+		devPlanDailyLimit: dailyLimit.toFixed(2),
+		devPlanDailyCreditsUsed: dailyCreditsUsed.toFixed(2),
+		devPlanDayResetsAt: dayResetsAt,
 		devPlanResetPasses:
 			personalOrg.devPlan !== "none"
 				? getPurchasedResetPasses(personalOrg, personalOrg.devPlan)
@@ -2944,19 +3061,10 @@ const rotateApiKey = createRoute({
 	},
 });
 
-devPlans.openapi(rotateApiKey, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-	const { apiKeyId } = c.req.valid("json");
-
+async function rotateDevPassApiKey(userId: string, apiKeyId: string) {
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
-			userId: user.id,
+			userId,
 		},
 		with: {
 			organization: true,
@@ -3026,7 +3134,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 				...hashApiKeyForStorage(newToken),
 				projectId: project.id,
 				description: "Dev Plan API Key",
-				createdBy: user.id,
+				createdBy: userId,
 			})
 			.returning({ id: tables.apiKey.id });
 
@@ -3035,16 +3143,81 @@ devPlans.openapi(rotateApiKey, async (c) => {
 
 	await logAuditEvent({
 		organizationId: personalOrg.id,
-		userId: user.id,
+		userId,
 		action: "dev_plan.rotate_api_key",
 		resourceType: "api_key",
 		resourceId: project.id,
 	});
 
-	return c.json({
-		apiKey: newToken,
-		apiKeyId: newApiKeyId,
+	return { token: newToken, apiKeyId: newApiKeyId };
+}
+
+devPlans.openapi(rotateApiKey, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+	const { token, apiKeyId } = await rotateDevPassApiKey(
+		user.id,
+		c.req.valid("json").apiKeyId,
+	);
+
+	return c.json({ apiKey: token, apiKeyId });
+});
+
+// Roll the dev-plan API key for a coding CLI's browser login. The response
+// carries a one-time code, not the key; the CLI redeems it at
+// /public/cli-auth/token.
+const rotateApiKeyCliCode = createRoute({
+	method: "post",
+	path: "/rotate-api-key/cli-code",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						codeChallenge: z.string().regex(CLI_CODE_CHALLENGE_PATTERN),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						code: z.string(),
+					}),
+				},
+			},
+			description: "API key rotated; redeem the code from the CLI.",
+		},
+	},
+});
+
+devPlans.openapi(rotateApiKeyCliCode, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+	const body = c.req.valid("json");
+	const { token, apiKeyId } = await rotateDevPassApiKey(user.id, body.apiKeyId);
+	const code = await issueCliAuthCode({
+		token,
+		codeChallenge: body.codeChallenge,
+		expiresAt: null,
 	});
+
+	return c.json({ apiKeyId, code });
 });
 
 const removableDevPlanSubscriptionStatuses =
@@ -4134,9 +4307,13 @@ devPlans.openapi(redeemResetPass, async (c) => {
 	}
 
 	const tier = personalOrg.devPlan;
-	const weeklyLimit = getDevPlanPremiumWeeklyLimit(tier);
+	const weeklyLimit = getDevPlanPremiumWeeklyLimit(
+		tier,
+		personalOrg.devPlanCreditsLimit,
+	);
 	const remaining = getRemainingPremiumWeeklyAllowance(
 		tier,
+		personalOrg.devPlanCreditsLimit,
 		personalOrg.devPlanPremiumCreditsUsed,
 		personalOrg.devPlanPremiumWeekStart,
 	);

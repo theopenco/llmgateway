@@ -14,7 +14,7 @@ export type DevPlanTier = keyof typeof DEV_PLAN_PRICES;
 export type DevPlanCycle = "monthly" | "annual";
 
 export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
-	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER ?? "3");
+	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER ?? "2");
 	return DEV_PLAN_PRICES[tier] * multiplier;
 }
 
@@ -58,34 +58,78 @@ export function getDevPlanUpgradeCredits(
 
 /**
  * Weekly fair-use allowance for premium-category models per tier, expressed as
- * a fraction of the tier's total monthly credit allowance. Premium models
+ * a fraction of the org's monthly credit allowance. Premium models
  * (frontier flagships) are subject to this weekly cap in addition to the
  * monthly credit allowance. Deriving from the monthly limit keeps the ratio
  * exact regardless of DEV_PLAN_CREDITS_MULTIPLIER.
  */
 export const DEV_PLAN_PREMIUM_WEEKLY_PERCENT: Record<DevPlanTier, number> = {
-	lite: 0.12,
-	pro: 0.15,
-	max: 0.18,
+	lite: 0.1,
+	pro: 0.12,
+	max: 0.15,
 };
 
-export function getDevPlanPremiumWeeklyLimit(tier: DevPlanTier): number {
-	return getDevPlanCreditsLimit(tier) * DEV_PLAN_PREMIUM_WEEKLY_PERCENT[tier];
+/**
+ * The cycle allowance the weekly and daily shares are taken from: the org's
+ * stored limit, which can exceed the tier base (upgrade rollover, or an
+ * allotment granted under an earlier multiplier that lasts until renewal).
+ * Falls back to the tier base when no stored limit is available.
+ */
+function getCycleAllowance(
+	tier: DevPlanTier,
+	creditsLimit: string | number | null | undefined,
+): Decimal {
+	const stored = toDecimalOrZero(creditsLimit);
+	return stored.greaterThan(0)
+		? stored
+		: new Decimal(getDevPlanCreditsLimit(tier));
+}
+
+export function getDevPlanPremiumWeeklyLimit(
+	tier: DevPlanTier,
+	creditsLimit?: string | number | null,
+): number {
+	return getCycleAllowance(tier, creditsLimit)
+		.times(DEV_PLAN_PREMIUM_WEEKLY_PERCENT[tier])
+		.toNumber();
 }
 
 export const DEV_PLAN_PREMIUM_WEEK_LENGTH_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * Daily pacing allowance per tier, as a fraction of the monthly credit
+ * allowance that can be spent inside any rolling 24-hour window. Applies to
+ * every model; the premium weekly allowance stacks on top of it. Spreads a
+ * cycle's allowance across the month instead of letting it drain in a burst.
+ */
+export const DEV_PLAN_DAILY_PERCENT: Record<DevPlanTier, number> = {
+	lite: 0.08,
+	pro: 0.09,
+	max: 0.1,
+};
+
+export function getDevPlanDailyLimit(
+	tier: DevPlanTier,
+	creditsLimit?: string | number | null,
+): number {
+	return getCycleAllowance(tier, creditsLimit)
+		.times(DEV_PLAN_DAILY_PERCENT[tier])
+		.toNumber();
+}
+
+export const DEV_PLAN_DAY_LENGTH_MS = 24 * 60 * 60 * 1000;
+
+/**
  * One-time price of a Reset Pass per tier. Redeeming a pass instantly restores
  * the full weekly premium-model allowance (a fresh 7-day window). Priced at
- * ~82-86% of the weekly premium cap the pass unlocks: cheaper than buying the
+ * ~80-86% of the weekly premium cap the pass unlocks: cheaper than buying the
  * equivalent usage as PAYG credits, while the unlocked spend still draws from
  * the plan's monthly credit pool, so the pool remains the hard cost ceiling.
  */
 export const DEV_PLAN_RESET_PASS_PRICES: Record<DevPlanTier, number> = {
-	lite: 9,
-	pro: 29,
-	max: 79,
+	lite: 5,
+	pro: 15,
+	max: 45,
 };
 
 /**
@@ -123,13 +167,13 @@ export function getDevPlanCycleUsageFraction(
 
 /**
  * Reset Passes included with each plan per billing cycle. Included passes
- * don't roll over: the used-counter clears on subscribe/upgrade/renewal. Lite
- * includes none — its premium cap is the margin guardrail on the thinnest
- * tier, and a recurring free reset there would be a permanent cap raise.
+ * don't roll over: the used-counter clears on subscribe/upgrade/renewal. Only
+ * Max includes them — a recurring free reset on the lower tiers would be a
+ * permanent raise of the premium cap that guards them.
  */
 export const DEV_PLAN_INCLUDED_RESET_PASSES: Record<DevPlanTier, number> = {
 	lite: 0,
-	pro: 1,
+	pro: 0,
 	max: 2,
 };
 
@@ -144,21 +188,61 @@ export function getIncludedResetPassesRemaining(
 }
 
 /**
- * Returns true when the stored premium-week start is older than the rolling
- * 7-day window (or absent), meaning the premium usage counter should be
- * reset before the next deduction or check.
+ * Returns true when a rolling-window start is older than the window length
+ * (or absent), meaning the window's usage counter should be reset before the
+ * next deduction or check.
  */
+function isRollingWindowExpired(
+	windowStart: Date | null | undefined,
+	lengthMs: number,
+	now: Date,
+): boolean {
+	if (!windowStart) {
+		return true;
+	}
+	return now.getTime() - new Date(windowStart).getTime() >= lengthMs;
+}
+
 export function isPremiumWeekExpired(
 	weekStart: Date | null | undefined,
 	now: Date = new Date(),
 ): boolean {
-	if (!weekStart) {
-		return true;
-	}
-	return (
-		now.getTime() - new Date(weekStart).getTime() >=
-		DEV_PLAN_PREMIUM_WEEK_LENGTH_MS
+	return isRollingWindowExpired(
+		weekStart,
+		DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+		now,
 	);
+}
+
+export function isDailyWindowExpired(
+	dayStart: Date | null | undefined,
+	now: Date = new Date(),
+): boolean {
+	return isRollingWindowExpired(dayStart, DEV_PLAN_DAY_LENGTH_MS, now);
+}
+
+function parseUsed(creditsUsed: string | number | null | undefined): number {
+	return typeof creditsUsed === "string"
+		? parseFloat(creditsUsed)
+		: (creditsUsed ?? 0);
+}
+
+/**
+ * Returns the remaining daily allowance for the current 24-hour window. If the
+ * stored window has expired, the full per-tier limit is available.
+ */
+export function getRemainingDailyAllowance(
+	tier: DevPlanTier,
+	creditsLimit: string | number | null | undefined,
+	creditsUsed: string | number | null | undefined,
+	dayStart: Date | null | undefined,
+	now: Date = new Date(),
+): number {
+	const limit = getDevPlanDailyLimit(tier, creditsLimit);
+	if (isDailyWindowExpired(dayStart, now)) {
+		return limit;
+	}
+	return Math.max(0, limit - parseUsed(creditsUsed));
 }
 
 /**
@@ -167,17 +251,14 @@ export function isPremiumWeekExpired(
  */
 export function getRemainingPremiumWeeklyAllowance(
 	tier: DevPlanTier,
+	creditsLimit: string | number | null | undefined,
 	creditsUsed: string | number | null | undefined,
 	weekStart: Date | null | undefined,
 	now: Date = new Date(),
 ): number {
-	const limit = getDevPlanPremiumWeeklyLimit(tier);
+	const limit = getDevPlanPremiumWeeklyLimit(tier, creditsLimit);
 	if (isPremiumWeekExpired(weekStart, now)) {
 		return limit;
 	}
-	const used =
-		typeof creditsUsed === "string"
-			? parseFloat(creditsUsed)
-			: (creditsUsed ?? 0);
-	return Math.max(0, limit - used);
+	return Math.max(0, limit - parseUsed(creditsUsed));
 }

@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import {
 	APICallError,
 	convertToModelMessages,
@@ -12,6 +12,7 @@ import {
 import { HTTPException } from "hono/http-exception";
 
 import { listConnectorTools } from "@/lib/connectors/tools.js";
+import { createRoute } from "@/utils/create-route.js";
 import { resolvePlaygroundToken } from "@/utils/playground-key.js";
 import { isUpstreamError } from "@/utils/upstream-error.js";
 

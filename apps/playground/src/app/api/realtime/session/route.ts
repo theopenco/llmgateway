@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { transcribesInputNatively } from "@/lib/realtime-transcription";
 
 import { models as modelDefinitions } from "@llmgateway/models";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import {
-	getGatewayApiBaseUrl,
 	getGatewayPublicBaseUrl,
+	getRealtimeApiBaseUrl,
 } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
@@ -22,18 +23,19 @@ interface RealtimeSessionRequestBody {
 	model: string;
 	/** Speech-to-speech by default; "transcription" opens a transcription-only session. */
 	type?: RealtimeSessionType;
+	transcriptionModel?: string;
 }
 
 /**
- * Upstream provider serving the requested session model, resolved the same
+ * Catalogue mapping serving the requested session model, resolved the same
  * way the gateway pins it: first active mapping with the session's capability
  * (`realtime` for speech-to-speech, `realtimeTranscription` for a
  * transcription-only session), honoring a "provider/model" pinned form.
  */
-function resolveSessionProviderId(
+function resolveSessionMapping(
 	requestedModel: string,
 	capability: "realtime" | "realtimeTranscription",
-): string | null {
+): ProviderModelMapping | null {
 	let requestedProvider: string | undefined;
 	let modelKey = requestedModel;
 	const slashIdx = requestedModel.indexOf("/");
@@ -57,31 +59,7 @@ function resolveSessionProviderId(
 			if (mapping.deactivatedAt && now > mapping.deactivatedAt) {
 				continue;
 			}
-			return mapping.providerId;
-		}
-	}
-	return null;
-}
-
-/**
- * Default catalogue-backed ASR model for the provider: the first active
- * `realtimeTranscription: true` mapping in definition order, as a
- * provider-pinned model string.
- */
-function resolveDefaultTranscriptionModel(providerId: string): string | null {
-	const now = new Date();
-	for (const model of modelDefinitions) {
-		for (const mapping of model.providers as readonly ProviderModelMapping[]) {
-			if (mapping.realtimeTranscription !== true) {
-				continue;
-			}
-			if (mapping.providerId !== providerId) {
-				continue;
-			}
-			if (mapping.deactivatedAt && now > mapping.deactivatedAt) {
-				continue;
-			}
-			return `${mapping.providerId}/${model.id}`;
+			return mapping;
 		}
 	}
 	return null;
@@ -166,50 +144,46 @@ export async function POST(req: Request) {
 	}
 	const sessionType: RealtimeSessionType = body.type ?? "realtime";
 
-	let providerId: string | null;
-	let transcriptionModel: string | null;
+	let providerId: string;
 	let session: Record<string, unknown>;
 	if (sessionType === "transcription") {
 		// The transcription model is the session's only model; the gateway pins
 		// it at mint time and again at connection time.
-		providerId = resolveSessionProviderId(model, "realtimeTranscription");
-		if (!providerId) {
+		const mapping = resolveSessionMapping(model, "realtimeTranscription");
+		if (!mapping) {
 			return NextResponse.json(
 				{ error: `Unknown realtime transcription model: ${model}` },
 				{ status: 400 },
 			);
 		}
-		transcriptionModel = model;
+		providerId = mapping.providerId;
 		session = {
 			type: "transcription",
 			audio: { input: { transcription: { model } } },
 		};
 	} else {
-		providerId = resolveSessionProviderId(model, "realtime");
-		if (!providerId) {
+		const mapping = resolveSessionMapping(model, "realtime");
+		if (!mapping) {
 			return NextResponse.json(
 				{ error: `Unknown realtime model: ${model}` },
 				{ status: 400 },
 			);
 		}
-
-		// Gemini Live transcribes natively: transcription is enabled in the
-		// session setup and billed through Gemini's own usageMetadata, so there
-		// is no separate ASR model to resolve or pin. Every other provider needs
-		// a billable, catalogue-backed ASR model for the user transcript bubbles,
-		// and fails rather than starting a session with unmetered (or silently
-		// missing) transcription.
-		const usesNativeTranscription = providerId === "google-ai-studio";
-		transcriptionModel = usesNativeTranscription
-			? null
-			: resolveDefaultTranscriptionModel(providerId);
-		if (!usesNativeTranscription && !transcriptionModel) {
+		providerId = mapping.providerId;
+		if (
+			body.transcriptionModel !== undefined &&
+			typeof body.transcriptionModel !== "string"
+		) {
 			return NextResponse.json(
-				{
-					error:
-						"No transcription model is available for this realtime provider. Voice calls are temporarily unavailable.",
-				},
-				{ status: 503 },
+				{ error: "Invalid transcription model" },
+				{ status: 400 },
+			);
+		}
+		const transcriptionModel = body.transcriptionModel?.trim() || null;
+		if (!transcriptionModel && !transcribesInputNatively(mapping)) {
+			return NextResponse.json(
+				{ error: "Choose a transcription model for this realtime model." },
+				{ status: 400 },
 			);
 		}
 		session = {
@@ -238,7 +212,7 @@ export async function POST(req: Request) {
 	let response: Response;
 	try {
 		response = await fetch(
-			`${getGatewayApiBaseUrl()}/realtime/client_secrets`,
+			`${getRealtimeApiBaseUrl()}/realtime/client_secrets`,
 			{
 				method: "POST",
 				headers: {
@@ -309,7 +283,6 @@ export async function POST(req: Request) {
 		client_secret: secret.value,
 		expires_at: secret.expires_at,
 		session: secret.session ?? session,
-		transcription_model: transcriptionModel,
 		provider: providerId,
 		ws_url: resolveRealtimeWsUrl(),
 	});

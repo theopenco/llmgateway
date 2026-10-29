@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import {
 	afterAll,
 	afterEach,
@@ -25,6 +27,7 @@ import {
 	organizationCacheTag,
 	tables,
 } from "@llmgateway/db";
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 import {
 	getApiKeyFingerprint,
 	hashApiKeyForStorage,
@@ -539,9 +542,9 @@ describe("dev plan tier changes", () => {
 			amountDueCents: 7900,
 			currency: "USD",
 			currentCreditsLimit: 87,
-			// New allowance = the new tier's full allotment (79 * 3 = 237) plus the
-			// unused remainder of the current cycle (87 - 12.5 = 74.5) rolled over.
-			newCreditsLimit: 311.5,
+			// New allowance = the new tier's full allotment plus the unused
+			// remainder of the current cycle (87 - 12.5 = 74.5) rolled over.
+			newCreditsLimit: getDevPlanCreditsLimit("pro") + 74.5,
 			rolloverCredits: 74.5,
 			billingPeriodStart: new Date((nowSeconds - 500) * 1000).toISOString(),
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
@@ -593,6 +596,53 @@ describe("dev plan tier changes", () => {
 		expect(activeKeys).toHaveLength(1);
 		expect(activeKeys[0]?.id).toBe(body.apiKeyId);
 		expect(activeKeys[0]?.tokenHash).toBe(getApiKeyFingerprint(body.apiKey));
+	});
+
+	it("rolls the DevPass key for a CLI login and hands back a one-time code", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			...hashApiKeyForStorage("test-dev-plan-token"),
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			createdBy: "test-user-id",
+		});
+		const verifier = randomBytes(32).toString("base64url");
+
+		const response = await app.request("/dev-plans/rotate-api-key/cli-code", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({
+				apiKeyId: "test-dev-plan-api-key",
+				codeChallenge: createHash("sha256")
+					.update(verifier)
+					.digest("base64url"),
+			}),
+		});
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect("apiKey" in body).toBe(false);
+
+		const redeemed = await app.request("/public/cli-auth/token", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ code: body.code, code_verifier: verifier }),
+		});
+		expect(redeemed.status).toBe(200);
+		const { api_key, expires_at } = await redeemed.json();
+		expect(expires_at).toBeNull();
+		const activeKey = await db.query.apiKey.findFirst({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKey?.id).toBe(body.apiKeyId);
+		expect(activeKey?.tokenHash === getApiKeyFingerprint(api_key)).toBe(true);
 	});
 
 	it("preserves playground sessions when rotating the DevPass key", async () => {
@@ -878,10 +928,11 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(org?.devPlan).toBe("pro");
-		// Fresh cycle: usage wiped, limit set to the full new-tier allowance (237)
+		// Fresh cycle: usage wiped, limit set to the full new-tier allowance
 		// plus the unused remainder of the old cycle (87 - 12.5 = 74.5).
+		const upgradedLimit = String(getDevPlanCreditsLimit("pro") + 74.5);
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("311.5");
+		expect(org?.devPlanCreditsLimit).toBe(upgradedLimit);
 		expect(org?.devPlanBillingCycleStart).not.toBeNull();
 		expect(org?.devPlanExpiresAt).toEqual(
 			new Date((nowSeconds + THIRTY_DAYS) * 1000),
@@ -898,7 +949,7 @@ describe("dev plan tier changes", () => {
 		});
 		expect(transaction?.type).toBe("dev_plan_upgrade");
 		expect(transaction?.amount).toBe("79");
-		expect(transaction?.creditAmount).toBe("311.5");
+		expect(transaction?.creditAmount).toBe(upgradedLimit);
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
 	});
@@ -1120,8 +1171,8 @@ describe("dev plan tier changes", () => {
 	it("rolls over a fractional remainder without float artifacts", async () => {
 		// The org has heavy prior usage this period; the usage counter resets to 0
 		// and only the exact unused remainder (87 - 80.42 = 6.58) rolls over —
-		// computed with Decimal, so the stored limit is "243.58", not
-		// "243.57999999999998".
+		// computed with Decimal, so the stored limit carries exactly two decimals
+		// and no float artifacts.
 		await db
 			.update(tables.organization)
 			.set({
@@ -1174,7 +1225,9 @@ describe("dev plan tier changes", () => {
 		});
 		expect(org?.devPlan).toBe("pro");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("243.58");
+		expect(org?.devPlanCreditsLimit).toBe(
+			(getDevPlanCreditsLimit("pro") + 6.58).toFixed(2),
+		);
 	});
 
 	it("grants only the new-tier allotment when the old allowance is fully used", async () => {
@@ -1232,7 +1285,9 @@ describe("dev plan tier changes", () => {
 		});
 		expect(org?.devPlan).toBe("pro");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe(
+			String(getDevPlanCreditsLimit("pro")),
+		);
 	});
 
 	it("schedules an upgrade for renewal when timing is next_cycle", async () => {
@@ -1694,8 +1749,10 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		// Max allotment (537) plus the unused pro remainder (237 - 40 = 197).
-		expect(org?.devPlanCreditsLimit).toBe("734");
+		// Max allotment plus the unused pro remainder (237 - 40 = 197).
+		expect(org?.devPlanCreditsLimit).toBe(
+			String(getDevPlanCreditsLimit("max") + 197),
+		);
 	});
 
 	it("cancels a scheduled downgrade and reverts the Stripe price to the current tier", async () => {

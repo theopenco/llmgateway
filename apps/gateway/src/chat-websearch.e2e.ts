@@ -24,7 +24,7 @@ const describeWebSearch = testWebSearch ? describe : describe.skip;
 // DashScope's OpenAI-compatible protocol does not return search sources at all
 // (no `search_info`, regardless of enable_source/enable_citation), so the
 // providers backed by it can report that a search ran but never where it read.
-const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/", "scx-ai-gp/"];
+const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/"];
 
 // Every case here asserts that a search actually ran, so every case demands
 // one. Providers that elect their own searches are unaffected — the directive

@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -34,12 +34,21 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import {
+	buildErrorMessageMatchExpr,
+	buildIgnoredErrorMatchExpr,
+	buildIgnoredErrorsClause,
+	buildIncidentErrorScopeClause,
+	buildUnstableErrorScopeClause,
+	errorScopeSchema,
+	listIgnoredErrorMatchers,
+} from "@/lib/error-filters.js";
+import { escapeLikePattern } from "@/lib/like-pattern.js";
 import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
 	notRetriedClause,
-	incidentErrorsClause,
 	platformOnlyClause,
 	byokClauseFor,
 	queryMappingErrorShapes,
@@ -57,6 +66,8 @@ import {
 	organizationTimeseriesQuery,
 	organizationTimeseriesSchema,
 } from "@/lib/organization-timeseries.js";
+import { managedProviderKeyName } from "@/lib/provider-key-label.js";
+import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -79,6 +90,7 @@ import {
 	normalizeCountryCodes,
 	setBlockedSignupCountries,
 } from "@/utils/country-blocking.js";
+import { createRoute } from "@/utils/create-route.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -132,6 +144,7 @@ import {
 	ne,
 	notInArray,
 	or,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	type SQL,
 	type SQLWrapper,
@@ -145,6 +158,7 @@ import {
 	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
+	rootModelIdSql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -199,15 +213,6 @@ function escapeHtml(text: string): string {
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
 
-// Search terms and stored matchers are plain substrings, so LIKE
-// metacharacters must be escaped before wrapping them in wildcards. For the
-// organization search this is a safety guard, not just correctness: an
-// unescaped "%" would silently become a match-everything filter, and the bulk
-// block endpoint reuses that filter to decide which organizations get banned.
-function escapeLikePattern(value: string): string {
-	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
 /**
  * Builds the organization search filter shared by the listing and the bulk
  * block endpoints. Returns `undefined` for an empty search so callers must
@@ -227,9 +232,10 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
-		// Provider abuse reports quote the safety identifier we send upstream;
-		// searching on it is how such a report gets traced back to an org.
+		// Provider abuse reports quote the safety identifier we send upstream:
+		// per API key now, per organization for older reports.
 		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
+		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND ak.safety_identifier = ${trimmed})`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
 }
@@ -575,6 +581,8 @@ const organizationSchema = z.object({
 	projectLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
+	// All-time DevPass + Chat Plan subscription payments, net of refunds.
+	totalSubscriptionValue: z.string().optional(),
 	totalSpent: z.string().optional(),
 	totalCreditsSpent: z.string().optional(),
 	totalApiKeysSpent: z.string().optional(),
@@ -757,6 +765,7 @@ const apiKeySchema = z.object({
 	usageLimit: z.string().nullable(),
 	projectId: z.string(),
 	projectName: z.string(),
+	safetyIdentifier: z.string(),
 	createdAt: z.string(),
 	iamRules: z.array(iamRuleAdminSchema),
 });
@@ -790,12 +799,10 @@ function toKeyStatusCounts(
 	for (const row of rows) {
 		const count = Number(row.count);
 		counts.all += count;
-		if (
-			row.status === "active" ||
-			row.status === "inactive" ||
-			row.status === "deleted"
-		) {
-			counts[row.status] += count;
+		// A provider key in its teardown grace period counts as deleted.
+		const status = row.status === "pending_deletion" ? "deleted" : row.status;
+		if (status === "active" || status === "inactive" || status === "deleted") {
+			counts[status] += count;
 		}
 	}
 	return counts;
@@ -812,6 +819,9 @@ function keyStatusCondition(column: AnyColumn, status: KeyStatusFilter) {
 	}
 	if (status === "active") {
 		return or(eq(column, "active"), isNull(column));
+	}
+	if (status === "deleted") {
+		return inArray(column, [...REMOVED_PROVIDER_KEY_STATUSES]);
 	}
 	return eq(column, status);
 }
@@ -943,6 +953,7 @@ const sortBySchema = z.enum([
 	"createdAt",
 	"status",
 	"totalCreditsAllTime",
+	"totalSubscriptionValue",
 	"totalSpent",
 	"totalRequests",
 	"totalTokens",
@@ -1913,7 +1924,15 @@ const globalStatsRangeSchema = z.enum([
 	"365d",
 	"all",
 ]);
-const globalStatsGroupBySchema = z.enum(["model", "source", "mode", "kind"]);
+const globalStatsGroupBySchema = z.enum([
+	"model",
+	"source",
+	"mode",
+	"kind",
+	"providerKey",
+]);
+// Breakdown key for traffic no provider key served (env-var credentials).
+const GLOBAL_STATS_NO_PROVIDER_KEY = "none";
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
 // Billing mode filter. "total" blends every mode, including the "unknown"
 // rows that predate per-mode attribution.
@@ -2207,67 +2226,69 @@ admin.openapi(getGlobalStats, async (c) => {
 		startDate = new Date(endDate.getTime() - (days - 1) * dayMs); // eslint-disable-line no-mixed-operators
 	}
 
-	const metricSums = {
+	const metricSumsFor = (table: typeof sourceTable) => ({
 		// Counts are exact (SUM(int) accumulates in bigint) but this endpoint sums
 		// all of history, so the result is carried as float8 rather than narrowed
 		// back to int4 — a cross-tenant all-time request count outgrows 2^31.
 		requestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(${table.requestCount}), 0)::float8`.as(
 				"requestCount",
 			),
 		errorCount:
-			sql<number>`COALESCE(SUM(GREATEST(${sourceTable.errorCount} - ${sourceTable.clientErrorCount}, 0)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(GREATEST(${table.errorCount} - ${table.clientErrorCount}, 0)), 0)::float8`.as(
 				"errorCount",
 			),
-		cacheCount:
-			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::float8`.as(
-				"cacheCount",
-			),
+		cacheCount: sql<number>`COALESCE(SUM(${table.cacheCount}), 0)::float8`.as(
+			"cacheCount",
+		),
 		inputTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.inputTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.inputTokens} AS NUMERIC)), 0)::float8`.as(
 				"inputTokens",
 			),
 		cachedTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.cachedTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.cachedTokens} AS NUMERIC)), 0)::float8`.as(
 				"cachedTokens",
 			),
 		cacheWriteTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.cacheWriteTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.cacheWriteTokens} AS NUMERIC)), 0)::float8`.as(
 				"cacheWriteTokens",
 			),
 		outputTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.outputTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.outputTokens} AS NUMERIC)), 0)::float8`.as(
 				"outputTokens",
 			),
 		reasoningTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.reasoningTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.reasoningTokens} AS NUMERIC)), 0)::float8`.as(
 				"reasoningTokens",
 			),
 		totalTokens:
-			sql<number>`COALESCE(SUM(CAST(${sourceTable.totalTokens} AS NUMERIC)), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(CAST(${table.totalTokens} AS NUMERIC)), 0)::float8`.as(
 				"totalTokens",
 			),
-		cost: sumMoney(sourceTable.cost, "cost"),
-		inputCost: sumMoney(sourceTable.inputCost, "inputCost"),
-		cachedInputCost: sumMoney(sourceTable.cachedInputCost, "cachedInputCost"),
+		cost: sumMoney(table.cost, "cost"),
+		inputCost: sumMoney(table.inputCost, "inputCost"),
+		cachedInputCost: sumMoney(table.cachedInputCost, "cachedInputCost"),
 		cacheWriteInputCost: sumMoney(
-			sourceTable.cacheWriteInputCost,
+			table.cacheWriteInputCost,
 			"cacheWriteInputCost",
 		),
-		outputCost: sumMoney(sourceTable.outputCost, "outputCost"),
-		requestCost: sumMoney(sourceTable.requestCost, "requestCost"),
-		imageInputCost: sumMoney(sourceTable.imageInputCost, "imageInputCost"),
-		imageOutputCost: sumMoney(sourceTable.imageOutputCost, "imageOutputCost"),
-		audioInputCost: sumMoney(sourceTable.audioInputCost, "audioInputCost"),
-		audioOutputCost: sumMoney(sourceTable.audioOutputCost, "audioOutputCost"),
-		videoOutputCost: sumMoney(sourceTable.videoOutputCost, "videoOutputCost"),
-	};
+		outputCost: sumMoney(table.outputCost, "outputCost"),
+		requestCost: sumMoney(table.requestCost, "requestCost"),
+		imageInputCost: sumMoney(table.imageInputCost, "imageInputCost"),
+		imageOutputCost: sumMoney(table.imageOutputCost, "imageOutputCost"),
+		audioInputCost: sumMoney(table.audioInputCost, "audioInputCost"),
+		audioOutputCost: sumMoney(table.audioOutputCost, "audioOutputCost"),
+		videoOutputCost: sumMoney(table.videoOutputCost, "videoOutputCost"),
+	});
+	const metricSums = metricSumsFor(sourceTable);
 
-	const dateExpr = hourly
-		? sql<string>`to_char(${timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.as(
-				"date",
-			)
-		: sql<string>`to_char(${timestamp}, 'YYYY-MM-DD')`.as("date");
+	const dateExprFor = (column: typeof timestamp) =>
+		hourly
+			? sql<string>`to_char(${column}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.as(
+					"date",
+				)
+			: sql<string>`to_char(${column}, 'YYYY-MM-DD')`.as("date");
+	const dateExpr = dateExprFor(timestamp);
 
 	const rangeFilter = and(
 		gte(timestamp, startDate),
@@ -2275,9 +2296,36 @@ admin.openapi(getGlobalStats, async (c) => {
 	);
 	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
+	// The provider-key grouping splits the per-credential table, while the
+	// totals and timeseries keep reading the full table: what no key served
+	// becomes its own row below instead of silently shrinking the page.
+	const byKeyGroup = groupBy === "providerKey";
+	const breakdownTable = byKeyGroup ? keyStats : sourceTable;
+	const breakdownTimestamp =
+		"hourTimestamp" in breakdownTable
+			? breakdownTable.hourTimestamp
+			: breakdownTable.dayTimestamp;
+	const breakdownSums = byKeyGroup ? metricSumsFor(keyStats) : metricSums;
+	const breakdownDateExpr = byKeyGroup
+		? dateExprFor(breakdownTimestamp)
+		: dateExpr;
+	const breakdownFilter = byKeyGroup
+		? and(
+				gte(breakdownTimestamp, startDate),
+				hourly
+					? lt(breakdownTimestamp, endDate)
+					: lte(breakdownTimestamp, endDate),
+				...(mode === "total" ? [] : [eq(keyStats.usedMode, mode)]),
+				...(kind === "all" ? [] : [eq(keyStats.orgKind, kind)]),
+				...(byKey ? [inArray(keyStats.providerKeyId, providerKeyIds)] : []),
+				...(provider ? [eq(keyStats.usedProvider, provider)] : []),
+			)
+		: scopeFilter;
+
 	// Group coarser model views in SQL instead of transferring every mapping.
-	const breakdownColumn =
-		groupBy === "model"
+	const breakdownColumn = byKeyGroup
+		? keyStats.providerKeyId
+		: groupBy === "model"
 			? modelView === "canonical"
 				? sql<string>`split_part(substring(${modelTable.usedModel} from position('/' in ${modelTable.usedModel}) + 1), ':', 1)`
 				: modelView === "provider"
@@ -2307,20 +2355,22 @@ admin.openapi(getGlobalStats, async (c) => {
 			.where(scopeFilter)
 			.groupBy(timestamp),
 		db
-			.select({ dimension: breakdownColumn, ...metricSums })
-			.from(sourceTable)
-			.where(scopeFilter)
+			.select({ dimension: breakdownColumn, ...breakdownSums })
+			.from(breakdownTable)
+			.where(breakdownFilter)
 			.groupBy(breakdownColumn),
 		includeTimeseriesBreakdown
 			? db
 					.select({
-						date: dateExpr,
+						date: breakdownDateExpr,
 						dimension: breakdownColumn,
-						...compositionSums,
+						requestCount: breakdownSums.requestCount,
+						cost: breakdownSums.cost,
+						totalTokens: breakdownSums.totalTokens,
 					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(timestamp, breakdownColumn)
+					.from(breakdownTable)
+					.where(breakdownFilter)
+					.groupBy(breakdownTimestamp, breakdownColumn)
 			: Promise.resolve([]),
 		// Both composition panels share this small mode × kind matrix. Each
 		// panel ignores its own filter while retaining the other dimension.
@@ -2375,15 +2425,11 @@ admin.openapi(getGlobalStats, async (c) => {
 		}
 	}
 
-	const breakdown = breakdownRows
-		.map((row) => ({
-			...toBreakdownMetrics(row),
-			key: row.dimension ?? "unknown",
-			label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
-		}))
-		.sort(
-			(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
-		);
+	const breakdown = breakdownRows.map((row) => ({
+		...toBreakdownMetrics(row),
+		key: row.dimension ?? "unknown",
+		label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
+	}));
 	const timeseriesBreakdown = timeseriesBreakdownRows.map((row) => ({
 		date: row.date,
 		key: row.dimension ?? "unknown",
@@ -2392,6 +2438,47 @@ admin.openapi(getGlobalStats, async (c) => {
 		cost: Number(row.cost),
 		totalTokens: Number(row.totalTokens),
 	}));
+
+	// Env-var credentials carry no provider key, so their traffic is the full
+	// table minus every key. A lagging per-credential rollup briefly inflates it.
+	if (byKeyGroup && !byKey) {
+		const label = globalStatsDimensionLabel(
+			groupBy,
+			GLOBAL_STATS_NO_PROVIDER_KEY,
+		);
+		const rest = subtractGlobalStatsMetrics(
+			GLOBAL_STATS_METRIC_KEYS,
+			totals,
+			breakdown,
+		);
+		if (rest.requestCount > 0) {
+			breakdown.push({ ...rest, key: GLOBAL_STATS_NO_PROVIDER_KEY, label });
+		}
+		const keyedByDate = new Map<string, typeof timeseriesBreakdown>();
+		for (const row of timeseriesBreakdown) {
+			const rows = keyedByDate.get(row.date) ?? [];
+			rows.push(row);
+			keyedByDate.set(row.date, rows);
+		}
+		for (const point of includeTimeseriesBreakdown ? timeseries : []) {
+			const restPoint = subtractGlobalStatsMetrics(
+				["requestCount", "cost", "totalTokens"] as const,
+				point,
+				keyedByDate.get(point.date) ?? [],
+			);
+			if (restPoint.requestCount > 0) {
+				timeseriesBreakdown.push({
+					...restPoint,
+					date: point.date,
+					key: GLOBAL_STATS_NO_PROVIDER_KEY,
+					label,
+				});
+			}
+		}
+	}
+	breakdown.sort(
+		(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
+	);
 
 	const compositionFor = (dimension: "mode" | "kind") => {
 		const rows = new Map<
@@ -2702,7 +2789,30 @@ function globalStatsDimensionLabel(dimension: string, key: string): string {
 	if (dimension === "kind") {
 		return GLOBAL_STATS_KIND_LABELS[key] ?? key;
 	}
+	if (dimension === "providerKey" && key === GLOBAL_STATS_NO_PROVIDER_KEY) {
+		return "No provider key (env-var credentials)";
+	}
 	return key;
+}
+
+// `total` minus every part, per metric, floored at zero against float drift.
+function subtractGlobalStatsMetrics<K extends string>(
+	keys: readonly K[],
+	total: Record<K, number>,
+	parts: readonly Record<K, number>[],
+): Record<K, number> {
+	return Object.fromEntries(
+		keys.map((key) => [
+			key,
+			Decimal.max(
+				parts.reduce(
+					(rest, part) => rest.minus(part[key]),
+					new Decimal(total[key]),
+				),
+				0,
+			).toNumber(),
+		]),
+	) as Record<K, number>;
 }
 
 function toBreakdownMetrics(
@@ -2789,6 +2899,75 @@ admin.openapi(getOrganizations, async (c) => {
 			.groupBy(tables.transaction.organizationId)
 			.as("all_time_credits");
 
+	// All-time subscription value per org: completed DevPass and Chat Plan
+	// subscription payments (`amount` = dollars charged), net of refunds against
+	// them. Deduplicated per invoice because the first invoice of a subscription
+	// writes both a `*_start` and a `*_renewal` row. Legacy `subscription_*`
+	// rows only count on DevPass orgs, since non-personal org Pro subs still
+	// write them. One-time Reset Pass purchases are not subscriptions.
+	const subscriptionPaymentTypes = [
+		...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+		...LEGACY_DEV_PLAN_TX_TYPES,
+		...CHAT_PLAN_TX_TYPES,
+	];
+	const subscriptionPaymentFilter = (tx: typeof tables.transaction) =>
+		or(
+			inArray(tx.type, [
+				...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+				...CHAT_PLAN_TX_TYPES,
+			]),
+			and(
+				inArray(tx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				eq(tables.organization.kind, "devpass"),
+			),
+		)!;
+	const subscriptionRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"subscription_refund_original_tx",
+	);
+	const subscriptionValueForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.transaction.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CASE WHEN ${tables.transaction.type} = 'credit_refund' THEN -CAST(${tables.transaction.amount} AS NUMERIC) ELSE CAST(${tables.transaction.amount} AS NUMERIC) END), 0)`.as(
+						"total",
+					),
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.leftJoin(
+				subscriptionRefundOriginalTx,
+				eq(
+					tables.transaction.relatedTransactionId,
+					subscriptionRefundOriginalTx.id,
+				),
+			)
+			.where(
+				and(
+					eq(tables.transaction.status, "completed"),
+					isNotNull(tables.transaction.amount),
+					organizationIds
+						? inArray(tables.transaction.organizationId, organizationIds)
+						: undefined,
+					or(
+						and(
+							subscriptionPaymentFilter(tables.transaction),
+							firstRowPerInvoiceFilter(subscriptionPaymentTypes),
+						),
+						and(
+							eq(tables.transaction.type, "credit_refund"),
+							subscriptionPaymentFilter(subscriptionRefundOriginalTx),
+						),
+					),
+				),
+			)
+			.groupBy(tables.transaction.organizationId)
+			.as("subscription_value");
+
 	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
 	// selected window.
 	const usageForOrganizations = (organizationIds?: string[]) =>
@@ -2838,6 +3017,7 @@ admin.openapi(getOrganizations, async (c) => {
 			.as("total_spent");
 
 	const allTimeCredits = creditsForOrganizations();
+	const allTimeSubscriptionValue = subscriptionValueForOrganizations();
 	const totalSpentSub = usageForOrganizations();
 
 	const whereClause = and(
@@ -2879,6 +3059,7 @@ admin.openapi(getOrganizations, async (c) => {
 		createdAt: tables.organization.createdAt,
 		status: tables.organization.status,
 		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
+		totalSubscriptionValue: sql`COALESCE(CAST(${allTimeSubscriptionValue.total} AS NUMERIC), 0)`,
 		totalSpent: sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0)`,
 		totalRequests: sql`COALESCE(CAST(${totalSpentSub.requestsTotal} AS NUMERIC), 0)`,
 		totalTokens: sql`COALESCE(CAST(${totalSpentSub.tokensTotal} AS NUMERIC), 0)`,
@@ -2912,6 +3093,12 @@ admin.openapi(getOrganizations, async (c) => {
 			eq(tables.organization.id, allTimeCredits.organizationId),
 		);
 	}
+	if (sortBy === "totalSubscriptionValue") {
+		pageQuery = pageQuery.leftJoin(
+			allTimeSubscriptionValue,
+			eq(tables.organization.id, allTimeSubscriptionValue.organizationId),
+		);
+	}
 	const [[countResult], page] = await Promise.all([
 		countQuery.where(whereClause),
 		pageQuery
@@ -2931,6 +3118,8 @@ admin.openapi(getOrganizations, async (c) => {
 		return c.json({ organizations: [], total, totalCredits, limit, offset });
 	}
 	const pageCredits = creditsForOrganizations(organizationIds);
+	const pageSubscriptionValue =
+		subscriptionValueForOrganizations(organizationIds);
 	const pageUsage = usageForOrganizations(organizationIds);
 	const ownerSub = buildOrganizationOwnerSubquery(organizationIds);
 
@@ -2954,6 +3143,10 @@ admin.openapi(getOrganizations, async (c) => {
 			totalCreditsAllTime: sql<string>`COALESCE(${pageCredits.total}, '0')`.as(
 				"totalCreditsAllTime",
 			),
+			totalSubscriptionValue:
+				sql<string>`COALESCE(${pageSubscriptionValue.total}, '0')`.as(
+					"totalSubscriptionValue",
+				),
 			totalSpent: sql<string>`COALESCE(${pageUsage.total}, '0')`.as(
 				"totalSpent",
 			),
@@ -2980,6 +3173,10 @@ admin.openapi(getOrganizations, async (c) => {
 			pageCredits,
 			eq(tables.organization.id, pageCredits.organizationId),
 		)
+		.leftJoin(
+			pageSubscriptionValue,
+			eq(tables.organization.id, pageSubscriptionValue.organizationId),
+		)
 		.leftJoin(pageUsage, eq(tables.organization.id, pageUsage.organizationId))
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(inArray(tables.organization.id, organizationIds));
@@ -3001,6 +3198,7 @@ admin.openapi(getOrganizations, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
+			totalSubscriptionValue: String(org.totalSubscriptionValue ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
 			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
 			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
@@ -3553,6 +3751,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			usageLimit: tables.apiKey.usageLimit,
 			projectId: tables.apiKey.projectId,
 			projectName: tables.project.name,
+			safetyIdentifier: tables.apiKey.safetyIdentifier,
 			createdAt: tables.apiKey.createdAt,
 		})
 		.from(tables.apiKey)
@@ -4201,12 +4400,7 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	}
 
 	if (query.model) {
-		whereConditions.push(
-			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
-				ELSE ${tables.log.usedModel}
-			END = ${query.model}`,
-		);
+		whereConditions.push(eq(rootModelIdSql(tables.log.usedModel), query.model));
 	}
 
 	if (query.source) {
@@ -4603,6 +4797,35 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+const updateGlobalDiscount = createRoute({
+	method: "put",
+	path: "/discounts/{discountId}",
+	request: {
+		params: z.object({ discountId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: discountSchema.openapi({}) },
+			},
+			description: "Updated global discount.",
+		},
+		400: { description: "Invalid discount data." },
+		404: { description: "Discount not found." },
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
+		},
+	},
+});
+
 const routingScoreMultiplierSchema = z.object({
 	id: z.string(),
 	provider: z.string().nullable(),
@@ -4689,6 +4912,36 @@ const deleteRoutingScoreMultiplier = createRoute({
 			description: "Routing score multiplier deleted.",
 		},
 		404: { description: "Routing score multiplier not found." },
+	},
+});
+
+const updateRoutingScoreMultiplier = createRoute({
+	method: "put",
+	path: "/routing-score-multipliers/{multiplierId}",
+	request: {
+		params: z.object({ multiplierId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createRoutingScoreMultiplierBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultiplierSchema.openapi({}),
+				},
+			},
+			description: "Updated routing score multiplier.",
+		},
+		400: { description: "Invalid routing score multiplier." },
+		404: { description: "Routing score multiplier not found." },
+		409: {
+			description: "Routing score multiplier already exists for this target.",
+		},
 	},
 });
 
@@ -4801,6 +5054,38 @@ const deleteOrganizationDiscount = createRoute({
 		},
 		404: {
 			description: "Discount not found.",
+		},
+	},
+});
+
+const updateOrganizationDiscount = createRoute({
+	method: "put",
+	path: "/organizations/{orgId}/discounts/{discountId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			discountId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: discountSchema.openapi({}) },
+			},
+			description: "Updated organization discount.",
+		},
+		400: { description: "Invalid discount data." },
+		404: { description: "Discount not found." },
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
 		},
 	},
 });
@@ -5193,6 +5478,107 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 	return c.json({ success: true });
 });
 
+function isUniqueViolation(error: unknown, constraint: string): boolean {
+	const cause = error instanceof Error && error.cause ? error.cause : error;
+	return (
+		typeof cause === "object" &&
+		cause !== null &&
+		"code" in cause &&
+		cause.code === "23505" &&
+		"constraint" in cause &&
+		cause.constraint === constraint
+	);
+}
+
+const DUPLICATE_DISCOUNT_MESSAGE =
+	"A discount already exists for this provider/model combination";
+const DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE =
+	"A routing score multiplier already exists for this provider/model combination";
+
+async function updateDiscount(
+	discountId: string,
+	organizationId: string | null,
+	body: z.infer<typeof createDiscountBodySchema>,
+) {
+	const orgScope =
+		organizationId === null
+			? isNull(tables.discount.organizationId)
+			: eq(tables.discount.organizationId, organizationId);
+	const scope = and(eq(tables.discount.id, discountId), orgScope);
+
+	const [before] = await db
+		.select()
+		.from(tables.discount)
+		.where(scope)
+		.limit(1);
+	if (!before) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+	const validation = await validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	// The unique constraint treats NULL targets as distinct, so check explicitly.
+	const [duplicate] = await db
+		.select({ id: tables.discount.id })
+		.from(tables.discount)
+		.where(
+			and(
+				orgScope,
+				ne(tables.discount.id, discountId),
+				provider
+					? eq(tables.discount.provider, provider)
+					: isNull(tables.discount.provider),
+				model
+					? eq(tables.discount.model, model)
+					: isNull(tables.discount.model),
+			),
+		)
+		.limit(1);
+	if (duplicate) {
+		throw new HTTPException(409, { message: DUPLICATE_DISCOUNT_MESSAGE });
+	}
+
+	let updated: typeof before | undefined;
+	try {
+		[updated] = await cdb
+			.update(tables.discount)
+			.set({
+				provider,
+				model,
+				discountPercent: new Decimal(body.discountPercent).div(100).toFixed(4),
+				reason: body.reason ?? null,
+				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+			})
+			.where(scope)
+			.returning();
+	} catch (error) {
+		if (isUniqueViolation(error, "discount_org_provider_model_unique")) {
+			throw new HTTPException(409, { message: DUPLICATE_DISCOUNT_MESSAGE });
+		}
+		throw error;
+	}
+	if (!updated) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return { before, updated };
+}
+
+admin.openapi(updateGlobalDiscount, async (c) => {
+	const { discountId } = c.req.valid("param");
+	const { updated } = await updateDiscount(
+		discountId,
+		null,
+		c.req.valid("json"),
+	);
+	return c.json(formatDiscount(updated), 200);
+});
+
 admin.openapi(getRoutingScoreMultipliers, async (c) => {
 	const multipliers = await db
 		.select()
@@ -5263,6 +5649,81 @@ admin.openapi(deleteRoutingScoreMultiplier, async (c) => {
 	}
 
 	return c.json({ success: true });
+});
+
+admin.openapi(updateRoutingScoreMultiplier, async (c) => {
+	const { multiplierId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	const [existing] = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+		.limit(1);
+	if (!existing) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
+	}
+
+	const validation = await validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const [duplicate] = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(
+			and(
+				ne(tables.routingScoreMultiplier.id, multiplierId),
+				provider
+					? eq(tables.routingScoreMultiplier.provider, provider)
+					: isNull(tables.routingScoreMultiplier.provider),
+				model
+					? eq(tables.routingScoreMultiplier.model, model)
+					: isNull(tables.routingScoreMultiplier.model),
+			),
+		)
+		.limit(1);
+	if (duplicate) {
+		throw new HTTPException(409, {
+			message: DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE,
+		});
+	}
+
+	let updated: typeof tables.routingScoreMultiplier.$inferSelect | undefined;
+	try {
+		[updated] = await cdb
+			.update(tables.routingScoreMultiplier)
+			.set({
+				provider,
+				model,
+				scoreMultiplier: new Decimal(body.scoreMultiplier).div(100).toFixed(4),
+				reason: body.reason ?? null,
+				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+			})
+			.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+			.returning();
+	} catch (error) {
+		if (
+			isUniqueViolation(error, "routing_score_multiplier_provider_model_unique")
+		) {
+			throw new HTTPException(409, {
+				message: DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE,
+			});
+		}
+		throw error;
+	}
+	if (!updated) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
+	}
+
+	return c.json(formatRoutingScoreMultiplier(updated), 200);
 });
 
 admin.openapi(getAllOrganizationDiscounts, async (c) => {
@@ -5438,6 +5899,31 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 	return c.json({ success: true });
 });
 
+admin.openapi(updateOrganizationDiscount, async (c) => {
+	const user = c.get("user");
+	const { orgId, discountId } = c.req.valid("param");
+	const { before, updated } = await updateDiscount(
+		discountId,
+		orgId,
+		c.req.valid("json"),
+	);
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "discount.update",
+		resourceType: "discount",
+		resourceId: updated.id,
+		metadata: {
+			before: formatDiscount(before),
+			after: formatDiscount(updated),
+			source: "admin",
+		},
+	});
+
+	return c.json(formatDiscount(updated), 200);
+});
+
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
@@ -5451,7 +5937,8 @@ const rateLimitSchema = z.object({
 	organizationId: z.string().nullable(),
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
+	// Requests for rpm/rpd, prompt + completion tokens for tpm/tpd.
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
 	mode: z.enum(["strict", "soft", "lax"]),
@@ -5468,11 +5955,12 @@ const rateLimitsListSchema = z.object({
 const createRateLimitBodySchema = z.object({
 	provider: z.string().nullable().optional(),
 	model: z.string().nullable().optional(),
-	limitType: z.enum(["rpm", "rpd"]),
+	limitType: z.enum(["rpm", "rpd", "tpm", "tpd"]),
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
-		.min(0, "Limit must be at least 0"),
+		.min(0, "Limit must be at least 0")
+		.max(PG_INTEGER_MAX, `Limit must be at most ${PG_INTEGER_MAX}`),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	// Soft preserves session pins; lax also permits explicit provider requests.
 	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
@@ -5700,6 +6188,18 @@ const deleteOrganizationRateLimit = createRoute({
 	},
 });
 
+type RateLimitType = z.infer<typeof rateLimitSchema>["limitType"];
+
+// Each row carries one window; the others stay null.
+function rateLimitColumns(limitType: RateLimitType, maxRequests: number) {
+	return {
+		maxRpm: limitType === "rpm" ? maxRequests : null,
+		maxRpd: limitType === "rpd" ? maxRequests : null,
+		maxTpm: limitType === "tpm" ? maxRequests : null,
+		maxTpd: limitType === "tpd" ? maxRequests : null,
+	};
+}
+
 // Helper to format rate limit for response
 function formatRateLimit(r: {
 	id: string;
@@ -5708,14 +6208,23 @@ function formatRateLimit(r: {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
 	enforcement: string;
 	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 }) {
-	const limitType: "rpm" | "rpd" = r.maxRpd !== null ? "rpd" : "rpm";
-	const maxRequests = r.maxRpd ?? r.maxRpm ?? 0;
+	const limitType: RateLimitType =
+		r.maxTpd !== null
+			? "tpd"
+			: r.maxTpm !== null
+				? "tpm"
+				: r.maxRpd !== null
+					? "rpd"
+					: "rpm";
+	const maxRequests = r.maxTpd ?? r.maxTpm ?? r.maxRpd ?? r.maxRpm ?? 0;
 
 	return {
 		id: r.id,
@@ -5768,8 +6277,7 @@ async function updateRateLimit(
 				.set({
 					provider,
 					model,
-					maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-					maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+					...rateLimitColumns(body.limitType, body.maxRequests),
 					enforcement: body.enforcement,
 					mode: body.mode,
 					reason: body.reason ?? null,
@@ -5779,18 +6287,10 @@ async function updateRateLimit(
 			return { before, updated };
 		});
 	} catch (error) {
-		const cause = error instanceof Error && error.cause ? error.cause : error;
-		if (
-			typeof cause === "object" &&
-			cause !== null &&
-			"code" in cause &&
-			cause.code === "23505" &&
-			"constraint" in cause &&
-			cause.constraint === "rate_limit_org_provider_model_unique"
-		) {
+		if (isUniqueViolation(error, "rate_limit_org_provider_model_unique")) {
 			throw new HTTPException(409, {
 				message:
-					"A rate limit already exists for this provider/model combination",
+					"A rate limit already exists for this provider/model/limit type combination",
 			});
 		}
 		throw error;
@@ -5829,8 +6329,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			organizationId: null,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			enforcement: body.enforcement,
 			mode: body.mode,
 			reason: body.reason ?? null,
@@ -6722,8 +7221,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			organizationId: orgId,
 			provider,
 			model,
-			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
-			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			...rateLimitColumns(body.limitType, body.maxRequests),
 			mode: body.mode,
 			reason: body.reason ?? null,
 		})
@@ -6748,6 +7246,8 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: created.maxRpm,
 			maxRpd: created.maxRpd,
+			maxTpm: created.maxTpm,
+			maxTpd: created.maxTpd,
 			mode: created.mode,
 			reason: created.reason,
 			source: "admin",
@@ -6808,6 +7308,8 @@ admin.openapi(deleteOrganizationRateLimit, async (c) => {
 			model: deleted.model,
 			maxRpm: deleted.maxRpm,
 			maxRpd: deleted.maxRpd,
+			maxTpm: deleted.maxTpm,
+			maxTpd: deleted.maxTpd,
 			source: "admin",
 		},
 	});
@@ -7916,10 +8418,13 @@ const getModelDetail = createRoute({
 	path: "/models/{modelId}",
 	request: {
 		params: z.object({ modelId: z.string() }),
-		query: z.object({
-			window: historyWindowSchema.default("4h").optional(),
-			projectId: z.string().optional(),
-		}),
+		query: z
+			.object({
+				window: historyWindowSchema.default("4h").optional(),
+				projectId: z.string().optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+			})
+			.superRefine(rejectProjectScopedCatalogUsageMode),
 	},
 	responses: {
 		200: {
@@ -7936,6 +8441,7 @@ admin.openapi(getModelDetail, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
@@ -8217,6 +8723,7 @@ admin.openapi(getModelDetail, async (c) => {
 				and(
 					eq(mph.modelId, modelId),
 					gte(mphTs, startDate),
+					mode === "total" ? undefined : eq(mph.usedMode, mode),
 					excludeRegionalMappingRows(mph),
 				),
 			)
@@ -8268,7 +8775,8 @@ admin.openapi(getModelDetail, async (c) => {
 			logsCount: stats?.logsCount ?? 0,
 			errorsCount: stats?.errorsCount ?? 0,
 			cachedCount: stats?.cachedCount ?? 0,
-			avgTimeToFirstToken: stats?.avgTtft ?? m.avgTimeToFirstToken,
+			avgTimeToFirstToken:
+				stats?.avgTtft ?? (mode === "total" ? m.avgTimeToFirstToken : null),
 			...(stats?.breakdown ?? EMPTY_TOKEN_BREAKDOWN),
 			updatedAt: m.updatedAt.toISOString(),
 		};
@@ -8315,7 +8823,9 @@ admin.openapi(getModelDetail, async (c) => {
 			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
-	const hasWindowData = agg.logsCount > 0;
+	// The lifetime fallback counters blend every mode, so a narrowed view
+	// reports the window's sums only.
+	const hasWindowData = mode !== "total" || agg.logsCount > 0;
 	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
 		effectiveTtftTotals({
 			totalTimeToFirstToken: agg.totalTtft,
@@ -8352,11 +8862,11 @@ admin.openapi(getModelDetail, async (c) => {
 			canceledCount: agg.canceledCount,
 			unknownFinishCount: agg.unknownFinishCount,
 			cachedCount: hasWindowData ? agg.cachedCount : model.cachedCount,
-			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ??
-					model.avgTimeToFirstReasoningToken ??
-					model.avgTimeToFirstToken)
-				: (model.avgTimeToFirstReasoningToken ?? model.avgTimeToFirstToken),
+			avgTimeToFirstToken:
+				aggAvgTtft ??
+				(mode === "total"
+					? (model.avgTimeToFirstReasoningToken ?? model.avgTimeToFirstToken)
+					: null),
 			providerCount: providerStats.length,
 			...agg.breakdown,
 			updatedAt: model.updatedAt.toISOString(),
@@ -10523,6 +11033,9 @@ const providerModelStatsSchema = z.object({
 	mappingId: z.string(),
 	region: z.string().nullable(),
 	status: z.string(),
+	// Set while the carrier has paused its Airside listing of this model, which
+	// takes the mapping out of service.
+	airsidePausedAt: z.string().nullable(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
@@ -10580,6 +11093,15 @@ const providerDetailSchema = z.object({
 				claimedAt: z.string(),
 				approvedAt: z.string().nullable(),
 				companyWebsite: z.string().nullable(),
+				// Portal crew; owners can manage members and billing.
+				members: z.array(
+					z.object({
+						id: z.string(),
+						email: z.string(),
+						name: z.string().nullable(),
+						role: z.enum(["owner", "member"]),
+					}),
+				),
 				paymentStatus: z.enum(["unpaid", "paid"]),
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
@@ -10625,6 +11147,7 @@ const getProviderDetail = createRoute({
 		params: z.object({ providerId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -10641,6 +11164,7 @@ admin.openapi(getProviderDetail, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	const providerRow = await db.query.provider.findFirst({
@@ -10724,6 +11248,7 @@ admin.openapi(getProviderDetail, async (c) => {
 				and(
 					eq(mph.providerId, providerId),
 					gte(mphTs, startDate),
+					mode === "total" ? undefined : eq(mph.usedMode, mode),
 					// Grouped per model, so the mapping's regional rows would be added
 					// on top of the root row that already contains them.
 					excludeRegionalMappingRows(mph),
@@ -10791,34 +11316,44 @@ admin.openapi(getProviderDetail, async (c) => {
 	// to the column defaults so a carrier still renders if it is missing.
 	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
 	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
-	const [carrierDomains, carrierOverrides, carrierFilings, carrierModels] =
-		carrier
-			? await Promise.all([
-					db.query.providerCompanyDomain.findMany({
-						where: { providerCompanyId: { eq: carrier.companyId } },
-						orderBy: { domain: "asc" },
-					}),
-					db.query.providerRoutingSettings.findMany({
-						where: {
-							providerId: { eq: providerId },
-							modelId: { isNotNull: true },
-						},
-						orderBy: { modelId: "asc" },
-					}),
-					db.query.providerRoutingFiling.findMany({
-						where: {
-							providerId: { eq: providerId },
-							status: { eq: "pending" },
-						},
-						orderBy: { createdAt: "asc" },
-					}),
-					db.query.providerDraftModel.findMany({
-						where: { providerId: { eq: providerId }, status: { eq: "active" } },
-						columns: { modelName: true },
-						orderBy: { modelName: "asc" },
-					}),
-				])
-			: [[], [], [], []];
+	const [
+		carrierDomains,
+		carrierOverrides,
+		carrierFilings,
+		carrierModels,
+		carrierMembers,
+	] = carrier
+		? await Promise.all([
+				db.query.providerCompanyDomain.findMany({
+					where: { providerCompanyId: { eq: carrier.companyId } },
+					orderBy: { domain: "asc" },
+				}),
+				db.query.providerRoutingSettings.findMany({
+					where: {
+						providerId: { eq: providerId },
+						modelId: { isNotNull: true },
+					},
+					orderBy: { modelId: "asc" },
+				}),
+				db.query.providerRoutingFiling.findMany({
+					where: {
+						providerId: { eq: providerId },
+						status: { eq: "pending" },
+					},
+					orderBy: { createdAt: "asc" },
+				}),
+				db.query.providerDraftModel.findMany({
+					where: { providerId: { eq: providerId }, status: { eq: "active" } },
+					columns: { modelName: true, pausedAt: true },
+					orderBy: { modelName: "asc" },
+				}),
+				db.query.providerCompanyMember.findMany({
+					where: { providerCompanyId: { eq: carrier.companyId } },
+					with: { user: true },
+					orderBy: { createdAt: "asc" },
+				}),
+			])
+		: [[], [], [], [], []];
 	const fareFields = (row: {
 		discountPercent: string;
 		marginPercent: string;
@@ -10835,6 +11370,11 @@ admin.openapi(getProviderDetail, async (c) => {
 		};
 	};
 
+	const pausedAtByModel = new Map(
+		carrierModels.flatMap((m) =>
+			m.pausedAt ? [[m.modelName, m.pausedAt.toISOString()] as const] : [],
+		),
+	);
 	const modelsOut = mappings.map((m) => {
 		const s = statsByModel.get(m.modelId);
 		const logsCount = Number(s?.logsCount ?? 0);
@@ -10856,13 +11396,15 @@ admin.openapi(getProviderDetail, async (c) => {
 			mappingId: m.id,
 			region: m.region,
 			status: m.status,
+			airsidePausedAt: pausedAtByModel.get(m.modelId) ?? null,
 			logsCount,
 			errorsCount: Number(s?.errorsCount ?? 0),
 			clientErrorsCount: Number(s?.clientErrorsCount ?? 0),
 			gatewayErrorsCount: Number(s?.gatewayErrorsCount ?? 0),
 			upstreamErrorsCount: Number(s?.upstreamErrorsCount ?? 0),
 			cachedCount,
-			avgTimeToFirstToken: avgTtft ?? m.avgTimeToFirstToken,
+			avgTimeToFirstToken:
+				avgTtft ?? (mode === "total" ? m.avgTimeToFirstToken : null),
 			totalCost: Number(s?.totalCost ?? 0),
 			...toTokenBreakdown(s),
 			updatedAt: m.updatedAt.toISOString(),
@@ -10898,7 +11440,9 @@ admin.openapi(getProviderDetail, async (c) => {
 			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
-	const hasWindowData = agg.logsCount > 0;
+	// The lifetime fallback counters blend every mode, so a narrowed view
+	// reports the window's sums only.
+	const hasWindowData = mode !== "total" || agg.logsCount > 0;
 	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
 		effectiveTtftTotals({
 			totalTimeToFirstToken: agg.totalTtft,
@@ -10929,12 +11473,12 @@ admin.openapi(getProviderDetail, async (c) => {
 				? agg.upstreamErrorsCount
 				: providerRow.upstreamErrorsCount,
 			cachedCount: hasWindowData ? agg.cachedCount : providerRow.cachedCount,
-			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ??
-					providerRow.avgTimeToFirstReasoningToken ??
-					providerRow.avgTimeToFirstToken)
-				: (providerRow.avgTimeToFirstReasoningToken ??
-					providerRow.avgTimeToFirstToken),
+			avgTimeToFirstToken:
+				aggAvgTtft ??
+				(mode === "total"
+					? (providerRow.avgTimeToFirstReasoningToken ??
+						providerRow.avgTimeToFirstToken)
+					: null),
 			modelCount: mappings.length,
 			...agg.breakdown,
 			updatedAt: providerRow.updatedAt.toISOString(),
@@ -10970,6 +11514,12 @@ admin.openapi(getProviderDetail, async (c) => {
 						claimedAt: carrier.claim.createdAt.toISOString(),
 						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
 						companyWebsite: carrier.companyWebsite,
+						members: carrierMembers.map((member) => ({
+							id: member.id,
+							email: member.user?.email ?? "",
+							name: member.user?.name ?? null,
+							role: member.role,
+						})),
 						paymentStatus: carrier.paymentStatus,
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
@@ -11054,6 +11604,7 @@ const getMappingDetail = createRoute({
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
 			region: z.string().optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -11071,6 +11622,7 @@ admin.openapi(getMappingDetail, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const region = query.region;
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	const mappingRow = await db
@@ -11189,9 +11741,17 @@ admin.openapi(getMappingDetail, async (c) => {
 			...tokenBreakdownSums(mph),
 		})
 		.from(mph)
-		.where(and(eq(mph.modelProviderMappingId, m.id), gte(mphTs, startDate)));
+		.where(
+			and(
+				eq(mph.modelProviderMappingId, m.id),
+				gte(mphTs, startDate),
+				mode === "total" ? undefined : eq(mph.usedMode, mode),
+			),
+		);
 
-	const hasWindowData = Number(aggRow?.logsCount ?? 0) > 0;
+	// The lifetime fallback counters blend every mode, so a narrowed view
+	// reports the window's sums only.
+	const hasWindowData = mode !== "total" || Number(aggRow?.logsCount ?? 0) > 0;
 
 	return c.json({
 		mapping: {
@@ -11234,11 +11794,12 @@ admin.openapi(getMappingDetail, async (c) => {
 			cachedCount: hasWindowData
 				? Number(aggRow?.cachedCount ?? 0)
 				: m.cachedCount,
-			avgTimeToFirstToken: hasWindowData
-				? aggRow?.avgTtft !== undefined && aggRow?.avgTtft !== null
+			avgTimeToFirstToken:
+				aggRow?.avgTtft !== undefined && aggRow?.avgTtft !== null
 					? Number(aggRow.avgTtft)
-					: m.avgTimeToFirstToken
-				: m.avgTimeToFirstToken,
+					: mode === "total"
+						? m.avgTimeToFirstToken
+						: null,
 			totalCost: Number(aggRow?.totalCost ?? 0),
 			...toTokenBreakdown(aggRow),
 			updatedAt: m.updatedAt.toISOString(),
@@ -11624,7 +12185,12 @@ admin.openapi(getOrgCostByModel, async (c) => {
 
 // --- Cost by model time-series endpoints ---
 
-const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+const projectCostTimeseriesGroupBySchema = z.enum([
+	"model",
+	"source",
+	"api-key",
+	"user",
+]);
 
 const organizationCostTimeseriesGroupBySchema = z.enum([
 	"model",
@@ -11830,18 +12396,22 @@ const getProjectCostByModelTimeseries = createRoute({
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
 			modelView: costByModelViewSchema.default("mapping").optional(),
-			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
+			groupBy: projectCostTimeseriesGroupBySchema.default("model").optional(),
 			bucket: costTimeseriesBucketSchema.optional(),
+			...organizationTimeseriesQuery,
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: costByModelTimeseriesResponseSchema.openapi({}),
+					schema: costByModelTimeseriesResponseSchema
+						.extend({ timeseries: organizationTimeseriesSchema.optional() })
+						.openapi({}),
 				},
 			},
-			description: "Project cost breakdown by model or source over time.",
+			description:
+				"Project cost breakdown by model, source, API key, or user over time.",
 		},
 		404: {
 			description: "Project not found.",
@@ -11869,25 +12439,62 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
+	if (
+		groupBy !== "source" &&
+		(query.includeTimeseries === "true" || query.model || query.apiKeyId)
+	) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds: [projectId],
+			startDate,
+			endDate: new Date(),
+			bucket: bucketUnit,
+			groupBy: groupBy === "api-key" ? "apiKey" : groupBy,
+			modelView,
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			modelView,
+			groupBy,
+			models: timeseries.series.map((s) => s.label),
+			data: timeseries.points.map((p) => ({
+				timestamp: p.timestamp,
+				entries: p.entries.map((e) => ({ ...e, model: e.label })),
+			})),
+			timeseries,
+		});
+	}
+
 	const result =
-		groupBy === "source"
-			? await buildCostBySourceTimeseries({
+		groupBy === "api-key" || groupBy === "user"
+			? await buildCostByApiKeyDimensionTimeseries({
 					bucketUnit,
 					startDate,
-					baseFilter: and(
-						eq(projectHourlySourceStats.projectId, projectId),
-						gte(projectHourlySourceStats.hourTimestamp, startDate),
-					),
+					projectIds: [projectId],
+					groupBy,
 				})
-			: await buildCostByModelTimeseries({
-					modelView,
-					bucketUnit,
-					startDate,
-					baseFilter: and(
-						eq(projectHourlyModelStats.projectId, projectId),
-						gte(projectHourlyModelStats.hourTimestamp, startDate),
-					),
-				});
+			: groupBy === "source"
+				? await buildCostBySourceTimeseries({
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlySourceStats.projectId, projectId),
+							gte(projectHourlySourceStats.hourTimestamp, startDate),
+						),
+					})
+				: await buildCostByModelTimeseries({
+						modelView,
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlyModelStats.projectId, projectId),
+							gte(projectHourlyModelStats.hourTimestamp, startDate),
+						),
+					});
 
 	return c.json({
 		window,
@@ -13014,61 +13621,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Which error classes count against a mapping. `non_client` (default) drops
-// client-error logs from the sample; `client` drops every other failure, so
-// both rate against successes plus the selected errors.
-const unstableErrorScopeSchema = z.enum(["non_client", "all", "client"]);
-
-function buildUnstableErrorScopeClause(
-	scope: z.infer<typeof unstableErrorScopeSchema>,
-) {
-	switch (scope) {
-		case "all":
-			return sql``;
-		case "client":
-			return sql`AND (${tables.log.hasError} IS NOT TRUE OR ${tables.log.unifiedFinishReason} = 'client_error')`;
-		default:
-			return sql`AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'`;
-	}
-}
-
-interface IgnoredErrorMatcherTarget {
-	pattern: string | null;
-	statusCode: number | null;
-}
-
-// Builds an OR chain across all stored matchers so expected upstream errors
-// can be treated as non-errors. A substring pattern is matched
-// case-insensitively against the serialized error details JSON (covering
-// status text, response body, and cause); a status code is matched against the
-// upstream `statusCode` field. When a matcher has both, both must match.
-function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
-	return sql.join(
-		matchers.map((matcher) => {
-			const conditions = [];
-			if (matcher.pattern !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}::text ILIKE ${`%${escapeLikePattern(matcher.pattern)}%`}`,
-				);
-			}
-			if (matcher.statusCode !== null) {
-				conditions.push(
-					sql`${tables.log.errorDetails}->>'statusCode' = ${String(matcher.statusCode)}`,
-				);
-			}
-			return sql`(${sql.join(conditions, sql` AND `)})`;
-		}),
-		sql` OR `,
-	);
-}
-
-// Case-insensitive substring match against the serialized public and internal
-// error details JSON, so stealth-provider errors are searchable too.
-function buildErrorMessageMatchExpr(message: string) {
-	const pattern = `%${escapeLikePattern(message)}%`;
-	return sql`COALESCE(${tables.log.errorDetails}::text ILIKE ${pattern} OR ${tables.log.internalErrorDetails}::text ILIKE ${pattern}, false)`;
-}
-
 /**
  * Every `used_model` (`provider/model[:region]`) a canonical model id logs
  * under: catalogue mappings plus DB-only (Airside, deactivated) rows.
@@ -13102,14 +13654,6 @@ async function listUsedModelsForModelId(modelId: string) {
 	}
 
 	return [...usedModels];
-}
-
-async function listIgnoredErrorMatchers() {
-	return await db.query.ignoredErrorMatcher.findMany({
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
 }
 
 /**
@@ -13150,7 +13694,7 @@ function describeProviderKey(
 	}
 	return {
 		providerKeyLabel: keyRow.managed
-			? keyRow.comment?.trim() || keyRow.tokenMasked
+			? managedProviderKeyName(keyRow)
 			: keyRow.description?.trim() || "Bring your own key",
 		providerKeyMaskedToken: keyRow.tokenMasked,
 		providerKeyManaged: keyRow.managed,
@@ -13193,7 +13737,7 @@ const unstableMappingsListSchema = z.object({
 	ignoreExpected: z.boolean(),
 	splitByKey: z.boolean(),
 	includeByok: z.boolean(),
-	errorScope: unstableErrorScopeSchema,
+	errorScope: errorScopeSchema,
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 	// The exact `used_model` the ranking is narrowed to, if any.
@@ -13220,7 +13764,7 @@ const getUnstableMappings = createRoute({
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
 			model: z.string().optional(),
 			provider: z.string().optional(),
@@ -13257,17 +13801,18 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const { interval: windowInterval, hours: windowHours } =
 		resolveMappingErrorWindow(query.window);
 	const mapping = query.model && query.provider ? query.model : null;
-	const mappingClause =
+	const providerClause =
 		mapping !== null
-			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
+			? sql`AND ${tables.log.usedProvider} = ${query.provider}`
 			: sql``;
 	const canonicalModelId = query.modelId || null;
-	// An exact `used_model` list keeps the filter an index condition; a
-	// `split_part` expression would fetch every log in the window.
-	const modelIdClause =
-		canonicalModelId !== null
-			? sql`AND ${inArray(tables.log.usedModel, await listUsedModelsForModelId(canonicalModelId))}`
-			: sql``;
+	// The exact `used_model` values the sample is scoped to; null samples all.
+	const scopedUsedModels =
+		mapping !== null
+			? [mapping]
+			: canonicalModelId !== null
+				? await listUsedModelsForModelId(canonicalModelId)
+				: null;
 
 	// With the split off every row carries a constant NULL key, so the extra
 	// GROUP BY column is a no-op and both modes share one query shape.
@@ -13293,6 +13838,41 @@ admin.openapi(getUnstableMappings, async (c) => {
 			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)${errorMessageClause})`
 			: sql`(${tables.log.hasError}${errorMessageClause})`;
 
+	// The latest `logLimit` logs in the window matching `scopeClause`.
+	const sampleLogs = (scopeClause: SQL) => sql`
+		SELECT ${tables.log.usedModel} AS used_model,
+			${tables.log.usedProvider} AS used_provider,
+			${providerKeyExpr} AS provider_key_id,
+			${hasErrorExpr} AS has_error,
+			${tables.log.createdAt} AS created_at
+		FROM ${tables.log}
+		WHERE ${tables.log.createdAt} >= ${windowInterval}
+			${buildUnstableErrorScopeClause(errorScope)}
+			${retriedClause}
+			${byokClause}
+			${scopeClause}
+		ORDER BY ${tables.log.createdAt} DESC
+		LIMIT ${logLimit}`;
+	// No index yields `used_model IN (...)` in created_at order, so a single
+	// scoped query walks every log in the window. One branch per `used_model`
+	// is an ordered (used_model, created_at) index scan each; the planner
+	// merges the branches and stops at the limit.
+	const recentLogs =
+		scopedUsedModels === null
+			? sampleLogs(sql``)
+			: scopedUsedModels.length === 0
+				? sampleLogs(sql`AND false`)
+				: sql`
+					SELECT * FROM (${sql.join(
+						scopedUsedModels.map(
+							(usedModel) =>
+								sql`(${sampleLogs(sql`AND ${tables.log.usedModel} = ${usedModel} ${providerClause}`)})`,
+						),
+						sql` UNION ALL `,
+					)}) AS scoped_logs
+					ORDER BY created_at DESC
+					LIMIT ${logLimit}`;
+
 	const rows = await db.execute<{
 		used_model: string;
 		used_provider: string;
@@ -13302,21 +13882,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		error_rate: string;
 		sampled_logs: string;
 	}>(sql`
-		WITH recent_logs AS (
-			SELECT ${tables.log.usedModel} AS used_model,
-				${tables.log.usedProvider} AS used_provider,
-				${providerKeyExpr} AS provider_key_id,
-				${hasErrorExpr} AS has_error
-			FROM ${tables.log}
-			WHERE ${tables.log.createdAt} >= ${windowInterval}
-				${buildUnstableErrorScopeClause(errorScope)}
-				${retriedClause}
-				${byokClause}
-				${mappingClause}
-				${modelIdClause}
-			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${logLimit}
-		)
+		WITH recent_logs AS (${recentLogs})
 		SELECT used_model,
 			used_provider,
 			provider_key_id,
@@ -13412,7 +13978,7 @@ const getUnstableMappingErrors = createRoute({
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
-			errorScope: unstableErrorScopeSchema.optional(),
+			errorScope: errorScopeSchema.optional(),
 			/**
 			 * Narrows the sample to one provider key, mirroring a row of the
 			 * key-split ranking. The literal `__unattributed__` selects logs with
@@ -13420,7 +13986,10 @@ const getUnstableMappingErrors = createRoute({
 			 * one).
 			 */
 			providerKeyId: z.string().optional(),
-			/** Only upstream and gateway errors, matching the Incidents counts. */
+			/**
+			 * Only the error classes the Incidents counts use: upstream and
+			 * gateway errors, plus client errors under `errorScope=all|client`.
+			 */
 			incidentsOnly: z.enum(["true", "false"]).optional(),
 			/**
 			 * Top error shapes per provider key instead of overall. Ignored when
@@ -13434,6 +14003,8 @@ const getUnstableMappingErrors = createRoute({
 			 * instead of one shape carrying both counts.
 			 */
 			groupByStream: z.enum(["true", "false"]).optional(),
+			/** Mask ids, hashes and long numbers so near-identical errors group (default). */
+			groupSimilar: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -13464,6 +14035,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		groupByKey: groupByKeyParam,
 		errorMessage: errorMessageParam,
 		groupByStream: groupByStreamParam,
+		groupSimilar,
 	} = c.req.valid("query");
 	const errorMessage = errorMessageParam?.trim() || null;
 	const groupByKey = groupByKeyParam === "true" && providerKeyId === undefined;
@@ -13487,10 +14059,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	// drilldown shows the same errors that counted against the mapping.
 	const ignoredMatchers =
 		ignoreExpected !== "false" ? await listIgnoredErrorMatchers() : [];
-	const ignoredClause =
-		ignoredMatchers.length > 0
-			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
-			: sql``;
 
 	const shapes = await queryMappingErrorShapes({
 		usedModel: model,
@@ -13500,13 +14068,15 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		groupByKey,
 		bucketSeconds,
 		splitByStream: groupByStream,
+		groupSimilar: groupSimilar !== "false",
 		extraClauses: [
 			providerKeyClause,
 			retriedClause,
 			byokClause,
-			ignoredClause,
-			buildUnstableErrorScopeClause(errorScope ?? "non_client"),
-			incidentsOnly === "true" ? incidentErrorsClause : sql``,
+			buildIgnoredErrorsClause(ignoredMatchers),
+			incidentsOnly === "true"
+				? buildIncidentErrorScopeClause(errorScope ?? "non_client")
+				: buildUnstableErrorScopeClause(errorScope ?? "non_client"),
 			errorMessage !== null
 				? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
 				: sql``,
@@ -13999,9 +14569,6 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
-
 	const resend = getResendClient();
 	if (!resend) {
 		return c.json(
@@ -14068,9 +14635,6 @@ const sendEmail = createRoute({
 
 admin.openapi(sendEmail, async (c) => {
 	const { to, subject, body: emailBody, category } = c.req.valid("json");
-
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {
@@ -16552,7 +17116,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const marginPct = mrrNum > 0 ? (marginNum / mrrNum) * 100 : null;
 
 		const premiumCreditsLimitNum =
-			tier === "none" ? 0 : getDevPlanPremiumWeeklyLimit(tier as DevPlanTier);
+			tier === "none"
+				? 0
+				: getDevPlanPremiumWeeklyLimit(tier as DevPlanTier, row.creditsLimit);
 		const premiumWeekStart = row.premiumWeekStart
 			? new Date(row.premiumWeekStart).toISOString()
 			: null;
@@ -18003,7 +18569,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const premiumCreditsLimitNum =
 		org.devPlan === "none"
 			? 0
-			: getDevPlanPremiumWeeklyLimit(org.devPlan as DevPlanTier);
+			: getDevPlanPremiumWeeklyLimit(
+					org.devPlan as DevPlanTier,
+					org.devPlanCreditsLimit,
+				);
 
 	const subscriber = {
 		id: org.id,

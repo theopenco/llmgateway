@@ -1,10 +1,11 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getBillingOrganization } from "@/lib/billing-organization.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { logger } from "@llmgateway/logger";

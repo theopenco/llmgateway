@@ -344,7 +344,7 @@ describe("managed provider credentials", () => {
 		});
 
 		try {
-			const res = await completions("google-vertex/gemini-2.5-flash-lite");
+			const res = await completions("google-vertex/gemini-3.1-flash-lite");
 			expect(res.status).toBe(200);
 		} finally {
 			if (previousProject !== undefined) {

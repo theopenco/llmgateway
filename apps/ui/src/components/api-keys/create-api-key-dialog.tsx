@@ -18,6 +18,13 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
+import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
@@ -40,22 +47,33 @@ import {
 import type { Project } from "@/lib/types";
 import type React from "react";
 
-interface CreateApiKeyDialogProps {
+type CreateApiKeyDialogProps = {
 	children: React.ReactNode;
-	selectedProject: Project;
 	disabled?: boolean;
 	disabledMessage?: string;
-}
+} & (
+	| { selectedProject: Project; projects?: never }
+	// Organization-wide pages pick the project inside the dialog.
+	| { selectedProject?: never; projects: Project[] }
+);
 
 export function CreateApiKeyDialog({
 	children,
-	selectedProject,
+	selectedProject: fixedProject,
+	projects,
 	disabled = false,
 	disabledMessage,
 }: CreateApiKeyDialogProps) {
 	const queryClient = useQueryClient();
 	const posthog = usePostHog();
 	const [open, setOpen] = useState(false);
+	const [pickedProjectId, setPickedProjectId] = useState(
+		() => projects?.[0]?.id ?? "",
+	);
+	const selectedProject =
+		fixedProject ??
+		projects?.find((project) => project.id === pickedProjectId) ??
+		projects?.[0];
 	const [step, setStep] = useState<"form" | "created">("form");
 	const [name, setName] = useState("");
 	const [limitValue, setLimitValue] = useState(() =>
@@ -66,7 +84,7 @@ export function CreateApiKeyDialog({
 	const api = useApi();
 
 	const { data: memberBudgetData } = useMyMemberBudget(
-		selectedProject.organizationId,
+		selectedProject?.organizationId ?? "",
 	);
 	const memberBudget = memberBudgetData?.budget ?? null;
 	const teamBudget = memberBudgetData?.teamBudget ?? null;
@@ -76,6 +94,11 @@ export function CreateApiKeyDialog({
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (createApiKeyMutation.isPending) {
+			return;
+		}
+
+		if (!selectedProject) {
+			toast({ title: "Please select a project.", variant: "destructive" });
 			return;
 		}
 
@@ -145,11 +168,7 @@ export function CreateApiKeyDialog({
 	const handleClose = () => {
 		setOpen(false);
 		setTimeout(() => {
-			const queryKey = api.queryOptions("get", "/keys/api", {
-				params: { query: { projectId: selectedProject.id } },
-			}).queryKey;
-
-			void queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey: ["get", "/keys/api"] });
 
 			setStep("form");
 			setName("");
@@ -201,9 +220,11 @@ export function CreateApiKeyDialog({
 							<DialogTitle>Create API Key</DialogTitle>
 							<DialogDescription>
 								Create a new API key to access LLM Gateway.
-								<span className="block mt-1">
-									Project: {selectedProject.name}
-								</span>
+								{fixedProject && (
+									<span className="block mt-1">
+										Project: {fixedProject.name}
+									</span>
+								)}
 								<span className="block mt-2 text-xs">
 									💡 After creation, you can configure IAM rules to control
 									access to specific models, providers, or pricing tiers.
@@ -211,6 +232,30 @@ export function CreateApiKeyDialog({
 							</DialogDescription>
 						</DialogHeader>
 						<form onSubmit={handleSubmit} className="space-y-4 py-4">
+							{projects && (
+								<div className="space-y-2">
+									<Label htmlFor="create-api-key-project">Project</Label>
+									<Select
+										value={selectedProject?.id ?? ""}
+										onValueChange={setPickedProjectId}
+										disabled={createApiKeyMutation.isPending}
+									>
+										<SelectTrigger
+											id="create-api-key-project"
+											className="w-full"
+										>
+											<SelectValue placeholder="Select a project" />
+										</SelectTrigger>
+										<SelectContent>
+											{projects.map((project) => (
+												<SelectItem key={project.id} value={project.id}>
+													{project.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							)}
 							<div className="space-y-2">
 								<Label htmlFor="name">API Key Name</Label>
 								<Input

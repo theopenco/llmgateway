@@ -1,5 +1,40 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Built-in Grok Voice voices (GET /v1/tts/voices). The first entry ("ara") is
+ * the upstream default when the caller omits a voice.
+ */
+const GROK_VOICE_VOICES = [
+	"ara",
+	"altair",
+	"atlas",
+	"aurora",
+	"carina",
+	"castor",
+	"celeste",
+	"cosmo",
+	"eve",
+	"helios",
+	"helix",
+	"iris",
+	"kepler",
+	"leo",
+	"liora",
+	"lumen",
+	"luna",
+	"lux",
+	"naksh",
+	"orion",
+	"perseus",
+	"rex",
+	"rigel",
+	"sal",
+	"sirius",
+	"ursa",
+	"zagan",
+	"zenith",
+];
+
 const xaiSupportedParamsNoFreqPresence = [
 	"temperature",
 	"max_tokens",
@@ -489,6 +524,7 @@ export const xaiModels = [
 			{
 				providerId: "azure-ai-foundry",
 				externalId: "grok-4-1-fast-non-reasoning",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -647,7 +683,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -655,8 +690,13 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 2_000_000,
 				maxOutput: 30000,
+				// Temperatures near 2 return gibberish until max_tokens.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningOutput: "omit",
 				tools: true,
@@ -665,6 +705,7 @@ export const xaiModels = [
 				// which 400s on `reasoning_effort` — leaving it undeclared
 				// keeps the gateway from forwarding a value Grok 4.20 rejects.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -677,7 +718,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-non-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -687,9 +727,13 @@ export const xaiModels = [
 				maxOutput: 30000,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -1171,8 +1215,13 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 500_000,
 				maxOutput: undefined,
+				// Temperatures near 2 never return; 1 answers normally.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningOutput: "omit",
@@ -1189,6 +1238,7 @@ export const xaiModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
+				regions: [{ id: "global" }],
 			},
 		],
 	},
@@ -1276,6 +1326,57 @@ export const xaiModels = [
 				],
 				regions: [{ id: "global" }, { id: "us" }],
 			},
+			{
+				providerId: "vertex-openai",
+				externalId: "grok-4.7",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: "2.0e-6",
+						outputPrice: "6.0e-6",
+						cachedInputPrice: "0.5e-6",
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "1.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 524_288,
+				maxOutput: undefined,
+				// Same as Bedrock: temperature 2 never returns; 1 answers normally.
+				maxTemperature: 1,
+				streaming: true,
+				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
+				reasoning: true,
+				// Vertex rejects xhigh/none, xAI rejects max on this deployment.
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
+				reasoningOutput: "omit",
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+				regions: [{ id: "global" }],
+			},
 		],
 	},
 	{
@@ -1346,6 +1447,41 @@ export const xaiModels = [
 				tools: false,
 				jsonOutput: false,
 				transcriptions: true,
+			},
+		],
+	},
+	{
+		id: "grok-voice-3-0",
+		name: "Grok Voice 3.0",
+		description:
+			"xAI's speech-to-speech voice agent model. Served via the gateway's /v1/realtime WebSocket endpoint with text and audio input/output and function calling.",
+		family: "xai",
+		output: ["text", "audio"],
+		releasedAt: new Date("2026-10-14"),
+		stability: "beta",
+		providers: [
+			{
+				providerId: "xai",
+				externalId: "grok-voice-3.0",
+				// xAI bills by session time plus a flat fee per text
+				// input, not by tokens; the token prices are zero so the reported
+				// token counts are recorded without being billed.
+				inputPrice: "0",
+				cachedInputPrice: "0",
+				outputPrice: "0",
+				inputAudioPrice: "0",
+				cachedInputAudioPrice: "0",
+				outputAudioPrice: "0",
+				inputAudioHourPrice: "4.80",
+				inputTextItemPrice: "0.004",
+				requestPrice: "0",
+				streaming: false,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				realtime: true,
+				supportedVoices: GROK_VOICE_VOICES,
+				test: "skip",
 			},
 		],
 	},

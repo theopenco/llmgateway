@@ -3,8 +3,14 @@ import { HTTPException } from "hono/http-exception";
 import {
 	findManagedProviderKey,
 	hasManagedProviderCredential,
+	listManagedProviderKeyCandidates,
 	listManagedProviderKeys,
 } from "@/lib/cached-queries.js";
+import {
+	getRateLimitedProviderKeys,
+	ProviderKeyRateLimitError,
+	type ProviderKeyRateLimitExemption,
+} from "@/lib/provider-key-rate-limit.js";
 
 import { readProviderKey } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
@@ -97,6 +103,8 @@ export interface ResolvePlatformCredentialOptions {
 	 * the output bucket's).
 	 */
 	filter?: (key: ProviderKeyRow) => boolean;
+	/** Lets a soft/lax-capped managed credential serve this request. */
+	rateLimitExemption?: ProviderKeyRateLimitExemption;
 }
 
 /**
@@ -124,18 +132,20 @@ export async function resolvePlatformCredential(
 	}
 
 	const restrictedToModel = options.model;
+	const filter = combineFilters(
+		options.filter,
+		options.requiresServiceTier ? providerKeySupportsServiceTier : undefined,
+		restrictedToModel !== undefined
+			? (key) => providerKeyAllowsModel(key.allowedModels, restrictedToModel)
+			: undefined,
+	);
 	const managedKey = await findManagedProviderKey(provider, {
 		variant: options.variant,
 		region: options.region,
 		selectionScope: options.selectionScope,
 		excludedKeyIds: options.excludedProviderKeyIds,
-		filter: combineFilters(
-			options.filter,
-			options.requiresServiceTier ? providerKeySupportsServiceTier : undefined,
-			restrictedToModel !== undefined
-				? (key) => providerKeyAllowsModel(key.allowedModels, restrictedToModel)
-				: undefined,
-		),
+		filter,
+		rateLimitExemption: options.rateLimitExemption,
 	});
 
 	if (managedKey) {
@@ -161,6 +171,24 @@ export async function resolvePlatformCredential(
 				? [`excluded: ${options.excludedProviderKeyIds.size}`]
 				: []),
 		].join(", ");
+		// Only a 429 when caps alone emptied the pool this request selects from.
+		const candidates = (
+			await listManagedProviderKeyCandidates(provider, {
+				variant: options.variant,
+				region: options.region,
+				filter,
+			})
+		).filter((key) => !options.excludedProviderKeyIds?.has(key.id));
+		const rateLimited = await getRateLimitedProviderKeys(
+			candidates,
+			options.rateLimitExemption,
+		);
+		if (candidates.length > 0 && rateLimited.size === candidates.length) {
+			throw new ProviderKeyRateLimitError(
+				`Provider ${provider} is at its configured rate limit. Please try again later.`,
+				rateLimited,
+			);
+		}
 		throw new HTTPException(500, {
 			message: `No managed credential available for provider: ${provider} (${scope})`,
 		});

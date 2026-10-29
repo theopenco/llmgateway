@@ -18,6 +18,48 @@ export interface ModelBreakdownEntry {
 export interface ActivityRow {
 	date: string;
 	modelBreakdown: ModelBreakdownEntry[];
+	// Billed on top of inference cost; charted as its own series so the
+	// breakdowns add up to the total spend.
+	dataStorageCost?: number;
+}
+
+export const STORAGE_KEY = "__storage__";
+export const STORAGE_LABEL = "Storage";
+export const OTHER_KEY = "__other__";
+export const OTHER_LABEL = "Other";
+
+interface MetricValues {
+	cost: number;
+	requestCount: number;
+	totalTokens: number;
+}
+
+function modelEntries(
+	row: ActivityRow,
+	view: ModelView,
+): (MetricValues & { key: string })[] {
+	const entries = row.modelBreakdown.map((entry) => ({
+		key: modelKey(entry, view),
+		cost: entry.cost,
+		requestCount: entry.requestCount,
+		totalTokens: entry.totalTokens,
+	}));
+	const storage = row.dataStorageCost ?? 0;
+	if (storage > 0) {
+		entries.push({
+			key: STORAGE_LABEL,
+			cost: storage,
+			requestCount: 0,
+			totalTokens: 0,
+		});
+	}
+	return entries;
+}
+
+function addMetrics(target: MetricValues, source: MetricValues): void {
+	target.cost += source.cost;
+	target.requestCount += source.requestCount;
+	target.totalTokens += source.totalTokens;
 }
 
 export const seriesColors = [
@@ -98,18 +140,15 @@ export function aggregateCostByModel(
 	let totalTokens = 0;
 
 	for (const row of activity) {
-		for (const entry of row.modelBreakdown) {
-			const key = modelKey(entry, view);
-			const agg = byModel.get(key) ?? {
-				model: key,
+		for (const entry of modelEntries(row, view)) {
+			const agg = byModel.get(entry.key) ?? {
+				model: entry.key,
 				cost: 0,
 				requestCount: 0,
 				totalTokens: 0,
 			};
-			agg.cost += entry.cost;
-			agg.requestCount += entry.requestCount;
-			agg.totalTokens += entry.totalTokens;
-			byModel.set(key, agg);
+			addMetrics(agg, entry);
+			byModel.set(entry.key, agg);
 			totalCost += entry.cost;
 			totalRequests += entry.requestCount;
 			totalTokens += entry.totalTokens;
@@ -138,7 +177,8 @@ export interface ModelTimeseriesResult {
 
 /**
  * Pivots the per-bucket model breakdowns from /activity into a stacked-area
- * time series of the top-N models (ranked by total cost over the window).
+ * time series of the top-N models (ranked by total cost over the window). The
+ * remaining models collapse into "Other", so each stack adds up to the total.
  */
 export function buildModelTimeseries(
 	activity: ActivityRow[],
@@ -147,39 +187,37 @@ export function buildModelTimeseries(
 ): ModelTimeseriesResult {
 	const totalsByModel = new Map<string, number>();
 	for (const row of activity) {
-		for (const entry of row.modelBreakdown) {
-			const key = modelKey(entry, view);
-			totalsByModel.set(key, (totalsByModel.get(key) ?? 0) + entry.cost);
+		for (const entry of modelEntries(row, view)) {
+			totalsByModel.set(
+				entry.key,
+				(totalsByModel.get(entry.key) ?? 0) + entry.cost,
+			);
 		}
 	}
 
-	const topModels = Array.from(totalsByModel.entries())
+	const ranked = Array.from(totalsByModel.entries())
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, topN)
 		.map(([k]) => k);
+	const topModels = ranked.slice(0, topN);
 	const topSet = new Set(topModels);
+	const hasOther = ranked.length > topN;
 
 	const data: ModelTimePoint[] = activity.map((row) => {
 		const entries: ModelTimePoint["entries"] = {};
-		for (const entry of row.modelBreakdown) {
-			const key = modelKey(entry, view);
-			if (!topSet.has(key)) {
-				continue;
-			}
+		for (const entry of modelEntries(row, view)) {
+			const key = topSet.has(entry.key) ? entry.key : OTHER_LABEL;
 			const existing = entries[key] ?? {
 				cost: 0,
 				requestCount: 0,
 				totalTokens: 0,
 			};
-			existing.cost += entry.cost;
-			existing.requestCount += entry.requestCount;
-			existing.totalTokens += entry.totalTokens;
+			addMetrics(existing, entry);
 			entries[key] = existing;
 		}
 		return { timestamp: row.date, entries };
 	});
 
-	return { models: topModels, data };
+	return { models: hasOther ? [...topModels, OTHER_LABEL] : topModels, data };
 }
 
 // --- Generic dimension breakdown (org-level analytics) ---------------------
@@ -287,35 +325,38 @@ export function buildDimensionTimeseries(
 		}
 	}
 
-	const topKeys = Array.from(totalsByKey.entries())
+	const ranked = Array.from(totalsByKey.entries())
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, topN)
 		.map(([k]) => k);
+	const topKeys = ranked.slice(0, topN);
 	const topSet = new Set(topKeys);
+	const hasOther = ranked.length > topN;
 
+	// Everything past the top N collapses into "Other", so each stack adds up
+	// to the bucket's total.
 	const data: DimensionTimePoint[] = rows.map((row) => {
 		const entries: DimensionTimePoint["entries"] = {};
 		for (const entry of row.breakdown) {
-			if (!topSet.has(entry.key)) {
-				continue;
-			}
-			const existing = entries[entry.key] ?? {
+			const key = topSet.has(entry.key) ? entry.key : OTHER_KEY;
+			const existing = entries[key] ?? {
 				cost: 0,
 				requestCount: 0,
 				totalTokens: 0,
 			};
-			existing.cost += entry.cost;
-			existing.requestCount += entry.requestCount;
-			existing.totalTokens += entry.totalTokens;
-			entries[entry.key] = existing;
+			addMetrics(existing, entry);
+			entries[key] = existing;
 		}
 		return { timestamp: row.date, entries };
 	});
 
-	return {
-		series: topKeys.map((key) => ({ key, label: labelByKey.get(key) ?? key })),
-		data,
-	};
+	const series = topKeys.map((key) => ({
+		key,
+		label: labelByKey.get(key) ?? key,
+	}));
+	if (hasOther) {
+		series.push({ key: OTHER_KEY, label: OTHER_LABEL });
+	}
+	return { series, data };
 }
 
 // --- Project activity → generic dimension rows ----------------------------
@@ -336,6 +377,7 @@ export const UNATTRIBUTED_NOTE =
 interface ProjectActivityRow {
 	date: string;
 	cost: number;
+	dataStorageCost?: number;
 	requestCount: number;
 	totalTokens: number;
 	modelBreakdown: ModelBreakdownEntry[];
@@ -374,41 +416,55 @@ export function toDimensionRows(
 	view: ModelView = "mapping",
 ): DimensionRow[] {
 	return activity.map((row) => {
-		if (groupBy === "model") {
-			return {
-				date: row.date,
-				breakdown: row.modelBreakdown.map((entry) => ({
-					...entry,
-					key: modelKey(entry, view),
-					label: modelKey(entry, view),
-				})),
-			};
-		}
+		const breakdown: DimensionEntry[] =
+			groupBy === "model"
+				? row.modelBreakdown.map((entry) => ({
+						...entry,
+						key: modelKey(entry, view),
+						label: modelKey(entry, view),
+					}))
+				: groupBy === "apiKey"
+					? row.apiKeyBreakdown.map((entry) => ({
+							...entry,
+							key: entry.id,
+							label: entry.description,
+						}))
+					: row.userBreakdown.map((entry) => ({
+							...entry,
+							key: entry.id,
+							label: entry.name,
+						}));
 
-		if (groupBy === "apiKey") {
-			return {
-				date: row.date,
-				breakdown: row.apiKeyBreakdown.map((entry) => ({
-					...entry,
-					key: entry.id,
-					label: entry.description,
-				})),
-			};
-		}
+		return {
+			date: row.date,
+			breakdown: completeBreakdown(row, breakdown, groupBy !== "model"),
+		};
+	});
+}
 
-		const breakdown: DimensionEntry[] = row.userBreakdown.map((entry) => ({
-			...entry,
-			key: entry.id,
-			label: entry.name,
-		}));
-
-		// Per-key rollups only cover "user" and "end_user_customer" keys, so a
-		// project driven by platform keys sums to less than its own total. Surface
-		// the difference instead of letting the breakdown quietly under-report.
-		//
-		// Each metric is tested independently: free-model platform traffic adds
-		// requests and tokens at zero cost, and gating on cost alone would drop it
-		// from the Requests and Tokens views.
+/**
+ * Makes a bucket's breakdown add up to its total spend. Per-key rollups only
+ * cover "user" and "end_user_customer" keys, so with `keyed` set the gap to the
+ * bucket total (platform-key traffic) becomes an Unattributed entry. Data
+ * storage, billed on top of inference cost, becomes a Storage entry.
+ *
+ * Each metric is tested independently: free-model platform traffic adds
+ * requests and tokens at zero cost, and gating on cost alone would drop it
+ * from the Requests and Tokens views.
+ */
+export function completeBreakdown(
+	row: MetricValues & { dataStorageCost?: number },
+	entries: DimensionEntry[],
+	keyed: boolean,
+): DimensionEntry[] {
+	const breakdown = [...entries];
+	const empty = {
+		creditsRequestCount: 0,
+		apiKeysRequestCount: 0,
+		creditsCost: 0,
+		apiKeysCost: 0,
+	};
+	if (keyed) {
 		const residualCost = row.cost - sum(breakdown, "cost");
 		const residualRequests = row.requestCount - sum(breakdown, "requestCount");
 		const residualTokens = row.totalTokens - sum(breakdown, "totalTokens");
@@ -418,20 +474,27 @@ export function toDimensionRows(
 			residualTokens > 0
 		) {
 			breakdown.push({
+				...empty,
 				key: UNATTRIBUTED_KEY,
 				label: UNATTRIBUTED_LABEL,
 				cost: Math.max(0, residualCost),
 				requestCount: Math.max(0, residualRequests),
 				totalTokens: Math.max(0, residualTokens),
-				creditsRequestCount: 0,
-				apiKeysRequestCount: 0,
-				creditsCost: 0,
-				apiKeysCost: 0,
 			});
 		}
-
-		return { date: row.date, breakdown };
-	});
+	}
+	const storage = row.dataStorageCost ?? 0;
+	if (storage > 0) {
+		breakdown.push({
+			...empty,
+			key: STORAGE_KEY,
+			label: STORAGE_LABEL,
+			cost: storage,
+			requestCount: 0,
+			totalTokens: 0,
+		});
+	}
+	return breakdown;
 }
 
 function sum(entries: DimensionEntry[], metric: ChartMetric): number {

@@ -12,7 +12,7 @@ Upstream rate limits are treated as provider errors and are eligible for retries
 
 ## Error Format
 
-Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddings`, `/v1/images`, `/v1/models`, `/v1/moderations`, `/v1/rerank`, `/v1/responses`, `/v1/search`, `/v1/videos`) use the standard OpenAI error envelope:
+Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/decisions`, `/v1/embeddings`, `/v1/images`, `/v1/models`, `/v1/moderations`, `/v1/rerank`, `/v1/responses`, `/v1/search`, `/v1/videos`) use the standard OpenAI error envelope:
 
 ```json
 {
@@ -71,6 +71,13 @@ Errors from the upstream provider follow different rules on the chat completions
 - **Connection failures and upstream timeouts** return **HTTP 502** (`upstream_error`/`fetch_failed`) or **HTTP 504** (`upstream_timeout`/`timeout`).
 - **Provider content-moderation blocks** (a recognized safety rejection, such as Azure's `ResponsibleAIPolicyViolation` or a provider's content-policy `403`) are not returned as errors at all: the gateway returns **HTTP 200** with a normal `chat.completion` whose message `content` is `null` and whose `finish_reason` is `"content_filter"` (on streaming, a chunk carrying that finish reason). Usage covers the prompt tokens, and the request is not logged as an error.
 
+## Enterprise-Only Models
+
+Some models are restricted to organizations on the enterprise plan. Requesting
+one from any other organization returns HTTP `403` with an `error.message`
+asking you to [contact us](mailto:contact@llmgateway.io) about enterprise, and
+`auto` routing never selects these models for you.
+
 ## Blocked Accounts
 
 When an administrator blocks an account, gateway requests return HTTP `410`.
@@ -87,6 +94,11 @@ including account review or disabled-account errors, billing restrictions, and
 rate or concurrency limits. These rejections have no inference or storage charge.
 Requests rejected before body parsing may have an unknown model and no request payload.
 Unrecognized or missing keys cannot be attributed to an organization and are not recorded.
+
+[Realtime](/features/realtime) follows the same rules: a rejected WebSocket upgrade or
+client secret request, and a turn refused inside an open session (for example by IAM
+rules or exhausted credits), are logged with the **Realtime** API origin. Rejected upgrade
+responses carry an `x-request-id` header matching the log entry.
 
 Logs include a nullable `errorCategory` for distinguishing account restrictions,
 authentication, permissions, billing, rate limits, concurrency limits, validation,
@@ -109,6 +121,7 @@ By default the filter only records its findings. When blocking is active, a requ
 - **Messages** (`/v1/messages`): `stop_reason: "refusal"` with the same explanation as the text content.
 - **Images**: HTTP `200` with an empty `data` array.
 - **Videos**: HTTP `403` with the explanation in `error.message`; no job is created.
+- **Speech** (`/v1/audio/speech`): HTTP `403` with the explanation in `error.message`; the `input` text is screened and no audio is generated.
 
 A moderation outage never fails a request: if the moderation model is unavailable, the request goes through as normal.
 

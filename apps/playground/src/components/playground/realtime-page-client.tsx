@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { Action, Actions } from "@/components/ai-elements/actions";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
+import { CallTranscriptionSelect } from "@/components/playground/call-transcription-select";
 import { RealtimeSidebar } from "@/components/playground/realtime-sidebar";
 import { VoiceActivityIndicator } from "@/components/playground/voice-activity-indicator";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ import { useUser } from "@/hooks/useUser";
 import { deriveCallTitle, formatCallDuration } from "@/lib/call-history";
 import {
 	getModelPreferenceCookie,
+	REALTIME_CALL_TRANSCRIPTION_MODEL_COOKIE,
 	REALTIME_MODEL_COOKIE,
 	REALTIME_TRANSCRIPTION_MODEL_COOKIE,
 	setModelPreferenceCookie,
@@ -67,6 +69,11 @@ import {
 	isKnownModelValue,
 	resolveSelectedMapping,
 } from "@/lib/realtime-model-value";
+import {
+	describeTranscriptionPrice,
+	GEMINI_PROVIDER_ID,
+	resolveCallTranscription,
+} from "@/lib/realtime-transcription";
 import { cn } from "@/lib/utils";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -87,6 +94,8 @@ interface RealtimePageClientProps {
 	selectedProject: Project | null;
 	initialModelPreference?: string | null;
 	initialTranscriptionModelPreference?: string | null;
+	initialCallTranscriptionPreference?: string | null;
+	callTranscriptionDefaults: Record<string, string>;
 }
 
 /** Speech-to-speech call, or a transcription-only session on the same endpoint. */
@@ -114,8 +123,6 @@ const REPLAY_CHAR_WARNING = 8000;
 const SEED_ID_PREFIX = "seed-";
 /** How close to the bottom still counts as "following" the live transcript. */
 const FOLLOW_TRANSCRIPT_THRESHOLD_PX = 64;
-/** The gateway has no transcription-only mode for Gemini Live. */
-const GEMINI_PROVIDER_ID = "google-ai-studio";
 
 const TURN_DETECTION_OPTIONS: {
 	value: TranscriptionTurnDetection;
@@ -183,28 +190,6 @@ function pickInitialModel(
 	return models[0]?.id ?? "";
 }
 
-/** How the transcription model is metered, for the header hint. */
-function describeTranscriptionPrice(
-	mapping: ApiModelProviderMapping | null,
-): string | null {
-	if (!mapping) {
-		return null;
-	}
-	const hourPrice = mapping.inputAudioHourPrice
-		? parseFloat(mapping.inputAudioHourPrice)
-		: 0;
-	if (hourPrice > 0) {
-		return `$${(hourPrice / 60).toFixed(3)}/min`;
-	}
-	const audioTokenPrice = mapping.inputAudioPrice
-		? parseFloat(mapping.inputAudioPrice)
-		: 0;
-	if (audioTokenPrice > 0) {
-		return `$${(audioTokenPrice * 1_000_000).toFixed(2)}/M audio tokens`;
-	}
-	return null;
-}
-
 export default function RealtimePageClient({
 	models,
 	providers,
@@ -214,6 +199,8 @@ export default function RealtimePageClient({
 	selectedProject,
 	initialModelPreference,
 	initialTranscriptionModelPreference,
+	initialCallTranscriptionPreference,
+	callTranscriptionDefaults,
 }: RealtimePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
@@ -312,6 +299,40 @@ export default function RealtimePageClient({
 		}
 	}, [transcriptionModel]);
 
+	const [preferredCallTranscription, setPreferredCallTranscription] = useState<
+		string | null
+	>(
+		() =>
+			getModelPreferenceCookie(REALTIME_CALL_TRANSCRIPTION_MODEL_COOKIE) ??
+			initialCallTranscriptionPreference ??
+			null,
+	);
+	const callTranscription = useMemo(
+		() =>
+			selectedMapping
+				? resolveCallTranscription({
+						realtimeMapping: selectedMapping,
+						transcriptionModels,
+						preferred: preferredCallTranscription,
+						catalogueDefaults: callTranscriptionDefaults,
+					})
+				: null,
+		[
+			callTranscriptionDefaults,
+			preferredCallTranscription,
+			selectedMapping,
+			transcriptionModels,
+		],
+	);
+	const callTranscriptionModel =
+		callTranscription?.kind === "asr" ? callTranscription.selected.model : null;
+	const callStartable =
+		callTranscription !== null && callTranscription.kind !== "unavailable";
+	const handleCallTranscriptionChange = useCallback((value: string) => {
+		setPreferredCallTranscription(value);
+		setModelPreferenceCookie(REALTIME_CALL_TRANSCRIPTION_MODEL_COOKIE, value);
+	}, []);
+
 	const onCallError = useCallback((message: string) => {
 		toast.error(message);
 	}, []);
@@ -337,6 +358,7 @@ export default function RealtimePageClient({
 		// Realtime mappings are already filtered to the active ones, so the first
 		// mapping is the provider the gateway will pin the session to.
 		provider: selectedMapping?.providerId ?? null,
+		transcriptionModel: callTranscriptionModel,
 		onCallError,
 	});
 	const {
@@ -713,12 +735,13 @@ export default function RealtimePageClient({
 		posthog.capture("playground_realtime_call_started", {
 			model: selectedModel,
 			voice,
+			transcriptionModel: callTranscriptionModel,
 		});
 		savedCallRef.current = false;
 		continuedCallIdRef.current = null;
 		setViewedCallId(null);
 		start();
-	}, [posthog, selectedModel, start, voice]);
+	}, [callTranscriptionModel, posthog, selectedModel, start, voice]);
 
 	const handleStartTranscription = useCallback(() => {
 		posthog.capture("playground_realtime_transcription_started", {
@@ -783,13 +806,21 @@ export default function RealtimePageClient({
 		posthog.capture("playground_realtime_call_continued", {
 			model: selectedModel,
 			voice,
+			transcriptionModel: callTranscriptionModel,
 			turns: seed.length,
 		});
 		savedCallRef.current = false;
 		continuedCallIdRef.current = viewedCall.id;
 		setViewedCallId(null);
 		start(seed);
-	}, [posthog, selectedModel, start, viewedCall, voice]);
+	}, [
+		callTranscriptionModel,
+		posthog,
+		selectedModel,
+		start,
+		viewedCall,
+		voice,
+	]);
 
 	const hasBillingContext = !!selectedOrganization && !!selectedProject;
 	const isIdleEmptyState =
@@ -813,7 +844,7 @@ export default function RealtimePageClient({
 					onItemDeleted={handleCallDeleted}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
-					<header className="bg-background flex items-center gap-3 border-b p-4">
+					<header className="bg-background flex flex-wrap items-center gap-3 border-b p-4">
 						<SidebarTrigger />
 						<Tabs value={mode} onValueChange={handleModeChange}>
 							<TabsList aria-label="Session type">
@@ -827,7 +858,7 @@ export default function RealtimePageClient({
 								</TabsTrigger>
 							</TabsList>
 						</Tabs>
-						<div className="flex w-full min-w-0 max-w-[360px] items-center gap-2 sm:max-w-[420px]">
+						<div className="flex min-w-[180px] max-w-[360px] flex-1 items-center gap-2 sm:max-w-[420px]">
 							<ModelSelector
 								models={isTranscribeMode ? transcriptionModels : realtimeModels}
 								providers={providers}
@@ -913,32 +944,39 @@ export default function RealtimePageClient({
 								)}
 							</div>
 						) : (
-							voices.length > 0 && (
-								<div className="flex items-center gap-2">
-									<Label
-										htmlFor="realtime-voice"
-										className="text-muted-foreground text-xs whitespace-nowrap"
-									>
-										Voice
-									</Label>
-									<Select
-										value={voice}
-										onValueChange={setVoice}
-										disabled={controlsLocked}
-									>
-										<SelectTrigger id="realtime-voice" className="w-[130px]">
-											<SelectValue placeholder="Voice" />
-										</SelectTrigger>
-										<SelectContent>
-											{voices.map((v) => (
-												<SelectItem key={v} value={v}>
-													{v.charAt(0).toUpperCase() + v.slice(1)}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								</div>
-							)
+							<>
+								{voices.length > 0 && (
+									<div className="flex items-center gap-2">
+										<Label
+											htmlFor="realtime-voice"
+											className="text-muted-foreground text-xs whitespace-nowrap"
+										>
+											Voice
+										</Label>
+										<Select
+											value={voice}
+											onValueChange={setVoice}
+											disabled={controlsLocked}
+										>
+											<SelectTrigger id="realtime-voice" className="w-[130px]">
+												<SelectValue placeholder="Voice" />
+											</SelectTrigger>
+											<SelectContent>
+												{voices.map((v) => (
+													<SelectItem key={v} value={v}>
+														{v.charAt(0).toUpperCase() + v.slice(1)}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</div>
+								)}
+								<CallTranscriptionSelect
+									transcription={callTranscription}
+									disabled={controlsLocked}
+									onValueChange={handleCallTranscriptionChange}
+								/>
+							</>
 						)}
 						<div className="ml-auto flex items-center gap-3 text-sm">
 							<span
@@ -1263,11 +1301,7 @@ export default function RealtimePageClient({
 													size="lg"
 													className="gap-2 rounded-full px-8"
 													disabled={
-														!selectedModel ||
-														// Without a resolved mapping the provider — and so the
-														// wire protocol the call must speak — is unknown.
-														!selectedMapping ||
-														!canStart
+														!selectedModel || !callStartable || !canStart
 													}
 													onClick={handleStart}
 												>
@@ -1280,7 +1314,7 @@ export default function RealtimePageClient({
 														variant="outline"
 														className="gap-2 rounded-full px-8"
 														disabled={
-															!selectedModel || !selectedMapping || !canStart
+															!selectedModel || !callStartable || !canStart
 														}
 														onClick={handleContinueCall}
 													>

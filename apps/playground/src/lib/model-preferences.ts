@@ -3,10 +3,13 @@ const MODEL_PREFERENCE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 export const IMAGE_MODEL_COOKIE = "llmgateway_model_image";
 export const VIDEO_MODEL_COOKIE = "llmgateway_model_video";
 export const AUDIO_MODEL_COOKIE = "llmgateway_model_audio";
+export const DECISIONS_MODEL_COOKIE = "llmgateway_model_decisions";
 export const CANVAS_MODEL_COOKIE = "llmgateway_model_canvas";
 export const REALTIME_MODEL_COOKIE = "llmgateway_model_realtime";
 export const REALTIME_TRANSCRIPTION_MODEL_COOKIE =
 	"llmgateway_model_realtime_transcription";
+export const REALTIME_CALL_TRANSCRIPTION_MODEL_COOKIE =
+	"llmgateway_model_realtime_call_transcription";
 export const ESCAPE_MODEL_COOKIE = "llmgateway_model_escape";
 export const IMAGE_SERVICE_TIER_COOKIE = "llmgateway_image_service_tier";
 

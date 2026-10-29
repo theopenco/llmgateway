@@ -50,6 +50,8 @@ export {
 } from "./statement-descriptor.js";
 
 export {
+	DEV_PLAN_DAILY_PERCENT,
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
@@ -61,10 +63,13 @@ export {
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
+	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
+	getRemainingDailyAllowance,
 	getRemainingPremiumWeeklyAllowance,
+	isDailyWindowExpired,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
 
@@ -76,6 +81,7 @@ export {
 	REFUND_REASONS,
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
 	SELF_REFUND_USAGE_PERCENT,
+	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
 	buildRefundDescription,
 	isRefundFeedbackComplete,
@@ -95,16 +101,20 @@ export {
 	getChatPlanCreditsLimit,
 	getChatPlanCreditsMultiplier,
 	getChatPlanCreditsMultipliers,
+	getChatPlanMinimumTier,
 	isChatPlanModelAllowed,
 } from "./chat-plans.js";
 
 export {
+	discountLookupFromMappings,
 	getModelCategory,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
 	isPremiumUsedModel,
 	type ModelCategory,
+	type PremiumDiscountLookup,
+	usedModelBaseId,
 } from "./model-categories.js";
 
 export {
@@ -231,12 +241,7 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export {
-	getActiveProviderPromo,
-	MARKETING_STATS,
-	RUNWARE_PROMO,
-	SCX_PROMO,
-} from "./marketing.js";
+export { MARKETING_STATS } from "./marketing.js";
 
 export {
 	type DiscordEmbed,
@@ -277,6 +282,7 @@ export {
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
+	INTERNAL_CLASSIFIER_MODEL,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
 	type ContentFilterClassifier,
@@ -304,9 +310,16 @@ export {
 
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	isProviderBaseUrlOverrideAllowed,
+	isProviderHostnameLabel,
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	PROVIDER_BASE_URL_OVERRIDE_DISABLED_MESSAGE,
 	providerBaseUrlHasEndpointPath,
+	PROVIDER_HOSTNAME_LABEL_MESSAGE,
+	PROVIDER_HOSTNAME_LABEL_REGEX,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
@@ -483,6 +496,16 @@ export {
 	UNKNOWN_MONTH_KEY,
 	withinOneEdit,
 } from "./model-search.js";
+
+export {
+	cancellationCommentsRequired,
+	DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH,
+	DEV_PLAN_CANCELLATION_HEADING,
+	DEV_PLAN_CANCELLATION_REASON_OPTIONS,
+	DEV_PLAN_CANCELLATION_REASONS,
+	type DevPlanCancellationReason,
+	type DevPlanCancellationReasonOption,
+} from "./cancellation.js";
 
 export {
 	isSystemBannerSeverity,

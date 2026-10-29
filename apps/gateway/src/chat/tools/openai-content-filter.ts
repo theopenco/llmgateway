@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
@@ -8,9 +10,15 @@ import {
 	resolveContentFilterCredential,
 	type ContentFilterCredential,
 } from "./content-filter-credential.js";
-import { extractErrorCause } from "./extract-error-cause.js";
+import {
+	classifyContentFilterError,
+	logContentFilterError,
+} from "./content-filter-error.js";
 
-import type { ModerationApiPayload } from "@llmgateway/db";
+import type {
+	ModerationApiPayload,
+	ContentFilterModerationError,
+} from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
 export interface GatewayContentFilterContext {
@@ -18,11 +26,6 @@ export interface GatewayContentFilterContext {
 	organizationId: string;
 	projectId: string;
 	apiKeyId: string;
-}
-
-interface ErrorWithCode extends Error {
-	code?: string;
-	cause?: unknown;
 }
 
 interface OpenAIModerationImagePart {
@@ -60,6 +63,8 @@ export interface OpenAIContentFilterCheckResult {
 	upstreamRequestId: string | null;
 	results: OpenAIModerationResult[];
 	responses: ModerationApiPayload[];
+	/** Moderation calls that failed, in call order. */
+	errors: ContentFilterModerationError[];
 }
 
 interface OpenAIContentFilterRequestResult {
@@ -67,9 +72,21 @@ interface OpenAIContentFilterRequestResult {
 	response: OpenAIContentFilterCheckResult;
 }
 
+type OpenAIModerationAttempt =
+	| { success: true; response: OpenAIContentFilterCheckResult }
+	| {
+			success: false;
+			error: ContentFilterModerationError;
+			payload: Record<string, unknown>;
+			thrown?: unknown;
+			upstreamRequestId: string | null;
+	  };
+
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_PATH = "/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
+const OPENAI_MODERATION_MAX_ATTEMPTS = 2;
+const OPENAI_MODERATION_RETRY_DELAY_MS = 100;
 const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.75;
 
 function getOpenAIModerationScoreThreshold(): number {
@@ -270,85 +287,35 @@ function logModerationResult(
 
 function logModerationError(
 	context: GatewayContentFilterContext,
+	error: ContentFilterModerationError,
 	payload: Record<string, unknown>,
-	error?: unknown,
+	thrown?: unknown,
+	level?: "warn" | "error",
 ) {
-	const logPayload = {
-		provider: "openai",
-		mode: "openai",
-		requestId: context.requestId,
-		organizationId: context.organizationId,
-		projectId: context.projectId,
-		apiKeyId: context.apiKeyId,
-		...payload,
-		...buildModerationErrorDetails(error),
-	};
-
-	if (error instanceof Error) {
-		logger.error("gateway_content_filter_error", logPayload, error);
-		return;
-	}
-
-	logger.error("gateway_content_filter_error", logPayload);
+	logContentFilterError(
+		"openai",
+		"openai",
+		context,
+		error,
+		payload,
+		thrown,
+		level,
+	);
 }
 
-function getErrorCode(error: unknown): string | undefined {
-	if (!(error instanceof Error)) {
-		return undefined;
-	}
-
-	const directCode =
-		typeof (error as ErrorWithCode).code === "string"
-			? (error as ErrorWithCode).code
-			: undefined;
-	if (directCode) {
-		return directCode;
-	}
-
-	const visited = new Set<Error>([error]);
-	let current = (error as ErrorWithCode).cause;
-	for (let depth = 0; depth < 5; depth++) {
-		if (!(current instanceof Error) || visited.has(current)) {
-			return undefined;
-		}
-		visited.add(current);
-
-		if (typeof (current as ErrorWithCode).code === "string") {
-			return (current as ErrorWithCode).code;
-		}
-
-		current = (current as ErrorWithCode).cause;
-	}
-
-	return undefined;
-}
-
-function buildModerationErrorDetails(error: unknown): Record<string, string> {
-	if (!(error instanceof Error)) {
-		return {
-			error: String(error),
-			errorName:
-				error === null
-					? "NullThrownValue"
-					: typeof error === "undefined"
-						? "UndefinedThrownValue"
-						: typeof error,
-		};
-	}
-
-	const errorCause = extractErrorCause(error);
-	const errorCode = getErrorCode(error);
-
-	return {
-		error: error.message,
-		errorName: error.name,
-		...(errorCause ? { errorCause } : {}),
-		...(errorCode ? { errorCode } : {}),
-	};
+/**
+ * A connection reset or 5xx is usually gone on the next try. A timeout has
+ * spent the budget, and a 4xx or malformed body would fail again.
+ */
+function isRetryableModerationError(
+	error: ContentFilterModerationError,
+): boolean {
+	return error.kind === "network" || error.kind === "upstream_5xx";
 }
 
 function createFailedOpenAIContentFilterResult(
 	upstreamRequestId: string | null = null,
+	errors: ContentFilterModerationError[] = [],
 ): OpenAIContentFilterCheckResult {
 	return {
 		flagged: false,
@@ -356,6 +323,7 @@ function createFailedOpenAIContentFilterResult(
 		upstreamRequestId,
 		results: [],
 		responses: [],
+		errors,
 	};
 }
 
@@ -367,12 +335,58 @@ export async function hasOpenAIContentFilterCredential(): Promise<boolean> {
 	return await hasContentFilterCredential("openai");
 }
 
+/**
+ * One moderation call, retried once on a transient failure. The retried
+ * attempt only warns; a failure that survives the retry logs at its kind's
+ * level.
+ */
 async function runOpenAIContentFilterRequest(
 	request: OpenAIModerationRequest,
 	context: GatewayContentFilterContext,
 	credential: ContentFilterCredential,
 	signal: AbortSignal,
 ): Promise<OpenAIContentFilterRequestResult> {
+	for (let attempt = 1; ; attempt++) {
+		const result = await attemptOpenAIContentFilterRequest(
+			request,
+			context,
+			credential,
+			signal,
+		);
+		if (result.success) {
+			return result;
+		}
+
+		const retrying =
+			attempt < OPENAI_MODERATION_MAX_ATTEMPTS &&
+			isRetryableModerationError(result.error);
+		logModerationError(
+			context,
+			result.error,
+			{ ...result.payload, attempt, retrying },
+			result.thrown,
+			retrying ? "warn" : undefined,
+		);
+		if (!retrying) {
+			return {
+				success: false,
+				response: createFailedOpenAIContentFilterResult(
+					result.upstreamRequestId,
+					[result.error],
+				),
+			};
+		}
+		// No abort signal: the next fetch rejects at once if the budget ran out.
+		await sleep(OPENAI_MODERATION_RETRY_DELAY_MS);
+	}
+}
+
+async function attemptOpenAIContentFilterRequest(
+	request: OpenAIModerationRequest,
+	context: GatewayContentFilterContext,
+	credential: ContentFilterCredential,
+	signal: AbortSignal,
+): Promise<OpenAIModerationAttempt> {
 	const startTime = Date.now();
 	let upstreamResponse: Response;
 	let upstreamText: string;
@@ -399,19 +413,20 @@ async function runOpenAIContentFilterRequest(
 			throw error;
 		}
 
-		logModerationError(
-			context,
-			{
+		return {
+			success: false,
+			error: classifyContentFilterError({
+				source: "openai",
+				inputType: request.kind,
+				error,
+			}),
+			payload: {
 				durationMs: Date.now() - startTime,
 				inputType: request.kind,
 				timeout: isTimeoutError(error),
 			},
-			error,
-		);
-
-		return {
-			success: false,
-			response: createFailedOpenAIContentFilterResult(),
+			thrown: error,
+			upstreamRequestId: null,
 		};
 	}
 
@@ -425,36 +440,28 @@ async function runOpenAIContentFilterRequest(
 	}
 
 	const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
-	if (!upstreamResponse.ok) {
-		logModerationError(context, {
-			durationMs: Date.now() - startTime,
-			inputType: request.kind,
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			upstreamRequestId,
-			response: responseJson,
-		});
-
-		return {
-			success: false,
-			response: createFailedOpenAIContentFilterResult(upstreamRequestId),
-		};
-	}
-
-	const moderationResponse = parseModerationResponse(responseJson);
+	const moderationResponse = upstreamResponse.ok
+		? parseModerationResponse(responseJson)
+		: null;
 	if (!moderationResponse) {
-		logModerationError(context, {
-			durationMs: Date.now() - startTime,
-			inputType: request.kind,
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			upstreamRequestId,
-			response: responseJson,
-		});
-
 		return {
 			success: false,
-			response: createFailedOpenAIContentFilterResult(upstreamRequestId),
+			error: classifyContentFilterError({
+				source: "openai",
+				inputType: request.kind,
+				status: upstreamResponse.status,
+				response: responseJson,
+				badResponse: upstreamResponse.ok,
+			}),
+			payload: {
+				durationMs: Date.now() - startTime,
+				inputType: request.kind,
+				status: upstreamResponse.status,
+				statusText: upstreamResponse.statusText,
+				upstreamRequestId,
+				response: responseJson,
+			},
+			upstreamRequestId,
 		};
 	}
 
@@ -468,6 +475,7 @@ async function runOpenAIContentFilterRequest(
 			upstreamRequestId,
 			results: moderationResponse.results ?? [],
 			responses: [moderationResponse],
+			errors: [],
 		},
 	};
 }
@@ -533,6 +541,9 @@ export async function checkOpenAIContentFilter(
 			),
 		);
 
+		const errors = moderationResults.flatMap(
+			(result) => result.response.errors,
+		);
 		const successfulResults = moderationResults
 			.filter((result) => result.success)
 			.map((result) => result.response);
@@ -566,6 +577,7 @@ export async function checkOpenAIContentFilter(
 			upstreamRequestId,
 			results,
 			responses,
+			errors,
 		};
 	} catch (error) {
 		if (requestSignal?.aborted || isCancellationError(error)) {
@@ -574,8 +586,13 @@ export async function checkOpenAIContentFilter(
 
 		// Fail open for moderation outages so upstream OpenAI moderation issues do
 		// not fail customer requests at the gateway layer.
+		const moderationError = classifyContentFilterError({
+			source: "openai",
+			error,
+		});
 		logModerationError(
 			context,
+			moderationError,
 			{
 				durationMs: Date.now() - startTime,
 				timeout: isTimeoutError(error),
@@ -583,6 +600,6 @@ export async function checkOpenAIContentFilter(
 			error,
 		);
 
-		return createFailedOpenAIContentFilterResult();
+		return createFailedOpenAIContentFilterResult(null, [moderationError]);
 	}
 }

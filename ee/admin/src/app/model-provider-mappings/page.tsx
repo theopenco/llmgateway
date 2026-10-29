@@ -25,7 +25,7 @@ import {
 } from "@/lib/page-window";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
-import { parseUsageMode } from "@/lib/usage-mode";
+import { CATALOG_USAGE_MODE_DEFAULT, parseUsageMode } from "@/lib/usage-mode";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
@@ -65,7 +65,7 @@ export default async function ModelProviderMappingsPage({
 		params?.window,
 		CATALOG_PAGE_WINDOW_DEFAULT,
 	);
-	const usageMode = parseUsageMode(params?.mode);
+	const usageMode = parseUsageMode(params?.mode, CATALOG_USAGE_MODE_DEFAULT);
 	const { from, to } = windowToFromTo(pageWindow);
 	const filters = parseCatalogFilters(params);
 	const selection = {
@@ -160,7 +160,10 @@ export default async function ModelProviderMappingsPage({
 					</FilterNavigationResults>
 					<Suspense>
 						<div className="flex flex-wrap items-center gap-2">
-							<UsageModeSelector compact />
+							<UsageModeSelector
+								compact
+								defaultMode={CATALOG_USAGE_MODE_DEFAULT}
+							/>
 							<TimeWindowSelector
 								current={pageWindow}
 								options={pageWindowOptionsWithMinutes}

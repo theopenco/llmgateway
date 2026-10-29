@@ -151,18 +151,15 @@ export interface AgentStats {
 	modelBreakdown: ModelUsage[];
 }
 
+/** `date` is the start of an hourly stats bucket, so minutes are not known. */
 export function formatLastActive(date: Date): string {
 	const now = new Date();
 	const diff = now.getTime() - date.getTime();
-	const minutes = Math.floor(diff / (1000 * 60));
 	const hours = Math.floor(diff / (1000 * 60 * 60));
 	const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-	if (minutes < 1) {
-		return "Just now";
-	}
-	if (minutes < 60) {
-		return `${minutes}m ago`;
+	if (hours < 1) {
+		return "Recently";
 	}
 	if (hours < 24) {
 		return `${hours}h ago`;
@@ -193,7 +190,7 @@ export function computeModelBreakdown(logs: ApiLog[]): ModelUsage[] {
 			};
 			map.set(key, entry);
 		}
-		entry.requestCount += 1;
+		entry.requestCount += log.retriedByLogId ? 0 : 1;
 		entry.promptTokens += Number(log.promptTokens ?? 0);
 		entry.completionTokens += Number(log.completionTokens ?? 0);
 		entry.totalTokens += Number(log.totalTokens ?? 0);

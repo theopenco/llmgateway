@@ -18,9 +18,9 @@
 	},
 	"dependencies": {
 		"@ai-sdk/mcp": "2.0.47",
-		"@better-auth/core": "1.6.26",
-		"@better-auth/passkey": "1.6.26",
-		"@better-auth/sso": "1.6.26",
+		"@better-auth/core": "1.7.10",
+		"@better-auth/passkey": "1.7.10",
+		"@better-auth/sso": "1.7.10",
 		"@formepdf/core": "0.25.0",
 		"@formepdf/react": "0.25.0",
 		"@hono/node-server": "^2.0.10",
@@ -39,19 +39,20 @@
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
-		"@modelcontextprotocol/sdk": "1.31.0",
+		"@modelcontextprotocol/sdk": "1.32.1",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.223.0",
 		"ai": "7.0.96",
 		"bcrypt-ts": "8.0.0",
-		"better-auth": "1.6.26",
+		"better-auth": "1.7.10",
 		"decimal.js": "10.5.0",
 		"disposable-email-domains-js": "1.20.0",
 		"dotenv": "17.4.2",
 		"exceljs": "4.4.0",
 		"gateway": "workspace:*",
-		"hono": "^4.13.5",
+		"hono": "^4.13.13",
 		"hono-openapi": "^1.1.1",
+		"hyparquet": "1.31.4",
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",
 		"openai": "^5.19.1",
@@ -62,11 +63,13 @@
 		"stripe": "18.1.1",
 		"tldts": "6.1.86",
 		"unpdf": "1.6.2",
+		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
 		"yaml": "2.8.3",
 		"zod": "3.25.76",
 		"zod-openapi": "^5.4.3"
 	},
 	"devDependencies": {
-		"@types/react": "19.3.0"
+		"@types/react": "19.3.0",
+		"hyparquet-writer": "0.16.12"
 	}
 }
