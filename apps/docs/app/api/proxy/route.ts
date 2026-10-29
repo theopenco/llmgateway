@@ -8,6 +8,14 @@ import {
 
 async function proxy(request: Request) {
 	const gatewayOrigin = new URL(getGatewayPublicBaseUrl()).origin;
+	// Skip Fumadocs' buffering path; the override forwards the original stream.
+	const proxyHeaders = new Headers(request.headers);
+	proxyHeaders.delete("content-length");
+	const proxyRequest = new Request(request.url, {
+		method: request.method,
+		headers: proxyHeaders,
+		signal: request.signal,
+	});
 	return await openapi
 		.createProxy({
 			allowedOrigins: [
@@ -19,11 +27,9 @@ async function proxy(request: Request) {
 			],
 			overrides: {
 				request(proxied) {
-					// Fumadocs drops bodies without Content-Length; retain the original stream.
-					const withBody =
-						!proxied.body && request.body
-							? new Request(proxied, request)
-							: proxied;
+					const withBody = request.body
+						? new Request(proxied, request)
+						: proxied;
 					const headers = new Headers(proxied.headers);
 					headers.delete("transfer-encoding");
 					const forwarded = new Request(withBody, { headers });
@@ -44,7 +50,7 @@ async function proxy(request: Request) {
 				},
 			},
 		})
-		.handle(request);
+		.handle(proxyRequest);
 }
 
 export {
