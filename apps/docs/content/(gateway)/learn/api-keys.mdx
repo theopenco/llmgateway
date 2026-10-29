@@ -90,6 +90,9 @@ Examples:
 If a key hits either limit, requests using that key are rejected until the key
 is updated or, for recurring limits, the next window begins.
 
+Low-spend active keys without a limit get a [suggested cap](#limit-suggestions)
+you can apply in one click.
+
 ### How recurring windows work
 
 Recurring usage is tracked separately from total lifetime usage.
@@ -105,30 +108,101 @@ provider keys when applicable.
 
 ## API Keys List
 
+There are two API Keys pages:
+
+- **Project → API Keys** lists the keys of the current project.
+- **Organization → API Keys** lists the keys of every project in the
+  organization in one table, with a **Project** column and filter. Only owners
+  and admins can open it. Its **Create API Key** dialog asks which project the
+  key belongs to.
+
 Each key in the list shows:
 
-| Field              | Description                                                   |
-| ------------------ | ------------------------------------------------------------- |
-| **Name**           | The label you assigned to the key                             |
-| **API Key**        | A masked preview of the key                                   |
-| **Status**         | Whether the key is active or inactive, plus its expiry if set |
-| **Created**        | When the key was created                                      |
-| **Usage**          | Total tracked usage for the key                               |
-| **Current Period** | Spend in the active recurring window, if configured           |
-| **Limits**         | All-time and recurring limit summary                          |
-| **IAM Rules**      | Whether model/provider/pricing access controls are configured |
+| Field              | Description                                                         |
+| ------------------ | ------------------------------------------------------------------- |
+| **Name**           | The label you assigned to the key, plus an unused-key warning       |
+| **API Key**        | A masked preview of the key                                         |
+| **Status**         | Whether the key is active or inactive, plus its expiry if set       |
+| **Created**        | When the key was created                                            |
+| **Last Used**      | The hour of the key's most recent request, or **Never**             |
+| **Usage**          | Spend for the selected period, plus request count when not all time |
+| **Current Period** | Spend in the active recurring window, if configured                 |
+| **Limits**         | All-time and recurring limit summary, or a suggested cap            |
+| **IAM Rules**      | Whether model/provider/pricing access controls are configured       |
+
+The period selector next to the search box switches the **Usage** column
+between **All time** (the default), **Last 24 hours**, **Last 7 days**, **Last
+30 days**, and **Last 90 days**. The choice is kept in the page URL. Limits and
+their gauges always measure against all-time and current-window spend,
+whatever period is selected. Period usage comes from hourly rollups, so the
+latest requests can take a few minutes to appear.
+
+### Unused key insights
+
+An active key that has not served a request in **30 days** gets an amber badge
+showing how long it has been idle (for example **Unused 45d**, or **Never
+used**); after **90 days** the badge turns red. A key that has never been used
+counts from its creation date. A banner above the list counts these
+keys and offers **Show unused** (filters the list to them) and **Select unused**
+(selects them for a bulk deactivate). Unused keys are a leak risk, so deactivate
+the ones you no longer need.
+
+### Limit suggestions
+
+An active key with no limits and low all-time spend shows a muted **Suggest**
+hint under its limits, for example **Suggest $10/week**. The suggested cap
+grows with the key's spend and is always at least twice its all-time spend, so
+it never blocks traffic the key has already served:
+
+| All-time spend | Suggested cap  |
+| -------------- | -------------- |
+| Under $1       | $10 per week   |
+| $1 to $10      | $25 per week   |
+| $10 to $50     | $100 per week  |
+| $50 to $250    | $500 per month |
+
+Click the hint, then **Set**, to apply the cap as the key's recurring limit; the
+confirmation offers **Undo**, which is skipped if the limit changed in the
+meantime, and you can change or remove the limit anytime.
+Keys that have spent $250 or more, expired keys, playground keys, keys flagged
+as unused, and keys whose creator has a capped member budget get no suggestion.
+
+### Selecting keys and bulk actions
+
+Tick the checkbox on a row to select it. The list shows 50 keys per page, and
+the header checkbox selects only the keys **on the current page**. When the
+view has more keys than one page, a notice under the action bar says how many
+are selected and offers **Select all N keys in this view**, which selects every
+key that matches the current filters across all pages. Changing a filter, the
+search, or the period clears the selection.
+
+With keys selected, the action bar offers **Deactivate**, **Reactivate**, and
+**Delete**. Each shows how many selected keys it applies to and asks for
+confirmation first:
+
+- **Deactivate** skips keys that are already inactive.
+- **Reactivate** skips keys that are already active, and keys whose expiration
+  (TTL) has passed, which you reactivate one at a time with a new expiration.
+  It stops once the organization reaches its active API key limit.
+- **Delete** permanently deletes the keys.
+
+Developers can only change keys they created. The managed Lounge key cannot be
+selected. A summary after each bulk action lists any keys that were skipped and
+why.
 
 Every configured limit renders as a gauge, so a key's headroom is visible without
 opening it. A key is flagged **approaching** once usage reaches 80% of a limit and
 **reached** once usage meets it — the all-time limit stays blocked until it is
 raised or removed, while a recurring limit clears itself on its reset date.
 
-Three filters sit above the list:
+Filters sit above the list:
 
 - **Status** — active (default), inactive, or all
 - **Creator** — keys you created, or everyone's (hidden for developers, who only
   ever see their own)
-- **Limits** — narrow to just the keys approaching or at a limit
+- **Usage** — narrow to just the keys approaching or at a limit, or unused
+- **Project** — on the organization page, narrow to one project
+- **Search** — match a key's name or masked preview
 
 A filter that would leave the list empty resets itself, so you never land on a
 blank table.

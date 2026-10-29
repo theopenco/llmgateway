@@ -288,6 +288,19 @@ export const TOOL_CHOICE_MODES = [
 
 export type ToolChoiceMode = (typeof TOOL_CHOICE_MODES)[number];
 
+/**
+ * How an OpenAI-compatible Chat Completions endpoint takes a web search
+ * request. "web_search_options" is the Chat Completions body field;
+ * "web_search_tool" is a `tools: [{type: "web_search"}]` entry (the Responses
+ * API's hosted tool), which some chat endpoints accept instead.
+ */
+export const WEB_SEARCH_FORMATS = [
+	"web_search_options",
+	"web_search_tool",
+] as const;
+
+export type WebSearchFormat = (typeof WEB_SEARCH_FORMATS)[number];
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
@@ -418,6 +431,13 @@ export interface ProviderModelMapping {
 	 * "default_video", and "4k_video" to per-second pricing.
 	 */
 	perSecondPrice?: Record<string, Price>;
+	/**
+	 * Per-token price in USD for generated video tokens, for video models the
+	 * provider bills by output tokens (e.g. Gemini Omni). When the upstream
+	 * usage reports video output tokens, finalization bills them at this rate
+	 * instead of `perSecondPrice`, which still drives estimates and routing.
+	 */
+	videoOutputPrice?: Price;
 	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
@@ -704,6 +724,13 @@ export interface ProviderModelMapping {
 	 */
 	webSearchForcedOnly?: boolean;
 	/**
+	 * Wire format the upstream's Chat Completions endpoint takes for web search.
+	 * When set, searches are forwarded in this shape, `webSearchForcedOnly` is
+	 * ignored (the model elects its own searches), and a search is billed only
+	 * on evidence in the response.
+	 */
+	webSearchFormat?: WebSearchFormat;
+	/**
 	 * Price per content filter violation in USD (charged additionally when the
 	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
 	 * "Content violates usage guidelines" response).
@@ -904,6 +931,11 @@ export interface ProviderModelMapping {
 	 * Whether this provider mapping supports generating video without audio.
 	 */
 	supportsVideoWithoutAudio?: boolean;
+	/**
+	 * The output is as long as the input audio rather than the requested
+	 * `seconds`, so per-second billing uses the measured output duration.
+	 */
+	videoDurationFollowsAudio?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
@@ -936,6 +968,11 @@ export interface ModelDefinition {
 	 * Whether this model is free to use
 	 */
 	free?: boolean;
+	/**
+	 * Only organizations with enterprise access (KYC'd) may request this
+	 * model; everyone else gets a 403 and auto routing never selects it.
+	 */
+	enterpriseOnly?: boolean;
 	/**
 	 * Rate limit tier for free models (defaults to 'low' if not specified)
 	 * - low: Standard rate limits for free models

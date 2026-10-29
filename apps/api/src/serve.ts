@@ -1,9 +1,17 @@
 import { serve, type ServerType } from "@hono/node-server";
 
-import { closeDatabase, runMigrations, setQueryTags } from "@llmgateway/db";
+import {
+	closeDatabase,
+	getPoolStats,
+	runMigrations,
+	setQueryTags,
+} from "@llmgateway/db";
 import {
 	initializeInstrumentation,
+	registerDbPoolMetrics,
+	setMetricsServiceName,
 	shutdownInstrumentation,
+	startMetricsServer,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 import { assertClientIpHeaderConfigured } from "@llmgateway/shared/client-ip";
@@ -25,6 +33,7 @@ import type { Server } from "node:http";
 const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 60;
 
 let sdk: NodeSDK | null = null;
+let metricsServer: Server | null = null;
 
 async function startServer() {
 	// API_PORT wins over PORT so a local worktree can pin api and gateway to
@@ -39,6 +48,16 @@ async function startServer() {
 
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "api" });
+
+	// Prometheus metrics (DB pool occupancy) on a separate internal port, only
+	// when METRICS_PORT is set so local stacks do not collide with the gateway.
+	setMetricsServiceName("llmgateway-api");
+	registerDbPoolMetrics(getPoolStats);
+	if (process.env.METRICS_PORT) {
+		const metricsPort = Number(process.env.METRICS_PORT);
+		logger.info("Metrics server starting", { port: metricsPort });
+		metricsServer = startMetricsServer(metricsPort);
+	}
 
 	// Initialize tracing for API service
 	try {
@@ -145,6 +164,10 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		logger.info("Closing HTTP server");
 		await closeServer(server);
 		logger.info("HTTP server closed");
+
+		if (metricsServer) {
+			metricsServer.close();
+		}
 
 		logger.info("Stopping daily beacon schedule");
 		stopDailyBeacon();

@@ -238,7 +238,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 			}
 			map.get(key)!.mappings.push(provider);
 		}
-		// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+		// Providers with a marketing badge first
 		return Array.from(map.values()).sort(
 			(a, b) =>
 				Number(Boolean(b.providerInfo?.modelCardBadge)) -

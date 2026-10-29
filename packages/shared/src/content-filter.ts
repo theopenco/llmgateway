@@ -34,6 +34,9 @@ export const CONTENT_FILTER_INTERNAL_SCOPES = ["full", "latest_turn"] as const;
 export type ContentFilterInternalScope =
 	(typeof CONTENT_FILTER_INTERNAL_SCOPES)[number];
 
+/** Model name on the internal classifier's stored moderation responses. */
+export const INTERNAL_CLASSIFIER_MODEL = "internal-classifier";
+
 export const contentFilterSettingsSchema = z.object({
 	// Master switch for sampling requests through the moderation API.
 	enabled: z.boolean().default(true),
@@ -125,7 +128,31 @@ export function isContentFilterErrorText(
 	}
 
 	const haystack = text.toLowerCase();
-	return CONTENT_FILTER_ERROR_SIGNALS.some((signal) =>
-		haystack.includes(signal.toLowerCase()),
-	);
+	if (
+		CONTENT_FILTER_ERROR_SIGNALS.some((signal) =>
+			haystack.includes(signal.toLowerCase()),
+		)
+	) {
+		return true;
+	}
+
+	if (!haystack.includes("guardrail_violation")) {
+		return false;
+	}
+
+	try {
+		const payload: unknown = JSON.parse(text);
+		if (!payload || typeof payload !== "object") {
+			return false;
+		}
+		const error = "error" in payload ? payload.error : payload;
+		return (
+			!!error &&
+			typeof error === "object" &&
+			"type" in error &&
+			error.type === "guardrail_violation"
+		);
+	} catch {
+		return false;
+	}
 }

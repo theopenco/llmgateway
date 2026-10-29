@@ -421,6 +421,25 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		dimensions,
 	} = validationResult.data;
 
+	// Authenticate before model resolution so unauthenticated callers get a
+	// 401 instead of catalogue-dependent errors.
+	const token = extractApiToken(c);
+	const apiKey = await findApiKeyByToken(token);
+
+	if (!apiKey) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
 	const match = findEmbeddingMapping(requestedModel);
 	if (!match) {
 		return c.json(
@@ -486,23 +505,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		process.env.NODE_ENV !== "production";
 	const customHeaders = extractCustomHeaders(c);
 	const normalizedMessages = normalizeEmbeddingInputToMessages(input);
-
-	const token = extractApiToken(c);
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
 
 	const baseProject = await findProjectById(apiKey.projectId);
 	if (!baseProject) {

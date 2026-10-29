@@ -742,8 +742,6 @@ export function transformResponseToOpenai(
 		}
 		case "inference.net":
 		case "together-ai":
-		case "scx-ai":
-		case "scx-ai-gp":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {
@@ -1396,7 +1394,6 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
-		case "embercloud":
 		case "zai": {
 			// Check if this is a CogView image generation response
 			// Format: { created: number, data: [{ url: "..." }] }

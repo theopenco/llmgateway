@@ -403,7 +403,8 @@ export interface CachePricingContext {
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "hd" | "1080p" | "4k" | "768p" | "720p" | "480p";
+	resolution:
+		"default" | "hd" | "1080p" | "4k" | "768p" | "720p" | "480p" | "360p";
 }
 
 function getPerSecondBillingKeys(
@@ -450,6 +451,12 @@ function getPerSecondBillingKeys(
 		return videoPricing.includeAudio
 			? ["480p_audio", "default_audio", "480p", "default"]
 			: ["480p_video", "default_video", "480p", "default"];
+	}
+
+	if (videoPricing.resolution === "360p") {
+		return videoPricing.includeAudio
+			? ["360p_audio", "default_audio", "360p", "default"]
+			: ["360p_video", "default_video", "360p", "default"];
 	}
 
 	return videoPricing.includeAudio

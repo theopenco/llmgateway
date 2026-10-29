@@ -28,10 +28,17 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	WebSearchFormat,
 	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type {
+	DecisionAnswer,
+	DecisionInputImage,
+	DecisionQuestion,
+	DecisionUsage,
+} from "@llmgateway/shared/decision-studio";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type {
 	EmailCategory,
@@ -410,9 +417,9 @@ export const organization = snakeCase.table(
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Rolling 24-hour pacing window on the monthly allowance, the same
-		// shape as the premium weekly pair above. The limit derives from the
-		// tier (DEV_PLAN_DAILY_PERCENT), so only usage and window start are
-		// stored.
+		// shape as the premium weekly pair above. The limit derives from
+		// devPlanCreditsLimit × DEV_PLAN_DAILY_PERCENT, so only usage and
+		// window start are stored.
 		devPlanDailyCreditsUsed: decimal().notNull().default("0"),
 		devPlanDayStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
@@ -2125,6 +2132,7 @@ export interface ProviderKeyOptions {
 	vertex_openai_project_id?: string;
 	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
+	cloudflare_account_id?: string;
 	/**
 	 * Managed (platform-owned) credential settings, keyed by the logical env
 	 * keys a provider declares in its catalogue `env` block (`baseUrl`,
@@ -2187,6 +2195,9 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// When true (custom providers only), caller-supplied Anthropic-style
+		// `cache_control` markers are forwarded upstream instead of stripped.
+		forwardCacheControl: boolean().notNull().default(false),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		// "pending_deletion" is a deleted key inside its teardown grace period:
@@ -2794,6 +2805,12 @@ export const log = snakeCase.table(
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
+		// Content-filtered requests by time, for the admin classifier export.
+		// Retention nulls the response after 30 days, which bounds the index.
+		// Build CONCURRENTLY out of band in prod before deploying.
+		index("log_content_filter_created_at_idx")
+			.on(table.createdAt)
+			.where(sql`gateway_content_filter_response IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -3818,6 +3835,9 @@ export const modelProviderMapping = snakeCase.table(
 			],
 		}).$type<ProviderApiFormat>(),
 		region: text(),
+		// Airside decision listings, served on `/v1/decisions`. Static rows
+		// keep their catalogue definition.
+		decisions: boolean().notNull().default(false),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
 			.default("catalogue"),
@@ -3855,6 +3875,9 @@ export const modelProviderMapping = snakeCase.table(
 		webSearch: boolean().default(false).notNull(),
 		webSearchPrice: decimal(),
 		webSearchForcedOnly: boolean(),
+		// Chat Completions web search wire format (see `WebSearchFormat`).
+		// Populated for Airside-materialized mappings only.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})
@@ -4799,6 +4822,7 @@ export const auditLogActions = [
 	"referral_bonus.update",
 	// Organization-scoped pricing and limits set by an administrator.
 	"discount.create",
+	"discount.update",
 	"discount.delete",
 	"rate_limit.create",
 	"rate_limit.update",
@@ -5788,6 +5812,62 @@ export const providerClaim = snakeCase.table(
 	],
 );
 
+// The claims an Airworthy certificate attests, frozen at issue time. A live
+// claim whose public profile drifts from this snapshot stops showing the stamp
+// until it is re-certified.
+export interface AirworthyAttestedProfile {
+	legalEntity: string | null;
+	headquarters: string | null;
+	apiTraining: boolean | null;
+	promptLogging: boolean | null;
+	retentionPeriod: string | null;
+	gdpr: boolean | null;
+	soc2: 0 | 1 | 2 | null;
+	iso27001: boolean | null;
+}
+
+// Airworthy: LLM Gateway's certificate that an Airside carrier's declared
+// data handling, jurisdiction and audits were reviewed against evidence.
+// Issued and revoked by admins only; one active certificate per provider.
+export const providerCertification = snakeCase.table(
+	"provider_certification",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerClaimId: text()
+			.notNull()
+			.references(() => providerClaim.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// Public, printed on the stamp and the certificate.
+		certificateNumber: text().notNull(),
+		status: text({ enum: ["active", "revoked"] })
+			.notNull()
+			.default("active"),
+		attested: jsonb().$type<AirworthyAttestedProfile>().notNull(),
+		// Internal review notes: the evidence that was checked.
+		reviewNote: text(),
+		issuedAt: timestamp().notNull().defaultNow(),
+		expiresAt: timestamp().notNull(),
+		issuedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokedAt: timestamp(),
+		revokedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokeReason: text(),
+	},
+	(table) => [
+		uniqueIndex("provider_certification_number_uidx").on(
+			table.certificateNumber,
+		),
+		uniqueIndex("provider_certification_active_provider_uidx")
+			.on(table.providerId)
+			.where(sql`status = 'active'`),
+		index("provider_certification_claim_idx").on(table.providerClaimId),
+	],
+);
+
 // A model listed by a provider company for one of its claimed providers.
 // Non-pricing fields are provider-editable in place; pricing lives in
 // `provider_price_filing` rows and only ever changes through an approved
@@ -5811,6 +5891,7 @@ export interface AirsideModelMetadataChanges {
 	reasoningMaxTokens?: boolean;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean;
+	webSearchFormat?: WebSearchFormat | null;
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
@@ -5852,6 +5933,9 @@ export const providerDraftModel = snakeCase.table(
 			.$type<ProviderApiFormat>()
 			.notNull()
 			.default("provider-native"),
+		// Serves typed decisions on the carrier's OpenAI-compatible
+		// `/v1/decisions` instead of chat; set once at registration.
+		decisions: boolean().notNull().default(false),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -5875,6 +5959,9 @@ export const providerDraftModel = snakeCase.table(
 		// (subset of ReasoningEffort); null = parameter unsupported.
 		reasoningEfforts: jsonb().$type<string[]>(),
 		webSearch: boolean().notNull().default(false),
+		// Which OpenAI-compatible shape the endpoint takes web search in; null
+		// leaves the provider's built-in translation, if any.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		// Carrier-managed request caps. Admin `rate_limit` rows for the same
 		// provider/model always take precedence over these.
 		maxRpm: integer(),
@@ -5963,6 +6050,8 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** A decision listing, probed on `/v1/decisions` instead of chat. */
+	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */
 	region?: string | null;
 	streaming: boolean;
@@ -5977,6 +6066,8 @@ export interface ProviderModelVerificationTarget {
 	reasoningMaxTokens: boolean;
 	reasoningEfforts: string[] | null;
 	webSearch: boolean;
+	/** Web search wire format; unset on runs queued before it existed. */
+	webSearchFormat?: WebSearchFormat | null;
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;
@@ -6227,6 +6318,29 @@ export const providerRoutingFiling = snakeCase.table(
 );
 
 // Project hourly statistics aggregation - used for fast dashboard queries
+/**
+ * BYOK (`used_mode = 'api-keys'`) subset of the error and latency columns on
+ * the tenant hourly rollups. `log.used_mode` is only ever credits or api-keys,
+ * so the credits figure is the total minus this subset.
+ */
+function apiKeysModeColumns() {
+	return {
+		apiKeysClientErrorCount: integer().notNull().default(0),
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		apiKeysTotalDuration: bigint({ mode: "number" }).notNull().default(0),
+		apiKeysDurationCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstTokenCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+	};
+}
+
 export const projectHourlyStats = snakeCase.table(
 	"project_hourly_stats",
 	{
@@ -6303,6 +6417,7 @@ export const projectHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour (also creates implicit index)
@@ -6393,10 +6508,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
-		// BYOK subset of the gateway/upstream error counts, so incident views can
-		// show platform-only error rates.
-		apiKeysGatewayErrorCount: integer().notNull().default(0),
-		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -6662,6 +6774,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour
@@ -6823,6 +6936,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour-model-provider
@@ -7399,6 +7513,43 @@ export const playgroundAudioHistory = snakeCase.table(
 	(table) => [index("playground_audio_history_user_id_idx").on(table.userId)],
 );
 
+export const playgroundDecisionHistory = snakeCase.table(
+	"playground_decision_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the run was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		// The evaluated text. Renames change `title`, never the input.
+		prompt: text().notNull(),
+		title: text(),
+		inputImages: jsonb().$type<DecisionInputImage[]>(),
+		questions: jsonb().notNull().$type<DecisionQuestion[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				answers: DecisionAnswer[] | null;
+				usage?: DecisionUsage | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [
+		index("playground_decision_history_user_id_idx").on(table.userId),
+	],
+);
+
 export const playgroundVideoHistory = snakeCase.table(
 	"playground_video_history",
 	{
@@ -7458,6 +7609,7 @@ export const loungePointEvent = snakeCase.table(
 				| "image_generation"
 				| "video_generation"
 				| "audio_generation"
+				| "decision_run"
 				| "sandbox_escape"
 			>(),
 		points: integer().notNull(),

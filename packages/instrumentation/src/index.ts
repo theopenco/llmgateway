@@ -88,14 +88,39 @@ export function initializeInstrumentation(
 	return sdk;
 }
 
-export async function shutdownInstrumentation(sdk: NodeSDK): Promise<void> {
+// sdk.shutdown() can hang on the final span export, which kept terminating
+// pods alive until Kubernetes killed them at the end of their grace period.
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+export async function shutdownInstrumentation(
+	sdk: NodeSDK,
+	timeoutMs = SHUTDOWN_TIMEOUT_MS,
+): Promise<void> {
+	logger.info("Shutting down OpenTelemetry SDK");
+	let timer: NodeJS.Timeout | undefined;
+	const timedOut = new Promise<"timeout">((resolve) => {
+		timer = setTimeout(() => resolve("timeout"), timeoutMs);
+	});
 	try {
-		logger.info("Shutting down OpenTelemetry SDK");
-		await sdk.shutdown();
+		const result = await Promise.race([
+			sdk.shutdown().then(() => "done" as const),
+			timedOut,
+		]);
+		if (result === "timeout") {
+			logger.warn(
+				"OpenTelemetry SDK shutdown timed out, unexported spans dropped",
+				{
+					timeoutMs,
+				},
+			);
+			return;
+		}
 		logger.info("OpenTelemetry SDK shut down successfully");
 	} catch (error) {
 		logger.error("Error shutting down OpenTelemetry SDK", error as Error);
 		throw error;
+	} finally {
+		clearTimeout(timer);
 	}
 }
 
@@ -135,5 +160,9 @@ export {
 	recordRequestCompleted,
 	getMetrics,
 	getMetricsContentType,
+	setMetricsServiceName,
+	registerDbPoolMetrics,
+	startMetricsServer,
 	type ChatCompletionMetrics,
+	type DbPoolStats,
 } from "./metrics.js";

@@ -91,6 +91,11 @@
 			"import": "./dist/email-unsubscribe.js",
 			"default": "./dist/email-unsubscribe.js"
 		},
+		"./security-txt": {
+			"types": "./dist/security-txt.d.ts",
+			"import": "./dist/security-txt.js",
+			"default": "./dist/security-txt.js"
+		},
 		"./mask-token": {
 			"types": "./dist/mask-token.d.ts",
 			"import": "./dist/mask-token.js",
@@ -205,6 +210,11 @@
 			"import": "./dist/audio-generation-config.js",
 			"default": "./dist/audio-generation-config.js"
 		},
+		"./decision-studio": {
+			"types": "./dist/decision-studio.d.ts",
+			"import": "./dist/decision-studio.js",
+			"default": "./dist/decision-studio.js"
+		},
 		"./realtime-pcm": {
 			"types": "./dist/realtime-pcm.d.ts",
 			"import": "./dist/realtime-pcm.js",
@@ -224,6 +234,11 @@
 			"types": "./dist/chart-tooltip.d.ts",
 			"import": "./dist/chart-tooltip.js",
 			"default": "./dist/chart-tooltip.js"
+		},
+		"./cost-breakdown": {
+			"types": "./dist/cost-breakdown.d.ts",
+			"import": "./dist/cost-breakdown.js",
+			"default": "./dist/cost-breakdown.js"
 		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
@@ -299,7 +314,7 @@
 		"ipaddr.js": "2.2.0",
 		"lucide-react": "0.561.0",
 		"motion": "12.23.24",
-		"next": "16.4.0",
+		"next": "16.4.3",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
@@ -312,7 +327,7 @@
 		"sonner": "^2.0.7",
 		"tailwind-merge": "3.4.0",
 		"three": "0.185.1",
-		"undici": "8.11.2",
+		"undici": "8.12.3",
 		"zod": "3.25.76"
 	},
 	"devDependencies": {

@@ -1,5 +1,4 @@
-export function downloadCsv(filename: string, csv: string): void {
-	const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+export function downloadBlob(filename: string, blob: Blob): void {
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement("a");
 	a.href = url;
@@ -8,4 +7,8 @@ export function downloadCsv(filename: string, csv: string): void {
 	a.click();
 	document.body.removeChild(a);
 	URL.revokeObjectURL(url);
+}
+
+export function downloadCsv(filename: string, csv: string): void {
+	downloadBlob(filename, new Blob([csv], { type: "text/csv;charset=utf-8" }));
 }

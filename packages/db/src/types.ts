@@ -44,7 +44,19 @@ export const webSearchTool = z.object({
 	max_uses: z.number().optional(),
 });
 
-export const tool = z.union([functionTool, webSearchTool, toolSearchTool]);
+export const webFetchTool = z.object({
+	type: z.literal("web_fetch"),
+	web_fetch_type: z.string(),
+	name: z.string().optional(),
+	max_uses: z.number().optional(),
+});
+
+export const tool = z.union([
+	functionTool,
+	webSearchTool,
+	toolSearchTool,
+	webFetchTool,
+]);
 
 export const toolChoice = z.union([
 	z.literal("none"),

@@ -13,9 +13,9 @@ export const AIRSIDE_BILLING_MODE_DESCRIPTIONS: Record<
 	AirsideBillingMode,
 	string
 > = {
-	payg: "LLM Gateway prepays usage on its own account with the carrier.",
+	payg: "LLM Gateway holds an account on the carrier's platform with a card on auto top-up, so usage is charged as it happens.",
 	postpaid:
-		"The carrier invoices LLM Gateway after each month's usage, paid by wire.",
+		"LLM Gateway holds an account on the carrier's platform set to post-paid. The carrier invoices on the 1st for the previous month and LLM Gateway pays once a month.",
 	payout:
-		"The carrier supplies the API key and covers upstream costs; LLM Gateway pays the carrier after each month.",
+		"The carrier supplies the API key and invoices LLM Gateway on the 1st for the previous month. LLM Gateway pays out by USD wire, weekly or monthly.",
 };

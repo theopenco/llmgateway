@@ -21,15 +21,12 @@ so the OpenAI SDKs work by pointing their base URL at LLMGateway. The same
 request shape works for every decision model, whichever provider serves it.
 
 For the full request and response schema, see the
-[API reference](/v1_decisions).
+[API reference](/v1_decisions). To try a decision model without writing code,
+open the [Decision Studio](/learn/playground-decisions) in Lounge: build the
+questions in the browser, compare models on the same input, and copy the run
+as a `/v1/decisions` request.
 
 ## Models
-
-| Model                  | Provider | Input        | Price (input only)                  |
-| ---------------------- | -------- | ------------ | ----------------------------------- |
-| `gpt-6-luna-decisions` | OpenAI   | Text, images | $0.10 / 1M tokens ($0.20 over 272K) |
-| `microsoft-decision-1` | Azure    | Text         | $0.042 / 1M tokens                  |
-| `jev-1.13.0`           | TypeSafe | Text         | $0.042 / 1M tokens                  |
 
 `microsoft-decision-1` is served by Azure and works with LLMGateway credits.
 To use your own Azure key instead, deploy Microsoft-Decision-1 in Microsoft
@@ -39,6 +36,10 @@ resource in LLMGateway. The gateway calls the resource's Foundry host
 
 Browse all decision models on the
 [models page](https://llmgateway.io/models?filters=1).
+
+Providers list their own decision models through
+[Airside](/features/airside#decision-models); those models are served on
+`/v1/decisions` like any other and billed at their approved fares.
 
 ## Endpoint
 
@@ -179,8 +180,12 @@ on models that accept them:
 }
 ```
 
-Text-only models such as `jev-1.13.0` and `microsoft-decision-1` reject image
-parts with a 400.
+Text-only models such as `microsoft-decision-1` reject image parts with a 400.
+TypeSafe's Jev models take PNG and JPEG images only. The gateway accepts up to
+16 images and 22.5 MB of image data per request, 16 MB per image, so the
+request fits TypeSafe's body limit; TypeSafe rejects images under 280 or over
+1568 pixels per side. Requests with images run in TypeSafe's long-context mode
+(262k tokens). TypeSafe treats image input as experimental.
 
 <Callout type="info">
 	Decision models are billed on input tokens only — the input plus every

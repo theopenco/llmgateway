@@ -71,6 +71,8 @@ import {
 	withWalletCredits,
 } from "@/lib/end-user-session.js";
 import {
+	canUseModel,
+	enterpriseOnlyModelMessage,
 	getLicensedOrganizationEnvVariant,
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
@@ -128,7 +130,11 @@ import {
 import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
-import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import {
+	directProviderRoutingMetadata,
+	getNoFallbackRoutingMetadata,
+	withRoutingAttempts,
+} from "@/lib/routing-metadata.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -186,7 +192,10 @@ import {
 	type RoutingMetadata,
 	type GoogleThoughtSignatureState,
 	isGoogleReasoningDetail,
+	isToolSearchBlock,
 	preserveGoogleResponseText,
+	promptTokensShowSearchContext,
+	reportedWebSearchCount,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -347,7 +356,11 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
-import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
+import {
+	type AutoReasoningEffortPick,
+	pickAutoReasoningEffort,
+	pickFallbackReasoningEffort,
+} from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -1923,6 +1936,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		verbosity,
 		web_search,
+		web_search_options,
 		plugins,
 		n,
 		user,
@@ -2051,6 +2065,29 @@ chat.openapi(completions, async (c) => {
 		tools.push({
 			type: "web_search" as const,
 		});
+	}
+
+	// OpenAI's `web_search_options` is the same request as a web_search tool;
+	// fold it into one so everything downstream reads a single shape. Fields
+	// the caller set on the tool itself take precedence.
+	if (web_search_options) {
+		const location = web_search_options.user_location?.approximate;
+		const fromOptions = {
+			...(web_search_options.search_context_size && {
+				search_context_size: web_search_options.search_context_size,
+			}),
+			...(location && { user_location: location }),
+		};
+		tools = tools ?? [];
+		const index = tools.findIndex((tool) => tool.type === "web_search");
+		if (index === -1) {
+			tools.push({ type: "web_search" as const, ...fromOptions });
+		} else {
+			tools[index] = {
+				...fromOptions,
+				...tools[index],
+			} as (typeof tools)[number];
+		}
 	}
 
 	// Detect whether the caller marked any content with `cache_control` for an
@@ -3441,6 +3478,23 @@ chat.openapi(completions, async (c) => {
 	const isStarterChatPlan = Boolean(
 		organization?.kind === "chat" && organization.chatPlan === "starter",
 	);
+	if (
+		!canUseModel(
+			modelInfo as ModelDefinition,
+			organization.id,
+			organization.plan,
+		)
+	) {
+		const message = enterpriseOnlyModelMessage(modelInfo.id);
+		await logGatewayRejection({
+			message,
+			statusCode: 403,
+			statusText: "Forbidden",
+			cause: "enterprise_only_model",
+		});
+		throw new HTTPException(403, { message });
+	}
+
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
 			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at lounge.llmgateway.io/pricing to access frontier models.`,
@@ -4449,6 +4503,16 @@ chat.openapi(completions, async (c) => {
 			// is intentionally relaxed.
 			const candidateOutput = (modelDef as ModelDefinition).output;
 			if (candidateOutput && !candidateOutput.includes("text")) {
+				continue;
+			}
+
+			if (
+				!canUseModel(
+					modelDef as ModelDefinition,
+					organization.id,
+					organization.plan,
+				)
+			) {
 				continue;
 			}
 
@@ -6614,21 +6678,24 @@ chat.openapi(completions, async (c) => {
 	// Check if this is an image generation model. Identify the routed mapping
 	// by (providerId, region) — externalId is upstream-only and no longer
 	// participates in mapping selection.
+	const findFinalProviderMapping = (
+		providerId: string | undefined,
+		region: string | undefined,
+	) =>
+		finalModelInfo
+			? selectProviderMapping(finalModelInfo.providers, providerId, region)
+			: undefined;
 	const getUsedProviderMapping = () =>
-		finalModelInfo?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				(p.region ?? null) === (usedRegion ?? null),
-		) ??
-		finalModelInfo?.providers.find(
-			(p) => p.providerId === usedProvider && p.region === undefined,
-		);
+		findFinalProviderMapping(usedProvider, usedRegion);
 	if (usedProvider !== "custom") {
 		const airsideMapping = await resolveAirsidePricingMapping();
 		if (airsideResolution || airsideMapping) {
 			applyAirsidePricingMapping(airsideMapping);
 		}
 	}
+	// Set when the mapping declares how its endpoint takes web search. Such a
+	// search is billed only on evidence in the response, never inferred.
+	const usedWebSearchFormat = () => getUsedProviderMapping()?.webSearchFormat;
 	const imageGenProviderMapping = getUsedProviderMapping();
 	let airsideCustomBaseUrl = await resolveAirsideProviderBaseUrl(usedProvider);
 	let transportProvider = getProviderApiTransport(
@@ -6651,6 +6718,7 @@ chat.openapi(completions, async (c) => {
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
+	let autoReasoningEffortPick: AutoReasoningEffortPick | undefined;
 	if (
 		(requestedModel === "auto" || requestedModel === "smart") &&
 		reasoning_effort === undefined &&
@@ -6691,6 +6759,10 @@ chat.openapi(completions, async (c) => {
 			) {
 				effortTier = "low";
 			}
+			autoReasoningEffortPick = {
+				modelId: usedInternalModel,
+				effortTier,
+			};
 			const autoEffort = pickAutoReasoningEffort(
 				usedInternalModel,
 				getUsedProviderMapping()?.reasoningEfforts,
@@ -6760,6 +6832,39 @@ chat.openapi(completions, async (c) => {
 			providerKeyId: providerKey.id,
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
+	}
+	// Records a failed upstream attempt before its log row is written, so the
+	// row carries the full routing trail. A terminal attempt takes finalLogId,
+	// which is what earlier attempts' retriedByLogId points at.
+	function recordFailedAttempt(
+		attempts: RoutingAttempt[],
+		provider: string,
+		statusCode: number,
+		errorType: string,
+		willRetry: boolean,
+	): string {
+		const logId = willRetry ? shortid() : finalLogId;
+		attempts.push(
+			buildRoutingAttempt(
+				provider,
+				usedInternalModel,
+				statusCode,
+				errorType,
+				false,
+				{
+					region: usedRegion,
+					apiKeyHash: usedApiKeyHash,
+					credentialSource: currentCredentialSource(),
+					...currentProviderKeyIdentity(),
+					logId,
+				},
+			),
+		);
+		routingMetadata = withRoutingAttempts(
+			routingMetadata ?? directProviderRoutingMetadata(provider),
+			attempts,
+		);
+		return logId;
 	}
 	// The credential the current attempt sends, as recorded against the
 	// account-bound reasoning it produces.
@@ -6880,7 +6985,7 @@ chat.openapi(completions, async (c) => {
 		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
-		assertDevPlanPremiumCapNotExceeded(
+		await assertDevPlanPremiumCapNotExceeded(
 			organization,
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
@@ -7064,7 +7169,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 			// Check regular credits, dev plan credits, and chat plan credits.
-			assertDevPlanPremiumCapNotExceeded(
+			await assertDevPlanPremiumCapNotExceeded(
 				organization,
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
@@ -7762,6 +7867,9 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			// /v1/messages replies carry Anthropic-only fields chat completions
+			// replies leave out. Undefined keeps existing keys unchanged.
+			messages_endpoint: apiOrigin === "messages" || undefined,
 			verbosity,
 			effort,
 			image_config,
@@ -8625,6 +8733,8 @@ chat.openapi(completions, async (c) => {
 			reasoning_mode,
 			providerCacheAutoTtl,
 			parallel_tool_calls,
+			usedWebSearchFormat(),
+			providerKey?.forwardCacheControl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8815,7 +8925,14 @@ chat.openapi(completions, async (c) => {
 				response_format,
 				tools,
 				tool_choice,
-				reasoning_effort,
+				reasoning_effort: pickFallbackReasoningEffort(
+					reasoning_effort,
+					autoReasoningEffortPick,
+					findFinalProviderMapping(
+						providerMapping.providerId,
+						providerMapping.region,
+					)?.reasoningEfforts,
+				),
 				reasoning_max_tokens,
 				prompt_cache_key,
 				prompt_cache_retention,
@@ -8932,6 +9049,15 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
+		// An auto-routed effort is re-picked per fallback mapping, so the logged
+		// effort has to follow what the new body carries. The header only lands
+		// on non-streaming responses: a stream has already sent its headers, and
+		// setting one then rebuilds a response whose body is already being read.
+		// An undefined effort clears the header the first attempt set.
+		reasoning_effort = ctx.reasoning_effort;
+		if (smartRoutingDecision && !stream) {
+			c.header("x-llmgateway-smart-effort", reasoning_effort);
+		}
 		temperature = ctx.temperature;
 		max_tokens = ctx.max_tokens;
 		top_p = ctx.top_p;
@@ -9362,7 +9488,9 @@ chat.openapi(completions, async (c) => {
 							0, // No output images
 							undefined,
 							inputImageCount,
-							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							// Bill for web search if it was enabled, except where only
+							// response evidence may count one
+							webSearchTool && !usedWebSearchFormat() ? 1 : null,
 							project.organizationId,
 							undefined, // imageQuality
 							null, // reportedImageInputTokens
@@ -9409,6 +9537,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null, // Not applicable for canceled request
@@ -9759,6 +9888,14 @@ chat.openapi(completions, async (c) => {
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
+							);
+
 							const baseLogEntry = createLogEntry(
 								requestId,
 								project,
@@ -9794,7 +9931,6 @@ chat.openapi(completions, async (c) => {
 								timeoutPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -9837,22 +9973,6 @@ chat.openapi(completions, async (c) => {
 							});
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -9865,43 +9985,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryTimeout) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -9999,6 +10087,14 @@ chat.openapi(completions, async (c) => {
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
+							);
+
 							const baseLogEntry = createLogEntry(
 								requestId,
 								project,
@@ -10034,7 +10130,6 @@ chat.openapi(completions, async (c) => {
 								fetchErrorPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -10096,22 +10191,6 @@ chat.openapi(completions, async (c) => {
 							}
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -10124,43 +10203,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryFetch) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -10327,6 +10374,17 @@ chat.openapi(completions, async (c) => {
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							res.status,
+							finishReason === "content_filter" ||
+								finishReason === "client_error"
+								? finishReason
+								: getErrorType(res.status),
+							willRetryRequest,
+						);
+
 						const baseLogEntry = createLogEntry(
 							requestId,
 							project,
@@ -10362,7 +10420,6 @@ chat.openapi(completions, async (c) => {
 							streamingErrorPluginIds,
 							undefined, // No plugin results for error case
 						);
-						const attemptLogId = shortid();
 
 						const contentFilterPromptTokens =
 							finishReason === "content_filter"
@@ -10471,22 +10528,6 @@ chat.openapi(completions, async (c) => {
 						}
 
 						if (willRetrySameProvider && sameProviderRetryContext) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
@@ -10499,43 +10540,11 @@ chat.openapi(completions, async (c) => {
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
 							await sameKeyRetryDelay(sameKeyRetryCount);
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							retryAttempt--;
 							continue;
 						}
 
 						if (willRetryHttpError) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 							continue;
 						}
@@ -10720,32 +10729,13 @@ chat.openapi(completions, async (c) => {
 							willRetryStreamingError ||
 							willRetrySameKey;
 
-						const attemptLogId = shortid();
-						routingAttempts.push(
-							buildRoutingAttempt(
-								usedProvider,
-								usedInternalModel,
-								inferredStatusCode,
-								getErrorType(inferredStatusCode),
-								false,
-								{
-									region: usedRegion,
-									apiKeyHash: usedApiKeyHash,
-									credentialSource: currentCredentialSource(),
-									...currentProviderKeyIdentity(),
-									logId: attemptLogId,
-								},
-							),
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							inferredStatusCode,
+							getErrorType(inferredStatusCode),
+							willRetryRequest,
 						);
-						routingMetadata = {
-							...(routingMetadata ?? {
-								availableProviders: [usedProvider],
-								selectedProvider: usedProvider,
-								selectionReason: "direct-provider-specified",
-								providerScores: [],
-							}),
-							routing: [...routingAttempts],
-						};
 
 						const baseLogEntry = createLogEntry(
 							requestId,
@@ -10922,28 +10912,10 @@ chat.openapi(completions, async (c) => {
 
 				// Update routingMetadata with all routing attempts for DB logging
 				if (routingMetadata) {
-					// Enrich providerScores with failure info from routing attempts
-					const failedMap = new Map(
-						routingAttempts
-							.filter((a) => !a.succeeded)
-							.map((f) => [f.provider, f]),
+					routingMetadata = withRoutingAttempts(
+						routingMetadata,
+						routingAttempts,
 					);
-					routingMetadata = {
-						...routingMetadata,
-						routing: routingAttempts,
-						providerScores: routingMetadata.providerScores.map((score) => {
-							const failure = failedMap.get(score.providerId);
-							if (failure) {
-								return {
-									...score,
-									failed: true,
-									status_code: failure.status_code,
-									error_type: failure.error_type,
-								};
-							}
-							return score;
-						}),
-					};
 				}
 
 				// If all retries exhausted without a successful response
@@ -11025,9 +10997,9 @@ chat.openapi(completions, async (c) => {
 				// caller forced it and then always do.
 				let webSearchCount =
 					webSearchTool &&
+					!usedWebSearchFormat() &&
 					(usedProvider === "zai" ||
-						((usedProvider === "alibaba" || usedProvider === "scx-ai-gp") &&
-							webSearchTool.forced))
+						(usedProvider === "alibaba" && webSearchTool.forced))
 						? 1
 						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
@@ -11068,6 +11040,10 @@ chat.openapi(completions, async (c) => {
 					pending: "",
 				};
 				let shouldTerminateStream = false;
+				// Set when the AWS EventStream parser rejects a frame outright. The
+				// abort is emitted after the current chunk's valid events so the
+				// client never receives data after [DONE].
+				let malformedEventStreamFrame = false;
 
 				// Response healing for streaming mode
 				const streamingResponseHealingEnabled = plugins?.some(
@@ -11130,13 +11106,28 @@ chat.openapi(completions, async (c) => {
 							binaryBuffer = newBuffer;
 
 							// Parse and convert available events
-							const { sse, bytesConsumed } =
+							const { sse, bytesConsumed, invalid } =
 								convertAwsEventStreamToSSE(binaryBuffer);
 							chunk = sse;
 
 							// Remove consumed bytes from binary buffer
 							if (bytesConsumed > 0) {
 								binaryBuffer = binaryBuffer.slice(bytesConsumed);
+							}
+
+							// A frame that breaks the EventStream framing can never be
+							// consumed, however many bytes follow, so binaryBuffer would
+							// grow (and be re-copied) for the rest of the response while
+							// the client receives nothing. Flush what parsed, then abort.
+							if (invalid) {
+								logger.error("Malformed AWS EventStream frame", {
+									provider: usedProvider,
+									model: usedInternalModel,
+									binaryBufferSize: binaryBuffer.length,
+								});
+								malformedEventStreamFrame = true;
+								shouldTerminateStream = true;
+								binaryBuffer = new Uint8Array(0);
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE
@@ -11156,8 +11147,13 @@ chat.openapi(completions, async (c) => {
 							rawUpstreamData += chunk;
 						}
 
-						// Check buffer size to prevent memory exhaustion
-						if (buffer.length > MAX_BUFFER_SIZE) {
+						// Check buffer size to prevent memory exhaustion. binaryBuffer is
+						// covered too: an incomplete AWS EventStream frame yields an empty
+						// chunk, so the decoded string buffer alone would never trip this.
+						if (
+							buffer.length > MAX_BUFFER_SIZE ||
+							binaryBuffer.length > MAX_BUFFER_SIZE
+						) {
 							const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
 							logger.error(
 								`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
@@ -11218,7 +11214,8 @@ chat.openapi(completions, async (c) => {
 						// the event can actually complete.
 						if (
 							buffer.length > SSE_SCAN_SKIP_MIN_BUFFER &&
-							!chunkMayCompleteSseEvent(chunk)
+							!chunkMayCompleteSseEvent(chunk) &&
+							!shouldTerminateStream
 						) {
 							continue;
 						}
@@ -11930,6 +11927,26 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								// Text block boundaries, citations and web search/fetch
+								// blocks only matter to the /v1/messages layer that rebuilds
+								// Anthropic blocks; chat completions clients get annotations.
+								const streamDelta = transformedData.choices?.[0]?.delta;
+								if (apiOrigin !== "messages" && streamDelta) {
+									delete streamDelta.anthropic_text_block_start;
+									delete streamDelta.anthropic_citation;
+									if (Array.isArray(streamDelta.anthropic_native_blocks)) {
+										const toolSearchBlocks =
+											streamDelta.anthropic_native_blocks.filter(
+												isToolSearchBlock,
+											);
+										if (toolSearchBlocks.length > 0) {
+											streamDelta.anthropic_native_blocks = toolSearchBlocks;
+										} else {
+											delete streamDelta.anthropic_native_blocks;
+										}
+									}
+								}
+
 								if (usedProviderEncryptsReasoning()) {
 									await rememberReasoningCredential(
 										project.organizationId,
@@ -11938,8 +11955,8 @@ chat.openapi(completions, async (c) => {
 									);
 								}
 
-								// A chunk whose finish_reason signals an upstream failure (e.g.
-								// Embercloud's "error") is not a valid OpenAI completion chunk —
+								// A chunk whose finish_reason signals an upstream failure
+								// ("error") is not a valid OpenAI completion chunk —
 								// "error" is not a valid OpenAI finish_reason. Capture the
 								// terminal finish reason and raw payload for the error event and
 								// logging, but skip this chunk entirely otherwise: it is not
@@ -12287,7 +12304,12 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (isAnthropicMessagesProvider(transportProvider)) {
+								if (webSearchTool && usedWebSearchFormat()) {
+									webSearchCount = Math.max(
+										webSearchCount,
+										reportedWebSearchCount(data),
+									);
+								} else if (isAnthropicMessagesProvider(transportProvider)) {
 									// For Anthropic, count successful web_search_tool_result
 									// blocks; errored searches carry an object and are not billed
 									if (
@@ -12546,6 +12568,54 @@ chat.openapi(completions, async (c) => {
 						// Remove processed data from buffer
 						if (processedLength > 0) {
 							buffer = bufferCopy.slice(processedLength);
+						}
+
+						if (malformedEventStreamFrame && !doneSent) {
+							malformedEventStreamFrame = false;
+							const malformedMessage =
+								"Upstream sent a malformed AWS EventStream frame";
+							streamingError = {
+								message: malformedMessage,
+								type: "upstream_error",
+								code: "malformed_event_stream",
+								details: {
+									statusCode: 502,
+									statusText: "Malformed Event Stream",
+									responseText: malformedMessage,
+									provider: usedProvider,
+									model: usedInternalModel,
+								},
+							};
+							finishReason = "upstream_error";
+
+							try {
+								await writeSSEAndCache({
+									event: "error",
+									data: JSON.stringify({
+										error: {
+											message: malformedMessage,
+											type: "upstream_error",
+											code: "malformed_event_stream",
+											param: null,
+											responseText: malformedMessage,
+										},
+									}),
+									id: String(eventId++),
+								});
+								if (!doneSent) {
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+								}
+							} catch (sseError) {
+								logger.error(
+									"Failed to send malformed event stream error SSE",
+									toError(sseError),
+								);
+							}
 						}
 
 						if (shouldTerminateStream) {
@@ -12890,8 +12960,8 @@ chat.openapi(completions, async (c) => {
 					}
 
 					// A finish_reason that itself signals an upstream failure (e.g.
-					// Embercloud emits finish_reason "error" with a null content delta and
-					// no error event/HTTP error) is a hard error in its own right. Treat it
+					// finish_reason "error" with a null content delta and no error
+					// event/HTTP error) is a hard error in its own right. Treat it
 					// as an upstream error regardless of whether any partial content
 					// arrived, instead of inferring failure from an empty response.
 					const hasUpstreamErrorFinishReason =
@@ -12923,6 +12993,17 @@ chat.openapi(completions, async (c) => {
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 						(!fullContent || fullContent.trim() === "") &&
 						(!streamingToolCalls || streamingToolCalls.length === 0);
+
+					// A declared-format search that left no citation or usage counter
+					// in the stream still shows as a prompt larger than the request.
+					if (
+						webSearchTool &&
+						usedWebSearchFormat() &&
+						webSearchCount === 0 &&
+						promptTokensShowSearchContext(promptTokens, requestBody)
+					) {
+						webSearchCount = 1;
+					}
 
 					let streamingCostsEarly:
 						Awaited<ReturnType<typeof calculateCosts>> | undefined;
@@ -13906,6 +13987,7 @@ chat.openapi(completions, async (c) => {
 
 		await insertLogEntry({
 			...baseLogEntry,
+			id: finalLogId,
 			providerKeyId: trackedKeyHealthId ?? null,
 			duration: Date.now() - startTime,
 			timeToFirstToken: null, // Not applicable for canceled request
@@ -14276,6 +14358,14 @@ chat.openapi(completions, async (c) => {
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				0,
+				getErrorType(0),
+				willRetryRequest,
+			);
+
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -14311,7 +14401,6 @@ chat.openapi(completions, async (c) => {
 				nonStreamingFetchErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			await insertLogEntry({
 				...baseLogEntry,
@@ -14374,22 +14463,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -14402,43 +14475,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryFetchNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
@@ -14526,6 +14567,13 @@ chat.openapi(completions, async (c) => {
 						},
 					);
 
+					recordFailedAttempt(
+						routingAttempts,
+						usedProvider!,
+						res.status,
+						isTimeoutBody ? "upstream_timeout" : "upstream_error",
+						false,
+					);
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
 						requestId,
@@ -14565,6 +14613,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
@@ -14730,6 +14779,16 @@ chat.openapi(completions, async (c) => {
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				res.status,
+				finishReason === "content_filter" || finishReason === "client_error"
+					? finishReason
+					: getErrorType(res.status),
+				willRetryRequest,
+			);
+
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -14765,7 +14824,6 @@ chat.openapi(completions, async (c) => {
 				providerErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			const nonStreamContentFilterPromptTokens =
 				finishReason === "content_filter"
@@ -14893,22 +14951,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -14921,43 +14963,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryHttpNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
@@ -15095,26 +15105,7 @@ chat.openapi(completions, async (c) => {
 
 	// Update routingMetadata with all routing attempts for DB logging
 	if (routingMetadata) {
-		// Enrich providerScores with failure info from routing attempts
-		const failedMap = new Map(
-			routingAttempts.filter((a) => !a.succeeded).map((f) => [f.provider, f]),
-		);
-		routingMetadata = {
-			...routingMetadata,
-			routing: routingAttempts,
-			providerScores: routingMetadata.providerScores.map((score) => {
-				const failure = failedMap.get(score.providerId);
-				if (failure) {
-					return {
-						...score,
-						failed: true,
-						status_code: failure.status_code,
-						error_type: failure.error_type,
-					};
-				}
-				return score;
-			}),
-		};
+		routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 	}
 
 	if (!res || !res.ok) {
@@ -15281,6 +15272,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...sseLogEntry,
+					id: finalLogId,
 					providerKeyId: trackedKeyHealthId ?? null,
 					duration: Date.now() - startTime,
 					timeToFirstToken: null,
@@ -15480,27 +15472,7 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 			if (routingMetadata) {
-				const failedMap = new Map(
-					routingAttempts
-						.filter((a) => !a.succeeded)
-						.map((f) => [f.provider, f]),
-				);
-				routingMetadata = {
-					...routingMetadata,
-					routing: routingAttempts,
-					providerScores: routingMetadata.providerScores.map((score) => {
-						const failure = failedMap.get(score.providerId);
-						if (failure) {
-							return {
-								...score,
-								failed: true,
-								status_code: failure.status_code,
-								error_type: failure.error_type,
-							};
-						}
-						return score;
-					}),
-				};
+				routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 			}
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -15542,6 +15514,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				id: finalLogId,
 				providerKeyId: trackedKeyHealthId ?? null,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
@@ -15656,11 +15629,12 @@ chat.openapi(completions, async (c) => {
 		messages,
 		supportsReasoning,
 		splitTaggedReasoning,
-		!!webSearchTool,
-		!!webSearchTool?.forced,
+		// A declared format leaves the count to response evidence below.
+		!!webSearchTool && !usedWebSearchFormat(),
+		!!webSearchTool?.forced && !usedWebSearchFormat(),
 		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
-	let { content, totalTokens } = parsedResponse;
+	let { content, totalTokens, webSearchCount } = parsedResponse;
 	const {
 		reasoningContent,
 		finishReason,
@@ -15679,8 +15653,19 @@ chat.openapi(completions, async (c) => {
 		images,
 		annotations,
 		searchResults,
-		webSearchCount,
 	} = parsedResponse;
+	if (webSearchTool && usedWebSearchFormat()) {
+		const reported = Math.max(
+			webSearchCount ?? 0,
+			reportedWebSearchCount(json),
+		);
+		webSearchCount =
+			reported > 0
+				? reported
+				: promptTokensShowSearchContext(promptTokens, requestBody)
+					? 1
+					: null;
+	}
 
 	const responseHealingEnabled = plugins?.some(
 		(p) => p.id === "response-healing",
@@ -16013,16 +15998,32 @@ chat.openapi(completions, async (c) => {
 		transformedResponse.choices[0].message.message_items =
 			parsedResponse.messageItems;
 	}
-	// Surface Anthropic's server-side tool search blocks so the /v1/messages
-	// layer can hand them back to the client, which replays them on the next
-	// turn — that is what lets Claude reuse an already discovered tool.
+	// Surface Anthropic's server tool blocks so the client can replay them on
+	// the next turn — that is what lets Claude reuse an already discovered tool
+	// or see earlier search results. Chat completions clients get the tool
+	// search pair only; web search results reach them as annotations.
+	const visibleNativeBlocks =
+		apiOrigin === "messages"
+			? parsedResponse.anthropicNativeBlocks
+			: parsedResponse.anthropicNativeBlocks?.filter(isToolSearchBlock);
 	if (
-		parsedResponse.anthropicNativeBlocks &&
-		parsedResponse.anthropicNativeBlocks.length > 0 &&
+		visibleNativeBlocks &&
+		visibleNativeBlocks.length > 0 &&
 		transformedResponse.choices?.[0]?.message
 	) {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
-			parsedResponse.anthropicNativeBlocks;
+			visibleNativeBlocks;
+	}
+	// The Anthropic content array as sent, for turns lowering loses detail of
+	// (server tool blocks, citations). /v1/messages returns it unchanged; chat
+	// completions clients have `content` and `annotations` instead.
+	if (
+		apiOrigin === "messages" &&
+		parsedResponse.anthropicContent &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_content =
+			parsedResponse.anthropicContent;
 	}
 	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
 	// /v1/messages layer hands them back as `safeguard_results`.

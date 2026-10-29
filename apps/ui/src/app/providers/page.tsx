@@ -6,6 +6,7 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	countApiModelsByProvider,
 	customCarrierGridProviders,
+	declaredComplianceByProvider,
 	listedProviders,
 } from "@/lib/providers-catalog";
 
@@ -87,6 +88,7 @@ export default async function ProvidersPage() {
 					uploadedLogos={uploadedLogos}
 					extraProviders={extraProviders}
 					modelCounts={modelCounts}
+					declaredCompliance={declaredComplianceByProvider(apiProviders)}
 				/>
 			</main>
 			<Footer />

@@ -2213,6 +2213,57 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 		expect(org?.credits).toBe("0");
 	});
 
+	test("emails the organization a credit note for the refund", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "79",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_devpass_refund",
+		});
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_devpass_refund",
+				customer: "cus_devpass_refund",
+			}),
+		);
+
+		const refund = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: "re_devpass_refund" } },
+		});
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: "billing@acme.test",
+				organizationId: ORG_ID,
+				subject: `Credit note ${refund?.id} - LLMGateway`,
+				html: expect.stringContaining("5–10 business days"),
+				attachments: [
+					expect.objectContaining({
+						filename: `credit-note-${refund?.id}.pdf`,
+					}),
+				],
+			}),
+		);
+	});
+
 	test("cancels the subscription on a full dev plan refund", async () => {
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -2319,6 +2370,7 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 		});
 		await handleChargeRefunded(event);
 		await handleChargeRefunded(event);
+		expect(sendEmailMock).toHaveBeenCalledOnce();
 
 		const refunds = await db.query.transaction.findMany({
 			where: { stripeRefundId: { eq: "re_devpass_refund" } },
@@ -2436,43 +2488,70 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 
 describe("webhook route — invalid signature", () => {
 	const realStripe = new Stripe("sk_test_dummy");
+	const secret = "whsec_test_secret";
+	const now = Math.floor(Date.now() / 1000);
+
+	beforeEach(() => {
+		vi.stubEnv("STRIPE_WEBHOOK_SECRET", secret);
+		// Defer to the real Stripe SDK so its actual errors reach the handler.
+		stripeMock.webhooks.constructEvent.mockImplementation(
+			(body: string, sig: string, webhookSecret: string) =>
+				realStripe.webhooks.constructEvent(body, sig, webhookSecret),
+		);
+	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
 		stripeMock.webhooks.constructEvent.mockReset();
 	});
 
-	test("logs a warning and returns 400 for a bogus signature", async () => {
-		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
-		process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
-		// Defer to the real Stripe SDK so an actual
-		// StripeSignatureVerificationError is thrown, exercising the handler's
-		// instanceof branch rather than a hand-rolled error.
-		stripeMock.webhooks.constructEvent.mockImplementation(
-			(body: string, sig: string, secret: string) =>
-				realStripe.webhooks.constructEvent(body, sig, secret),
-		);
+	// The empty, `v1==` and non-ASCII cases make the SDK throw a plain Error or
+	// RangeError rather than StripeSignatureVerificationError.
+	test.each([
+		"fake_signature",
+		`t=${now},v1=abc`,
+		`t=${now},v1=`,
+		`t=${now},v1`,
+		`t=${now},v1==abc`,
+		`t=${now},v1=,v1=abc`,
+		`t=${now},v1=${"é".repeat(64)}`,
+	])("returns 400 and warns for %s", async (header) => {
 		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
 
-		try {
-			const res = await stripeRoutes.request("/webhook", {
-				method: "POST",
-				headers: { "stripe-signature": "fake_signature" },
-				body: JSON.stringify({ type: "checkout.session.completed" }),
-			});
+		const res = await stripeRoutes.request("/webhook", {
+			method: "POST",
+			headers: { "stripe-signature": header },
+			body: JSON.stringify({ type: "checkout.session.completed" }),
+		});
 
-			expect(res.status).toBe(400);
-			expect(await res.text()).toContain("Invalid signature");
-			expect(warnSpy).toHaveBeenCalledWith(
-				"Ignoring Stripe webhook with invalid signature",
-				expect.objectContaining({ message: expect.any(String) }),
-			);
-		} finally {
-			warnSpy.mockRestore();
-			if (previousSecret === undefined) {
-				delete process.env.STRIPE_WEBHOOK_SECRET;
-			} else {
-				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
-			}
-		}
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("Invalid signature");
+		expect(warnSpy).toHaveBeenCalledWith(
+			"Ignoring Stripe webhook with invalid signature",
+			expect.objectContaining({ message: expect.any(String) }),
+		);
+		expect(errorSpy).not.toHaveBeenCalled();
+	});
+
+	test("accepts a correctly signed event", async () => {
+		const payload = JSON.stringify({
+			id: "evt_test_signed",
+			type: "test.unhandled",
+			data: { object: {} },
+		});
+		const header = realStripe.webhooks.generateTestHeaderString({
+			payload,
+			secret,
+		});
+
+		const res = await stripeRoutes.request("/webhook", {
+			method: "POST",
+			headers: { "stripe-signature": header },
+			body: payload,
+		});
+
+		expect(res.status).toBe(200);
 	});
 });

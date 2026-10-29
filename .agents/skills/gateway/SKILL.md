@@ -31,6 +31,12 @@ Worker requests to a BYOK base URL or webhook target pass `tenantControlled`
 to `fetchWithSignals` in `apps/worker/src/services/video-jobs.ts`. Route every non-`data:` URL through the guard
 wherever remote content is inlined (e.g. `requiresBase64Images` mappings).
 
+Start content-download deadlines before URL/DNS validation and keep them through
+body consumption. Race unabortable validation awaits; late completion must never
+start a fetch. Cancel active readers on abort: some Node fetch runtimes lose body
+aborts during garbage collection. Cover validation, header and body stalls with
+real-HTTP and forced-GC regression tests.
+
 ## Errors
 
 Keep `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts` conservative.
@@ -43,11 +49,16 @@ raise the misclassification risk and confirm first.
 
 ## Content filter
 
-The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) writes its audit
-CSV from the request body only: `request_id` and `account_id` come from the
-classify payload, headers are ignored. `internal-content-filter.ts` sends the
-gateway request id and the organization id (never the project, key, or user id —
-audit rows join on organization).
+The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) is stateless and
+receives only the prompt. Every verdict, passes included, is stored on the log's
+content filter response, the only record; it carries the prompt fingerprint
+while the classifier runs with its hash-all option. Exports, including the
+pseudonymized vendor sample, are in the `internal-classifier` skill.
+Customer-facing log APIs never return the content filter log columns.
+
+Every classifier fails open. OpenAI moderation retries a network error or 5xx
+once and logs the retried attempt at `warn`. Final failures log at
+`contentFilterErrorLogLevel`: `warn` for a 4xx other than 401/403, else `error`.
 
 ## Logging, streaming, shutdown
 

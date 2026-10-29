@@ -775,7 +775,7 @@ export async function findAirsideModel(
 	modelName: string,
 ): Promise<AirsideListedModel | undefined> {
 	const owned = await swrWrap(
-		`airsidePair:raw-v2:${providerId}:${modelName}`,
+		`airsidePair:raw-v3:${providerId}:${modelName}`,
 		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () =>
 			await selectAirsideRows(
@@ -837,7 +837,7 @@ export async function findAirsidePairsByBareName(
 ): Promise<AirsideOwnedPairs> {
 	return groupAirsideRows(
 		await swrWrap(
-			`airsidePairsByName:raw-v2:${modelName}`,
+			`airsidePairsByName:raw-v3:${modelName}`,
 			[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 			async () =>
 				await selectAirsideRows(
@@ -851,7 +851,7 @@ export async function findAirsidePairsByBareName(
 export async function listAirsidePairs(): Promise<AirsideOwnedPairs> {
 	return groupAirsideRows(
 		await swrWrap(
-			"airsidePairs:raw-v2:all",
+			"airsidePairs:raw-v3:all",
 			[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 			async () => await selectAirsideRows(),
 		),

@@ -1,10 +1,6 @@
 import { getConfig } from "@/lib/config-server";
 
-import {
-	discountFraction,
-	isCodingModel,
-	isPremiumModel,
-} from "@llmgateway/shared";
+import { discountFraction, isCodingModel } from "@llmgateway/shared";
 import {
 	effectiveUnitPrice,
 	fetchModelsFromApi,
@@ -91,7 +87,7 @@ export async function getCodingModelCards(): Promise<CodingModelCard[]> {
 			id: model.id,
 			name: model.name ?? model.id,
 			family: model.family,
-			premium: isPremiumModel(model.id),
+			premium: model.premium,
 			recommended: recommendedIds.has(model.id),
 			contextSize: provider?.contextSize ?? null,
 			inputPrice: effectiveUnitPrice(provider?.inputPrice, provider?.discount),

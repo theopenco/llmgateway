@@ -3,6 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { and, desc, eq, ne, tables } from "@llmgateway/db";
 
 import { materializeAirsideModel } from "./airside-catalogue.js";
+import {
+	assertActivationKind,
+	assertListingKind,
+} from "./airside-decisions.js";
 
 import type { CatalogueTransaction } from "./airside-catalogue.js";
 
@@ -26,6 +30,7 @@ export async function lockRelistableListing(
 	tx: CatalogueTransaction,
 	model: { id: string; providerCompanyId: string; providerId: string },
 	verify?: (locked: DraftModelRow) => Promise<void>,
+	{ activate = false }: { activate?: boolean } = {},
 ) {
 	const [claim] = await tx
 		.select({ id: tables.providerClaim.id })
@@ -45,6 +50,11 @@ export async function lockRelistableListing(
 				"The company no longer holds an active claim on this provider, so its models cannot be relisted.",
 		});
 	}
+	// Only an activation locks the other carriers' rows under the name; a
+	// relist request activates nothing and is checked again on approval.
+	if (activate) {
+		await assertActivationKind(tx, model.id);
+	}
 	const [locked] = await tx
 		.select()
 		.from(tables.providerDraftModel)
@@ -57,6 +67,9 @@ export async function lockRelistableListing(
 		});
 	}
 	await verify?.(locked);
+	if (!activate) {
+		await assertListingKind(locked.modelName, locked.decisions);
+	}
 	const [fare] = await tx
 		.select()
 		.from(tables.providerPriceFiling)
@@ -105,13 +118,18 @@ export async function relistAirsideListing(
 ): Promise<DraftModelRow> {
 	// Re-checked under the row lock: the carrier may have withdrawn the
 	// request since the caller read it.
-	const { fare } = await lockRelistableListing(tx, model, async (locked) => {
-		if (!locked.relistRequestedAt) {
-			throw new HTTPException(409, {
-				message: "This listing has no relist request under review.",
-			});
-		}
-	});
+	const { fare } = await lockRelistableListing(
+		tx,
+		model,
+		async (locked) => {
+			if (!locked.relistRequestedAt) {
+				throw new HTTPException(409, {
+					message: "This listing has no relist request under review.",
+				});
+			}
+		},
+		{ activate: true },
+	);
 	try {
 		const [relisted] = await tx
 			.update(tables.providerDraftModel)

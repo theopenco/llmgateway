@@ -30,9 +30,74 @@ Every deployment is built from the same pieces:
 
 In production, run PostgreSQL and Redis as managed services from your cloud provider so backups, failover, and patching are handled for you.
 
+## Database migrations
+
+The API applies pending migrations at startup when `RUN_MIGRATIONS=true`. You can
+also run them as a one-off job before rolling out new images:
+`node dist/migrate.js` in the API image applies them, and
+`node dist/migrate.js --check` is a read-only preflight that reports pending
+migrations, index changes that need a manual step, and long-running
+transactions holding locks on the tables they touch.
+
+Each migration runs in its own transaction. A migration that cannot take a
+lock within `MIGRATIONS_LOCK_TIMEOUT_MS` rolls back and retries with backoff
+instead of queueing your traffic behind it; the error names the sessions
+holding the lock.
+
+| Variable                                 | Default  | Purpose                                                                                           |
+| ---------------------------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `MIGRATIONS_LOCK_TIMEOUT_MS`             | `5000`   | Lock wait per statement before an attempt gives up                                                |
+| `MIGRATIONS_MAX_ATTEMPTS`                | `5`      | Attempts per migration after lock timeouts or deadlocks                                           |
+| `MIGRATIONS_STATEMENT_TIMEOUT_MS`        | `900000` | Runtime cap per statement; `0` disables it                                                        |
+| `MIGRATIONS_RUNNER_LOCK_WAIT_MS`         | `900000` | How long a replica waits for another replica's migration run                                      |
+| `MIGRATIONS_CHECK_MAX_TRANSACTION_AGE_S` | `30`     | Transaction age at which `--check` reports a lock holder                                          |
+| `MIGRATIONS_REQUIRE_PREBUILT_INDEXES`    | `false`  | Refuse to deploy index changes on existing tables until they were built or dropped `CONCURRENTLY` |
+
+With `MIGRATIONS_REQUIRE_PREBUILT_INDEXES=true`, a pending migration that
+creates or drops an index on an existing table fails before any migration runs
+and prints the exact `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY`
+commands to run first (including dropping an `INVALID` index left by a failed
+build). Run them with `psql` outside a transaction, then deploy again. Leave it
+off for small databases, where building an index inside the migration is quick.
+
 ## Product links
 
 For self-hosted DevPass and Airside, set `UI_URL` and `PLAYGROUND_URL` to your Gateway dashboard and Lounge origins. When unset, these apps use `https://llmgateway.io` and `https://lounge.llmgateway.io`; with `NODE_ENV=development`, they use `http://localhost:3002` and `http://localhost:3003`.
+
+For frontends hosted separately from the backend, follow [Split deployments](/self-host/split-deployment) to configure public and server-side URLs, shared session cookies, CORS, and client IP forwarding.
+
+### API explorer
+
+Set `GATEWAY_URL` on the docs service to your public gateway URL. The API reference
+uses that server in its examples and sends interactive requests through the docs
+service's `/api/proxy`. Set `GATEWAY_BACKEND_URL` when the docs server should reach
+the gateway over a separate internal URL; API keys and the configured client-IP
+header are forwarded to it. Public and internal base paths may differ; the proxy
+preserves the operation path and query.
+
+Without `GATEWAY_URL`, production uses `https://api.llmgateway.io` and development
+uses `http://localhost:4001`. Set it explicitly on isolated deployments to avoid
+sending interactive requests to the hosted gateway.
+
+## Database sessions and health checks
+
+The gateway, API, and worker set these limits on every Postgres connection, so
+a query stuck behind a lock fails instead of holding a pool slot until the
+blocker finishes. Each session's `application_name` is `<service>/<hostname>`,
+which identifies it in `pg_stat_activity`.
+
+| Variable                                  | Default                            | Purpose                                                                  |
+| ----------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------ |
+| `DATABASE_LOCK_TIMEOUT_MS`                | `10000`                            | Lock wait before a statement fails                                       |
+| `DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` | `60000`                            | Aborts a transaction left idle                                           |
+| `DATABASE_STATEMENT_TIMEOUT_MS`           | server default                     | Runtime cap per statement                                                |
+| `DATABASE_APPLICATION_NAME`               | `<service>/<hostname>`             | Overrides the session's `application_name`                               |
+| `METRICS_PORT`                            | gateway `9090`; API and worker off | Port serving Prometheus `/metrics`, including `db_pool_*` pool occupancy |
+
+Point liveness probes at `/livez` on the gateway and API: it never touches
+Postgres or Redis, so a database incident does not restart healthy pods. Use
+`/` for readiness. For external monitoring, the gateway's `/health/deep`
+checks Postgres and Redis; its `/` skips Postgres by default.
 
 ## Admin dashboard access
 
@@ -53,6 +118,17 @@ every response. A subscriber's plan margin stays visible, since it is the plan
 price minus usage these roles already see. Request payloads in logs are shown
 unmodified.
 
+## Gateway during database outages
+
+The gateway keeps a stale copy of the API keys, projects, organizations, and
+provider settings it reads from Postgres in Redis (`SWR_STALE_TTL_SECONDS`,
+default 4 hours) and serves it when a database read fails. After
+`DB_CIRCUIT_FAILURE_THRESHOLD` (default `5`) consecutive connection, lock, or
+timeout errors, it stops querying Postgres for `DB_CIRCUIT_OPEN_MS` (default
+`5000`): requests with a stale copy are served from it, and the rest fail
+immediately instead of waiting for a database connection. One request per
+interval probes Postgres and closes the circuit once it succeeds.
+
 ## Global Stats time ranges
 
 Global Stats defaults to UTC. Choose **Display time zone** to use your device's
@@ -67,6 +143,20 @@ The current incomplete hour is excluded. The worker refreshes hourly after a
 settling delay, so recent hours may still be processing. CSV timestamps remain
 in UTC. Apply database migrations and run the worker to populate hourly history.
 
+## Activity log searches
+
+Dashboard log searches run with a statement timeout and a short lock timeout
+and are limited in concurrency, so a slow search cannot hold locks on the log
+table. Concurrency slots live in Redis; if Redis is unreachable, searches run
+unlimited.
+
+| Variable                            | Default | Purpose                                  |
+| ----------------------------------- | ------- | ---------------------------------------- |
+| `LOG_QUERY_TIMEOUT_MS`              | `10000` | Cancels a log search after this long     |
+| `LOG_QUERY_LOCK_TIMEOUT_MS`         | `2000`  | Fails a search that would wait on a lock |
+| `LOG_QUERY_MAX_CONCURRENT_PER_USER` | `3`     | Concurrent searches per user             |
+| `LOG_QUERY_MAX_CONCURRENT_PER_ORG`  | `6`     | Concurrent searches per organization     |
+
 ## Gateway load
 
 The admin dashboard's **Gateway Load → Requests** view reports peak throughput
@@ -74,6 +164,14 @@ from completed intervals: minutes for short model/provider views, and hours for
 longer ranges or tenant-filtered views. Daily charts retain hourly peaks, so switching from 7 to
 30 days does not smooth away a spike. Peak timestamps identify the start of the
 interval; the current incomplete interval is excluded.
+
+The **All / Credits / BYOK** filter applies to every value on the page:
+requests, rates, error rates, error counts, duration, and time to first token,
+on every grouping and tenant filter. It defaults to **Credits**, so
+bring-your-own-key traffic is excluded unless you pick All or BYOK. After upgrading, the worker backfills the
+per-mode error and latency split for organization, project, and API-key views
+over the last 365 days (`TENANT_STATS_BYOK_BACKFILL_DAYS`); until it reaches
+an hour, that hour counts its BYOK errors and latency as credits.
 
 Switch to **Tokens** for platform, model, or provider throughput over 7 or 30 days.
 Choose total, input, or output tokens and a billing mode. Average TPM includes

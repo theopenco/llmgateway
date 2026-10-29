@@ -1,15 +1,24 @@
 import { eq } from "drizzle-orm";
 
-import { providers, type ProviderDefinition } from "@llmgateway/models";
+import {
+	applyDeclaredCompliance,
+	providers,
+	type ProviderDefinition,
+} from "@llmgateway/models";
 
 import { cdb } from "./cdb.js";
 import { providerClaim } from "./schema.js";
 
-/** Cache only database facts: rolling deployments may have different catalogues. */
+/**
+ * The static catalogue with each claimed provider's declared certifications,
+ * plus custom Airside carriers. Cache only database facts: rolling deployments
+ * may have different catalogues.
+ */
 export async function getEffectiveProviders(): Promise<ProviderDefinition[]> {
 	const claims = await cdb
 		.select({
 			id: providerClaim.providerId,
+			kind: providerClaim.kind,
 			name: providerClaim.customName,
 			baseUrl: providerClaim.customBaseUrl,
 			description: providerClaim.customDescription,
@@ -28,8 +37,21 @@ export async function getEffectiveProviders(): Promise<ProviderDefinition[]> {
 		})
 		.from(providerClaim)
 		.where(eq(providerClaim.status, "active"));
+	const catalogueClaims = new Map(
+		claims
+			.filter((claim) => claim.kind === "catalogue")
+			.map((claim) => [claim.id, claim]),
+	);
 	return [
-		...providers,
+		...providers.map((provider) => {
+			const claim = catalogueClaims.get(provider.id);
+			return claim
+				? {
+						...provider,
+						dataPolicy: applyDeclaredCompliance(provider.dataPolicy, claim),
+					}
+				: provider;
+		}),
 		...claims
 			.filter(
 				(claim) => claim.baseUrl && !providers.some((p) => p.id === claim.id),

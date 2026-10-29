@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -18,6 +18,7 @@ import {
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db, desc, eq, inArray, isNotNull, and, tables } from "@llmgateway/db";
 import {
@@ -80,6 +81,7 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 		modelName: mapping.modelId,
 		externalId: mapping.externalId,
 		apiFormat: mapping.apiFormat,
+		decisions: mapping.decisions,
 		region: mapping.region,
 		streaming: mapping.streaming,
 		vision: mapping.vision,
@@ -98,6 +100,10 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 			mapping.reasoningEfforts ??
 			null,
 		webSearch: mapping.webSearch,
+		webSearchFormat:
+			catalogueMappingFor(mapping)?.webSearchFormat ??
+			mapping.webSearchFormat ??
+			null,
 		contextSize: mapping.contextSize,
 		maxOutput: mapping.maxOutput,
 		promptCaching: mapping.cachedInputPrice !== null,
@@ -116,6 +122,7 @@ function draftModelTarget(
 		modelName: model.modelName,
 		externalId: model.externalId,
 		apiFormat: model.apiFormat,
+		decisions: model.decisions,
 		streaming: model.streaming,
 		vision: model.vision,
 		audio: model.audio,
@@ -127,6 +134,7 @@ function draftModelTarget(
 		reasoningMaxTokens: model.reasoningMaxTokens,
 		reasoningEfforts: model.reasoningEfforts,
 		webSearch: model.webSearch,
+		webSearchFormat: model.webSearchFormat,
 		contextSize: model.contextSize,
 		maxOutput: model.maxOutput,
 		promptCaching,

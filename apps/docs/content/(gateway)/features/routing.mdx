@@ -863,7 +863,7 @@ If the chosen model stops being available, the stored verdict is re-applied to t
 Responses to `"model": "smart"` name the resolved model in `model`. They also carry:
 
 - `x-llmgateway-smart-model`: the resolved model.
-- `x-llmgateway-smart-effort`: the applied effort.
+- `x-llmgateway-smart-effort`: the applied effort, absent when none was sent. A non-streaming request that fails over reports the fallback provider's effort.
 - `x-llmgateway-smart-change`: a short reason, on the turn where the model or effort changed.
 
 #### Routing metadata
