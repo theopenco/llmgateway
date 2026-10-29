@@ -1608,32 +1608,6 @@ export const providers: ProviderDefinition[] = [
 		dataPolicy: null,
 	},
 	{
-		id: "nanogpt",
-		name: "NanoGPT",
-		forwardsSafetyIdentifier: false,
-		description: "NanoGPT offers a large selection of models",
-		env: {
-			required: {
-				apiKey: "LLM_NANO_GPT_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#10b981",
-		website: "https://nano-gpt.com",
-		statusPageUrl: "https://status.nano-gpt.com",
-		announcement: null,
-		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
-		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
-		usagePolicyUrl: "https://nano-gpt.com/legal/terms-of-service",
-		legalEntity: "NanoGPT LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: null,
-			retentionPeriod: null,
-		},
-	},
-	{
 		id: "bytedance",
 		name: "ByteDance",
 		forwardsSafetyIdentifier: false,

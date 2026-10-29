@@ -29,7 +29,6 @@ export const providerLogoUrls: Partial<
 	alibaba: ProviderIcons.alibaba,
 	nebius: ProviderIcons.nebius,
 	zai: ProviderIcons.zai,
-	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
