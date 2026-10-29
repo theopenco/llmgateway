@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -234,7 +235,15 @@ it.each(["headers", "body"])(
 		await promisify(execFile)(
 			process.execPath,
 			["--expose-gc", "--import", "tsx", "-e", program],
-			{ timeout: 30000 },
+			{
+				timeout: 30000,
+				env: {
+					...process.env,
+					TSX_TSCONFIG_PATH: fileURLToPath(
+						new URL("../../../tsconfig.json", import.meta.url),
+					),
+				},
+			},
 		);
 	},
 	35000,
