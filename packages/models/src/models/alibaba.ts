@@ -2139,6 +2139,7 @@ export const alibabaModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				deactivatedAt: new Date("2026-11-04"),
 			},
 			{
 				providerId: "deepinfra",
