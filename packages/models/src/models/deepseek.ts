@@ -564,14 +564,27 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "tencent",
-				// The dated id is TokenHub's "Vendor Direct" deployment, priced at
-				// DeepSeek's own rate. The undated `deepseek-v4-pro` id is
-				// Tencent's own hosting at 1.74/3.48 — 4x the input and output
-				// price for the same model — so it is deliberately not mapped.
 				externalId: "deepseek-v4-pro-202606",
-				inputPrice: "0.435e-6",
-				cachedInputPrice: "0.00363e-6",
-				outputPrice: "0.87e-6",
+				inputPrice: "0.66e-6",
+				cachedInputPrice: "0.022e-6",
+				outputPrice: "1.98e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "1.32e-6",
+						outputPrice: "3.96e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.66e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
@@ -589,6 +602,8 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
 				jsonOutput: true,
 				jsonOutputSchema: false,
 			},
@@ -946,15 +961,27 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "tencent",
-				// TokenHub serves two DeepSeek V4 Flash deployments: this dated id
-				// is the "Vendor Direct" one routed to DeepSeek itself, which is
-				// why it matches DeepSeek's own cache rate. The undated
-				// `deepseek-v4-flash` id is Tencent's own hosting at a 10x cache
-				// price (0.028 vs 0.0028) and is deliberately not mapped.
 				externalId: "deepseek-v4-flash-202605",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.0028e-6",
-				outputPrice: "0.28e-6",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.003e-6",
+				outputPrice: "0.6e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
@@ -975,9 +1002,8 @@ export const deepseekModels = [
 				// tool_choice 400s with "Thinking mode does not support this
 				// tool_choice".
 				supportedToolChoices: ["auto", "none"],
-				// json_object works (DeepSeek still requires the word "json" in the
-				// prompt); json_schema 400s with "This response_format type is
-				// unavailable now" on this deployment.
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
 				jsonOutput: true,
 				jsonOutputSchema: false,
 			},
@@ -1080,6 +1106,51 @@ export const deepseekModels = [
 		family: "deepseek",
 		releasedAt: new Date("2026-09-10"),
 		providers: [
+			{
+				providerId: "tencent",
+				externalId: "deepseek-v4.1-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				cachedInputPrice: "0.003e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "function"],
+				supportedToolChoicesWithThinkingDisabled: ["required"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-flash",
@@ -1369,6 +1440,52 @@ export const deepseekModels = [
 		family: "deepseek",
 		releasedAt: new Date("2026-10-17"),
 		providers: [
+			{
+				providerId: "tencent",
+				externalId: "deepseek/deepseek-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				cachedInputPrice: "0.003e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-flash",

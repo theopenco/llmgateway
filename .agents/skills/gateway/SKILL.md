@@ -31,6 +31,12 @@ Worker requests to a BYOK base URL or webhook target pass `tenantControlled`
 to `fetchWithSignals` in `apps/worker/src/services/video-jobs.ts`. Route every non-`data:` URL through the guard
 wherever remote content is inlined (e.g. `requiresBase64Images` mappings).
 
+Start content-download deadlines before URL/DNS validation and keep them through
+body consumption. Race unabortable validation awaits; late completion must never
+start a fetch. Cancel active readers on abort: some Node fetch runtimes lose body
+aborts during garbage collection. Cover validation, header and body stalls with
+real-HTTP and forced-GC regression tests.
+
 ## Errors
 
 Keep `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts` conservative.

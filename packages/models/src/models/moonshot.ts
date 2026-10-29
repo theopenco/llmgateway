@@ -2,6 +2,52 @@ import type { ModelDefinition } from "@/models.js";
 
 export const moonshotModels = [
 	{
+		id: "kimi-k2.8-preview",
+		name: "Kimi K2.8 Preview",
+		description:
+			"Moonshot's Kimi K2.8 preview model with vision, reasoning, tool calling, and a 1M-token context window.",
+		family: "moonshot",
+		releasedAt: new Date("2026-09-11"),
+		output: ["text"],
+		providers: [
+			{
+				providerId: "tencent",
+				externalId: "kimi-k2.8-preview",
+				inputPrice: "1e-6",
+				cachedInputPrice: "0.25e-6",
+				outputPrice: "4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 1000000,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required"],
+				supportedToolChoicesWithThinkingDisabled: ["function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "kimi-k2",
 		name: "Kimi K2",
 		description: "Moonshot's Kimi K2 model for general tasks.",
