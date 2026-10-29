@@ -232,13 +232,16 @@ export async function processImageUrl(
 
 	// SSRF: remote content must not resolve to an internal host. This also
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
-	await assertSafeUserContentUrl(url);
 	signal?.throwIfAborted();
 
 	const deadline = createImageFetchDeadline(signal);
 	const { timeoutMs } = deadline;
 	let response: Response | undefined;
+	let urlValidated = false;
 	try {
+		await validateImageUrl(url, deadline.signal);
+		deadline.signal.throwIfAborted();
+		urlValidated = true;
 		response = await fetchNoRedirect(url, { signal: deadline.signal });
 
 		if (!response.ok) {
@@ -296,6 +299,10 @@ export async function processImageUrl(
 			mimeType: contentType,
 		};
 	} catch (error) {
+		// Preserve URL-safety errors; only cancellation changes their outcome.
+		if (!urlValidated && !deadline.signal.aborted) {
+			throw error;
+		}
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
@@ -356,5 +363,29 @@ function cancelImageBody(
 				err: error instanceof Error ? error : new Error(String(error)),
 			});
 		}
+	});
+}
+function validateImageUrl(url: string, signal: AbortSignal): Promise<void> {
+	// Native lookup cannot be cancelled; abort its wait without allowing a late fetch.
+	return new Promise<void>((resolve, reject) => {
+		const onAbort = () => {
+			signal.removeEventListener("abort", onAbort);
+			reject(signal.reason as Error);
+		};
+		if (signal.aborted) {
+			onAbort();
+			return;
+		}
+		signal.addEventListener("abort", onAbort, { once: true });
+		assertSafeUserContentUrl(url).then(
+			() => {
+				signal.removeEventListener("abort", onAbort);
+				resolve();
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error as Error);
+			},
+		);
 	});
 }
