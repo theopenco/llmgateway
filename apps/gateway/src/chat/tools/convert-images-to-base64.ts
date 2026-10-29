@@ -3,28 +3,12 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
 
-/**
- * Deadline for fetching a provider-returned image before converting it to a
- * base64 data URL. These URLs come from the upstream provider response, which
- * the SSRF guard below already treats as untrusted user-influenced input (a
- * BYOK/custom-baseUrl tenant controls what the "provider" returns), and this
- * fetch has no other timeout, so an unresponsive host would otherwise hang the
- * request indefinitely across every retry.
- */
+// Per-attempt deadline for provider-returned image downloads.
 const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
-// Largest delay AbortSignal.timeout accepts; a bigger (or non-finite) value
-// throws and would break the retry loop, so we clamp to a safe range.
+// Node clamps larger timer delays to 1 ms.
 const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
 
-/**
- * Resolves the fetch deadline from IMAGE_FETCH_TIMEOUT_MS, guarding against
- * values that would make AbortSignal.timeout throw or disable the download
- * outright. Only a finite integer in [1, 2_147_483_647] is honoured; anything
- * else (blank, 0, NaN, negative, fractional, Infinity) falls back to the
- * default. Blank and 0 matter in practice: Number("") is 0, and
- * AbortSignal.timeout(0) aborts every fetch immediately, which would silently
- * disable image conversion instead of disabling the deadline.
- */
+/** Use positive, timer-safe integers; zero must not disable image conversion. */
 export function resolveImageFetchTimeoutMs(): number {
 	const value = process.env.IMAGE_FETCH_TIMEOUT_MS?.trim();
 	if (!value) {
@@ -53,19 +37,30 @@ async function fetchImageWithRetry(
 	}
 
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+		const controller = new AbortController();
+		// Keep the controller alive through body consumption, including during GC.
+		const timeout = setTimeout(() => {
+			controller.abort(
+				new DOMException(
+					"The operation was aborted due to timeout",
+					"TimeoutError",
+				),
+			);
+		}, resolveImageFetchTimeoutMs());
+		timeout.unref();
 		try {
 			const response = await fetch(url, {
 				redirect: "error",
-				// Bounds the whole download, headers and body. undici's bodyTimeout is
-				// refreshed on every chunk, so a host that trickles bytes never trips it.
-				signal: AbortSignal.timeout(resolveImageFetchTimeoutMs()),
+				signal: controller.signal,
 			});
 			if (response.ok) {
 				const contentType = response.headers.get("content-type") ?? "image/png";
-				const arrayBuffer = await response.arrayBuffer();
-				const base64 = Buffer.from(arrayBuffer).toString("base64");
+				const buffer = await readImageResponse(response, controller.signal);
+				const base64 = buffer.toString("base64");
 				return { contentType, base64 };
 			}
+
+			await response.body?.cancel();
 
 			// Retry on 404 (CDN propagation delay) or 5xx (transient server error)
 			if (response.status === 404 || response.status >= 500) {
@@ -96,6 +91,9 @@ async function fetchImageWithRetry(
 				error: error instanceof Error ? error.message : String(error),
 			});
 			return null;
+		} finally {
+			clearTimeout(timeout);
+			controller.abort();
 		}
 	}
 	return null;
@@ -129,4 +127,42 @@ export async function convertImagesToBase64(
 			return image;
 		}),
 	);
+}
+async function readImageResponse(
+	response: Response,
+	signal: AbortSignal,
+): Promise<Buffer> {
+	const reader = response.body?.getReader();
+	if (!reader) {
+		return Buffer.alloc(0);
+	}
+	const chunks: Uint8Array[] = [];
+	// Older fetch implementations can lose body aborts during garbage collection.
+	const cancel = () => {
+		void reader.cancel(signal.reason).catch((error: unknown) => {
+			if (error !== signal.reason) {
+				logger.warn("Failed to cancel image download", {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		});
+	};
+	signal.addEventListener("abort", cancel, { once: true });
+	try {
+		if (signal.aborted) {
+			cancel();
+		}
+		signal.throwIfAborted();
+		while (true) {
+			const { done, value } = await reader.read();
+			signal.throwIfAborted();
+			if (done) {
+				return Buffer.concat(chunks);
+			}
+			chunks.push(value);
+		}
+	} finally {
+		signal.removeEventListener("abort", cancel);
+		reader.releaseLock();
+	}
 }

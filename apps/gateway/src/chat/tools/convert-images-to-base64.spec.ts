@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -171,4 +173,132 @@ describe("convertImagesToBase64 network deadline", () => {
 		},
 		5000,
 	);
+});
+
+it.each(["headers", "body"])(
+	"retains the %s deadline during garbage collection",
+	async (stage) => {
+		const source = new URL("./convert-images-to-base64.ts", import.meta.url)
+			.href;
+		const program = `
+		import assert from "node:assert/strict";
+		import { once } from "node:events";
+		import { createServer } from "node:http";
+		import { convertImagesToBase64 } from ${JSON.stringify(source)};
+		process.env.ALLOW_INSECURE_PROVIDER_URLS = "true";
+		process.env.IMAGE_FETCH_TIMEOUT_MS = "250";
+		let attempts = 0;
+		const downloadsClosed = [];
+		const server = createServer((_request, response) => {
+			attempts++;
+			downloadsClosed.push(new Promise((resolve) => response.once("close", resolve)));
+			if (${JSON.stringify(stage)} === "body") {
+				response.writeHead(200, { "content-type": "image/png" });
+				response.write(new Uint8Array([1]));
+			}
+		});
+		server.listen(0, "127.0.0.1");
+		await once(server, "listening");
+		const gc = setInterval(() => global.gc(), 20);
+		const watchdog = setTimeout(() => {
+			console.error("Download deadline lost during garbage collection");
+			process.exit(1);
+		}, 8000);
+		try {
+			const input = { type: "image_url", image_url: { url: "http://127.0.0.1:" + server.address().port + "/image.png" } };
+			assert.deepEqual(await convertImagesToBase64([input]), [input]);
+			assert.equal(attempts, 3);
+			await Promise.all(downloadsClosed);
+		} finally {
+			clearInterval(gc);
+			clearTimeout(watchdog);
+			await new Promise((resolve, reject) => {
+				server.close((error) => error ? reject(error) : resolve());
+				server.closeAllConnections();
+			});
+		}
+	`;
+		await promisify(execFile)(
+			process.execPath,
+			["--expose-gc", "--input-type=module", "-e", program],
+			{ timeout: 12000 },
+		);
+	},
+	15000,
+);
+
+it("clears the deadline timer after a successful download", async () => {
+	vi.useFakeTimers();
+	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+	let signal: AbortSignal | null | undefined;
+	vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+		signal = init?.signal;
+		return Promise.resolve(new Response(new Uint8Array([1, 2, 3])));
+	});
+	try {
+		const result = await convertImagesToBase64([
+			image("https://cdn.example.com/image.png"),
+		]);
+		expect(result[0]?.image_url.url).toBe("data:image/png;base64,AQID");
+		expect(signal?.aborted).toBe(true);
+		expect(vi.getTimerCount()).toBe(0);
+	} finally {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	}
+});
+
+it("cancels rejected response bodies and clears their deadline", async () => {
+	vi.useFakeTimers();
+	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+	const cancel = vi.fn();
+	const schedule = vi.spyOn(globalThis, "setTimeout");
+	const clear = vi.spyOn(globalThis, "clearTimeout");
+	vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "15000");
+	vi.spyOn(globalThis, "fetch").mockResolvedValue(
+		new Response(new ReadableStream({ cancel }), { status: 403 }),
+	);
+	try {
+		const input = image("https://cdn.example.com/forbidden.png");
+		await expect(convertImagesToBase64([input])).resolves.toEqual([input]);
+		expect(cancel).toHaveBeenCalledOnce();
+		const deadline = schedule.mock.calls.findIndex(([, ms]) => ms === 15_000);
+		expect(deadline).toBeGreaterThanOrEqual(0);
+		expect(clear).toHaveBeenCalledWith(schedule.mock.results[deadline]?.value);
+	} finally {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	}
+});
+
+it("cancels a response body when the deadline fires before headers resolve", async () => {
+	vi.useFakeTimers();
+	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+	vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "250");
+	const cancel = vi.fn();
+	vi.spyOn(globalThis, "fetch").mockImplementation(
+		(_url, init) =>
+			new Promise((resolve) => {
+				init?.signal?.addEventListener(
+					"abort",
+					() => {
+						resolve(new Response(new ReadableStream({ cancel })));
+					},
+					{ once: true },
+				);
+			}),
+	);
+	try {
+		const input = image("https://cdn.example.com/late-headers.png");
+		const result = convertImagesToBase64([input]);
+		await vi.runAllTimersAsync();
+		await expect(result).resolves.toEqual([input]);
+		expect(cancel).toHaveBeenCalledTimes(3);
+	} finally {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	}
 });

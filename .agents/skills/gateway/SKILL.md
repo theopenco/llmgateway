@@ -25,6 +25,10 @@ When the guard rejects a URL, fail the request; forwarding it upstream lets the
 provider fetch what we refused. Route every non-`data:` URL through the guard
 wherever remote content is inlined (e.g. `requiresBase64Images` mappings).
 
+Bound content downloads through body consumption and cancel active readers on
+abort. Some Node fetch runtimes lose body aborts during garbage collection; cover
+header and body stalls with real-HTTP and forced-GC regression tests.
+
 ## Errors
 
 Keep `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts` conservative.
