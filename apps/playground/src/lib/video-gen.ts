@@ -69,13 +69,31 @@ const MAX_POLL_DURATION_MS = 60 * 60 * 1000;
 const MAX_CONSECUTIVE_ERRORS = 10;
 const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
+// Background tabs throttle timers to as little as once a minute, so a job that
+// finished while the tab was hidden would otherwise stay "generating" for up
+// to a minute after the user comes back. Returning to the tab polls at once.
 function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(resolve, ms);
+		const doc = typeof document === "undefined" ? undefined : document;
+		const cleanup = () => {
+			clearTimeout(timer);
+			doc?.removeEventListener("visibilitychange", onVisibilityChange);
+		};
+		const onVisibilityChange = () => {
+			if (doc?.visibilityState === "visible") {
+				cleanup();
+				resolve();
+			}
+		};
+		const timer = setTimeout(() => {
+			cleanup();
+			resolve();
+		}, ms);
+		doc?.addEventListener("visibilitychange", onVisibilityChange);
 		signal?.addEventListener(
 			"abort",
 			() => {
-				clearTimeout(timer);
+				cleanup();
 				reject(new DOMException("Aborted", "AbortError"));
 			},
 			{ once: true },

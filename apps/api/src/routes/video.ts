@@ -129,17 +129,25 @@ video.openapi(getVideoStatus, async (c) => {
 		}
 	}
 
+	// The worker commits `completed` before it writes the result log that
+	// playback is served from. Until that log exists the job is not playable,
+	// so report it as still finishing; otherwise a poller that lands in that
+	// gap treats the job as done and its player fails until the page reloads.
+	const awaitingResultLog = job.status === "completed" && !job.logId;
+
 	return c.json(
 		{
 			id: job.id,
 			object: "video" as const,
 			model: job.model,
-			status: job.status,
-			progress: TERMINAL_VIDEO_STATUSES.has(job.status)
-				? job.status === "completed"
-					? 100
-					: job.progress
-				: job.progress,
+			status: awaitingResultLog ? ("in_progress" as const) : job.status,
+			progress: awaitingResultLog
+				? 99
+				: TERMINAL_VIDEO_STATUSES.has(job.status)
+					? job.status === "completed"
+						? 100
+						: job.progress
+					: job.progress,
 			created_at: Math.floor(job.createdAt.getTime() / 1000),
 			completed_at: toUnixTimestamp(job.completedAt),
 			expires_at: toUnixTimestamp(job.expiresAt),

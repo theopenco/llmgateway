@@ -110,4 +110,37 @@ describe("GET /video/{videoId}", () => {
 		expect(json.progress).toBe(100);
 		expect(json.content).toBeUndefined();
 	});
+
+	// The worker marks a job completed before it writes the log playback is
+	// served from. A poller in that gap must keep polling instead of loading a
+	// player that can only 404.
+	test("reports a completed job without its result log as still in progress", async () => {
+		vi.stubEnv(SECRET_ENV, "video-content-secret");
+		await db.insert(tables.videoJob).values({
+			id: "finishing-video-id",
+			requestId: "finishing-request-id",
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "api-key-id",
+			mode: "credits",
+			usedMode: "credits",
+			model: "flux-3-max",
+			usedProvider: "fal-ai",
+			usedModel: "blackforestlabs/flux-3-max",
+			upstreamId: "fal-request",
+			prompt: "a paper plane over a night city",
+			status: "completed",
+			progress: 100,
+		});
+
+		const res = await app.request("/video/finishing-video-id", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.status).toBe("in_progress");
+		expect(json.progress).toBe(99);
+		expect(json.content).toBeUndefined();
+	});
 });

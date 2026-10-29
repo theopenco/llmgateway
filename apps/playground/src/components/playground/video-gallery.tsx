@@ -2,7 +2,7 @@
 
 import { AlertCircle, Download, Film } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { memo, useEffect, useState, useCallback } from "react";
+import { memo, useEffect, useState, useCallback, useRef } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,17 @@ interface VideoGalleryProps {
 	onSuggestionClick?: (prompt: string) => void;
 }
 
+// A finished job's content can take a moment to become playable, so a failed
+// load is retried a few times before the video is reported unavailable.
+const LOAD_RETRY_DELAYS_MS = [1_000, 3_000, 6_000];
+
+function withRetryParam(url: string, attempt: number): string {
+	if (attempt === 0) {
+		return url;
+	}
+	return `${url}${url.includes("?") ? "&" : "?"}retry=${attempt}`;
+}
+
 const VideoPlayer = memo(
 	({
 		url,
@@ -63,16 +74,37 @@ const VideoPlayer = memo(
 		expiresAt?: number | null;
 		onLoadError: () => void;
 	}) => {
+		const [attempt, setAttempt] = useState(0);
+		const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+		useEffect(() => {
+			setAttempt(0);
+			return () => {
+				if (retryTimerRef.current) {
+					clearTimeout(retryTimerRef.current);
+				}
+			};
+		}, [url]);
+
 		const handleError = useCallback(() => {
-			onLoadError();
-		}, [onLoadError]);
+			const delay = LOAD_RETRY_DELAYS_MS[attempt];
+			if (delay === undefined) {
+				onLoadError();
+				return;
+			}
+			retryTimerRef.current = setTimeout(
+				() => setAttempt((current) => current + 1),
+				delay,
+			);
+		}, [attempt, onLoadError]);
 
 		const expiringSoon = isExpiringSoon(expiresAt ?? null);
 
 		return (
 			<div className="group relative overflow-hidden rounded-lg border">
 				<video
-					src={url}
+					key={attempt}
+					src={withRetryParam(url, attempt)}
 					controls
 					autoPlay
 					loop
@@ -115,24 +147,55 @@ const VideoPlayer = memo(
 	},
 );
 
+function formatElapsed(seconds: number): string {
+	const minutes = Math.floor(seconds / 60);
+	return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+// Some providers (fal, for one) report no progress until the job is done, so
+// a running job without a progress figure shows how long it has been running
+// instead of a bar stuck at 0%.
 function VideoProgress({
 	status,
 	progress,
+	createdAt,
 }: {
 	status: string;
 	progress: number | null;
+	createdAt: number;
 }) {
-	const progressValue = progress ?? 0;
+	const [now, setNow] = useState(() => Date.now());
+	const reportsProgress = progress !== null && progress > 0;
+
+	useEffect(() => {
+		if (reportsProgress) {
+			return;
+		}
+		const timer = setInterval(() => setNow(Date.now()), 1_000);
+		return () => clearInterval(timer);
+	}, [reportsProgress]);
+
+	const elapsedSeconds = Math.max(0, Math.floor(now / 1000) - createdAt);
 	const label =
-		status === "queued" ? "Queued..." : `Generating... ${progressValue}%`;
+		status === "queued"
+			? "Queued..."
+			: reportsProgress
+				? `Generating... ${progress}%`
+				: `Generating... ${formatElapsed(elapsedSeconds)}`;
 
 	return (
 		<div className="relative overflow-hidden rounded-lg border bg-muted/30">
 			<div className="flex flex-col items-center justify-center py-16 px-4 gap-4">
 				<Film className="h-10 w-10 text-muted-foreground/50 animate-pulse" />
 				<div className="w-full max-w-xs space-y-2">
-					<Progress value={progressValue} className="h-2" />
-					<p className="text-sm text-muted-foreground text-center">{label}</p>
+					{reportsProgress ? (
+						<Progress value={progress} className="h-2" />
+					) : (
+						<div className="h-2 animate-pulse rounded-full bg-primary/40" />
+					)}
+					<p className="text-sm text-muted-foreground text-center tabular-nums">
+						{label}
+					</p>
 				</div>
 			</div>
 		</div>
@@ -248,6 +311,7 @@ function SingleModeItem({ item }: { item: VideoGalleryItem }) {
 					<VideoProgress
 						status={model.job.status}
 						progress={model.job.progress}
+						createdAt={model.job.created_at}
 					/>
 				</div>
 			) : model.isLoading ? (
@@ -324,6 +388,7 @@ function ComparisonModeItem({ item }: { item: VideoGalleryItem }) {
 								<VideoProgress
 									status={model.job.status}
 									progress={model.job.progress}
+									createdAt={model.job.created_at}
 								/>
 							) : model.isLoading ? (
 								<Skeleton className="h-64 rounded-lg" />

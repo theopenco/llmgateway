@@ -1,6 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
+	pollVideoJob,
 	getSupportedVideoDurationsForSelection,
 	getSupportedVideoRequestOptions,
 	getSupportedVideoSizesForSelection,
@@ -18,6 +19,7 @@ import {
 } from "./video-gen";
 
 import type { ApiModel, ApiModelProviderMapping } from "./fetch-models";
+import type { VideoJob } from "./video-gen";
 
 function makeMapping(
 	overrides: Partial<ApiModelProviderMapping> = {},
@@ -591,5 +593,54 @@ describe("saved video model results", () => {
 
 	test("content URLs go through the playground proxy", () => {
 		expect(videoContentUrl("video_1")).toBe("/api/video/video_1/content");
+	});
+});
+
+describe("pollVideoJob", () => {
+	function job(status: VideoJob["status"]): VideoJob {
+		return {
+			id: "video_1",
+			object: "video",
+			model: "fal-ai/flux-3-max",
+			status,
+			progress: 0,
+			created_at: 0,
+			completed_at: null,
+			expires_at: null,
+			error: null,
+		};
+	}
+
+	// Hidden tabs throttle timers to about once a minute, so a job that
+	// finished while the user was away must be picked up as soon as they return.
+	test("polls again as soon as the tab becomes visible", async () => {
+		const page = new EventTarget() as EventTarget & {
+			visibilityState: DocumentVisibilityState;
+		};
+		page.visibilityState = "hidden";
+		vi.stubGlobal("document", page);
+		try {
+			const responses = [job("in_progress"), job("completed")];
+			const fetchClient = {
+				GET: vi.fn(async () => ({
+					data: responses.shift(),
+					response: new Response(null, { status: 200 }),
+				})),
+			} as unknown as Parameters<typeof pollVideoJob>[1];
+
+			const poll = pollVideoJob("video_1", fetchClient);
+			expect((await poll.next()).value?.status).toBe("in_progress");
+
+			const next = poll.next();
+			setTimeout(() => {
+				page.visibilityState = "visible";
+				page.dispatchEvent(new Event("visibilitychange"));
+			}, 50);
+			const started = Date.now();
+			expect((await next).value?.status).toBe("completed");
+			expect(Date.now() - started).toBeLessThan(1_000);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });
