@@ -5,6 +5,8 @@ import { createOpenAPI, openapiPlugin } from "fumadocs-openapi/server";
 import { icons } from "lucide-react";
 import { createElement } from "react";
 
+import { getGatewayPublicBaseUrl } from "@llmgateway/shared/gateway-url";
+
 import { customIcons } from "./custom-icons";
 import { docs, meta } from "../.source/server";
 import document from "../openapi.json";
@@ -48,5 +50,11 @@ export { getLLMText } from "./get-llm-text";
 
 export const openapi = createOpenAPI({
 	// Fumadocs upgrades the generated OpenAPI 3.0 document to its 3.2 types.
-	input: () => ({ "./openapi.json": document as unknown as Document }),
+	input: () => ({
+		"./openapi.json": {
+			...document,
+			servers: [{ url: getGatewayPublicBaseUrl() }],
+		} as unknown as Document,
+	}),
+	proxyUrl: "/api/proxy",
 });
