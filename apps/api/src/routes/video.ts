@@ -141,8 +141,8 @@ video.openapi(getVideoStatus, async (c) => {
 	const awaitingResultLog =
 		job.status === "completed" &&
 		!job.logId &&
-		(!job.completedAt ||
-			Date.now() - job.completedAt.getTime() < RESULT_LOG_GRACE_MS);
+		Date.now() - (job.completedAt ?? job.createdAt).getTime() <
+			RESULT_LOG_GRACE_MS;
 
 	return c.json(
 		{
