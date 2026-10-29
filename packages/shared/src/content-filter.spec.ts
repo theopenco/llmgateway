@@ -146,3 +146,44 @@ describe("isContentFilterErrorText", () => {
 		expect(isContentFilterErrorText("")).toBe(false);
 	});
 });
+
+describe("Mistral guardrail errors", () => {
+	test("detects the provider's guardrail violation payload", () => {
+		expect(
+			isContentFilterErrorText(
+				'{"object":"error","message":"Request blocked by guardrail policy","type":"guardrail_violation","param":null,"code":"1920","raw_status_code":403}',
+			),
+		).toBe(true);
+	});
+	test.each([
+		'{"object":"error","message":"Forbidden","type":"permission_error","code":"1920","raw_status_code":403}',
+		'{"object":"error","message":"Invalid API key","type":"authentication_error"}',
+		'{"type":"permission_error","message":"Access to guardrail_violation is disabled"}',
+		'{"type":"authentication_error","message":"guardrail_violation requires a valid API key"}',
+		"guardrail_violation",
+		"Access denied by policy",
+		"Guardrail policy configuration is unavailable",
+	])(
+		"does not treat unrelated permission or policy errors as moderation: %s",
+		(text) => {
+			expect(isContentFilterErrorText(text)).toBe(false);
+		},
+	);
+});
+
+describe("structured guardrail types", () => {
+	test.each([
+		JSON.stringify({ type: "guardrail_violation" }, null, 2),
+		JSON.stringify({ error: { type: "guardrail_violation" } }),
+	])("matches the error type in JSON: %s", (text) => {
+		expect(isContentFilterErrorText(text)).toBe(true);
+	});
+	test.each([
+		JSON.stringify({ type: "permission_error", error: "guardrail_violation" }),
+		JSON.stringify({ message: 'Expected type: "guardrail_violation"' }),
+		'{"type":"guardrail_violation"',
+		JSON.stringify(["guardrail_violation"]),
+	])("ignores a token outside a parsed error type: %s", (text) => {
+		expect(isContentFilterErrorText(text)).toBe(false);
+	});
+});
