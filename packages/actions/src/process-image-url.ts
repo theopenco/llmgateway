@@ -1,7 +1,9 @@
 import { logger } from "@llmgateway/logger";
+import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
 import {
 	assertSafeUserContentUrl,
 	isTransientHostResolutionError,
+	fetchSafeUserUrl,
 } from "@llmgateway/shared/url-safety-node";
 
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
@@ -215,7 +217,15 @@ export async function processImageUrl(
 
 	let response: Response | undefined;
 	try {
-		response = await fetchNoRedirect(url, signal ? { signal } : undefined);
+		// Validate the socket's DNS result too: it can change after preflight.
+		const init = signal ? { signal } : undefined;
+		response = await fetchNoRedirect(
+			url,
+			init,
+			isProviderUrlGuardEnabled()
+				? () => fetchSafeUserUrl(url, init)
+				: undefined,
+		);
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -275,6 +285,16 @@ export async function processImageUrl(
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
+		}
+		// The guarded connector rejects a rebinding DNS result with EACCES.
+		if (
+			isProviderUrlGuardEnabled() &&
+			error instanceof Error &&
+			(error.cause as NodeJS.ErrnoException | undefined)?.code === "EACCES"
+		) {
+			throw new RequestError(
+				"Image URL is invalid or points to a disallowed host",
+			);
 		}
 		// The caller cancelled or timed out the download; it decides how to report it.
 		if (signal?.aborted) {

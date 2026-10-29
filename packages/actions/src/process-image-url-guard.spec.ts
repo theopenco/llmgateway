@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	assertSafeUserContentUrl,
 	HostResolutionError,
+	fetchSafeUserUrl,
 } from "@llmgateway/shared/url-safety-node";
 
 import { processImageUrl } from "./process-image-url.js";
@@ -15,6 +16,7 @@ vi.mock("@llmgateway/shared/url-safety-node", async (importOriginal) => {
 	return {
 		...actual,
 		assertSafeUserContentUrl: vi.fn(actual.assertSafeUserContentUrl),
+		fetchSafeUserUrl: vi.fn(actual.fetchSafeUserUrl),
 	};
 });
 
@@ -62,4 +64,24 @@ describe("image URL guard errors", () => {
 			statusCode: 400,
 		});
 	});
+});
+
+test("uses the connect-time guard when content URL safety is enabled", async () => {
+	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+	vi.mocked(assertSafeUserContentUrl).mockResolvedValueOnce(undefined);
+	vi.mocked(fetchSafeUserUrl).mockResolvedValueOnce(
+		new Response("a", { headers: { "content-type": "image/png" } }),
+	);
+	const unsafeFetch = vi.spyOn(globalThis, "fetch");
+	await expect(
+		processImageUrl("https://example.com/image.png"),
+	).resolves.toEqual({
+		data: "YQ==",
+		mimeType: "image/png",
+	});
+	expect(fetchSafeUserUrl).toHaveBeenCalledWith(
+		"https://example.com/image.png",
+		undefined,
+	);
+	expect(unsafeFetch).not.toHaveBeenCalled();
 });
