@@ -151,3 +151,51 @@ describe("tool-result images per upstream format", () => {
 		expect(JSON.stringify(body.contents)).not.toContain("image_url");
 	});
 });
+
+test("lifting conserves images and complete parallel turns across generated histories", () => {
+	for (let sample = 1; sample <= 100; sample++) {
+		const input: BaseMessage[] = [{ role: "user", content: "Start." }];
+		let imageCount = 0;
+		for (let turn = 0; turn < 3; turn++) {
+			const calls = Array.from({ length: (sample % 4) + 1 }, (_, index) =>
+				call(`call_${turn}_${index}`),
+			);
+			input.push({ role: "assistant", content: "", tool_calls: calls });
+			for (const toolCall of calls) {
+				const images = sample % 3 ? [IMAGE] : [];
+				imageCount += images.length;
+				input.push({
+					role: "tool",
+					tool_call_id: toolCall.id,
+					content: [{ type: "text", text: toolCall.id }, ...images],
+				});
+			}
+			if (sample % 2) {
+				input.push({ role: "user", content: "Continue." });
+			}
+		}
+		const original = structuredClone(input);
+		const lifted = liftToolResultImages(input);
+		expect(input).toEqual(original);
+		expect(liftToolResultImages(lifted)).toEqual(lifted);
+		expect(
+			lifted.flatMap((message) =>
+				Array.isArray(message.content)
+					? message.content.filter((part) => part.type === "image_url")
+					: [],
+			),
+		).toHaveLength(imageCount);
+		let pending = new Set<string>();
+		for (const message of lifted) {
+			if (message.role === "assistant" && message.tool_calls) {
+				expect(pending.size).toBe(0);
+				pending = new Set(message.tool_calls.map((toolCall) => toolCall.id));
+			} else if (message.role === "tool") {
+				expect(pending.delete(message.tool_call_id!)).toBe(true);
+			} else {
+				expect(pending.size).toBe(0);
+			}
+		}
+		expect(pending.size).toBe(0);
+	}
+});

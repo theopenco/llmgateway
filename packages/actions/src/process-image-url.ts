@@ -1,5 +1,8 @@
 import { logger } from "@llmgateway/logger";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import {
+	assertSafeUserContentUrl,
+	isTransientHostResolutionError,
+} from "@llmgateway/shared/url-safety-node";
 
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
@@ -198,7 +201,16 @@ export async function processImageUrl(
 
 	// SSRF: remote content must not resolve to an internal host. This also
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
-	await assertSafeUserContentUrl(url);
+	try {
+		await assertSafeUserContentUrl(url);
+	} catch (error) {
+		if (isTransientHostResolutionError(error)) {
+			throw error;
+		}
+		throw new RequestError(
+			"Image URL is invalid or points to a disallowed host",
+		);
+	}
 	signal?.throwIfAborted();
 
 	let response: Response | undefined;
