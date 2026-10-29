@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -12,6 +13,8 @@ import {
 	putLogPayload,
 	splitLogPayload,
 } from "./payload-storage.js";
+
+import type { Socket } from "node:net";
 
 const PAYLOAD_ENV_KEYS = [
 	"PAYLOAD_STORAGE_S3_BUCKET",
@@ -41,7 +44,7 @@ function restoreEnv(snapshot: Record<string, string | undefined>): void {
 }
 
 function setMinioEnv(): void {
-	process.env.PAYLOAD_STORAGE_S3_BUCKET = "llmgateway-payloads";
+	process.env.PAYLOAD_STORAGE_S3_BUCKET = `llmgateway-test-${randomUUID()}`;
 	// MINIO_PORT is set by offset per-worktree stacks (see docker-compose.yml).
 	process.env.PAYLOAD_STORAGE_S3_ENDPOINT = `http://localhost:${process.env.MINIO_PORT ?? "9000"}`;
 	process.env.PAYLOAD_STORAGE_S3_REGION = "us-east-1";
@@ -239,6 +242,53 @@ describe("payload-storage", () => {
 				}),
 			).rejects.toThrow("boom");
 		});
+	});
+
+	describe("getLogPayload deadline", () => {
+		// The SDK clears requestTimeout and socketTimeout once response headers
+		// arrive, so only the overall abort signal bounds a stalled body stream.
+		test("aborts when the object store stalls mid-body", async () => {
+			const sockets: Socket[] = [];
+			const server = createServer((_req, res) => {
+				res.writeHead(200, {
+					"content-type": "application/zstd",
+					"content-length": "1024",
+				});
+				// Headers plus one byte, then stall forever.
+				res.write("x");
+			});
+			server.on("connection", (socket) => {
+				sockets.push(socket);
+			});
+			await new Promise<void>((resolve) => {
+				server.listen(0, "127.0.0.1", resolve);
+			});
+			const address = server.address();
+			const port = typeof address === "object" && address ? address.port : 0;
+
+			process.env.PAYLOAD_STORAGE_S3_BUCKET = "stall-bucket";
+			process.env.PAYLOAD_STORAGE_S3_ENDPOINT = `http://127.0.0.1:${port}`;
+			process.env.PAYLOAD_STORAGE_S3_REGION = "us-east-1";
+			process.env.PAYLOAD_STORAGE_S3_ACCESS_KEY_ID = "stall";
+			process.env.PAYLOAD_STORAGE_S3_SECRET_ACCESS_KEY = "stall";
+			process.env.PAYLOAD_STORAGE_S3_FORCE_PATH_STYLE = "true";
+
+			try {
+				const startedAt = Date.now();
+				await expect(
+					getLogPayload("logs/stall/stall/stall.json.zst", 500),
+				).rejects.toThrow();
+				expect(Date.now() - startedAt).toBeLessThan(5_000);
+			} finally {
+				restoreEnv(envSnapshot);
+				for (const socket of sockets) {
+					socket.destroy();
+				}
+				await new Promise<void>((resolve, reject) => {
+					server.close((error) => (error ? reject(error) : resolve()));
+				});
+			}
+		}, 20_000);
 	});
 
 	describe("minio roundtrip", () => {

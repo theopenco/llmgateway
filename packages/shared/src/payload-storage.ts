@@ -1,3 +1,4 @@
+import { addAbortListener } from "node:events";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import { promisify } from "node:util";
@@ -68,9 +69,12 @@ const GET_PAYLOAD_DEADLINE_MS = 30_000;
 
 // One keep-alive pool shared by every payload storage client, so rebuilding
 // the client below (tests toggle the env) reuses sockets instead of churning
-// them. The SDK builds its node:http handler around these.
-const httpAgent = new HttpAgent({ keepAlive: true });
-const httpsAgent = new HttpsAgent({ keepAlive: true });
+// them. The SDK builds its node:http handler around these. maxSockets mirrors
+// the SDK's own default — supplying an agent skips the one it would build, and
+// node's default of Infinity would leave sockets to the object store unbounded.
+const MAX_SOCKETS = 50;
+const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: MAX_SOCKETS });
+const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: MAX_SOCKETS });
 
 let payloadStorageClient: S3Client | null = null;
 let payloadStorageClientKey = "";
@@ -194,42 +198,31 @@ export async function putLogPayload(
  * disabled or the object no longer exists (e.g. deleted by the bucket
  * lifecycle rule before the PG row aged out) — callers degrade to the stored
  * previews rather than failing.
+ *
+ * `deadlineMs` overrides the overall deadline; only tests pass it.
  */
 export async function getLogPayload(
 	payloadRef: string,
+	deadlineMs: number = GET_PAYLOAD_DEADLINE_MS,
 ): Promise<Record<string, unknown> | null> {
 	if (!isPayloadStorageEnabled()) {
 		return null;
 	}
 
-	const abortSignal = AbortSignal.timeout(GET_PAYLOAD_DEADLINE_MS);
-	let body;
+	const abortSignal = AbortSignal.timeout(deadlineMs);
+	const { promise: deadline, reject } = Promise.withResolvers<never>();
+	// SDK retry backoff does not observe aborts until its sleep completes.
+	const listener = addAbortListener(abortSignal, () =>
+		reject(abortSignal.reason),
+	);
 	try {
-		const result = await getPayloadStorageClient().send(
-			new GetObjectCommand({
-				Bucket: getPayloadStorageBucket(),
-				Key: payloadRef,
-			}),
-			{ abortSignal },
-		);
-		body = result.Body;
-	} catch (error) {
-		if (
-			error instanceof Error &&
-			(error.name === "NoSuchKey" || error.name === "NotFound")
-		) {
-			return null;
-		}
-		throw error;
+		return await Promise.race([
+			readLogPayload(payloadRef, abortSignal),
+			deadline,
+		]);
+	} finally {
+		listener[Symbol.dispose]();
 	}
-
-	if (!body) {
-		return null;
-	}
-
-	const compressed = Buffer.from(await body.transformToByteArray());
-	const decompressed = await zstdDecompressAsync(compressed);
-	return JSON.parse(decompressed.toString()) as Record<string, unknown>;
 }
 
 function truncateString(value: string, maxChars: number): string {
@@ -452,4 +445,36 @@ export async function mapWithConcurrency<T, R>(
 	}
 
 	return results;
+}
+async function readLogPayload(
+	payloadRef: string,
+	abortSignal: AbortSignal,
+): Promise<Record<string, unknown> | null> {
+	let body;
+	try {
+		const result = await getPayloadStorageClient().send(
+			new GetObjectCommand({
+				Bucket: getPayloadStorageBucket(),
+				Key: payloadRef,
+			}),
+			{ abortSignal },
+		);
+		body = result.Body;
+	} catch (error) {
+		if (
+			error instanceof Error &&
+			(error.name === "NoSuchKey" || error.name === "NotFound")
+		) {
+			return null;
+		}
+		throw error;
+	}
+
+	if (!body) {
+		return null;
+	}
+
+	const compressed = Buffer.from(await body.transformToByteArray());
+	const decompressed = await zstdDecompressAsync(compressed);
+	return JSON.parse(decompressed.toString()) as Record<string, unknown>;
 }
