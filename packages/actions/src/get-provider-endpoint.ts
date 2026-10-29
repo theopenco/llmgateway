@@ -251,6 +251,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 	typesafe: "https://api.typesafe.ai",
+	"fal-ai": "https://queue.fal.run",
 };
 
 /**
@@ -409,6 +410,7 @@ export function getProviderEndpoint(
 			case "google-vertex":
 			case "xiaomi":
 			case "runpod":
+			case "fal-ai":
 				url =
 					envValueOrDefault(
 						provider,
@@ -752,6 +754,8 @@ export function getProviderEndpoint(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return url;
 		case "anthropic":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {

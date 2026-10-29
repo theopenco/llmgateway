@@ -4,6 +4,7 @@ import { atlascloudModels } from "./models/atlascloud.js";
 import { atriaModels } from "./models/atria.js";
 import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
+import { blackForestLabsModels } from "./models/black-forest-labs.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -1045,6 +1046,7 @@ export const models = [
 	...atriaModels,
 	...baaiModels,
 	...baiduModels,
+	...blackForestLabsModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,
