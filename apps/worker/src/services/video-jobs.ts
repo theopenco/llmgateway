@@ -2273,12 +2273,17 @@ async function fetchFalStatus(
 				`fal queue result request failed with status ${resultResponse.status}`,
 			);
 		}
+		const firstDetail = Array.isArray(result.detail)
+			? (result.detail[0] as { msg?: unknown } | undefined)
+			: undefined;
 		const message =
 			typeof result.detail === "string"
 				? result.detail
-				: typeof result.error === "string"
-					? result.error
-					: "fal video generation failed";
+				: typeof firstDetail?.msg === "string"
+					? firstDetail.msg
+					: typeof result.error === "string"
+						? result.error
+						: "fal video generation failed";
 		return addRequestedVideoMetadata(job, {
 			status: /cancelled|canceled/i.test(message) ? "canceled" : "failed",
 			progress: 100,

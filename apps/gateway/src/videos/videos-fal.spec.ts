@@ -337,6 +337,9 @@ describe("native fal video queue", () => {
 			const job = await poll(created.id);
 			expect(job?.status).toBe(expected);
 			expect(job?.error).toBeTruthy();
+			if (code === 422) {
+				expect(job?.error?.message).toBe("Invalid duration");
+			}
 			const logs = await db.query.log.findMany();
 			expect(logs).toHaveLength(1);
 			expect(logs[0].videoOutputCost).toBe(0);
