@@ -152,4 +152,6 @@ The specific formats supported may vary by model provider. Check the individual 
 
 ## Error Handling
 
-If an image URL is inaccessible or the image format is unsupported, the gateway will handle the error gracefully and may substitute a placeholder or error message in the request to the underlying model.
+When the gateway downloads an image before sending it to a provider, the download has a 15-second deadline covering response headers and the entire body. A timeout returns HTTP 400 with `Timed out fetching image from URL`; the image is not forwarded or replaced with a placeholder. Redirects and private-network URLs are rejected.
+
+Self-hosted deployments can override the deadline with `IMAGE_FETCH_TIMEOUT_MS`, a positive integer in milliseconds up to `2147483647`. Unset, blank, zero, negative, fractional, or out-of-range values use the 15-second default.

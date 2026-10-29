@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi, afterEach } from "vitest";
 
 import { models } from "@llmgateway/models";
 
@@ -9502,4 +9502,82 @@ describe("prepareRequestBody - bytedance prompt caching", () => {
 		const requestBody = await prepare("deepinfra", "granite-4.2-8b");
 		expect(requestBody.caching).toBeUndefined();
 	});
+});
+
+describe("prepareRequestBody - image edits input fetch", () => {
+	const EDIT_URL = "https://example.com/ref.png";
+
+	async function prepareEdit() {
+		return await prepareRequestBody(
+			"openai",
+			"gpt-image-2",
+			null,
+			"gpt-image-2",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{ type: "image_url", image_url: { url: EDIT_URL } },
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{},
+			undefined,
+			true,
+		);
+	}
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	});
+
+	test("bounds the edit-image download with a deadline", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(new Uint8Array([1, 2, 3]), {
+				headers: { "content-type": "image/png" },
+			}),
+		);
+
+		const body = (await prepareEdit()) as unknown as FormData;
+
+		expect(body).toBeInstanceOf(FormData);
+		expect(fetchSpy).toHaveBeenCalledWith(EDIT_URL, {
+			redirect: "error",
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	test("maps a stalled edit-image host to a client error", async () => {
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "50");
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			(_url, init) =>
+				new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => {
+						reject(init.signal?.reason as Error);
+					});
+				}),
+		);
+
+		const error = await prepareEdit().catch((err: unknown) => err);
+
+		expect(error).toBeInstanceOf(RequestError);
+		expect((error as Error).message).toBe("Timed out fetching image from URL");
+	}, 2000);
 });

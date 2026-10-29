@@ -46,12 +46,28 @@ export class ImageSizeLimitError extends RequestError {
 	}
 }
 
-/**
- * Host only: the path and query of a user-supplied URL can carry a signed
- * token, and a truncated prefix still contains a short one in full.
- */
-function urlHostForLog(url: string): string {
+export function urlHostForLog(url: string): string {
 	return URL.canParse(url) ? new URL(url).host : "invalid";
+}
+
+/**
+ * Maps a fired fetch deadline to a client error, or returns null for anything
+ * else. A caller-chosen slow host is a client outcome (4xx at warn), not a
+ * gateway failure, so every user-content image fetch classifies it the same way.
+ */
+export function imageFetchTimeoutError(
+	error: unknown,
+	url: string,
+	timeoutMs: number,
+): RequestError | null {
+	if (!(error instanceof Error) || error.name !== "TimeoutError") {
+		return null;
+	}
+	logger.warn("Timed out fetching image from URL", {
+		timeoutMs,
+		host: urlHostForLog(url),
+	});
+	return new RequestError("Timed out fetching image from URL");
 }
 
 /**
@@ -290,14 +306,9 @@ export async function processImageUrl(
 			throw error;
 		}
 
-		// The deadline fired: the caller chose a slow host, so this is a client
-		// outcome (4xx at warn), not a gateway failure.
-		if (error instanceof Error && error.name === "TimeoutError") {
-			logger.warn("Timed out fetching image from URL", {
-				timeoutMs,
-				host: urlHostForLog(url),
-			});
-			throw new RequestError("Timed out fetching image from URL");
+		const timedOut = imageFetchTimeoutError(error, url, timeoutMs);
+		if (timedOut) {
+			throw timedOut;
 		}
 
 		// Log the full error internally but sanitize the thrown error

@@ -49,7 +49,12 @@ import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { processImageUrl } from "./process-image-url.js";
+import {
+	processImageUrl,
+	imageFetchTimeoutError,
+	resolveImageFetchTimeoutMs,
+	urlHostForLog,
+} from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -310,20 +315,38 @@ async function fetchImageAsBlob(
 	// SSRF: the URL comes from the request body, so validate it does not resolve
 	// to an internal host and refuse redirects before fetching.
 	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
-	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
-		);
+	// Same deadline as `processImageUrl`: the URL is caller-supplied and this
+	// fetch runs before the provider call, so nothing else bounds it. N edit
+	// images are fetched concurrently, so an unbounded one pins N sockets.
+	const timeoutMs = resolveImageFetchTimeoutMs();
+	try {
+		const response = await fetchNoRedirect(url, {
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+		if (!response.ok) {
+			// Host only: the path and query of a caller-supplied URL can carry a
+			// signed token.
+			throw new Error(
+				`Failed to fetch image ${urlHostForLog(url)}: ${response.status} ${response.statusText}`,
+			);
+		}
+		const mimeType =
+			response.headers.get("content-type")?.split(";")[0]?.trim() ||
+			"image/png";
+		const buffer = await response.arrayBuffer();
+		const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+		return {
+			blob: new Blob([buffer], { type: mimeType }),
+			filename: `image-${index}.${ext}`,
+		};
+	} catch (error) {
+		// Only the deadline is handled here; everything else propagates.
+		const timedOut = imageFetchTimeoutError(error, url, timeoutMs);
+		if (timedOut) {
+			throw timedOut;
+		}
+		throw error;
 	}
-	const mimeType =
-		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
-	const buffer = await response.arrayBuffer();
-	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
-	return {
-		blob: new Blob([buffer], { type: mimeType }),
-		filename: `image-${index}.${ext}`,
-	};
 }
 
 /**
