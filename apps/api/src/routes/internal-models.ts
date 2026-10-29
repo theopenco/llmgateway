@@ -769,24 +769,31 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
-		providers: providers.map((provider) => ({
-			...provider,
-			name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
-			// Custom carriers keep their description on the claim; the provider
-			// row only holds the snapshot taken at approval.
-			description:
-				brandingByProvider.get(provider.id)?.customDescription ??
-				provider.description,
-			modelCardBadge:
-				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
-				null,
-			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
-			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
-			airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
-			airsideCertification: airsideCertificationFor(
-				brandingByProvider.get(provider.id),
-			),
-		})),
+		providers: providers
+			.filter(
+				(provider) =>
+					providerDefinitions.some(
+						(definition) => definition.id === provider.id,
+					) || brandingByProvider.has(provider.id),
+			)
+			.map((provider) => ({
+				...provider,
+				name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
+				// Custom carriers keep their description on the claim; the provider
+				// row only holds the snapshot taken at approval.
+				description:
+					brandingByProvider.get(provider.id)?.customDescription ??
+					provider.description,
+				modelCardBadge:
+					providerDefinitions.find((p) => p.id === provider.id)
+						?.modelCardBadge ?? null,
+				airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
+				airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
+				airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
+				airsideCertification: airsideCertificationFor(
+					brandingByProvider.get(provider.id),
+				),
+			})),
 	});
 });
 
