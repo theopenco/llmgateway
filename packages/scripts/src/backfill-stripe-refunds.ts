@@ -103,7 +103,10 @@ async function main(): Promise<void> {
 		}
 
 		const original = await db.query.transaction.findFirst({
-			where: { id: { eq: row.relatedTransactionId } },
+			where: {
+				id: { eq: row.relatedTransactionId },
+				organizationId: { eq: row.organizationId },
+			},
 		});
 		if (!original) {
 			nonDevpassRows += 1;
@@ -139,9 +142,7 @@ async function main(): Promise<void> {
 	}
 
 	if (nonDevpassRows > 0) {
-		console.log(
-			`Skipping ${nonDevpassRows} non-DevPass legacy refund row(s).`,
-		);
+		console.log(`Skipping ${nonDevpassRows} non-DevPass legacy refund row(s).`);
 	}
 	if (devpassRows.length === 0) {
 		console.log("No DevPass refund rows to backfill.");
@@ -216,7 +217,9 @@ async function main(): Promise<void> {
 		}
 
 		refundAttempts = refundAttempts.sort((a, b) => a.created - b.created);
-		const skippedAttempts = refundAttempts.filter((r) => r.status !== "succeeded");
+		const skippedAttempts = refundAttempts.filter(
+			(r) => r.status !== "succeeded",
+		);
 		if (skippedAttempts.length > 0) {
 			console.log(
 				`  Ignoring ${skippedAttempts.length} non-succeeded Stripe refund attempt(s):`,
@@ -237,7 +240,10 @@ async function main(): Promise<void> {
 			continue;
 		}
 
-		const stripeTotal = refunds.reduce((s, r) => s + r.amount / 100, 0);
+		const stripeTotal = refunds.reduce((sum, refund) => {
+			const refundDollars = refund.amount / 100;
+			return sum + refundDollars;
+		}, 0);
 		console.log(
 			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
 		);
@@ -298,14 +304,12 @@ async function main(): Promise<void> {
 
 		if (commit) {
 			await db.transaction(async (tx) => {
-				await tx
-					.delete(tables.transaction)
-					.where(
-						inArray(
-							tables.transaction.id,
-							rows.map((row) => row.id),
-						),
-					);
+				await tx.delete(tables.transaction).where(
+					inArray(
+						tables.transaction.id,
+						rows.map((row) => row.id),
+					),
+				);
 
 				for (const r of toInsert) {
 					const refundDollars = r.amount / 100;

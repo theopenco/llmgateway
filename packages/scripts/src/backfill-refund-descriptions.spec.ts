@@ -42,15 +42,13 @@ function runBackfill(...args: string[]): Report {
 
 describe("refund description backfill CLI", () => {
 	beforeEach(async () => {
-		await db
-			.insert(tables.organization)
-			.values(
-				ORGS.map((id) => ({
-					id,
-					name: "Test Organization",
-					billingEmail: "test@example.com",
-				})),
-			);
+		await db.insert(tables.organization).values(
+			ORGS.map((id) => ({
+				id,
+				name: "Test Organization",
+				billingEmail: "test@example.com",
+			})),
+		);
 		await db.insert(tables.transaction).values([
 			{
 				id: "backfill-original",
@@ -202,6 +200,39 @@ describe("refund description backfill CLI", () => {
 		expect(report.changes.every((change) => change.after.length > 100000)).toBe(
 			true,
 		);
+	}, 60000);
+
+	it("skips cross-org originals in the Stripe reconciliation backfill before any API call", async () => {
+		await db
+			.update(tables.transaction)
+			.set({ type: "dev_plan_start" })
+			.where(eq(tables.transaction.id, "backfill-foreign-original"));
+		await db
+			.update(tables.transaction)
+			.set({ stripePaymentIntentId: "pi_cross_org_fixture" })
+			.where(eq(tables.transaction.id, "backfill-cross-org"));
+		const blockNetwork =
+			'import https from "node:https"; https.request = () => { throw new Error("Network forbidden in refund fixture"); };';
+		const output = execFileSync(
+			process.execPath,
+			[
+				"--import",
+				"tsx",
+				"--import",
+				`data:text/javascript,${encodeURIComponent(blockNetwork)}`,
+				"packages/scripts/src/backfill-stripe-refunds.ts",
+				"--payment-intent=pi_cross_org_fixture",
+			],
+			{
+				encoding: "utf8",
+				timeout: 60000,
+				env: {
+					...process.env,
+					STRIPE_SECRET_KEY: ["sk", "test", "refund_fixture"].join("_"),
+				},
+			},
+		);
+		expect(output).toContain("No DevPass refund rows to backfill.");
 	}, 60000);
 
 	it("caps examined rows", () => {
