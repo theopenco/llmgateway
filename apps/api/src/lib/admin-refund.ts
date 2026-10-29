@@ -150,6 +150,7 @@ export async function loadRefundOriginals(
 		description: string | null;
 		relatedTransactionId: string | null;
 	}>,
+	organizationId: string,
 ): Promise<Map<string, RefundOriginal>> {
 	const known = new Map<string, RefundOriginal>(
 		transactions.map((t) => [
@@ -180,7 +181,12 @@ export async function loadRefundOriginals(
 			description: tables.transaction.description,
 		})
 		.from(tables.transaction)
-		.where(inArray(tables.transaction.id, missing));
+		.where(
+			and(
+				eq(tables.transaction.organizationId, organizationId),
+				inArray(tables.transaction.id, missing),
+			),
+		);
 
 	for (const row of rows) {
 		known.set(row.id, { amount: row.amount, description: row.description });
@@ -211,6 +217,7 @@ export function describeTransaction(
 		transaction.relatedTransactionId
 			? refundOriginals.get(transaction.relatedTransactionId)
 			: null,
+		transaction.description,
 	);
 }
 

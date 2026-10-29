@@ -18108,7 +18108,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		orgId,
 		transactions.map((t) => t.id),
 	);
-	const refundOriginalsById = await loadRefundOriginals(transactions);
+	const refundOriginalsById = await loadRefundOriginals(transactions, orgId);
 
 	const paymentFailures = await db
 		.select({
@@ -19860,10 +19860,6 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		createdAt: org.createdAt.toISOString(),
 	};
 
-	const historyRefundOriginalTx = aliasedTable(
-		tables.transaction,
-		"history_refund_original",
-	);
 	const transactions = await db
 		.select({
 			id: tables.transaction.id,
@@ -19877,10 +19873,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 			relatedTransactionId: tables.transaction.relatedTransactionId,
 		})
 		.from(tables.transaction)
-		.leftJoin(
-			historyRefundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, historyRefundOriginalTx.id),
-		)
+
 		.where(
 			and(
 				eq(tables.transaction.organizationId, orgId),
@@ -19900,7 +19893,18 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 					// org is not part of this history.
 					and(
 						eq(tables.transaction.type, "credit_refund"),
-						inArray(historyRefundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
+						inArray(
+							tables.transaction.relatedTransactionId,
+							db
+								.select({ id: tables.transaction.id })
+								.from(tables.transaction)
+								.where(
+									and(
+										eq(tables.transaction.organizationId, orgId),
+										inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+									),
+								),
+						),
 					),
 				),
 			),
@@ -19908,7 +19912,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.orderBy(desc(tables.transaction.createdAt))
 		.limit(100);
 
-	const refundOriginalsById = await loadRefundOriginals(transactions);
+	const refundOriginalsById = await loadRefundOriginals(transactions, orgId);
 
 	const paymentFailures = await db
 		.select({

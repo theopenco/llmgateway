@@ -33,8 +33,10 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { and, db, eq, inArray, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, tables, pool } from "@llmgateway/db";
 import { buildRefundDescription } from "@llmgateway/shared";
+
+import { parseRefundBackfillOptions } from "./refund-backfill-options.js";
 
 // Rows inserted by backfill-stripe-refunds carry this marker. It is preserved
 // so a description rewrite does not erase the provenance of those rows.
@@ -64,17 +66,10 @@ interface SkippedRow {
 	amount: string | null;
 	description: string | null;
 	relatedTransactionId: string | null;
-	reason: "no_related_transaction" | "original_missing";
-}
-
-function parseFlag(name: string): string | undefined {
-	const flag = `--${name}=`;
-	const arg = process.argv.find((a) => a.startsWith(flag));
-	return arg ? arg.slice(flag.length) : undefined;
-}
-
-function hasFlag(name: string): boolean {
-	return process.argv.includes(`--${name}`);
+	reason:
+		| "no_related_transaction"
+		| "original_missing"
+		| "original_organization_mismatch";
 }
 
 function money(amount: string | null): string {
@@ -100,24 +95,8 @@ function targetDescription(
 }
 
 async function main(): Promise<void> {
-	const commit = hasFlag("commit");
-	const asJson = hasFlag("json");
-	const outPath = parseFlag("out");
-	const scopeOrg = parseFlag("org");
-	const limitRaw = parseFlag("limit");
-	const limit = limitRaw !== undefined ? Number(limitRaw) : undefined;
-
-	// A blank `--org=` (e.g. an unset shell variable) must not silently widen
-	// the run to every organization.
-	if (scopeOrg !== undefined && scopeOrg.trim() === "") {
-		throw new Error(`--org must be a non-empty organization id`);
-	}
-	if (
-		limitRaw !== undefined &&
-		(!Number.isSafeInteger(limit) || (limit ?? 0) <= 0)
-	) {
-		throw new Error(`--limit must be a positive integer, got "${limitRaw}"`);
-	}
+	const { commit, asJson, outPath, scopeOrg, limit } =
+		parseRefundBackfillOptions(process.argv.slice(2));
 
 	const log = (message: string) => {
 		if (!asJson) {
@@ -158,7 +137,7 @@ async function main(): Promise<void> {
 		if (outPath) {
 			writeFileSync(resolve(outPath), JSON.stringify(empty, null, 2));
 		}
-		process.exit(0);
+		return;
 	}
 
 	// One lookup for every referenced original rather than a query per row.
@@ -195,14 +174,16 @@ async function main(): Promise<void> {
 		}
 
 		const original = originalsById.get(row.relatedTransactionId);
-		if (!original) {
+		if (!original || original.organizationId !== row.organizationId) {
 			skipped.push({
 				id: row.id,
 				organizationId: row.organizationId,
 				amount: row.amount,
 				description: row.description,
 				relatedTransactionId: row.relatedTransactionId,
-				reason: "original_missing",
+				reason: original
+					? "original_organization_mismatch"
+					: "original_missing",
 			});
 			continue;
 		}
@@ -318,11 +299,19 @@ async function main(): Promise<void> {
 			console.log(`\n(Dry run — re-run with --commit to apply)`);
 		}
 	}
-
-	process.exit(0);
 }
 
-main().catch((err) => {
-	console.error("Error:", err);
-	process.exit(1);
-});
+main()
+	.catch((err) => {
+		console.error("Error:", err);
+		process.exitCode = 1;
+	})
+	.finally(async () => {
+		await pool.end();
+		// Imported Redis clients keep the process alive; drain reports before exit.
+		await Promise.all([
+			new Promise<void>((resolve) => process.stdout.write("", () => resolve())),
+			new Promise<void>((resolve) => process.stderr.write("", () => resolve())),
+		]);
+		process.exit(process.exitCode ?? 0);
+	});

@@ -86,6 +86,28 @@ describe("admin chat-plans subscriber billing history", () => {
 	});
 
 	it("lists refunds of plan payments, named after the refunded purchase", async () => {
+		await db.insert(tables.organization).values({
+			id: "other-lounge-org",
+			name: "Other Test Organization",
+			billingEmail: "other@example.com",
+			kind: "chat",
+		});
+		await db.insert(tables.transaction).values([
+			{
+				id: "other-lounge-purchase",
+				organizationId: "other-lounge-org",
+				type: "chat_plan_start",
+				amount: "20",
+				description: "Other organization's purchase",
+			},
+			{
+				id: "cross-org-refund",
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "5",
+				relatedTransactionId: "other-lounge-purchase",
+			},
+		]);
 		const res = await app.request(`/admin/chat-plans/${ORG_ID}`, {
 			headers: { Cookie: cookie },
 		});

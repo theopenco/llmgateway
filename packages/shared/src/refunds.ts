@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 // Feedback collected right before a self-service refund is issued. Shared so
 // the API validation, the database enum and the three dashboard dialogs
 // (credits, DevPass, chat) stay in sync.
@@ -98,14 +100,20 @@ export function buildRefundDescription(
 	refundAmountDollars: number,
 	original:
 		{ amount: string | null; description: string | null } | null | undefined,
+	fallback?: string | null,
 ): string {
-	const label = original?.description ?? "original purchase";
-	const originalAmount = Number.parseFloat(original?.amount ?? "0");
-	const ratio = originalAmount > 0 ? refundAmountDollars / originalAmount : 1;
-	if (ratio >= 0.9995) {
+	if (!original) {
+		return fallback ?? "Refund: original purchase";
+	}
+	const label = original.description?.trim() || "original purchase";
+	const originalAmount = new Decimal(original.amount ?? 0);
+	const ratio = originalAmount.gt(0)
+		? new Decimal(refundAmountDollars).div(originalAmount)
+		: new Decimal(1);
+	if (ratio.gte("0.9995")) {
 		return `Refund: ${label}`;
 	}
-	return `Partial refund (${(ratio * 100).toFixed(1)}%): ${label}`;
+	return `Partial refund (${ratio.mul(100).toFixed(1)}%): ${label}`;
 }
 
 // One rule for "is this answer usable?", shared by the dialogs (to gate the

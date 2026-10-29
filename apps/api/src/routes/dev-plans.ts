@@ -2726,6 +2726,7 @@ devPlans.openapi(getInvoices, async (c) => {
 							t.relatedTransactionId
 								? transactionsById.get(t.relatedTransactionId)
 								: null,
+							t.description,
 						)
 					: t.description,
 			refund: hasRefundAction(t)
