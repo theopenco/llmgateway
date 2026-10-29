@@ -112,6 +112,7 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"System detected potentially unsafe or sensitive content in input or generation",
 	"cyber_policy",
 	"flagged for possible cybersecurity risk",
+	"guardrail_violation",
 ];
 
 /**

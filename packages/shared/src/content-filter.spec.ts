@@ -146,3 +146,24 @@ describe("isContentFilterErrorText", () => {
 		expect(isContentFilterErrorText("")).toBe(false);
 	});
 });
+
+describe("Mistral guardrail errors", () => {
+	test("detects the provider's guardrail violation payload", () => {
+		expect(
+			isContentFilterErrorText(
+				'{"object":"error","message":"Request blocked by guardrail policy","type":"guardrail_violation","param":null,"code":"1920","raw_status_code":403}',
+			),
+		).toBe(true);
+	});
+	test.each([
+		'{"object":"error","message":"Forbidden","type":"permission_error","code":"1920","raw_status_code":403}',
+		'{"object":"error","message":"Invalid API key","type":"authentication_error"}',
+		"Access denied by policy",
+		"Guardrail policy configuration is unavailable",
+	])(
+		"does not treat unrelated permission or policy errors as moderation: %s",
+		(text) => {
+			expect(isContentFilterErrorText(text)).toBe(false);
+		},
+	);
+});
