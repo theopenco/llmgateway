@@ -119,3 +119,30 @@ describe("Tencent DeepSeek peak pricing", () => {
 		},
 	);
 });
+
+describe("Tencent sampling metadata", () => {
+	it.each([
+		["mimo-v2.6-pro", 1.5],
+		["mimo-v2.6-flash", 1.5],
+		["glm-5.3", undefined],
+		["glm-5.3-flash", 1],
+		["glm-5.3-flashx", 1],
+		["step-5-preview", undefined],
+	] as const)(
+		"keeps only verified temperature ceilings for %s",
+		(model, expected) => {
+			expect(tencentMapping(model)?.maxTemperature).toBe(expected);
+		},
+	);
+
+	it("omits Kimi's fixed sampling parameters", () => {
+		const supported = tencentMapping("kimi-k2.8-preview")?.supportedParameters;
+		expect(supported).toEqual([
+			"max_tokens",
+			"response_format",
+			"tools",
+			"tool_choice",
+			"reasoning_effort",
+		]);
+	});
+});

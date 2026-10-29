@@ -31,6 +31,7 @@ export const xiaomiModels = [
 			{
 				providerId: "tencent",
 				externalId: "mimo-v2.6-pro",
+				maxTemperature: 1.5,
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.0036e-6",
@@ -105,6 +106,7 @@ export const xiaomiModels = [
 			{
 				providerId: "tencent",
 				externalId: "mimo-v2.6-flash",
+				maxTemperature: 1.5,
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",

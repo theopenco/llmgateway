@@ -13,6 +13,7 @@ export const zaiModels = [
 			{
 				providerId: "tencent",
 				externalId: "glm-5.3-flashx",
+				maxTemperature: 1,
 				inputPrice: "0.37e-6",
 				cachedInputPrice: "0.075e-6",
 				outputPrice: "1.25e-6",
@@ -42,6 +43,7 @@ export const zaiModels = [
 			{
 				providerId: "tencent",
 				externalId: "glm-5.3-flash",
+				maxTemperature: 1,
 				inputPrice: "0.15e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.50e-6",

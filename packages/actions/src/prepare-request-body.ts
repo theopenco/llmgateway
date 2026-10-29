@@ -2516,7 +2516,11 @@ export async function prepareRequestBody(
 
 	if (
 		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
-		usedProvider === "runpod"
+		usedProvider === "runpod" ||
+		(usedProvider === "tencent" &&
+			["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"].includes(
+				usedInternalModel,
+			))
 	) {
 		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
