@@ -18,6 +18,7 @@ import {
 	ne,
 	sql,
 	tables,
+	or,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -1839,7 +1840,7 @@ async function recordCreditTopUp({
 	creditAmount: number;
 	totalAmountInDollars: number;
 	currency: string;
-	stripePaymentIntentId: string | null;
+	stripePaymentIntentId: string;
 	description: string;
 	organization: {
 		name: string;
@@ -1853,10 +1854,7 @@ async function recordCreditTopUp({
 	bonusType?: BonusType | null;
 	purchaserUserId?: string | null;
 }): Promise<boolean> {
-	// Credit the org and write the transaction row atomically. The insert hits
-	// the unique index on (stripePaymentIntentId) WHERE type = 'credit_topup',
-	// so a concurrent/re-delivered webhook for the same PaymentIntent rolls the
-	// whole transaction back instead of double-crediting.
+	// Keep the credit, alert reset and completed ledger row atomic.
 	let completedTransaction: { id: string };
 	try {
 		completedTransaction = await db.transaction(async (tx) => {
@@ -1901,10 +1899,13 @@ async function recordCreditTopUp({
 			return row;
 		});
 	} catch (err) {
-		const code =
-			(err as { code?: string; cause?: { code?: string } })?.code ??
-			(err as { cause?: { code?: string } })?.cause?.code;
-		if (code === "23505") {
+		if (
+			await isCompletedCreditTopUpConflict(
+				err,
+				organizationId,
+				stripePaymentIntentId,
+			)
+		) {
 			logger.info(
 				`Skipping duplicate credit top-up for organization ${organizationId} (concurrent delivery for ${stripePaymentIntentId})`,
 			);
@@ -3139,12 +3140,8 @@ async function handlePaymentIntentSucceeded(
 			: `${topupNoun} via Stripe`;
 
 	if (transactionId) {
-		// Claim the pending transaction and credit the org atomically. The
-		// conditional UPDATE (status != 'completed') only matches for the
-		// delivery that gets there first; a concurrent duplicate delivery finds
-		// zero rows, falls through to the insert below, and collides with the
-		// unique index on (stripePaymentIntentId) WHERE type = 'credit_topup' —
-		// rolling the whole transaction back instead of double-crediting.
+		// Claim this org's top-up atomically. Concurrent duplicates collide
+		// with the completed-intent index and roll back the whole credit.
 		let completedTransactionId: string;
 		try {
 			completedTransactionId = await db.transaction(async (tx) => {
@@ -3163,7 +3160,13 @@ async function handlePaymentIntentSucceeded(
 					.where(
 						and(
 							eq(tables.transaction.id, transactionId),
+							eq(tables.transaction.organizationId, organizationId),
+							eq(tables.transaction.type, "credit_topup"),
 							ne(tables.transaction.status, "completed"),
+							or(
+								isNull(tables.transaction.stripePaymentIntentId),
+								eq(tables.transaction.stripePaymentIntentId, paymentIntent.id),
+							),
 						),
 					)
 					.returning()
@@ -3220,10 +3223,13 @@ async function handlePaymentIntentSucceeded(
 				return claimedTransactionId;
 			});
 		} catch (err) {
-			const code =
-				(err as { code?: string; cause?: { code?: string } })?.code ??
-				(err as { cause?: { code?: string } })?.cause?.code;
-			if (code === "23505") {
+			if (
+				await isCompletedCreditTopUpConflict(
+					err,
+					organizationId,
+					paymentIntent.id,
+				)
+			) {
 				logger.info(
 					`Skipping duplicate payment_intent.succeeded auto top-up for organization ${organizationId} (transaction ${transactionId} already processed)`,
 				);
@@ -5804,4 +5810,33 @@ export async function handleSubscriptionCreated(
 		);
 		throw error;
 	}
+}
+async function isCompletedCreditTopUpConflict(
+	error: unknown,
+	organizationId: string,
+	paymentIntentId: string | null,
+): Promise<boolean> {
+	const wrapped = error as {
+		code?: string;
+		constraint?: string;
+		cause?: { code?: string; constraint?: string };
+	};
+	const violation = wrapped?.cause ?? wrapped;
+	if (
+		!paymentIntentId ||
+		violation?.code !== "23505" ||
+		violation.constraint !== "transaction_credit_topup_payment_intent_unique"
+	) {
+		return false;
+	}
+	return Boolean(
+		await db.query.transaction.findFirst({
+			where: {
+				organizationId: { eq: organizationId },
+				stripePaymentIntentId: { eq: paymentIntentId },
+				type: { eq: "credit_topup" },
+				status: { eq: "completed" },
+			},
+		}),
+	);
 }

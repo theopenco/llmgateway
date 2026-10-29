@@ -8,6 +8,7 @@ description: Organizations, plans, credits, and billing in LLM Gateway — org k
 ## Money
 
 - Do all money, credit, and usage-threshold math with `Decimal` from `decimal.js`; convert DB decimal strings with `new Decimal(value ?? 0)`.
+- A top-up duplicate requires the exact idempotency constraint and a completed payment in the same org; propagate unrelated unique violations so webhooks retry. Claim pending transactions by org, type and payment intent, not id alone.
 - Token extraction (`apps/gateway/src/chat/tools/extract-token-usage.ts`) normalizes completion tokens to include reasoning; `calculateCosts` (`packages/actions/src/costs.ts`) bills the completion count and reports `reasoningTokens` as a detail. Verify a new reasoning provider's usage semantics live.
 
 ## Organization kinds and plans

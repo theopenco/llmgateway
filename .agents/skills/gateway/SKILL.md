@@ -15,10 +15,11 @@ The gateway is latency-critical and high-throughput.
 ## User-supplied URLs
 
 Fetch every content URL from a request body through `processImageUrl`
-(`packages/actions/src/process-image-url.ts`), or for non-image content
-`assertSafeUserContentUrl` from `@llmgateway/shared/url-safety-node` followed by
-a `redirect: "error"` fetch. Keep `validateSsrf` on; only trusted
-provider-response URLs pass `validateSsrf: false`. The guard enforces
+(`packages/actions/src/process-image-url.ts`), or `fetchSafeUserContentUrl`
+from `@llmgateway/shared/url-safety-node` for other content. A separate DNS
+check followed by `fetch` permits rebinding; use the DNS-pinned fetch helper.
+Keep `validateSsrf` on; only trusted provider-response URLs pass
+`validateSsrf: false`. The guard enforces
 https-only in every environment, blocks internal hosts and private, reserved,
 link-local, metadata, and IPv4-mapped IPv6 addresses, and refuses redirects.
 When the guard rejects a URL, fail the request; forwarding it upstream lets the
