@@ -181,13 +181,20 @@ it.each(["headers", "body"])(
 		const source = new URL("./convert-images-to-base64.ts", import.meta.url)
 			.href;
 		const program = `
-		import assert from "node:assert/strict";
-		import { once } from "node:events";
-		import { createServer } from "node:http";
-		import { convertImagesToBase64 } from ${JSON.stringify(source)};
+		(async () => {
+		const { default: assert } = await import("node:assert/strict");
+		const { once } = await import("node:events");
+		const { createServer } = await import("node:http");
+		const { convertImagesToBase64 } = await import(${JSON.stringify(source)});
 		process.env.ALLOW_INSECURE_PROVIDER_URLS = "true";
 		process.env.IMAGE_FETCH_TIMEOUT_MS = "250";
 		let attempts = 0;
+		let fetches = 0;
+		const nativeFetch = globalThis.fetch;
+		globalThis.fetch = (...args) => {
+			fetches++;
+			return nativeFetch(...args);
+		};
 		const downloadsClosed = [];
 		const server = createServer((_request, response) => {
 			attempts++;
@@ -207,7 +214,8 @@ it.each(["headers", "body"])(
 		try {
 			const input = { type: "image_url", image_url: { url: "http://127.0.0.1:" + server.address().port + "/image.png" } };
 			assert.deepEqual(await convertImagesToBase64([input]), [input]);
-			assert.equal(attempts, 3);
+			assert.equal(fetches, 3);
+			assert.ok(attempts > 0 && attempts <= fetches);
 			await Promise.all(downloadsClosed);
 		} finally {
 			clearInterval(gc);
@@ -217,14 +225,19 @@ it.each(["headers", "body"])(
 				server.closeAllConnections();
 			});
 		}
+		})().catch((error) => {
+			console.error(error);
+			process.exitCode = 1;
+		});
 	`;
+		// Allow loader startup separately from the child's deadline watchdog.
 		await promisify(execFile)(
 			process.execPath,
-			["--expose-gc", "--input-type=module", "-e", program],
-			{ timeout: 12000 },
+			["--expose-gc", "--import", "tsx", "-e", program],
+			{ timeout: 30000 },
 		);
 	},
-	15000,
+	35000,
 );
 
 it("clears the deadline timer after a successful download", async () => {

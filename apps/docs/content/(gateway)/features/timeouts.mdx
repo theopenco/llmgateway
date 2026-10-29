@@ -75,9 +75,10 @@ the gateway service:
 | `GATEWAY_TIMEOUT_MS`      | `1500000` | Caps the _default_ streaming timeout at 80% of this value; not a separate end-to-end timer |
 | `IMAGE_FETCH_TIMEOUT_MS`  | `15000`   | Each provider-returned image download for base64 conversion; up to 3 attempts              |
 
-Image-download deadlines cover headers and the response body. After all attempts
-fail, the response keeps the original image URL instead of returning a timeout
-error. `IMAGE_FETCH_TIMEOUT_MS` accepts integers from `1` through `2147483647`;
+Image-download deadlines start before URL-safety/DNS validation and cover headers
+and the response body. A failed validation never starts a fetch or retry. After
+all download attempts fail, the response keeps the original image URL instead of
+returning a timeout error. `IMAGE_FETCH_TIMEOUT_MS` accepts integers from `1` through `2147483647`;
 blank, zero, and invalid values use the default.
 
 <Callout type="warn">

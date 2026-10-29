@@ -25,9 +25,11 @@ When the guard rejects a URL, fail the request; forwarding it upstream lets the
 provider fetch what we refused. Route every non-`data:` URL through the guard
 wherever remote content is inlined (e.g. `requiresBase64Images` mappings).
 
-Bound content downloads through body consumption and cancel active readers on
-abort. Some Node fetch runtimes lose body aborts during garbage collection; cover
-header and body stalls with real-HTTP and forced-GC regression tests.
+Start content-download deadlines before URL/DNS validation and keep them through
+body consumption. Race unabortable validation awaits; late completion must never
+start a fetch. Cancel active readers on abort: some Node fetch runtimes lose body
+aborts during garbage collection. Cover validation, header and body stalls with
+real-HTTP and forced-GC regression tests.
 
 ## Errors
 

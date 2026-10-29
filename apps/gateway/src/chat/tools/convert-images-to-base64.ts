@@ -1,3 +1,5 @@
+import { raceClientAbort } from "@/lib/client-abort.js";
+
 import { logger } from "@llmgateway/logger";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
@@ -26,16 +28,7 @@ const RETRY_DELAY_MS = 1000;
 async function fetchImageWithRetry(
 	url: string,
 ): Promise<{ contentType: string; base64: string } | null> {
-	try {
-		await assertSafeUserContentUrl(url);
-	} catch (error) {
-		logger.warn("Refusing unsafe image URL from provider response", {
-			url,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return null;
-	}
-
+	let urlValidated = false;
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		const controller = new AbortController();
 		// Keep the controller alive through body consumption, including during GC.
@@ -49,6 +42,23 @@ async function fetchImageWithRetry(
 		}, resolveImageFetchTimeoutMs());
 		timeout.unref();
 		try {
+			if (!urlValidated) {
+				try {
+					await raceClientAbort(
+						assertSafeUserContentUrl(url),
+						controller.signal,
+						controller,
+					);
+					controller.signal.throwIfAborted();
+				} catch (error) {
+					logger.warn("Refusing unsafe image URL from provider response", {
+						url,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					return null;
+				}
+				urlValidated = true;
+			}
 			const response = await fetch(url, {
 				redirect: "error",
 				signal: controller.signal,
