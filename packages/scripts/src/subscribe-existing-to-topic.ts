@@ -1,39 +1,15 @@
 /* eslint-disable no-console */
-// Migrate existing Resend contacts onto the newsletter topic.
-//
-// Filters: unsubscribed === false AND created_at < CUTOFF (2026-04-01 UTC).
-//
-// Usage:
-//   RESEND_API_KEY=re_xxx RESEND_NEWSLETTER_TOPIC_ID=uuid \
-//     pnpm --filter @llmgateway/scripts subscribe-existing-to-topic
-//
-//   APPLY=true ...   # actually patch contacts (default is dry-run)
-//   CONCURRENCY=5    # parallel PATCH workers (default 5)
+// Backfill only a legacy newsletter segment with confirmed newsletter consent.
+// Requires RESEND_API_KEY, RESEND_NEWSLETTER_TOPIC_ID, RESEND_NEWSLETTER_SEGMENT_ID.
+// Dry-run by default; APPLY=true writes missing preferences, never opt-outs.
+// CONCURRENCY=1 by default (maximum 5).
+import { fileURLToPath } from "node:url";
 
-import { Resend } from "resend";
+import { ResendWithTimeout } from "@llmgateway/shared/email";
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const RESEND_NEWSLETTER_TOPIC_ID = process.env.RESEND_NEWSLETTER_TOPIC_ID;
+import type { Resend } from "resend";
+
 const CUTOFF = new Date("2026-04-01T00:00:00Z");
-const APPLY = process.env.APPLY === "true";
-const CONCURRENCY = Number(process.env.CONCURRENCY ?? "5");
-
-if (!Number.isInteger(CONCURRENCY) || CONCURRENCY < 1) {
-	console.error(
-		`CONCURRENCY must be a positive integer, got: ${process.env.CONCURRENCY}`,
-	);
-	process.exit(1);
-}
-if (!RESEND_API_KEY) {
-	console.error("RESEND_API_KEY is required");
-	process.exit(1);
-}
-if (!RESEND_NEWSLETTER_TOPIC_ID) {
-	console.error("RESEND_NEWSLETTER_TOPIC_ID is required");
-	process.exit(1);
-}
-
-const resend = new Resend(RESEND_API_KEY);
 
 interface Contact {
 	id: string;
@@ -51,148 +27,158 @@ function backoffMs(attempt: number): number {
 	return Math.min(factor * 500, 30000);
 }
 
-async function listAllContacts(): Promise<Contact[]> {
+async function listAllContacts(
+	resend: Resend,
+	segmentId: string,
+): Promise<Contact[]> {
 	const all: Contact[] = [];
 	let after: string | undefined;
-	let page = 0;
 	while (true) {
-		let { data, error } = await resend.contacts.list({
-			limit: 100,
-			...(after ? { after } : {}),
-		});
-		for (let attempt = 0; error?.statusCode === 429 && attempt < 8; attempt++) {
-			await sleep(backoffMs(attempt));
-			({ data, error } = await resend.contacts.list({
+		const data = await requestWithRetry(() =>
+			resend.contacts.list({
+				segmentId,
 				limit: 100,
 				...(after ? { after } : {}),
-			}));
-		}
-		if (error) {
-			throw new Error(`List contacts failed: ${error.message}`);
-		}
-		if (!data) {
-			break;
-		}
-		all.push(...(data.data as Contact[]));
-		page += 1;
-		console.log(
-			`Fetched page ${page}: ${data.data.length} contacts (total so far: ${all.length})`,
+			}),
 		);
-		if (!data.has_more || data.data.length === 0) {
-			break;
+		all.push(...data.data);
+		if (!data.has_more) {
+			return all;
 		}
-		const last = data.data[data.data.length - 1];
-		if (!last) {
-			break;
+		const next = data.data.at(-1)?.id;
+		if (!next || next === after) {
+			throw new Error("Resend returned an invalid contacts cursor");
 		}
-		after = last.id;
+		after = next;
 	}
-	return all;
 }
 
-async function setTopicOptIn(email: string, maxRetries = 8): Promise<void> {
-	for (let attempt = 0; attempt < maxRetries; attempt++) {
-		const { error } = await resend.contacts.topics.update({
-			email,
-			topics: [
-				{
-					id: RESEND_NEWSLETTER_TOPIC_ID!,
-					subscription: "opt_in",
-				},
-			],
-		});
-		if (!error) {
-			return;
-		}
-		if (
-			typeof error === "object" &&
-			"statusCode" in error &&
-			error.statusCode === 429
-		) {
-			await sleep(backoffMs(attempt));
-			continue;
-		}
-		throw new Error(`PATCH ${email} failed: ${error.message}`);
+async function setTopicOptIn(
+	resend: Resend,
+	id: string,
+	topicId: string,
+): Promise<boolean> {
+	const contact = await requestWithRetry(() => resend.contacts.get({ id }));
+	if (contact.unsubscribed !== false) {
+		return false;
 	}
-	throw new Error(`PATCH ${email} failed after ${maxRetries} retries (429)`);
-}
-
-async function main() {
-	console.log(
-		`Mode: ${APPLY ? "APPLY (will modify contacts)" : "DRY-RUN (no changes)"}`,
-	);
-	console.log(`Topic: ${RESEND_NEWSLETTER_TOPIC_ID}`);
-	console.log(`Cutoff: created_at < ${CUTOFF.toISOString()}`);
-	console.log("");
-
-	const contacts = await listAllContacts();
-	console.log(`\nTotal contacts in account: ${contacts.length}`);
-
-	const eligible = contacts.filter((c) => {
-		if (c.unsubscribed) {
+	let after: string | undefined;
+	while (true) {
+		const topics = await requestWithRetry(() =>
+			resend.contacts.topics.list({
+				id,
+				limit: 100,
+				...(after ? { after } : {}),
+			}),
+		);
+		// Backfill missing state only; never override an existing preference.
+		if (topics.data.some((topic) => topic.id === topicId)) {
 			return false;
 		}
-		const createdAt = new Date(c.created_at);
-		return createdAt < CUTOFF;
-	});
-
-	const skippedUnsubscribed = contacts.filter((c) => c.unsubscribed).length;
-	const skippedTooNew = contacts.filter(
-		(c) => !c.unsubscribed && new Date(c.created_at) >= CUTOFF,
-	).length;
-
-	console.log(`Skipped (unsubscribed):  ${skippedUnsubscribed}`);
-	console.log(`Skipped (created >= cutoff): ${skippedTooNew}`);
-	console.log(`Eligible to subscribe:   ${eligible.length}`);
-
-	if (eligible.length === 0) {
-		console.log("\nNothing to do.");
-		return;
+		if (!topics.has_more) {
+			break;
+		}
+		const next = topics.data.at(-1)?.id;
+		if (!next || next === after) {
+			throw new Error("Resend returned an invalid topics cursor");
+		}
+		after = next;
 	}
-
-	console.log("\nFirst 10 eligible contacts:");
-	for (const c of eligible.slice(0, 10)) {
-		console.log(`  - ${c.email} (created ${c.created_at})`);
-	}
-
-	if (!APPLY) {
-		console.log("\nDry-run only. Re-run with APPLY=true to subscribe them.");
-		return;
-	}
-
-	console.log(
-		`\nSubscribing ${eligible.length} contacts with concurrency ${CONCURRENCY}...`,
+	await requestWithRetry(() =>
+		resend.contacts.topics.update({
+			id,
+			topics: [{ id: topicId, subscription: "opt_in" }],
+		}),
 	);
+	return true;
+}
+
+export async function main() {
+	const apiKey = process.env.RESEND_API_KEY;
+	const topicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
+	const segmentId = process.env.RESEND_NEWSLETTER_SEGMENT_ID;
+	const apply = process.env.APPLY === "true";
+	const concurrency = Number(process.env.CONCURRENCY ?? "1");
+	if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 5) {
+		throw new Error("CONCURRENCY must be an integer from 1 to 5");
+	}
+	if (!apiKey || !topicId || !segmentId) {
+		throw new Error(
+			"RESEND_API_KEY, RESEND_NEWSLETTER_TOPIC_ID and RESEND_NEWSLETTER_SEGMENT_ID are required",
+		);
+	}
+	const resend = new ResendWithTimeout(apiKey, 10_000);
+	console.log(`Mode: ${apply ? "APPLY" : "DRY-RUN"}`);
+	const contacts = await listAllContacts(resend, segmentId);
+	const eligible = contacts.filter(
+		(contact) =>
+			contact.unsubscribed === false && new Date(contact.created_at) < CUTOFF,
+	);
+	console.log(`Eligible legacy newsletter contacts: ${eligible.length}`);
+	if (!apply) {
+		console.log("Dry-run only. No contacts modified.");
+		return;
+	}
+	let next = 0;
 	let done = 0;
+	let skipped = 0;
 	let failed = 0;
-	const queue = [...eligible];
 	async function worker() {
-		while (queue.length > 0) {
-			const c = queue.shift();
-			if (!c) {
-				return;
-			}
+		while (next < eligible.length) {
+			const contact = eligible[next++];
 			try {
-				await setTopicOptIn(c.email);
-				done += 1;
-				if (done % 25 === 0) {
-					console.log(`  progress: ${done}/${eligible.length}`);
+				if (await setTopicOptIn(resend, contact.id, topicId)) {
+					done++;
+				} else {
+					skipped++;
 				}
-			} catch (err) {
-				failed += 1;
-				console.error(`  FAIL ${c.email}: ${(err as Error).message}`);
+			} catch {
+				failed++;
+				console.error(
+					"Contact backfill failed; rerun after checking Resend availability.",
+				);
 			}
 		}
 	}
-	await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-
-	console.log(`\nDone. Subscribed: ${done}. Failed: ${failed}.`);
+	await Promise.all(Array.from({ length: concurrency }, () => worker()));
+	console.log(
+		`Done. Subscribed: ${done}. Skipped: ${skipped}. Failed: ${failed}.`,
+	);
 	if (failed > 0) {
 		process.exitCode = 1;
 	}
 }
 
-void main().catch((err) => {
-	console.error(err);
-	process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+	void main().catch((error: unknown) => {
+		console.error(
+			error instanceof Error ? error.message : "Newsletter backfill failed",
+		);
+		process.exitCode = 1;
+	});
+}
+async function requestWithRetry<T>(
+	request: () => Promise<{
+		data: T | null;
+		error: { statusCode: number | null; message: string } | null;
+	}>,
+): Promise<T> {
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const { data, error } = await request();
+		if (!error && data) {
+			return data;
+		}
+		const retryable =
+			error &&
+			(error.statusCode === null ||
+				error.statusCode === 429 ||
+				error.statusCode >= 500);
+		if (!retryable || attempt === 4) {
+			throw new Error(
+				`Resend request failed (status ${error?.statusCode ?? "unknown"})`,
+			);
+		}
+		await sleep(backoffMs(attempt));
+	}
+	throw new Error("Resend retry limit exceeded");
+}

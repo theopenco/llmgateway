@@ -124,3 +124,101 @@ describe("public newsletter subscribe", () => {
 		expect(mocks.create).not.toHaveBeenCalled();
 	});
 });
+
+describe("newsletter failure isolation", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mocks.consumeRateLimit.mockResolvedValue(true);
+		mocks.create.mockResolvedValue(ok);
+		mocks.update.mockResolvedValue(ok);
+		mocks.updateTopics.mockResolvedValue(ok);
+	});
+
+	test.each([400, 401, 403, 422, 429, 500, null])(
+		"does not turn create failure %s into a subscription",
+		async (statusCode) => {
+			mocks.create.mockResolvedValue({
+				data: null,
+				error: { message: "Upstream rejected the request", statusCode },
+			});
+			const response = await subscribe();
+			expect(response.status).toBe(statusCode === 429 ? 429 : 500);
+			expect(mocks.update).not.toHaveBeenCalled();
+			expect(mocks.updateTopics).not.toHaveBeenCalled();
+		},
+	);
+
+	test("preserves the update failure status after a duplicate", async () => {
+		mocks.create.mockResolvedValue({
+			data: null,
+			error: { message: "Contact already exists", statusCode: 409 },
+		});
+		mocks.update.mockResolvedValue({
+			data: null,
+			error: { message: "Too many requests", statusCode: 429 },
+		});
+		const response = await subscribe();
+		expect(response.status).toBe(429);
+		expect(mocks.updateTopics).not.toHaveBeenCalled();
+	});
+});
+
+describe("newsletter retries and privacy", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mocks.consumeRateLimit.mockResolvedValue(true);
+		mocks.create.mockResolvedValue(ok);
+		mocks.update.mockResolvedValue(ok);
+		mocks.updateTopics.mockResolvedValue(ok);
+	});
+
+	test("returns the same success for first and repeated signups", async () => {
+		const first = await subscribe();
+		const repeated = await subscribe();
+		expect(first.status).toBe(200);
+		expect(repeated.status).toBe(200);
+		expect(await repeated.json()).toEqual(await first.json());
+		expect(mocks.updateTopics).toHaveBeenCalledTimes(2);
+	});
+
+	test("can retry a partial topic failure without creating a second contact", async () => {
+		mocks.updateTopics.mockResolvedValueOnce({
+			data: null,
+			error: { message: "Unavailable", statusCode: 503 },
+		});
+		expect((await subscribe()).status).toBe(500);
+		mocks.create.mockResolvedValueOnce({
+			data: null,
+			error: { message: "Contact exists", statusCode: 409 },
+		});
+		expect((await subscribe()).status).toBe(200);
+		expect(mocks.update).toHaveBeenCalledTimes(1);
+	});
+
+	test.each(["create", "update", "updateTopics"] as const)(
+		"does not leak network failures from %s",
+		async (stage) => {
+			if (stage === "update") {
+				mocks.create.mockResolvedValue({
+					data: null,
+					error: { message: "Contact exists", statusCode: 409 },
+				});
+			}
+			mocks[stage].mockRejectedValue(new Error(EMAIL));
+			const response = await subscribe();
+			expect(response.status).toBe(500);
+			expect(await response.text()).not.toContain(EMAIL);
+		},
+	);
+
+	test("validates email before any rate-limit or subscription operation", async () => {
+		const response = await publicNewsletter.request("/subscribe", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "invalid" }),
+		});
+		expect(response.status).toBe(400);
+		expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
+});

@@ -9,12 +9,33 @@ const resendAudienceId = process.env.RESEND_AUDIENCE_ID ?? "";
 
 let resendClient: Resend | null = null;
 
-function getResendClient(): Resend | null {
+function getResendClient(timeoutMs?: number): Resend | null {
 	if (!resendApiKey) {
 		return null;
+	}
+	if (timeoutMs !== undefined) {
+		return new ResendWithTimeout(resendApiKey, timeoutMs);
 	}
 	resendClient ??= new Resend(resendApiKey);
 	return resendClient;
 }
 
 export { fromEmail, replyToEmail, resendAudienceId, getResendClient };
+export class ResendWithTimeout extends Resend {
+	public constructor(
+		key: string,
+		private readonly timeoutMs: number,
+	) {
+		super(key);
+	}
+
+	public override async fetchRequest<T>(
+		path: string,
+		options: RequestInit = {},
+	) {
+		return await super.fetchRequest<T>(path, {
+			...options,
+			signal: AbortSignal.timeout(this.timeoutMs),
+		});
+	}
+}

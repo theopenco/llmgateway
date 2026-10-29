@@ -27,25 +27,6 @@ class ResendRequestError extends Error {
 	}
 }
 
-// The Resend SDK does not accept an AbortSignal, so bound each call here to
-// keep a stalled upstream from pinning the request.
-async function withTimeout<T>(promise: Promise<T>): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<never>((_, reject) => {
-				timer = setTimeout(
-					() => reject(new Error("Resend request timed out")),
-					RESEND_TIMEOUT_MS,
-				);
-			}),
-		]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
 async function checkRateLimit(identifier: string): Promise<boolean> {
 	return await consumeRateLimit(
 		`newsletter_rate_limit:${identifier}`,
@@ -121,7 +102,7 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 
-	const resend = getResendClient();
+	const resend = getResendClient(RESEND_TIMEOUT_MS);
 	if (!resend) {
 		logger.error("RESEND_API_KEY not configured for newsletter");
 		return c.json(
@@ -145,46 +126,40 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 	}
 
 	try {
-		// `contacts.create` upserts: it returns the existing contact on
-		// duplicate and resets `unsubscribed` to false, so this handles new
-		// signups and re-subscribes in one call. Topic subscriptions are NOT
-		// applied via this endpoint — Resend silently ignores any `topics`
-		// field here, so we set the subscription separately below.
-		const create = await withTimeout(
-			resend.contacts.create({
-				email,
-				unsubscribed: false,
-			}),
-		);
+		// Resend 6.8 drops topics from contacts.create; use the dedicated endpoint.
+		const create = await resend.contacts.create({
+			email,
+			unsubscribed: false,
+		});
 		if (create.error) {
-			// Should Resend reject the create as a duplicate instead of
-			// upserting, clear the global unsubscribe on the existing contact so
-			// the topic opt-in below still applies.
-			const update = await withTimeout(
-				resend.contacts.update({
-					email,
-					unsubscribed: false,
-				}),
-			);
-			if (update.error) {
+			if (create.error.statusCode !== 409) {
 				throw new ResendRequestError(
 					create.error.message,
 					create.error.statusCode,
 				);
 			}
+			// Only a duplicate permits updating the existing contact.
+			const update = await resend.contacts.update({
+				email,
+				unsubscribed: false,
+			});
+			if (update.error) {
+				throw new ResendRequestError(
+					update.error.message,
+					update.error.statusCode,
+				);
+			}
 		}
 
-		const topic = await withTimeout(
-			resend.contacts.topics.update({
-				email,
-				topics: [
-					{
-						id: resendNewsletterTopicId,
-						subscription: "opt_in",
-					},
-				],
-			}),
-		);
+		const topic = await resend.contacts.topics.update({
+			email,
+			topics: [
+				{
+					id: resendNewsletterTopicId,
+					subscription: "opt_in",
+				},
+			],
+		});
 		if (topic.error) {
 			throw new ResendRequestError(topic.error.message, topic.error.statusCode);
 		}
@@ -198,7 +173,7 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	} catch (error) {
 		if (error instanceof ResendRequestError && error.statusCode === 429) {
-			logger.warn("Resend rate limited newsletter signup", { error });
+			logger.warn("Resend rate limited newsletter signup");
 			return c.json(
 				{
 					success: false,
@@ -207,7 +182,9 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 				429,
 			);
 		}
-		logger.error("Failed to subscribe to newsletter", { error });
+		logger.error("Failed to subscribe to newsletter", {
+			statusCode: error instanceof ResendRequestError ? error.statusCode : null,
+		});
 		return c.json(
 			{
 				success: false,

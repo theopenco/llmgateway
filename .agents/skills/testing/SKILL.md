@@ -77,4 +77,5 @@ provider integration.
 - Gateway unit tests load the root `.env`, which holds real provider keys. A test that needs a provider without credentials saves and deletes `LLM_<PROVIDER>_API_KEY` (and `_BASE_URL`), restoring them in `finally`.
 - Build credential-shaped fixtures at runtime (`["sk", "live", "..."].join("_")`) so push protection accepts the branch. Assert on booleans, never equality with a credential: CI test artifacts are public and unmasked.
 - Delete cascade-linked tables sequentially, children before parents. `deleteAll()` keeps the catalogue tables, so a spec that seeds `model`/`model_provider_mapping` rows removes them itself, with ids distinct from the real catalogue.
+- For Resend contact/topic changes, verify real SDK HTTP requests against a local fake upstream, including duplicate/error status handling and aborted headers/body stalls. Backfills must preserve opt-outs and use a consented newsletter segment, not the account-wide contact list.
 - Keep logs and scratch files under `.context/`; `/tmp` is shared with other agents.
