@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
@@ -337,6 +338,21 @@ describe("airside provider portal", () => {
 		const ids = data.providers.map((provider) => provider.id);
 		expect(ids).toContain("mistral");
 		expect(ids).not.toContain("retired-catalogue");
+		resetModelSearchRowsMemo();
+		for (const query of ["Retired Carrier", "Mistral"]) {
+			const search = await app.request(
+				`/internal/models/search?q=${encodeURIComponent(query)}`,
+			);
+			expect(search.status).toBe(200);
+			const result = (await search.json()) as {
+				providers: Array<{ id: string }>;
+			};
+			const providerIds = result.providers.map((provider) => provider.id);
+			expect(providerIds).not.toContain("retired-catalogue");
+			if (query === "Mistral") {
+				expect(providerIds).toContain("mistral");
+			}
+		}
 		expect(
 			await db.query.provider.findFirst({
 				where: { id: { eq: "retired-catalogue" } },
@@ -350,6 +366,7 @@ describe("airside provider portal", () => {
 	});
 
 	afterEach(async () => {
+		resetModelSearchRowsMemo();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		if (originalAdminEmails === undefined) {
@@ -5385,6 +5402,14 @@ describe("airside provider portal", () => {
 			},
 			compliance: null,
 		});
+		const search = await app.request("/internal/models/search?q=acme");
+		expect(search.status).toBe(200);
+		const result = (await search.json()) as {
+			providers: Array<{ id: string }>;
+		};
+		expect(
+			result.providers.some((provider) => provider.id === "acme-sky"),
+		).toBe(true);
 	});
 
 	it("reports missing profile fields on legacy custom claims", async () => {
