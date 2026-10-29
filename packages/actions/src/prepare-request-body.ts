@@ -1324,6 +1324,11 @@ function transformContentForResponsesApi(content: any, role: string): any {
 					...breakpoint,
 				};
 			}
+			if (role === "tool") {
+				return part.type === "file"
+					? { type: "input_file", ...part.file, ...breakpoint }
+					: { type: "input_text", text: JSON.stringify(part), ...breakpoint };
+			}
 			// Return other content types as-is (they may need additional handling)
 			return part;
 		});

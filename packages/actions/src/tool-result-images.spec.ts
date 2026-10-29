@@ -39,8 +39,9 @@ async function prepare(
 	provider: ProviderId,
 	model: string,
 	useResponsesApi?: boolean,
+	messages: BaseMessage[] = history(),
 ): Promise<any> {
-	const args: unknown[] = [provider, model, null, model, history(), false];
+	const args: unknown[] = [provider, model, null, model, messages, false];
 	args[25] = useResponsesApi;
 	return await (
 		prepareRequestBody as (
@@ -198,4 +199,31 @@ test("lifting conserves images and complete parallel turns across generated hist
 		}
 		expect(pending.size).toBe(0);
 	}
+});
+
+test("Responses maps mixed tool-result files and preserves unsupported parts as text", async () => {
+	const messages = history();
+	const file = {
+		type: "file" as const,
+		file: {
+			filename: "note.txt",
+			file_data: "data:text/plain;base64,UEVMSUNBTg==",
+		},
+	};
+	const audio = {
+		type: "input_audio" as const,
+		input_audio: { data: "YQ==", format: "wav" as const },
+	};
+	messages[2]!.content = [IMAGE, file, audio];
+	const body = await prepare("openai", "gpt-5.4-mini", true, messages);
+	const output = body.input.find(
+		(item: { type: string; call_id: string }) =>
+			item.type === "function_call_output" && item.call_id === "call_1",
+	).output;
+
+	expect(output).toEqual([
+		{ type: "input_image", image_url: IMAGE.image_url.url },
+		{ type: "input_file", ...file.file },
+		{ type: "input_text", text: JSON.stringify(audio) },
+	]);
 });
