@@ -1,5 +1,5 @@
-// usage (from apps/api):
-//   pnpm exec tsx ../../.agents/skills/internal-classifier/scripts/convert.mts <outDir> <raw*.ndjson.gz>
+// usage (from the repository root):
+//   pnpm exec tsx --tsconfig apps/api/tsconfig.json .agents/skills/internal-classifier/scripts/convert.mts <outDir> <raw*.ndjson.gz>
 // Builds the admin export CSV from fetch.sh dumps with the export's own code,
 // then the redacted copy for the classifier vendor and its summaries.
 import { createReadStream, mkdirSync, writeFileSync } from "node:fs";
@@ -88,15 +88,18 @@ const plain = (v: unknown) => {
 	}
 	return s;
 };
+// Free-text fields (rule, reasons, tags) get a spreadsheet formula guard;
+// hashes and base64 stay raw, since a guard would change their value.
+const text = (v: string) => (/^[=+@\t\r-]/.test(v) ? `'${v}` : v);
 const vendorRows = checks.map((c) => {
 	if (!requests.has(c.requestId)) {
 		requests.set(c.requestId, `r${String(requests.size + 1).padStart(6, "0")}`);
 	}
 	return [
 		c.ts,
-		c.rule,
-		c.reasons.join(";"),
-		c.tags.join(";"),
+		text(c.rule),
+		text(c.reasons.join(";")),
+		text(c.tags.join(";")),
 		c.score === null ? null : c.score.toFixed(4),
 		c.saltId,
 		c.algoVersion,
@@ -131,12 +134,16 @@ const byRule = new Map<string, InternalClassifierCheck[]>();
 for (const c of blocks) {
 	byRule.set(c.rule, [...(byRule.get(c.rule) ?? []), c]);
 }
+// Prompt size comes from the fingerprint; empty when no row has one.
 const median = (values: number[]) => {
+	if (values.length === 0) {
+		return null;
+	}
 	const sorted = [...values].sort((a, b) => a - b);
 	const mid = Math.floor(sorted.length / 2);
-	return sorted.length % 2
-		? sorted[mid]!
-		: (sorted[mid - 1]! + sorted[mid]!) / 2;
+	return Math.round(
+		sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2,
+	);
 };
 const ruleRows = [...byRule.entries()]
 	.sort((a, b) => b[1].length - a[1].length)
@@ -152,12 +159,14 @@ const ruleRows = [...byRule.entries()]
 			.slice(0, 4)
 			.map(([tag]) => tag);
 		return [
-			rule,
+			text(rule),
 			rows.length,
 			(rows.length / blocks.length).toFixed(3),
 			new Set(rows.map((c) => c.organizationId)).size,
-			Math.round(median(rows.map((c) => c.promptBytes ?? 0))),
-			topTags.join(";"),
+			median(
+				rows.flatMap((c) => (c.promptBytes === null ? [] : [c.promptBytes])),
+			),
+			text(topTags.join(";")),
 		]
 			.map(plain)
 			.join(",");

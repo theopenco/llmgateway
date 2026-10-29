@@ -42,7 +42,8 @@ read-only transaction, through `log_content_filter_created_at_idx`.
 2. **Convert** with the admin export's own code:
 
    ```bash
-   cd apps/api && pnpm exec tsx ../../.agents/skills/internal-classifier/scripts/convert.mts <out> <dir>/raw-*.ndjson.gz
+   pnpm exec tsx --tsconfig apps/api/tsconfig.json \
+     .agents/skills/internal-classifier/scripts/convert.mts <out> <dir>/raw-*.ndjson.gz
    ```
 
    - `<out>/send/checks.csv`: one row per verdict in the vendor audit CSV's
