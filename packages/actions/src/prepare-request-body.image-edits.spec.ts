@@ -126,3 +126,137 @@ describe("prepareRequestBody - OpenAI image edits", () => {
 		expect(file.size).toBe(1024 * 1024);
 	});
 });
+
+describe("OpenAI edit image download regressions", () => {
+	beforeEach(() => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	});
+
+	test("normalizes a case-insensitive image MIME type before uploading", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(new Uint8Array([1, 2, 3]), {
+				headers: { "content-type": "Image/PNG; charset=binary" },
+			}),
+		);
+		const body = (await prepareEdit(
+			"https://cdn.example.com/image.png",
+		)) as FormData;
+		const file = body.get("image") as File;
+		expect(file.type).toBe("image/png");
+		expect(file.name).toBe("image-0.png");
+		expect(new Uint8Array(await file.arrayBuffer())).toEqual(
+			new Uint8Array([1, 2, 3]),
+		);
+	});
+
+	test.each([
+		[200, "image/png", "3145728", /exceeds/i],
+		[200, "text/html", "1", /valid image/i],
+		[404, "image/png", "1", /HTTP 404/i],
+	] as const)(
+		"cancels rejected response bodies (%s, %s)",
+		async (status, type, length, message) => {
+			const cancel = vi.fn();
+			vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response(new ReadableStream<Uint8Array>({ cancel }), {
+					status,
+					headers: { "content-type": type, "content-length": length },
+				}),
+			);
+			await expect(
+				prepareEdit("https://cdn.example.com/rejected.png"),
+			).rejects.toThrow(message);
+			expect(cancel).toHaveBeenCalledOnce();
+		},
+	);
+
+	test("keeps the size error when cancelling an oversized stream fails", async () => {
+		const cancel = vi.fn().mockRejectedValue(new Error("cancel failed"));
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				new ReadableStream<Uint8Array>({
+					pull(controller) {
+						controller.enqueue(new Uint8Array(1024 * 1024));
+					},
+					cancel,
+				}),
+				{ headers: { "content-type": "image/png", "content-length": "1" } },
+			),
+		);
+		await expect(
+			prepareEdit("https://cdn.example.com/endless.png"),
+		).rejects.toThrow(/exceeds/i);
+		expect(cancel).toHaveBeenCalledOnce();
+	});
+
+	test.each([undefined, "1"])(
+		"accepts exactly the byte limit with Content-Length %s",
+		async (length) => {
+			const headers: Record<string, string> = { "content-type": "image/png" };
+			if (length) {
+				headers["content-length"] = length;
+			}
+			vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response(new Uint8Array(2 * 1024 * 1024), { headers }),
+			);
+			const body = (await prepareEdit(
+				"https://cdn.example.com/exact.png",
+			)) as FormData;
+			expect((body.get("image") as File).size).toBe(2 * 1024 * 1024);
+		},
+	);
+
+	test("does not fetch or forward an unsafe edit image URL", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		await expect(prepareEdit("https://127.0.0.1/image.png")).rejects.toThrow();
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe("OpenAI edit image cancellation", () => {
+	beforeEach(() => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	});
+
+	test("does not wait for an oversized host to finish cancelling", async () => {
+		const cancel = vi.fn(() => new Promise<void>(() => {}));
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				new ReadableStream<Uint8Array>({
+					pull(controller) {
+						controller.enqueue(new Uint8Array(1024 * 1024));
+					},
+					cancel,
+				}),
+				{ headers: { "content-type": "image/png" } },
+			),
+		);
+		await expect(
+			prepareEdit("https://cdn.example.com/endless.png"),
+		).rejects.toThrow(/exceeds/i);
+		expect(cancel).toHaveBeenCalledOnce();
+	}, 1000);
+
+	test("keeps the size error when cancelling a rejected header fails", async () => {
+		const cancel = vi.fn().mockRejectedValue(new Error("cancel failed"));
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(new ReadableStream<Uint8Array>({ cancel }), {
+				headers: { "content-type": "image/png", "content-length": "3145728" },
+			}),
+		);
+		await expect(
+			prepareEdit("https://cdn.example.com/rejected.png"),
+		).rejects.toThrow(/exceeds/i);
+		expect(cancel).toHaveBeenCalledOnce();
+	});
+});

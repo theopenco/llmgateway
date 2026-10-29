@@ -308,28 +308,20 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// Load the remote image through `processImageUrl` instead of fetching inline.
-	// It keeps the SSRF validation and the redirect refusal, and it additionally
-	// rejects non-image content types and enforces the caller size cap *while* the
-	// body downloads. The inline `arrayBuffer()` this replaces had no cap at all,
-	// so an edits request pointing at an oversized (or endless) response buffered
-	// the whole thing in memory before anything looked at it.
+	// Reuse SSRF validation and the streaming byte cap before building multipart.
 	const { data, mimeType } = await processImageUrl(
 		url,
 		isProd,
 		maxSizeMB,
 		userPlan,
 	);
-	// `processImageUrl` returns the raw Content-Type for remote fetches, which can
-	// carry parameters (e.g. "image/png; charset=binary"). The multipart part type
-	// and the filename extension both need the bare type.
-	const baseMimeType = mimeType.split(";", 1)[0].trim() || "image/png";
+
 	const raw = Buffer.from(data, "base64");
 	const buffer = new ArrayBuffer(raw.byteLength);
 	new Uint8Array(buffer).set(raw);
-	const ext = baseMimeType.split("/")[1]?.split("+")[0] ?? "png";
+	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
 	return {
-		blob: new Blob([buffer], { type: baseMimeType }),
+		blob: new Blob([buffer], { type: mimeType }),
 		filename: `image-${index}.${ext}`,
 	};
 }
