@@ -11,17 +11,10 @@ import { RequestError } from "./request-error.js";
  * it is not covered by the provider request timeout.
  */
 const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
-// Largest delay AbortSignal.timeout accepts; a bigger (or non-finite) value
-// throws and would break the fetch, so we clamp to a safe range.
+// Larger Node timer delays are truncated instead of preserving the deadline.
 const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
 
-/**
- * Resolves the fetch deadline from IMAGE_FETCH_TIMEOUT_MS, guarding against
- * values that would make AbortSignal.timeout throw. Only a finite integer in
- * [1, 2_147_483_647] is honoured; anything else (unset, blank, 0, NaN,
- * negative, fractional, Infinity) falls back to the default. Blank and 0 are
- * rejected because `Number("")` is 0 and a 0ms deadline aborts every fetch.
- */
+/** Resolve a positive Node timer delay; blank, zero and invalid values use the default. */
 export function resolveImageFetchTimeoutMs(): number {
 	const value = process.env.IMAGE_FETCH_TIMEOUT_MS?.trim();
 	if (!value) {
@@ -46,7 +39,7 @@ export class ImageSizeLimitError extends RequestError {
 	}
 }
 
-export function urlHostForLog(url: string): string {
+function urlHostForLog(url: string): string {
 	return URL.canParse(url) ? new URL(url).host : "invalid";
 }
 
@@ -55,7 +48,7 @@ export function urlHostForLog(url: string): string {
  * else. A caller-chosen slow host is a client outcome (4xx at warn), not a
  * gateway failure, so every user-content image fetch classifies it the same way.
  */
-export function imageFetchTimeoutError(
+function imageFetchTimeoutError(
 	error: unknown,
 	url: string,
 	timeoutMs: number,
@@ -105,15 +98,11 @@ function getImageSizeErrorMessage(
 	return message;
 }
 
-/**
- * Reads a response body into a buffer, aborting as soon as it exceeds
- * `maxSizeBytes` so an unbounded (or misdeclared) body cannot be buffered in
- * full before the size check runs.
- */
-export async function readImageBody(
+/** Read an image body with a byte cap and explicit reader cancellation. */
+async function readImageBody(
 	response: Response,
 	signal: AbortSignal,
-	maxSizeMB?: number,
+	maxSizeMB: number,
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 ): Promise<Buffer<ArrayBuffer>> {
 	if (!response.body) {
@@ -122,13 +111,7 @@ export async function readImageBody(
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let received = 0;
-	const cancel = () => {
-		void reader.cancel(signal.reason).catch((error: unknown) => {
-			if (error !== signal.reason) {
-				logger.warn("Failed to cancel image body", { error });
-			}
-		});
-	};
+	const cancel = () => cancelImageBody(reader, signal.reason);
 	// Cancel the reader directly: some fetch runtimes lose body abort propagation under GC.
 	signal.addEventListener("abort", cancel, { once: true });
 	try {
@@ -143,7 +126,7 @@ export async function readImageBody(
 				continue;
 			}
 			received += value.byteLength;
-			if (maxSizeMB !== undefined && received > maxSizeMB * 1024 * 1024) {
+			if (received > maxSizeMB * 1024 * 1024) {
 				cancel();
 				const actualSizeMB = received / (1024 * 1024);
 				logger.warn("Image size exceeds limit while downloading", {
@@ -254,8 +237,9 @@ export async function processImageUrl(
 
 	const deadline = createImageFetchDeadline(signal);
 	const { timeoutMs } = deadline;
+	let response: Response | undefined;
 	try {
-		const response = await fetchNoRedirect(url, { signal: deadline.signal });
+		response = await fetchNoRedirect(url, { signal: deadline.signal });
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -272,7 +256,7 @@ export async function processImageUrl(
 		// going to be accepted.
 		const contentType = response.headers
 			.get("content-type")
-			?.split(";")[0]
+			?.split(";", 1)[0]
 			.trim()
 			.toLowerCase();
 		if (!contentType || !contentType.startsWith("image/")) {
@@ -335,12 +319,16 @@ export async function processImageUrl(
 		// Generic error for all other cases
 		throw new Error("Failed to process image from URL");
 	} finally {
+		if (response?.body && !response.bodyUsed) {
+			cancelImageBody(response.body);
+		}
 		deadline.dispose();
 	}
 }
-export function createImageFetchDeadline(callerSignal?: AbortSignal) {
+function createImageFetchDeadline(callerSignal?: AbortSignal) {
 	const timeoutMs = resolveImageFetchTimeoutMs();
 	const controller = new AbortController();
+	// Own the timer so completion can clear it instead of leaving a timeout signal alive.
 	const timer = setTimeout(() => {
 		controller.abort(
 			new DOMException("Image download deadline exceeded", "TimeoutError"),
@@ -357,4 +345,16 @@ export function createImageFetchDeadline(callerSignal?: AbortSignal) {
 			controller.abort();
 		},
 	};
+}
+function cancelImageBody(
+	body: ReadableStream<Uint8Array> | ReadableStreamDefaultReader<Uint8Array>,
+	reason?: unknown,
+): void {
+	void body.cancel(reason).catch((error: unknown) => {
+		if (error !== reason) {
+			logger.warn("Could not cancel image response body", {
+				err: error instanceof Error ? error : new Error(String(error)),
+			});
+		}
+	});
 }

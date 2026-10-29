@@ -36,7 +36,6 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -51,17 +50,10 @@ import {
 	toAnthropicWebFetchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import {
-	processImageUrl,
-	imageFetchTimeoutError,
-	urlHostForLog,
-	createImageFetchDeadline,
-	readImageBody,
-} from "./process-image-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -302,6 +294,9 @@ function normalizeImageModeration(
 async function fetchImageAsBlob(
 	url: string,
 	index: number,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
 ): Promise<{ blob: Blob; filename: string }> {
 	const parsed = parseDataUrl(url);
 	if (parsed) {
@@ -320,44 +315,22 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	// Same deadline as `processImageUrl`: the URL is caller-supplied and this
-	// fetch runs before the provider call, so nothing else bounds it. N edit
-	// images are fetched concurrently, so an unbounded one pins N sockets.
-	const deadline = createImageFetchDeadline();
-	const { timeoutMs } = deadline;
-	try {
-		const response = await fetchNoRedirect(url, {
-			signal: deadline.signal,
-		});
-		if (!response.ok) {
-			// Host only: the path and query of a caller-supplied URL can carry a
-			// signed token.
-			throw new Error(
-				`Failed to fetch image ${urlHostForLog(url)}: ${response.status} ${response.statusText}`,
-			);
-		}
-		const mimeType =
-			response.headers.get("content-type")?.split(";")[0]?.trim() ||
-			"image/png";
-		const buffer = await readImageBody(response, deadline.signal);
-		const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
-		return {
-			blob: new Blob([buffer], { type: mimeType }),
-			filename: `image-${index}.${ext}`,
-		};
-	} catch (error) {
-		// Only the deadline is handled here; everything else propagates.
-		const timedOut = imageFetchTimeoutError(error, url, timeoutMs);
-		if (timedOut) {
-			throw timedOut;
-		}
-		throw error;
-	} finally {
-		deadline.dispose();
-	}
+	// Reuse SSRF validation and the streaming byte cap before building multipart.
+	const { data, mimeType } = await processImageUrl(
+		url,
+		isProd,
+		maxSizeMB,
+		userPlan,
+	);
+
+	const raw = Buffer.from(data, "base64");
+	const buffer = new ArrayBuffer(raw.byteLength);
+	new Uint8Array(buffer).set(raw);
+	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+	return {
+		blob: new Blob([buffer], { type: mimeType }),
+		filename: `image-${index}.${ext}`,
+	};
 }
 
 /**
@@ -2004,7 +1977,9 @@ export async function prepareRequestBody(
 			}
 
 			const decoded = await Promise.all(
-				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+				imageUrls.map((url, index) =>
+					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),
+				),
 			);
 			const fieldName = decoded.length === 1 ? "image" : "image[]";
 			for (const { blob, filename } of decoded) {
