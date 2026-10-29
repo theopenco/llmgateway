@@ -1,4 +1,5 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
@@ -13,12 +14,14 @@ import {
 	truncateToLoadBucket,
 	type LoadBucket,
 } from "@/lib/load-buckets.js";
+import { managedProviderKeyName } from "@/lib/provider-key-label.js";
 import {
 	getTokenWindowStartDate,
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { adminTokenCapacity } from "@/routes/admin-token-capacity.js";
+import { createRoute } from "@/utils/create-route.js";
 import { pickMappingHistoryTable } from "@/utils/history-window.js";
 
 import {
@@ -72,6 +75,7 @@ const loadGroupBySchema = z.enum([
 	"organization",
 	"project",
 	"api-key",
+	"provider-key",
 ]);
 const loadModelViewSchema = z.enum(["mapping", "canonical"]);
 const loadModeSchema = z.enum(["total", "credits", "api-keys"]);
@@ -84,9 +88,14 @@ const loadRankBySchema = z.enum(["requests", "errors"]);
  * rewrites every few seconds, so the rate is genuinely live. `project-stats`
  * is the tenant axis (organization/project/API key), which only exists at
  * hourly grain — the rate there is an hourly average, with the in-progress
- * hour pro-rated over its elapsed seconds.
+ * hour pro-rated over its elapsed seconds. `provider-key-stats` is the managed
+ * credential axis, from the same hourly tenant aggregation.
  */
-const loadSourceSchema = z.enum(["mapping-history", "project-stats"]);
+const loadSourceSchema = z.enum([
+	"mapping-history",
+	"project-stats",
+	"provider-key-stats",
+]);
 
 type LoadGroupBy = z.infer<typeof loadGroupBySchema>;
 type LoadMode = z.infer<typeof loadModeSchema>;
@@ -124,14 +133,24 @@ function resolveLoadScope(query: LoadQuery, now: Date = new Date()): LoadScope {
 	const tenantFiltered = Boolean(
 		query.organizationId || query.projectId || query.apiKeyId,
 	);
+	const providerKeyAxis = groupBy === "provider-key";
+	// The provider key rollup is keyed by project, not by API key.
+	if (providerKeyAxis && query.apiKeyId) {
+		throw new HTTPException(400, {
+			message: "The provider key breakdown cannot be filtered by API key",
+		});
+	}
 	const catalogAxis = groupBy === "model" || groupBy === "provider";
-	const source =
-		catalogAxis && !tenantFiltered ? "mapping-history" : "project-stats";
+	const source = providerKeyAxis
+		? "provider-key-stats"
+		: catalogAxis && !tenantFiltered
+			? "mapping-history"
+			: "project-stats";
 
 	let bucket = query.bucket ?? getLoadBucketForWindow(window);
 	// The tenant rollups have no sub-hour grain, so honouring a minute request
 	// there would label hourly rows as minutes and inflate every rate 60x.
-	if (source === "project-stats" && bucket === "minute") {
+	if (source !== "mapping-history" && bucket === "minute") {
 		bucket = "hour";
 	}
 
@@ -141,7 +160,7 @@ function resolveLoadScope(query: LoadQuery, now: Date = new Date()): LoadScope {
 		source,
 		groupBy,
 		modelView: query.modelView ?? "canonical",
-		mode: query.mode ?? "total",
+		mode: modeFor(query),
 		rankBy: query.rankBy ?? "requests",
 		organizationId: query.organizationId,
 		projectId: query.projectId,
@@ -149,6 +168,11 @@ function resolveLoadScope(query: LoadQuery, now: Date = new Date()): LoadScope {
 		startDate: getTokenWindowStartDate(window, now),
 		now,
 	};
+}
+
+/** Managed provider keys only ever serve credits traffic. */
+function modeFor(query: LoadQuery): LoadMode {
+	return query.groupBy === "provider-key" ? "credits" : (query.mode ?? "total");
 }
 
 /**
@@ -164,7 +188,7 @@ function loadRangeStart(scope: LoadScope): Date {
 	return truncateToLoadBucket(scope.startDate, scope.bucket);
 }
 
-function bucketExpression(column: AnyColumn, unit: LoadBucket) {
+function bucketExpression(column: AnyColumn | SQL, unit: LoadBucket) {
 	// `unit` comes from a zod enum, so the raw interpolation cannot carry input.
 	return sql<string>`to_char(date_trunc(${sql.raw(`'${unit}'`)}, ${column}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 }
@@ -255,12 +279,12 @@ function addTotals(into: LoadTotals, from: LoadTotals): void {
  * inside float8's exact-integer range.
  */
 function latencySums(table: {
-	totalDuration: AnyColumn;
-	durationCount: AnyColumn;
-	totalTimeToFirstToken: AnyColumn;
-	timeToFirstTokenCount: AnyColumn;
-	totalTimeToFirstReasoningToken: AnyColumn;
-	timeToFirstReasoningTokenCount: AnyColumn;
+	totalDuration: AnyColumn | SQL;
+	durationCount: AnyColumn | SQL;
+	totalTimeToFirstToken: AnyColumn | SQL;
+	timeToFirstTokenCount: AnyColumn | SQL;
+	totalTimeToFirstReasoningToken: AnyColumn | SQL;
+	timeToFirstReasoningTokenCount: AnyColumn | SQL;
 }) {
 	return {
 		totalDuration:
@@ -291,9 +315,9 @@ function latencySums(table: {
 }
 
 function errorSums(columns: {
-	clientErrors: AnyColumn;
-	gatewayErrors: AnyColumn;
-	upstreamErrors: AnyColumn;
+	clientErrors: AnyColumn | SQL;
+	gatewayErrors: AnyColumn | SQL;
+	upstreamErrors: AnyColumn | SQL;
 }) {
 	return {
 		clientErrors:
@@ -482,6 +506,14 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 			: scope.mode === "api-keys"
 				? statsTable.apiKeysRequestCount
 				: statsTable.requestCount;
+	// Error and latency columns only carry the BYOK subset; `log.used_mode` is
+	// credits or api-keys, so credits is the total minus that subset.
+	const forMode = (total: AnyColumn, byok: AnyColumn): AnyColumn | SQL =>
+		scope.mode === "credits"
+			? sql`(${total} - ${byok})`
+			: scope.mode === "api-keys"
+				? byok
+				: total;
 
 	let keyExpr: SQL<string>;
 	switch (scope.groupBy) {
@@ -524,11 +556,45 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 	const totals = {
 		requestCount: requests.as("request_count"),
 		...errorSums({
-			clientErrors: statsTable.clientErrorCount,
-			gatewayErrors: statsTable.gatewayErrorCount,
-			upstreamErrors: statsTable.upstreamErrorCount,
+			clientErrors: forMode(
+				statsTable.clientErrorCount,
+				statsTable.apiKeysClientErrorCount,
+			),
+			gatewayErrors: forMode(
+				statsTable.gatewayErrorCount,
+				statsTable.apiKeysGatewayErrorCount,
+			),
+			upstreamErrors: forMode(
+				statsTable.upstreamErrorCount,
+				statsTable.apiKeysUpstreamErrorCount,
+			),
 		}),
-		...latencySums(statsTable),
+		...latencySums({
+			totalDuration: forMode(
+				statsTable.totalDuration,
+				statsTable.apiKeysTotalDuration,
+			),
+			durationCount: forMode(
+				statsTable.durationCount,
+				statsTable.apiKeysDurationCount,
+			),
+			totalTimeToFirstToken: forMode(
+				statsTable.totalTimeToFirstToken,
+				statsTable.apiKeysTotalTimeToFirstToken,
+			),
+			timeToFirstTokenCount: forMode(
+				statsTable.timeToFirstTokenCount,
+				statsTable.apiKeysTimeToFirstTokenCount,
+			),
+			totalTimeToFirstReasoningToken: forMode(
+				statsTable.totalTimeToFirstReasoningToken,
+				statsTable.apiKeysTotalTimeToFirstReasoningToken,
+			),
+			timeToFirstReasoningTokenCount: forMode(
+				statsTable.timeToFirstReasoningTokenCount,
+				statsTable.apiKeysTimeToFirstReasoningTokenCount,
+			),
+		}),
 	};
 	// Every tenant rollup keys on projectId only; the organization id lives one
 	// hop up, so the join is unconditional and the org filter and the org
@@ -609,6 +675,150 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 	};
 }
 
+/**
+ * Series key for credits traffic no managed key was attributed to: requests
+ * served by env-var credentials, and errors before a credential resolved.
+ */
+const UNATTRIBUTED_PROVIDER_KEY = "unattributed";
+
+// `db.execute` rows must be index-signature compatible.
+interface CountRow extends Record<string, unknown> {
+	requestCount: number;
+	clientErrors: number;
+	gatewayErrors: number;
+	upstreamErrors: number;
+}
+
+// The provider key rollup carries no latency, so those totals stay zero and
+// the response reports latency as unknown.
+function readCounts(row: CountRow): LoadTotals {
+	return {
+		...emptyTotals(),
+		requestCount: Number(row.requestCount),
+		clientErrors: Number(row.clientErrors),
+		gatewayErrors: Number(row.gatewayErrors),
+		upstreamErrors: Number(row.upstreamErrors),
+	};
+}
+
+/**
+ * Managed provider keys only — BYOK keys are the tenant's own credentials.
+ *
+ * Attributed rows come from `provider_key_hourly_stats`. The `unattributed`
+ * series is the credits traffic in `project_hourly_stats` minus those rows, so
+ * the series sum to all credits traffic and the shares stay honest while some
+ * providers are still served from env vars. Both tables are written by the
+ * same aggregation pass, so the difference never drifts.
+ */
+function providerKeyStatsSource(scope: LoadScope): LoadSource {
+	const pk = tables.providerKeyHourlyStats;
+	const ps = tables.projectHourlyStats;
+	const project = tables.project;
+	// `hour_timestamp` is a zone-less timestamp holding UTC; casting the ISO
+	// string drops the `Z` instead of shifting by the session timezone.
+	const since = (column: AnyColumn) =>
+		sql`${column} >= ${loadRangeStart(scope).toISOString()}::timestamp`;
+	const tenantFilter = (projectId: AnyColumn) =>
+		sql.join(
+			[
+				scope.projectId ? sql`AND ${projectId} = ${scope.projectId}` : null,
+				scope.organizationId
+					? sql`AND ${projectId} IN (SELECT ${project.id} FROM ${project} WHERE ${project.organizationId} = ${scope.organizationId})`
+					: null,
+			].filter((part): part is SQL => part !== null),
+			sql` `,
+		);
+	const unattributed = sql`${UNATTRIBUTED_PROVIDER_KEY}::text`;
+
+	const loadRows = sql`
+		WITH attributed AS (
+			SELECT
+				${pk.hourTimestamp} AS ts,
+				${pk.providerKeyId} AS series_key,
+				${pk.requestCount} AS requests,
+				${pk.clientErrorCount} AS client_errors,
+				${pk.gatewayErrorCount} AS gateway_errors,
+				${pk.upstreamErrorCount} AS upstream_errors
+			FROM ${pk}
+			INNER JOIN ${tables.providerKey}
+				ON ${tables.providerKey.id} = ${pk.providerKeyId}
+			WHERE ${tables.providerKey.managed}
+				AND ${since(pk.hourTimestamp)}
+				${tenantFilter(pk.projectId)}
+		),
+		load_rows AS (
+			SELECT * FROM attributed
+			UNION ALL
+			SELECT
+				${ps.hourTimestamp},
+				${unattributed},
+				${ps.creditsRequestCount},
+				${ps.clientErrorCount} - ${ps.apiKeysClientErrorCount},
+				${ps.gatewayErrorCount} - ${ps.apiKeysGatewayErrorCount},
+				${ps.upstreamErrorCount} - ${ps.apiKeysUpstreamErrorCount}
+			FROM ${ps}
+			WHERE ${since(ps.hourTimestamp)}
+				${tenantFilter(ps.projectId)}
+			UNION ALL
+			SELECT ts, ${unattributed}, -requests, -client_errors, -gateway_errors, -upstream_errors
+			FROM attributed
+		)
+	`;
+	const bucketExpr = bucketExpression(sql`ts`, scope.bucket);
+	const counts = sql`
+		COALESCE(SUM(requests), 0)::float8 AS "requestCount",
+		COALESCE(SUM(client_errors), 0)::float8 AS "clientErrors",
+		COALESCE(SUM(gateway_errors), 0)::float8 AS "gatewayErrors",
+		COALESCE(SUM(upstream_errors), 0)::float8 AS "upstreamErrors"
+	`;
+
+	return {
+		async bucketTotals() {
+			const { rows } = await db.execute<CountRow & { bucket: string }>(
+				sql`${loadRows} SELECT ${bucketExpr} AS bucket, ${counts} FROM load_rows GROUP BY 1 ORDER BY 1`,
+			);
+			return rows.map((row) => ({ bucket: row.bucket, ...readCounts(row) }));
+		},
+		async keyTotals() {
+			const { rows } = await db.execute<CountRow & { key: string }>(
+				sql`${loadRows} SELECT series_key AS key, ${counts} FROM load_rows GROUP BY 1`,
+			);
+			return rows.map((row) => ({ key: row.key, ...readCounts(row) }));
+		},
+		async keyBuckets(keys) {
+			const { rows } = await db.execute<
+				CountRow & { bucket: string; key: string }
+			>(
+				sql`${loadRows} SELECT ${bucketExpr} AS bucket, series_key AS key, ${counts}
+				FROM load_rows
+				WHERE series_key IN (${sql.join(
+					keys.map((key) => sql`${key}`),
+					sql`, `,
+				)})
+				GROUP BY 1, 2 ORDER BY 1`,
+			);
+			return rows.map((row) => ({
+				bucket: row.bucket,
+				key: row.key,
+				...readCounts(row),
+			}));
+		},
+		async keyPeaks(before) {
+			const { rows } = await db.execute<{ key: string; peak: number }>(
+				sql`${loadRows} SELECT series_key AS key, MAX(requests)::float8 AS peak
+				FROM (
+					SELECT series_key, SUM(requests) AS requests
+					FROM load_rows
+					WHERE ts < ${before.toISOString()}::timestamp
+					GROUP BY ${bucketExpr}, series_key
+				) per_bucket
+				GROUP BY 1`,
+			);
+			return readPeaks(rows);
+		},
+	};
+}
+
 async function resolveLabels(
 	scope: LoadScope,
 	keys: string[],
@@ -672,6 +882,40 @@ async function resolveLabels(
 				for (const row of rows) {
 					labels.set(row.id, row.name);
 				}
+			}
+			break;
+		}
+		case "provider-key": {
+			if (keys.includes(UNATTRIBUTED_PROVIDER_KEY)) {
+				labels.set(UNATTRIBUTED_PROVIDER_KEY, "Unattributed");
+			}
+			const ids = keys.filter((key) => key !== UNATTRIBUTED_PROVIDER_KEY);
+			if (ids.length === 0) {
+				break;
+			}
+			const rows = await db
+				.select({
+					id: tables.providerKey.id,
+					provider: tables.providerKey.provider,
+					comment: tables.providerKey.comment,
+					tokenMasked: tables.providerKey.tokenMasked,
+					variant: tables.providerKey.variant,
+					region: tables.providerKey.region,
+				})
+				.from(tables.providerKey)
+				.where(inArray(tables.providerKey.id, ids));
+			for (const row of rows) {
+				const provider =
+					getProviderDefinition(row.provider)?.name ?? row.provider;
+				const name = `${provider} · ${managedProviderKeyName(row)}`;
+				const scopes = [
+					row.variant === "default" ? null : row.variant,
+					row.region,
+				].filter((part): part is string => Boolean(part));
+				labels.set(
+					row.id,
+					scopes.length > 0 ? `${name} (${scopes.join(", ")})` : name,
+				);
 			}
 			break;
 		}
@@ -790,7 +1034,7 @@ const getLoadOverview = createRoute({
 				},
 			},
 			description:
-				"Live gateway request rate, latency and error rate over time, ranked by model, provider, organization, project or API key.",
+				"Live gateway request rate, latency and error rate over time, ranked by model, provider, organization, project, API key or managed provider key.",
 		},
 	},
 });
@@ -806,9 +1050,14 @@ function openLoadSource(scope: LoadScope): LoadSource {
 		bucket: peakBucketFor(scope.bucket),
 		startDate: loadRangeStart(scope),
 	};
-	return scope.source === "mapping-history"
-		? mappingHistorySource(sourceScope)
-		: projectStatsSource(sourceScope);
+	switch (scope.source) {
+		case "mapping-history":
+			return mappingHistorySource(sourceScope);
+		case "provider-key-stats":
+			return providerKeyStatsSource(sourceScope);
+		default:
+			return projectStatsSource(sourceScope);
+	}
 }
 
 /**
@@ -819,6 +1068,11 @@ function openLoadSource(scope: LoadScope): LoadSource {
  * spike as the peak on one tab and an hourly average on the next.
  */
 function summaryScopeFor(query: LoadQuery, now: Date): LoadScope {
+	// Managed keys are a slice of credits traffic no other rollup can isolate,
+	// so this axis summarises from its own source.
+	if (query.groupBy === "provider-key") {
+		return resolveLoadScope(query, now);
+	}
 	const tenantFiltered = Boolean(
 		query.organizationId || query.projectId || query.apiKeyId,
 	);
@@ -826,16 +1080,6 @@ function summaryScopeFor(query: LoadQuery, now: Date): LoadScope {
 		{ ...query, groupBy: tenantFiltered ? "project" : "model" },
 		now,
 	);
-}
-
-/**
- * The per-mode request columns on the tenant rollups have no matching error
- * or latency split, so a mode-filtered view there would pair credits-only
- * requests with blended errors and blended latency. The mapping history keys
- * on `used_mode`, so both stay exact there.
- */
-function isModeComparable(scope: LoadScope): boolean {
-	return scope.mode === "total" || scope.source === "mapping-history";
 }
 
 function stabilityFor(totals: LoadTotals) {
@@ -847,8 +1091,8 @@ function stabilityFor(totals: LoadTotals) {
 	});
 }
 
-function qualityFor(totals: LoadTotals | undefined, modeComparable: boolean) {
-	if (!totals || !modeComparable) {
+function qualityFor(totals: LoadTotals | undefined) {
+	if (!totals) {
 		return {
 			avgDurationMs: null,
 			avgTimeToFirstTokenMs: null,
@@ -872,13 +1116,11 @@ function qualityFor(totals: LoadTotals | undefined, modeComparable: boolean) {
 	};
 }
 
-function errorCountsFor(totals: LoadTotals, modeComparable: boolean) {
-	return modeComparable
-		? {
-				errorCount: stabilityFor(totals).errorsCount,
-				clientErrorCount: Math.min(totals.clientErrors, totals.requestCount),
-			}
-		: { errorCount: null, clientErrorCount: null };
+function errorCountsFor(totals: LoadTotals) {
+	return {
+		errorCount: stabilityFor(totals).errorsCount,
+		clientErrorCount: Math.min(totals.clientErrors, totals.requestCount),
+	};
 }
 
 interface LoadGrid {
@@ -916,7 +1158,6 @@ function sumTotals(rows: LoadTotals[]): LoadTotals {
 
 function summarizeLoad(scope: LoadScope, bucketTotals: BucketTotalRow[]) {
 	const peakBucket = peakBucketFor(scope.bucket);
-	const modeComparable = isModeComparable(scope);
 	const { buckets, secondsFor, elapsedSeconds } = loadGrid(scope);
 
 	const requestsByBucket = new Map<string, number>();
@@ -957,8 +1198,8 @@ function summarizeLoad(scope: LoadScope, bucketTotals: BucketTotalRow[]) {
 		peakRps: toRps(peakPoint?.requestCount ?? 0, BUCKET_SECONDS[peakBucket]),
 		peakAt: peakPoint && peakPoint.requestCount > 0 ? peakPoint.bucket : null,
 		totalRequests: total.requestCount,
-		...qualityFor(total, modeComparable),
-		...errorCountsFor(total, modeComparable),
+		...qualityFor(total),
+		...errorCountsFor(total),
 	};
 }
 
@@ -983,11 +1224,9 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 		summaryShared ? null : openLoadSource(summaryScope).bucketTotals(),
 	]);
 
-	const modeComparable = isModeComparable(scope);
-
 	// Ranked by absolute error count rather than rate, so a key with a single
 	// failed request cannot outrank one failing thousands.
-	const errorRanked = scope.rankBy === "errors" && modeComparable;
+	const errorRanked = scope.rankBy === "errors";
 	const rankedKeys = keyTotals
 		// A mode filter can leave a key with rows but no requests; ranking it
 		// would pad the legend and the table with empty series.
@@ -1045,7 +1284,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			bucketSeconds: seconds,
 			requestCount,
 			rps: toRps(requestCount, seconds),
-			...qualityFor(bucketTotal, modeComparable),
+			...qualityFor(bucketTotal),
 			entries: topKeys.map(({ key }) => {
 				const cellTotals = totalsByKeyBucket.get(`${key}\u0000${timestamp}`);
 				const count = cellTotals?.requestCount ?? 0;
@@ -1053,7 +1292,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 					key,
 					requestCount: count,
 					rps: toRps(count, seconds),
-					...qualityFor(cellTotals, modeComparable),
+					...qualityFor(cellTotals),
 				};
 			}),
 		};
@@ -1093,7 +1332,6 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 				elapsedSeconds,
 				totalRequests: chartRequests,
 				peakRps: peakByKey.get(row.key) ?? 0,
-				modeComparable,
 			}),
 			label: labelFor(row.key),
 		})),
@@ -1107,7 +1345,6 @@ function breakdownRow(
 		elapsedSeconds: number;
 		totalRequests: number;
 		peakRps: number;
-		modeComparable: boolean;
 	},
 ) {
 	return {
@@ -1117,8 +1354,8 @@ function breakdownRow(
 		peakRps: context.peakRps,
 		share:
 			context.totalRequests > 0 ? row.requestCount / context.totalRequests : 0,
-		...qualityFor(row, context.modeComparable),
-		...errorCountsFor(row, context.modeComparable),
+		...qualityFor(row),
+		...errorCountsFor(row),
 	};
 }
 
@@ -1201,7 +1438,6 @@ adminLoad.openapi(getLoadBreakdown, async (c) => {
 	const scope = resolveLoadScope(query);
 	const peakBucket = peakBucketFor(scope.bucket);
 	const source = openLoadSource(scope);
-	const modeComparable = isModeComparable(scope);
 	const { elapsedSeconds } = loadGrid(scope);
 
 	// Only settled buckets count towards a peak; see `summarizeLoad`.
@@ -1219,7 +1455,6 @@ adminLoad.openapi(getLoadBreakdown, async (c) => {
 				elapsedSeconds,
 				totalRequests,
 				peakRps: toRps(peaks.get(row.key) ?? 0, peakSeconds),
-				modeComparable,
 			}),
 		);
 

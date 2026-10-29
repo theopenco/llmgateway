@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -39,6 +39,7 @@ import {
 	findProviderKeysByProviders,
 	findActiveIamRules,
 	findUserFromOrganization,
+	listEligibleProviderKeys,
 } from "./cached-queries.js";
 
 /**
@@ -609,6 +610,63 @@ describe("Cached Queries - Gateway Database Access", () => {
 			]);
 
 			expect(result).toHaveLength(3);
+		});
+	});
+
+	describe("provider keys with a disallowed base URL", () => {
+		const overrideKeyId = "test-provider-key-cached-queries-base-url";
+
+		beforeEach(async () => {
+			await db.insert(providerKey).values({
+				id: overrideKeyId,
+				...encryptProviderKeyForStorage(
+					"test-provider-token-3",
+					overrideKeyId,
+					testOrgId,
+				),
+				provider: "anthropic",
+				baseUrl: "https://my-own-endpoint.example.com",
+				organizationId: testOrgId,
+				status: "active",
+			});
+		});
+
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		it("skips a catalogue key written before the override was disallowed", async () => {
+			vi.stubEnv("ALLOW_PROVIDER_BASE_URL_OVERRIDE", "");
+			vi.stubEnv("HOSTED", "true");
+
+			expect(await findProviderKey(testOrgId, "anthropic")).toBeUndefined();
+			expect(
+				await listEligibleProviderKeys(testOrgId, "anthropic"),
+			).toHaveLength(0);
+			expect(
+				await findProviderKeysByProviders(testOrgId, ["anthropic"]),
+			).toHaveLength(0);
+			expect(
+				(await findActiveProviderKeys(testOrgId)).map((key) => key.id),
+			).not.toContain(overrideKeyId);
+		});
+
+		it("keeps the custom provider key, which is defined by its base URL", async () => {
+			vi.stubEnv("ALLOW_PROVIDER_BASE_URL_OVERRIDE", "");
+			vi.stubEnv("HOSTED", "true");
+
+			expect(
+				(await findActiveProviderKeys(testOrgId)).map((key) => key.id),
+			).toContain("test-custom-provider-key");
+		});
+
+		it("keeps the key where the override is allowed", async () => {
+			vi.stubEnv("HOSTED", "true");
+			vi.stubEnv("ALLOW_PROVIDER_BASE_URL_OVERRIDE", "true");
+
+			expect((await findProviderKey(testOrgId, "anthropic"))?.id).toBe(
+				overrideKeyId,
+			);
 		});
 	});
 

@@ -5,7 +5,7 @@
 // CONCURRENCY=1 by default (maximum 5).
 import { fileURLToPath } from "node:url";
 
-import { ResendWithTimeout } from "@llmgateway/shared/email";
+import { createResendClient } from "@llmgateway/shared/email";
 
 import type { Resend } from "resend";
 
@@ -107,7 +107,8 @@ export async function main() {
 			"RESEND_API_KEY, RESEND_NEWSLETTER_TOPIC_ID and RESEND_NEWSLETTER_SEGMENT_ID are required",
 		);
 	}
-	const resend = new ResendWithTimeout(apiKey, 10_000);
+	const newsletterTopicId = topicId;
+	const resend = createResendClient(apiKey, 10_000);
 	console.log(`Mode: ${apply ? "APPLY" : "DRY-RUN"}`);
 	const contacts = await listAllContacts(resend, segmentId);
 	const eligible = contacts.filter(
@@ -127,7 +128,7 @@ export async function main() {
 		while (next < eligible.length) {
 			const contact = eligible[next++];
 			try {
-				if (await setTopicOptIn(resend, contact.id, topicId)) {
+				if (await setTopicOptIn(resend, contact.id, newsletterTopicId)) {
 					done++;
 				} else {
 					skipped++;

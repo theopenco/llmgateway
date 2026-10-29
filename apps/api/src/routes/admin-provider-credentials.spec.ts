@@ -23,21 +23,32 @@ import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 import {
 	getProviderDefinition,
 	getRegionEnvVarSuffix,
+	models as catalogueModels,
+	providers as catalogueProviders,
 } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as LlmGatewayActions from "@llmgateway/actions";
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 // Spy on the live probe so the pinned-model selection in
 // validateCredentialToken can be asserted without real upstream calls. The
 // default implementation stays the real one; tests that exercise the live
 // path queue a one-shot resolved value instead.
 const validateProviderKeyMock = vi.hoisted(() => vi.fn());
+const runProviderKeySmokeTestMock = vi.hoisted(() => vi.fn());
 vi.mock("@llmgateway/actions", async (importOriginal) => {
 	const actual = await importOriginal<typeof LlmGatewayActions>();
 	validateProviderKeyMock.mockImplementation(actual.validateProviderKey);
-	return { ...actual, validateProviderKey: validateProviderKeyMock };
+	runProviderKeySmokeTestMock.mockImplementation(
+		actual.runProviderKeySmokeTest,
+	);
+	return {
+		...actual,
+		validateProviderKey: validateProviderKeyMock,
+		runProviderKeySmokeTest: runProviderKeySmokeTestMock,
+	};
 });
 
 interface Credential {
@@ -52,6 +63,11 @@ interface Credential {
 	usage: string;
 	maskedToken: string;
 	tokenHash: string | null;
+	maxRpm: number | null;
+	maxRpd: number | null;
+	maxTpm: number | null;
+	maxTpd: number | null;
+	rateLimitMode: string;
 }
 
 describe("admin provider credentials", () => {
@@ -216,6 +232,16 @@ describe("admin provider credentials", () => {
 		expect(await res.text()).toContain("projeckt");
 	});
 
+	test("rejects a malformed Cloudflare account id", async () => {
+		const res = await create({
+			provider: "cloudflare",
+			token: "cf-key",
+			config: { accountId: "not-an-account-id" },
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("32 lowercase hex");
+	});
+
 	test("rejects an unknown provider", async () => {
 		const res = await create({ provider: "not-a-provider", token: "x" });
 		expect(res.status).toBe(400);
@@ -350,6 +376,43 @@ describe("admin provider credentials", () => {
 		expect((await list())[0].usageLimit).toBeNull();
 	});
 
+	test("stores and updates rate limits", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-rate-limited",
+			maxRpm: 60,
+			maxTpd: 1_000_000,
+		});
+		expect(res.status).toBe(201);
+		const [credential] = await list();
+		expect(credential).toMatchObject({
+			maxRpm: 60,
+			maxRpd: null,
+			maxTpm: null,
+			maxTpd: 1_000_000,
+		});
+
+		const update = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					maxRpm: null,
+					maxTpm: 50_000,
+					rateLimitMode: "lax",
+				}),
+			},
+		);
+		expect(update.status).toBe(200);
+		expect((await list())[0]).toMatchObject({
+			maxRpm: null,
+			maxTpm: 50_000,
+			maxTpd: 1_000_000,
+			rateLimitMode: "lax",
+		});
+	});
+
 	test("refuses to reactivate a credential still at its spend limit", async () => {
 		await create({ provider: "openai", token: "sk-limited" });
 		const [credential] = await list();
@@ -419,7 +482,36 @@ describe("admin provider credentials", () => {
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
+		// First the teardown grace period; the worker finishes the deletion.
+		expect(row?.status).toBe("pending_deletion");
+		expect(row?.deletionRequestedAt).toBeInstanceOf(Date);
+
+		const again = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(again.status).toBe(404);
+	});
+
+	test("deletes a disabled credential without a grace period", async () => {
+		await create({ provider: "openai", token: "sk-disabled-one" });
+		const [credential] = await list();
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, credential.id));
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		// A disabled key must never serve pinned conversations again.
 		expect(row?.status).toBe("deleted");
+		expect(row?.deletionRequestedAt).toBeNull();
 	});
 
 	test("lists soft-deleted credentials only when asked", async () => {
@@ -436,9 +528,52 @@ describe("admin provider credentials", () => {
 		expect((await list()).map((c) => c.id)).toEqual([kept.id]);
 		const withDeleted = await list("?includeDeleted=true");
 		expect(withDeleted.map((c) => [c.id, c.status])).toEqual([
-			[deleted.id, "deleted"],
+			[deleted.id, "pending_deletion"],
 			[kept.id, "active"],
 		]);
+	});
+
+	test("edits a soft-deleted credential without reviving it", async () => {
+		await create({ provider: "openai", token: "sk-retire-me" });
+		const [credential] = await list();
+		const url = `/admin/provider-credentials/${credential.id}`;
+		const patch = (body: unknown) =>
+			app.request(url, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+
+		const removed = await app.request(url, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(removed.status).toBe(200);
+
+		const renamed = await patch({ comment: "old prod key" });
+		expect(renamed.status).toBe(200);
+		const { credential: updated } = await renamed.json();
+		expect(updated.comment).toBe("old prod key");
+		expect(updated.status).toBe("pending_deletion");
+
+		const revived = await patch({ status: "active" });
+		expect(revived.status).toBe(400);
+
+		// Pinned conversations still use it, so what it sends stays fixed.
+		const rotated = await patch({ token: "sk-rotated", skipValidation: true });
+		expect(rotated.status).toBe(400);
+		const moved = await patch({ region: "eu" });
+		expect(moved.status).toBe(400);
+		const narrowed = await patch({ allowedModels: ["gpt-4o-mini"] });
+		expect(narrowed.status).toBe(400);
+
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.status).toBe("pending_deletion");
+		const [stored] = await list("?includeDeleted=true");
+		expect(stored.maskedToken).toBe(credential.maskedToken);
+		expect(stored.region).toBe(credential.region);
 	});
 
 	test("does not manage organization-owned provider keys", async () => {
@@ -2625,10 +2760,12 @@ describe("managed credential allowed models", () => {
 	test("save-time validation skips the probe when no allowed model can chat", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 
-		const nonChatModel = (await catalogModels("openai")).find(
-			(modelId) =>
-				getPinnedValidationModel("openai", modelId)?.chatCapable === false,
-		);
+		// Decision models are probeable via their own endpoint, so they don't
+		// count as "no allowed model can be probed".
+		const nonChatModel = (await catalogModels("openai")).find((modelId) => {
+			const pinned = getPinnedValidationModel("openai", modelId);
+			return pinned?.chatCapable === false && pinned.kind !== "decision";
+		});
 		expect(nonChatModel).toBeDefined();
 
 		const res = await create({
@@ -3053,6 +3190,225 @@ describe("managed credential allowed models", () => {
 			{ env_config: { resource: "managed-resource" } },
 			model,
 			expect.any(AbortSignal),
+		);
+	});
+});
+
+describe("managed credential Airside listings", () => {
+	const modelId = "airside-managed-chat";
+	let cookie: string;
+	let insertedProvider: string | undefined;
+
+	beforeEach(async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+	});
+
+	afterEach(async () => {
+		vi.unstubAllEnvs();
+		validateProviderKeyMock.mockClear();
+		runProviderKeySmokeTestMock.mockClear();
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.modelId, modelId));
+		await db.delete(tables.model).where(eq(tables.model.id, modelId));
+		if (insertedProvider) {
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, insertedProvider));
+			insertedProvider = undefined;
+		}
+		await deleteAll();
+	});
+
+	/** A catalogue provider with no live static mapping, so every model it
+	 *  serves comes from Airside listings. */
+	function airsideOnlyProvider(): string {
+		const now = new Date();
+		const provider = catalogueProviders.find(
+			(entry) =>
+				entry.id !== "custom" &&
+				!catalogueModels.some((model) =>
+					(model.providers as readonly ProviderModelMapping[]).some(
+						(mapping) =>
+							mapping.providerId === entry.id &&
+							(!mapping.deactivatedAt || mapping.deactivatedAt > now),
+					),
+				),
+		);
+		expect(provider).toBeDefined();
+		return provider!.id;
+	}
+
+	async function createListing(providerId: string) {
+		const [provider] = await db
+			.insert(tables.provider)
+			.values({ id: providerId, name: providerId, description: "Test" })
+			.onConflictDoNothing()
+			.returning({ id: tables.provider.id });
+		insertedProvider = provider?.id;
+		await db.insert(tables.model).values({ id: modelId, family: "test" });
+		await db.insert(tables.modelProviderMapping).values({
+			providerId,
+			modelId,
+			externalId: "upstream-airside-chat",
+			source: "airside",
+			apiFormat: "openai-chat-completions",
+			status: "active",
+		});
+	}
+
+	async function post(path: string, body: Record<string, unknown>) {
+		return await app.request(path, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	test("catalog offers a provider's Airside listings", async () => {
+		const providerId = airsideOnlyProvider();
+		await createListing(providerId);
+
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const entry = (
+			(await res.json()) as {
+				providers: {
+					id: string;
+					models: string[];
+					modelsByKind: { text: string[] };
+				}[];
+			}
+		).providers.find((provider) => provider.id === providerId);
+		expect(entry?.models).toEqual([modelId]);
+		expect(entry?.modelsByKind.text).toEqual([modelId]);
+	});
+
+	test("verify-models reports Airside listings as in the catalogue", async () => {
+		await createListing("openai");
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "openai",
+			token: "sk-airside-verify",
+			models: [modelId],
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			allValid: true,
+			results: [{ model: modelId, inCatalog: true, valid: true }],
+		});
+	});
+
+	test("self-test probes an Airside-only provider through its listing", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		runProviderKeySmokeTestMock.mockResolvedValueOnce(null);
+		const providerId = airsideOnlyProvider();
+		await createListing(providerId);
+
+		const res = await post("/admin/provider-credentials/self-test", {
+			provider: providerId,
+			token: "airside-token",
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ valid: true, model: modelId });
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				target: expect.objectContaining({
+					providerId,
+					modelName: modelId,
+					externalId: "upstream-airside-chat",
+				}),
+				token: "airside-token",
+				// Managed credentials never inherit the deployment's LLM_* settings.
+				skipEnvVars: true,
+				fetchImplementation: expect.any(Function),
+			}),
+		);
+	});
+
+	test("verify-models probes the listing that replaces a static mapping", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		runProviderKeySmokeTestMock.mockResolvedValueOnce(null);
+		const [staticModel] = await (async () => {
+			const res = await app.request("/admin/provider-credentials/catalog", {
+				headers: { Cookie: cookie },
+			});
+			return (
+				(await res.json()) as { providers: { id: string; models: string[] }[] }
+			).providers.find((provider) => provider.id === "openai")!.models;
+		})();
+		const [provider] = await db
+			.insert(tables.provider)
+			.values({ id: "openai", name: "openai", description: "Test" })
+			.onConflictDoNothing()
+			.returning({ id: tables.provider.id });
+		insertedProvider = provider?.id;
+		const insertedModel = await db
+			.insert(tables.model)
+			.values({ id: staticModel, family: "test" })
+			.onConflictDoNothing()
+			.returning({ id: tables.model.id });
+		await db.insert(tables.modelProviderMapping).values({
+			providerId: "openai",
+			modelId: staticModel,
+			externalId: "airside-owned-upstream",
+			source: "airside",
+			apiFormat: "openai-chat-completions",
+			status: "active",
+		});
+		try {
+			const res = await post("/admin/provider-credentials/verify-models", {
+				provider: "openai",
+				token: "sk-airside-shadow",
+				models: [staticModel],
+			});
+			expect(res.status).toBe(200);
+			expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
+			expect(validateProviderKeyMock).not.toHaveBeenCalled();
+			expect(runProviderKeySmokeTestMock).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					target: expect.objectContaining({
+						modelName: staticModel,
+						externalId: "airside-owned-upstream",
+					}),
+				}),
+			);
+		} finally {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(
+					and(
+						eq(tables.modelProviderMapping.modelId, staticModel),
+						eq(tables.modelProviderMapping.source, "airside"),
+					),
+				);
+			if (insertedModel.length > 0) {
+				await db.delete(tables.model).where(eq(tables.model.id, staticModel));
+			}
+		}
+	});
+
+	test("save-time validation probes an allowed Airside listing", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		runProviderKeySmokeTestMock.mockResolvedValueOnce("Model not enabled");
+		await createListing("openai");
+
+		const res = await post("/admin/provider-credentials", {
+			provider: "openai",
+			token: "sk-airside-save",
+			allowedModels: [modelId],
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("Model not enabled");
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				target: expect.objectContaining({ modelName: modelId }),
+			}),
 		);
 	});
 });

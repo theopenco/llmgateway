@@ -14,10 +14,6 @@ vi.hoisted(() => {
 vi.mock("@/utils/public-rate-limit.js", () => ({
 	consumeRateLimit: vi.fn(async () => true),
 }));
-vi.mock(
-	"@llmgateway/shared/email",
-	async () => await import("../../../../packages/shared/src/email.js"),
-);
 
 const requests: { method: string; path: string; body: unknown }[] = [];
 const contacts = new Map<

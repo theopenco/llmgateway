@@ -654,7 +654,6 @@ describe("transformResponseToOpenai", () => {
 		"bytedance",
 		"xai",
 		"zai",
-		"embercloud",
 		"deepseek",
 	])(
 		"does not overwrite choice 0 content on multi-choice %s responses",
@@ -900,7 +899,7 @@ describe("transformResponseToOpenai", () => {
 		];
 		const response = transformResponseToOpenai(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			{
 				id: "chatcmpl-test",
 				object: "chat.completion",
@@ -929,9 +928,9 @@ describe("transformResponseToOpenai", () => {
 			null,
 			toolCalls,
 			[],
-			"deepseek/deepseek-chat",
+			"deepseek/deepseek-v3.2",
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			false,
 			null,

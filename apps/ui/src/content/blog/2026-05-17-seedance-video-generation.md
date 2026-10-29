@@ -30,22 +30,22 @@ bytedance/seedance-1-5-pro      # complex instructions + native audio
 
 Each model supports text-to-video, image-to-video (using the first frame as a seed), and reference-image conditioning. You get the resolutions you'd expect — **1280×720, 720×1280, 1920×1080, 1080×1920** — and durations of **5s or 10s**.
 
-The standout is **Seedance 1.5 Pro**, which generates video _and_ a matching audio track in a single call. Pass `generate_audio: true` and you get a clip that doesn't need a separate sound pass.
+The standout is **Seedance 1.5 Pro**, which generates video _and_ a matching audio track in a single call. Pass `audio: true` and you get a clip that doesn't need a separate sound pass.
 
 ## Call it like any other model
 
 If you've used LLM Gateway's video endpoint before, there's nothing new to learn. Submit a job, poll for status, get a URL:
 
 ```bash
-curl -X POST "https://api.llmgateway.io/v1/videos/generations" \
+curl -X POST "https://api.llmgateway.io/v1/videos" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "bytedance/seedance-1-5-pro",
     "prompt": "A neon hummingbird flying through a rainstorm at night, cinematic lighting",
     "size": "1920x1080",
-    "duration": 10,
-    "generate_audio": true
+    "seconds": 10,
+    "audio": true
   }'
 ```
 
@@ -68,14 +68,14 @@ The point isn't that any single video model is hard to integrate. It's that _eve
 
 ## Pricing
 
-ByteDance bills per request, not per second of video — so a 10-second Seedance 2.0 Fast clip and a 5-second one cost the same. You can see the per-call price for each Seedance model on the [models page](https://llmgateway.io/models?filters=1&video=true), and individual jobs show up in your activity log with the exact cost attributed.
+ByteDance bills per second of generated video — so a 10-second Seedance 2.0 Fast clip costs twice as much as a 5-second one. You can see the per-second price for each Seedance model on the [models page](https://llmgateway.io/models?filters=1&videoGeneration=true), and individual jobs show up in your activity log with the exact cost attributed.
 
-No markup. No subscription tier required. The free credits on your account work for Seedance the same way they work for chat.
+No markup. No subscription tier required. The credits on your account work for Seedance the same way they work for chat.
 
 ## Getting started
 
-1. **Pick a model** from the [video models page](https://llmgateway.io/models?filters=1&video=true). Start with `seedance-2-0-fast` if you just want to feel out the latency, or jump to `seedance-1-5-pro` if you want audio.
-2. **Submit a generation job** to `/v1/videos/generations` (example above).
+1. **Pick a model** from the [video models page](https://llmgateway.io/models?filters=1&videoGeneration=true). Start with `seedance-2-0-fast` if you just want to feel out the latency, or jump to `seedance-1-5-pro` if you want audio.
+2. **Submit a generation job** to `/v1/videos` (example above).
 3. **Poll the job** until it completes, then grab the video URL.
 
 If you'd rather click than curl, every Seedance model is live in the [chat playground](https://lounge.llmgateway.io) right now — open the **Video Studio** tab, pick a model, and start prompting.

@@ -10,13 +10,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/shared/email", () => ({
-	ResendWithTimeout: class {
-		public contacts = {
+	createResendClient: () => ({
+		contacts: {
 			list: mocks.list,
 			get: mocks.get,
 			topics: { list: mocks.listTopics, update: mocks.updateTopics },
-		};
-	},
+		},
+	}),
 }));
 
 const contact = {

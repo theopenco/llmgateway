@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { and, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -28,7 +29,7 @@ function floorTo(date: Date, ms: number): Date {
 interface LoadOverview {
 	window: string;
 	bucket: "minute" | "hour" | "day";
-	source: "mapping-history" | "project-stats";
+	source: "mapping-history" | "project-stats" | "provider-key-stats";
 	summarySource: "mapping-history" | "project-stats";
 	groupBy: string;
 	summary: {
@@ -610,36 +611,111 @@ describe("admin — gateway load", () => {
 		expect(body.series).toEqual([]);
 	});
 
-	test("withholds the error rate when a mode narrows the tenant rollup", async () => {
-		const total = await fetchLoad(cookie, {
-			window: "1d",
-			groupBy: "organization",
-			organizationId: ORG_A,
-		});
-		expect(total.summary.errorRate).toBeCloseTo(60 / (7200 - 12), 6);
-		expect(total.summary.clientErrorRate).toBeCloseTo(12 / 7200, 6);
+	test.each<Record<string, string>>([
+		{ groupBy: "organization", organizationId: ORG_B },
+		{ groupBy: "api-key", apiKeyId: API_KEY_B },
+	])(
+		"splits errors and latency by billing mode on the tenant rollup: %j",
+		async (filter) => {
+			// 900 credits + 900 BYOK requests; the byok* columns are the BYOK
+			// subset, so credits is the total minus them.
+			const split = {
+				clientErrorCount: 30,
+				apiKeysClientErrorCount: 20,
+				gatewayErrorCount: 10,
+				upstreamErrorCount: 100,
+				apiKeysUpstreamErrorCount: 90,
+				totalDuration: 1800 * 1000,
+				durationCount: 1800,
+				apiKeysTotalDuration: 900 * 1500,
+				apiKeysDurationCount: 900,
+				totalTimeToFirstToken: 900 * 300,
+				timeToFirstTokenCount: 900,
+				apiKeysTotalTimeToFirstToken: 300 * 600,
+				apiKeysTimeToFirstTokenCount: 300,
+			};
+			await db
+				.update(tables.projectHourlyStats)
+				.set(split)
+				.where(eq(tables.projectHourlyStats.projectId, PROJECT_B));
+			await db
+				.update(tables.apiKeyHourlyStats)
+				.set(split)
+				.where(eq(tables.apiKeyHourlyStats.apiKeyId, API_KEY_B));
 
-		const credits = await fetchLoad(cookie, {
-			window: "1d",
-			groupBy: "organization",
-			organizationId: ORG_A,
-			mode: "credits",
-		});
-		// The per-mode request columns have no matching error split.
-		expect(credits.summary.errorRate).toBeNull();
-		expect(credits.summary.clientErrorRate).toBeNull();
-		expect(credits.summary.errorCount).toBeNull();
-		expect(credits.breakdown.every((row) => row.errorRate === null)).toBe(true);
-	});
+			const expected = {
+				total: {
+					errorRate: 110 / 1770,
+					clientErrorRate: 30 / 1800,
+					errorCount: 110,
+					avgDurationMs: 1000,
+					avgTimeToFirstTokenMs: 300,
+				},
+				credits: {
+					errorRate: 20 / 890,
+					clientErrorRate: 10 / 900,
+					errorCount: 20,
+					avgDurationMs: 500,
+					avgTimeToFirstTokenMs: 150,
+				},
+				"api-keys": {
+					errorRate: 90 / 880,
+					clientErrorRate: 20 / 900,
+					errorCount: 90,
+					avgDurationMs: 1500,
+					avgTimeToFirstTokenMs: 600,
+				},
+			};
+			for (const [mode, values] of Object.entries(expected)) {
+				const body = await fetchLoad(cookie, {
+					window: "1d",
+					...filter,
+					mode,
+				});
+				expect(body.source).toBe("project-stats");
+				for (const metrics of [body.summary, body.breakdown[0]]) {
+					expect(metrics.errorRate).toBeCloseTo(values.errorRate, 6);
+					expect(metrics.clientErrorRate).toBeCloseTo(
+						values.clientErrorRate,
+						6,
+					);
+					expect(metrics.errorCount).toBe(values.errorCount);
+					expect(metrics.avgDurationMs).toBeCloseTo(values.avgDurationMs, 6);
+					expect(metrics.avgTimeToFirstTokenMs).toBeCloseTo(
+						values.avgTimeToFirstTokenMs,
+						6,
+					);
+				}
+			}
+		},
+	);
 
-	test("keeps the error rate exact when a mode narrows the mapping history", async () => {
-		// The mapping history keys on `used_mode`, so its error split is per mode.
-		const body = await fetchLoad(cookie, {
-			window: "1h",
-			groupBy: "model",
-			mode: "credits",
+	test("narrows errors to the billing mode on the mapping history", async () => {
+		await db.insert(tables.modelProviderMappingHistory).values({
+			modelId: MODEL_ID,
+			providerId: PROVIDER_ID,
+			modelProviderMappingId: ROOT_MAPPING_ID,
+			usedMode: "api-keys",
+			minuteTimestamp: closedMinute,
+			logsCount: 50,
+			errorsCount: 50,
+			clientErrorsCount: 5,
+			upstreamErrorsCount: 45,
 		});
-		expect(body.summary.errorRate).toBeCloseTo(10 / 208, 6);
+		const query = { window: "1h", groupBy: "model" };
+
+		const total = await fetchLoad(cookie, query);
+		expect(total.summary.errorCount).toBe(55);
+		expect(total.summary.errorRate).toBeCloseTo(55 / (260 - 7), 6);
+
+		const credits = await fetchLoad(cookie, { ...query, mode: "credits" });
+		expect(credits.summary.errorCount).toBe(10);
+		expect(credits.summary.errorRate).toBeCloseTo(10 / 208, 6);
+
+		const byok = await fetchLoad(cookie, { ...query, mode: "api-keys" });
+		expect(byok.summary.errorCount).toBe(45);
+		expect(byok.summary.errorRate).toBeCloseTo(45 / 45, 6);
+		expect(byok.summary.clientErrorRate).toBeCloseTo(5 / 50, 6);
 	});
 
 	test("reports the error rate per bucket and per series", async () => {
@@ -743,23 +819,6 @@ describe("admin — gateway load", () => {
 		const orgB = body.breakdown.find((row) => row.key === ORG_B);
 		expect(orgB?.avgDurationMs).toBeNull();
 		expect(orgB?.avgTimeToFirstTokenMs).toBeNull();
-	});
-
-	test("withholds latency when a mode narrows the tenant rollup", async () => {
-		const body = await fetchLoad(cookie, {
-			window: "1d",
-			groupBy: "organization",
-			organizationId: ORG_A,
-			mode: "credits",
-		});
-
-		// One blended duration sum against a credits-only request count would be
-		// an average of the wrong population.
-		expect(body.summary.avgDurationMs).toBeNull();
-		expect(body.summary.avgTimeToFirstTokenMs).toBeNull();
-		expect(body.breakdown.every((row) => row.avgDurationMs === null)).toBe(
-			true,
-		);
 	});
 
 	test("reports average duration on the mapping-history axis", async () => {
@@ -975,6 +1034,153 @@ describe("admin — gateway load", () => {
 			});
 			expect(past.page).toBe(2);
 			expect(past.rows.map((row) => row.key)).toEqual([ORG_B]);
+		});
+	});
+
+	describe("provider key axis", () => {
+		const MANAGED_KEY = "load-pk-managed";
+		const BYOK_KEY = "load-pk-byok";
+		const query = { window: "1d", groupBy: "provider-key" };
+
+		beforeEach(async () => {
+			await db.insert(tables.providerKey).values([
+				{
+					id: MANAGED_KEY,
+					...encryptProviderKeyForStorage("sk-load-managed", MANAGED_KEY, null),
+					provider: "openai",
+					managed: true,
+					comment: "Pool A",
+					variant: "enterprise",
+				},
+				{
+					id: BYOK_KEY,
+					...encryptProviderKeyForStorage("sk-load-byok", BYOK_KEY, ORG_A),
+					provider: "openai",
+					organizationId: ORG_A,
+				},
+			]);
+			await db.insert(tables.providerKeyHourlyStats).values([
+				{
+					providerKeyId: MANAGED_KEY,
+					projectId: PROJECT_A,
+					hourTimestamp: closedHour,
+					requestCount: 5000,
+					errorCount: 60,
+					clientErrorCount: 10,
+					upstreamErrorCount: 50,
+				},
+				{
+					providerKeyId: MANAGED_KEY,
+					projectId: PROJECT_B,
+					hourTimestamp: closedHour,
+					requestCount: 600,
+				},
+				// BYOK traffic is the tenant's own credential and never shows up.
+				{
+					providerKeyId: BYOK_KEY,
+					projectId: PROJECT_A,
+					hourTimestamp: closedHour,
+					requestCount: 900,
+				},
+			]);
+		});
+
+		test("ranks managed keys and folds the rest of credits into unattributed", async () => {
+			const body = await fetchLoad(cookie, query);
+
+			expect(body.source).toBe("provider-key-stats");
+			expect(body.bucket).toBe("hour");
+			expect(body.breakdown.map((row) => [row.key, row.requestCount])).toEqual([
+				[MANAGED_KEY, 5600],
+				// 8100 credits requests across both projects, minus 5600 attributed.
+				["unattributed", 2500],
+			]);
+			const [managed, unattributed] = body.breakdown;
+			expect(managed.label).toBe("OpenAI · Pool A (enterprise)");
+			expect(unattributed.label).toBe("Unattributed");
+			expect(managed.share).toBeCloseTo(5600 / 8100, 6);
+			expect(managed.avgDurationMs).toBeNull();
+			expect(managed.avgTimeToFirstTokenMs).toBeNull();
+			// Project A logged 12 client and 60 upstream errors; the key took 10 and 50.
+			expect(unattributed.clientErrorCount).toBe(2);
+			expect(unattributed.errorCount).toBe(10);
+
+			const closed = body.data.find(
+				(point) =>
+					point.timestamp === closedHour.toISOString().replace(".000", ""),
+			);
+			expect(closed?.requestCount).toBe(8100);
+		});
+
+		test("scopes to an organization", async () => {
+			const body = await fetchLoad(cookie, {
+				...query,
+				organizationId: ORG_B,
+			});
+
+			expect(body.breakdown.map((row) => [row.key, row.requestCount])).toEqual([
+				[MANAGED_KEY, 600],
+				["unattributed", 300],
+			]);
+		});
+
+		test("scopes to a project", async () => {
+			const body = await fetchLoad(cookie, {
+				...query,
+				projectId: PROJECT_B,
+			});
+
+			expect(body.breakdown.map((row) => [row.key, row.requestCount])).toEqual([
+				[MANAGED_KEY, 600],
+				["unattributed", 300],
+			]);
+		});
+
+		test("summarises all credits traffic from the same rollup", async () => {
+			const body = await fetchLoad(cookie, query);
+
+			expect(body.summarySource).toBe("provider-key-stats");
+			expect(body.summary.totalRequests).toBe(8100);
+			// Project A's 60 upstream errors; client errors are excluded.
+			expect(body.summary.errorCount).toBe(60);
+			expect(body.summary.avgDurationMs).toBeNull();
+		});
+
+		test("keeps hourly peaks on a daily chart", async () => {
+			const weekly = { ...query, window: "7d", bucket: "day" };
+			const [overview, breakdown] = await Promise.all([
+				fetchLoad(cookie, weekly),
+				fetchBreakdown(cookie, weekly),
+			]);
+
+			expect(overview.bucket).toBe("day");
+			expect(
+				overview.breakdown.map((row) => [row.key, row.requestCount]),
+			).toEqual([
+				[MANAGED_KEY, 5600],
+				["unattributed", 2500],
+			]);
+			const [managed, unattributed] = overview.breakdown;
+			expect(managed.peakRps).toBeCloseTo(5600 / 3600, 6);
+			expect(unattributed.peakRps).toBeCloseTo(2500 / 3600, 6);
+			expect(breakdown.rows).toEqual(overview.breakdown);
+		});
+
+		test("rejects an API key filter", async () => {
+			const params = new URLSearchParams({ ...query, apiKeyId: API_KEY_A });
+			const res = await app.request(`/admin/load/overview?${params}`, {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("the breakdown endpoint agrees with the overview", async () => {
+			const [overview, breakdown] = await Promise.all([
+				fetchLoad(cookie, query),
+				fetchBreakdown(cookie, { ...query, sortBy: "label", sortOrder: "asc" }),
+			]);
+			expect(breakdown.rows).toEqual(overview.breakdown);
+			expect(breakdown.totalKeys).toBe(2);
 		});
 	});
 });

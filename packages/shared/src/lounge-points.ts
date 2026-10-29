@@ -16,6 +16,11 @@ export const LOUNGE_ACTIVITIES = {
 		label: "Audio created",
 		action: "Create audio",
 	},
+	decision_run: {
+		points: 10,
+		label: "Decisions run",
+		action: "Run a decision",
+	},
 	sandbox_escape: {
 		points: 25,
 		label: "Sandbox escapes",

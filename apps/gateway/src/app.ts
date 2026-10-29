@@ -24,6 +24,7 @@ import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
 } from "@llmgateway/shared/client-ip";
+import { buildSecurityTxt } from "@llmgateway/shared/security-txt";
 
 import { aisdk } from "./aisdk/aisdk.js";
 import { creditsRoute } from "./aisdk/credits.js";
@@ -31,12 +32,14 @@ import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
 import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
 import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
+import { decisionsRoute } from "./decisions/route.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
+import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
@@ -187,6 +190,12 @@ app.onError((error, c) => {
 		return renderGatewayError(c, error.statusCode, error.message);
 	}
 
+	if (error instanceof ProviderKeyRateLimitError && error.retryAfter) {
+		c.header("Retry-After", error.retryAfter.toString());
+		c.header("RateLimit-Reset", error.retryAfter.toString());
+		c.header("RateLimit-Remaining", "0");
+	}
+
 	if (error instanceof HTTPException) {
 		const status = error.status;
 
@@ -252,6 +261,37 @@ app.onError((error, c) => {
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
 	logger.error("Unhandled error", toError(error));
 	return renderGatewayError(c, 500, "Internal Server Error");
+});
+
+function createHealthChecker(): HealthChecker {
+	return new HealthChecker({
+		// Ping both the main and the storage Redis; either failing marks the
+		// gateway unhealthy (they may be the same instance via env fallback).
+		redisClient: {
+			ping: async () => {
+				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
+				return "PONG";
+			},
+		},
+		db,
+		logger,
+	});
+}
+
+// Liveness: the process serves HTTP. Touches neither Redis nor Postgres, so a
+// dependency outage cannot get healthy pods restarted.
+app.get("/livez", (c) => c.json({ status: "ok" }));
+
+// Deep health for external monitoring: always checks Postgres and both Redis
+// instances. `/` skips Postgres by default so cached traffic keeps the pod in
+// rotation; this endpoint is what pages when Postgres is unreachable.
+app.get("/health/deep", async (c) => {
+	const healthChecker = createHealthChecker();
+	const health = await healthChecker.performHealthChecks({
+		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
+	});
+	const { response, statusCode } = healthChecker.createHealthResponse(health);
+	return c.json(response, statusCode as 200 | 503);
 });
 
 const root = createRoute({
@@ -342,18 +382,7 @@ app.openapi(root, async (c) => {
 	// 15 seconds default to prevent false failures during traffic spikes
 	const TIMEOUT_MS = Number(process.env.HEALTH_CHECK_TIMEOUT_MS) || 15000;
 
-	const healthChecker = new HealthChecker({
-		// Ping both the main and the storage Redis; either failing marks the
-		// gateway unhealthy (they may be the same instance via env fallback).
-		redisClient: {
-			ping: async () => {
-				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
-				return "PONG";
-			},
-		},
-		db,
-		logger,
-	});
+	const healthChecker = createHealthChecker();
 
 	const health = await healthChecker.performHealthChecks({
 		skipChecks,
@@ -385,6 +414,7 @@ v1.route("/moderations", moderationsRoute);
 v1.route("/ocr", ocrRoute);
 v1.route("/rerank", rerankRoute);
 v1.route("/search", searchRoute);
+v1.route("/decisions", decisionsRoute);
 v1.route("/systemone", systemoneRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
@@ -433,4 +463,9 @@ app.get("/docs", swaggerUI({ url: "/json" }));
 // indexing its endpoints (GSC keeps reporting api.llmgateway.io URLs).
 app.get("/robots.txt", (c) => {
 	return c.text("User-agent: *\nDisallow: /\n");
+});
+
+app.get("/.well-known/security.txt", (c) => {
+	c.header("Cache-Control", "public, max-age=86400");
+	return c.text(buildSecurityTxt());
 });

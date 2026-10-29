@@ -11,7 +11,9 @@ import {
 	type ReasoningMode,
 	type ProviderId,
 	type BaseMessage,
+	type CacheControl,
 	type FunctionParameter,
+	isInputAudioContent,
 	isTextContent,
 	type OpenAIFunctionToolInput,
 	type OpenAIRequestBody,
@@ -29,10 +31,11 @@ import {
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
 	type ToolChoiceType,
+	usesEncryptedReasoning,
+	type WebSearchFormat,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -40,12 +43,13 @@ import {
 } from "./anthropic-thinking.js";
 import {
 	isToolSearchTool,
+	isWebFetchTool,
 	stripAnthropicNativeBlocks,
 	stripAnthropicToolExtensions,
 	toAnthropicToolSearchTool,
+	toAnthropicWebFetchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
@@ -62,6 +66,7 @@ import {
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
+import { applyWebSearchFormat } from "./web-search-format.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 type OpenAIImageModeration = "auto" | "low";
@@ -289,6 +294,9 @@ function normalizeImageModeration(
 async function fetchImageAsBlob(
 	url: string,
 	index: number,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
 ): Promise<{ blob: Blob; filename: string }> {
 	const parsed = parseDataUrl(url);
 	if (parsed) {
@@ -307,18 +315,17 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
-	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
-		);
-	}
-	const mimeType =
-		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
-	const buffer = await response.arrayBuffer();
+	// Reuse SSRF validation and the streaming byte cap before building multipart.
+	const { data, mimeType } = await processImageUrl(
+		url,
+		isProd,
+		maxSizeMB,
+		userPlan,
+	);
+
+	const raw = Buffer.from(data, "base64");
+	const buffer = new ArrayBuffer(raw.byteLength);
+	new Uint8Array(buffer).set(raw);
 	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
 	return {
 		blob: new Blob([buffer], { type: mimeType }),
@@ -383,6 +390,19 @@ function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.enable_search = true;
 	requestBody.search_options = { forced_search: true };
 }
+
+/** Providers whose `prepareRequestBody` branch builds a Chat Completions body. */
+const OPENAI_CHAT_BODY_PROVIDERS: ReadonlySet<string> = new Set([
+	"zai",
+	"moonshot",
+	"alibaba",
+	"minimax",
+	"inference.net",
+	"together-ai",
+	"cerebras",
+	"xiaomi",
+	"deepseek",
+]);
 
 /**
  * Ensures function-tool parameters form a valid JSON Schema object. Some
@@ -449,9 +469,37 @@ function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
  */
-function convertOpenAISchemaToGoogle(schema: any): any {
+function convertOpenAISchemaToGoogle(
+	schema: any,
+	rootDefs: Record<string, any> = schema?.$defs ?? schema?.definitions ?? {},
+	seenRefs: Set<string> = new Set(),
+	rootSchema: any = schema,
+): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
+	}
+
+	// Google's responseSchema has no $ref, so expand it inline. A recursive
+	// reference collapses to a generic object instead of recursing forever.
+	if (typeof schema.$ref === "string") {
+		if (seenRefs.has(schema.$ref)) {
+			return schema.description
+				? { type: "OBJECT", description: schema.description }
+				: { type: "OBJECT" };
+		}
+		const resolved = resolveRef(schema.$ref, rootDefs, rootSchema);
+		if (resolved) {
+			const expanded = convertOpenAISchemaToGoogle(
+				resolved,
+				rootDefs,
+				new Set(seenRefs).add(schema.$ref),
+				rootSchema,
+			);
+			if (schema.description && !expanded.description) {
+				expanded.description = schema.description;
+			}
+			return expanded;
+		}
 	}
 
 	const converted: any = {};
@@ -482,13 +530,52 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 	if (schema.properties) {
 		converted.properties = {};
 		for (const [key, value] of Object.entries(schema.properties)) {
-			converted.properties[key] = convertOpenAISchemaToGoogle(value);
+			converted.properties[key] = convertOpenAISchemaToGoogle(
+				value,
+				rootDefs,
+				seenRefs,
+				rootSchema,
+			);
 		}
 	}
 
 	// Handle array items
 	if (schema.items) {
-		converted.items = convertOpenAISchemaToGoogle(schema.items);
+		converted.items = convertOpenAISchemaToGoogle(
+			schema.items,
+			rootDefs,
+			seenRefs,
+			rootSchema,
+		);
+	}
+
+	// Unions: Google has `anyOf` but no null type, so a null member becomes
+	// `nullable` and a lone remaining member is folded into this node. A
+	// single-member `allOf` (older pydantic wraps described refs in one) is
+	// folded the same way.
+	const union = Array.isArray(schema.anyOf)
+		? schema.anyOf
+		: Array.isArray(schema.oneOf)
+			? schema.oneOf
+			: Array.isArray(schema.allOf) && schema.allOf.length === 1
+				? schema.allOf
+				: undefined;
+	if (Array.isArray(union)) {
+		const members = union.filter((member: any) => member?.type !== "null");
+		if (members.length !== union.length) {
+			converted.nullable = true;
+		}
+		const convertedMembers = members.map((member: any) =>
+			convertOpenAISchemaToGoogle(member, rootDefs, seenRefs, rootSchema),
+		);
+		if (convertedMembers.length === 1) {
+			Object.assign(converted, {
+				...convertedMembers[0],
+				...converted,
+			});
+		} else if (convertedMembers.length > 1) {
+			converted.anyOf = convertedMembers;
+		}
 	}
 
 	// Copy required array if present
@@ -496,11 +583,19 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Google's Schema proto represents every enum member as a string, including
-	// members of numeric and boolean schemas.
+	// Google's Schema proto represents every enum member as a string, and
+	// Vertex rejects an enum on any non-STRING schema with a 400. Keep a
+	// numeric or boolean enum as a description hint so the type survives.
 	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
 	if (normalizedEnum !== undefined) {
-		converted.enum = normalizedEnum;
+		if (!converted.type || converted.type === "STRING") {
+			converted.enum = normalizedEnum;
+		} else {
+			const hint = `Allowed values: ${normalizedEnum.join(", ")}`;
+			converted.description = converted.description
+				? `${converted.description} (${hint})`
+				: hint;
+		}
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -591,14 +686,33 @@ function sanitizeCerebrasSchema(schema: any): any {
 /**
  * Resolves a $ref path like "#/$defs/QuestionOption" to the actual definition
  */
-function resolveRef(ref: string, rootDefs: Record<string, any>): any {
-	// Handle JSON Pointer format: #/$defs/Name or #/definitions/Name
-	const match = ref.match(/^#\/(\$defs|definitions)\/(.+)$/);
-	if (match) {
-		const defName = match[2];
-		return rootDefs[defName];
+function resolveRef(
+	ref: string,
+	rootDefs: Record<string, any>,
+	rootSchema?: any,
+): any {
+	if (ref === "#") {
+		return rootSchema ?? null;
 	}
-	return null;
+	if (!ref.startsWith("#/")) {
+		return null;
+	}
+	const [first, ...rest] = ref
+		.slice(2)
+		.split("/")
+		.map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+	// Prefer the namespace the ref names, so #/definitions/X still resolves
+	// when the root also carries $defs.
+	let node: any =
+		rootSchema?.[first] ??
+		(first === "$defs" || first === "definitions" ? rootDefs : undefined);
+	for (const segment of rest) {
+		if (!node || typeof node !== "object") {
+			return null;
+		}
+		node = node[segment];
+	}
+	return node && typeof node === "object" ? node : null;
 }
 
 /**
@@ -617,12 +731,16 @@ function resolveRef(ref: string, rootDefs: Record<string, any>): any {
  * degradation.
  *
  * Deliberately omitted even though Google does accept them: `minLength`,
- * `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`,
- * `minProperties`, `maxProperties` and `not`. The gateway has always stripped
- * those, and forwarding them would change how models fill tool arguments, so
- * restoring them is a separate behavioural change rather than part of this
- * fix. `$ref` / `$defs` / `definitions` are absent because they are consumed
- * by the inline expansion below instead of being forwarded.
+ * `maxLength`, `minimum`, `maximum`, `minItems`, `maxItems`, `minProperties`,
+ * `maxProperties` and `not`. The gateway has always stripped those, and
+ * forwarding them would change how models fill tool arguments, so restoring
+ * them is a separate behavioural change rather than part of this fix.
+ * `pattern` is forwarded on string nodes only (verified live on the Gemini
+ * API), since a pinned value format is what a caller means by it. `const` is
+ * rewritten below. `additionalProperties` has no field in this carrier (the
+ * Gemini API 400s on it); only `parametersJsonSchema` would carry it. `$ref` /
+ * `$defs` / `definitions` are absent because they are consumed by the inline
+ * expansion below instead of being forwarded.
  */
 const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"type",
@@ -640,6 +758,7 @@ const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 	"allOf",
 	"propertyOrdering",
 	"example",
+	"pattern",
 ]);
 
 /**
@@ -747,9 +866,47 @@ function stripUnsupportedSchemaProperties(
 
 	const cleaned: any = {};
 	let nullableFromType = false;
+	let nullableFromConst = false;
+	let constEnum: string[] | undefined;
+	let constType: string | undefined;
 
 	for (const [key, value] of Object.entries(schema)) {
+		// Google's `parameters` carrier has no `const` vocabulary: pin the value
+		// as a single-member `enum`, which constrains the model identically and
+		// which the carrier accepts. An explicit `enum` always wins. (#4148)
+		if (key === "const") {
+			if ("enum" in schema) {
+				continue;
+			}
+			if (value === null) {
+				// Google's Type enum has no NULL member, so a null-only constraint
+				// cannot survive as an enum: String(null) would demand the literal
+				// string "null". Fold it into `nullable` with the type list below.
+				nullableFromConst = true;
+				continue;
+			}
+			// Deferred to the emit below: whether it may become an `enum`
+			// depends on the node's `type`, which may come later.
+			constEnum = normalizeGoogleSchemaEnum([value]);
+			constType =
+				typeof value === "number"
+					? Number.isInteger(value)
+						? "integer"
+						: "number"
+					: typeof value;
+			continue;
+		}
+
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		// `pattern` only has meaning on strings; Google's proto accepts it on
+		// any node but the model has nothing to match it against elsewhere.
+		if (key === "pattern") {
+			if (typeof value === "string") {
+				cleaned.pattern = value;
+			}
 			continue;
 		}
 
@@ -814,10 +971,47 @@ function stripUnsupportedSchemaProperties(
 		}
 	}
 
-	// Applied after the loop so it wins over an explicit `nullable: false` that
-	// contradicts a `"null"` member in the type list, whichever key came first.
-	if (nullableFromType) {
+	// Applied after the loop so either source wins over an explicit
+	// `nullable: false` that contradicts it, whichever key came first.
+	if (nullableFromType || nullableFromConst) {
 		cleaned.nullable = true;
+		// A bare `const: null` carries no type; Vertex rejects an untyped node.
+		if (nullableFromConst && cleaned.type === undefined) {
+			cleaned.type = "string";
+		}
+	}
+
+	// Vertex rejects an `enum` on any non-STRING schema with a 400, so a
+	// numeric or boolean const is kept as a description hint instead, the
+	// same way convertOpenAISchemaToGoogle treats such an enum. (#4148)
+	if (constEnum !== undefined) {
+		// A bare `const` (no `type`) is common from schema generators. Vertex
+		// rejects an untyped node outright, and the Gemini API ignores an enum
+		// it cannot type, so take the type from the value itself.
+		if (cleaned.type === undefined && constType !== undefined) {
+			cleaned.type = constType;
+		}
+		if (
+			typeof cleaned.type !== "string" ||
+			cleaned.type.toLowerCase() === "string"
+		) {
+			cleaned.enum = constEnum;
+		} else {
+			const hint = `Allowed values: ${constEnum.join(", ")}`;
+			cleaned.description =
+				typeof cleaned.description === "string" && cleaned.description
+					? `${cleaned.description} (${hint})`
+					: hint;
+		}
+	}
+
+	// A `pattern` that survived on a non-string node has nothing to match.
+	if (
+		cleaned.pattern !== undefined &&
+		typeof cleaned.type === "string" &&
+		cleaned.type.toLowerCase() !== "string"
+	) {
+		delete cleaned.pattern;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'
@@ -1399,6 +1593,94 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 }
 
 /**
+ * Validated copy of a caller's cache marker for an upstream that takes
+ * Anthropic-style markers verbatim: `{type: "ephemeral"}` plus a known `ttl`.
+ * Anything else is malformed and dropped.
+ */
+function normalizeCacheControl(marker: unknown): CacheControl | undefined {
+	if (
+		!marker ||
+		typeof marker !== "object" ||
+		(marker as { type?: unknown }).type !== "ephemeral"
+	) {
+		return undefined;
+	}
+	const ttl = (marker as { ttl?: unknown }).ttl;
+	return ttl === "5m" || ttl === "1h"
+		? { type: "ephemeral", ttl }
+		: { type: "ephemeral" };
+}
+
+/**
+ * Normalizes text-part markers (dropping malformed ones) and removes markers
+ * from every other part type, which OpenAI-compatible upstreams do not take.
+ */
+function normalizeContentCacheControl(message: BaseMessage): BaseMessage {
+	if (!Array.isArray(message.content)) {
+		return message;
+	}
+	let mutated = false;
+	const content = message.content.map((part) => {
+		const record = part as unknown as Record<string, unknown>;
+		if (record?.cache_control === undefined) {
+			return part;
+		}
+		mutated = true;
+		const { cache_control: marker, ...rest } = record;
+		const normalized =
+			record.type === "text" ? normalizeCacheControl(marker) : undefined;
+		return (normalized
+			? { ...rest, cache_control: normalized }
+			: rest) as unknown as typeof part;
+	});
+	return mutated ? { ...message, content } : message;
+}
+
+/**
+ * Moves a tool message's `tool_result_cache_control` onto its last text part,
+ * the only place an OpenAI-compatible upstream can carry it. A string result
+ * becomes a single text part.
+ */
+function attachToolResultCacheControl(message: BaseMessage): BaseMessage {
+	if (message.tool_result_cache_control === undefined) {
+		return message;
+	}
+	const { tool_result_cache_control: marker, ...rest } = message;
+	const cacheControl = normalizeCacheControl(marker);
+	if (!cacheControl) {
+		return rest;
+	}
+	if (typeof rest.content === "string") {
+		return rest.content === ""
+			? rest
+			: {
+					...rest,
+					content: [
+						{ type: "text", text: rest.content, cache_control: cacheControl },
+					],
+				};
+	}
+	if (!Array.isArray(rest.content)) {
+		return rest;
+	}
+	let lastText = -1;
+	rest.content.forEach((part, index) => {
+		if (isTextContent(part)) {
+			lastText = index;
+		}
+	});
+	if (lastText === -1) {
+		return rest;
+	}
+	return {
+		...rest,
+		content: rest.content.map((part, index) =>
+			index === lastText ? { ...part, cache_control: cacheControl } : part,
+		),
+	};
+}
+
+/**
  * Prepares the request body for different providers.
  *
  * @param usedProvider - Provider id used for routing.
@@ -1466,6 +1748,17 @@ export async function prepareRequestBody(
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
 	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
+	parallel_tool_calls?: boolean,
+	/**
+	 * The mapping's declared web search shape. Passed on its own because
+	 * Airside carriers on the OpenAI transport resolve no mapping here.
+	 */
+	webSearchFormat?: WebSearchFormat,
+	/**
+	 * The custom provider key opted in to forwarding caller `cache_control`
+	 * markers. Only read when `usedProvider` is `custom`.
+	 */
+	forwardCacheControl = false,
 ): Promise<ProviderRequestBody | FormData> {
 	// Check before provider transforms can strip a caller's markers.
 	const hasCacheMarker = (part: object) =>
@@ -1487,12 +1780,25 @@ export async function prepareRequestBody(
 	// are still sent, just without deferral, so the request degrades to ordinary
 	// eager tool loading instead of failing on an unknown property.
 	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	// Read before the strip below: Bedrock Converse has no per-tool field and
+	// takes fine-grained tool streaming as a request-wide beta instead, so it
+	// only applies when every tool opted in to unvalidated partial input.
+	const functionToolsForEager = tools?.filter(isFunctionTool) ?? [];
+	const eagerToolInputStreaming =
+		functionToolsForEager.length > 0 &&
+		functionToolsForEager.every((tool) => tool.eager_input_streaming === true);
 	if (!anthropicMessagesApi) {
 		if (tools?.some(isToolSearchTool)) {
 			logger.warn(
 				"Dropping Anthropic tool search for a non-Anthropic provider",
 				{ usedProvider, usedInternalModel, toolCount: tools.length },
 			);
+		}
+		if (tools?.some(isWebFetchTool)) {
+			logger.warn("Dropping Anthropic web fetch for a non-Anthropic provider", {
+				usedProvider,
+				usedInternalModel,
+			});
 		}
 		tools = stripAnthropicToolExtensions(tools);
 		messages = stripAnthropicNativeBlocks(messages);
@@ -1507,6 +1813,23 @@ export async function prepareRequestBody(
 		usedProvider,
 		usedRegion,
 	);
+	// A forced search maps to `tool_choice: "required"` in the tool shape,
+	// unless the mapping declares it does not take that mode.
+	const formatToolChoices = (
+		resolvedProviderMapping ?? providerMappingForOptions
+	)?.supportedToolChoices;
+	let declaredWebSearchApplied = false;
+	const applyDeclaredWebSearch = (body: Record<string, any>) => {
+		if (webSearchTool && webSearchFormat) {
+			declaredWebSearchApplied = true;
+			applyWebSearchFormat(
+				body,
+				webSearchTool,
+				webSearchFormat,
+				!formatToolChoices?.length || formatToolChoices.includes("required"),
+			);
+		}
+	};
 	const supportedServiceTier =
 		(service_tier === "flex" || service_tier === "priority") &&
 		supportsServiceTier(
@@ -1522,12 +1845,24 @@ export async function prepareRequestBody(
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
 	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
 	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
-	// thinking when asked. Every other provider treats the absence of
-	// reasoning_effort as "off" already, so normalize `none` away for them to
+	// thinking when asked. Claude (Anthropic, Vertex, Azure and Bedrock Converse)
+	// receives it as `thinking: { type: "disabled" }` so an explicit disable
+	// reaches the model. Every other provider treats the
+	// absence of reasoning_effort as "off" already, so normalize `none` away for them to
 	// avoid forwarding an unsupported enum value. A mapping that publishes
 	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
 	// it documents that the provider accepts the value, so forward it even
 	// when the provider is not in the allowlist above (#3423).
+	const usesBedrockClaudeConverse =
+		usedProvider === "aws-bedrock" &&
+		providerMappingForOptions?.apiFormat !== "openai-chat-completions" &&
+		modelDef?.family === "anthropic";
+	// Some adaptive-only Claude models (Fable 5, Sonnet 5.5, Opus 5.5) reject
+	// `thinking: { type: "disabled" }`; adaptive mappings that accept it declare
+	// `none` in `reasoningEfforts`. Budget-era Claude models all accept it.
+	const claudeCanDisableThinking =
+		providerMappingForOptions?.reasoningMode !== "adaptive" ||
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1545,6 +1880,10 @@ export async function prepareRequestBody(
 		usedProvider === "together-ai" ||
 		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
+		usedProvider === "anthropic" ||
+		usedProvider === "vertex-anthropic" ||
+		usedProvider === "azure-anthropic" ||
+		usesBedrockClaudeConverse ||
 		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -1638,7 +1977,9 @@ export async function prepareRequestBody(
 			}
 
 			const decoded = await Promise.all(
-				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+				imageUrls.map((url, index) =>
+					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),
+				),
 			);
 			const fieldName = decoded.length === 1 ? "image" : "image[]";
 			for (const { blob, filename } of decoded) {
@@ -1986,6 +2327,16 @@ export async function prepareRequestBody(
 	// cachePoint after the toolResult. Anywhere else it would reach the upstream
 	// as an unknown message field, and a project that opted out of provider
 	// cache writes must not emit it at all.
+	// A custom provider key that opted in forwards caller markers to its
+	// OpenAI-compatible upstream (typically a router in front of Claude). It
+	// never adds markers of its own, and `off` still strips everything.
+	const forwardCustomCacheControl =
+		usedProvider === "custom" &&
+		forwardCacheControl &&
+		allowProviderCacheWrites;
+	if (forwardCustomCacheControl) {
+		processedMessages = processedMessages.map(attachToolResultCacheControl);
+	}
 	const bedrockConverseApi =
 		usedProvider === "aws-bedrock" &&
 		providerMappingForOptions?.apiFormat !== "openai-chat-completions";
@@ -2023,7 +2374,8 @@ export async function prepareRequestBody(
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "azure-anthropic" ||
 		usedProvider === "aws-bedrock" ||
-		usedProvider === "alibaba";
+		usedProvider === "alibaba" ||
+		forwardCustomCacheControl;
 	const stripAllCacheControl = !allowProviderCacheWrites;
 	const stripTextCacheControl = !providerHandlesCacheControl;
 	if (stripAllCacheControl || stripTextCacheControl) {
@@ -2048,6 +2400,8 @@ export async function prepareRequestBody(
 			});
 			return mutated ? { ...m, content: newContent } : m;
 		});
+	} else if (forwardCustomCacheControl) {
+		processedMessages = processedMessages.map(normalizeContentCacheControl);
 	} else if (usedProvider === "alibaba") {
 		// Alibaba's cache_control accepts only `{type: "ephemeral"}` (5m fixed).
 		// Drop the `ttl` field if present so Anthropic-style requests don't trip
@@ -2162,7 +2516,11 @@ export async function prepareRequestBody(
 
 	if (
 		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
-		usedProvider === "runpod"
+		usedProvider === "runpod" ||
+		(usedProvider === "tencent" &&
+			["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"].includes(
+				usedInternalModel,
+			))
 	) {
 		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
@@ -2224,6 +2582,34 @@ export async function prepareRequestBody(
 				return { ...m, content };
 			}),
 		);
+	}
+
+	// DashScope reads `input_audio.data` as a URL and 400s on the bare base64
+	// OpenAI sends, so inline audio goes up as a data URL.
+	if (usedProvider === "alibaba") {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const content = m.content.map((part) => {
+				if (
+					!isInputAudioContent(part) ||
+					/^(data:|https?:\/\/)/i.test(part.input_audio.data)
+				) {
+					return part;
+				}
+				mutated = true;
+				return {
+					...part,
+					input_audio: {
+						...part.input_audio,
+						data: `data:;base64,${part.input_audio.data}`,
+					},
+				};
+			});
+			return mutated ? { ...m, content } : m;
+		});
 	}
 
 	const messagesWithGoogleSignatures = processedMessages;
@@ -2357,6 +2743,24 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// `parallel_tool_calls` is only valid next to tools (OpenAI rejects it
+	// otherwise). OpenAI and Azure document it; other OpenAI-compatible mappings
+	// opt in through supportedParameters. Anthropic maps it onto tool_choice in
+	// its case below; provider-native formats delete it from the base body.
+	const acceptsParallelToolCalls =
+		usedProvider === "openai" ||
+		usedProvider === "azure" ||
+		providerMappingForOptions?.supportedParameters?.includes(
+			"parallel_tool_calls",
+		) === true;
+	if (
+		parallel_tool_calls !== undefined &&
+		requestBody.tools !== undefined &&
+		acceptsParallelToolCalls
+	) {
+		requestBody.parallel_tool_calls = parallel_tool_calls;
+	}
+
 	// Resolve tool_choice against what the mapping declares it accepts. Fall
 	// back to "auto" when the mapping omits "tool_choice" from
 	// supportedParameters, or when the requested tool_choice mode isn't listed
@@ -2365,7 +2769,8 @@ export async function prepareRequestBody(
 	// instead of hard-coding per-provider downgrades here.
 	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
 	// via `webSearchTool.forced` and translated into whatever each upstream
-	// understands (DashScope's `search_options.forced_search`). No provider
+	// understands (DashScope's `search_options.forced_search`, or `"required"`
+	// for a mapping declaring the tool `webSearchFormat`). No provider
 	// accepts it under this name in a chat-completions body, so it is never
 	// forwarded verbatim.
 	const isWebSearchToolChoice =
@@ -2536,7 +2941,10 @@ export async function prepareRequestBody(
 				// full).
 				if (getProviderDefinition(usedProvider)?.encryptedReasoning) {
 					responsesBody.store = false;
-					responsesBody.include = ["reasoning.encrypted_content"];
+					// Only mappings that reason return replayable payloads.
+					if (usesEncryptedReasoning(providerMappingForOptions)) {
+						responsesBody.include = ["reasoning.encrypted_content"];
+					}
 				}
 
 				if (usedProvider === "aws-mantle") {
@@ -2618,13 +3026,16 @@ export async function prepareRequestBody(
 					}
 				}
 
-				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
-				// surface is what the Responses API path always uses) document
-				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
-				// neither documents it and an unknown field risks a 400.
+				// Abuse-attribution identifier. OpenAI, Azure (whose v1 surface is
+				// what the Responses API path always uses) and Meta document
+				// `safety_identifier`; Bedrock Mantle does not, and an unknown field
+				// risks a 400.
 				if (
 					safety_identifier !== undefined &&
-					(usedProvider === "openai" || usedProvider === "azure")
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					responsesBody.safety_identifier = safety_identifier;
 				}
@@ -2645,6 +3056,9 @@ export async function prepareRequestBody(
 							name: tool.function.name,
 							description: tool.function.description,
 							parameters: tool.function.parameters as FunctionParameter,
+							...(typeof tool.function.strict === "boolean" && {
+								strict: tool.function.strict,
+							}),
 						}));
 					}
 				}
@@ -2703,6 +3117,13 @@ export async function prepareRequestBody(
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
+				if (
+					acceptsParallelToolCalls &&
+					parallel_tool_calls !== undefined &&
+					responsesBody.tools?.length
+				) {
+					responsesBody.parallel_tool_calls = parallel_tool_calls;
+				}
 
 				// Add optional parameters if they are provided
 				if (temperature !== undefined) {
@@ -2746,9 +3167,14 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
-				if (usedProvider === "openai" || usedProvider === "azure") {
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta" ||
+					usedProvider === "meta-contributor"
+				) {
 					if (safety_identifier !== undefined) {
-						if (usedProvider === "openai") {
+						if (usedProvider !== "azure") {
 							requestBody.safety_identifier = safety_identifier;
 						} else {
 							// Azure's deployment-based APIs predate safety_identifier but
@@ -2831,7 +3257,10 @@ export async function prepareRequestBody(
 				// Add web search for OpenAI Chat Completions
 				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options
 				// For other models that support web search, add web_search tool
-				if (webSearchTool) {
+				// A mapping that declares its format gets exactly that shape.
+				if (webSearchFormat) {
+					applyDeclaredWebSearch(requestBody);
+				} else if (webSearchTool) {
 					if (usedInternalModel.includes("-search-")) {
 						// Search models use web_search_options parameter
 						const webSearchOptions: any = {};
@@ -2938,7 +3367,7 @@ export async function prepareRequestBody(
 
 			// Add web search tool for ZAI
 			// ZAI uses a web_search tool with enable flag and search_engine config
-			if (webSearchTool) {
+			if (webSearchTool && !webSearchFormat) {
 				requestBody.tools ??= [];
 				requestBody.tools.push({
 					type: "web_search",
@@ -3013,11 +3442,11 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "moonshot": {
-			// Kimi K3 has its own parameter surface: output length is capped via
+			// The Kimi K3 family has its own parameter surface: output length is capped via
 			// `max_completion_tokens` (the K2-era `max_tokens` is not documented
 			// for it), and thinking is configured through the native top-level
 			// `reasoning_effort` field instead of the binary `thinking` toggle.
-			const isKimiK3 = usedInternalModel === "kimi-k3";
+			const isKimiK3 = usedInternalModel.startsWith("kimi-k3");
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -3089,7 +3518,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			if (webSearchTool?.forced) {
+			if (webSearchTool?.forced && !webSearchFormat) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -3191,8 +3620,11 @@ export async function prepareRequestBody(
 					reasoning_split: true,
 				};
 			}
-			// MiniMax doesn't recognize `reasoning_effort`; its thinking models
-			// take a binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
+			// Mappings listing `reasoning_effort` in supportedParameters
+			// (MiniMax-M3.1-Flash) take a graduated effort and reject disabling
+			// thinking, so none/minimal collapse onto the lowest declared tier.
+			// The older thinking models ignore `reasoning_effort` and take a
+			// binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
 			// and think by default. Map `none`/`minimal` to an explicit disable and
 			// every other tier to an explicit enable; when no effort is requested,
 			// send nothing and keep the provider default (thinking on). Only
@@ -3200,7 +3632,21 @@ export async function prepareRequestBody(
 			// ignores `"disabled"` and keeps thinking (verified live) — so mappings
 			// that can disable declare `none` in `reasoningEfforts` and disable
 			// requests collapse onto the minimum (thinking stays on) elsewhere.
-			if (supportsReasoning && reasoning_effort !== undefined) {
+			if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				const lowestEffort =
+					providerMappingForOptions.reasoningEfforts?.[0] ?? "low";
+				requestBody.reasoning_effort = wantsThinking
+					? reasoning_effort
+					: lowestEffort;
+			} else if (supportsReasoning && reasoning_effort !== undefined) {
 				const wantsThinking =
 					reasoning_effort !== "none" && reasoning_effort !== "minimal";
 				const canDisableThinking =
@@ -3219,6 +3665,7 @@ export async function prepareRequestBody(
 		case "azure-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
+			delete requestBody.parallel_tool_calls;
 
 			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
 			// both the direct API and Vertex `rawPredict` (verified live). AWS
@@ -3227,6 +3674,17 @@ export async function prepareRequestBody(
 			if (safety_identifier !== undefined) {
 				requestBody.metadata = { user_id: safety_identifier };
 			}
+
+			// `none` is an explicit disable: it sends `thinking: { type: "disabled" }`
+			// (unless a budget is also given) and never enables thinking. Models that
+			// cannot disable thinking get no `thinking` field, as without an effort.
+			const thinkingDisabled =
+				supportsReasoning &&
+				claudeCanDisableThinking &&
+				reasoning_effort === "none" &&
+				reasoning_max_tokens === undefined;
+			const thinkingEffort =
+				reasoning_effort === "none" ? undefined : reasoning_effort;
 
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
 			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
@@ -3239,7 +3697,7 @@ export async function prepareRequestBody(
 					// Anthropic has a minimum of 1024 and maximum of 128000 for thinking budget
 					return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
 				}
-				if (!reasoning_effort) {
+				if (!effort) {
 					return 0;
 				}
 				switch (effort) {
@@ -3255,7 +3713,7 @@ export async function prepareRequestBody(
 						return 2000; // medium or undefined
 				}
 			};
-			const thinkingBudget = getThinkingBudget(reasoning_effort);
+			const thinkingBudget = getThinkingBudget(thinkingEffort);
 			// Anthropic's Messages API requires max_tokens to be set. When the
 			// caller didn't specify one, fall back to the model's full advertised
 			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
@@ -3514,6 +3972,13 @@ export async function prepareRequestBody(
 						// section before the cache key is computed, so forwarding this
 						// is what keeps a large tool catalogue out of the cached prefix.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						...(tool.function.strict === true && { strict: true }),
+						...(tool.allowed_callers && {
+							allowed_callers: tool.allowed_callers,
+						}),
+						...(tool.eager_input_streaming !== undefined && {
+							eager_input_streaming: tool.eager_input_streaming,
+						}),
 						// Budget and TTL ordering were both settled above, where the
 						// system pass needed the resulting count.
 						...(toolCacheControlKept[index] && {
@@ -3528,6 +3993,18 @@ export async function prepareRequestBody(
 					requestBody.tools = [
 						...toolSearchTools.map(toAnthropicToolSearchTool),
 						...((requestBody.tools as unknown[]) ?? []),
+					];
+				}
+				// Anthropic does not offer web fetch on Google Cloud.
+				const webFetchTools = tools.filter(isWebFetchTool);
+				if (webFetchTools.length > 0 && usedProvider === "vertex-anthropic") {
+					logger.warn("Dropping Anthropic web fetch on Google Cloud", {
+						usedInternalModel,
+					});
+				} else if (webFetchTools.length > 0) {
+					requestBody.tools = [
+						...((requestBody.tools as unknown[]) ?? []),
+						...webFetchTools.map(toAnthropicWebFetchTool),
 					];
 				}
 			}
@@ -3578,9 +4055,25 @@ export async function prepareRequestBody(
 					requestBody.tool_choice = { type: "none" };
 				}
 			}
+			// Anthropic has no parallel_tool_calls; the same switch lives on
+			// tool_choice, which rejects it alongside type "none".
+			if (
+				parallel_tool_calls === false &&
+				requestBody.tools?.length &&
+				requestBody.tool_choice?.type !== "none"
+			) {
+				requestBody.tool_choice = {
+					...(requestBody.tool_choice ?? { type: "auto" }),
+					disable_parallel_tool_use: true,
+				};
+			}
+
+			if (thinkingDisabled) {
+				requestBody.thinking = { type: "disabled" };
+			}
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+			if (supportsReasoning && (thinkingEffort || reasoning_max_tokens)) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
@@ -3589,7 +4082,7 @@ export async function prepareRequestBody(
 					// thinking text — their default flipped to "omitted" (empty thinking,
 					// signature only), unlike Opus 4.6 which defaults to "summarized".
 					requestBody.thinking = { type: "adaptive", display: "summarized" };
-					if (effort === undefined && reasoning_effort) {
+					if (effort === undefined && thinkingEffort) {
 						const mapEffort = (
 							e: typeof reasoning_effort,
 						): "low" | "medium" | "high" | "xhigh" | "max" => {
@@ -3610,7 +4103,7 @@ export async function prepareRequestBody(
 							}
 						};
 						requestBody.output_config ??= {};
-						requestBody.output_config.effort = mapEffort(reasoning_effort);
+						requestBody.output_config.effort = mapEffort(thinkingEffort);
 					}
 				} else {
 					requestBody.thinking = {
@@ -3674,7 +4167,9 @@ export async function prepareRequestBody(
 						...response_format.json_schema.schema,
 						additionalProperties: false,
 					} as Record<string, unknown>;
+					// Keep the effort set above: output_config holds both effort and format.
 					requestBody.output_config = {
+						...requestBody.output_config,
 						format: {
 							type: "json_schema",
 							schema,
@@ -3729,7 +4224,8 @@ export async function prepareRequestBody(
 			delete requestBody.stream; // Will be added to inferenceConfig
 			delete requestBody.messages; // Will be transformed to Bedrock format
 			delete requestBody.tools; // Will be transformed to Bedrock format
-			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
+			delete requestBody.tool_choice; // Converse uses toolConfig.toolChoice
+			delete requestBody.parallel_tool_calls; // No Converse equivalent
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
@@ -3948,11 +4444,22 @@ export async function prepareRequestBody(
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls?.length) {
-					// Add text content if present
-					if (msg.content) {
-						bedrockMessage.content.push({
-							text: msg.content,
-						});
+					// Add text content if present. The OpenAI schema also allows an array
+					// of text parts here, which Converse takes as one text block per part.
+					if (typeof msg.content === "string") {
+						if (msg.content) {
+							bedrockMessage.content.push({
+								text: msg.content,
+							});
+						}
+					} else if (Array.isArray(msg.content)) {
+						for (const part of msg.content as any[]) {
+							if (part.type === "text" && part.text?.trim()) {
+								bedrockMessage.content.push({
+									text: part.text,
+								});
+							}
+						}
 					}
 
 					// Add tool use blocks
@@ -4235,10 +4742,27 @@ export async function prepareRequestBody(
 				requestBody.inferenceConfig = inferenceConfig;
 			}
 
+			// `none` explicitly disables Claude's thinking, mirroring the Anthropic
+			// branch; it never enables thinking.
+			const bedrockThinkingEffort =
+				reasoning_effort === "none" ? undefined : reasoning_effort;
+			if (
+				usesBedrockClaudeConverse &&
+				claudeCanDisableThinking &&
+				supportsReasoning &&
+				reasoning_effort === "none" &&
+				reasoning_max_tokens === undefined
+			) {
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.thinking = {
+					type: "disabled",
+				};
+			}
+
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
 			if (
 				supportsReasoning &&
-				(effort || reasoning_effort || reasoning_max_tokens)
+				(effort || bedrockThinkingEffort || reasoning_max_tokens)
 			) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
@@ -4272,7 +4796,9 @@ export async function prepareRequestBody(
 					};
 					const adaptiveEffort =
 						effort ??
-						(reasoning_effort ? mapEffort(reasoning_effort) : undefined);
+						(bedrockThinkingEffort
+							? mapEffort(bedrockThinkingEffort)
+							: undefined);
 					if (adaptiveEffort !== undefined) {
 						requestBody.additionalModelRequestFields.output_config = {
 							effort: adaptiveEffort,
@@ -4299,7 +4825,7 @@ export async function prepareRequestBody(
 								return 2000;
 						}
 					};
-					const thinkingBudget = getThinkingBudget(reasoning_effort);
+					const thinkingBudget = getThinkingBudget(bedrockThinkingEffort);
 					requestBody.additionalModelRequestFields ??= {};
 					requestBody.additionalModelRequestFields.thinking = {
 						type: "enabled",
@@ -4337,6 +4863,28 @@ export async function prepareRequestBody(
 				}
 			}
 
+			// Converse takes Claude's forced tool choice as `toolConfig.toolChoice`.
+			// Budget thinking rejects it ("Thinking may not be enabled when
+			// tool_choice forces tool use"), so those requests stay on auto, as
+			// before. Converse has no `none`.
+			if (
+				usesBedrockClaudeConverse &&
+				requestBody.toolConfig &&
+				tools?.some(isFunctionTool) &&
+				requestBody.additionalModelRequestFields?.thinking?.type !== "enabled"
+			) {
+				if (resolvedToolChoice === "required") {
+					requestBody.toolConfig.toolChoice = { any: {} };
+				} else if (
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
+				) {
+					requestBody.toolConfig.toolChoice = {
+						tool: { name: resolvedToolChoice.function.name },
+					};
+				}
+			}
+
 			// Handle response_format for AWS Bedrock via additionalModelRequestFields
 			// This passes Anthropic-specific parameters through the Converse API
 			if (
@@ -4358,6 +4906,19 @@ export async function prepareRequestBody(
 				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
 			}
 
+			if (
+				usesBedrockClaudeConverse &&
+				stream &&
+				eagerToolInputStreaming &&
+				requestBody.toolConfig
+			) {
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					...(requestBody.additionalModelRequestFields.anthropic_beta ?? []),
+					"fine-grained-tool-streaming-2025-05-14",
+				];
+			}
+
 			break;
 		}
 		case "google-ai-studio":
@@ -4367,6 +4928,7 @@ export async function prepareRequestBody(
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
+			delete requestBody.parallel_tool_calls; // No Gemini equivalent
 			// Map OpenAI tool_choice to Google's toolConfig format
 			if (
 				resolvedToolChoice &&
@@ -4472,10 +5034,21 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.responseMimeType = "application/json";
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
-				// Convert OpenAI's JSON schema format to Google's format
 				if (response_format.json_schema?.schema) {
-					requestBody.generationConfig.responseSchema =
-						convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					// AI Studio and Vertex take standard JSON Schema ($ref, $defs,
+					// anyOf, type arrays, numeric enums) via responseJsonSchema; the
+					// compatible transports still get the OpenAPI-subset conversion in
+					// responseSchema.
+					if (
+						usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex"
+					) {
+						requestBody.generationConfig.responseJsonSchema =
+							foldSingleMemberAllOf(response_format.json_schema.schema);
+					} else {
+						requestBody.generationConfig.responseSchema =
+							convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					}
 				}
 			}
 
@@ -4943,52 +5516,6 @@ export async function prepareRequestBody(
 			break;
 		}
 
-		case "gonka24": {
-			if (stream) {
-				requestBody.stream_options = {
-					include_usage: true,
-				};
-			}
-			if (response_format) {
-				requestBody.response_format = response_format;
-			}
-
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
-
-			// Gonka24 keeps thinking off by default, and only the binary `thinking`
-			// switch turns it on — `reasoning_effort` alone never does, and the
-			// chat-template flag is ignored. So the effort decides the switch:
-			// "none" disables, any other tier enables. The effort is forwarded
-			// alongside it because the deployment validates it against its enum and
-			// grades the tiers by intent; today they measure the same (low/medium/
-			// high differ by ~6% in reasoning length over 40 samples each, well
-			// inside noise), but forwarding means real grading works the moment the
-			// provider implements it, with no gateway change.
-			if (supportsReasoning && reasoning_effort !== undefined) {
-				requestBody.thinking =
-					reasoning_effort === "none"
-						? { type: "disabled" }
-						: { type: "enabled" };
-				requestBody.reasoning_effort = reasoning_effort;
-			}
-			break;
-		}
-
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
@@ -5007,12 +5534,7 @@ export async function prepareRequestBody(
 				requestBody.service_tier = supportedServiceTier;
 			}
 
-			// SCX resells Alibaba's Qwen models and passes DashScope's search
-			// parameters straight through, so its Qwen mappings take the same shape
-			// as the `alibaba` case above.
-			if (usedProvider === "scx-ai-gp" && webSearchTool?.forced) {
-				applyDashScopeWebSearch(requestBody);
-			}
+			applyDeclaredWebSearch(requestBody);
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
 			// model field to be partner-prefixed, e.g. "xai/grok-4.20-reasoning".
@@ -5055,25 +5577,21 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					if (usedProvider === "embercloud") {
-						// embercloud's documented request body uses a nested
-						// `reasoning` object (`reasoning.enabled` +
-						// `reasoning.effort`) instead of the flat OpenAI-style
-						// `reasoning_effort` field, which it silently ignores
-						// (https://embercloud.ai/docs/request-body). "none"
-						// maps to enabled: false; any other tier enables
-						// reasoning at the requested effort.
-						requestBody.reasoning =
-							reasoning_effort === "none"
-								? { enabled: false }
-								: { enabled: true, effort: reasoning_effort };
-					} else {
-						requestBody.reasoning_effort = reasoning_effort;
-					}
+					requestBody.reasoning_effort = reasoning_effort;
 				}
 			}
 			break;
 		}
+	}
+
+	// A declared format replaces the provider's own search translation on every
+	// branch that builds an OpenAI-compatible chat body. Native APIs (Anthropic,
+	// Bedrock, Gemini, Responses) keep theirs: the format names a chat shape.
+	if (
+		!declaredWebSearchApplied &&
+		OPENAI_CHAT_BODY_PROVIDERS.has(usedProvider)
+	) {
+		applyDeclaredWebSearch(requestBody);
 	}
 
 	// BytePlus only caches a prompt prefix when the request opts in; without the
@@ -5112,4 +5630,33 @@ export async function prepareRequestBody(
 	}
 
 	return requestBody;
+}
+/**
+ * Gemini's responseJsonSchema ignores `allOf`, leaving the field unconstrained.
+ * Fold the single-member `allOf` older pydantic emits around described refs
+ * into its parent so the constraint survives.
+ */
+function foldSingleMemberAllOf(schema: any): any {
+	if (Array.isArray(schema)) {
+		return schema.map((item) => foldSingleMemberAllOf(item));
+	}
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+	const result: any = {};
+	for (const [key, value] of Object.entries(schema)) {
+		result[key] = foldSingleMemberAllOf(value);
+	}
+	const member = result.allOf?.[0];
+	if (
+		Array.isArray(result.allOf) &&
+		result.allOf.length === 1 &&
+		member &&
+		typeof member === "object" &&
+		!Array.isArray(member)
+	) {
+		delete result.allOf;
+		return { ...member, ...result };
+	}
+	return result;
 }

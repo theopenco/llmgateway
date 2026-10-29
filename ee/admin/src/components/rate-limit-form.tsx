@@ -28,6 +28,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import { RateLimitModeField } from "@llmgateway/shared/components";
 
 import type {
 	RateLimitEntry,
@@ -43,7 +44,25 @@ function AirsideBadge() {
 	);
 }
 
-type RateLimitType = "rpm" | "rpd";
+type RateLimitType = "rpm" | "rpd" | "tpm" | "tpd";
+
+const LIMIT_TYPE_DETAILS: Record<
+	RateLimitType,
+	{ description: string; placeholder: string }
+> = {
+	rpm: { description: "Maximum requests per minute", placeholder: "e.g., 60" },
+	rpd: { description: "Maximum requests per day", placeholder: "e.g., 5000" },
+	tpm: {
+		description:
+			"Maximum prompt + completion tokens per minute. Counted once a request completes, so the request that crosses the cap still finishes",
+		placeholder: "e.g., 200000",
+	},
+	tpd: {
+		description:
+			"Maximum prompt + completion tokens per day. Counted once a request completes, so the request that crosses the cap still finishes",
+		placeholder: "e.g., 10000000",
+	},
+};
 type RateLimitEnforcement = "per_org" | "global";
 type RateLimitMode = "strict" | "soft" | "lax";
 
@@ -275,8 +294,8 @@ export function RateLimitForm({
 						{rateLimit ? "Edit Rate Limit" : "Add Rate Limit"}
 					</DialogTitle>
 					<DialogDescription>
-						Set a maximum requests per minute or per day cap for a provider,
-						model, or combination.
+						Cap requests or tokens per minute or per day for a provider, model,
+						or combination.
 					</DialogDescription>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="space-y-4">
@@ -292,6 +311,8 @@ export function RateLimitForm({
 							<SelectContent>
 								<SelectItem value="rpm">RPM</SelectItem>
 								<SelectItem value="rpd">RPD</SelectItem>
+								<SelectItem value="tpm">TPM</SelectItem>
+								<SelectItem value="tpd">TPD</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
@@ -323,29 +344,12 @@ export function RateLimitForm({
 						</div>
 					)}
 
-					<div className="space-y-2">
-						<Label htmlFor={`${formId}-mode`}>Mode</Label>
-						<Select
-							value={mode}
-							onValueChange={(value) => setMode(value as RateLimitMode)}
-						>
-							<SelectTrigger id={`${formId}-mode`} className="w-full">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="strict">Strict</SelectItem>
-								<SelectItem value="soft">Soft</SelectItem>
-								<SelectItem value="lax">Lax</SelectItem>
-							</SelectContent>
-						</Select>
-						<p className="text-xs text-muted-foreground">
-							{mode === "strict"
-								? "All traffic is routed away once the limit is reached"
-								: mode === "soft"
-									? "Sessions already pinned to the provider keep using it past the limit; new sessions are routed away"
-									: "Explicit provider requests and existing pinned sessions may exceed the limit; automatic routing and fallback respect it."}
-						</p>
-					</div>
+					<RateLimitModeField
+						id={`${formId}-mode`}
+						subject="provider"
+						value={mode}
+						onChange={setMode}
+					/>
 
 					<div className="space-y-2">
 						<Label htmlFor={`${formId}-provider`}>Provider</Label>
@@ -430,16 +434,14 @@ export function RateLimitForm({
 							type="number"
 							min={0}
 							step="1"
-							placeholder={limitType === "rpm" ? "e.g., 60" : "e.g., 5000"}
+							placeholder={LIMIT_TYPE_DETAILS[limitType].placeholder}
 							value={maxRequests}
 							onChange={(e) => setMaxRequests(e.target.value)}
 							required
 						/>
 						<p className="text-xs text-muted-foreground">
-							{limitType === "rpm"
-								? "Maximum requests per minute allowed"
-								: "Maximum requests per day allowed"}
-							. Set 0 to allow only requests exempt under the selected mode
+							{LIMIT_TYPE_DETAILS[limitType].description}. Set 0 to allow only
+							requests exempt under the selected mode
 						</p>
 					</div>
 

@@ -16,12 +16,21 @@ import { formatUsageDateRange } from "@/components/dashboard/usage-comparison";
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
+import { sortByValueDesc } from "@llmgateway/shared/chart-tooltip";
+import { COST_SEGMENTS } from "@llmgateway/shared/cost-breakdown";
 import {
 	formatCompactNumber,
 	formatNumber,
 } from "@llmgateway/shared/number-format";
 
-import { buildUsageChartData, type ChartPoint } from "./overview-data";
+import {
+	buildUsageChartData,
+	type ChartPoint,
+	isSegmentShown,
+	segmentField,
+	type UsageGrain,
+	visibleSegments,
+} from "./overview-data";
 
 import type {
 	UsageComparisonMode,
@@ -39,6 +48,7 @@ interface OverviewProps {
 	isComparisonError?: boolean;
 	metric?: "costs" | "requests";
 	costView?: "total" | "breakdown";
+	grain?: UsageGrain;
 }
 
 const COLORS = {
@@ -84,8 +94,15 @@ function comparisonName(mode: UsageComparisonMode | undefined): string {
 	}
 }
 
+function formatBucket(start: string, end: string | undefined): string {
+	return end && end !== start
+		? formatUsageDateRange({ from: parseISO(start), to: parseISO(end) })
+		: format(parseISO(start), "MMM d, yyyy");
+}
+
 function TooltipSection({
 	date,
+	endDate,
 	label,
 	point,
 	metric,
@@ -93,6 +110,7 @@ function TooltipSection({
 	comparison = false,
 }: {
 	date: string;
+	endDate?: string;
 	label: string;
 	point: ChartPoint;
 	metric: "costs" | "requests";
@@ -102,9 +120,6 @@ function TooltipSection({
 	const prefix = comparison ? "comparison" : "current";
 	const totalCost = point[`${prefix}Cost`];
 	const requests = point[`${prefix}Requests`];
-	const inputCost = point[`${prefix}InputCost`];
-	const outputCost = point[`${prefix}OutputCost`];
-	const cachedInputCost = point[`${prefix}CachedInputCost`];
 
 	return (
 		<div
@@ -113,7 +128,7 @@ function TooltipSection({
 			<div className="flex items-baseline justify-between gap-6">
 				<p className="text-xs font-medium text-muted-foreground">{label}</p>
 				<p className="text-xs tabular-nums text-muted-foreground">
-					{format(parseISO(date), "MMM d, yyyy")}
+					{formatBucket(date, endDate)}
 				</p>
 			</div>
 			{metric === "requests" ? (
@@ -126,15 +141,13 @@ function TooltipSection({
 				</p>
 			) : (
 				<div className="mt-1 space-y-1">
-					{[
-						{ label: "Input", value: inputCost ?? 0, color: COLORS.input },
-						{ label: "Output", value: outputCost ?? 0, color: COLORS.output },
-						{
-							label: "Cached input",
-							value: cachedInputCost ?? 0,
-							color: COLORS.cached,
-						},
-					].map((item) => (
+					{sortByValueDesc(
+						COST_SEGMENTS.map((segment) => ({
+							...segment,
+							value: point[segmentField(prefix, segment.key)] ?? 0,
+						})).filter((item) => isSegmentShown(item.key, item.value)),
+						(item) => item.value,
+					).map((item) => (
 						<div
 							key={item.label}
 							className="flex items-center justify-between gap-6 text-sm"
@@ -151,6 +164,12 @@ function TooltipSection({
 							</span>
 						</div>
 					))}
+					<div className="flex items-center justify-between gap-6 border-t border-border/60 pt-1 text-sm">
+						<span className="text-muted-foreground">Total</span>
+						<span className="font-medium tabular-nums">
+							{formatCost(totalCost ?? 0)}
+						</span>
+					</div>
 				</div>
 			)}
 		</div>
@@ -180,6 +199,7 @@ function CustomTooltip({
 			{point.currentDate && (
 				<TooltipSection
 					date={point.currentDate}
+					endDate={point.currentEndDate}
 					label="Current"
 					point={point}
 					metric={metric}
@@ -189,6 +209,7 @@ function CustomTooltip({
 			{point.comparisonDate && (
 				<TooltipSection
 					date={point.comparisonDate}
+					endDate={point.comparisonEndDate}
 					label={comparisonName(comparisonMode)}
 					point={point}
 					metric={metric}
@@ -244,21 +265,10 @@ function PeriodLegendItem({
 	);
 }
 
-export function Overview({
-	data,
-	comparisonData,
-	comparisonRange,
-	comparisonMode,
-	isLoading = false,
-	isComparisonLoading = false,
-	isComparisonError = false,
-	metric = "costs",
-	costView = "total",
-}: OverviewProps) {
+export function Overview({ isLoading = false, data, ...props }: OverviewProps) {
 	const searchParams = useSearchParams();
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const currentRange = getDateRangeFromParams(searchParams, displayTimeZone);
-	const hasComparison = Boolean(comparisonRange);
 
 	if (isLoading) {
 		return (
@@ -268,7 +278,34 @@ export function Overview({
 		);
 	}
 
-	if (!data || data.length === 0) {
+	return (
+		<UsageOverviewChart
+			currentRange={currentRange}
+			data={data ?? []}
+			{...props}
+		/>
+	);
+}
+
+/** Spend or request bars per day, week or month, optionally stacked by cost type. */
+export function UsageOverviewChart({
+	currentRange,
+	data,
+	comparisonData,
+	comparisonRange,
+	comparisonMode,
+	isComparisonLoading = false,
+	isComparisonError = false,
+	metric = "costs",
+	costView = "total",
+	grain = "day",
+}: Omit<OverviewProps, "isLoading" | "data"> & {
+	currentRange: UsageDateRange;
+	data: DailyActivity[];
+}) {
+	const hasComparison = Boolean(comparisonRange);
+
+	if (data.length === 0) {
 		return (
 			<div className="flex h-[350px] items-center justify-center">
 				<p className="text-muted-foreground">No activity data available</p>
@@ -281,8 +318,10 @@ export function Overview({
 		data,
 		comparisonRange,
 		comparisonData,
+		grain,
 	);
 
+	const segments = visibleSegments(chartData);
 	const comparisonLabel = comparisonRange
 		? formatUsageDateRange(comparisonRange)
 		: null;
@@ -291,9 +330,13 @@ export function Overview({
 			<div className="mb-3 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-2 px-4 text-xs text-muted-foreground">
 				{metric === "costs" && costView === "breakdown" ? (
 					<>
-						<LegendItem color={COLORS.input} label="Input" />
-						<LegendItem color={COLORS.output} label="Output" />
-						<LegendItem color={COLORS.cached} label="Cached input" />
+						{segments.map((segment) => (
+							<LegendItem
+								key={segment.key}
+								color={segment.color}
+								label={segment.label}
+							/>
+						))}
 						{hasComparison && (
 							<PeriodLegendItem
 								label={`Current · ${formatUsageDateRange(currentRange)}`}
@@ -346,9 +389,13 @@ export function Overview({
 						dataKey="index"
 						tickFormatter={(value: number) => {
 							const date = chartData[value]?.currentDate;
-							return date
-								? format(parseISO(date), "MMM d")
-								: `Day ${value + 1}`;
+							if (!date) {
+								return `${grain === "day" ? "Day" : grain === "week" ? "Week" : "Month"} ${value + 1}`;
+							}
+							return format(
+								parseISO(date),
+								grain === "month" ? "MMM yyyy" : "MMM d",
+							);
 						}}
 						stroke="#888888"
 						fontSize={12}
@@ -374,67 +421,27 @@ export function Overview({
 								comparisonMode={comparisonMode}
 							/>
 						}
-						cursor={{ stroke: "currentColor", strokeOpacity: 0.15 }}
+						cursor={{ fill: "currentColor", fillOpacity: 0.08 }}
 					/>
-					{metric === "costs" && costView === "breakdown" && (
-						<Bar
-							dataKey="currentInputCost"
-							stackId="current"
-							fill={COLORS.input}
-							maxBarSize={56}
-							isAnimationActive={false}
-						/>
-					)}
-					{metric === "costs" && costView === "breakdown" && (
-						<Bar
-							dataKey="currentOutputCost"
-							stackId="current"
-							fill={COLORS.output}
-							maxBarSize={56}
-							isAnimationActive={false}
-						/>
-					)}
-					{metric === "costs" && costView === "breakdown" && (
-						<Bar
-							dataKey="currentCachedInputCost"
-							stackId="current"
-							fill={COLORS.cached}
-							radius={[4, 4, 0, 0]}
-							maxBarSize={56}
-							isAnimationActive={false}
-						/>
-					)}
-					{metric === "costs" && costView === "breakdown" && hasComparison && (
-						<Bar
-							dataKey="comparisonInputCost"
-							stackId="comparison"
-							fill={COLORS.input}
-							fillOpacity={0.38}
-							maxBarSize={56}
-							isAnimationActive={false}
-						/>
-					)}
-					{metric === "costs" && costView === "breakdown" && hasComparison && (
-						<Bar
-							dataKey="comparisonOutputCost"
-							stackId="comparison"
-							fill={COLORS.output}
-							fillOpacity={0.38}
-							maxBarSize={56}
-							isAnimationActive={false}
-						/>
-					)}
-					{metric === "costs" && costView === "breakdown" && hasComparison && (
-						<Bar
-							dataKey="comparisonCachedInputCost"
-							stackId="comparison"
-							fill={COLORS.cached}
-							fillOpacity={0.38}
-							radius={[4, 4, 0, 0]}
-							maxBarSize={56}
-							isAnimationActive={false}
-						/>
-					)}
+					{metric === "costs" &&
+						costView === "breakdown" &&
+						(hasComparison
+							? (["current", "comparison"] as const)
+							: (["current"] as const)
+						).flatMap((period) =>
+							segments.map((segment, i) => (
+								<Bar
+									key={segmentField(period, segment.key)}
+									dataKey={segmentField(period, segment.key)}
+									stackId={period}
+									fill={segment.color}
+									fillOpacity={period === "comparison" ? 0.38 : 1}
+									radius={i === segments.length - 1 ? [4, 4, 0, 0] : undefined}
+									maxBarSize={56}
+									isAnimationActive={false}
+								/>
+							)),
+						)}
 					{(metric !== "costs" || costView === "total") && (
 						<Bar
 							dataKey={metric === "costs" ? "currentCost" : "currentRequests"}

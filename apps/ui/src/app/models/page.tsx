@@ -14,6 +14,11 @@ const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/creative-writing", label: "Creative writing models" },
 	{ href: "/models/translation", label: "Translation models" },
 	{ href: "/models/math", label: "Best models for math" },
+	{ href: "/models/cyber-security", label: "Best models for cyber security" },
+	{
+		href: "/models/reverse-engineering",
+		label: "Best models for reverse engineering",
+	},
 	{ href: "/models/long-context", label: "Long context models" },
 	{ href: "/models/cheapest", label: "Cheapest models" },
 	{ href: "/models/premium", label: "Premium models" },
@@ -22,6 +27,7 @@ const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/tools", label: "Tool-calling models" },
 	{ href: "/models/web-search", label: "Web search models" },
 	{ href: "/models/embeddings", label: "Embedding models" },
+	{ href: "/models/decisions", label: "Decision models" },
 	{ href: "/models/text", label: "Text generation models" },
 	{ href: "/models/text-to-image", label: "Text-to-image models" },
 	{ href: "/models/image-to-image", label: "Image editing models" },
@@ -33,21 +39,21 @@ export const metadata = {
 	alternates: {
 		canonical: "https://llmgateway.io/models",
 	},
-	title: "AI Models Directory — Compare 200+ LLM Models",
+	title: "LLM Models List — Compare 250+ AI Models & Live Prices",
 	description:
-		"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and 40+ providers. Filter by capability, price, and context — call any model via one API.",
+		"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities. Call any model via one API.",
 	openGraph: {
-		title: "AI Models Directory — Compare 200+ LLM Models",
+		title: "LLM Models List — Compare 250+ AI Models & Live Prices",
 		description:
-			"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and 40+ providers. Filter by capability, price, and context — call any model via one API.",
+			"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities. Call any model via one API.",
 		type: "website",
 		url: "https://llmgateway.io/models",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "AI Models Directory — Compare 200+ LLM Models",
+		title: "LLM Models List — Compare 250+ AI Models & Live Prices",
 		description:
-			"Browse and compare 200+ AI models from leading providers. Filter by capabilities, pricing, and context size.",
+			"Browse 250+ AI models from leading providers with live prices. Filter by capability, price, and context size.",
 	},
 };
 
@@ -63,7 +69,7 @@ export default async function ModelsPage() {
 		"@context": "https://schema.org",
 		"@type": "ItemList",
 		"@id": "https://llmgateway.io/models#model-list",
-		name: "AI Models Directory",
+		name: "LLM Models List",
 		numberOfItems: models.length,
 		itemListElement: models.map((model, index) => ({
 			"@type": "ListItem",
@@ -76,9 +82,9 @@ export default async function ModelsPage() {
 	const collectionSchema = {
 		"@context": "https://schema.org",
 		"@type": "CollectionPage",
-		name: "AI Models Directory",
+		name: "LLM Models List",
 		description:
-			"Browse and compare 200+ AI models from leading providers like OpenAI, Anthropic, and Google. Filter by capabilities, pricing, and context size.",
+			"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities.",
 		url: "https://llmgateway.io/models",
 		mainEntity: { "@id": "https://llmgateway.io/models#model-list" },
 	};
@@ -110,8 +116,8 @@ export default async function ModelsPage() {
 					footer={<Footer />}
 					models={models}
 					providers={providers}
-					title="AI Models Directory"
-					description="Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and 40+ providers — filter by capabilities, pricing, and context size."
+					title="LLM models list"
+					description="250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices — filter by capability, price, and context size."
 					seoContent={
 						<>
 							<section className="container mx-auto px-4 pb-16">
@@ -196,6 +202,37 @@ export default async function ModelsPage() {
 										</p>
 									</div>
 								</div>
+							</section>
+							<section className="container mx-auto px-4 pb-16">
+								<h2 className="text-2xl font-bold mb-4">
+									Which models each Lounge plan includes
+								</h2>
+								<p className="text-muted-foreground leading-relaxed max-w-3xl">
+									<a
+										href="https://lounge.llmgateway.io/pricing"
+										className="text-foreground underline underline-offset-4"
+									>
+										Lounge Starter
+									</a>{" "}
+									includes every image, video, and audio model, and every text
+									model except the frontier flagships and text models priced
+									above Claude Sonnet. Plus and Pro include everything. Set the
+									Lounge Plan filter, or open the{" "}
+									<Link
+										href="/models?lounge=starter&filters=1"
+										className="text-foreground underline underline-offset-4"
+									>
+										Starter list
+									</Link>{" "}
+									or the{" "}
+									<Link
+										href="/models?lounge=plus&filters=1"
+										className="text-foreground underline underline-offset-4"
+									>
+										Plus &amp; Pro only list
+									</Link>
+									. Models that need Plus carry a Plus badge in the table.
+								</p>
 							</section>
 						</>
 					}

@@ -83,7 +83,7 @@ describe("getProjectRoutingUsage", () => {
 		);
 	});
 
-	it("uses provider hits and a token-weighted model mix for unseen providers", async () => {
+	it("uses provider hits and the best observed hit rate for unseen providers", async () => {
 		await db.insert(stats).values([
 			row({ cachedTokens: "9000000" }),
 			row({
@@ -96,13 +96,34 @@ describe("getProjectRoutingUsage", () => {
 		expect(usage.get(metricsKey(modelId, "deepinfra"))).toEqual({
 			cacheHitRate: 0.9,
 			cacheOutputRatio: 100000 / 30000000,
+			sampled: true,
 		});
 		expect(usage.get(metricsKey(modelId, "fireworks"))?.cacheHitRate).toBe(
 			0.995,
 		);
-		expect(usage.get(metricsKey(modelId, "deepseek"))?.cacheHitRate).toBe(
-			28900000 / 30000000,
-		);
+		expect(usage.get(metricsKey(modelId, "deepseek"))).toEqual({
+			cacheHitRate: 0.995,
+			cacheOutputRatio: 100000 / 30000000,
+			sampled: false,
+		});
+	});
+
+	it("does not let a non-caching provider lower unseen providers' hit rate", async () => {
+		await db
+			.insert(stats)
+			.values([
+				row({ cachedTokens: "0" }),
+				row({ usedProvider: "fireworks", requestCount: 10 }),
+			]);
+		const usage = await getProjectRoutingUsage(projectId, combinations);
+		expect(usage.get(metricsKey(modelId, "deepinfra"))).toMatchObject({
+			cacheHitRate: 0,
+			sampled: true,
+		});
+		expect(usage.get(metricsKey(modelId, "deepseek"))).toMatchObject({
+			cacheHitRate: 0,
+			sampled: false,
+		});
 	});
 
 	it("uses only this project's recent model usage without response-cache buckets", async () => {
@@ -122,6 +143,7 @@ describe("getProjectRoutingUsage", () => {
 		expect(usage.get(metricsKey(modelId, "fireworks"))).toEqual({
 			cacheHitRate: 0.995,
 			cacheOutputRatio: 0.005,
+			sampled: false,
 		});
 	});
 
@@ -143,6 +165,7 @@ describe("getProjectRoutingUsage", () => {
 		expect(usage.get(metricsKey(modelId, "deepinfra"))).toEqual({
 			cacheHitRate: 0.9,
 			cacheOutputRatio: 0.005,
+			sampled: true,
 		});
 	});
 
@@ -172,6 +195,7 @@ describe("getProjectRoutingUsage", () => {
 			expect(usage.get(metricsKey(modelId, providerId))).toEqual({
 				cacheHitRate: 0.8,
 				cacheOutputRatio: 0.2,
+				sampled: providerId === "deepinfra",
 			});
 		}
 	});
@@ -184,6 +208,7 @@ describe("getProjectRoutingUsage", () => {
 		expect(usage.get(metricsKey(modelId, "deepinfra"))).toEqual({
 			cacheHitRate: 1,
 			cacheOutputRatio: 0,
+			sampled: true,
 		});
 	});
 

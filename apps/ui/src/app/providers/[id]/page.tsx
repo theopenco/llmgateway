@@ -82,6 +82,7 @@ async function renderDynamicProviderPage(id: string) {
 					uploadedLogo={uploadedLogo}
 					dynamicProvider={{ name: providerName, description }}
 					airsideProfile={apiProvider.airsideProfile ?? null}
+					certification={apiProvider.airsideCertification ?? null}
 				/>
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
@@ -126,6 +127,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 	]);
 	const apiProvider = apiProviders.find((p) => p.id === id);
 	const uploadedLogo = apiProvider?.airsideLogoUrl ?? undefined;
+	const apiModelById = new Map(apiModels.map((m) => [m.id, m]));
 	const discountByModelId = new Map<string, string>();
 	for (const apiModel of apiModels) {
 		for (const mapping of apiModel.mappings) {
@@ -156,7 +158,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 
 		return {
 			id: def.id,
-			premium: isPremiumModel(def.id),
+			premium: apiModelById.get(def.id)?.premium ?? isPremiumModel(def.id),
 			createdAt: new Date().toISOString(),
 			releasedAt: def.releasedAt?.toISOString() ?? null,
 			name: def.name ?? null,
@@ -328,6 +330,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					providerId={provider.id}
 					uploadedLogo={uploadedLogo}
 					airsideProfile={apiProvider?.airsideProfile ?? null}
+					certification={apiProvider?.airsideCertification ?? null}
 				/>
 
 				<ProviderStatsRow providerId={provider.id} />

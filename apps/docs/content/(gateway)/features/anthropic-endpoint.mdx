@@ -9,17 +9,13 @@ import { Callout } from "fumadocs-ui/components/callout";
 LLMGateway provides a native Anthropic-compatible endpoint at `/v1/messages` that allows you to use any model in our catalog while maintaining the familiar Anthropic API format
 This is especially useful for applications designed for Claude that you want to extend to use other models.
 
-<Callout type="info">
-	Enjoy a 50% discount on our Anthropic models for a limited time.
-</Callout>
-
 ## Overview
 
 The Anthropic endpoint transforms requests from Anthropic's message format to the OpenAI-compatible format used by LLMGateway, then transforms the responses back to Anthropic's format. This means you can:
 
 - Use **any model** available in LLMGateway with Anthropic's API format
 - Maintain existing code that uses Anthropic's SDK or API format
-- Access models from OpenAI, Google, Cohere, and other providers through the Anthropic interface
+- Access models from OpenAI, Google, xAI, and other providers through the Anthropic interface
 - Leverage LLMGateway's routing, caching, and cost optimization features
 
 ## Basic Usage
@@ -60,7 +56,7 @@ export ANTHROPIC_MODEL=gpt-5-mini
 export ANTHROPIC_MODEL=gemini-3.1-pro-preview
 
 # Use Anthropic's actual Claude models
-export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
 ## Environment Variables
@@ -189,20 +185,41 @@ A `system` message inside `messages` (as Claude Code sends on recent Claude mode
 	Control](/features/caching/provider-cache-control) for details.
 </Callout>
 
-### Web Search
+### Tool choice
 
-Anthropic's server-side web search tool works on this endpoint. Pass it as usual and the response carries `server_tool_use` and `web_search_tool_result` blocks before the text that cites them, so Anthropic SDK clients surface sources:
+`tool_choice` (`auto`, `any`, `none`, or `{"type": "tool", "name": …}`) is honoured on every provider: it is translated into the upstream's own forced-tool form (Anthropic `any`/`tool`, OpenAI `required`/named function, Gemini `functionCallingConfig`), and a mapping that cannot force a tool is skipped during routing. `disable_parallel_tool_use: true` is carried as well; on providers without an equivalent it is ignored. An OpenAI-style `tool_choice` value (`"required"`, `{"type": "function", …}`) is dropped rather than rejected.
+
+### Tool definitions and results
+
+A tool's `strict: true` reaches the Anthropic API (with its structured-outputs beta) and OpenAI-compatible providers as `function.strict`; providers without an equivalent receive the tool without it. `allowed_callers` is forwarded to the Anthropic API only, with the advanced-tool-use beta, and stripped elsewhere. `eager_input_streaming: true` (fine-grained tool streaming) is forwarded to Anthropic models on the Anthropic API, Google Vertex AI and Microsoft Foundry, sent to Claude on AWS Bedrock as the request-wide fine-grained tool streaming beta when every tool sets it, and stripped elsewhere; `input_json_delta` events are relayed as they arrive from the upstream.
+
+Gemini models take tool schemas through Google's typed `parameters` carrier, which has no `const` or `additionalProperties`. A `const` is sent as a single-member `enum` (typed from the value when the node has no `type`; on non-string nodes, where Vertex rejects `enum`, it becomes an "Allowed values" hint in the description), and an explicit `enum` on the same node wins. `pattern` is forwarded on string nodes. `additionalProperties` is dropped. The same translation applies on `/v1/chat/completions`.
+
+An `image` block inside a `tool_result` (a screenshot returned by a tool, say) is delivered to Anthropic models as an image block; a result that mixes text and images keeps its order. Other providers receive it as the chat-completions image part their tool message format allows, or as text where there is none.
+
+### Web Search and Web Fetch
+
+Anthropic's server-side web search and web fetch tools work on this endpoint. Pass them as usual:
 
 ```json
 {
-	"model": "claude-haiku-4-5",
+	"model": "anthropic/claude-haiku-4-5",
 	"max_tokens": 400,
 	"messages": [{ "role": "user", "content": "What shipped in Node 24?" }],
-	"tools": [{ "type": "web_search_20250305", "name": "web_search" }]
+	"tools": [
+		{ "type": "web_search_20250305", "name": "web_search" },
+		{ "type": "web_fetch_20250910", "name": "web_fetch" }
+	]
 }
 ```
 
-Replaying the assistant turn verbatim on the next request is supported: the `server_tool_use` and `web_search_tool_result` blocks are accepted and dropped, since the provider re-runs the search rather than reusing the previous results.
+When an Anthropic model on the Anthropic API, Google Cloud, or Microsoft Foundry serves the request, the response carries the content blocks exactly as Anthropic returned them, streamed or not: `server_tool_use` with its input, `web_search_tool_result` and `web_fetch_tool_result` with `encrypted_content`, text blocks with their `citations`, and `usage.server_tool_use`. Replay the assistant turn verbatim on the next request and the blocks reach Anthropic with every field intact, ahead of the turn's text, so the model sees the earlier results.
+
+Web search on other providers works too. The response then carries a `server_tool_use` and `web_search_tool_result` pair rebuilt from the provider's citations, without `encrypted_content`. Those rebuilt blocks are dropped on replay. Anthropic does not offer web fetch on Google Cloud, and other providers have no equivalent, so the tool is dropped there. Pin the provider (`anthropic/claude-sonnet-4-6`) when you rely on it.
+
+### Thinking Signatures
+
+Thinking blocks served by the Anthropic API carry Anthropic's own signatures, so you can continue a conversation started here on Anthropic directly, and the other way round. Other providers serve Claude with their own signatures. Their thinking blocks carry a provider prefix, and the gateway replays a block only to the provider that signed it. A block without a prefix, such as one from a conversation started elsewhere, is replayed to the Anthropic API.
 
 ### Tool Search
 

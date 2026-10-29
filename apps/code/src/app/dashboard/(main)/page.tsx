@@ -7,9 +7,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
-import CapHitResetOfferDialog from "@/app/dashboard/components/CapHitResetOfferDialog";
 import UsageSummaryCard from "@/app/dashboard/components/UsageSummaryCard";
-import { plans } from "@/app/dashboard/plans";
+import { usePlans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
@@ -26,6 +25,9 @@ const CodingAgents = dynamic(
 const QuickStart = dynamic(
 	() => import("@/app/dashboard/components/QuickStart"),
 );
+const CapHitResetOfferDialog = dynamic(
+	() => import("@/app/dashboard/components/CapHitResetOfferDialog"),
+);
 
 export default function OverviewPage() {
 	const config = useAppConfig();
@@ -39,6 +41,7 @@ export default function OverviewPage() {
 	} | null>(null);
 
 	const { data: devPlanStatus } = useDevPlanStatus();
+	const plans = usePlans();
 
 	const rotateApiKeyMutation = api.useMutation(
 		"post",
@@ -86,6 +89,10 @@ export default function OverviewPage() {
 	const premiumWeeklyLimit = parseFloat(
 		devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
 	);
+	// Mounted only once the cap is hit so the dialog's chunk is not fetched on
+	// every dashboard visit; the dialog still owns the finer eligibility gates.
+	const premiumCapHit =
+		premiumWeeklyLimit > 0 && premiumCreditsUsed >= premiumWeeklyLimit;
 	const currentPlanName = devPlanStatus.devPlan?.toUpperCase() ?? "";
 	const currentPlanData = plans.find((p) => p.tier === devPlanStatus.devPlan);
 	const activeRevealedApiKey =
@@ -97,19 +104,21 @@ export default function OverviewPage() {
 		<div className="space-y-10">
 			{/* Contextual Reset Pass offer, shown the moment the weekly premium
 			    cap is hit (the 5s status poll picks up mid-session crossings) */}
-			<CapHitResetOfferDialog
-				tier={devPlanStatus.devPlan ?? ""}
-				premiumCreditsUsed={premiumCreditsUsed}
-				premiumWeeklyLimit={premiumWeeklyLimit}
-				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
-				purchased={devPlanStatus.devPlanResetPasses ?? 0}
-				includedRemaining={
-					devPlanStatus.devPlanIncludedResetPassesRemaining ?? 0
-				}
-				price={devPlanStatus.devPlanResetPassPrice ?? null}
-				cycleCreditsUsed={creditsUsed}
-				cycleCreditsLimit={creditsLimit}
-			/>
+			{premiumCapHit ? (
+				<CapHitResetOfferDialog
+					tier={devPlanStatus.devPlan ?? ""}
+					premiumCreditsUsed={premiumCreditsUsed}
+					premiumWeeklyLimit={premiumWeeklyLimit}
+					premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
+					purchased={devPlanStatus.devPlanResetPasses ?? 0}
+					includedRemaining={
+						devPlanStatus.devPlanIncludedResetPassesRemaining ?? 0
+					}
+					price={devPlanStatus.devPlanResetPassPrice ?? null}
+					cycleCreditsUsed={creditsUsed}
+					cycleCreditsLimit={creditsLimit}
+				/>
+			) : null}
 
 			{/* GitHub-style activity heatmap — first thing the user sees */}
 			<ActivityHeatmap projectId={devPlanStatus.projectId ?? null} />

@@ -14,28 +14,21 @@ function getResendClient(timeoutMs?: number): Resend | null {
 		return null;
 	}
 	if (timeoutMs !== undefined) {
-		return new ResendWithTimeout(resendApiKey, timeoutMs);
+		return createResendClient(resendApiKey, timeoutMs);
 	}
 	resendClient ??= new Resend(resendApiKey);
 	return resendClient;
 }
 
 export { fromEmail, replyToEmail, resendAudienceId, getResendClient };
-export class ResendWithTimeout extends Resend {
-	public constructor(
-		key: string,
-		private readonly timeoutMs: number,
-	) {
-		super(key);
-	}
-
-	public override async fetchRequest<T>(
-		path: string,
-		options: RequestInit = {},
-	) {
-		return await super.fetchRequest<T>(path, {
+export function createResendClient(key: string, timeoutMs: number): Resend {
+	// Composition survives shared's ES5 output; native SDK subclasses do not.
+	const client = new Resend(key);
+	const request = client.fetchRequest.bind(client);
+	client.fetchRequest = <T>(path: string, options: RequestInit = {}) =>
+		request<T>(path, {
 			...options,
-			signal: AbortSignal.timeout(this.timeoutMs),
+			signal: AbortSignal.timeout(timeoutMs),
 		});
-	}
+	return client;
 }

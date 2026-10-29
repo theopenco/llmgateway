@@ -44,8 +44,8 @@ test.each(["headers", "body"])(
 	async (stage) => {
 		responseStage = stage;
 		disconnected = false;
-		const { ResendWithTimeout } = await import("./email.js");
-		const resend = new ResendWithTimeout("test-key", 1000);
+		const { createResendClient } = await import("@llmgateway/shared/email");
+		const resend = createResendClient("test-key", 1000);
 		const result = await resend.contacts.create({
 			email: "reader@example.com",
 			unsubscribed: false,

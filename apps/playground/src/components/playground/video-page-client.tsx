@@ -1,11 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { VideoControls } from "@/components/playground/video-controls";
 import { VideoGallery } from "@/components/playground/video-gallery";
@@ -46,6 +46,7 @@ import {
 	isPendingVideoModel,
 	POLL_TIMEOUT_ERROR_CODE,
 	pollVideoJob,
+	requiresVideoLipSyncInputs,
 	supportsVideoEndFrameInput,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
@@ -67,6 +68,17 @@ import type {
 	VideoJob,
 	VideoSize,
 } from "@/lib/video-gen";
+
+// Opened on demand only; lazy loading keeps the Stripe top-up dialog and
+// @stripe/react-stripe-js out of the page's initial bundle. It renders
+// nothing until opened, so there is no SSR output to lose.
+const TopUpCreditsDialog = dynamic(
+	() =>
+		import("@/components/credits/top-up-credits-dialog").then(
+			(m) => m.TopUpCreditsDialog,
+		),
+	{ ssr: false },
+);
 
 interface SavedVideoModelResult {
 	modelId: string;
@@ -832,6 +844,15 @@ export default function VideoPageClient({
 			}
 			if (frameInputs.end && !frameInputs.start) {
 				toast.error("A last frame needs a first frame. Please add one.");
+				return;
+			}
+			if (
+				selectedModels.some(requiresVideoLipSyncInputs) &&
+				(referenceImages.length !== 1 || referenceAudios.length !== 1)
+			) {
+				toast.error(
+					"Lip-sync models need exactly one reference image and one reference audio URL.",
+				);
 				return;
 			}
 

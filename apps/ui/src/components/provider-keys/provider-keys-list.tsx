@@ -34,6 +34,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import { isStealthProvider, providers } from "@llmgateway/models";
 import {
+	formatProviderKeyRateLimits,
 	getProviderIcon,
 	ReorderableItem,
 	ReorderableList,
@@ -87,6 +88,7 @@ function formatOptionLabel(key: string, value: string): string {
 		azure_validation_model: "Validation Model",
 		alibaba_region: "Region",
 		alibaba_workspace_id: "Workspace ID",
+		cloudflare_account_id: "Account ID",
 	};
 
 	const label = labels[key] || key;
@@ -273,6 +275,34 @@ export function ProviderKeysList({
 						description:
 							(error as { message?: string } | undefined)?.message ??
 							"Failed to update status",
+						variant: "destructive",
+					}),
+			},
+		);
+	};
+
+	const toggleForwardCacheControl = (id: string, current: boolean) => {
+		const forwardCacheControl = !current;
+		toggleMutation.mutate(
+			{
+				params: { path: { id } },
+				body: { forwardCacheControl },
+			},
+			{
+				onSuccess: () => {
+					toast({
+						title: forwardCacheControl
+							? "Prompt-cache markers forwarded"
+							: "Prompt-cache markers stripped",
+					});
+					void queryClient.invalidateQueries({ queryKey });
+				},
+				onError: (error: unknown) =>
+					toast({
+						title: "Error",
+						description:
+							(error as { message?: string } | undefined)?.message ??
+							"Failed to update setting",
 						variant: "destructive",
 					}),
 			},
@@ -492,6 +522,15 @@ export function ProviderKeysList({
 																			{formatUsd(providerKey.usageLimit)}
 																		</Badge>
 																	)}
+																	{formatProviderKeyRateLimits(providerKey) && (
+																		<Badge
+																			variant="outline"
+																			className="text-xs tabular-nums"
+																			title="Rate limits for this key. While it is at any cap, other keys serve the request."
+																		>
+																			{formatProviderKeyRateLimits(providerKey)}
+																		</Badge>
+																	)}
 																	{providerKey.baseUrl && (
 																		<Badge
 																			variant="outline"
@@ -576,6 +615,20 @@ export function ProviderKeysList({
 																						Manage models
 																					</Link>
 																				</DropdownMenuItem>
+																				{!customLocked && (
+																					<DropdownMenuItem
+																						onClick={() =>
+																							toggleForwardCacheControl(
+																								providerKey.id,
+																								providerKey.forwardCacheControl,
+																							)
+																						}
+																					>
+																						{providerKey.forwardCacheControl
+																							? "Stop forwarding cache markers"
+																							: "Forward cache markers"}
+																					</DropdownMenuItem>
+																				)}
 																			</>
 																		)}
 																		{provider.id !== "custom" && (
@@ -601,13 +654,17 @@ export function ProviderKeysList({
 																				providerKeyId={providerKey.id}
 																				currentLimit={providerKey.usageLimit}
 																				currentUsage={providerKey.usage}
+																				currentRateLimits={providerKey}
 																			>
 																				<DropdownMenuItem
 																					onSelect={(e) => e.preventDefault()}
 																				>
-																					{providerKey.usageLimit !== null
-																						? "Edit spend limit"
-																						: "Set spend limit"}
+																					{providerKey.usageLimit !== null ||
+																					formatProviderKeyRateLimits(
+																						providerKey,
+																					)
+																						? "Edit limits"
+																						: "Set limits"}
 																				</DropdownMenuItem>
 																			</ProviderKeyLimitDialog>
 																		)}

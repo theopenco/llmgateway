@@ -7,6 +7,7 @@ import {
 	generateInvoicePDF,
 	isInvoiceableTransaction,
 	isRefundTransaction,
+	REFUND_ARRIVAL_NOTICE,
 } from "./invoice.js";
 
 import type { InvoiceData } from "./invoice.js";
@@ -463,6 +464,28 @@ describe("generateAndEmailInvoice", () => {
 						contentType: "application/pdf",
 					}),
 				]),
+			}),
+		);
+	});
+
+	it("sends a credit note email with the refund arrival notice", async () => {
+		const { sendTransactionalEmail } = await import("./email.js");
+
+		await generateAndEmailInvoice({
+			...baseInvoiceData,
+			documentType: "credit_note",
+			lineItems: [{ description: "Refund — Credit Top-up", amount: -50 }],
+		});
+
+		expect(sendTransactionalEmail).toHaveBeenCalledWith(
+			expect.objectContaining({
+				subject: "Credit note INV-2025-001 - LLMGateway",
+				html: expect.stringContaining(REFUND_ARRIVAL_NOTICE),
+				attachments: [
+					expect.objectContaining({
+						filename: "credit-note-INV-2025-001.pdf",
+					}),
+				],
 			}),
 		);
 	});

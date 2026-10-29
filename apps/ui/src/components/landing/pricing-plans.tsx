@@ -85,7 +85,7 @@ export function PricingPlans() {
 				"Unlimited seats",
 				"Prioritized feature requests",
 				"On-boarding assistance",
-				"Full request & response retention (unlimited)",
+				"Full request & response retention (30 days)",
 				"24/7 premium support",
 				"Chat-App (incl. whitelabel)",
 				"Single Sign-On (SSO)",
@@ -107,7 +107,8 @@ export function PricingPlans() {
 						Start for free, Scale with low fees
 					</h2>
 					<p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-						All features included in our free plan. No hidden fees or surprises.
+						Core features included in our free plan. No hidden fees or
+						surprises.
 					</p>
 				</div>
 
