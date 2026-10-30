@@ -268,3 +268,54 @@ describe("prepareRequestBody - ERNIE 4.5 VL thinking", () => {
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 });
+
+describe("prepareRequestBody - Azure Grok remote images", () => {
+	beforeEach(() => {
+		processImageUrl.mockReset();
+	});
+	test.each(["azure", "azure-ai-foundry"] as const)(
+		"inlines remote images through the guarded fetch on %s",
+		async (provider) => {
+			processImageUrl.mockResolvedValue({
+				data: "aGVsbG8=",
+				mimeType: "image/png",
+			});
+			const requestBody = (await prepareRequestBody(
+				provider,
+				"grok-4-1-fast-reasoning",
+				null,
+				"grok-4-1-fast-reasoning",
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this image" },
+							{ type: "text", text: "" },
+							imagePart("https://example.com/logo.png"),
+						],
+					},
+				] as Parameters<typeof prepareRequestBody>[4],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+			)) as OpenAIRequestBody;
+			expect(processImageUrl).toHaveBeenCalledWith(
+				"https://example.com/logo.png",
+				false,
+				20,
+				null,
+			);
+			expect(requestBody.messages[0].content).toEqual(
+				expect.arrayContaining([imagePart("data:image/png;base64,aGVsbG8=")]),
+			);
+		},
+	);
+});

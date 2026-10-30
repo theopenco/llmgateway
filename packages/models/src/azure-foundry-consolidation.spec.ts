@@ -126,3 +126,14 @@ it("can enable binding per mapping without changing a provider default", () => {
 	const withoutReasoning = { providerId: "deepseek", encryptedReasoning: true };
 	expect(usesEncryptedReasoning(withoutReasoning)).toBe(false);
 });
+
+it.each(["azure", "azure-ai-foundry"] as const)(
+	"keeps vision enabled and inlines remote Grok images on %s",
+	(providerId) => {
+		const mapping = catalogue
+			.find((model) => model.id === "grok-4-1-fast-reasoning")
+			?.providers.find((provider) => provider.providerId === providerId);
+		expect(mapping?.vision).toBe(true);
+		expect(mapping?.requiresBase64Images).toBe(true);
+	},
+);
