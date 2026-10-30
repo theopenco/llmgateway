@@ -139,6 +139,7 @@ platformWallet.openapi(createTopUp, async (c) => {
 			: {}),
 		metadata: {
 			kind: "end_user_topup",
+			paymentMethodId,
 			walletId: session.walletId,
 			endCustomerId: session.endCustomerId,
 			projectId: session.projectId,
@@ -211,13 +212,15 @@ platformWallet.openapi(confirmTopUp, async (c) => {
 	if (
 		intent.metadata.kind !== "end_user_topup" ||
 		intent.metadata.walletId !== session.walletId ||
-		intent.confirmation_method !== "manual"
+		intent.confirmation_method !== "manual" ||
+		!intent.metadata.paymentMethodId
 	) {
 		throw new HTTPException(404, { message: "Top-up not found" });
 	}
 	if (intent.status === "requires_confirmation") {
 		intent = await stripe.paymentIntents.confirm(paymentIntentId, {
 			use_stripe_sdk: true,
+			payment_method: intent.metadata.paymentMethodId,
 		});
 	}
 	return c.json({

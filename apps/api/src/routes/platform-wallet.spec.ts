@@ -77,7 +77,12 @@ beforeEach(() => {
 		id: "pi_test",
 		confirmation_method: "manual",
 		status: "requires_confirmation",
-		metadata: { kind: "end_user_topup", walletId: session.walletId },
+		payment_method: "pm_swapped",
+		metadata: {
+			kind: "end_user_topup",
+			walletId: session.walletId,
+			paymentMethodId: "pm_test",
+		},
 	});
 	mocks.confirmIntent.mockResolvedValue({
 		id: "pi_test",
@@ -120,6 +125,7 @@ describe("wallet top-up card fees", () => {
 					confirmation_method: "manual",
 					payment_method_types: ["card"],
 					metadata: expect.objectContaining({
+						paymentMethodId: "pm_test",
 						platformFee: String(5 + internationalFee),
 						internationalFee: String(internationalFee),
 						netCredited: "83.333333",
@@ -181,9 +187,14 @@ describe("wallet top-up confirmation", () => {
 		});
 		expect(mocks.confirmIntent).toHaveBeenCalledWith("pi_test", {
 			use_stripe_sdk: true,
+			payment_method: "pm_test",
 		});
 	});
 	test.each([
+		{
+			confirmation_method: "manual",
+			metadata: { kind: "end_user_topup", walletId: session.walletId },
+		},
 		{
 			confirmation_method: "manual",
 			metadata: { kind: "end_user_topup", walletId: "wallet-other" },
@@ -209,7 +220,11 @@ describe("wallet top-up confirmation", () => {
 				status,
 				client_secret: "secret_test",
 				confirmation_method: "manual",
-				metadata: { kind: "end_user_topup", walletId: session.walletId },
+				metadata: {
+					kind: "end_user_topup",
+					walletId: session.walletId,
+					paymentMethodId: "pm_test",
+				},
 			});
 			expect((await confirm()).status).toBe(200);
 			expect(mocks.confirmIntent).not.toHaveBeenCalled();
