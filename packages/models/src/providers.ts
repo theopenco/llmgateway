@@ -1206,7 +1206,7 @@ export const providers: ProviderDefinition[] = [
 		id: "azure",
 		name: "Azure",
 		forwardsSafetyIdentifier: true,
-		description: "Microsoft Azure - enterprise-grade OpenAI models",
+		description: "Microsoft Azure - enterprise-grade OpenAI-compatible models",
 		encryptedReasoning: true,
 		env: {
 			required: {
@@ -1268,10 +1268,10 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "azure-ai-foundry",
-		name: "Azure AI Foundry",
+		name: "Azure AI Foundry (Legacy)",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Microsoft Azure AI Foundry - third-party models (Grok, Llama, Mistral, ...) via the Azure Models inference endpoint",
+			"Legacy Azure Model Inference API. Use Azure with the AI Foundry deployment type.",
 		env: {
 			required: {
 				apiKey: "LLM_AZURE_AI_FOUNDRY_API_KEY",
@@ -1285,7 +1285,8 @@ export const providers: ProviderDefinition[] = [
 		color: "#0078D4",
 		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
 		statusPageUrl: "https://status.ai.azure.com",
-		announcement: null,
+		announcement:
+			"Legacy mappings retire on 2026-11-07. Use Azure with the AI Foundry deployment type.",
 		apiKeyInstructions:
 			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
@@ -2138,11 +2139,14 @@ export function getProviderDefinition(
  * replay, so moving a conversation to another provider fails upstream.
  */
 export function usesEncryptedReasoning(
-	mapping: { providerId: string; reasoning?: boolean } | undefined,
+	mapping:
+		| { providerId: string; reasoning?: boolean; encryptedReasoning?: boolean }
+		| undefined,
 ): boolean {
 	return (
 		mapping?.reasoning === true &&
-		getProviderDefinition(mapping.providerId)?.encryptedReasoning === true
+		(mapping.encryptedReasoning ??
+			getProviderDefinition(mapping.providerId)?.encryptedReasoning) === true
 	);
 }
 
