@@ -3284,10 +3284,10 @@ chat.openapi(completions, async (c) => {
 	// OpenAI-format encrypted reasoning is dropped on a retry that leaves its
 	// credential (see resolveProviderContextForRetry), so only reasoning that
 	// cannot be dropped — Gemini signatures — still blocks fallback.
+	// Session affinity preserves caches, but must not prevent error fallback.
 	const isProviderPinned = () =>
-		sessionStickyEnabled ||
-		(hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
-			usedProviderEncryptsReasoning());
+		hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
+		usedProviderEncryptsReasoning();
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -8978,6 +8978,33 @@ chat.openapi(completions, async (c) => {
 	}
 	const contextsWithoutEncryptedReasoning = new WeakSet();
 
+	async function pinSuccessfulFallback(options: {
+		failedProviders: ReadonlySet<string>;
+		finishReason: string | null | undefined;
+		hasError: boolean;
+		canceled?: boolean;
+	}): Promise<void> {
+		if (
+			!sessionStickyEnabled ||
+			!sessionId ||
+			!usedProvider ||
+			options.failedProviders.size === 0 ||
+			options.hasError ||
+			options.canceled ||
+			!["completed", "length_limit", "tool_calls"].includes(
+				getUnifiedFinishReason(options.finishReason, transportProvider),
+			)
+		) {
+			return;
+		}
+		await createSessionProviderStore(
+			retryProjectContext.organizationId,
+			modelInfo.id,
+			sessionId,
+			routingCfg.session.ttlSeconds,
+		).set(usedProvider, usedRegion);
+	}
+
 	async function applyResolvedProviderContext(
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
@@ -9870,7 +9897,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryTimeout &&
 								shouldRetrySameKey({
 									usedProvider,
-									providerPinned: isProviderPinned(),
+									providerPinned: sessionStickyEnabled || isProviderPinned(),
 									errorType: "upstream_timeout",
 									statusCode: 0,
 									envVarName,
@@ -10069,7 +10096,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryFetch &&
 								shouldRetrySameKey({
 									usedProvider,
-									providerPinned: isProviderPinned(),
+									providerPinned: sessionStickyEnabled || isProviderPinned(),
 									errorType: "network_error",
 									statusCode: 0,
 									envVarName,
@@ -10356,7 +10383,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryHttpError &&
 							shouldRetrySameKey({
 								usedProvider,
-								providerPinned: isProviderPinned(),
+								providerPinned: sessionStickyEnabled || isProviderPinned(),
 								errorType: finishReason,
 								statusCode: res.status,
 								envVarName,
@@ -10709,7 +10736,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryStreamingError &&
 							shouldRetrySameKey({
 								usedProvider,
-								providerPinned: isProviderPinned(),
+								providerPinned: sessionStickyEnabled || isProviderPinned(),
 								errorType,
 								statusCode: inferredStatusCode,
 								envVarName,
@@ -13691,6 +13718,13 @@ chat.openapi(completions, async (c) => {
 							? streamingError.details.statusCode
 							: 500;
 
+					await pinSuccessfulFallback({
+						failedProviders: failedProviderIds,
+						finishReason,
+						hasError: streamingError !== null,
+						canceled,
+					});
+
 					await insertLogEntry({
 						...baseLogEntry,
 						providerKeyId: trackedKeyHealthId ?? null,
@@ -14341,7 +14375,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryFetchNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					providerPinned: isProviderPinned(),
+					providerPinned: sessionStickyEnabled || isProviderPinned(),
 					errorType: "network_error",
 					statusCode: 0,
 					envVarName,
@@ -14762,7 +14796,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryHttpNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					providerPinned: isProviderPinned(),
+					providerPinned: sessionStickyEnabled || isProviderPinned(),
 					errorType: finishReason,
 					statusCode: res.status,
 					envVarName,
@@ -16124,6 +16158,12 @@ chat.openapi(completions, async (c) => {
 		base64Images.length > 0
 			? base64Images.map((img) => img.image_url.url).join("\n")
 			: content;
+
+	await pinSuccessfulFallback({
+		failedProviders: failedProviderIds,
+		finishReason,
+		hasError: hasEmptyNonStreamingResponse,
+	});
 
 	await insertLogEntry({
 		...baseLogEntry,

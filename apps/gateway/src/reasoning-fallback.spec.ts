@@ -6,6 +6,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { resetKeyHealth } from "./lib/api-key-health.js";
+import { createSessionProviderStore } from "./lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "./test-utils/test-helpers.js";
 
@@ -31,6 +32,7 @@ describe("reasoning model retry before output", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 	});
 
 	async function setup(azureKeys = 1) {
@@ -87,6 +89,7 @@ describe("reasoning model retry before output", () => {
 			secondKeySucceeds?: boolean;
 			outputFirst?: boolean;
 			allFail?: boolean;
+			fallbackOutputError?: boolean;
 		} = {},
 	) {
 		const attempts: string[] = [];
@@ -97,7 +100,9 @@ describe("reasoning model retry before output", () => {
 			);
 			attempts.push(url.hostname);
 			if (
-				(url.hostname.startsWith("azure") || options.allFail) &&
+				(url.hostname.startsWith("azure") ||
+					options.allFail ||
+					options.fallbackOutputError) &&
 				!(options.secondKeySucceeds && url.hostname === "azure-1.example.com")
 			) {
 				const error = {
@@ -114,7 +119,8 @@ describe("reasoning model retry before output", () => {
 						response: { id: "resp_retry", status: "in_progress" },
 						sequence_number: 0,
 					},
-					...(options.outputFirst
+					...(options.outputFirst ||
+					(options.fallbackOutputError && url.hostname.startsWith("openai"))
 						? [
 								{
 									type: "response.output_text.delta",
@@ -291,9 +297,12 @@ describe("reasoning model retry before output", () => {
 			bodies.push(typeof init?.body === "string" ? init.body : "");
 			return await forward(input, init);
 		});
-		const res = await request({
-			messages: [...encryptedHistory, { role: "user", content: "Continue" }],
-		});
+		const res = await request(
+			{
+				messages: [...encryptedHistory, { role: "user", content: "Continue" }],
+			},
+			{ "x-session-id": "encrypted-session" },
+		);
 		expect(await res.text()).toContain("Hello");
 		expect(attempts).toEqual(["azure-0.example.com", "openai-0.example.com"]);
 		expect(bodies.map((body) => body.includes("opaque-reasoning"))).toEqual([
@@ -305,7 +314,125 @@ describe("reasoning model retry before output", () => {
 		expect(success?.routingMetadata?.encryptedReasoningDropped).toBe(true);
 	});
 
-	test.each(["session", "explicit", "no-fallback"])(
+	test.each([
+		{ stream: false, httpError: true, devpass: false, existingPin: true },
+		{ stream: true, httpError: true, devpass: false, existingPin: true },
+		{ stream: true, httpError: false, devpass: false, existingPin: true },
+		{ stream: false, httpError: true, devpass: true, existingPin: true },
+		{ stream: true, httpError: false, devpass: true, existingPin: true },
+		{ stream: true, httpError: true, devpass: false, existingPin: false },
+	])(
+		"fails over and re-pins the session (%j)",
+		async ({ stream, httpError, devpass, existingPin }) => {
+			await setup();
+			if (devpass) {
+				await harness.setDevPlan({ devPlan: "pro" });
+			}
+			const sessionId = "retry-session";
+			const store = createSessionProviderStore(
+				"org-id",
+				model,
+				sessionId,
+				3600,
+			);
+			if (existingPin) {
+				await store.set("azure");
+			}
+			const attempts = mockUpstreams({ httpError });
+			const headers = { "x-session-id": sessionId };
+			const res = await request({ model, stream }, headers);
+			expect(res.status).toBe(200);
+			expect(await res.text()).toContain("Hello");
+			expect(attempts).toEqual(["azure-0.example.com", "openai-0.example.com"]);
+			expect(await store.get()).toEqual({ providerId: "openai" });
+			attempts.length = 0;
+			const next = await request(
+				{ model, stream, messages: [{ role: "user", content: "Next turn" }] },
+				headers,
+			);
+			expect(await next.text()).toContain("Hello");
+			expect(attempts).toEqual(["openai-0.example.com"]);
+		},
+	);
+
+	test("does not re-pin a fallback whose stream fails after output", async () => {
+		await setup();
+		const store = createSessionProviderStore(
+			"org-id",
+			model,
+			"partial-session",
+			3600,
+		);
+		await store.set("azure");
+		const attempts = mockUpstreams({ fallbackOutputError: true });
+		const res = await request({ model }, { "x-session-id": "partial-session" });
+		expect(await res.text()).toContain("Partial answer");
+		expect(attempts).toEqual(["azure-0.example.com", "openai-0.example.com"]);
+		expect(await store.get()).toEqual({ providerId: "azure" });
+	});
+
+	test("keeps the old session pin when every fallback fails", async () => {
+		await setup();
+		const store = createSessionProviderStore(
+			"org-id",
+			model,
+			"failed-session",
+			3600,
+		);
+		await store.set("azure");
+		const attempts = mockUpstreams({ allFail: true });
+		expect(
+			await (
+				await request({ model }, { "x-session-id": "failed-session" })
+			).text(),
+		).toContain("rate_limit_exceeded");
+		expect(attempts).toEqual(["azure-0.example.com", "openai-0.example.com"]);
+		expect(await store.get()).toEqual({ providerId: "azure" });
+	});
+
+	test.each([false, true])(
+		"retries a sticky no-fallback request on its sole env key (stream=%s)",
+		async (stream) => {
+			await setup();
+			await db
+				.delete(tables.providerKey)
+				.where(eq(tables.providerKey.id, "managed-openai-0"));
+			await harness.setProjectMode("credits");
+			vi.stubEnv("LLM_OPENAI_API_KEY", ["test", "single", "key"].join("-"));
+			vi.stubEnv("LLM_OPENAI_BASE_URL", "https://openai.example.com");
+			const store = createSessionProviderStore(
+				"org-id",
+				model,
+				"same-key-session",
+				3600,
+			);
+			await store.set("openai");
+			const attempts: string[] = [];
+			const fetch = globalThis.fetch;
+			vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+				const url = new URL(
+					input instanceof Request ? input.url : input.toString(),
+				);
+				attempts.push(url.hostname);
+				if (attempts.length === 1) {
+					return Response.json(
+						{ error: { message: "Temporary server error" } },
+						{ status: 503 },
+					);
+				}
+				return await fetch(new URL(url.pathname, harness.mockServerUrl), init);
+			});
+			const res = await request(
+				{ model, stream },
+				{ "x-session-id": "same-key-session", "x-no-fallback": "true" },
+			);
+			expect(await res.text()).toContain("Hello");
+			expect(attempts).toEqual(["openai.example.com", "openai.example.com"]);
+			expect(await store.get()).toEqual({ providerId: "openai" });
+		},
+	);
+
+	test.each(["explicit", "no-fallback"])(
 		"preserves the %s provider pin",
 		async (pin) => {
 			await setup();
@@ -314,11 +441,9 @@ describe("reasoning model retry before output", () => {
 				{
 					...(pin === "explicit" && { model: `azure/${model}` }),
 				},
-				pin === "session"
-					? { "x-session-id": "retry-session" }
-					: pin === "no-fallback"
-						? { "x-no-fallback": "true" }
-						: {},
+				pin === "no-fallback"
+					? { "x-no-fallback": "true", "x-session-id": "no-fallback-session" }
+					: {},
 			);
 			expect(await res.text()).toContain("rate_limit_exceeded");
 			expect(attempts).toEqual(["azure-0.example.com"]);

@@ -8,10 +8,8 @@ import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemet
 export const MAX_RETRIES = DEFAULT_ROUTING_RETRY.maxRetries;
 
 /**
- * Number of same-key retries against the pinned/only provider before giving up
- * (session-sticky and single-provider transient failures). Overridable via the
- * `SAME_KEY_MAX_RETRIES` env var; defaults to 2. A value of 0 disables same-key
- * retries entirely.
+ * Same-key retry budget when provider fallback is unavailable.
+ * SAME_KEY_MAX_RETRIES defaults to 2; 0 disables these retries.
  */
 export const DEFAULT_SAME_KEY_MAX_RETRIES = 2;
 
@@ -190,15 +188,9 @@ export function shouldRetrySameKey(opts: {
 }
 
 /**
- * Determines whether a failed request should be retried with a different provider.
- * Only retries when no specific provider was requested, the error is retryable,
- * retry count hasn't been exceeded, and alternative providers are available.
- *
- * Cross-provider fallback is disabled for provider-pinned requests: session-
- * sticky requests, whose pin keeps the upstream prompt cache warm, and
- * requests replaying provider-bound reasoning that another provider rejects.
- * Transient failures on a pinned request are instead retried against
- * the same provider (via the alternate-key and same-key retry paths).
+ * Retries a provider-side failure on another eligible provider within the retry budget.
+ * Explicit provider selection, no-fallback requests, and non-portable reasoning prevent switching;
+ * session cache affinity alone does not.
  */
 export function shouldRetryRequest(opts: {
 	requestedProvider: string | undefined;
