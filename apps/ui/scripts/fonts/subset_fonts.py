@@ -570,33 +570,28 @@ def main() -> None:
     outputs = {ROOT / m["output"]: render_module(m, built) for m in config["modules"]}
     outputs[LOCK_PATH] = json.dumps(lock, indent="\t") + "\n"
     outputs = {path: prettier(path, text) for path, text in outputs.items()}
+    fonts = {
+        FILES_DIR / f"{kebab(name)}-{part}.woff2": data
+        for name, b in built.items()
+        for part, (data, _) in b["files"].items()
+    }
+    orphans = sorted(set(FILES_DIR.glob("*.woff2")) - set(fonts))
 
     if args.check:
-        stale = []
-        for path, text in outputs.items():
-            if not path.exists() or path.read_text() != text:
-                stale.append(str(path.relative_to(ROOT)))
-        for name, b in built.items():
-            for part, (data, _) in b["files"].items():
-                path = FILES_DIR / f"{kebab(name)}-{part}.woff2"
-                if not path.exists() or path.read_bytes() != data:
-                    stale.append(str(path.relative_to(ROOT)))
+        stale = [path for path, text in outputs.items() if not path.exists() or path.read_text() != text]
+        stale += [path for path, data in fonts.items() if not path.exists() or path.read_bytes() != data]
+        stale += orphans
         if stale:
-            print("Fonts are stale, rerun apps/ui/scripts/fonts/subset_fonts.py:\n  " + "\n  ".join(stale))
+            print("Fonts are stale, rerun apps/ui/scripts/fonts/subset_fonts.py:\n  " + "\n  ".join(str(p.relative_to(ROOT)) for p in stale))
             sys.exit(1)
         print("Fonts are up to date.")
         return
 
     FILES_DIR.mkdir(parents=True, exist_ok=True)
-    expected = set()
-    for name, b in built.items():
-        for part, (data, _) in b["files"].items():
-            path = FILES_DIR / f"{kebab(name)}-{part}.woff2"
-            path.write_bytes(data)
-            expected.add(path.name)
-    for old in FILES_DIR.glob("*.woff2"):
-        if old.name not in expected:
-            old.unlink()
+    for path, data in fonts.items():
+        path.write_bytes(data)
+    for path in orphans:
+        path.unlink()
     for path, text in outputs.items():
         path.write_text(text)
 
