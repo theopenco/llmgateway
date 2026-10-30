@@ -37,6 +37,20 @@ provider definition preserves its provider ID, existing pins, and session
 preferences for models still listed in Airside. Models without an active listing
 stop being available from that provider.
 
+## Reasoning-effort compatibility
+
+Automatic provider selection checks `reasoning_effort` (or `reasoning.effort`)
+against each mapping's declared `reasoningEfforts` before scoring. A mapping that
+does not accept the requested level is excluded, including for `auto`, `smart`,
+dynamic routes, session reuse, and fallback. The gateway does not substitute
+another level for an effort you supplied. If no eligible mapping remains, the
+request fails before reaching a provider.
+
+`none` can use a non-reasoning mapping; a reasoning mapping with declared efforts
+must explicitly accept `none`. Mappings without declared efforts retain the
+legacy reasoning-capability check. See the live [models page](https://llmgateway.io/models)
+for each deployment's supported efforts.
+
 ## Global Provider Rate Limits
 
 Administrators can set global or organization-specific caps on requests per

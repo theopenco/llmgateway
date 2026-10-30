@@ -649,8 +649,8 @@ export interface ProviderModelMapping {
 	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
 	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
 	 * its own list. The gateway forwards effort values to the provider as-is
-	 * (unsupported values fail upstream); this metadata is exposed via the
-	 * models APIs so clients can present valid options. When unset, the
+	 * and excludes mappings that declare an incompatible effort during automatic
+	 * provider selection. The models APIs expose the list for clients. When unset, the
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];

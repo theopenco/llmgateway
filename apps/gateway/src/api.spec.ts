@@ -13375,29 +13375,31 @@ describe("api", () => {
 			expect(capturedBody?.reasoning_effort).toBeUndefined();
 		});
 
-		// With only one of the two Ling providers keyed, bare-id routing resolves
-		// to that single provider instead of failing.
-		test.each(lingProviders)(
-			"resolves a bare ling-3.0-flash id to the only keyed provider (%s) and applies enable_thinking false",
-			async (provider) => {
-				const { res, capturedBody } = await exerciseLingMessages(
-					provider,
-					{ thinking: { type: "disabled" } },
-					{ model: "ling-3.0-flash" },
-				);
+		test("applies thinking disabled when only a compatible Ling provider is keyed", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"deepinfra",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash" },
+			);
 
-				expect(res.status).toBe(200);
-				expect(capturedBody?.model).toBe(upstreamModels[provider]);
-				if (provider === "deepinfra") {
-					expect(capturedBody?.chat_template_kwargs).toEqual({
-						enable_thinking: false,
-					});
-				} else {
-					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
-				}
-				expect(capturedBody?.reasoning_effort).toBeUndefined();
-			},
-		);
+			expect(res.status).toBe(200);
+			expect(capturedBody?.model).toBe(upstreamModels.deepinfra);
+			expect(capturedBody?.chat_template_kwargs).toEqual({
+				enable_thinking: false,
+			});
+			expect(capturedBody?.reasoning_effort).toBeUndefined();
+		});
+
+		test("rejects thinking disabled when the only keyed Ling provider always thinks", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"novita",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash" },
+			);
+
+			expect(res.status).toBe(400);
+			expect(capturedBody).toBeUndefined();
+		});
 
 		// With neither provider keyed, bare-id routing has no candidate provider
 		// and the request fails with the standard no-provider-key error.

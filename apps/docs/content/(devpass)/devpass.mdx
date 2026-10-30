@@ -63,6 +63,12 @@ Requests appear in [Coding Agents](/learn/coding-agents), broken down by tool. A
 </Step>
 </Steps>
 
+## Reasoning effort
+
+When your coding tool requests a reasoning effort, automatic provider selection
+excludes deployments whose declared efforts do not support that level. A session
+pin does not override this check. See [reasoning-effort compatibility](/features/routing#reasoning-effort-compatibility).
+
 ## Automatic cache duration
 
 Under **Settings → Automatic cache duration**, choose **5 minutes** (default) or **1 hour**. Available in Automatic cache-write mode, this controls automatically added markers only when your request contains no cache markers of its own. One hour applies only to supported models and providers; otherwise the default duration is used. Longer durations can increase cache-write costs.
