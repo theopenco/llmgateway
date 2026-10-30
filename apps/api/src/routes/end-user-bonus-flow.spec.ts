@@ -140,7 +140,15 @@ describe.skipIf(!hasStripeTestKey)(
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${session.sessionToken}`,
 				},
-				body: JSON.stringify({ amount: 10 }),
+				body: JSON.stringify({
+					amount: 10,
+					paymentMethodId: (
+						await stripe.paymentMethods.create({
+							type: "card",
+							card: { token: "tok_visa" },
+						})
+					).id,
+				}),
 			});
 			expect(topRes.status).toBe(200);
 			const top = (await topRes.json()) as TopUpResponse;
