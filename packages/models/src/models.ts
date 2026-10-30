@@ -629,6 +629,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Overrides the provider default for credential-bound reasoning payloads. */
+	encryptedReasoning?: boolean;
 	/** Responses API reasoning summary mode. Defaults to detailed. */
 	reasoningSummary?: "auto" | "detailed";
 	/**

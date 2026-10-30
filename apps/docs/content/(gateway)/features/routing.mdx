@@ -221,7 +221,7 @@ To solve the "cold start problem" where new or unused providers never get traffi
 
 The exploration rate is configurable per project through the routing configuration (`thresholds.explorationRate`), and self-hosted deployments can override it globally with the `EXPLORATION_RATE` environment variable (a number between `0` and `1`).
 
-Models with provider-bound reasoning never explore. OpenAI encrypted reasoning and Gemini thought signatures can only be verified by the provider that issued them, so a turn randomly sent elsewhere would fail with an error such as `invalid_encrypted_content`.
+Models with provider-bound reasoning never explore. This is a per-mapping capability: a reasoning model without opaque provider-bound payloads keeps normal exploration and uptime fallback, even when other models from the same provider use encrypted reasoning. OpenAI encrypted reasoning and Gemini thought signatures can only be verified by the provider that issued them, so a turn randomly sent elsewhere would fail with an error such as `invalid_encrypted_content`.
 
 **Stable Provider Preference**:
 
@@ -583,9 +583,8 @@ with provider-bound reasoning, the gateway remembers which key produced each
 encrypted reasoning item or thought signature, and the turn that replays it is
 routed to that provider and sent with that same key, with or without a session
 id. A conversation without a remembered key (older than 24 hours since its last
-turn) uses normal routing and key selection. Only models that reason on that
-provider are pinned; image models and other models without reasoning use normal
-routing and key selection.
+turn) uses normal routing and key selection. Only mappings that return provider-bound reasoning are pinned; other mappings
+use normal routing and key selection.
 
 If that key fails with a retryable error (a rate limit, a timeout, a server
 error), the request still fails over to another key or provider. OpenAI

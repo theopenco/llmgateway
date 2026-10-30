@@ -151,7 +151,9 @@ reasoning payloads only verify on that provider; routing then never moves such
 models to another provider (exploration, low-uptime fallback, error retry).
 Probed 2026-09: OpenAI and Azure reject each other's `encrypted_content`, AI
 Studio and Vertex reject each other's Gemini 3 signatures, but signatures
-replay across different keys of the same Google platform.
+replay across different keys of the same Google platform. On mixed-protocol
+providers, set mapping-level `encryptedReasoning: false` when a deployment
+returns no bound payloads; keep its actual `reasoning` capability.
 
 ## 5. Reasoning efforts
 
