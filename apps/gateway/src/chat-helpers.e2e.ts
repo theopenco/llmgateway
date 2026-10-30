@@ -1546,18 +1546,7 @@ function providerEnvOptionsForTests(
 		// path, which Google pins to us-central1; global-only models 404 there.
 		return { google_vertex_project_id: process.env.LLM_GOOGLE_CLOUD_PROJECT };
 	}
-	if (providerId === "azure-ai-foundry") {
-		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
-		const opts: ProviderKeyOptions = {};
-		if (resource) {
-			opts.azure_ai_foundry_resource = resource;
-		}
-		if (apiVersion) {
-			opts.azure_ai_foundry_api_version = apiVersion;
-		}
-		return Object.keys(opts).length > 0 ? opts : undefined;
-	}
+
 	if (
 		providerId === "azure-anthropic" &&
 		process.env.LLM_AZURE_ANTHROPIC_RESOURCE

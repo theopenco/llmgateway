@@ -8,6 +8,7 @@ import {
 	type ProviderValidationResult,
 	providers,
 	resolveVertexTokenType,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
@@ -348,6 +349,12 @@ export async function validateProviderKey(
 	pinnedModelId?: string,
 	abortSignal?: AbortSignal,
 ): Promise<ProviderValidationResult> {
+	if (isRetiredProvider(provider)) {
+		return {
+			valid: false,
+			error: `Provider ${provider} is retired. Configure a replacement provider.`,
+		};
+	}
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
 		return { valid: true };

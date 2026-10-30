@@ -15,9 +15,9 @@ Azure provides access to OpenAI's powerful language models through Microsoft's e
 </Callout>
 
 <Callout type="warn">
-	The legacy `azure-ai-foundry` mappings deactivate on **2026-11-07 at 00:00
-	UTC**. [Migrate to Azure](#migrate-from-azure-ai-foundry) before then.
-	Existing legacy requests keep working during the notice period.
+	The legacy `azure-ai-foundry` provider retired on **2026-11-07 at 00:00 UTC**.
+	Its inference adapter and new-key option have been removed. [Migrate to
+	Azure](#migrate-from-azure-ai-foundry) to continue sending requests.
 </Callout>
 
 ## Prerequisites
@@ -144,7 +144,7 @@ Azure availability varies by model and resource region, even for Global Standard
 
 ## Migrate from Azure AI Foundry
 
-The legacy `azure-ai-foundry` provider uses the Azure Model Inference API. Its
+The legacy `azure-ai-foundry` provider used the Azure Model Inference API. Its
 replacement is the existing `azure` provider in **AI Foundry** mode, which uses
 Azure's OpenAI-compatible v1 API. See the [legacy models page](https://llmgateway.io/models?provider=azure-ai-foundry) for affected mappings.
 
@@ -163,9 +163,11 @@ Azure's OpenAI-compatible v1 API. See the [legacy models page](https://llmgatewa
 
 Self-hosted configurations must explicitly configure `LLM_AZURE_API_KEY` and
 exactly one of `LLM_AZURE_RESOURCE` or `LLM_AZURE_BASE_URL`. The legacy
-`LLM_AZURE_AI_FOUNDRY_*` variables are not aliases. Existing legacy credentials and
-provider IDs remain supported until the scheduled cutoff; `azure-anthropic` is
-unchanged.
+`LLM_AZURE_AI_FOUNDRY_*` variables are no longer read and are not aliases.
+Legacy credentials, provider definitions and mappings remain available for
+historical usage, but cannot serve requests or be reactivated. Remove obsolete
+environment variables from self-hosted deployments. `azure` and `azure-anthropic`
+are unchanged.
 
 ## Priority processing
 
