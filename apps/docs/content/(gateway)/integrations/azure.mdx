@@ -162,9 +162,10 @@ Azure's OpenAI-compatible v1 API. See the [legacy models page](https://llmgatewa
    credential belonging to a different resource.
 
 Self-hosted configurations must explicitly configure `LLM_AZURE_API_KEY` and
-`LLM_AZURE_RESOURCE`; the legacy `LLM_AZURE_AI_FOUNDRY_*` variables are not
-aliases. Existing legacy credentials and provider IDs remain supported until the
-scheduled cutoff; `azure-anthropic` is unchanged.
+exactly one of `LLM_AZURE_RESOURCE` or `LLM_AZURE_BASE_URL`. The legacy
+`LLM_AZURE_AI_FOUNDRY_*` variables are not aliases. Existing legacy credentials and
+provider IDs remain supported until the scheduled cutoff; `azure-anthropic` is
+unchanged.
 
 ## Priority processing
 
