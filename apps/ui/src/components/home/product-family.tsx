@@ -1,10 +1,10 @@
 import { ArrowUpRight } from "lucide-react";
 
+import { editorialFontStyle } from "@/fonts/editorial";
 import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
-import { editorial } from "./fonts";
 import styles from "./home.module.css";
 import { ProductSlider, type Slide } from "./product-slider";
 import { TrackedLink } from "./tracked-link";
@@ -359,11 +359,8 @@ function BoardingPass({ product }: { product: Product }) {
 			<div className="flex items-center gap-4 px-6 pt-3 pb-6 md:px-8 md:pb-7">
 				<div className="flex shrink-0 items-end gap-2">
 					<span
-						className={cn(
-							editorial.className,
-							"text-5xl leading-[0.8]",
-							product.ink,
-						)}
+						className={cn("text-5xl leading-[0.8]", product.ink)}
+						style={editorialFontStyle}
 					>
 						{product.gate}
 					</span>
