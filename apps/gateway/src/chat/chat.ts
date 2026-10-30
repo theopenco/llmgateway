@@ -380,6 +380,7 @@ import {
 	resolveReasoningCredentialPin,
 	stripAccountBoundReasoning,
 	stripForeignReasoning,
+	rememberDroppedReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
 	flushTaggedStreamingRemainder,
@@ -8997,6 +8998,10 @@ chat.openapi(completions, async (c) => {
 		) {
 			return;
 		}
+		await rememberDroppedReasoning(
+			retryProjectContext.organizationId,
+			messages,
+		);
 		await createSessionProviderStore(
 			retryProjectContext.organizationId,
 			modelInfo.id,

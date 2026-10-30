@@ -591,7 +591,9 @@ error), the request still fails over to another key or provider. OpenAI
 encrypted reasoning is optional context, so the retry is sent without it: the
 model reasons afresh without the conversation's earlier reasoning on that
 request, instead of the request failing.
-After such a failover the conversation carries reasoning from more than one
+After a successful sticky-session failover, the optional OpenAI-format reasoning omitted by the retry is remembered as discarded. Replaying that older history cannot override the replacement session pin, even when the replacement returns no new encrypted reasoning.
+
+After other failovers the conversation can carry reasoning from more than one
 account. Later turns are pinned to the key that produced the newest reasoning,
 and the items the other key produced are left out of the request up front; the
 items from the pinned key are replayed as usual.

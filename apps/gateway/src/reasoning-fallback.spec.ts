@@ -2,9 +2,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	hashApiKeyForStorage,
+	getApiKeyFingerprint,
+} from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import { rememberReasoningCredential } from "./chat/tools/reasoning-credential-pin.js";
 import { resetKeyHealth } from "./lib/api-key-health.js";
 import { createSessionProviderStore } from "./lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -289,6 +293,12 @@ describe("reasoning model retry before output", () => {
 
 	test("falls back without encrypted reasoning another account produced", async () => {
 		await setup();
+		await rememberReasoningCredential("org-id", encryptedHistory[0], {
+			provider: "azure",
+			source: "managed",
+			providerKeyId: "managed-azure-0",
+			apiKeyHash: getApiKeyFingerprint(["test", "azure", 0].join("-")),
+		});
 		const attempts = mockUpstreams();
 		const bodies: string[] = [];
 		const mocked = vi.mocked(globalThis.fetch);
@@ -312,6 +322,18 @@ describe("reasoning model retry before output", () => {
 		const logs = await waitForLogs(2);
 		const success = logs.find((log) => !log.hasError);
 		expect(success?.routingMetadata?.encryptedReasoningDropped).toBe(true);
+		attempts.length = 0;
+		bodies.length = 0;
+		const next = await request(
+			{
+				model,
+				messages: [...encryptedHistory, { role: "user", content: "Next turn" }],
+			},
+			{ "x-session-id": "encrypted-session" },
+		);
+		expect(await next.text()).toContain("Hello");
+		expect(attempts).toEqual(["openai-0.example.com"]);
+		expect(bodies[0]).not.toContain("opaque-reasoning");
 	});
 
 	test.each([
