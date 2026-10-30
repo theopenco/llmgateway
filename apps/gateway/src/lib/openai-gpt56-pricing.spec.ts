@@ -233,41 +233,83 @@ describe("GPT-5.6 and GPT-6 on Azure", () => {
 	);
 });
 
-// AWS serves GPT-5.6 two ways: the global cross-region profile on the Runtime
-// endpoint at OpenAI's own rates, and in-region Mantle deployments at OpenAI's
-// data-residency tier, a flat 10% premium over those. Both routes carry the
-// 272K long-context tier and the same prompt cap, measured well below AWS's
-// documented 1M window.
+// AWS serves OpenAI's models two ways: cross-region profiles on the Runtime
+// endpoint and in-region Mantle deployments. Global cross-region bills
+// OpenAI's own rates; in-region and US cross-region bill a flat 10% premium.
+// Every route caps the prompt at the same measured window, well below AWS's
+// documented 1.05M.
 const BEDROCK_PREMIUM = 1.1;
 const BEDROCK_CONTEXT_SIZE = 921600;
 
-describe("GPT-5.6 on AWS Bedrock", () => {
-	const mantleEntries = models.flatMap((model) =>
-		model.id.startsWith("gpt-5.6")
-			? model.providers
-					.filter((provider) => provider.providerId === "aws-mantle")
-					.map((provider) => ({
-						modelId: model.id,
-						provider: provider as ProviderModelMapping,
-						global: (provider as ProviderModelMapping).regions?.find(
-							(region) => region.id === "global",
-						),
-					}))
-			: [],
-	);
+// GPT-5.4 and GPT-5.5 have cross-region profiles, but AWS publishes no rate
+// for them, so only their in-region deployments are mapped. Sol 5.6 is not
+// deployed to us-west-2, and the GPT-6 family is in-region only in us-east-1
+// (Astra also in us-west-2).
+const EXPECTED_REGIONS: Record<string, string[]> = {
+	"gpt-5.4": ["us-east-1", "us-east-2", "us-west-2"],
+	"gpt-5.5": ["us-east-1", "us-east-2"],
+	"gpt-5.6-sol": ["global", "us", "us-east-1", "us-east-2"],
+	"gpt-5.6-terra": ["global", "us", "us-east-1", "us-east-2", "us-west-2"],
+	"gpt-5.6-luna": ["global", "us", "us-east-1", "us-east-2", "us-west-2"],
+	"gpt-6-astra": ["global", "us", "us-east-1", "us-west-2"],
+	"gpt-6-sol": ["global", "us", "us-east-1"],
+	"gpt-6-luna": ["global", "us", "us-east-1"],
+	"gpt-6.1-sol": ["global", "us", "us-east-1"],
+};
 
-	it("has the three aws-mantle mappings to validate", () => {
-		expect(mantleEntries.map((e) => e.modelId).sort()).toEqual([
-			"gpt-5.6-luna",
-			"gpt-5.6-sol",
-			"gpt-5.6-terra",
+describe("OpenAI models on AWS Bedrock", () => {
+	// gpt-oss runs on Mantle's chat completions route at its own per-region
+	// SKUs, outside the GPT-5/6 pricing scheme checked here.
+	const mantleEntries = models.flatMap((model) =>
+		model.providers
+			.filter(
+				(provider) =>
+					provider.providerId === "aws-mantle" &&
+					(provider as ProviderModelMapping).apiFormat === undefined,
+			)
+			.map((provider) => ({
+				modelId: model.id,
+				provider: provider as ProviderModelMapping,
+				firstParty: model.providers.find(
+					(candidate) => candidate.providerId === "openai",
+				) as ProviderModelMapping | undefined,
+				global: (provider as ProviderModelMapping).regions?.find(
+					(region) => region.id === "global",
+				),
+			})),
+	);
+	const crossRegionEntries = mantleEntries.filter((e) => e.global);
+	const inRegionOnlyEntries = mantleEntries.filter((e) => !e.global);
+
+	it("has the aws-mantle mappings to validate", () => {
+		expect(mantleEntries.map((e) => e.modelId).sort()).toEqual(
+			Object.keys(EXPECTED_REGIONS).sort(),
+		);
+		expect(inRegionOnlyEntries.map((e) => e.modelId).sort()).toEqual([
+			"gpt-5.4",
+			"gpt-5.5",
 		]);
 	});
 
-	it.each(mantleEntries)(
+	it.each(crossRegionEntries)(
+		"$modelId bills global cross-region at the first-party rate",
+		({ modelId, firstParty, global }) => {
+			for (const field of [
+				"inputPrice",
+				"outputPrice",
+				"cachedInputPrice",
+				"cacheWriteInputPrice",
+			] as const) {
+				expect(global?.[field], `${modelId} global ${field}`).toBe(
+					firstParty?.[field],
+				);
+			}
+		},
+	);
+
+	it.each(crossRegionEntries)(
 		"$modelId bills in-region at a 10% premium over global cross-region",
 		({ modelId, provider, global }) => {
-			expect(global, `${modelId}: global region must be defined`).toBeDefined();
 			for (const field of [
 				"inputPrice",
 				"outputPrice",
@@ -296,13 +338,36 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 		},
 	);
 
-	it.each(mantleEntries)(
-		"$modelId prices the 272K long-context tier on both routes",
-		({ modelId, provider, global }) => {
-			for (const [label, mapping] of [
-				["in-region", provider],
-				["global", global],
+	it.each(inRegionOnlyEntries)(
+		"$modelId bills in-region at a 10% premium over the first-party rate",
+		({ modelId, provider, firstParty }) => {
+			for (const field of [
+				"inputPrice",
+				"outputPrice",
+				"cachedInputPrice",
 			] as const) {
+				expectRatio(
+					`${modelId} aws-mantle in-region ${field}`,
+					provider[field],
+					firstParty?.[field],
+					BEDROCK_PREMIUM,
+				);
+			}
+			// AWS charges nothing for cache writes on these models.
+			expect(provider.cacheWriteInputPrice).toBeUndefined();
+		},
+	);
+
+	it.each(mantleEntries)(
+		"$modelId prices the 272K long-context tier on every route",
+		({ modelId, provider, global }) => {
+			const routes = global
+				? ([
+						["in-region", provider],
+						["global", global],
+					] as const)
+				: ([["in-region", provider]] as const);
+			for (const [label, mapping] of routes) {
 				const tiers = mapping?.pricingTiers ?? [];
 				expect(tiers, `${modelId} ${label}: pricingTiers`).toHaveLength(2);
 				const [shortTier, longTier] = tiers;
@@ -316,15 +381,19 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 					mapping?.cacheWriteInputPrice,
 				);
 
-				for (const field of [
-					"inputPrice",
-					"cachedInputPrice",
-					"cacheWriteInputPrice",
-				] as const) {
+				for (const field of ["inputPrice", "cachedInputPrice"] as const) {
 					expectRatio(
 						`${modelId} ${label} long-context ${field}`,
 						longTier[field],
 						shortTier[field],
+						LONG_INPUT_MULTIPLIER,
+					);
+				}
+				if (shortTier.cacheWriteInputPrice !== undefined) {
+					expectRatio(
+						`${modelId} ${label} long-context cacheWriteInputPrice`,
+						longTier.cacheWriteInputPrice,
+						shortTier.cacheWriteInputPrice,
 						LONG_INPUT_MULTIPLIER,
 					);
 				}
@@ -339,26 +408,19 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 	);
 
 	it.each(mantleEntries)(
-		"$modelId caps both routes at the measured prompt window",
-		({ modelId, provider, global }) => {
+		"$modelId caps every route at the measured prompt window",
+		({ modelId, provider }) => {
 			expect(provider.contextSize, `${modelId}: aws-mantle context size`).toBe(
 				BEDROCK_CONTEXT_SIZE,
 			);
-			// The global route inherits the cap rather than overriding it.
-			expect(global?.contextSize, `${modelId}: global context size`).toBe(
-				undefined,
-			);
+			for (const region of provider.regions ?? []) {
+				expect(
+					region.contextSize,
+					`${modelId} ${region.id}: context size`,
+				).toBeUndefined();
+			}
 		},
 	);
-
-	// Sol is not deployed to us-west-2 — that region 404s "The model
-	// 'openai.gpt-5.6-sol' does not exist" — while Terra and Luna are in all
-	// three. Every model also serves the global cross-region profile.
-	const EXPECTED_REGIONS: Record<string, string[]> = {
-		"gpt-5.6-sol": ["global", "us-east-1", "us-east-2"],
-		"gpt-5.6-terra": ["global", "us-east-1", "us-east-2", "us-west-2"],
-		"gpt-5.6-luna": ["global", "us-east-1", "us-east-2", "us-west-2"],
-	};
 
 	it.each(mantleEntries)(
 		"$modelId declares exactly the regions AWS deploys it to",
@@ -369,7 +431,7 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 		},
 	);
 
-	it("routes global through Runtime and the rest through Mantle", () => {
+	it("routes cross-region profiles through Runtime and the rest through Mantle", () => {
 		const def = providers.find((p) => p.id === "aws-mantle");
 		const configured = def?.regionConfig?.regions.map((r) => r.id) ?? [];
 		const usedRegions = new Set(
@@ -378,6 +440,7 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 
 		expect([...usedRegions].sort()).toEqual([
 			"global",
+			"us",
 			"us-east-1",
 			"us-east-2",
 			"us-west-2",
@@ -385,13 +448,13 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 		expect(def?.regionConfig?.pinDefaultRegion).toBeUndefined();
 		for (const region of usedRegions) {
 			expect(configured).toContain(region);
-			if (region === "global") {
+			if (region === "global" || region === "us") {
 				// Cross-region profiles live on Runtime and name the model with a
-				// `global.` prefix; Mantle has no cross-region profile at all.
+				// profile prefix; Mantle has no cross-region profile at all.
 				expect(def?.regionConfig?.endpointMap[region]).toBe(
 					"https://bedrock-runtime.us-east-1.amazonaws.com",
 				);
-				expect(def?.regionConfig?.modelPrefixMap?.[region]).toBe("global.");
+				expect(def?.regionConfig?.modelPrefixMap?.[region]).toBe(`${region}.`);
 				continue;
 			}
 			expect(def?.regionConfig?.endpointMap[region]).toBe(
@@ -404,7 +467,6 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 	it("expands each region, overriding pricing only for global", () => {
 		for (const { modelId, provider, global } of mantleEntries) {
 			const expanded = expandProviderRegions(provider);
-			// synthetic root + one entry per region
 			// The synthetic root carries no region and must come first, followed by
 			// exactly the declared regions — a count check alone would pass if a
 			// region were duplicated or mislabelled.
@@ -420,11 +482,71 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 				expect(entry.outputPrice, `${modelId} ${entry.region}`).toBe(
 					expected?.outputPrice,
 				);
-				// Every route inherits the mapping's prompt cap.
 				expect(entry.contextSize, `${modelId} ${entry.region}`).toBe(
 					provider.contextSize,
 				);
 			}
 		}
 	});
+
+	// Bedrock Web Search is served only by Mantle's Responses API in the
+	// commercial US regions; Runtime's cross-region profiles lack it.
+	it("offers web search only on in-region US Mantle routes", () => {
+		// Web search requests hang on these, though plain requests complete.
+		const hangs = new Set(["gpt-5.4:us-east-1", "gpt-5.5:us-east-1"]);
+		for (const { modelId, provider } of mantleEntries) {
+			for (const entry of expandProviderRegions(provider)) {
+				if (entry.region === undefined) {
+					continue;
+				}
+				const inRegionUs = ["us-east-1", "us-east-2", "us-west-2"].includes(
+					entry.region,
+				);
+				expect(entry.webSearch, `${modelId} ${entry.region}`).toBe(
+					inRegionUs && !hangs.has(`${modelId}:${entry.region}`),
+				);
+				expect(entry.webSearchPrice, `${modelId} ${entry.region}`).toBe(
+					"0.012",
+				);
+			}
+		}
+	});
+});
+
+describe("gpt-oss on AWS Bedrock (OpenAI)", () => {
+	const ossEntries = models.flatMap((model) =>
+		model.providers
+			.filter(
+				(provider) =>
+					provider.providerId === "aws-mantle" &&
+					model.id.startsWith("gpt-oss"),
+			)
+			.map((provider) => ({
+				modelId: model.id,
+				provider: provider as ProviderModelMapping,
+			})),
+	);
+
+	it("maps both gpt-oss sizes", () => {
+		expect(ossEntries.map((e) => e.modelId).sort()).toEqual([
+			"gpt-oss-120b",
+			"gpt-oss-20b",
+		]);
+	});
+
+	it.each(ossEntries)(
+		"$modelId uses chat completions in configured in-region deployments",
+		({ provider }) => {
+			expect(provider.apiFormat).toBe("openai-chat-completions");
+			expect(provider.webSearch).toBeUndefined();
+			const def = providers.find((p) => p.id === "aws-mantle");
+			for (const region of provider.regions ?? []) {
+				// Mantle has no cross-region profile for gpt-oss.
+				expect(def?.regionConfig?.modelPrefixMap?.[region.id]).toBeUndefined();
+				expect(def?.regionConfig?.endpointMap[region.id]).toBe(
+					`https://bedrock-mantle.${region.id}.api.aws`,
+				);
+			}
+		},
+	);
 });

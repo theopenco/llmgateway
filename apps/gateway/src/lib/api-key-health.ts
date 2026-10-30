@@ -1,3 +1,4 @@
+import { hasFeatureAccessDeniedError } from "@llmgateway/actions";
 import {
 	calculateUptimePenalty as calculateRoutingUptimePenalty,
 	DEFAULT_ROUTING_THRESHOLDS,
@@ -419,6 +420,11 @@ export function reportKeyError(
 	errorText?: string,
 	selectionScope?: string,
 ): void {
+	// The key works; it just lacks one optional feature. Blacklisting it would
+	// take every other request down with it.
+	if (hasFeatureAccessDeniedError(errorText)) {
+		return;
+	}
 	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
 	let health = keyHealthMap.get(healthKey);
 
@@ -481,6 +487,9 @@ export function reportTrackedKeyError(
 	errorText?: string,
 	selectionScope?: string,
 ): void {
+	if (hasFeatureAccessDeniedError(errorText)) {
+		return;
+	}
 	const healthKey = getTrackedHealthKey(keyId, selectionScope);
 	let health = keyHealthMap.get(healthKey);
 

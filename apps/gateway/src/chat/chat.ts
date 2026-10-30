@@ -12340,7 +12340,10 @@ chat.openapi(completions, async (c) => {
 											webSearchCount = 1;
 										}
 									}
-								} else if (streamFormatProvider === "openai") {
+								} else if (
+									streamFormatProvider === "openai" ||
+									streamFormatProvider === "aws-mantle"
+								) {
 									// For OpenAI Responses API, count web_search_call.completed events
 									if (data.type === "response.web_search_call.completed") {
 										webSearchCount++;

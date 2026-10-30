@@ -228,6 +228,21 @@ describe("api-key-health", () => {
 			expect(health?.permanentlyBlacklisted).toBe(true);
 		});
 
+		// Bedrock answers a web search request with 401 when the key lacks the
+		// bedrock-websearch:* permissions, though it serves everything else.
+		it("keeps a key that is only denied web search", () => {
+			const denial =
+				'{"error":{"code":"access_denied","message":"Access denied: web search is not authorized for this identity."}}';
+			reportKeyError("LLM_AWS_BEDROCK_API_KEY", 0, 401, denial, "gpt-6-sol");
+			reportTrackedKeyError("key-1", 401, denial, "gpt-6-sol");
+
+			expect(isKeyHealthy("LLM_AWS_BEDROCK_API_KEY", 0)).toBe(true);
+			expect(isKeyHealthy("LLM_AWS_BEDROCK_API_KEY", 0, "gpt-6-sol")).toBe(
+				true,
+			);
+			expect(isTrackedKeyHealthy("key-1")).toBe(true);
+		});
+
 		it("should not permanently blacklist on other errors", () => {
 			reportKeyError("LLM_OPENAI_API_KEY", 0, 500);
 			reportKeyError("LLM_OPENAI_API_KEY", 0, 429);

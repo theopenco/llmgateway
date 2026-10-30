@@ -13,7 +13,17 @@ import type { CompletionsRequest } from "./chat/schemas/completions.js";
 
 describe("reasoning model retry before output", () => {
 	const harness = createGatewayApiTestHarness();
-	beforeEach(resetKeyHealth);
+	// An env credential would add an aws-mantle route these tests don't model;
+	// aws-mantle also falls back to the Bedrock key.
+	const envKeys = ["LLM_AWS_MANTLE_API_KEY", "LLM_AWS_BEDROCK_API_KEY"];
+	const previousEnv: Record<string, string | undefined> = {};
+	beforeEach(() => {
+		resetKeyHealth();
+		for (const key of envKeys) {
+			previousEnv[key] = process.env[key];
+			Reflect.deleteProperty(process.env, key);
+		}
+	});
 	const model = "gpt-6-luna";
 	const encryptedHistory: CompletionsRequest["messages"] = [
 		{
@@ -31,6 +41,12 @@ describe("reasoning model retry before output", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+		for (const key of envKeys) {
+			const value = previousEnv[key];
+			if (value !== undefined) {
+				process.env[key] = value;
+			}
+		}
 	});
 
 	async function setup(azureKeys = 1) {

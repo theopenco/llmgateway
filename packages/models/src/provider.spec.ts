@@ -5,10 +5,13 @@ import {
 	getProviderEnvExclusiveGroups,
 	getProviderEnvExclusiveViolations,
 	getProviderEnvValue,
+	getProviderEnvVar,
 	getRegionSpecificEnvVarName,
+	hasProviderEnvironmentToken,
 	hasRegionSpecificEnvKey,
 	getVariantEnvVarName,
 	getVariantEnvVarNameFor,
+	validateProviderEnv,
 } from "./provider.js";
 import { getRegionScopedDefaultRegion } from "./providers.js";
 
@@ -319,5 +322,57 @@ describe("getRegionScopedDefaultRegion", () => {
 
 	it("reports nothing for a provider without regions", () => {
 		expect(getRegionScopedDefaultRegion("openai")).toBeUndefined();
+	});
+});
+
+describe("getProviderEnvVar fallback key", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("reads aws-mantle's own key when it is set", () => {
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY", "ABSKmantle");
+		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "ABSKbedrock");
+		expect(getProviderEnvVar("aws-mantle")).toBe("LLM_AWS_MANTLE_API_KEY");
+		expect(hasProviderEnvironmentToken("aws-mantle")).toBe(true);
+	});
+
+	it("falls back to the AWS Bedrock key when aws-mantle has none", () => {
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY", "");
+		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "ABSKbedrock");
+		expect(getProviderEnvVar("aws-mantle")).toBe("LLM_AWS_BEDROCK_API_KEY");
+		expect(hasProviderEnvironmentToken("aws-mantle")).toBe(true);
+		expect(hasRegionSpecificEnvKey("aws-mantle", "eu-west-2")).toBe(true);
+		expect(getProviderEnvValue("aws-mantle", "apiKey")).toBe("ABSKbedrock");
+		expect(validateProviderEnv("aws-mantle")).toEqual([]);
+	});
+
+	it("keeps the own name when neither key is set", () => {
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY", "");
+		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "");
+		expect(getProviderEnvVar("aws-mantle")).toBe("LLM_AWS_MANTLE_API_KEY");
+		expect(hasProviderEnvironmentToken("aws-mantle")).toBe(false);
+	});
+
+	it("keeps its own name while only an own variant or regional key is set", () => {
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY", "");
+		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "ABSKbedrock");
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY__ENTERPRISE", "ABSKmantle-ent");
+		expect(getProviderEnvVar("aws-mantle")).toBe("LLM_AWS_MANTLE_API_KEY");
+		expect(getVariantEnvVarName("aws-mantle", "enterprise")).toBe(
+			"LLM_AWS_MANTLE_API_KEY__ENTERPRISE",
+		);
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY__ENTERPRISE", "");
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY__EU_WEST_2", "ABSKmantle-eu");
+		expect(getRegionSpecificEnvVarName("aws-mantle", "eu-west-2")).toBe(
+			"LLM_AWS_MANTLE_API_KEY__EU_WEST_2",
+		);
+	});
+
+	it("never borrows in the other direction", () => {
+		vi.stubEnv("LLM_AWS_MANTLE_API_KEY", "ABSKmantle");
+		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "");
+		expect(getProviderEnvVar("aws-bedrock")).toBe("LLM_AWS_BEDROCK_API_KEY");
+		expect(hasProviderEnvironmentToken("aws-bedrock")).toBe(false);
 	});
 });

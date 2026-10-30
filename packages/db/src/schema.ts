@@ -2126,7 +2126,15 @@ export interface ProviderKeyOptions {
 	 * (Frankfurt). Ignored by regions that have a shared DashScope domain.
 	 */
 	alibaba_workspace_id?: string;
-	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
+	aws_mantle_region?:
+		| "us-east-1"
+		| "us-east-2"
+		| "us-west-2"
+		| "eu-north-1"
+		| "eu-central-1"
+		| "eu-west-1"
+		| "eu-west-2"
+		| "ap-northeast-1";
 	google_vertex_project_id?: string;
 	google_vertex_token_type?: "api-key" | "oauth";
 	vertex_openai_project_id?: string;
