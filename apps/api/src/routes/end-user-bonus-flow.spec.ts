@@ -27,6 +27,7 @@ interface SessionResponse {
 
 interface TopUpResponse {
 	clientSecret: string;
+	paymentIntentId: string;
 	totalAmount: number;
 	netCredited: number;
 	bonusCredited: number;
@@ -156,11 +157,17 @@ describe.skipIf(!hasStripeTestKey)(
 			expect(top.bonusCredited).toBe(5);
 
 			// 3. Confirm the PaymentIntent as the end-user would (Stripe test card).
-			const piId = top.clientSecret.split("_secret_")[0];
-			await stripe.paymentIntents.confirm(piId, {
-				payment_method: "pm_card_visa",
-				return_url: "https://example.com/return",
+			const piId = top.paymentIntentId;
+			const confirmRes = await app.request("/v1/wallet/confirm-top-up", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${session.sessionToken}`,
+				},
+				body: JSON.stringify({ paymentIntentId: piId }),
 			});
+			expect(confirmRes.status).toBe(200);
+			expect(await confirmRes.json()).toMatchObject({ status: "succeeded" });
 			const pi = await stripe.paymentIntents.retrieve(piId);
 			expect(pi.status).toBe("succeeded");
 

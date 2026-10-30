@@ -273,7 +273,28 @@ const { balance, limits } = await client.getBalance();
 
 Upgrade both `@llmgateway/client` and `@llmgateway/elements` to versions supporting card-priced top-ups before using this flow. Older clients that omit `paymentMethodId` are rejected rather than silently skipping the surcharge.
 
-1. Collect the card with Stripe Elements in deferred-intent mode (`mode: "payment"`, `currency: "usd"`, `paymentMethodTypes: ["card"]`, `paymentMethodCreation: "manual"`), call `elements.submit()`, then `stripe.createPaymentMethod({ elements })`.
+Use `getStripePublishableKey` from `@llmgateway/client` to load LLM Gateway's bundled, mode-matched Stripe key. Pass `"test"` for sandbox wallets and `"prod"` for live wallets; do not use your own Stripe account's key or the mode-agnostic `/v1/config` response. `<LLMGatewayProvider>` selects the same keys automatically.
+
+```ts
+import { getStripePublishableKey } from "@llmgateway/client";
+import { loadStripe } from "@stripe/stripe-js";
+
+async function createCheckoutElements(amount: number, mode: "test" | "prod") {
+	const stripe = await loadStripe(getStripePublishableKey(mode));
+	if (!stripe) throw new Error("Stripe failed to load");
+	const elements = stripe.elements({
+		mode: "payment",
+		amount: amount * 105, // initial cents: whole-dollar credits plus 5%
+		currency: "usd",
+		paymentMethodTypes: ["card"],
+		paymentMethodCreation: "manual",
+	});
+	elements.create("payment").mount("#payment-element");
+	return { stripe, elements };
+}
+```
+
+1. Initialize Elements as above using the validated whole-dollar credit amount. Call `elements.submit()`, then `stripe.createPaymentMethod({ elements })`.
 2. Call `client.createTopUp(amount, paymentMethod.id)`. It returns an unconfirmed intent and `platformFee`, `internationalFee`, `totalAmount`, `netCredited` and `bonusCredited`. Show the fees and total, then ask the user to confirm.
 3. Call `client.confirmTopUp(quote.paymentIntentId)`. If `status` is `requires_action`, call `stripe.handleNextAction({ clientSecret })`, then call `confirmTopUp` again after authentication. Treat only `succeeded` or `processing` as submitted; wallet credit still waits for the webhook.
 

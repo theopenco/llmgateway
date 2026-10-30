@@ -1,5 +1,5 @@
 ---
-id: "118"
+id: "119"
 slug: "sdk-international-card-fees"
 date: "2026-10-30"
 title: "Correct Card Fees in SDK Checkout"
