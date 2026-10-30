@@ -137,6 +137,8 @@ Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
 
 Browse the [Azure models page](https://llmgateway.io/models?provider=azure) for currently available mappings. Only models deployed in your Azure resource can serve requests. Ensure each deployment name matches the model identifier you send to LLM Gateway.
 
+Azure availability varies by model and resource region, even for Global Standard deployments. If the portal reports an unsupported region, deploy in a supported region and configure that resource's provider key. A catalogue mapping alone does not create a deployment or make Azure available for automatic fallback.
+
 ## Priority processing
 
 Azure sells a low-latency **Priority** processing tier, requested per request via
