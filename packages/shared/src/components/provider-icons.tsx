@@ -613,177 +613,6 @@ export const ZaiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		/>
 	</svg>
 );
-
-export const NanoGPTIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg
-		id="Layer_1"
-		data-name="Layer 1"
-		xmlns="http://www.w3.org/2000/svg"
-		xmlnsXlink="http://www.w3.org/1999/xlink"
-		viewBox="0 0 181.45 186.88"
-		{...props}
-	>
-		<defs>
-			<style>
-				{
-					"\n      .cls-1 {\n        fill: url(#linear-gradient-8);\n      }\n\n      .cls-2 {\n        fill: url(#linear-gradient-7);\n      }\n\n      .cls-3 {\n        fill: url(#linear-gradient-5);\n      }\n\n      .cls-4 {\n        fill: url(#linear-gradient-6);\n      }\n\n      .cls-5 {\n        fill: url(#linear-gradient-9);\n      }\n\n      .cls-6 {\n        fill: url(#linear-gradient-4);\n      }\n\n      .cls-7 {\n        fill: url(#linear-gradient-3);\n      }\n\n      .cls-8 {\n        fill: url(#linear-gradient-2);\n      }\n\n      .cls-9 {\n        fill: url(#linear-gradient);\n      }\n\n      .cls-10 {\n        fill: url(#linear-gradient-10);\n      }\n\n      .cls-11 {\n        fill: url(#linear-gradient-11);\n      }\n\n      .cls-12 {\n        fill: url(#linear-gradient-12);\n      }\n    "
-				}
-			</style>
-			<linearGradient
-				id="linear-gradient"
-				x1={43.86}
-				y1={128.24}
-				x2={145.31}
-				y2={128.24}
-				gradientUnits="userSpaceOnUse"
-			>
-				<stop offset={0} stopColor="#015a9e" />
-				<stop offset={1} stopColor="#11e9bb" />
-			</linearGradient>
-			<linearGradient
-				id="linear-gradient-2"
-				x1={44.1}
-				y1={49.57}
-				x2={146.51}
-				y2={49.57}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-3"
-				x1={2.6}
-				y1={69.86}
-				x2={53.68}
-				y2={69.86}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-4"
-				x1={109.82}
-				y1={118.94}
-				x2={178.89}
-				y2={118.94}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-5"
-				x1={129.51}
-				y1={46.47}
-				x2={173.61}
-				y2={46.47}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-6"
-				x1={12.44}
-				y1={122.84}
-				x2={65.92}
-				y2={122.84}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-7"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-8"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-9"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-10"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-11"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-12"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-		</defs>
-		<g>
-			<polygon
-				className="cls-9"
-				points="145.31 72.24 93.39 184.24 43.86 103.66 145.31 72.24"
-			/>
-			<polyline
-				className="cls-8"
-				points="106.21 2.68 146.51 64.44 44.1 96.46 70.86 27.88"
-			/>
-			<polygon
-				className="cls-7"
-				points="30.06 42.79 53.68 52.46 36.31 96.93 2.6 78.59 30.06 42.79"
-			/>
-			<polygon
-				className="cls-6"
-				points="109.82 166.73 153.7 71.14 178.89 81.47 109.82 166.73"
-			/>
-			<polygon
-				className="cls-3"
-				points="173.61 71.76 154.18 63.48 129.51 25.14 134.6 21.19 173.61 71.76"
-			/>
-			<polygon
-				className="cls-4"
-				points="65.92 153.78 12.44 91.91 34.91 104.09 35.83 104.85 65.92 153.78"
-			/>
-		</g>
-		<g>
-			<polygon
-				className="cls-2"
-				points="145.31 72.24 93.39 184.24 43.86 103.66 145.31 72.24"
-			/>
-			<polyline
-				className="cls-1"
-				points="106.21 2.68 146.51 64.44 44.1 96.46 70.86 27.88"
-			/>
-			<polygon
-				className="cls-5"
-				points="30.06 42.79 53.68 52.46 36.31 96.93 2.6 78.59 30.06 42.79"
-			/>
-			<polygon
-				className="cls-10"
-				points="109.82 166.73 153.7 71.14 178.89 81.47 109.82 166.73"
-			/>
-			<polygon
-				className="cls-11"
-				points="173.61 71.76 154.18 63.48 129.51 25.14 134.6 21.19 173.61 71.76"
-			/>
-			<polygon
-				className="cls-12"
-				points="65.92 153.78 12.44 91.91 34.91 104.09 35.83 104.85 65.92 153.78"
-			/>
-		</g>
-	</svg>
-);
-
 // Static version for OG images (no CSS classes/style tags)
 export const AWSBedrockIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
@@ -1228,40 +1057,6 @@ export const XiaomiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		/>
 	</svg>
 );
-
-export const EmberCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
-	props,
-) => (
-	<svg
-		fill="none"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 141 89"
-		{...props}
-	>
-		<path
-			d="M35.727 28.3783c.0449.0071.0908-.0028.1287-.0279s.0651-.0635.0761-.1076c.4493-1.8102.9514-3.9639 1.6517-5.7147 1.8961-4.7391 4.4969-8.8022 7.8024-12.1891 4.1907-4.29653 9.3263-7.30363 15.4066-9.02135 9.1534-2.58648 18.6173-1.3411397 26.7897 3.52462C94.235 8.80403 99.092 14.4351 102.153 21.7353c.842 2.0051 1.414 4.4595 2.005 6.4448.017.0547.053.1013.103.1311.049.0298.108.0407.165.0307q9.345-1.6119 18.009 2.3751c13.802 6.3523 20.729 22.0132 16.249 36.6369-1.962 6.4106-5.642 11.6331-11.039 15.6676-5.263 3.9342-11.77 6.0582-18.512 5.9558-1.2-.0176-2.97-.0176-5.308 0-.074-.0001-.146-.019-.21-.0549s-.117-.0875-.154-.1499L70.0945 32.3158c-.0173-.0284-.0416-.052-.0706-.0683-.0289-.0164-.0615-.025-.0945-.025s-.0653.0086-.0937.025c-.0284.0163-.0519.0399-.0682.0683l-33.185 56.5096c-.026.0452-.0633.0828-.1079.1089-.0447.0261-.0952.0398-.1464.0397-2.6691-.0132-4.3945-.0132-5.1763 0-7.8817.1255-15.1952-2.57-21.0949-7.809-2.83199-2.5127-5.18284-5.6861-7.0525-9.5201-4.45616-9.1369-4.0102-20.9297 1.70451-29.5117 2.36847-3.5543 4.87235-6.4282 8.11619-8.7075.9954-.6959 2.4511-1.5096 4.367-2.4411 5.8358-2.8342 12.0141-3.703 18.5348-2.6063"
-			fill="#ff6047"
-		/>
-		<path
-			d="M78.4334 67.8067c-.0024-.0205.0019-.0411.0122-.0589.0103-.0179.0261-.0319.045-.0401.0189-.0081.0399-.01.06-.0052.02.0047.038.0158.0512.0315 4.6775 6.1078 9.4277 13.1108 4.4793 20.8505-.0771.1205-.1835.2198-.3094.2885-.1258.0687-.2671.1046-.4107.1046H49.4898c-.0251 0-.0497-.0066-.0714-.0193-.0218-.0126-.0397-.0307-.0521-.0525-.0125-.0218-.0189-.0466-.0186-.0717.0002-.0251.0071-.0497.0199-.0713l21.0057-35.3882c.0083-.0149.0215-.026.0374-.0313.0158-.0053.0331-.0045.0488.0023.0157.0069.0286.0192.0364.0349.0079.0156.0101.0334.0062.0502q-1.8333 6.5769-.3765 13.4346c.7366 3.4585 2.8804 6.7783 5.2159 9.3054.0461.0504.1087.0827.1765.0912s.1363-.0075.1934-.045c2.1824-1.4623 3.1822-3.5356 2.9995-6.2201-.0331-.4691-.1256-1.1991-.2775-2.1901"
-			fill="#ff6047"
-		/>
-	</svg>
-);
-
-export const Gonka24Icon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" {...props}>
-		<g
-			transform="translate(0,1080) scale(0.1,-0.1)"
-			fill="currentColor"
-			stroke="none"
-		>
-			<path d="M9445 7634 c-533 -7 -1382 -17 -1885 -23 -1839 -22 -2309 -31 -2410 -47 -439 -69 -1044 -330 -1383 -596 -216 -170 -813 -771 -2022 -2033 -700 -730 -1216 -1267 -1384 -1439 -152 -154 -155 -159 -131 -169 35 -14 486 -21 844 -12 l301 7 395 419 c217 231 449 477 515 547 66 71 262 279 436 463 173 184 378 402 454 484 240 259 676 713 851 885 331 325 465 418 796 554 251 102 372 128 687 146 265 15 1343 28 2939 36 l1393 7 382 384 c210 211 384 388 385 394 2 5 -36 8 -95 8 -54 -1 -534 -8 -1068 -15z" />
-			<path d="M7000 5983 c-490 -4 -1549 -24 -1705 -33 -234 -12 -380 -49 -580 -145 -131 -63 -217 -118 -305 -193 -176 -152 -987 -976 -2153 -2188 -43 -45 -74 -85 -68 -88 10 -6 678 0 3101 30 l1355 16 190 75 c218 86 406 180 556 278 92 61 154 119 560 524 450 450 1659 1697 1659 1711 0 16 -1431 23 -2610 13z m531 -972 c-313 -324 -547 -551 -634 -615 -149 -110 -337 -180 -547 -205 -200 -24 -467 -32 -1330 -40 -503 -5 -917 -8 -919 -6 -7 7 604 627 741 753 210 192 262 226 413 270 90 27 180 43 280 51 44 3 558 7 1142 7 l1063 1 -209 -216z" />
-		</g>
-	</svg>
-);
-
 export const FireworksIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1308,25 +1103,6 @@ export const AtriaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		<path d="M11.4 16.3H8.9a2.31 2.31 0 0 1-2-3.46l1.25-2.17" />
 	</svg>
 );
-
-export const ConsensusProtocolIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
-	props,
-) => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		strokeLinecap="round"
-		{...props}
-	>
-		<path d="M20.6 5.98A10.5 10.5 0 1 0 20.6 18.02" strokeWidth="1.4" />
-		<path d="M15.17 5.2A7.5 7.5 0 1 1 8.83 5.2" strokeWidth="1.4" />
-		<path d="M15.22 9.3A4.2 4.2 0 1 0 15.22 14.7" strokeWidth="2.8" />
-		<circle cx="3.96" cy="18.75" r="1.1" fill="currentColor" stroke="none" />
-	</svg>
-);
-
 export const CloudflareIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1547,6 +1323,34 @@ export const TypeSafeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const FalIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M15.477 0c.415 0 .749.338.788.752a7.775 7.775 0 006.985 6.984c.413.04.752.373.752.788v6.952c0 .415-.338.748-.752.788a7.775 7.775 0 00-6.985 6.984c-.04.414-.373.752-.788.752H8.525c-.416 0-.749-.338-.789-.752a7.775 7.775 0 00-6.984-6.984c-.414-.04-.752-.373-.752-.788V8.524c0-.415.338-.748.752-.788A7.775 7.775 0 007.736.752C7.776.338 8.11 0 8.526 0h6.95zM4.819 11.98a7.226 7.226 0 007.223 7.23 7.226 7.226 0 007.223-7.23c0-3.994-3.234-7.23-7.223-7.23a7.227 7.227 0 00-7.223 7.23z"
+		/>
+	</svg>
+);
+
+export const BlackForestLabsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<path d="M17.113 10.248H14.56l-2.553-3.616-7.963 11.27h2.558l5.405-7.654h2.552l-5.404 7.653h2.565l5.392-7.653L24 20 19.97 20v-2.091l-2.857-4.044-2.842 4.037V20H0L12.008 3l5.105 7.249z" />
+	</svg>
+);
+
 export const ProviderIcons = {
 	atlascloud: AtlasCloudIcon,
 	anthropic: AnthropicIcon,
@@ -1573,7 +1377,6 @@ export const ProviderIcons = {
 	alibaba: AlibabaIcon,
 	nebius: NebiusIcon,
 	zai: ZaiIcon,
-	nanogpt: NanoGPTIcon,
 	"aws-bedrock": AWSBedrockIcon,
 	"aws-mantle": AWSBedrockIcon,
 	azure: AzureIcon,
@@ -1583,20 +1386,18 @@ export const ProviderIcons = {
 	cerebras: CerebrasIcon,
 	minimax: MinimaxIcon,
 	xiaomi: XiaomiIcon,
-	embercloud: EmberCloudIcon,
 	deepinfra: DeepInfraIcon,
 	reve: ReveIcon,
 	sakana: SakanaIcon,
-	gonka24: Gonka24Icon,
 	fireworks: FireworksIcon,
 	runpod: RunpodIcon,
 	ranoai: RanoAIIcon,
 	baidu: BaiduIcon,
-	consensusprotocol: ConsensusProtocolIcon,
 	atria: AtriaIcon,
 	tencent: TencentCloudIcon,
 	typesafe: TypeSafeIcon,
 	cloudflare: CloudflareIcon,
+	"fal-ai": FalIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1664,7 +1465,6 @@ const bundledProviderLogos: Partial<
 	alibaba: ProviderIcons.alibaba,
 	nebius: ProviderIcons.nebius,
 	zai: ProviderIcons.zai,
-	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	"aws-mantle": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
@@ -1674,20 +1474,18 @@ const bundledProviderLogos: Partial<
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,
 	xiaomi: ProviderIcons.xiaomi,
-	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
-	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
-	consensusprotocol: ProviderIcons.consensusprotocol,
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
 	typesafe: ProviderIcons.typesafe,
 	cloudflare: ProviderIcons.cloudflare,
+	"fal-ai": ProviderIcons["fal-ai"],
 };
 
 export const providerLogoUrls: Partial<
@@ -1736,6 +1534,7 @@ export const ModelFamilyIcons: Record<
 	alibaba: AlibabaIcon,
 	anthropic: AnthropicIcon,
 	atlascloud: AtlasCloudIcon,
+	"black-forest-labs": BlackForestLabsIcon,
 	bytedance: BytedanceIcon,
 	deepseek: DeepseekIcon,
 	elevenlabs: ElevenLabsIcon,
@@ -1772,12 +1571,10 @@ export const iconAspectRatios = new Map<
 	[CanopyWaveIcon, 1628 / 1561],
 	[DeepInfraIcon, 28 / 32],
 	[DeepseekIcon, 57.86 / 43.38],
-	[EmberCloudIcon, 141 / 89],
 	[FireworksIcon, 88 / 44],
 	[GroqIcon, 200.18 / 69.76],
 	[InferenceNetIcon, 256 / 235.039],
 	[MistralIcon, 41 / 29],
-	[NanoGPTIcon, 181.45 / 186.88],
 	[ReveIcon, 182 / 148],
 	[RunpodIcon, 195 / 206],
 	[XAIIcon, 759 / 290.2],

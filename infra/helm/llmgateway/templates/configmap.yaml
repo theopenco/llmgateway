@@ -93,6 +93,9 @@ data:
   {{- if .aiTimeoutMs }}
   AI_TIMEOUT_MS: {{ .aiTimeoutMs | quote }}
   {{- end }}
+  {{- if .imageFetchTimeoutMs }}
+  IMAGE_FETCH_TIMEOUT_MS: {{ .imageFetchTimeoutMs | quote }}
+  {{- end }}
   {{- if .keepAliveTimeoutS }}
   KEEP_ALIVE_TIMEOUT_S: {{ .keepAliveTimeoutS | quote }}
   {{- end }}

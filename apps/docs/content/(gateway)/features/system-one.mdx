@@ -42,6 +42,10 @@ own `criteria`. Answers come back under the ids you chose.
 | `noul`   | A yes/no question                | `noul`: probability the answer is yes, 0 to 1                              |
 | `choice` | One option from a set you define | `choice`, `probabilities` per option, `confidence`                         |
 | `score`  | A rating across ordered levels   | `score` (can land between levels), `probabilities`, `legend`, `confidence` |
+| `box`    | Where a target is in an image    | `box` (`top`, `bottom`, `left`, `right` as fractions), `confidence`        |
+
+A `box` question takes `instructions` only, needs an image in the request, and
+works on Jev 1.14 only.
 
 ## cURL
 
@@ -114,13 +118,41 @@ request is always billed and logged against the version you can read prices for.
 
 ## Images
 
-Each image goes in `assets` as `{ "type": "image", "format": "png" | "jpg", "data_base64": "…" }`
-(base64 without a `data:` prefix), keyed by a reference string. Write the
-reference anywhere in `state`, `instructions` or `criteria` and the model
-receives the image in its place. Use a fresh UUID per image so the reference
-can't match your text by accident. The gateway sends TypeSafe's
-`TypeSafe-Danger-Zone-Images` opt-in for you. Image input is experimental at
-TypeSafe; multipart uploads are not supported.
+Put an image part anywhere in `state`, in a question's `instructions` (as an
+array or object), or in its `criteria`, at any depth:
+
+```json
+{
+	"model": "jev-1.14.0",
+	"state": [
+		"Product photo from the listing:",
+		{
+			"type": "image_url",
+			"image_url": { "url": "data:image/jpeg;base64,/9j/4AAQ…" }
+		}
+	],
+	"questions": {
+		"damaged": { "type": "noul", "instructions": "Is the item damaged?" },
+		"product": { "type": "box", "instructions": "the product in the photo" }
+	}
+}
+```
+
+The `url` is a PNG or JPEG data URL, or an HTTPS URL the gateway downloads.
+Object keys are never read as images. A Score `legend` that echoes an image
+level returns your image part.
+
+You can also send TypeSafe's own shape: list each image once in `assets` as
+`{ "type": "image", "format": "png" | "jpg", "data_base64": "…" }` (base64
+without a `data:` prefix), keyed by a reference string, and write the reference
+anywhere in `state`, `instructions` or `criteria`. Use a fresh UUID per image so
+the reference can't match your text by accident. Both shapes can be mixed.
+
+The gateway sends TypeSafe's `TypeSafe-Danger-Zone-Images` opt-in for you, and
+runs every request with an image, or with more than about 32 KB of text, in
+TypeSafe's long-context mode (262k tokens). Images must be 280 to 1568 pixels
+per side. Image input is experimental at TypeSafe; multipart uploads are not
+supported.
 
 ```json
 {
@@ -196,6 +228,5 @@ answer makes them relevant.
 	Decision models only work on `/v1/decisions` and `/v1/systemone`. Requesting
 	one on `/v1/chat/completions` returns a 400 pointing you at the right
 	endpoint, they cannot generate text or call tools, and they are not available
-	in the playground. `/v1/systemone` takes text or JSON state only; image input
-	is available on `/v1/decisions` for models that support it.
+	in the playground.
 </Callout>

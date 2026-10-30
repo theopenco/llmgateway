@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
@@ -312,13 +313,51 @@ describe("airside provider portal", () => {
 				}),
 			]),
 		);
-		expect(oss?.prices.some((price) => price.providerId === "nanogpt")).toBe(
-			false,
-		);
+		expect(
+			oss?.prices.some((price) => price.providerId === "together-ai"),
+		).toBe(false);
 		const tiered = data.models.find((model) => model.id === "gemini-2.5-pro");
 		expect(
 			tiered?.prices.some((price) => price.providerId === "google-ai-studio"),
 		).toBe(false);
+	});
+
+	it("hides removed catalogue providers without deleting history", async () => {
+		await db
+			.insert(tables.provider)
+			.values([
+				{ id: "retired-catalogue", name: "Retired Carrier", description: "" },
+				{ id: "mistral", name: "Mistral", description: "" },
+			])
+			.onConflictDoNothing();
+		const response = await app.request("/internal/providers");
+		expect(response.status).toBe(200);
+		const data = (await response.json()) as {
+			providers: Array<{ id: string }>;
+		};
+		const ids = data.providers.map((provider) => provider.id);
+		expect(ids).toContain("mistral");
+		expect(ids).not.toContain("retired-catalogue");
+		resetModelSearchRowsMemo();
+		for (const query of ["Retired Carrier", "Mistral"]) {
+			const search = await app.request(
+				`/internal/models/search?q=${encodeURIComponent(query)}`,
+			);
+			expect(search.status).toBe(200);
+			const result = (await search.json()) as {
+				providers: Array<{ id: string }>;
+			};
+			const providerIds = result.providers.map((provider) => provider.id);
+			expect(providerIds).not.toContain("retired-catalogue");
+			if (query === "Mistral") {
+				expect(providerIds).toContain("mistral");
+			}
+		}
+		expect(
+			await db.query.provider.findFirst({
+				where: { id: { eq: "retired-catalogue" } },
+			}),
+		).toMatchObject({ status: "active" });
 	});
 
 	beforeEach(async () => {
@@ -327,6 +366,7 @@ describe("airside provider portal", () => {
 	});
 
 	afterEach(async () => {
+		resetModelSearchRowsMemo();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		if (originalAdminEmails === undefined) {
@@ -5343,7 +5383,7 @@ describe("airside provider portal", () => {
 			);
 
 		// Pending registrations publish nothing.
-		expect((await listed()).airsideProfile).toBeNull();
+		expect(await listed()).toBeUndefined();
 		await activateClaim("acme-sky");
 		expect((await listed()).airsideProfile).toEqual({
 			website: carrierProfile.website,
@@ -5362,6 +5402,14 @@ describe("airside provider portal", () => {
 			},
 			compliance: null,
 		});
+		const search = await app.request("/internal/models/search?q=acme");
+		expect(search.status).toBe(200);
+		const result = (await search.json()) as {
+			providers: Array<{ id: string }>;
+		};
+		expect(
+			result.providers.some((provider) => provider.id === "acme-sky"),
+		).toBe(true);
 	});
 
 	it("reports missing profile fields on legacy custom claims", async () => {

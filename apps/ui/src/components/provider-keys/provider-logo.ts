@@ -29,7 +29,6 @@ export const providerLogoUrls: Partial<
 	alibaba: ProviderIcons.alibaba,
 	nebius: ProviderIcons.nebius,
 	zai: ProviderIcons.zai,
-	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
@@ -39,19 +38,17 @@ export const providerLogoUrls: Partial<
 	minimax: ProviderIcons.minimax,
 	bytedance: ProviderIcons.bytedance,
 	xiaomi: ProviderIcons.xiaomi,
-	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
-	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
-	consensusprotocol: ProviderIcons.consensusprotocol,
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
 	cloudflare: ProviderIcons.cloudflare,
+	"fal-ai": ProviderIcons["fal-ai"],
 };
 
 export const getProviderLogoDarkModeClasses = () => {

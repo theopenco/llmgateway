@@ -32,6 +32,10 @@ async function prepare(
 describe("Provider message content", () => {
 	test.each([
 		["runpod", "kimi-k3", true],
+		["tencent", "kimi-k2.8-preview", true],
+		["tencent", "glm-5.3-flash", true],
+		["tencent", "glm-5.3-flashx", true],
+		["tencent", "glm-5.3", false],
 		["novita", "glm-5.3-flash", true],
 		["novita", "glm-5.3", false],
 		["zai", "glm-5.3-flash", false],
@@ -67,4 +71,17 @@ describe("Provider message content", () => {
 		const body = await prepare("novita", "glm-5.3-flash", messages);
 		expect(body.messages).toEqual(messages);
 	});
+});
+
+describe("Tencent message preservation", () => {
+	test.each(["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"])(
+		"preserves entirely empty messages for %s",
+		async (model) => {
+			const messages: BaseMessage[] = [
+				{ role: "user", content: [{ type: "text", text: "" }] },
+			];
+			const body = await prepare("tencent", model, messages);
+			expect(body.messages).toEqual(messages);
+		},
+	);
 });

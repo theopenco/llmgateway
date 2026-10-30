@@ -329,6 +329,24 @@ export interface ProviderDefinition {
 
 export const providers: ProviderDefinition[] = [
 	{
+		id: "fal-ai",
+		name: "fal",
+		forwardsSafetyIdentifier: false,
+		description: "fal is a platform for generative media inference.",
+		env: {
+			required: { apiKey: "LLM_FAL_AI_API_KEY" },
+			optional: { baseUrl: "LLM_FAL_AI_BASE_URL" },
+		},
+		website: "https://fal.ai",
+		apiKeyInstructions: "Create an API key in the fal dashboard.",
+		learnMore: "https://fal.ai/dashboard/keys",
+		termsUrl: "https://fal.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://fal.ai/legal/privacy-policy",
+		usagePolicyUrl: "https://fal.ai/legal/acceptable-use-policy",
+		legalEntity: "Features & Labels, Inc.",
+		dataPolicy: null,
+	},
+	{
 		id: "llmgateway",
 		name: "LLM Gateway",
 		forwardsSafetyIdentifier: false,
@@ -1608,32 +1626,6 @@ export const providers: ProviderDefinition[] = [
 		dataPolicy: null,
 	},
 	{
-		id: "nanogpt",
-		name: "NanoGPT",
-		forwardsSafetyIdentifier: false,
-		description: "NanoGPT offers a large selection of models",
-		env: {
-			required: {
-				apiKey: "LLM_NANO_GPT_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#10b981",
-		website: "https://nano-gpt.com",
-		statusPageUrl: "https://status.nano-gpt.com",
-		announcement: null,
-		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
-		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
-		usagePolicyUrl: "https://nano-gpt.com/legal/terms-of-service",
-		legalEntity: "NanoGPT LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: null,
-			retentionPeriod: null,
-		},
-	},
-	{
 		id: "bytedance",
 		name: "ByteDance",
 		forwardsSafetyIdentifier: false,
@@ -1696,33 +1688,6 @@ export const providers: ProviderDefinition[] = [
 			retentionPeriod: null,
 		},
 		priority: 1.2,
-	},
-	{
-		id: "embercloud",
-		name: "EmberCloud",
-		forwardsSafetyIdentifier: false,
-		description:
-			"EmberCloud provides access to a variety of large language models via an OpenAI-compatible API",
-		env: {
-			required: {
-				apiKey: "LLM_EMBERCLOUD_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#FF6047",
-		website: "https://www.embercloud.ai",
-		statusPageUrl: "https://www.embercloud.ai/status",
-		announcement: null,
-		termsUrl: "https://www.embercloud.ai/terms",
-		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
-		usagePolicyUrl: "https://www.embercloud.ai/terms",
-		legalEntity: "EmberCloud Systems",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: true,
-			retentionPeriod: null,
-		},
 	},
 	{
 		id: "meta",
@@ -1958,30 +1923,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "gonka24",
-		managedInAirside: true,
-		name: "Gonka24",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
-		env: {
-			required: {
-				apiKey: "LLM_GONKA_24_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#000000",
-		website: "https://gonka24.com",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://gonka24.com/terms",
-		privacyPolicyUrl: "https://gonka24.com/privacy",
-		usagePolicyUrl: "https://gonka24.com/terms",
-		legalEntity: "Investment company Temir LLC",
-		headquarters: "KZ",
-		dataPolicy: null,
-	},
-	{
 		id: "fireworks",
 		name: "Fireworks AI",
 		forwardsSafetyIdentifier: false,
@@ -2050,40 +1991,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-	},
-	{
-		id: "consensusprotocol",
-		managedInAirside: true,
-		name: "Consensus Protocol",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
-		env: {
-			required: {
-				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#dc2626",
-		website: "https://consensusprotocol.org",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://consensusprotocol.org/terms",
-		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
-		usagePolicyUrl: "https://consensusprotocol.org/terms",
-		legalEntity: "Consensus Protocol LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-		additionalLinks: [
-			{
-				desc: "Inference data handling",
-				link: "https://consensusprotocol.org/data-policy",
-			},
-		],
 	},
 	{
 		id: "tencent",
@@ -2698,7 +2605,6 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
-	KZ: "Kazakhstan",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

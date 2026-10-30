@@ -166,15 +166,34 @@ with `test_models` and `full_mode` when local credentials are missing (`add-mode
 When the user explicitly asks to set a PR to auto-merge, enable it
 (`gh pr merge <n> --auto --squash`) and own the PR until it runs in production:
 
-1. Watch the required checks and reviews. On a failing check, a merge conflict,
-   or requested changes, push a fix to the PR branch and keep watching. Never
-   bypass checks (see `AGENTS.md`).
-2. Confirm the PR merged.
-3. Follow the rollout through the deployment repository: the image-bump PR for
-   the merge commit, its merge, and the deploy run it triggers. A later image
-   bump also ships the commit. If the deploy fails for a reason unrelated to the
-   change, report it rather than changing shared infrastructure.
-4. Confirm every deployment runs the merge commit's image (check with
-   `kubectl` when it is set up), then send a final message saying it is live.
+1. Run `.agents/skills/pull-request/scripts/wait-for-pr.sh <n>` as a background
+   job until it exits 0 (merged). Exit 3 means the PR needs you: a failed check,
+   a merge conflict, a branch behind its base branch, a green PR still blocked
+   (usually a required review), or an unresolved review thread. Unresolved threads block auto-merge even when every
+   check is green, and CodeRabbit can open new ones after each push. Fix the
+   cause or reply and resolve the thread (see "After opening"), push, and run
+   the script again. Exit 1 means the PR closed without merging or the watch
+   timed out; check the PR before rerunning. Exit 4 means GitHub requests kept
+   failing; check network and `gh auth status`, then rerun. Never bypass checks
+   (see `AGENTS.md`).
+2. Follow the rollout through the deployment repository: the image-bump PR for
+   the merge commit, its merge, and the deploy run it triggers. If the deploy
+   fails for a reason unrelated to the change, report it rather than changing
+   shared infrastructure.
+3. With `kubectl` pointed at production, run
+   `.agents/skills/pull-request/scripts/wait-for-rollout.sh <merge-sha>`
+   (extra arguments go to `kubectl`, e.g. `--context <ctx>`). It exits 0 once
+   every deployment of our `ghcr.io/theopenco/llmgateway-*` images is ready on
+   one tag whose commit contains the merge commit. A later image bump often
+   ships the commit first, so the merge commit's own tag may never run;
+   third-party images are skipped. Exit 4 means `kubectl` failed several times
+   in a row, or the selected context and namespace hold no deployment of our
+   images (third-party ones do not count); fix access or point it at the
+   production namespace. Exit 1 means the timeout passed without a live
+   rollout: report what is stuck (its last output shows the tags and the
+   deployments not ready) and do not call it live. Only on exit 0, send a final
+   message saying it is live.
 
-Monitor with a background job instead of polling in the conversation.
+Run both scripts as background jobs instead of polling in the conversation.
+Without `kubectl` access, confirm the deploy run succeeded and say the pods were
+not checked.

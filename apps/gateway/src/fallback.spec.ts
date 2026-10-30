@@ -211,13 +211,13 @@ describe("fallback and error status code handling", () => {
 				baseUrl: mockServerUrl,
 			},
 			{
-				id: "provider-key-cerebras",
+				id: "provider-key-bytedance",
 				...encryptProviderKeyForStorage(
-					"sk-cerebras-key",
-					"provider-key-cerebras",
+					"sk-bytedance-key",
+					"provider-key-bytedance",
 					"org-id",
 				),
-				provider: "cerebras",
+				provider: "bytedance",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
@@ -1498,7 +1498,7 @@ describe("fallback and error status code handling", () => {
 		beforeEach(async () => {
 			await setupMultiProviderKeys();
 			await setRoutingMetrics(modelId, "together-ai", 0);
-			await setRoutingMetrics(modelId, "cerebras", 100);
+			await setRoutingMetrics(modelId, "bytedance", 100);
 		});
 
 		test("does not reroute a 0% uptime provider when IAM only allows the requested provider", async () => {
@@ -1539,9 +1539,9 @@ describe("fallback and error status code handling", () => {
 		test("does not reroute a 0% uptime provider when IAM denies the fallback provider", async () => {
 			await insertIamRules([
 				{
-					id: "iam-deny-cerebras",
+					id: "iam-deny-bytedance",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -1578,9 +1578,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-deny-cerebras-combo",
+					id: "iam-deny-bytedance-combo",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -2377,10 +2377,10 @@ describe("fallback and error status code handling", () => {
 				expect(logs.length).toBe(1);
 
 				const log = logs[0];
-				expect(log.usedProvider).toBe("cerebras");
+				expect(log.usedProvider).toBe("bytedance");
 				expect(log.internalContentFilter).toBe(true);
 				expect(log.routingMetadata).toMatchObject({
-					selectedProvider: "cerebras",
+					selectedProvider: "bytedance",
 					contentFilterMatched: true,
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
@@ -3094,38 +3094,75 @@ describe("fallback and error status code handling", () => {
 			});
 		});
 
-		test("non-streaming: retries another key for auth failures on the same explicit provider", async () => {
-			await setupSingleProviderWithMultipleKeys("together-ai");
+		test.each([false, true])(
+			"retries another key for auth failures on the same explicit provider (stream=%s)",
+			async (stream) => {
+				await setupSingleProviderWithMultipleKeys("together-ai");
+				const primaryKeyHash = getApiKeyFingerprint(
+					"together-ai-primary-token",
+				);
+				const secondaryKeyHash = getApiKeyFingerprint(
+					"together-ai-secondary-token",
+				);
 
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "together-ai/glm-4.7",
-					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
-				}),
-			});
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "together-ai/glm-4.7",
+						messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
+						stream,
+					}),
+				});
 
-			expect(res.status).toBe(500);
-			const json = await res.json();
-			expect(json.error.type).toBe("gateway_error");
+				if (stream) {
+					expect(await res.text()).toContain("gateway_error");
+				} else {
+					expect(res.status).toBe(500);
+					const json = await res.json();
+					expect(json.error.type).toBe("gateway_error");
+				}
 
-			const logs = await waitForLogs(2);
-			const authLogs = logs.filter(
-				(log: Log) => log.errorDetails?.statusCode === 401,
-			);
-			expect(authLogs).toHaveLength(2);
-			expect(authLogs.some((log: Log) => log.retried)).toBe(true);
-			expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
-				false,
-			);
-			expect(isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7")).toBe(
-				false,
-			);
-		});
+				const logs = await waitForLogs(2);
+				const authLogs = logs.filter(
+					(log: Log) => log.errorDetails?.statusCode === 401,
+				);
+				expect(authLogs).toHaveLength(2);
+				const retriedLog = authLogs.find((log: Log) => log.retried);
+				const terminalLog = authLogs.find((log: Log) => !log.retried);
+				// The retry link must resolve to the terminal attempt's log.
+				expect(retriedLog?.retriedByLogId).toBe(terminalLog?.id);
+				// The terminal attempt's routing lists every key that was tried.
+				expect(terminalLog?.routingMetadata?.routing).toEqual([
+					expect.objectContaining({
+						succeeded: false,
+						status_code: 401,
+						logId: retriedLog?.id,
+					}),
+					expect.objectContaining({
+						succeeded: false,
+						status_code: 401,
+						logId: terminalLog?.id,
+					}),
+				]);
+				expect(
+					new Set(
+						terminalLog?.routingMetadata?.routing?.map(
+							(attempt) => attempt.apiKeyHash,
+						),
+					),
+				).toEqual(new Set([primaryKeyHash, secondaryKeyHash]));
+				expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
+					false,
+				);
+				expect(
+					isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7"),
+				).toBe(false);
+			},
+		);
 
 		test("non-streaming: retries another key for invalid API key payloads", async () => {
 			await setupSingleProviderWithMultipleKeys("together-ai");
@@ -3862,6 +3899,66 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
+		test.each([false, true])(
+			"records every key on the final log when all keys time out (stream=%s)",
+			async (stream) => {
+				await setupSingleProviderWithMultipleKeys("together-ai");
+				const primaryKeyHash = getApiKeyFingerprint(
+					"together-ai-primary-token",
+				);
+				const secondaryKeyHash = getApiKeyFingerprint(
+					"together-ai-secondary-token",
+				);
+				const timeoutVar = stream ? "AI_STREAMING_TIMEOUT_MS" : "AI_TIMEOUT_MS";
+				const originalTimeout = process.env[timeoutVar];
+				process.env[timeoutVar] = "75";
+
+				try {
+					const res = await app.request("/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer real-token",
+							"X-No-Fallback": "true",
+						},
+						body: JSON.stringify({
+							model: "together-ai/glm-4.7",
+							messages: [{ role: "user", content: "TRIGGER_TIMEOUT_300" }],
+							stream,
+						}),
+					});
+					await res.text();
+
+					const logs = await waitForLogs(2);
+					const terminalLog = logs.find((log: Log) => !log.retried);
+					const retriedLogs = logs.filter((log: Log) => log.retried);
+					expect(terminalLog?.hasError).toBe(true);
+					expect(retriedLogs.length).toBeGreaterThan(0);
+					for (const log of retriedLogs) {
+						expect(log.retriedByLogId).toBe(terminalLog?.id);
+					}
+					const routing = terminalLog?.routingMetadata?.routing ?? [];
+					expect(routing).toHaveLength(logs.length);
+					expect(routing.every((attempt) => !attempt.succeeded)).toBe(true);
+					expect(routing.at(-1)?.logId).toBe(terminalLog?.id);
+					expect(new Set(routing.map((attempt) => attempt.apiKeyHash))).toEqual(
+						new Set([primaryKeyHash, secondaryKeyHash]),
+					);
+					expect(
+						terminalLog?.routingMetadata?.providerScores?.find(
+							(score) => score.providerId === "together-ai",
+						)?.failed,
+					).toBe(true);
+				} finally {
+					if (originalTimeout === undefined) {
+						Reflect.deleteProperty(process.env, timeoutVar);
+					} else {
+						process.env[timeoutVar] = originalTimeout;
+					}
+				}
+			},
+		);
+
 		test("streaming: retries when immediate SSE error omits status fields", async () => {
 			await setupMultiProviderKeys();
 
@@ -3937,16 +4034,16 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 
 		test("non-streaming: IAM deny_providers prevents retry fallback to a denied provider", async () => {
 			await setupMultiProviderKeys();
 			await insertIamRules([
 				{
-					id: "iam-retry-deny-cerebras",
+					id: "iam-retry-deny-bytedance",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -3967,7 +4064,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 
 		test("non-streaming: combined IAM allow and deny rules prevent retry fallback to any disallowed provider", async () => {
@@ -3979,9 +4076,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-retry-deny-cerebras-combo",
+					id: "iam-retry-deny-bytedance-combo",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -4002,7 +4099,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 	});
 });

@@ -37,11 +37,19 @@ Reuse the same session id for every request in a conversation. If you don't set 
 
 For the [Anthropic Messages endpoint](/features/anthropic-endpoint) (`/v1/messages`), the session key is derived automatically from `metadata.user_id`. Coding agents such as Claude Code send a JSON object there (e.g. `{"session_id":"<uuid>",…}`); the gateway uses its `session_id` field. An explicit `x-session-id` header still takes precedence.
 
+### Responses endpoint
+
+The [Responses endpoint](/api-reference) (`/v1/responses`) resolves the session key from the same headers as chat completions, then the `prompt_cache_key` body field.
+
 ## Sticky provider routing
 
 When a model is served by multiple providers, requests are normally scored independently, so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix reach the **same** provider.
 
 With a session id set, LLMGateway normally selects the first provider using weighted smart routing (price, priority, uptime, throughput). A dynamic route with explicit provider order instead chooses the first eligible provider and scores its regions. The gateway then **pins that provider for the session**, reusing it on subsequent requests to keep the prompt cache warm. The session stays on that provider — skipping the epsilon-greedy exploration — and only moves when its provider drops below the session uptime threshold or leaves the available pool (health or compatibility filtering), at which point selection runs again using the same provider-order or weighted-scoring rules. A healthy, eligible pin takes precedence over changes to provider order. Sticky requests skip cross-provider retry/fallback entirely — a failure is retried against the pinned provider only (on another configured key, or the same platform key when only one is configured), and the degraded uptime it records is what triggers re-pinning later.
+
+Changing the requested reasoning effort can make a saved provider pin ineligible.
+The gateway then selects a provider compatible with the new effort rather than
+keeping the old pin. See [reasoning-effort compatibility](/features/routing#reasoning-effort-compatibility).
 
 Requests carrying [Anthropic safeguards](/features/routing#anthropic-safeguards) replace an incompatible saved pin with a compatible provider. Explicit incompatible provider prefixes return `400`.
 

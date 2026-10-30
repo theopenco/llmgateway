@@ -143,8 +143,7 @@ describe(
 		test.each(testProviders)(
 			"POST /keys/provider with $name key",
 			async ({ providerId }) => {
-				// TODO temporarily skip nanogpt
-				if (providerId === "inference.net" || providerId === "nanogpt") {
+				if (providerId === "inference.net") {
 					return;
 				}
 				const envVarName = getProviderEnvVar(providerId);
