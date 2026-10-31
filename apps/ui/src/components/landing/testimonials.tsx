@@ -1,6 +1,8 @@
-import { TweetCard } from "@/lib/components/tweet-card";
+import { TweetCard, TweetSkeleton } from "@/lib/components/tweet-card";
 
 import { MarqueeContainer } from "./marquee-container";
+
+import type { ReactNode } from "react";
 
 const row1Ids = [
 	"2082200259560702374",
@@ -17,7 +19,14 @@ const row2Ids = [
 	"1958469139632464022",
 ];
 
-export const Testimonials = async () => {
+const cardClassName =
+	"w-full rounded-2xl border-border/50 shadow-sm hover:shadow-md transition-shadow";
+
+function TestimonialsSection({
+	renderCard,
+}: {
+	renderCard: (tweetId: string) => ReactNode;
+}) {
 	return (
 		<section className="relative overflow-hidden py-24 md:py-32 bg-surface-elevated">
 			{/* Noise texture */}
@@ -35,10 +44,7 @@ export const Testimonials = async () => {
 					<MarqueeContainer>
 						{row1Ids.map((tweetId) => (
 							<div key={tweetId} className="shrink-0 w-80">
-								<TweetCard
-									id={tweetId}
-									className="w-full rounded-2xl border-border/50 shadow-sm hover:shadow-md transition-shadow"
-								/>
+								{renderCard(tweetId)}
 							</div>
 						))}
 					</MarqueeContainer>
@@ -47,10 +53,7 @@ export const Testimonials = async () => {
 					<MarqueeContainer reverse>
 						{row2Ids.map((tweetId) => (
 							<div key={tweetId} className="shrink-0 w-80">
-								<TweetCard
-									id={tweetId}
-									className="w-full rounded-2xl border-border/50 shadow-sm hover:shadow-md transition-shadow"
-								/>
+								{renderCard(tweetId)}
 							</div>
 						))}
 					</MarqueeContainer>
@@ -58,4 +61,23 @@ export const Testimonials = async () => {
 			</div>
 		</section>
 	);
-};
+}
+
+// The cards fetch their tweets, so this suspends; render it behind
+// TestimonialsFallback, which keeps the same layout.
+export const Testimonials = () => (
+	<TestimonialsSection
+		renderCard={(tweetId) => (
+			<TweetCard id={tweetId} className={cardClassName} />
+		)}
+	/>
+);
+
+// Loaded cards are h-64 (MagicTweet); match it so the rows keep their height.
+export const TestimonialsFallback = () => (
+	<TestimonialsSection
+		renderCard={() => (
+			<TweetSkeleton className={`${cardClassName} h-64 max-h-none`} />
+		)}
+	/>
+);

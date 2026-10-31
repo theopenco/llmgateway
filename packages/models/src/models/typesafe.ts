@@ -16,8 +16,11 @@ export const typesafeModels = [
 				externalId: "jev-1.14.0",
 				inputPrice: "0.042e-6",
 				outputPrice: "0",
-				contextSize: 64000,
+				// Long-context mode, which the gateway turns on for long or image
+				// requests.
+				contextSize: 262144,
 				streaming: false,
+				vision: true,
 				tools: false,
 				jsonOutput: false,
 				decisions: true,
@@ -38,8 +41,9 @@ export const typesafeModels = [
 				externalId: "jev-1.13.0",
 				inputPrice: "0.042e-6",
 				outputPrice: "0",
-				contextSize: 64000,
+				contextSize: 262144,
 				streaming: false,
+				vision: true,
 				tools: false,
 				jsonOutput: false,
 				decisions: true,

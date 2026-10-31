@@ -309,6 +309,8 @@ export {
 
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	CUSTOM_PROVIDER_NAME_REGEX,
 	isProviderBaseUrlOverrideAllowed,
 	isProviderHostnameLabel,

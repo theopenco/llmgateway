@@ -1817,15 +1817,12 @@ export function transformStreamingToOpenai(
 		case "together-ai":
 		case "deepinfra":
 		case "custom":
-		case "nanogpt":
 		case "bytedance":
 		case "minimax":
-		case "embercloud":
-		case "gonka24":
 		case "ranoai":
 		case "baidu":
-		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":

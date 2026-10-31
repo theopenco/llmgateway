@@ -37,6 +37,8 @@ import { cn } from "@/lib/utils";
 import { getProviderIcon } from "@llmgateway/shared/components";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { paths } from "@/lib/api/v1";
+
 export interface RankingsModelMeta {
 	name: string;
 	family: string;
@@ -50,7 +52,12 @@ export interface RankingsAppStat {
 	lastUsedAt: string | null;
 }
 
+export type RankingsStats =
+	paths["/public/models/stats"]["get"]["responses"][200]["content"]["application/json"];
+
 interface RankingsContentProps {
+	initialStats: RankingsStats | null;
+	initialStatsFetchedAt: number;
 	modelMeta: Record<string, RankingsModelMeta>;
 	providerNames: Record<string, string>;
 	topApps: RankingsAppStat[];
@@ -193,6 +200,8 @@ function TopAppRow({
 }
 
 export function RankingsContent({
+	initialStats,
+	initialStatsFetchedAt,
 	modelMeta,
 	providerNames,
 	topApps,
@@ -208,6 +217,9 @@ export function RankingsContent({
 		"/public/models/stats",
 		{ params: { query: { window: statsWindow } } },
 		{
+			initialData:
+				statsWindow === "7d" ? (initialStats ?? undefined) : undefined,
+			initialDataUpdatedAt: initialStatsFetchedAt,
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60_000,
 		},

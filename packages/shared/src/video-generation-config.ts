@@ -409,8 +409,22 @@ function isGeminiOmniVideoModel(canonicalModelId: string): boolean {
 	return canonicalModelId === "gemini-omni-1.1-flash";
 }
 
+export type VideoReasoningEffort = "low" | "high";
+
+export function supportsVideoReasoningEffort(modelId: string): boolean {
+	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+	return (
+		canonicalModelId === "flux-3-max" &&
+		(providerId === undefined || providerId === "fal-ai")
+	);
+}
+
 export function supportsVideoFrameInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (canonicalModelId === "flux-3-max") {
+		return providerId === undefined || providerId === "fal-ai";
+	}
 
 	if (isGeminiOmniVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "google-ai-studio";
@@ -596,6 +610,12 @@ function mappingSupportsVideoRequest(
 		// Match by canonical model id — never by the upstream externalId.
 		if (isVeedFabricVideoModel(mapping.modelId)) {
 			return false;
+		}
+
+		if (mapping.providerId === "fal-ai" || mapping.modelId === "flux-3-max") {
+			return (
+				mapping.providerId === "fal-ai" && mapping.modelId === "flux-3-max"
+			);
 		}
 
 		if (mapping.providerId === "bytedance") {

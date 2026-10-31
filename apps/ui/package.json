@@ -9,9 +9,12 @@
 	],
 	"scripts": {
 		"build": "pnpm generate && next build --turbopack && tsc && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/ui/.next/ && test -d public && cp -r public .next/standalone/apps/ui/",
-		"dev": "next dev --port ${UI_PORT:-3002} --turbopack",
+		"dev": "pnpm generate:product-og-images && next dev --port ${UI_PORT:-3002} --turbopack",
+		"fonts:check": "python3 scripts/fonts/subset_fonts.py --check",
+		"fonts:subset": "python3 scripts/fonts/subset_fonts.py",
 		"format": "eslint --fix . && prettier --write .",
-		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts && tsx src/scripts/generate-provider-sprites.ts",
+		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts && tsx src/scripts/generate-provider-sprites.ts && pnpm generate:product-og-images",
+		"generate:product-og-images": "tsx src/scripts/generate-product-og-images.ts",
 		"lint": "eslint . && prettier --check .",
 		"start": "next start",
 		"test:e2e": "playwright test"

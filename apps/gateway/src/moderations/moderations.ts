@@ -728,6 +728,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				await insertLog(
 					{
 						...baseLogEntry,
+						id: willRetry ? shortid() : finalLogId,
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -860,6 +861,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				await insertLog(
 					{
 						...baseLogEntry,
+						id: willRetry ? shortid() : finalLogId,
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,

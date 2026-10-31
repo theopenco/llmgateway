@@ -37,6 +37,20 @@ provider definition preserves its provider ID, existing pins, and session
 preferences for models still listed in Airside. Models without an active listing
 stop being available from that provider.
 
+## Reasoning-effort compatibility
+
+Automatic provider selection checks `reasoning_effort` (or `reasoning.effort`)
+against each mapping's declared `reasoningEfforts` before scoring. A mapping that
+does not accept the requested level is excluded, including for `auto`, `smart`,
+dynamic routes, session reuse, and fallback. The gateway does not substitute
+another level for an effort you supplied. If no eligible mapping remains, the
+request fails before reaching a provider.
+
+`none` can use a non-reasoning mapping; a reasoning mapping with declared efforts
+must explicitly accept `none`. Mappings without declared efforts retain the
+legacy reasoning-capability check. See the live [models page](https://llmgateway.io/models)
+for each deployment's supported efforts.
+
 ## Global Provider Rate Limits
 
 Administrators can set global or organization-specific caps on requests per
@@ -148,6 +162,8 @@ This makes routing react quickly to a provider that just started failing or slow
 
 Only requests served on LLM Gateway's own credentials feed these metrics. Requests on your own [provider keys](/learn/provider-keys) never count toward a provider's uptime, so a misconfigured key cannot degrade routing for anyone else.
 
+Metrics are also kept per [service tier](/features/service-tiers): a `flex` request is scored on the provider's recent `flex` traffic, a `priority` request on its `priority` traffic, and every other request on standard-tier traffic. A provider shedding `flex` load therefore does not lose standard or `priority` traffic. A tier without recent traffic of its own on a provider uses that provider's standard-tier metrics.
+
 **Prompt Caching and Token Costs**:
 
 For estimated prompts of at least **%routing.thresholds.cachePromptTokens% tokens**, or when choosing a session's provider, routing blends each provider's uncached and cached input prices and weights output by the expected output:input token ratio. Coding sessions that mostly reuse prompt tokens can therefore favor a provider with cheaper cache reads even when its uncached input price is higher. Providers without a cached input price use their full input price.
@@ -207,7 +223,7 @@ To solve the "cold start problem" where new or unused providers never get traffi
 
 The exploration rate is configurable per project through the routing configuration (`thresholds.explorationRate`), and self-hosted deployments can override it globally with the `EXPLORATION_RATE` environment variable (a number between `0` and `1`).
 
-Models with provider-bound reasoning never explore. OpenAI encrypted reasoning and Gemini thought signatures can only be verified by the provider that issued them, so a turn randomly sent elsewhere would fail with an error such as `invalid_encrypted_content`.
+Models with provider-bound reasoning never explore. This is a per-mapping capability: a reasoning model without opaque provider-bound payloads keeps normal exploration and uptime fallback, even when other models from the same provider use encrypted reasoning. OpenAI encrypted reasoning and Gemini thought signatures can only be verified by the provider that issued them, so a turn randomly sent elsewhere would fail with an error such as `invalid_encrypted_content`.
 
 **Stable Provider Preference**:
 
@@ -569,9 +585,8 @@ with provider-bound reasoning, the gateway remembers which key produced each
 encrypted reasoning item or thought signature, and the turn that replays it is
 routed to that provider and sent with that same key, with or without a session
 id. A conversation without a remembered key (older than 24 hours since its last
-turn) uses normal routing and key selection. Only models that reason on that
-provider are pinned; image models and other models without reasoning use normal
-routing and key selection.
+turn) uses normal routing and key selection. Only mappings that return provider-bound reasoning are pinned; other mappings
+use normal routing and key selection.
 
 If that key fails with a retryable error (a rate limit, a timeout, a server
 error), the request still fails over to another key or provider. OpenAI

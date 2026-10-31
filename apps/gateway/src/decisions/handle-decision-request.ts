@@ -87,6 +87,9 @@ import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
+/** Deadline for loading remote request input, such as image downloads. */
+const LOAD_BODY_TIMEOUT_MS = 30_000;
+
 /**
  * The wire format a decision mapping speaks upstream. OpenAI and every Airside
  * carrier serve the OpenAI-compatible `POST /v1/decisions`; TypeSafe and Azure
@@ -253,7 +256,11 @@ const ESTIMATED_TOKENS_PER_IMAGE = 765;
 export function estimateInputTokens(body: Record<string, unknown>): number {
 	let images = 0;
 	const text = JSON.stringify(body, (key, value: unknown) => {
-		if (key === "image_url" && typeof value === "string") {
+		// `image_url` on the OpenAI shape, `data_base64` on a System One asset.
+		if (
+			(key === "image_url" || key === "data_base64") &&
+			typeof value === "string"
+		) {
 			images++;
 			return "";
 		}
@@ -295,6 +302,14 @@ export interface DecisionUpstreamRequest {
 	/** Path appended to the provider base URL, e.g. `/v1/decisions`. */
 	path: string;
 	body: Record<string, unknown>;
+	/** Extra request headers, e.g. TypeSafe's image opt-in. */
+	headers?: Record<string, string>;
+	/**
+	 * Loads remote input, such as image downloads, merged into `body`. Runs only
+	 * once the request passed the rate-limit, credit and credential gates, and
+	 * must stop when `signal` aborts (client disconnect or load deadline).
+	 */
+	loadBody?: (signal: AbortSignal) => Promise<Record<string, unknown>>;
 }
 
 export interface NormalizedDecisionResponse {
@@ -487,24 +502,22 @@ export async function handleDecisionRequest(
 		model: requestedModel,
 	});
 
-	if (
-		endpoint.hasImageInput &&
-		wireFormat === "openai" &&
-		!decisionMapping.vision
-	) {
+	if (endpoint.hasImageInput && !decisionMapping.vision) {
 		throw new HTTPException(400, {
 			message: `Model ${requestedModel} accepts text input only; remove the input_image parts.`,
 		});
 	}
 
 	// Translate only once the caller is allowed to use the model, so a denied
-	// caller sees the access error rather than an input error.
+	// caller sees the access error rather than an input error. Translation runs
+	// before the rate-limit check, so an invalid request uses no slot.
 	const upstreamRequest = endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
 		apiKey.safetyIdentifier,
 		wireFormat,
 	);
+	let upstreamBody = upstreamRequest.body;
 
 	// Carrier-set and admin caps for the pair apply as they do on chat.
 	const rateLimit = await checkProviderRateLimit(
@@ -710,7 +723,7 @@ export async function handleDecisionRequest(
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}${upstreamRequest.path}`,
 			tenantBaseUrl: providerKeyInner?.baseUrl ?? airsideBaseUrl ?? null,
-			requestBody: upstreamRequest.body,
+			requestBody: upstreamBody,
 		};
 	}
 
@@ -741,6 +754,20 @@ export async function handleDecisionRequest(
 	}
 
 	let attempt: DecisionAttempt = await resolveAttempt();
+
+	// Remote input (image downloads) loads only after the first attempt passed
+	// the credit and credential gates; retries reuse the loaded body.
+	if (upstreamRequest.loadBody) {
+		const loadSignal = AbortSignal.any([
+			c.req.raw.signal,
+			AbortSignal.timeout(LOAD_BODY_TIMEOUT_MS),
+		]);
+		upstreamBody = {
+			...upstreamBody,
+			...(await upstreamRequest.loadBody(loadSignal)),
+		};
+		attempt = { ...attempt, requestBody: upstreamBody };
+	}
 
 	const controller = new AbortController();
 	const onAbort = () => {
@@ -797,6 +824,7 @@ export async function handleDecisionRequest(
 						redirect: "error",
 						headers: {
 							"Content-Type": "application/json",
+							...upstreamRequest.headers,
 							...getProviderHeaders(providerId, attempt.usedToken, {
 								requestId,
 							}),

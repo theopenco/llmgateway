@@ -47,6 +47,11 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return {
+				...requestIdHeader,
+				Authorization: `Key ${token}`,
+			};
 		case "anthropic":
 			return {
 				...requestIdHeader,
@@ -147,9 +152,8 @@ export function getProviderHeaders(
 		case "fireworks":
 		case "zai":
 		case "canopywave":
-		case "embercloud":
-		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "deepinfra":
 		case "custom":
 		default:

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import {
+	getContextSizeDeviation,
+	getReferenceContextSize,
+} from "./context-tier.js";
 import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { xaiModels } from "./models/xai.js";
@@ -31,7 +35,7 @@ const getRegionIds = (provider: unknown) =>
 
 describe("provider legal metadata", () => {
 	it("has no definitions or mappings for removed providers", () => {
-		for (const id of ["iceberg", "granite"]) {
+		for (const id of ["iceberg", "granite", "nanogpt"]) {
 			expect(providers.some((provider) => provider.id === id)).toBe(false);
 			expect(
 				models.some((model) =>
@@ -39,6 +43,22 @@ describe("provider legal metadata", () => {
 				),
 			).toBe(false);
 		}
+	});
+
+	it("preserves canonical models after provider removal", () => {
+		for (const id of ["gpt-oss-120b", "gpt-oss-20b"]) {
+			const model = models.find((entry) => entry.id === id);
+			expect(model).toBeDefined();
+			expect(
+				model?.providers.some((mapping) => mapping.providerId === "groq"),
+			).toBe(true);
+		}
+		expect(
+			models.find((model) => model.id === "seed-2-1-turbo")?.providers,
+		).toEqual([]);
+		expect(providers.some((provider) => provider.id === "bytedance")).toBe(
+			true,
+		);
 	});
 
 	it("is complete for providers with websites", () => {
@@ -54,6 +74,27 @@ describe("provider legal metadata", () => {
 			.map((provider) => provider.name);
 
 		expect(incompleteProviders).toEqual([]);
+	});
+});
+
+describe("cloudflare mappings", () => {
+	// Cloudflare is added selectively; a smaller-window deployment would get no
+	// traffic for requests that don't name a provider.
+	it("serve each model's full context window", () => {
+		const belowTier = models.flatMap((model) =>
+			model.providers
+				.filter((mapping) => mapping.providerId === "cloudflare")
+				.filter(
+					(mapping) =>
+						getContextSizeDeviation(
+							mapping.contextSize,
+							getReferenceContextSize(model.id),
+						) === "below",
+				)
+				.map(() => model.id),
+		);
+
+		expect(belowTier).toEqual([]);
 	});
 });
 
