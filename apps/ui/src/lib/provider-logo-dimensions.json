@@ -15,10 +15,12 @@
 		"viewBox": "0 0 57.86 43.38"
 	},
 	"google-ai-studio": {
-		"viewBox": "0 0 192 192"
+		"viewBox": "0 0 192 192",
+		"src": "/provider-logos/google-ai-studio.svg"
 	},
 	"glacier": {
-		"viewBox": "0 0 192 192"
+		"viewBox": "0 0 192 192",
+		"src": "/provider-logos/glacier.svg"
 	},
 	"google-vertex": {
 		"viewBox": "0 0 24 24"
@@ -81,13 +83,16 @@
 		"viewBox": "0 0 304 182"
 	},
 	"azure": {
-		"viewBox": "0 0 96 96"
+		"viewBox": "0 0 96 96",
+		"src": "/provider-logos/azure.svg"
 	},
 	"azure-ai-foundry": {
-		"viewBox": "0 0 96 96"
+		"viewBox": "0 0 96 96",
+		"src": "/provider-logos/azure-ai-foundry.svg"
 	},
 	"azure-anthropic": {
-		"viewBox": "0 0 96 96"
+		"viewBox": "0 0 96 96",
+		"src": "/provider-logos/azure-anthropic.svg"
 	},
 	"canopywave": {
 		"viewBox": "0 0 1628 1561"
@@ -96,7 +101,8 @@
 		"viewBox": "0 0 533 533"
 	},
 	"minimax": {
-		"viewBox": "0 0 24 24"
+		"viewBox": "0 0 24 24",
+		"src": "/provider-logos/minimax.svg"
 	},
 	"xiaomi": {
 		"viewBox": "0 0 512 512"
