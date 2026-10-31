@@ -4002,6 +4002,30 @@ export const modelProviderMappingHistory = snakeCase.table(
 		serviceTierImplicitCount: integer().notNull().default(0),
 		serviceTierServedCount: integer().notNull().default(0),
 		serviceTierUnconfirmedCount: integer().notNull().default(0),
+		// Routing metrics for requests sent at the flex and priority service
+		// tiers (by requestedServiceTier); the standard tier is the remainder.
+		// Routing scores each tier on its own traffic, so flex load-shedding
+		// does not count against a provider's uptime for standard requests.
+		flexLogsCount: integer().notNull().default(0),
+		flexClientErrorsCount: integer().notNull().default(0),
+		flexGatewayErrorsCount: integer().notNull().default(0),
+		flexUpstreamErrorsCount: integer().notNull().default(0),
+		flexTotalOutputTokens: integer().notNull().default(0),
+		flexTotalDuration: integer().notNull().default(0),
+		flexTotalTimeToFirstToken: integer().notNull().default(0),
+		flexTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		flexTimeToFirstTokenCount: integer().notNull().default(0),
+		flexTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+		priorityLogsCount: integer().notNull().default(0),
+		priorityClientErrorsCount: integer().notNull().default(0),
+		priorityGatewayErrorsCount: integer().notNull().default(0),
+		priorityUpstreamErrorsCount: integer().notNull().default(0),
+		priorityTotalOutputTokens: integer().notNull().default(0),
+		priorityTotalDuration: integer().notNull().default(0),
+		priorityTotalTimeToFirstToken: integer().notNull().default(0),
+		priorityTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		priorityTimeToFirstTokenCount: integer().notNull().default(0),
+		priorityTimeToFirstReasoningTokenCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination

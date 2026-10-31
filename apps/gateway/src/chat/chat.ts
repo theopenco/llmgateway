@@ -5014,6 +5014,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+				service_tier,
 			);
 			applyCustomProviderUptime(
 				metricsMap,
@@ -5375,6 +5376,7 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							session: sessionStickyEnabled,
 						},
+						service_tier,
 					);
 					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
@@ -5631,6 +5633,7 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								session: sessionStickyEnabled,
 							},
+							service_tier,
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
@@ -5715,6 +5718,8 @@ chat.openapi(completions, async (c) => {
 				},
 			],
 			routingCfg,
+			undefined,
+			service_tier,
 		);
 
 		const metrics = metricsMap.get(
@@ -5835,6 +5840,7 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								session: sessionStickyEnabled,
 							},
+							service_tier,
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
@@ -6252,6 +6258,7 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						session: sessionStickyEnabled,
 					},
+					service_tier,
 				);
 				applyCustomProviderUptime(
 					metricsMap,
@@ -6533,6 +6540,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+				service_tier,
 			);
 		}
 
