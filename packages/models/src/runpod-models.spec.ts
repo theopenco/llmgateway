@@ -19,3 +19,10 @@ test.each(["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])(
 		]);
 	},
 );
+
+test("allows adaptive Runpod GLM reasoning to omit its trace", () => {
+	const mapping: ProviderModelMapping | undefined = models
+		.find((model) => model.id === "glm-5.3")
+		?.providers.find((provider) => provider.providerId === "runpod");
+	expect(mapping).toMatchObject({ reasoning: true, reasoningOutput: "omit" });
+});

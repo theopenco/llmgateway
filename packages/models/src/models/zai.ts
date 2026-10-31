@@ -215,6 +215,8 @@ export const zaiModels = [
 			{
 				providerId: "runpod",
 				externalId: "glm-5.3",
+				// Adaptive thinking can omit reasoning on simple tool calls.
+				reasoningOutput: "omit",
 				inputPrice: "0.77e-6",
 				cachedInputPrice: "0.143e-6",
 				outputPrice: "2.42e-6",
