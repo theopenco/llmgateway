@@ -10,13 +10,14 @@ import {
 	DECISIONS_MODEL_COOKIE,
 	decodeModelPreference,
 } from "@/lib/model-preferences";
+import { pageTitle } from "@/lib/page-title";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Decision Studio — Typed Answers with Probabilities",
+	title: pageTitle("Decision Studio — Typed Answers with Probabilities"),
 	description:
 		"Run decision models in Lounge. Ask yes/no, pick-one, and rating questions about any text or image and get calibrated probabilities instead of prose.",
 	alternates: { canonical: "/decisions" },

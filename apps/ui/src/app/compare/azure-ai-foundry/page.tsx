@@ -3,6 +3,7 @@ import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonAzureFoundry } from "@/components/landing/comparison-azure-foundry";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -82,8 +83,7 @@ export default function CompareAzureFoundryPage() {
 
 export async function generateMetadata() {
 	return {
-		title:
-			"LLM Gateway vs Microsoft Foundry (Azure AI Foundry) — The Cloud-Neutral Alternative",
+		title: pageTitle("LLM Gateway vs Microsoft Foundry (Azure AI Foundry)"),
 		description:
 			"Compare multiple providers behind one OpenAI-compatible API vs Microsoft Foundry, formerly Azure AI Foundry. Keep Azure with 0% markup plus failover, caching, and cost analytics.",
 		alternates: { canonical: "/compare/azure-ai-foundry" },

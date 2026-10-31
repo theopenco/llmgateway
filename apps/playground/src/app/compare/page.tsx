@@ -10,11 +10,12 @@ import {
 	studioOf,
 	US,
 } from "@/lib/comparisons";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Compare Lounge vs ChatGPT, Higgsfield, ElevenLabs & more",
+	title: pageTitle("Compare Lounge vs ChatGPT, Higgsfield, ElevenLabs & more"),
 	description:
 		"Compare Lounge's chat, video, image, audio, voice and decision studios to ChatGPT, Claude, Higgsfield, fal, ElevenLabs, Midjourney and more, with model prices side by side.",
 	alternates: { canonical: "/compare" },

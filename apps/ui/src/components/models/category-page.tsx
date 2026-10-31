@@ -11,6 +11,7 @@ import {
 	type ModelCategorySlug,
 } from "@/lib/model-category-content";
 import { applyCategoryFilter } from "@/lib/model-category-filters";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
@@ -20,7 +21,7 @@ export function buildCategoryMetadata(slug: ModelCategorySlug): Metadata {
 		alternates: {
 			canonical: `https://llmgateway.io/models/${slug}`,
 		},
-		title: content.metaTitle,
+		title: pageTitle(content.metaTitle),
 		description: content.metaDescription,
 		openGraph: {
 			title: content.metaTitle,

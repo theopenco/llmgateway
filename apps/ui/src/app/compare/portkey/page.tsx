@@ -3,6 +3,7 @@ import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonPortkey } from "@/components/landing/comparison-portkey";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -82,7 +83,7 @@ export default function ComparePortkeyPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs Portkey — The Open Portkey Alternative",
+		title: pageTitle("LLM Gateway vs Portkey — The Open Portkey Alternative"),
 		description:
 			"Compare open-source routing, image and video generation, and transparent pricing vs Portkey, now part of Palo Alto Networks.",
 		alternates: { canonical: "/compare/portkey" },
