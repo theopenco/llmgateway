@@ -54,7 +54,11 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 			tokenHash: { in: getApiKeyFingerprints(token) },
 			status: { eq: "active" },
 		},
-		with: { wallet: { with: { endCustomer: true, project: true } } },
+		with: {
+			wallet: {
+				with: { endCustomer: true, project: { with: { organization: true } } },
+			},
+		},
 	});
 
 	if (!session || !session.wallet) {
@@ -83,6 +87,12 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 	const projectStatus = session.wallet.project?.status;
 	if (projectStatus && projectStatus !== "active") {
 		throw new HTTPException(401, { message: "Project is inactive" });
+	}
+	if (!session.wallet.project?.endUserEnabled) {
+		throw new HTTPException(403, { message: "End-user access is disabled" });
+	}
+	if (session.wallet.project.organization?.status !== "active") {
+		throw new HTTPException(403, { message: "Organization is inactive" });
 	}
 
 	// Defense-in-depth origin allowlist (see gateway chat handler).

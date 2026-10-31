@@ -16,6 +16,7 @@ import type {
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
+	ProviderId,
 } from "@llmgateway/models";
 
 /**
@@ -1879,14 +1880,16 @@ describe("prepareRequestBody - Anthropic", () => {
 	});
 
 	test.each(
-		[
-			["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+		(
 			[
-				"aws-bedrock",
-				"claude-sonnet-4-5",
-				"anthropic.claude-sonnet-4-5-20250929-v1:0",
-			],
-		].flatMap(([provider, model, upstreamModel]) =>
+				["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+				[
+					"aws-bedrock",
+					"claude-sonnet-4-5",
+					"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				],
+			] as const
+		).flatMap(([provider, model, upstreamModel]) =>
 			(["field", "parts", "override"] as const).map((source) => ({
 				provider,
 				model,
@@ -2950,7 +2953,7 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		["deepinfra", "hy3"],
 		["novita", "hy3"],
 		["canopywave", "kimi-k3"],
-	])(
+	] as const)(
 		"forwards none to %s when the mapping declares it",
 		async (provider, model) => {
 			// These providers are in the handlesNoneNatively allowlist, and
@@ -2964,11 +2967,13 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	test.each(["deepseek-v4-flash", "deepseek-v4-pro", "gemma-4-31b-it"])(
 		"forwards none to a runware Airside listing of %s that declares it",
 		async (model) => {
+			// Airside-only carrier, not a catalogue provider.
+			const runware = "runware" as string as ProviderId;
 			const requestBody = await prepare({
-				provider: "runware",
+				provider: runware,
 				model,
 				resolvedProviderMapping: {
-					providerId: "runware",
+					providerId: runware,
 					externalId: model,
 					streaming: true,
 					reasoning: true,
@@ -9809,7 +9814,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 
 describe("prepareRequestBody - developer role normalization", () => {
 	async function prepare(
-		provider: string,
+		provider: ProviderId,
 		model: string,
 		region: string | null = null,
 	) {

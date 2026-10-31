@@ -20,13 +20,13 @@ const MONTHLY_TTL_SECONDS = 35 * 24 * 60 * 60;
 export async function recordOrgSpend(
 	organizationId: string,
 	cost: number,
+	now = Date.now(),
 ): Promise<void> {
 	if (!isSpendCapEnabled() || !(cost > 0)) {
 		return;
 	}
 
 	try {
-		const now = Date.now();
 		const dKey = spendDailyKey(organizationId, now);
 		const mKey = spendMonthlyKey(organizationId, now);
 
@@ -56,35 +56,49 @@ return 1
 /**
  * Reconcile a previously recorded spend estimate against the actual billed
  * cost (video jobs reserve an estimate at submission and settle at
- * finalization). Positive deltas record normally; negative deltas decrement
- * the live counters, clamped at zero — a bucket rollover between estimate and
- * reconciliation can leave less than the delta in the current bucket.
+ * finalization). When the reservation was recorded in an earlier daily or
+ * monthly bucket, it is moved out of that bucket and the full billed cost is
+ * recorded in the current one. Positive amounts increment; negative amounts
+ * decrement live counters, clamped at zero. Fail-open, like recordOrgSpend.
  */
 export async function adjustOrgSpend(
 	organizationId: string,
 	deltaUsd: number,
+	reservation?: { amount: number; createdAt: Date },
 ): Promise<void> {
-	if (!isSpendCapEnabled() || !deltaUsd || !Number.isFinite(deltaUsd)) {
+	if (!isSpendCapEnabled() || !Number.isFinite(deltaUsd)) {
 		return;
 	}
-	if (deltaUsd > 0) {
-		await recordOrgSpend(organizationId, deltaUsd);
-		return;
-	}
-
+	const now = Date.now();
+	const reservedAt = reservation?.createdAt.getTime() ?? now;
 	try {
-		const now = Date.now();
-		for (const key of [
-			spendDailyKey(organizationId, now),
-			spendMonthlyKey(organizationId, now),
-		]) {
-			await redisClient.eval(
-				CLAMPED_DECREMENT_SCRIPT,
-				1,
-				key,
-				String(deltaUsd),
-			);
+		// MULTI: the rollover decrement and the current-bucket increment land
+		// together, so a mid-batch failure cannot leave the month understated.
+		const pipeline = redisClient.multi();
+		for (const [keyFor, ttl] of [
+			[spendDailyKey, DAILY_TTL_SECONDS],
+			[spendMonthlyKey, MONTHLY_TTL_SECONDS],
+		] as const) {
+			const previousKey = keyFor(organizationId, reservedAt);
+			const currentKey = keyFor(organizationId, now);
+			const moved = previousKey !== currentKey && reservation;
+			if (moved && reservation.amount > 0) {
+				pipeline.eval(
+					CLAMPED_DECREMENT_SCRIPT,
+					1,
+					previousKey,
+					String(-reservation.amount),
+				);
+			}
+			const amount = moved ? deltaUsd + reservation.amount : deltaUsd;
+			if (amount > 0) {
+				pipeline.incrbyfloat(currentKey, amount);
+				pipeline.expire(currentKey, ttl);
+			} else if (amount < 0) {
+				pipeline.eval(CLAMPED_DECREMENT_SCRIPT, 1, currentKey, String(amount));
+			}
 		}
+		await pipeline.exec();
 	} catch (error) {
 		logger.error("Error adjusting org spend:", error as Error);
 	}

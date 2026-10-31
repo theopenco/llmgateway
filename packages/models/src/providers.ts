@@ -327,7 +327,7 @@ export interface ProviderDefinition {
 	additionalLinks?: ProviderAdditionalLink[];
 }
 
-export const providers: ProviderDefinition[] = [
+const providerDefinitions = [
 	{
 		id: "fal-ai",
 		name: "fal",
@@ -2125,7 +2125,11 @@ export const providers: ProviderDefinition[] = [
 	},
 ] as const satisfies ProviderDefinition[];
 
-export type ProviderId = (typeof providers)[number]["id"];
+export type ProviderId = (typeof providerDefinitions)[number]["id"];
+
+export const providers: (ProviderDefinition & { id: ProviderId })[] = [
+	...providerDefinitions,
+];
 
 export function getProviderDefinition(
 	providerId: ProviderId | string,
@@ -2233,7 +2237,7 @@ export interface ProviderComplianceAttestation {
  * know the endpoint), so these are hidden from the UI provider selector.
  */
 export function isStealthProvider(
-	provider: ProviderId | ProviderDefinition,
+	provider: string | ProviderDefinition,
 ): boolean {
 	const def =
 		typeof provider === "string"

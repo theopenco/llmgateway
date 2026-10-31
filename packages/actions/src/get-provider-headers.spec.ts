@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { getProviderHeaders } from "./get-provider-headers.js";
 
+import type { ProviderId } from "@llmgateway/models";
+
+// Runware is an Airside-only carrier, not a catalogue provider.
+const runware = "runware" as string as ProviderId;
+
 const originalVertexTokenType = process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
 
 afterEach(() => {
@@ -25,7 +30,7 @@ describe("getProviderHeaders", () => {
 
 	it("leaves Accept-Encoding to fetch for Runware", () => {
 		expect(
-			getProviderHeaders("runware", "token", { requestId: "request-id" }),
+			getProviderHeaders(runware, "token", { requestId: "request-id" }),
 		).toEqual({
 			"x-request-id": "request-id",
 			Authorization: "Bearer token",

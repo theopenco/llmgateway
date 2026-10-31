@@ -7,7 +7,9 @@ import {
 	SWR_THROTTLE_PREFIX,
 	getSwrStaleTtlSeconds,
 	invalidateSwrByTables,
+	invalidateSwrKeys,
 	setSwrSchemaVersion,
+	swrDroppedKey,
 	swrMirrorKey,
 	swrThrottleKey,
 	swrWrap,
@@ -186,8 +188,8 @@ describe("swrWrap", () => {
 	});
 
 	it("releases the throttle slot so the next call retries when the mirror write fails", async () => {
-		// Poison only the mirror-write pipeline (identified by its SET of an
-		// swr: key). A blanket pipeline() mock would also intercept ioredis'
+		// Poison only the mirror-write pipeline (identified by its fenced EVAL
+		// on an swr: key). A blanket pipeline() mock would also intercept ioredis'
 		// internal auto-pipelining flushes, whose queued command callbacks
 		// would then never fire and hang the whole client.
 		const realPipeline = redisClient.pipeline.bind(redisClient);
@@ -197,17 +199,17 @@ describe("swrWrap", () => {
 			.mockImplementation((...args: unknown[]) => {
 				const pipeline = realPipeline(...(args as never[]));
 				let hasMirrorSet = false;
-				const realSet = pipeline.set.bind(pipeline);
-				pipeline.set = ((...setArgs: unknown[]) => {
-					const setKey = String(setArgs[0]);
+				const realEval = pipeline.eval.bind(pipeline);
+				pipeline.eval = ((...evalArgs: unknown[]) => {
+					const mirrorKey = String(evalArgs[2]);
 					if (
-						setKey.startsWith(SWR_PREFIX) &&
-						!setKey.startsWith(SWR_THROTTLE_PREFIX)
+						mirrorKey.startsWith(SWR_PREFIX) &&
+						!mirrorKey.startsWith(SWR_THROTTLE_PREFIX)
 					) {
 						hasMirrorSet = true;
 					}
-					return realSet(...(setArgs as Parameters<typeof realSet>));
-				}) as typeof pipeline.set;
+					return realEval(...(evalArgs as Parameters<typeof realEval>));
+				}) as typeof pipeline.eval;
 				const realExec = pipeline.exec.bind(pipeline);
 				pipeline.exec = ((...execArgs: unknown[]) => {
 					// The mirror write awaits exec() promise-style; ioredis'
@@ -259,6 +261,30 @@ describe("swrWrap", () => {
 		expect(
 			await redisClient.get(swrMirrorKey("test:key:reinv")),
 		).not.toBeNull();
+	});
+
+	it("discards a mirror write that lands after invalidateSwrKeys dropped the key", async () => {
+		const key = "test:key:dropped";
+		await swrWrapFlushed(key, ["table_a"], () => Promise.resolve({ v: 1 }));
+		expect(await redisClient.get(swrMirrorKey(key))).not.toBeNull();
+
+		await invalidateSwrKeys([key]);
+		expect(await redisClient.get(swrMirrorKey(key))).toBeNull();
+		expect(await redisClient.get(swrThrottleKey(key))).toBeNull();
+		expect(await redisClient.ttl(swrDroppedKey(key))).toBeGreaterThan(0);
+
+		// A read that fetched the old value before the drop and only now writes
+		// its mirror must not restore the dropped fallback.
+		await swrWrapFlushed(key, ["table_a"], () => Promise.resolve({ v: 1 }));
+		expect(await redisClient.get(swrMirrorKey(key))).toBeNull();
+		await expect(
+			swrWrap(key, ["table_a"], () => Promise.reject(new Error("db down"))),
+		).rejects.toThrow("db down");
+
+		// Once the fence lifts, the next read primes the mirror again.
+		await redisClient.del(swrDroppedKey(key), swrThrottleKey(key));
+		await swrWrapFlushed(key, ["table_a"], () => Promise.resolve({ v: 2 }));
+		expect(await redisClient.get(swrMirrorKey(key))).not.toBeNull();
 	});
 
 	it("honors SWR_STALE_TTL_SECONDS env var", async () => {

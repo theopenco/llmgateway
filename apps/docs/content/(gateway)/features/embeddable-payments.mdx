@@ -323,6 +323,7 @@ const payout = await lg.connect.payout(); // transfer the accrued margin out
 ## Security model
 
 - **Ephemeral tokens** (`es_…`) are short-lived and revocable; mint them per-user from your backend. Platform secrets and ephemeral tokens are stored only as keyed fingerprints, never as retrievable plaintext.
+- Disabling end-user access on a project prevents existing sessions from making requests or refreshing. Sessions also stop working when the owning organization is inactive.
 - **Model scopes** restrict each session to an allow-list of models.
 - **Origin allowlist** (configured on the project) blocks browser calls from unexpected origins.
 - **Per-session spend caps** (`scope.maxSpend`) bound how much a single session can spend.
