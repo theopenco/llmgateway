@@ -3998,7 +3998,7 @@ export const openaiModels = [
 		description:
 			"Cost-efficient token-metered OpenAI speech-to-text model. Used as the default input-audio transcription model for realtime sessions on the gateway's /v1/realtime WebSocket endpoint.",
 		family: "openai",
-		output: ["text"],
+		output: ["transcription"],
 		stability: "beta",
 		releasedAt: new Date("2025-03-20"),
 		providers: [
@@ -4028,7 +4028,7 @@ export const openaiModels = [
 		description:
 			"Token-metered OpenAI speech-to-text model. Used as the input-audio transcription model for realtime sessions on the gateway's /v1/realtime WebSocket endpoint.",
 		family: "openai",
-		output: ["text"],
+		output: ["transcription"],
 		stability: "beta",
 		releasedAt: new Date("2025-03-20"),
 		providers: [
@@ -4058,7 +4058,7 @@ export const openaiModels = [
 		description:
 			"OpenAI's low-latency streaming speech-to-text model. Served only through the gateway's /v1/realtime WebSocket endpoint as a transcription session (intent=transcription) or as the input-audio transcription model of a speech-to-speech session, billed per minute of audio.",
 		family: "openai",
-		output: ["text"],
+		output: ["transcription"],
 		stability: "beta",
 		releasedAt: new Date("2026-07-28"),
 		providers: [
@@ -4085,7 +4085,7 @@ export const openaiModels = [
 		description:
 			"OpenAI's speech-to-text model for completed audio, billed per minute. Served through the gateway's /v1/realtime WebSocket endpoint as a transcription session (intent=transcription) or as the input-audio transcription model of a speech-to-speech session, transcribing each turn once its audio is committed.",
 		family: "openai",
-		output: ["text"],
+		output: ["transcription"],
 		stability: "beta",
 		releasedAt: new Date("2026-07-28"),
 		providers: [
