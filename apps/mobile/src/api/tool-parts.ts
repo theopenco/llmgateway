@@ -22,7 +22,7 @@ const toolSchema = z
 			"output-error",
 			"output-denied",
 		]),
-		input: z.unknown(),
+		input: z.unknown().optional(),
 		output: z.unknown().optional(),
 		errorText: z.string().optional(),
 		approval: z

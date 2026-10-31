@@ -259,8 +259,11 @@ const createTranscription = createRoute({
 	method: "post",
 	path: "/",
 	middleware: async (c, next) => {
-		const contentType = c.req.header("Content-Type") ?? "";
-		if (!contentType.includes("multipart/form-data")) {
+		const mediaType = (c.req.header("Content-Type") ?? "")
+			.split(";")[0]
+			?.trim()
+			.toLowerCase();
+		if (mediaType !== "multipart/form-data") {
 			c.header(
 				"x-request-id",
 				c.req.header("x-request-id")?.trim() || shortid(40),
