@@ -92,7 +92,8 @@ export function CostBreakdownChart({
 	apiKeyId,
 }: CostBreakdownChartProps) {
 	const searchParams = useSearchParams();
-	const { selectedProject } = useDashboardNavigation();
+	const { selectedProject, projectId: routeProjectId } =
+		useDashboardNavigation();
 	const usageMode = useUsageMode();
 
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
@@ -100,7 +101,7 @@ export function CostBreakdownChart({
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
-	const effectiveProjectId = projectId ?? selectedProject?.id;
+	const effectiveProjectId = projectId ?? routeProjectId;
 
 	const api = useApi();
 	const hydrated = useHydrated();

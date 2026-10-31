@@ -272,10 +272,16 @@ export function DashboardClient() {
 		shouldApplyDefaults,
 	]);
 
-	const { selectedOrganization, selectedProject } = useDashboardNavigation();
+	const {
+		selectedOrganization,
+		selectedProject,
+		projectId: routeProjectId,
+	} = useDashboardNavigation();
 	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
 	const api = useApi();
 
+	// Key activity by the route's project, like the server prefetch; the context
+	// project lags the URL until the last-used-project cookie refreshes.
 	const hydrated = useHydrated();
 	const { data: activity, isLoading: activityLoading } = api.useQuery(
 		"get",
@@ -286,12 +292,12 @@ export function DashboardClient() {
 					from: fromStr,
 					to: toStr,
 					timezone: displayTimeZone,
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(routeProjectId ? { projectId: routeProjectId } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: !!routeProjectId,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -313,12 +319,12 @@ export function DashboardClient() {
 					from: format(prevFrom, "yyyy-MM-dd"),
 					to: format(prevTo, "yyyy-MM-dd"),
 					timezone: displayTimeZone,
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(routeProjectId ? { projectId: routeProjectId } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id && rangeDays <= 366,
+			enabled: !!routeProjectId && rangeDays <= 366,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -341,12 +347,12 @@ export function DashboardClient() {
 						? format(comparisonRange.to, "yyyy-MM-dd")
 						: toStr,
 					timezone: displayTimeZone,
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(routeProjectId ? { projectId: routeProjectId } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id && comparisonRange !== null,
+			enabled: !!routeProjectId && comparisonRange !== null,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5,
 		},
