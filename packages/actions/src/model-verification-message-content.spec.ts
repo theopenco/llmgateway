@@ -4,6 +4,7 @@ import {
 	createQueuedModelVerificationChecks,
 	disprovedCapabilities,
 	runProviderModelVerification,
+	hasMessageContentVerification,
 } from "./model-verification.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -62,7 +63,13 @@ function completion(stream = false): Response {
 	});
 }
 
-function verify(streaming: boolean, reject?: (payload: Payload) => boolean) {
+function verify(
+	streaming: boolean,
+	reject?: (payload: Payload) => boolean,
+	format: { apiFormat?: ProviderModelVerificationTarget["apiFormat"] } = {
+		apiFormat: "openai-chat-completions",
+	},
+) {
 	const fetchImplementation = vi.fn<typeof fetch>(async (_url, init) => {
 		const payload = JSON.parse(String(init?.body)) as Payload;
 		return reject?.(payload)
@@ -76,7 +83,7 @@ function verify(streaming: boolean, reject?: (payload: Payload) => boolean) {
 			: completion(payload.stream);
 	});
 	return runProviderModelVerification({
-		target: { ...target, streaming },
+		target: { ...target, streaming, ...format },
 		token: "provider-key",
 		baseUrl: "https://carrier.example",
 		fetchImplementation,
@@ -154,8 +161,27 @@ describe("message content compatibility verification", () => {
 		expect(
 			createQueuedModelVerificationChecks({
 				...target,
+				providerId: "anthropic",
 				apiFormat: "provider-native",
 			}).map(({ id }) => id),
 		).toEqual(["basic"]);
 	});
 });
+
+it.each([undefined, "provider-native", "openai-chat-completions"] as const)(
+	"probes a custom carrier through %s",
+	async (apiFormat) => {
+		expect(
+			createQueuedModelVerificationChecks({ ...target, apiFormat }).map(
+				({ id }) => id,
+			),
+		).toContain("message_content");
+		expect(hasMessageContentVerification({ ...target, apiFormat }, [])).toBe(
+			false,
+		);
+		const { result } = await verify(false, undefined, { apiFormat });
+		expect(
+			result.checks.find(({ id }) => id === "message_content"),
+		).toMatchObject({ status: "passed" });
+	},
+);

@@ -624,7 +624,7 @@ function verificationDefinitions(
 			),
 		});
 	}
-	if (target.apiFormat === "openai-chat-completions") {
+	if (requiresMessageContentVerification(target)) {
 		definitions.push({
 			id: "message_content",
 			label: "Message content compatibility",
@@ -2285,10 +2285,20 @@ export function hasMessageContentVerification(
 	checks: ProviderModelVerificationCheck[],
 ): boolean {
 	return (
-		target.decisions === true ||
-		target.apiFormat !== "openai-chat-completions" ||
+		!requiresMessageContentVerification(target) ||
 		checks.some(
 			(check) => check.id === "message_content" && check.status === "passed",
 		)
 	);
+}
+function requiresMessageContentVerification(
+	target: ProviderModelVerificationTarget,
+): boolean {
+	if (target.decisions) {
+		return false;
+	}
+	if (target.apiFormat && target.apiFormat !== "provider-native") {
+		return target.apiFormat === "openai-chat-completions";
+	}
+	return !providers.some((provider) => provider.id === target.providerId);
 }

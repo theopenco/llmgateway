@@ -351,7 +351,9 @@ describe("model verification", () => {
 			expect(result.checks.map((check) => check.id)).toEqual([
 				"basic",
 				"tools",
-				...(apiFormat === "openai-chat-completions" ? ["message_content"] : []),
+				...(["provider-native", "openai-chat-completions"].includes(apiFormat)
+					? ["message_content"]
+					: []),
 			]);
 			expect(result.passed).toBe(true);
 			const [toolEndpoint, toolRequest] = fetchImplementation.mock.calls[1];
@@ -364,7 +366,7 @@ describe("model verification", () => {
 
 	const toolOnly = {
 		...target,
-		providerId: "custom-carrier" as const,
+		providerId: "custom" as const,
 		streaming: false,
 		vision: false,
 		audio: false,
@@ -487,7 +489,7 @@ describe("model verification", () => {
 
 	const reasoningOnly = {
 		...target,
-		providerId: "custom-carrier" as const,
+		providerId: "custom" as const,
 		streaming: false,
 		vision: false,
 		audio: false,
@@ -766,7 +768,7 @@ describe("model verification", () => {
 		await runProviderModelVerification({
 			target: {
 				...target,
-				providerId: "custom-carrier",
+				providerId: "custom",
 				streaming: false,
 				vision: true,
 				audio: false,
@@ -811,7 +813,7 @@ describe("model verification", () => {
 	describe("optional checks", () => {
 		const basicOnly: ProviderModelVerificationTarget = {
 			...target,
-			providerId: "custom-carrier",
+			providerId: "custom",
 			streaming: false,
 			vision: false,
 			audio: false,
