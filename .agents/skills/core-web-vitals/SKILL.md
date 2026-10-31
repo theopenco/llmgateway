@@ -58,6 +58,24 @@ For LCP:
 - Next.js 16 deprecates the Image `priority` prop; use `preload` only for the
   measured LCP image. Do not preload multiple competing images.
 - Remove request waterfalls and late client-only discovery shown in the trace.
+- Do not await a slow API call in a page that has a loading state. Prefetch it
+  without awaiting through `createServerQuery()` (`apps/ui/src/lib/server-query.ts`)
+  and wrap the client in `HydrationBoundary`; the client query must build the
+  same key. The data can land before hydration, so a `useQuery` consumer must
+  render its loading state until `useHydrated()` is true, or React reports a
+  hydration mismatch (#418). See the dashboard overview page.
+- When the server already fetched what a client query loads, pass it as that
+  query's `initialData` instead of rendering a skeleton first.
+
+For TBT (lab proxy for INP on load):
+
+- Hydration covers every element in the server HTML, including Server
+  Component output. Wrap below-the-fold sections in `<Suspense>` so React
+  hydrates them as separate low-priority units. An async component inside
+  (such as a tweet card) needs its own sized fallback, or the section streams
+  in empty and shifts the layout.
+- posthog-js downloads `surveys.js` unless `disable_surveys: true` is set, even
+  when the project has surveys off.
 
 For INP:
 
