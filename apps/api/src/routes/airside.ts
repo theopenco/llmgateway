@@ -108,7 +108,10 @@ import { createRoute } from "@/utils/create-route.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import {
+	readProviderKey,
+	hasMessageContentVerification,
+} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -3236,7 +3239,10 @@ airside.openapi(createModel, async (c) => {
 		...body,
 		promptCaching: declaresPromptCaching(body.pricing),
 	});
-	if (!verificationTargetsMatch(verification.target, target)) {
+	if (
+		!verificationTargetsMatch(verification.target, target) ||
+		!hasMessageContentVerification(target, verification.checks)
+	) {
 		throw new HTTPException(409, {
 			message:
 				"The mapping changed after verification. Run verification again.",
@@ -3821,7 +3827,8 @@ async function requirePassingPreflight(
 	}
 	if (
 		latest?.status !== "passed" ||
-		!verificationTargetCovers(latest.target, required)
+		!verificationTargetCovers(latest.target, required) ||
+		!hasMessageContentVerification(required, latest.checks)
 	) {
 		throw new HTTPException(409, {
 			message: `Run preflight on this model as you are submitting it, and let it pass, before you ${action}.`,
