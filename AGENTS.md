@@ -126,7 +126,7 @@ NEVER put internal or private information into anything published to this public
 - Load the `pull-request` skill before every `gh pr create` or `gh pr edit`; do not write a PR from memory. The body follows `.github/pull_request_template.md`: Summary, Verification and a filled-in Rollback, with Database migration deleted when there is none.
 - After opening or pushing to a PR, wait for CodeRabbit, then fix every failed pre-merge check and every finding, or resolve it with a one-line reason, before handing off. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
 - PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
-- Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR, a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
+- Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR and `security-review` on sensitive paths (branches in this repository only), a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
 
 ## License
 
