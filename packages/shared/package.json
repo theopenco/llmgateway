@@ -240,6 +240,11 @@
 			"import": "./dist/cost-breakdown.js",
 			"default": "./dist/cost-breakdown.js"
 		},
+		"./seo-title": {
+			"types": "./dist/seo-title.d.ts",
+			"import": "./dist/seo-title.js",
+			"default": "./dist/seo-title.js"
+		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
 			"import": "./dist/number-format.js",

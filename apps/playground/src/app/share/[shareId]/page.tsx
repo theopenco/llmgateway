@@ -158,7 +158,7 @@ export async function generateMetadata({
 	const url = `/share/${shareId}`;
 
 	return {
-		title: `${title} | Lounge by LLM Gateway`,
+		title,
 		description,
 		alternates: {
 			canonical: url,

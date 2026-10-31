@@ -13,6 +13,7 @@ import {
 	studioOf,
 	US,
 } from "@/lib/comparisons";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
@@ -34,7 +35,7 @@ export async function generateMetadata({
 	}
 	const canonical = `/compare/${comparison.slug}`;
 	return {
-		title: comparison.metaTitle,
+		title: pageTitle(comparison.metaTitle),
 		description: comparison.metaDescription,
 		alternates: { canonical },
 		openGraph: {

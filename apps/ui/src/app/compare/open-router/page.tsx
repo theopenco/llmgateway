@@ -3,6 +3,7 @@ import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { Comparison } from "@/components/landing/comparison";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -59,7 +60,7 @@ export default function CompareOpenRouterPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs OpenRouter — Feature Comparison",
+		title: pageTitle("LLM Gateway vs OpenRouter — Feature Comparison"),
 		description:
 			"Compare routing, analytics, and cost optimization vs OpenRouter. See why teams choose a unified API gateway for production LLMs.",
 		alternates: { canonical: "/compare/open-router" },

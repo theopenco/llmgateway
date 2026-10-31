@@ -9,6 +9,7 @@ import { ProviderModelsGrid } from "@/components/providers/provider-models-grid"
 import { ProviderStatsRow } from "@/components/providers/provider-stats-row";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { pageTitle } from "@/lib/page-title";
 
 import {
 	models as modelDefinitions,
@@ -365,43 +366,62 @@ export async function generateMetadata({
 	const { id } = await params;
 
 	const provider = providerDefinitions.find((p) => p.id === id);
+	const apiModels = await fetchModels();
+	const activeModelCount = (providerId: string) =>
+		apiModels.filter((model) =>
+			model.mappings.some(
+				(mapping) =>
+					mapping.providerId === providerId &&
+					mapping.status === "active" &&
+					!isMappingDeactivated(mapping),
+			),
+		).length;
+	const describe = (name: string, modelCount: number) =>
+		`Access ${modelCount} ${name} ${
+			modelCount === 1 ? "model" : "models"
+		} through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 
 	if (!provider || provider.name === "LLM Gateway") {
 		const apiProvider = (await fetchProviders()).find((p) => p.id === id);
 		if (!apiProvider) {
 			return {};
 		}
+		const name = apiProvider.name ?? apiProvider.id;
+		const title = `${name} API — Models & Pricing`;
+		const description = describe(name, activeModelCount(apiProvider.id));
 		return {
-			title: `${apiProvider.name} API — Models & Pricing`,
+			title: pageTitle(title),
+			description,
 			alternates: { canonical: `/providers/${id}` },
 			// The segment's OG card only prerenders static providers
 			// (dynamicParams=false); advertise the site card instead of a 404.
-			openGraph: { images: ["/opengraph.png"] },
+			openGraph: {
+				title: `${title} | LLM Gateway`,
+				description,
+				type: "website",
+				url: `https://llmgateway.io/providers/${id}`,
+				images: ["/opengraph.png"],
+			},
+			twitter: {
+				card: "summary_large_image",
+				title: `${title} | LLM Gateway`,
+				description,
+				images: ["/opengraph.png"],
+			},
 		};
 	}
 
-	const apiModels = await fetchModels();
-	const apiModelCount = apiModels.filter((model) =>
-		model.mappings.some(
-			(mapping) =>
-				mapping.providerId === provider.id &&
-				mapping.status === "active" &&
-				!isMappingDeactivated(mapping),
-		),
-	).length;
 	const modelCount =
-		apiModelCount ||
+		activeModelCount(provider.id) ||
 		(modelDefinitions as readonly ModelDefinition[]).filter((model) =>
 			model.providers.some(
 				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
 			),
 		).length;
-	const description = `Access ${modelCount} ${provider.name} ${
-		modelCount === 1 ? "model" : "models"
-	} through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
+	const description = describe(provider.name, modelCount);
 
 	return {
-		title: `${provider.name} API — Models & Pricing`,
+		title: pageTitle(`${provider.name} API — Models & Pricing`),
 		description,
 		alternates: { canonical: `/providers/${provider.id}` },
 		openGraph: {
