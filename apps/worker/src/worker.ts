@@ -866,6 +866,57 @@ export async function processAutoTopUp(): Promise<void> {
 	}
 }
 
+const DATA_RETENTION_BATCH_SIZE = 10000;
+const DATA_RETENTION_STATE_ID = "singleton";
+
+const clearedRetentionColumns = {
+	messages: null,
+	content: null,
+	reasoningContent: null,
+	tools: null,
+	toolChoice: null,
+	toolResults: null,
+	customHeaders: null,
+	rawRequest: null,
+	rawResponse: null,
+	upstreamRequest: null,
+	upstreamResponse: null,
+	userAgent: null,
+	gatewayContentFilterResponse: null,
+	responsesApiData: null,
+	routingMetadata: null,
+};
+
+const hasRetainedLogData = sql.join(
+	Object.keys(clearedRetentionColumns).map(
+		(key) =>
+			sql`${log[key as keyof typeof clearedRetentionColumns]} is not null`,
+	),
+	sql` or `,
+);
+
+interface DataRetentionCursor {
+	createdAt: string;
+	id: string;
+}
+
+async function loadDataRetentionCursor(): Promise<DataRetentionCursor | null> {
+	const state = await db.query.dataRetentionState.findFirst({
+		where: { id: DATA_RETENTION_STATE_ID },
+	});
+	if (state) {
+		return { createdAt: state.cursorCreatedAt, id: state.cursorId };
+	}
+
+	// First run: start where the legacy flag-based cleanup stopped. The literal
+	// `= false` matches log_data_retention_pending_idx.
+	const [oldest] = await db
+		.select({ createdAt: sql<string | null>`min(${log.createdAt})::text` })
+		.from(log)
+		.where(sql`${log.dataRetentionCleanedUp} = false`);
+	return oldest?.createdAt ? { createdAt: oldest.createdAt, id: "" } : null;
+}
+
 export async function cleanupExpiredLogData(): Promise<void> {
 	// Check if data retention cleanup is enabled
 	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
@@ -883,89 +934,79 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	try {
 		logger.info("Starting data retention cleanup...");
 
-		const CLEANUP_BATCH_SIZE = 10000;
 		const cutoffDate = getLogRetentionCutoff();
-
+		let cursor = await loadDataRetentionCursor();
 		let totalCleaned = 0;
 
-		// Process all organizations in batches (no plan distinction)
+		// Walk expired rows in (created_at, id) order from the stored cursor and
+		// null only the retention columns. None of them is indexed, so Postgres
+		// can update rows in place (HOT) instead of adding a new entry to every
+		// index on `log`.
 		let hasMoreRecords = true;
 		while (hasMoreRecords && !isStopRequested()) {
-			const batchResult = await db.transaction(async (tx) => {
-				// Hint the planner to prefer index scans for this transaction.
-				// Without this, PostgreSQL's default random_page_cost=4 causes it to
-				// choose a sequential scan over the partial index, even though the index
-				// is far more efficient (scanning ~500 rows vs ~11.5M rows).
-				// SET LOCAL resets automatically when the transaction commits.
-				await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
+			const batchCursor = cursor;
+			const rows = await db
+				.select({
+					id: log.id,
+					createdAt: sql<string>`${log.createdAt}::text`,
+					retained: sql<boolean>`(${hasRetainedLogData})`,
+				})
+				.from(log)
+				.where(
+					and(
+						lt(log.createdAt, cutoffDate),
+						// `created_at >=` gives the row comparison an index lower bound.
+						batchCursor
+							? sql`${log.createdAt} >= ${batchCursor.createdAt}::timestamp and (${log.createdAt}, ${log.id}) > (${batchCursor.createdAt}::timestamp, ${batchCursor.id})`
+							: undefined,
+					),
+				)
+				.orderBy(log.createdAt, log.id)
+				.limit(DATA_RETENTION_BATCH_SIZE);
 
-				// Find IDs of records to clean up (with LIMIT for batching)
-				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
-				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
-				// ORDER BY created_at forces the partial index. Without it the planner
-				// assumes the two predicates are independent, expects many matches, and
-				// picks a seq scan that "stops early" — but pending rows are all recent,
-				// so it reads the whole heap and finds almost nothing.
-				const recordsToClean = await tx
-					.select({ id: log.id })
-					.from(log)
-					.where(
-						and(
-							lt(log.createdAt, cutoffDate),
-							sql`${log.dataRetentionCleanedUp} = false`,
-						),
-					)
-					.orderBy(log.createdAt)
-					.limit(CLEANUP_BATCH_SIZE)
-					.for("update", { skipLocked: true });
+			if (rows.length === 0) {
+				break;
+			}
 
-				if (recordsToClean.length === 0) {
-					return 0;
+			const last = rows[rows.length - 1];
+			const idsToClean = rows.filter((r) => r.retained).map((r) => r.id);
+
+			await db.transaction(async (tx) => {
+				if (idsToClean.length > 0) {
+					await tx
+						.update(log)
+						.set(clearedRetentionColumns)
+						// `= ANY($1)` keeps the query text constant across batch sizes,
+						// so pg_stat_statements fingerprints it once.
+						.where(sql`${log.id} = ANY(${sql.param(idsToClean)}::text[])`);
 				}
 
-				const idsToClean = recordsToClean.map((r) => r.id);
-
-				// Clean up the batch
 				await tx
-					.update(log)
-					.set({
-						messages: null,
-						content: null,
-						reasoningContent: null,
-						tools: null,
-						toolChoice: null,
-						toolResults: null,
-						customHeaders: null,
-						rawRequest: null,
-						rawResponse: null,
-						upstreamRequest: null,
-						upstreamResponse: null,
-						userAgent: null,
-						gatewayContentFilterResponse: null,
-						responsesApiData: null,
-						routingMetadata: null,
-						dataRetentionCleanedUp: true,
+					.insert(tables.dataRetentionState)
+					.values({
+						id: DATA_RETENTION_STATE_ID,
+						cursorCreatedAt: last.createdAt,
+						cursorId: last.id,
 					})
-					// Use `= ANY($1)` with a single array parameter instead of
-					// `inArray()`, which expands to `IN ($1, $2, ...)` with a
-					// variable number of binds per batch. A varying placeholder
-					// count makes pg_stat_statements fingerprint every batch size
-					// as a distinct query, so one logical operation shows up as
-					// thousands of individual queries. The array form keeps the
-					// query text constant.
-					.where(sql`${log.id} = ANY(${sql.param(idsToClean)}::text[])`);
-
-				return recordsToClean.length;
+					.onConflictDoUpdate({
+						target: tables.dataRetentionState.id,
+						set: {
+							cursorCreatedAt: last.createdAt,
+							cursorId: last.id,
+							updatedAt: new Date(),
+						},
+					});
 			});
 
-			totalCleaned += batchResult;
+			cursor = { createdAt: last.createdAt, id: last.id };
+			totalCleaned += idsToClean.length;
 
-			if (batchResult < CLEANUP_BATCH_SIZE) {
+			if (rows.length < DATA_RETENTION_BATCH_SIZE) {
 				hasMoreRecords = false;
 			}
 
-			if (batchResult > 0) {
-				logger.info(`Cleaned up ${batchResult} logs in batch`);
+			if (idsToClean.length > 0) {
+				logger.info(`Cleaned up ${idsToClean.length} logs in batch`);
 			}
 		}
 

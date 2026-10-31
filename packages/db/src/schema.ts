@@ -2704,6 +2704,9 @@ export const log = snakeCase.table(
 		upstreamRequest: jsonb(),
 		upstreamResponse: jsonb(),
 		traceId: text(),
+		// Legacy: no longer written. Retention progress lives in
+		// data_retention_state; updating this indexed column on every cleaned
+		// row prevented HOT updates.
 		dataRetentionCleanedUp: boolean().default(false),
 		dataStorageCost: decimal().notNull().default("0"),
 		params: json().$type<{
@@ -2763,8 +2766,8 @@ export const log = snakeCase.table(
 			table.usedModel,
 			table.usedProvider,
 		),
-		// Partial index for data retention cleanup: created_at for range filtering
-		// Only indexes rows that need cleanup (data_retention_cleaned_up = false)
+		// Seeds the first data_retention_state cursor (oldest row not yet cleaned
+		// by the legacy flag). Drop once every deployment has a cursor.
 		index("log_data_retention_pending_idx")
 			.on(table.createdAt)
 			.where(sql`data_retention_cleaned_up = false`),
@@ -7351,6 +7354,18 @@ export const globalAggregationState = snakeCase.table(
 			.$onUpdate(() => new Date()),
 	},
 );
+
+// Keyset cursor of the log data retention cleanup: the (created_at, id) of
+// the last log row it walked past. created_at is text to keep microseconds.
+export const dataRetentionState = snakeCase.table("data_retention_state", {
+	id: text().primaryKey().notNull().default("singleton"),
+	cursorCreatedAt: text().notNull(),
+	cursorId: text().notNull(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+});
 
 // Daily per-org counters of rejected requests/charges due to the anti-abuse
 // limits (endpoint RPM, USD spend caps, top-up velocity). Written by the
