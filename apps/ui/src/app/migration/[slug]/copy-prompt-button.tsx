@@ -1,8 +1,9 @@
 "use client";
 
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
+
+import { usePostHog } from "@/lib/posthog";
 
 export function CopyPromptButton({
 	prompt,

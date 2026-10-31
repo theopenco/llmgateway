@@ -2,9 +2,9 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import Image from "next/image";
-import { usePostHog } from "posthog-js/react";
 import { useRef, useState } from "react";
 
+import { usePostHog } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
 export interface Slide {
