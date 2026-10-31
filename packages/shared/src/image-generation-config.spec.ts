@@ -60,4 +60,11 @@ describe("getModelImageConfig", () => {
 		expect(config.defaultSize).toBe("1K");
 		expect(config.maxInputImages).toBe(14);
 	});
+
+	it("offers only 1K for Gemini 2.5 Flash Image", () => {
+		const config = getModelImageConfig("google-vertex/gemini-2.5-flash-image");
+
+		expect(config.availableSizes).toEqual(["1K"]);
+		expect(config.defaultSize).toBe("1K");
+	});
 });
