@@ -306,6 +306,10 @@ export const completionsRequestSchema = z.object({
 				"OpenAI explicit prompt caching options (GPT-5.6 and later). mode 'implicit' (default) places an automatic cache breakpoint at the latest message; 'explicit' caches only content parts marked with prompt_cache_breakpoint. Only forwarded for OpenAI models that support explicit prompt caching.",
 			example: { mode: "explicit" },
 		}),
+	safety_identifier: z.string().max(128).nullable().optional().openapi({
+		description:
+			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream; credits requests use the fixed LLM Gateway API-key identifier instead.",
+	}),
 	user: z
 		.string()
 		.nullable()

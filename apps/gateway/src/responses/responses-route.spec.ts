@@ -470,3 +470,38 @@ describe("responses header passthrough", () => {
 		expect(init.headers["session-id"]).toBe("session-abc");
 	});
 });
+
+it.each(["/", "/compact"])(
+	"preserves client safety metadata through %s",
+	async (path) => {
+		vi.clearAllMocks();
+		mocks.findOrganizationById.mockResolvedValue({
+			id: "org_test",
+			plan: "enterprise",
+			status: "active",
+		});
+		mocks.appRequest.mockResolvedValue(
+			Response.json(
+				{ error: { message: "Upstream unavailable" } },
+				{ status: 503 },
+			),
+		);
+		const response = await responses.request(path, {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				store: false,
+				safety_identifier: "end-user",
+			}),
+		});
+		expect(response.status).toBe(503);
+		expect(
+			JSON.parse(mocks.appRequest.mock.calls[0]![1].body).safety_identifier,
+		).toBe("end-user");
+	},
+);

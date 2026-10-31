@@ -25,6 +25,7 @@ import {
 } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { streamSSE } from "@/lib/pending-work.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
@@ -1250,6 +1251,9 @@ anthropic.openapi(messages, async (c) => {
 	// Build OpenAI request
 	const openaiRequest: Record<string, unknown> = {
 		model: anthropicRequest.model,
+		...getClientSafetyIdentifierParams({
+			user: anthropicRequest.metadata?.user_id,
+		}),
 		messages: openaiMessages,
 		max_tokens: anthropicRequest.max_tokens,
 		temperature: anthropicRequest.temperature,

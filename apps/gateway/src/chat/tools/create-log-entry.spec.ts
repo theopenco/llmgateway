@@ -134,3 +134,33 @@ describe("createLogEntry", () => {
 		expect(positional.usedMode).toBe("credits");
 	});
 });
+
+describe("client safety identifier metadata", () => {
+	it("records client attribution without debug payloads", () => {
+		const log = createLogEntry({
+			requestId: "request-id",
+			project: {
+				id: "project-id",
+				organizationId: "org-id",
+			} as CreateLogEntryOptions["project"],
+			apiKey: {
+				id: "key-id",
+				projectId: "project-id",
+				safetyIdentifier: "key_fixed",
+			} as GatewayApiKey,
+			usedModel: "openai/gpt-4o-mini",
+			usedProvider: "openai",
+			requestedModel: "gpt-4o-mini",
+			messages: [],
+			customHeaders: {},
+			debugMode: false,
+			rawRequest: { safety_identifier: "end-user-123" },
+			imageConfig: { image_size: "1024x1024" },
+		});
+		expect(log.params).toEqual({
+			image_config: { image_size: "1024x1024" },
+			safety_identifier: "end-user-123",
+		});
+		expect(log.rawRequest).toBeNull();
+	});
+});

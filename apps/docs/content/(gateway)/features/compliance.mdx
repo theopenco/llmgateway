@@ -144,7 +144,11 @@ Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for 
 
 Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per API key. It contains no personal data — no email address, user id, organization name or key id — and it is the only thing that ties a report of abusive traffic back to the exact API key that sent it.
 
-Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from the API key that authenticated the request.
+LLM Gateway forwards this fixed identifier only when its own credentials serve the request (credits billing), and only to upstream APIs that support it. Bring-your-own-key requests send no gateway safety identifier. Hybrid projects follow the credential used on each attempt, including retries and fallback. Check the [providers directory](https://llmgateway.io/providers) for upstream support.
+
+For your own end-user attribution, send an opaque `safety_identifier` of up to 128 characters on chat completions, Responses (including compaction), or decisions requests. It is recorded separately in request log metadata as `params.safety_identifier`, even without debug logging; it never changes the fixed upstream identifier. Native Messages requests use `metadata.user_id`, and `user` is accepted as a legacy fallback on chat and embeddings requests. Values longer than 128 characters in these legacy fields are not recorded.
+
+Use the same client identifier for the same end user when correlating traffic or reporting a request to us. Do not include personal data. This identifier is request metadata, not prompt content, and is retained even when prompt/completion retention is disabled. It is not an authentication or authorization mechanism.
 
 ## Access Control
 

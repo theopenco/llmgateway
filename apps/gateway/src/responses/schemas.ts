@@ -473,6 +473,12 @@ export const responsesRequestSchema = z
 			.optional()
 			.transform((val) => (val === null ? undefined : val)),
 		metadata: z.record(z.string()).optional(),
+		safety_identifier: z
+			.string()
+			.max(128)
+			.nullable()
+			.optional()
+			.transform((value) => value ?? undefined),
 		top_p: z
 			.number()
 			.nullable()
@@ -498,6 +504,12 @@ export const responsesRequestSchema = z
 export type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
 
 export const compactRequestSchema = z.object({
+	safety_identifier: z
+		.string()
+		.max(128)
+		.nullable()
+		.optional()
+		.transform((value) => value ?? undefined),
 	model: z.string().openapi({
 		example: "gpt-4o-mini",
 	}),

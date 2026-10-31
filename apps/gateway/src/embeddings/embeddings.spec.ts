@@ -195,7 +195,7 @@ describe("embeddings", () => {
 		expect(embeddingLog?.reasoningContent).toBeNull();
 	});
 
-	test("/v1/embeddings replaces client user with the API key identifier", async () => {
+	test("/v1/embeddings omits safety identifiers on BYOK", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-safety",
 			...hashApiKeyForStorage("real-token-embeddings-safety"),
@@ -240,8 +240,9 @@ describe("embeddings", () => {
 			(log) => log.usedModel === "openai/text-embedding-3-small",
 		);
 		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
-		expect(embeddingLog?.upstreamRequest).toMatchObject({
-			user: apiKey?.safetyIdentifier,
+		expect(embeddingLog?.upstreamRequest).not.toHaveProperty("user");
+		expect(embeddingLog?.params).toMatchObject({
+			safety_identifier: "client-controlled-user",
 		});
 	});
 

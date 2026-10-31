@@ -79,7 +79,9 @@ export function resolveUpstreamTarget(
 		url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?${query}`,
 		headers: {
 			Authorization: `Bearer ${preflight.upstreamToken}`,
-			"OpenAI-Safety-Identifier": preflight.safetyIdentifier,
+			...(preflight.usedMode === "credits" && {
+				"OpenAI-Safety-Identifier": preflight.safetyIdentifier,
+			}),
 		},
 	};
 }
