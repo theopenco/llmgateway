@@ -55,12 +55,6 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 			attributes["http.header.x-force-trace"] = forceTrace;
 		}
 
-		// Check for error-indicating headers or patterns
-		const ua = (c.req.header("user-agent") ?? "").toLowerCase();
-		if (/error|test/.test(ua)) {
-			attributes["sampling.likely_error"] = true;
-		}
-
 		return await tracer.startActiveSpan(
 			spanName,
 			{
