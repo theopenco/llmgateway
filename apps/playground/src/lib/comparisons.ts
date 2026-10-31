@@ -10,6 +10,9 @@
  * the conversion strategy.
  */
 
+import { chatModelPricing } from "@/lib/chat-model-pricing";
+import { studioComparisons } from "@/lib/studio-comparisons";
+
 import {
 	CHAT_PLAN_CREDITS_MULTIPLIERS,
 	CHAT_PLAN_PRICES,
@@ -18,6 +21,136 @@ import {
 
 export type CompetitorCategory =
 	"single-vendor" | "aggregator" | "answer-engine" | "developer";
+
+export type Studio =
+	"chat" | "video" | "image" | "audio" | "calls" | "decisions" | "escape";
+
+export interface StudioProfile {
+	/** Short label used to group the index, e.g. "Video Studio". */
+	label: string;
+	/** Product name used in headings, e.g. "Lounge Video Studio". */
+	product: string;
+	href: string;
+	cta: string;
+	finalHeading: string;
+	finalBody: string;
+	/** Whether Lounge memberships pay for this studio. */
+	membership: boolean;
+	/** Shown instead of the membership recap when memberships do not apply. */
+	billingNote?: string;
+}
+
+export const STUDIOS: Record<Studio, StudioProfile> = {
+	chat: {
+		label: "Chat",
+		product: "Lounge",
+		href: "/",
+		cta: "Start chatting free",
+		finalHeading: "Every model. One subscription.",
+		finalBody:
+			"Chat with 200+ models — GPT, Claude, Gemini, Grok and more — from a single credit balance. Switch models mid-conversation.",
+		membership: true,
+	},
+	video: {
+		label: "Video Studio",
+		product: "Lounge Video Studio",
+		href: "/video",
+		cta: "Open Video Studio",
+		finalHeading: "Every video model. Provider prices.",
+		finalBody:
+			"Veo, Kling, Seedance, Grok Imagine, MiniMax and more in one studio, side by side, billed per second at the provider's rate.",
+		membership: true,
+	},
+	image: {
+		label: "Image Studio",
+		product: "Lounge Image Studio",
+		href: "/image",
+		cta: "Open Image Studio",
+		finalHeading: "Every image model. One credit balance.",
+		finalBody:
+			"GPT Image, Nano Banana, Seedream, Grok Imagine, Qwen Image and more, compared side by side and billed per image.",
+		membership: true,
+	},
+	audio: {
+		label: "Audio Studio",
+		product: "Lounge Audio Studio",
+		href: "/audio",
+		cta: "Open Audio Studio",
+		finalHeading: "Every voice model. One place to compare.",
+		finalBody:
+			"ElevenLabs, Qwen and more text-to-speech models side by side, with the same credits you use for chat, images and video.",
+		membership: true,
+	},
+	calls: {
+		label: "Voice Calls",
+		product: "Lounge Voice Calls",
+		href: "/realtime",
+		cta: "Start a voice call",
+		finalHeading: "Pick the model on the other end of the line.",
+		finalBody:
+			"Live speech-to-speech calls with OpenAI and Google realtime models, a saved transcript for every call, and token-level usage.",
+		membership: false,
+		billingNote:
+			"Voice calls bill per token to a pay-as-you-go organization with credits. Lounge memberships and DevPass workspaces can't place calls, so load credits in the dashboard first. Every call shows its input, output and audio token totals.",
+	},
+	decisions: {
+		label: "Decision Studio",
+		product: "Lounge Decision Studio",
+		href: "/decisions",
+		cta: "Open Decision Studio",
+		finalHeading: "Typed answers with probabilities, not paragraphs.",
+		finalBody:
+			"Ask yes/no, pick-one and rating questions about any text or image and get answers your code can branch on.",
+		membership: false,
+		billingNote:
+			"Decision models bill on input tokens only: the input plus every question. There is no output price, and each run copies out as a /v1/decisions request you can ship.",
+	},
+	escape: {
+		label: "Sandbox Escape",
+		product: "Lounge Sandbox Escape",
+		href: "/escape",
+		cta: "Play Sandbox Escape",
+		finalHeading: "Pick a model. Watch it try to break out.",
+		finalBody:
+			"Five fixed levels, one billed API call per move, a public leaderboard and a replay link for every run.",
+		membership: true,
+	},
+};
+
+export const STUDIO_ORDER: readonly Studio[] = [
+	"chat",
+	"video",
+	"image",
+	"audio",
+	"calls",
+	"decisions",
+	"escape",
+];
+
+export interface ModelPriceRow {
+	/** Model and setting, e.g. "Veo 3.1 · 1080p with audio". */
+	model: string;
+	/** Lounge's catalogue rate in the table's unit, or null when not served. */
+	us: number | null;
+	/** Shown instead of a number when Lounge has no comparable rate. */
+	usLabel?: string;
+	/** Competitor's published rate in the same unit, or null when not offered. */
+	them: number | null;
+	/** Shown instead of a number when the competitor has no comparable rate. */
+	themLabel?: string;
+}
+
+export interface ModelPricing {
+	heading: string;
+	intro: string;
+	/** Unit every number in the table is in, e.g. "per second". */
+	unit: string;
+	/** Header for the competitor's column when it isn't the competitor itself. */
+	themName?: string;
+	rows: ModelPriceRow[];
+	sources: { label: string; url: string }[];
+	checkedOn: string;
+}
 
 export interface ComparisonRow {
 	/** Dimension being compared, e.g. "Model access". */
@@ -51,6 +184,8 @@ export interface Comparison {
 	competitorFull: string;
 	competitorTagline: string;
 	category: CompetitorCategory;
+	/** Which Lounge surface the page compares. Defaults to chat. */
+	studio?: Studio;
 
 	/** SEO. */
 	metaTitle: string;
@@ -82,6 +217,9 @@ export interface Comparison {
 	migration: string;
 
 	faq: FaqItem[];
+
+	/** Per-model price table, in one unit, against the competitor's own rates. */
+	modelPricing?: ModelPricing;
 }
 
 /**
@@ -110,7 +248,7 @@ export const US = {
 	},
 } as const;
 
-export const comparisons: Comparison[] = [
+const baseChatComparisons: Comparison[] = [
 	{
 		slug: "chatgpt",
 		competitor: "ChatGPT",
@@ -962,6 +1100,20 @@ export const comparisons: Comparison[] = [
 		],
 	},
 ];
+
+const chatComparisons: Comparison[] = baseChatComparisons.map((comparison) => ({
+	...comparison,
+	modelPricing: chatModelPricing[comparison.slug],
+}));
+
+export const comparisons: Comparison[] = [
+	...chatComparisons,
+	...studioComparisons,
+];
+
+export function studioOf(comparison: Comparison): StudioProfile {
+	return STUDIOS[comparison.studio ?? "chat"];
+}
 
 export function getComparison(slug: string): Comparison | undefined {
 	return comparisons.find((c) => c.slug === slug);
