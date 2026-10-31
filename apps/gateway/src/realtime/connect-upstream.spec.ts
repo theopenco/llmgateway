@@ -18,6 +18,7 @@ function buildPreflight(
 		upstreamToken: "upstream-secret",
 		configIndex,
 		safetyIdentifier: "safety-hash",
+		usedMode: "credits",
 	} as unknown as RealtimePreflightResult;
 }
 
@@ -133,4 +134,12 @@ describe("resolveUpstreamTarget", () => {
 			"OpenAI-Safety-Identifier": "safety-hash",
 		});
 	});
+});
+
+it("omits the gateway safety identifier on BYOK realtime sessions", () => {
+	const preflight = buildPreflight("openai", "gpt-realtime-2.1-mini");
+	preflight.usedMode = "api-keys";
+	expect(
+		resolveUpstreamTarget(preflight).headers["OpenAI-Safety-Identifier"],
+	).toBeUndefined();
 });

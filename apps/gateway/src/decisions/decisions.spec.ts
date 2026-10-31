@@ -119,14 +119,15 @@ describe("decisions", () => {
 		// Image data never lands in the stored request summary.
 		expect(JSON.stringify(log?.messages)).toContain("[image]");
 		expect(JSON.stringify(log?.messages)).not.toContain("iVBORw0KGgo");
-		// The client's safety_identifier is replaced by the API key's.
+		// BYOK requests retain client attribution locally, but send none upstream.
 		const [apiKey] = await db
 			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
 			.from(tables.apiKey)
 			.where(eq(tables.apiKey.id, "token-id-decisions-openai"));
 		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
-		expect(log?.upstreamRequest).toMatchObject({
-			safety_identifier: apiKey?.safetyIdentifier,
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+		expect(log?.params).toMatchObject({
+			safety_identifier: "client-controlled",
 		});
 	});
 
