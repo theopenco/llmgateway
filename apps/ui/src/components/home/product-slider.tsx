@@ -75,7 +75,7 @@ export function ProductSlider({
 								"shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 								i === active
 									? activeTone
-									: "border-border bg-background/70 text-muted-foreground hover:text-foreground",
+									: "border-border bg-background text-muted-foreground hover:text-foreground",
 							)}
 						>
 							{slide.label}
@@ -83,7 +83,7 @@ export function ProductSlider({
 					))}
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
-					<span className="mr-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+					<span className="mr-1 font-mono text-[11px] tabular-nums text-foreground/75">
 						{active + 1}/{slides.length}
 					</span>
 					<button
