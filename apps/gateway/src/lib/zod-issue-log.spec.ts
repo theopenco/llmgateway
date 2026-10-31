@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { summarizeZodIssues } from "./zod-issue-log.js";
 
-function issuesOf(schema: z.ZodTypeAny, input: unknown) {
+function issuesOf(schema: z.ZodType, input: unknown) {
 	const result = schema.safeParse(input);
 	if (result.success) {
 		throw new Error("expected validation to fail");
@@ -31,18 +31,16 @@ describe("summarizeZodIssues", () => {
 
 		expect(JSON.stringify(summary)).not.toContain("top secret prompt");
 		expect(summary).toEqual([
-			{ code: "invalid_enum_value", path: "messages.0.role" },
+			{ code: "invalid_value", path: "messages.0.role" },
 			{
 				code: "invalid_type",
 				path: "messages.0.content",
 				expected: "string",
-				received: "number",
 			},
 			{
 				code: "invalid_type",
 				path: "max_tokens",
 				expected: "number",
-				received: "string",
 			},
 		]);
 	});

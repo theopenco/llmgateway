@@ -97,10 +97,7 @@ const read = z
 	})
 	.strict();
 
-function toolInput<T>(
-	schema: z.ZodType<T, z.ZodTypeDef, unknown>,
-	input: unknown,
-): T {
+function toolInput<T>(schema: z.ZodType<T>, input: unknown): T {
 	const result = schema.safeParse(input);
 	if (!result.success) {
 		throw new HTTPException(400, {
@@ -241,7 +238,7 @@ export async function executeNativeTool(
 		"payload" in result
 	) {
 		const message = result as Record<string, unknown>;
-		const payload = z.record(z.unknown()).parse(message.payload);
+		const payload = z.record(z.string(), z.unknown()).parse(message.payload);
 		return {
 			id: message.id,
 			threadId: message.threadId,
