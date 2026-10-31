@@ -1824,24 +1824,8 @@ export function transformStreamingToOpenai(
 		case "atria":
 		case "cloudflare":
 		case "xiaomi":
-		case "azure-ai-foundry":
 		case "vertex-openai":
 		case "llmgateway": {
-			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
-			// chunk on some models — empty id/object/choices, no usage. Drop it
-			// for the same reason: it breaks downstream hasOpenAIFormat checks.
-			// Skip the guard for Responses API events (identified by `data.type`).
-			if (
-				usedProvider === "azure-ai-foundry" &&
-				!data.type &&
-				!data.id &&
-				!data.object &&
-				(!data.choices || data.choices.length === 0) &&
-				!data.usage
-			) {
-				transformedData = null;
-				break;
-			}
 			// Mistral streams thinking models' content as typed chunks; flatten
 			// them back to `content` / `reasoning_content` before the shared
 			// OpenAI transform sees the delta.

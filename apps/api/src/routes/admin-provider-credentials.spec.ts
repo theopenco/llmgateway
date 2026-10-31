@@ -105,6 +105,19 @@ describe("admin provider credentials", () => {
 		}
 	}
 
+	test("rejects new retired credentials even when validation is skipped", async () => {
+		const res = await create({
+			provider: "azure-ai-foundry",
+			token: "test-token",
+			config: {},
+			skipValidation: true,
+		});
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: expect.stringMatching(/retired/i),
+		});
+	});
+
 	async function create(body: Record<string, unknown>) {
 		return await app.request("/admin/provider-credentials", {
 			method: "POST",

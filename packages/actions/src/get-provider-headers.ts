@@ -2,6 +2,7 @@ import {
 	resolveVertexTokenType,
 	type ProviderId,
 	type VertexTokenType,
+	isRetiredProvider,
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -41,6 +42,11 @@ export function getProviderHeaders(
 	token: string,
 	options?: ProviderHeaderOptions,
 ): Record<string, string> {
+	if (isRetiredProvider(provider)) {
+		throw new Error(
+			`Provider ${provider} is retired. Configure a replacement provider.`,
+		);
+	}
 	const requestIdHeader: Record<string, string> = {};
 	if (options?.requestId) {
 		requestIdHeader["x-request-id"] = options.requestId;
@@ -111,7 +117,6 @@ export function getProviderHeaders(
 				"Content-Type": "application/json",
 			};
 		case "azure":
-		case "azure-ai-foundry":
 			return {
 				...requestIdHeader,
 				"api-key": token,

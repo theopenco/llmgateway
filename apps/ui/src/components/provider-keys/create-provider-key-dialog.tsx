@@ -32,6 +32,7 @@ import {
 	regionEndpointRequiresWorkspaceId,
 	regionEndpointUsesWorkspaceId,
 	type ProviderDefinition,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
@@ -75,11 +76,8 @@ export function CreateProviderKeyDialog({
 	>("ai-foundry");
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
-	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
 	const [azureAnthropicResource, setAzureAnthropicResource] = useState("");
 	const [cloudflareAccountId, setCloudflareAccountId] = useState("");
-	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
-		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
 	const [alibabaWorkspaceId, setAlibabaWorkspaceId] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
@@ -157,7 +155,9 @@ export function CreateProviderKeyDialog({
 	const availableProviders = providerChoices
 		.filter(
 			(provider) =>
-				provider.id !== "llmgateway" && !isStealthProvider(provider),
+				provider.id !== "llmgateway" &&
+				!isStealthProvider(provider) &&
+				!isRetiredProvider(provider.id),
 		)
 		.map((provider) =>
 			provider.id === "custom" && !isEnterprise
@@ -334,32 +334,6 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
-		if (selectedProvider === "azure-ai-foundry") {
-			if (!azureAiFoundryResource) {
-				toast({
-					title: "Error",
-					description: "Azure AI Foundry resource name is required",
-					variant: "destructive",
-				});
-				return;
-			}
-			if (!isProviderHostnameLabel(azureAiFoundryResource)) {
-				toast({
-					title: "Error",
-					description: `Resource name: ${PROVIDER_HOSTNAME_LABEL_MESSAGE}`,
-					variant: "destructive",
-				});
-				return;
-			}
-			payload.options = {
-				...payload.options,
-				azure_ai_foundry_resource: azureAiFoundryResource,
-				...(azureAiFoundryApiVersion
-					? { azure_ai_foundry_api_version: azureAiFoundryApiVersion }
-					: {}),
-			};
-		}
-
 		if (selectedProvider === "azure-anthropic") {
 			if (!azureAnthropicResource) {
 				toast({
@@ -475,8 +449,7 @@ export function CreateProviderKeyDialog({
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
-			setAzureAiFoundryResource("");
-			setAzureAiFoundryApiVersion("2024-05-01-preview");
+
 			setCloudflareAccountId("");
 			setSelectedRegion("");
 			setAlibabaWorkspaceId("");
@@ -674,47 +647,6 @@ export function CreateProviderKeyDialog({
 										<p className="text-sm text-muted-foreground">
 											Model deployment name to use for validating the API key
 											(default: gpt-4o-mini)
-										</p>
-									</div>
-								</>
-							)}
-
-							{selectedProvider === "azure-ai-foundry" && (
-								<>
-									<div className="space-y-2">
-										<Label htmlFor="azure-ai-foundry-resource">
-											Resource Name
-										</Label>
-										<Input
-											id="azure-ai-foundry-resource"
-											type="text"
-											placeholder="my-resource"
-											value={azureAiFoundryResource}
-											onChange={(e) =>
-												setAzureAiFoundryResource(e.target.value)
-											}
-											required
-										/>
-										<p className="text-sm text-muted-foreground">
-											Your Azure AI Foundry resource name from the base URL:
-											https://&lt;resource-name&gt;.services.ai.azure.com
-										</p>
-									</div>
-									<div className="space-y-2">
-										<Label htmlFor="azure-ai-foundry-api-version">
-											API Version
-										</Label>
-										<Input
-											id="azure-ai-foundry-api-version"
-											type="text"
-											placeholder="2024-05-01-preview"
-											value={azureAiFoundryApiVersion}
-											onChange={(e) =>
-												setAzureAiFoundryApiVersion(e.target.value)
-											}
-										/>
-										<p className="text-sm text-muted-foreground">
-											Azure AI Foundry API version (default: 2024-05-01-preview)
 										</p>
 									</div>
 								</>

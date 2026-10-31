@@ -87,6 +87,7 @@ import {
 	getProviderEnvExclusiveViolations,
 	getProviderEnvKeys,
 	providers,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	createEmptyProviderModelsByKind,
@@ -366,6 +367,11 @@ async function validateConfig(
 	provider: string,
 	config: Record<string, string>,
 ): Promise<void> {
+	if (isRetiredProvider(provider)) {
+		throw new HTTPException(400, {
+			message: `Provider ${provider} is retired. Configure a replacement provider.`,
+		});
+	}
 	// "custom" is a per-organization BYOK construct (each key defines its own
 	// upstream); there is no platform-wide custom deployment a managed
 	// credential could describe, and the catalog route excludes it for the same
@@ -735,7 +741,9 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	);
 
 	const entries = providers
-		.filter((provider) => provider.id !== "custom")
+		.filter(
+			(provider) => provider.id !== "custom" && !isRetiredProvider(provider.id),
+		)
 		.map((provider) => {
 			const apiKeyEnvVar =
 				getProviderEnvKeys(provider.id).find((entry) => entry.key === "apiKey")
@@ -2144,6 +2152,11 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	if (body.status === "active" && isRetiredProvider(existing.provider)) {
+		throw new HTTPException(400, {
+			message: "This provider is retired. Configure a replacement credential.",
+		});
 	}
 	// Soft-deleted credentials stay editable (e.g. renamed for the history they
 	// are kept for), but never move back into rotation.

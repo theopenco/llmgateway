@@ -16,6 +16,7 @@ import {
 	getVariantEnvVarNameFor,
 	resolveVertexTokenType,
 	REGION_WORKSPACE_ID_PLACEHOLDER,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	isProviderHostnameLabel,
@@ -337,6 +338,11 @@ export function getProviderEndpoint(
 	variant?: EnvVarVariant,
 	apiFormat?: ProviderApiFormat,
 ): string {
+	if (isRetiredProvider(provider)) {
+		throw new Error(
+			`Provider ${provider} is retired. Configure a replacement provider.`,
+		);
+	}
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
 	if (model && model !== "custom") {
@@ -608,35 +614,6 @@ export function getProviderEndpoint(
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
-				break;
-			}
-			case "azure-ai-foundry": {
-				const resource =
-					credentialConfig?.resource ??
-					providerKeyOptions?.azure_ai_foundry_resource ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure-ai-foundry",
-								"resource",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (!resource) {
-					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new ProviderConfigError(
-						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
-					);
-				}
-				if (!isProviderHostnameLabel(resource)) {
-					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new ProviderConfigError(
-						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
-					);
-				}
-				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
 			case "azure-anthropic": {
@@ -1025,20 +1002,6 @@ export function getProviderEndpoint(
 				}
 				return `${url}/openai/v1/chat/completions`;
 			}
-		}
-		case "azure-ai-foundry": {
-			const apiVersion =
-				providerKeyOptions?.azure_ai_foundry_api_version ??
-				credentialConfig?.apiVersion ??
-				getProviderEnvValue(
-					"azure-ai-foundry",
-					"apiVersion",
-					configIndex,
-					"2024-05-01-preview",
-					variant,
-				) ??
-				"2024-05-01-preview";
-			return `${url}/models/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
 		}
 		case "azure-anthropic":
 			// Claude models on Microsoft Foundry are only served through the
