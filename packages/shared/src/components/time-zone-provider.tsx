@@ -8,6 +8,7 @@ import {
 	useEffect,
 	useMemo,
 	useState,
+	useRef,
 } from "react";
 
 import {
@@ -62,6 +63,16 @@ export function TimeZoneProvider({
 }) {
 	const [preference, setPreference] = useState<TimeZonePreference>(initial);
 	const [browserTimeZone, setBrowserTimeZone] = useState(initial.timeZone);
+	const persisted = useRef(serializeTimeZonePreference(initial));
+
+	useEffect(() => {
+		const serialized = serializeTimeZonePreference(preference);
+		if (persisted.current === serialized) {
+			return;
+		}
+		persisted.current = serialized;
+		writeCookie(preference);
+	}, [preference]);
 
 	useEffect(() => {
 		const sync = () => {
@@ -82,7 +93,6 @@ export function TimeZoneProvider({
 						mode: "local",
 						timeZone: detected,
 					};
-					writeCookie(next);
 					return next;
 				});
 			});
@@ -103,7 +113,6 @@ export function TimeZoneProvider({
 			mode,
 			timeZone: mode === "utc" ? UTC_TIME_ZONE : getBrowserTimeZone(),
 		};
-		writeCookie(next);
 		setPreference(next);
 	}, []);
 
