@@ -15,6 +15,7 @@ import {
 import type {
 	RankingsAppStat,
 	RankingsModelMeta,
+	RankingsStats,
 } from "@/components/rankings/rankings-content";
 import type { Metadata } from "next";
 
@@ -49,10 +50,6 @@ export const metadata: Metadata = {
 	},
 };
 
-interface PublicModelStats {
-	models: Array<{ modelId: string; totalTokens: number }>;
-}
-
 interface PublicApps {
 	apps: RankingsAppStat[];
 }
@@ -82,16 +79,17 @@ export default async function RankingsPage() {
 		};
 	}
 
-	// The model snapshot feeds structured data while the app snapshot renders in
-	// the rankings sidebar. Interactive model stats are fetched client-side.
+	// The 7d snapshot feeds structured data and seeds the client's default
+	// window, so the chart and leaderboard render without a loading swap.
 	const [stats, apps] = await Promise.all([
-		fetchServerData<PublicModelStats>("GET", "/public/models/stats", {
+		fetchServerData<RankingsStats>("GET", "/public/models/stats", {
 			params: { query: { window: "7d" } },
 		}),
 		fetchServerData<PublicApps>("GET", "/public/apps", {
 			params: { query: { limit: "5" } },
 		}),
 	]);
+	const statsFetchedAt = Date.now();
 	const topModels = (stats?.models ?? []).slice(0, 10);
 	const topApps = apps?.apps ?? [];
 	const faqs = [
@@ -180,6 +178,8 @@ export default async function RankingsPage() {
 						</p>
 					</div>
 					<RankingsContent
+						initialStats={stats}
+						initialStatsFetchedAt={statsFetchedAt}
 						modelMeta={modelMeta}
 						providerNames={providerNames}
 						topApps={topApps}
