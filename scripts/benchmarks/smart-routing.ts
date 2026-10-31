@@ -5,15 +5,28 @@ import {
 	writeFileSync,
 	appendFileSync,
 	mkdirSync,
+	unlinkSync,
 } from "node:fs";
 import { resolve } from "node:path";
 
+import { Decimal } from "decimal.js";
+
+import {
+	SAINA_ARM,
+	SAINA_QUESTION,
+	parseSainaConfig,
+	verifySaina,
+	selectSaina,
+	sainaFailure,
+	includeRoutingLatency,
+} from "./saina-routing.js";
 import {
 	executeStreamingRequest,
 	ifevalAdapter,
 } from "../../packages/benchmarks/dist/index.js";
 import { qualityCases } from "../../packages/benchmarks/dist/suites/quality.js";
 
+import type { SainaDecision } from "./saina-routing.js";
 import type {
 	BenchmarkCase,
 	BenchmarkRequest,
@@ -47,6 +60,15 @@ async function main(): Promise<void> {
 		return result;
 	}
 	const arms = ["smart", "gpt-6-luna", "gpt-6-sol", "gpt-6-astra"];
+	const saina = process.env.SAINA_CONFIG
+		? parseSainaConfig(
+				JSON.parse(readFileSync(process.env.SAINA_CONFIG, "utf8")),
+				arms.slice(1),
+			)
+		: null;
+	if (saina) {
+		arms.push(SAINA_ARM);
+	}
 	const context: BenchmarkRunContext = {
 		seed,
 		run: 0,
@@ -116,6 +138,19 @@ async function main(): Promise<void> {
 	});
 	const protocol = {
 		version: 1,
+		...(saina
+			? {
+					saina: {
+						...saina,
+						question: SAINA_QUESTION,
+						adapterSha256: createHash("sha256")
+							.update(
+								readFileSync(resolve("scripts/benchmarks/saina-routing.ts")),
+							)
+							.digest("hex"),
+					},
+				}
+			: {}),
 		seed,
 		arms,
 		count: fixtures.length,
@@ -154,6 +189,37 @@ async function main(): Promise<void> {
 	if (!apiKey) {
 		throw new Error("Set LLM_GATEWAY_API_KEY");
 	}
+	const sainaBase = process.env.SAINA_BASE_URL ?? "https://api.saina.run";
+	const sainaKey = process.env.SAINA_API_KEY ?? "";
+	const routingPath = `${directory}/saina-routing.jsonl`;
+	const pendingPath = `${directory}/saina-pending.json`;
+	if (saina && existsSync(pendingPath)) {
+		throw new Error(
+			"Interrupted Saina request: reconcile saina-pending.json before clearing it and resuming",
+		);
+	}
+	const decisions = new Map<string, SainaDecision>();
+	if (saina && existsSync(routingPath)) {
+		for (const line of readFileSync(routingPath, "utf8")
+			.split("\n")
+			.filter(Boolean)) {
+			const row = JSON.parse(line) as SainaDecision;
+			if (
+				decisions.has(row.caseId) ||
+				row.model !== saina.model ||
+				row.revision !== saina.revision
+			) {
+				throw new Error("Invalid saved Saina decision");
+			}
+			decisions.set(row.caseId, row);
+		}
+	}
+	if (saina) {
+		if (!sainaKey) {
+			throw new Error("Set SAINA_API_KEY");
+		}
+		await verifySaina(saina, sainaBase, sainaKey);
+	}
 	const resultPath = `${directory}/trials.jsonl`;
 	interface Trial {
 		caseId: string;
@@ -161,6 +227,7 @@ async function main(): Promise<void> {
 		cost: number;
 		storageCost: number;
 		response: BenchmarkResponse;
+		routing?: SainaDecision;
 	}
 	const previous: Trial[] = existsSync(resultPath)
 		? readFileSync(resultPath, "utf8")
@@ -177,6 +244,11 @@ async function main(): Promise<void> {
 	) as Record<string, { cost: number; storageCost: number }>;
 	let inference = 0;
 	for (const row of previous) {
+		if (row.arm === SAINA_ARM && (!row.routing || !decisions.has(row.caseId))) {
+			throw new Error(
+				"Missing saved Saina routing decision for existing trial",
+			);
+		}
 		if (typeof row.response.usage.raw?.cost === "number") {
 			inference += row.cost + row.storageCost;
 			continue;
@@ -242,8 +314,16 @@ async function main(): Promise<void> {
 				inference,
 			}) + "\n",
 		);
-		const classifierReserve = smartCount * 0.01;
-		if (Math.max(keyDelta, inference + classifierReserve) + 3 > 26) {
+		const classifierReserve = new Decimal(smartCount).mul("0.01");
+		const externalReserve = new Decimal(saina?.classifierReserveUsd ?? "0").mul(
+			decisions.size + 1,
+		);
+		if (
+			Decimal.max(keyDelta, new Decimal(inference).plus(classifierReserve))
+				.plus(externalReserve)
+				.plus(3)
+				.gt(26)
+		) {
 			process.stdout.write(
 				"Budget stop before starting another paired prompt\n",
 			);
@@ -252,18 +332,52 @@ async function main(): Promise<void> {
 		const test = cases.find((entry) => entry.id === fixture.id)!;
 		for (const arm of pending) {
 			const at = new Date().toISOString();
-			const response = await executeStreamingRequest({
-				client: {
-					url: "https://api.llmgateway.io/v1/chat/completions",
-					apiKey,
-					disableCache: true,
-					disableFallback: true,
-				},
-				request: fixture.request,
-				model: arm,
-				timeoutMs: protocol.timeoutMs,
-				fetch,
-			});
+			let routing: SainaDecision | undefined;
+			if (arm === SAINA_ARM && saina) {
+				routing = decisions.get(fixture.id);
+				if (!routing) {
+					writeFileSync(
+						pendingPath,
+						JSON.stringify({ caseId: fixture.id, at }),
+						{ mode: 0o600 },
+					);
+					routing = await selectSaina(
+						saina,
+						fixture.request,
+						fixture.id,
+						sainaBase,
+						sainaKey,
+						protocol.timeoutMs,
+					);
+					appendFileSync(routingPath, JSON.stringify(routing) + "\n", {
+						mode: 0o600,
+					});
+					decisions.set(fixture.id, routing);
+					unlinkSync(pendingPath);
+				}
+			}
+			const remainingMs = protocol.timeoutMs - (routing?.latencyMs ?? 0);
+			if (routing && remainingMs <= 0) {
+				routing = { ...routing, selectedModel: null, error: "saina_timeout" };
+			}
+			let response =
+				routing && !routing.selectedModel
+					? sainaFailure(routing)
+					: await executeStreamingRequest({
+							client: {
+								url: "https://api.llmgateway.io/v1/chat/completions",
+								apiKey,
+								disableCache: true,
+								disableFallback: true,
+							},
+							request: fixture.request,
+							model: routing?.selectedModel ?? arm,
+							timeoutMs: Math.max(1, Math.floor(remainingMs)),
+							fetch,
+						});
+			if (routing?.selectedModel) {
+				response = includeRoutingLatency(response, routing);
+			}
 			const cost = response.usage.raw?.cost;
 			const details = response.usage.raw?.cost_details as
 				Record<string, unknown> | undefined;
@@ -281,6 +395,7 @@ async function main(): Promise<void> {
 				category: fixture.category,
 				arm,
 				at,
+				...(routing ? { routing } : {}),
 				response,
 				evaluation: { ...scored, passed },
 				cost: typeof cost === "number" ? cost : 0,
@@ -301,6 +416,9 @@ async function main(): Promise<void> {
 				);
 			}
 		}
+	}
+	if (saina) {
+		await verifySaina(saina, sainaBase, sainaKey);
 	}
 }
 
