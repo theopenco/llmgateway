@@ -147,8 +147,6 @@ gateway:
     imageFetchTimeoutMs: 15000
     keepAliveTimeoutS: 620
     shutdownGracePeriodMs: 480000
-    healthCheckSkipDatabase: ""
-    healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
     # Upstream dispatcher tuning for the gateway→provider hop. Both default in
     # code (300s DNS cache, 60s keep-alive); set here only to override.

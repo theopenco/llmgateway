@@ -102,12 +102,6 @@ data:
   {{- if .shutdownGracePeriodMs }}
   SHUTDOWN_GRACE_PERIOD_MS: {{ .shutdownGracePeriodMs | quote }}
   {{- end }}
-  {{- if .healthCheckSkipDatabase }}
-  HEALTH_CHECK_SKIP_DATABASE: {{ .healthCheckSkipDatabase | quote }}
-  {{- end }}
-  {{- if .healthCheckTimeoutMs }}
-  HEALTH_CHECK_TIMEOUT_MS: {{ .healthCheckTimeoutMs | quote }}
-  {{- end }}
   {{- if .maxStreamingBufferMb }}
   MAX_STREAMING_BUFFER_MB: {{ .maxStreamingBufferMb | quote }}
   {{- end }}

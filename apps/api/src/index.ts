@@ -16,7 +16,7 @@ import {
 	createRequestLifecycleMiddleware,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { HealthChecker } from "@llmgateway/shared";
+import { getAppVersion, HealthChecker, singleFlight } from "@llmgateway/shared";
 import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
@@ -245,8 +245,24 @@ app.onError((error, c) => {
 });
 
 // Liveness: the process serves HTTP. Never touches the database, so a slow or
-// locked database cannot get healthy pods restarted (use `/` for readiness).
+// locked database cannot get healthy pods restarted.
 app.get("/livez", (c) => c.json({ status: "ok" }));
+
+// Deep health for external monitoring: checks Postgres and Redis. Readiness
+// uses `/`, so a dependency outage or a schema the running release cannot
+// read never pulls every pod out of the load balancer.
+const deepHealthChecker = new HealthChecker({ redisClient, db, logger });
+const deepHealthCheck = singleFlight(() =>
+	deepHealthChecker.performHealthChecks({
+		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
+	}),
+);
+app.get("/health/deep", async (c) => {
+	const { response, statusCode } = deepHealthChecker.createHealthResponse(
+		await deepHealthCheck(),
+	);
+	return c.json(response, statusCode as 200 | 503);
+});
 
 const root = createRoute({
 	method: "get",
@@ -262,78 +278,29 @@ const root = createRoute({
 							version: z.string(),
 							clientIp: z.string().nullable(),
 							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
 						})
 						.openapi({}),
 				},
 			},
-			description: "Health check response.",
-		},
-		503: {
-			content: {
-				"application/json": {
-					schema: z
-						.object({
-							message: z.string(),
-							version: z.string(),
-							clientIp: z.string().nullable(),
-							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
-						})
-						.openapi({}),
-				},
-			},
-			description: "Service unavailable - Redis or database connection failed.",
+			description:
+				"Health check response. Touches no dependencies; `/health/deep` checks Postgres and Redis.",
 		},
 	},
 });
 
-app.openapi(root, async (c) => {
-	const TIMEOUT_MS = Number(process.env.TIMEOUT_MS) || 5000;
-
-	const healthChecker = new HealthChecker({
-		redisClient,
-		db,
-		logger,
-	});
-
-	const health = await healthChecker.performHealthChecks({
-		timeoutMs: TIMEOUT_MS,
-	});
-
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
-
+app.openapi(root, (c) =>
 	// Echo the address this service resolves for the caller so a deployment can
 	// be checked against a known client IP before any per-IP limit is relied on.
-	return c.json(
+	c.json(
 		{
-			...response,
+			message: "OK",
+			version: getAppVersion(),
 			clientIp: getClientIpFromContext(c),
 			clientIpHeader: getClientIpHeaderName(),
 		},
-		statusCode as 200 | 503,
-	);
-});
+		200,
+	),
+);
 
 app.route("/stripe", stripeRoutes);
 
