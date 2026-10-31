@@ -20,6 +20,7 @@ import {
 	ne,
 	sql,
 	tables,
+	or,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -1886,7 +1887,7 @@ async function recordCreditTopUp({
 	creditAmount: number;
 	totalAmountInDollars: number;
 	currency: string;
-	stripePaymentIntentId: string | null;
+	stripePaymentIntentId: string;
 	description: string;
 	organization: {
 		name: string;
@@ -1899,44 +1900,66 @@ async function recordCreditTopUp({
 	source: string;
 	bonusType?: BonusType | null;
 	purchaserUserId?: string | null;
-}) {
-	await db
-		.update(tables.organization)
-		.set({
-			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-			paymentFailureCount: 0,
-			lastPaymentFailureAt: null,
-			paymentFailureStartedAt: null,
-			lastTopUpAmount: creditAmount.toString(),
-		})
-		.where(eq(tables.organization.id, organizationId));
+}): Promise<boolean> {
+	// Keep the credit, alert reset and completed ledger row atomic.
+	let completedTransaction: { id: string };
+	try {
+		completedTransaction = await db.transaction(async (tx) => {
+			await tx
+				.update(tables.organization)
+				.set({
+					credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+					paymentFailureCount: 0,
+					lastPaymentFailureAt: null,
+					paymentFailureStartedAt: null,
+					lastTopUpAmount: creditAmount.toString(),
+				})
+				.where(eq(tables.organization.id, organizationId));
 
-	// Reset low-balance email dedup so alerts can fire again on next cycle
-	await db
-		.delete(tables.followUpEmail)
-		.where(
-			and(
-				eq(tables.followUpEmail.organizationId, organizationId),
-				inArray(tables.followUpEmail.emailType, [
-					"low_balance_20",
-					"low_balance_5",
-				]),
-			),
-		);
+			// Reset low-balance email dedup so alerts can fire again on next cycle
+			await tx
+				.delete(tables.followUpEmail)
+				.where(
+					and(
+						eq(tables.followUpEmail.organizationId, organizationId),
+						inArray(tables.followUpEmail.emailType, [
+							"low_balance_20",
+							"low_balance_5",
+						]),
+					),
+				);
 
-	const [completedTransaction] = await db
-		.insert(tables.transaction)
-		.values({
-			organizationId,
-			type: "credit_topup",
-			creditAmount: finalCreditAmount.toString(),
-			amount: totalAmountInDollars.toString(),
-			currency,
-			status: "completed",
-			stripePaymentIntentId,
-			description,
-		})
-		.returning();
+			const [row] = await tx
+				.insert(tables.transaction)
+				.values({
+					organizationId,
+					type: "credit_topup",
+					creditAmount: finalCreditAmount.toString(),
+					amount: totalAmountInDollars.toString(),
+					currency,
+					status: "completed",
+					stripePaymentIntentId,
+					description,
+				})
+				.returning();
+
+			return row;
+		});
+	} catch (err) {
+		if (
+			await isCompletedCreditTopUpConflict(
+				err,
+				organizationId,
+				stripePaymentIntentId,
+			)
+		) {
+			logger.info(
+				`Skipping duplicate credit top-up for organization ${organizationId} (concurrent delivery for ${stripePaymentIntentId})`,
+			);
+			return false;
+		}
+		throw err;
+	}
 
 	// The completed transaction row now covers this amount in the velocity
 	// window's DB sum, so the initiation-time Redis reservation would count it
@@ -2033,6 +2056,8 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
+
+	return true;
 }
 
 export async function handleAirsideListingCheckout(
@@ -2242,7 +2267,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 
 	const bonusLabel = getBonusLabel(bonusType);
 
-	await recordCreditTopUp({
+	const applied = await recordCreditTopUp({
 		organizationId,
 		finalCreditAmount,
 		bonusAmount,
@@ -2259,6 +2284,9 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		bonusType,
 		purchaserUserId: resolvedUser?.id ?? null,
 	});
+	if (!applied) {
+		return;
+	}
 
 	await notifyCreditsPurchased({
 		email: userEmail ?? organization.billingEmail,
@@ -3159,68 +3187,102 @@ async function handlePaymentIntentSucceeded(
 			: `${topupNoun} via Stripe`;
 
 	if (transactionId) {
-		await db
-			.update(tables.organization)
-			.set({
-				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-				paymentFailureCount: 0,
-				lastPaymentFailureAt: null,
-				paymentFailureStartedAt: null,
-				lastTopUpAmount: creditAmount.toString(),
-			})
-			.where(eq(tables.organization.id, organizationId));
-
-		// Reset low-balance email dedup so alerts can fire again on next cycle
-		await db
-			.delete(tables.followUpEmail)
-			.where(
-				and(
-					eq(tables.followUpEmail.organizationId, organizationId),
-					inArray(tables.followUpEmail.emailType, [
-						"low_balance_20",
-						"low_balance_5",
-					]),
-				),
-			);
-
-		const updatedTransaction = await db
-			.update(tables.transaction)
-			.set({
-				status: "completed",
-				stripePaymentIntentId: paymentIntent.id,
-				description:
-					bonusAmount > 0
-						? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-						: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
-				creditAmount: finalCreditAmount.toString(),
-				amount: totalAmountInDollars.toString(),
-			})
-			.where(eq(tables.transaction.id, transactionId))
-			.returning()
-			.then((rows) => rows[0]);
-
+		// Claim this org's top-up atomically. Concurrent duplicates collide
+		// with the completed-intent index and roll back the whole credit.
 		let completedTransactionId: string;
+		try {
+			completedTransactionId = await db.transaction(async (tx) => {
+				const updatedTransaction = await tx
+					.update(tables.transaction)
+					.set({
+						status: "completed",
+						stripePaymentIntentId: paymentIntent.id,
+						description:
+							bonusAmount > 0
+								? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+								: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
+						creditAmount: finalCreditAmount.toString(),
+						amount: totalAmountInDollars.toString(),
+					})
+					.where(
+						and(
+							eq(tables.transaction.id, transactionId),
+							eq(tables.transaction.organizationId, organizationId),
+							eq(tables.transaction.type, "credit_topup"),
+							ne(tables.transaction.status, "completed"),
+							or(
+								isNull(tables.transaction.stripePaymentIntentId),
+								eq(tables.transaction.stripePaymentIntentId, paymentIntent.id),
+							),
+						),
+					)
+					.returning()
+					.then((rows) => rows[0]);
 
-		if (!updatedTransaction) {
-			logger.warn(
-				`Could not find pending transaction ${transactionId} for organization ${organizationId}, creating new record`,
-			);
-			const [fallbackTransaction] = await db
-				.insert(tables.transaction)
-				.values({
+				let claimedTransactionId: string;
+
+				if (!updatedTransaction) {
+					logger.warn(
+						`Could not find pending transaction ${transactionId} for organization ${organizationId}, creating new record`,
+					);
+					const [fallbackTransaction] = await tx
+						.insert(tables.transaction)
+						.values({
+							organizationId,
+							type: "credit_topup",
+							creditAmount: finalCreditAmount.toString(),
+							amount: totalAmountInDollars.toString(),
+							currency: paymentIntent.currency.toUpperCase(),
+							status: "completed",
+							stripePaymentIntentId: paymentIntent.id,
+							description: transactionDescription,
+						})
+						.returning();
+					claimedTransactionId = fallbackTransaction.id;
+				} else {
+					claimedTransactionId = updatedTransaction.id;
+				}
+
+				await tx
+					.update(tables.organization)
+					.set({
+						credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+						paymentFailureCount: 0,
+						lastPaymentFailureAt: null,
+						paymentFailureStartedAt: null,
+						lastTopUpAmount: creditAmount.toString(),
+					})
+					.where(eq(tables.organization.id, organizationId));
+
+				// Reset low-balance email dedup so alerts can fire again on next cycle
+				await tx
+					.delete(tables.followUpEmail)
+					.where(
+						and(
+							eq(tables.followUpEmail.organizationId, organizationId),
+							inArray(tables.followUpEmail.emailType, [
+								"low_balance_20",
+								"low_balance_5",
+							]),
+						),
+					);
+
+				return claimedTransactionId;
+			});
+		} catch (err) {
+			if (
+				await isCompletedCreditTopUpConflict(
+					err,
 					organizationId,
-					type: "credit_topup",
-					creditAmount: finalCreditAmount.toString(),
-					amount: totalAmountInDollars.toString(),
-					currency: paymentIntent.currency.toUpperCase(),
-					status: "completed",
-					stripePaymentIntentId: paymentIntent.id,
-					description: transactionDescription,
-				})
-				.returning();
-			completedTransactionId = fallbackTransaction.id;
-		} else {
-			completedTransactionId = updatedTransaction.id;
+					paymentIntent.id,
+				)
+			) {
+				logger.info(
+					`Skipping duplicate payment_intent.succeeded auto top-up for organization ${organizationId} (transaction ${transactionId} already processed)`,
+				);
+				return;
+			}
+			throw err;
 		}
 
 		const lineItems = [
@@ -3283,7 +3345,7 @@ async function handlePaymentIntentSucceeded(
 			},
 		});
 	} else {
-		await recordCreditTopUp({
+		const applied = await recordCreditTopUp({
 			organizationId,
 			finalCreditAmount,
 			bonusAmount,
@@ -3297,6 +3359,9 @@ async function handlePaymentIntentSucceeded(
 			bonusType,
 			purchaserUserId: resolvedUser?.id ?? null,
 		});
+		if (!applied) {
+			return;
+		}
 	}
 
 	await notifyCreditsPurchased({
@@ -5828,4 +5893,33 @@ export async function handleSubscriptionCreated(
 		);
 		throw error;
 	}
+}
+async function isCompletedCreditTopUpConflict(
+	error: unknown,
+	organizationId: string,
+	paymentIntentId: string | null,
+): Promise<boolean> {
+	const wrapped = error as {
+		code?: string;
+		constraint?: string;
+		cause?: { code?: string; constraint?: string };
+	};
+	const violation = wrapped?.cause ?? wrapped;
+	if (
+		!paymentIntentId ||
+		violation?.code !== "23505" ||
+		violation.constraint !== "transaction_credit_topup_payment_intent_unique"
+	) {
+		return false;
+	}
+	return Boolean(
+		await db.query.transaction.findFirst({
+			where: {
+				organizationId: { eq: organizationId },
+				stripePaymentIntentId: { eq: paymentIntentId },
+				type: { eq: "credit_topup" },
+				status: { eq: "completed" },
+			},
+		}),
+	);
 }

@@ -513,7 +513,9 @@ describe("computeSelfRefundEligibility", () => {
 		async ({ credits, eligible }) => {
 			await seedOrg({ credits });
 			await seedTransaction({ createdAt: daysAgo(5) });
-			const latest = await seedTransaction();
+			const latest = await seedTransaction({
+				stripePaymentIntentId: "pi_test_2",
+			});
 			expect(await getEligibility(latest.id)).toEqual(
 				eligible
 					? { eligible: true }

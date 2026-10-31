@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, sql } from "@llmgateway/db";
 
 import { stripeRoutes } from "./stripe.js";
 import { deleteAll } from "./testing.js";
@@ -126,14 +126,14 @@ function paymentIntentEvent(
 	} as unknown as Stripe.Event;
 }
 
-async function deliver(event: Stripe.Event) {
+async function deliver(event: Stripe.Event, expectedStatus = 200) {
 	stripeMock.webhooks.constructEvent.mockReturnValue(event);
 	const res = await stripeRoutes.request("/webhook", {
 		method: "POST",
 		headers: { "stripe-signature": "sig" },
 		body: JSON.stringify(event),
 	});
-	expect(res.status).toBe(200);
+	expect(res.status).toBe(expectedStatus);
 }
 
 function discordNotification() {
@@ -260,5 +260,209 @@ describe("credit top-up via Stripe Checkout", () => {
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(failures).toHaveLength(1);
+	});
+
+	test("credits a payment intent that succeeds after failed attempts", async () => {
+		// A client-confirmed PaymentIntent stays confirmable after a decline, so
+		// one PaymentIntent can record several failed rows and then succeed.
+		await deliver(
+			paymentIntentEvent("payment_intent.payment_failed", checkoutMetadata),
+		);
+		await deliver(
+			paymentIntentEvent("payment_intent.payment_failed", checkoutMetadata),
+		);
+		await deliver(
+			paymentIntentEvent("payment_intent.succeeded", checkoutMetadata),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+
+		const transactions = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transactions.map((t) => t.status).sort()).toEqual([
+			"completed",
+			"failed",
+			"failed",
+		]);
+	});
+
+	test.each(["checkout", "auto"] as const)(
+		"rolls back an unrelated uniqueness failure and retries (%s)",
+		async (source) => {
+			const event =
+				source === "checkout"
+					? checkoutSessionCompletedEvent()
+					: paymentIntentEvent("payment_intent.succeeded", {
+							...checkoutMetadata,
+							transactionId: "missing-pending-topup",
+						});
+			await db.insert(tables.transaction).values({
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				status: "failed",
+				description:
+					source === "checkout"
+						? "Credit top-up via Stripe Checkout"
+						: "Credit top-up via Stripe",
+			});
+			await db.insert(tables.followUpEmail).values({
+				organizationId: ORG_ID,
+				emailType: "low_balance_5",
+				sentTo: USER_EMAIL,
+			});
+			await db.execute(
+				sql`CREATE UNIQUE INDEX test_topup_description_unique ON "transaction" (description)`,
+			);
+			try {
+				await deliver(event, 400);
+				const org = await db.query.organization.findFirst({
+					where: { id: ORG_ID },
+				});
+				expect(Number(org?.credits)).toBe(0);
+				expect(
+					await db.query.followUpEmail.findMany({
+						where: { organizationId: ORG_ID },
+					}),
+				).toHaveLength(1);
+				expect(discordNotification()).toBeNull();
+			} finally {
+				await db.execute(sql`DROP INDEX test_topup_description_unique`);
+			}
+			await deliver(event);
+			const org = await db.query.organization.findFirst({
+				where: { id: ORG_ID },
+			});
+			expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+		},
+	);
+
+	test("does not claim another organization's pending auto top-up", async () => {
+		const otherOrgId = "org-topup-other";
+		await db.insert(tables.organization).values({
+			id: otherOrgId,
+			name: "Other Organization",
+			billingEmail: "other@example.com",
+			credits: "0",
+		});
+		const [pending] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: otherOrgId,
+				type: "credit_topup",
+				status: "pending",
+				amount: "10.35",
+				creditAmount: "10",
+			})
+			.returning();
+		await deliver(
+			paymentIntentEvent("payment_intent.succeeded", {
+				...checkoutMetadata,
+				transactionId: pending.id,
+			}),
+		);
+		const untouched = await db.query.transaction.findFirst({
+			where: { id: pending.id },
+		});
+		expect(untouched?.status).toBe("pending");
+		expect(untouched?.stripePaymentIntentId).toBeNull();
+		const topups = await db.query.transaction.findMany({
+			where: { organizationId: ORG_ID, status: "completed" },
+		});
+		expect(topups).toHaveLength(1);
+		const otherOrg = await db.query.organization.findFirst({
+			where: { id: otherOrgId },
+		});
+		expect(Number(otherOrg?.credits)).toBe(0);
+	});
+
+	test("credits a pending auto top-up once under concurrent delivery", async () => {
+		const [pending] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				status: "pending",
+				amount: "10.35",
+				creditAmount: "10",
+			})
+			.returning();
+		const event = paymentIntentEvent("payment_intent.succeeded", {
+			...checkoutMetadata,
+			transactionId: pending.id,
+		});
+		await Promise.all([deliver(event), deliver(event), deliver(event)]);
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+		const topups = await db.query.transaction.findMany({
+			where: { organizationId: ORG_ID },
+		});
+		expect(topups).toHaveLength(1);
+		expect(topups[0]).toMatchObject({
+			id: pending.id,
+			status: "completed",
+			stripePaymentIntentId: PAYMENT_INTENT_ID,
+		});
+	});
+
+	test("adds fractional credits exactly in PostgreSQL", async () => {
+		await db.execute(
+			sql`UPDATE organization SET credits = '0.1' WHERE id = ${ORG_ID}`,
+		);
+		const event = paymentIntentEvent("payment_intent.succeeded", {
+			...checkoutMetadata,
+			baseAmount: "0.2",
+		}) as Stripe.PaymentIntentSucceededEvent;
+		event.data.object.amount = 21;
+		await deliver(event);
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(org?.credits).toBe("0.3");
+		const topup = await db.query.transaction.findFirst({
+			where: { organizationId: ORG_ID },
+		});
+		expect(topup?.creditAmount).toBe("0.2");
+	});
+
+	test("refuses a completed checkout without its payment intent key", async () => {
+		const event =
+			checkoutSessionCompletedEvent() as Stripe.CheckoutSessionCompletedEvent;
+		event.data.object.payment_intent = null;
+		await deliver(event);
+		expect(
+			await db.query.transaction.findMany({
+				where: { organizationId: ORG_ID },
+			}),
+		).toHaveLength(0);
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(org?.credits).toBe("0");
+	});
+
+	test("credits once when the same payment intent is delivered concurrently", async () => {
+		const event = paymentIntentEvent(
+			"payment_intent.succeeded",
+			checkoutMetadata,
+		);
+
+		await Promise.all([deliver(event), deliver(event)]);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+
+		const transactions = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transactions).toHaveLength(1);
+		expect(transactions[0].status).toBe("completed");
 	});
 });
