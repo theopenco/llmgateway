@@ -162,6 +162,8 @@ This makes routing react quickly to a provider that just started failing or slow
 
 Only requests served on LLM Gateway's own credentials feed these metrics. Requests on your own [provider keys](/learn/provider-keys) never count toward a provider's uptime, so a misconfigured key cannot degrade routing for anyone else.
 
+Metrics are also kept per [service tier](/features/service-tiers): a `flex` request is scored on the provider's recent `flex` traffic, a `priority` request on its `priority` traffic, and every other request on standard-tier traffic. A provider shedding `flex` load therefore does not lose standard or `priority` traffic. A tier without recent traffic of its own on a provider uses that provider's standard-tier metrics.
+
 **Prompt Caching and Token Costs**:
 
 For estimated prompts of at least **%routing.thresholds.cachePromptTokens% tokens**, or when choosing a session's provider, routing blends each provider's uncached and cached input prices and weights output by the expected output:input token ratio. Coding sessions that mostly reuse prompt tokens can therefore favor a provider with cheaper cache reads even when its uncached input price is higher. Providers without a cached input price use their full input price.
