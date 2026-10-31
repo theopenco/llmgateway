@@ -485,7 +485,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://ai.google.com",
 		statusPageUrl: "https://aistudio.google.com/status",
 		announcement: null,
-		priority: 0.8,
 		serviceTiers: [
 			{
 				id: "flex",
