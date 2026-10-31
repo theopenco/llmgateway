@@ -140,7 +140,14 @@ async function passPreflight(
 			maxOutput: 100_000_000,
 			...overrides,
 		},
-		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{
+				id: "message_content",
+				label: "Message content compatibility",
+				status: "passed",
+			},
+		],
 		status: "passed",
 		completedAt: new Date(),
 	});
@@ -268,7 +275,14 @@ async function createModel(
 					undefined,
 			...(body.decisions === true ? { decisions: true } : {}),
 		},
-		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{
+				id: "message_content",
+				label: "Message content compatibility",
+				status: "passed",
+			},
+		],
 		status: "passed",
 		completedAt: new Date(),
 	});
@@ -957,6 +971,28 @@ describe("airside provider portal", () => {
 		expect((await widened.json()).message).toContain(
 			"changed after verification",
 		);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				checks: stored!.checks
+					.filter((check) => check.id !== "message_content")
+					.map((check) => ({ ...check, status: "passed" as const })),
+			})
+			.where(eq(tables.providerModelVerification.id, stored!.id));
+		const stale = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(stale.status).toBe(409);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				checks: stored!.checks.map((check) => ({
+					...check,
+					status: "passed" as const,
+				})),
+			})
+			.where(eq(tables.providerModelVerification.id, stored!.id));
 		const created = await app.request(
 			"/airside/models",
 			json(cookie, submission),
@@ -1191,6 +1227,23 @@ describe("airside provider portal", () => {
 		);
 
 		await passPreflight(model.id);
+		const latest = await db.query.providerModelVerification.findFirst({
+			where: { draftModelId: { eq: model.id } },
+			orderBy: { createdAt: "desc" },
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				checks: latest!.checks.filter(
+					(check) => check.id !== "message_content",
+				),
+			})
+			.where(eq(tables.providerModelVerification.id, latest!.id));
+		expect((await patch({ vision: true })).status).toBe(409);
+		await db
+			.update(tables.providerModelVerification)
+			.set({ checks: latest!.checks })
+			.where(eq(tables.providerModelVerification.id, latest!.id));
 		expect((await patch({ vision: true })).status).toBe(200);
 		// Only the latest run counts: a later failure blocks again.
 		await db.insert(tables.providerModelVerification).values({
