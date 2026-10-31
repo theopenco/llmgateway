@@ -1,29 +1,56 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { cn } from "@/lib/utils";
 
-import { ActivityView } from "./activity-view";
-import { AgentsView } from "./agents-view";
-import { AnalyticsView } from "./analytics-view";
-import { ApiKeysView } from "./api-keys-view";
-import { AuditLogsView } from "./audit-logs-view";
 import { useDemo } from "./context";
 import { EnterpriseBanner } from "./controls";
-import { GuardrailsView } from "./guardrails-view";
-import { ModelUsageView } from "./model-usage-view";
 import { OverviewView } from "./overview-view";
-import { PreferencesView } from "./preferences-view";
-import { RoutingView } from "./routing-view";
-import { SdkView } from "./sdk-view";
-import { SecurityEventsView } from "./security-events-view";
 import { DemoSidebarBody } from "./sidebar";
-import { SsoView } from "./sso-view";
-import { TeamView } from "./team-view";
 import { DemoMobileHeader, DemoTopBar } from "./top-bar";
-import { UsageView } from "./usage-view";
 
 import type { LiveView } from "./nav";
 import type { RefObject } from "react";
+
+// Only the overview shows until a visitor starts the demo, so every other view
+// loads on first visit instead of in the homepage's hydration bundle.
+const ActivityView = dynamic(() =>
+	import("./activity-view").then((m) => m.ActivityView),
+);
+const AgentsView = dynamic(() =>
+	import("./agents-view").then((m) => m.AgentsView),
+);
+const AnalyticsView = dynamic(() =>
+	import("./analytics-view").then((m) => m.AnalyticsView),
+);
+const ApiKeysView = dynamic(() =>
+	import("./api-keys-view").then((m) => m.ApiKeysView),
+);
+const AuditLogsView = dynamic(() =>
+	import("./audit-logs-view").then((m) => m.AuditLogsView),
+);
+const GuardrailsView = dynamic(() =>
+	import("./guardrails-view").then((m) => m.GuardrailsView),
+);
+const ModelUsageView = dynamic(() =>
+	import("./model-usage-view").then((m) => m.ModelUsageView),
+);
+const PreferencesView = dynamic(() =>
+	import("./preferences-view").then((m) => m.PreferencesView),
+);
+const RoutingView = dynamic(() =>
+	import("./routing-view").then((m) => m.RoutingView),
+);
+const SdkView = dynamic(() => import("./sdk-view").then((m) => m.SdkView));
+const SecurityEventsView = dynamic(() =>
+	import("./security-events-view").then((m) => m.SecurityEventsView),
+);
+const SsoView = dynamic(() => import("./sso-view").then((m) => m.SsoView));
+const TeamView = dynamic(() => import("./team-view").then((m) => m.TeamView));
+const UsageView = dynamic(() =>
+	import("./usage-view").then((m) => m.UsageView),
+);
 
 const ENTERPRISE_NOTES: Partial<Record<LiveView, string>> = {
 	"settings/routing":
