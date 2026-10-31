@@ -593,8 +593,11 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			// Flagged prompts may be logged for abuse monitoring for up to 90 days
+			// (GCP Terms §4.3) unless covered by a Cloud Master Agreement or an
+			// approved exception.
+			promptLogging: true,
+			retentionPeriod: "90 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -644,8 +647,11 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			// Flagged prompts may be logged for abuse monitoring for up to 90 days
+			// (GCP Terms §4.3) unless covered by a Cloud Master Agreement or an
+			// approved exception.
+			promptLogging: true,
+			retentionPeriod: "90 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -697,8 +703,11 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			// Flagged prompts may be logged for abuse monitoring for up to 90 days
+			// (GCP Terms §4.3) unless covered by a Cloud Master Agreement or an
+			// approved exception.
+			promptLogging: true,
+			retentionPeriod: "90 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
