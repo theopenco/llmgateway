@@ -1037,10 +1037,8 @@ const createCompany = createRoute({
 						// Accepts the Airside Terms of Use (/legal/terms) and Privacy
 						// Notice (/legal/privacy).
 						acceptTerms: z.literal(true, {
-							errorMap: () => ({
-								message:
-									"Accept the Airside Terms of Use and Privacy Notice to create a company.",
-							}),
+							error:
+								"Accept the Airside Terms of Use and Privacy Notice to create a company.",
 						}),
 					}),
 				},

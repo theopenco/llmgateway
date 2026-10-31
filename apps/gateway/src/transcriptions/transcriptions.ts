@@ -131,7 +131,7 @@ const transcriptionResponseSchema = z
 		language: z.string().optional(),
 		duration: z.number().optional(),
 		words: z.array(transcriptionWordSchema).optional(),
-		channels: z.array(z.record(z.unknown())).optional(),
+		channels: z.array(z.record(z.string(), z.unknown())).optional(),
 	})
 	.passthrough()
 	.openapi({

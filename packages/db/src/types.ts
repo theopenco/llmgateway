@@ -13,7 +13,7 @@ export const errorDetails = z.object({
 export const toolFunction = z.object({
 	name: z.string(),
 	description: z.string().optional(),
-	parameters: z.record(z.any()).optional(),
+	parameters: z.record(z.string(), z.any()).optional(),
 });
 
 export const functionTool = z.object({
