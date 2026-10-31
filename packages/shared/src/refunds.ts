@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 // Feedback collected right before a self-service refund is issued. Shared so
 // the API validation, the database enum and the three dashboard dialogs
 // (credits, DevPass, chat) stay in sync.
@@ -91,6 +93,34 @@ export const REFUND_REASON_ASSURANCE =
 // there and optional everywhere else.
 export function refundCommentsRequired(reason: RefundReason): boolean {
 	return reason === "other";
+}
+
+/**
+ * Description for a refund transaction row, naming the refunded purchase —
+ * "Refund: DevPass Reset Pass (LITE)", not the generic "Credit refund" (that
+ * wording reads as a refund of usage credits regardless of what was bought).
+ * Partial refunds carry the returned fraction; full refunds omit it. Used both
+ * when the charge.refunded webhook stores the row and by the display endpoints
+ * to rebuild the text for rows stored before this wording existed.
+ */
+export function buildRefundDescription(
+	refundAmountDollars: number,
+	original:
+		{ amount: string | null; description: string | null } | null | undefined,
+	fallback?: string | null,
+): string {
+	if (!original) {
+		return fallback ?? "Refund: original purchase";
+	}
+	const label = original.description?.trim() || "original purchase";
+	const originalAmount = new Decimal(original.amount ?? 0);
+	const ratio = originalAmount.gt(0)
+		? new Decimal(refundAmountDollars).div(originalAmount)
+		: new Decimal(1);
+	if (ratio.gte("0.9995")) {
+		return `Refund: ${label}`;
+	}
+	return `Partial refund (${ratio.mul(100).toFixed(1)}%): ${label}`;
 }
 
 // One rule for "is this answer usable?", shared by the dialogs (to gate the
