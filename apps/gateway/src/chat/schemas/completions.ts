@@ -238,7 +238,7 @@ export const completionsRequestSchema = z.object({
 				json_schema: z.object({
 					name: z.string(),
 					description: z.string().optional(),
-					schema: z.record(z.any()),
+					schema: z.record(z.string(), z.any()),
 					strict: z.boolean().optional(),
 				}),
 			}),
@@ -324,7 +324,7 @@ export const completionsRequestSchema = z.object({
 					function: z.object({
 						name: z.string(),
 						description: z.string().optional(),
-						parameters: z.record(z.any()).optional(),
+						parameters: z.record(z.string(), z.any()).optional(),
 						strict: z.boolean().optional().openapi({
 							description:
 								"Ask the provider to constrain tool arguments to the schema. Forwarded to OpenAI-compatible providers and, as Anthropic's tool-level `strict`, to the Anthropic Messages API. Dropped for providers without an equivalent.",

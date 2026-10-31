@@ -68,7 +68,7 @@ const sharedMessageSchema = z.object({
 	reasoning: z.string().nullable(),
 	tools: z.string().nullable(),
 	sources: z.string().nullable().optional(),
-	metadata: z.record(z.unknown()).nullable().optional(),
+	metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
