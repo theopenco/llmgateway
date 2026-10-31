@@ -272,16 +272,10 @@ export function DashboardClient() {
 		shouldApplyDefaults,
 	]);
 
-	const {
-		selectedOrganization,
-		selectedProject,
-		projectId: routeProjectId,
-	} = useDashboardNavigation();
+	const { selectedOrganization, currentProject } = useDashboardNavigation();
 	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
 	const api = useApi();
 
-	// Key activity by the route's project, like the server prefetch; the context
-	// project lags the URL until the last-used-project cookie refreshes.
 	const hydrated = useHydrated();
 	const { data: activity, isLoading: activityLoading } = api.useQuery(
 		"get",
@@ -292,12 +286,12 @@ export function DashboardClient() {
 					from: fromStr,
 					to: toStr,
 					timezone: displayTimeZone,
-					...(routeProjectId ? { projectId: routeProjectId } : {}),
+					...(currentProject?.id ? { projectId: currentProject.id } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!routeProjectId,
+			enabled: !!currentProject?.id,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -319,12 +313,12 @@ export function DashboardClient() {
 					from: format(prevFrom, "yyyy-MM-dd"),
 					to: format(prevTo, "yyyy-MM-dd"),
 					timezone: displayTimeZone,
-					...(routeProjectId ? { projectId: routeProjectId } : {}),
+					...(currentProject?.id ? { projectId: currentProject.id } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!routeProjectId && rangeDays <= 366,
+			enabled: !!currentProject?.id && rangeDays <= 366,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -347,12 +341,12 @@ export function DashboardClient() {
 						? format(comparisonRange.to, "yyyy-MM-dd")
 						: toStr,
 					timezone: displayTimeZone,
-					...(routeProjectId ? { projectId: routeProjectId } : {}),
+					...(currentProject?.id ? { projectId: currentProject.id } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!routeProjectId && comparisonRange !== null,
+			enabled: !!currentProject?.id && comparisonRange !== null,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5,
 		},
@@ -364,11 +358,11 @@ export function DashboardClient() {
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: selectedProject?.id ?? "" },
+				query: { projectId: currentProject?.id ?? "" },
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: !!currentProject?.id,
 			staleTime: 5 * 60 * 1000, // 5 minutes
 			refetchOnWindowFocus: false,
 		},
@@ -596,9 +590,9 @@ export function DashboardClient() {
 				<div className="flex flex-col md:flex-row items-center justify-between space-y-2">
 					<div>
 						<h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-						{selectedProject && (
+						{currentProject && (
 							<p className="text-sm text-muted-foreground mt-1">
-								Project: {selectedProject.name}
+								Project: {currentProject.name}
 								{selectedOrganization && (
 									<span className="ml-2">
 										• Organization: {selectedOrganization.name}
@@ -608,10 +602,10 @@ export function DashboardClient() {
 						)}
 					</div>
 					<div className="flex items-center space-x-2">
-						{selectedOrganization && selectedProject && (
+						{selectedOrganization && currentProject && (
 							<>
 								<CreateApiKeyDialog
-									selectedProject={selectedProject}
+									selectedProject={currentProject}
 									disabled={
 										planLimits
 											? planLimits.currentCount >= planLimits.maxKeys
@@ -626,7 +620,7 @@ export function DashboardClient() {
 									<Button
 										variant="outline"
 										disabled={
-											!selectedProject ||
+											!currentProject ||
 											(planLimits
 												? planLimits.currentCount >= planLimits.maxKeys
 												: false)
@@ -640,7 +634,7 @@ export function DashboardClient() {
 								{isOrgAdmin && <TopUpCreditsButton />}
 							</>
 						)}
-						{isOrgAdmin && !selectedProject && <TopUpCreditsButton />}
+						{isOrgAdmin && !currentProject && <TopUpCreditsButton />}
 					</div>
 				</div>
 
