@@ -9,12 +9,26 @@ const resendAudienceId = process.env.RESEND_AUDIENCE_ID ?? "";
 
 let resendClient: Resend | null = null;
 
-function getResendClient(): Resend | null {
+function getResendClient(timeoutMs?: number): Resend | null {
 	if (!resendApiKey) {
 		return null;
+	}
+	if (timeoutMs !== undefined) {
+		return createResendClient(resendApiKey, timeoutMs);
 	}
 	resendClient ??= new Resend(resendApiKey);
 	return resendClient;
 }
 
 export { fromEmail, replyToEmail, resendAudienceId, getResendClient };
+export function createResendClient(key: string, timeoutMs: number): Resend {
+	// Composition survives shared's ES5 output; native SDK subclasses do not.
+	const client = new Resend(key);
+	const request = client.fetchRequest.bind(client);
+	client.fetchRequest = <T>(path: string, options: RequestInit = {}) =>
+		request<T>(path, {
+			...options,
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+	return client;
+}

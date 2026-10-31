@@ -6,6 +6,7 @@ import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
+import { getResendClient } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -15,8 +16,17 @@ const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
 const RESEND_TIMEOUT_MS = 10_000;
 
-const resendApiKey = process.env.RESEND_API_KEY;
 const resendNewsletterTopicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
+
+class ResendRequestError extends Error {
+	public constructor(
+		message: string,
+		public readonly statusCode: number | null,
+	) {
+		super(message);
+		this.name = "ResendRequestError";
+	}
+}
 
 async function checkRateLimit(identifier: string): Promise<boolean> {
 	return await consumeRateLimit(
@@ -93,7 +103,8 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 
-	if (!resendApiKey) {
+	const resend = getResendClient(RESEND_TIMEOUT_MS);
+	if (!resend) {
 		logger.error("RESEND_API_KEY not configured for newsletter");
 		return c.json(
 			{
@@ -116,138 +127,42 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 	}
 
 	try {
-		// Check if the contact already exists
-		const getResponse = await fetch(
-			`https://api.resend.com/contacts/${encodeURIComponent(email)}`,
-			{
-				method: "GET",
-				headers: {
-					Authorization: `Bearer ${resendApiKey}`,
-				},
-				signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
-			},
-		);
-
-		if (getResponse.ok) {
-			// Contact exists — update topic subscription
-			const patchResponse = await fetch(
-				`https://api.resend.com/contacts/${encodeURIComponent(email)}`,
-				{
-					method: "PATCH",
-					headers: {
-						Authorization: `Bearer ${resendApiKey}`,
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						unsubscribed: false,
-						topics: [
-							{
-								id: resendNewsletterTopicId,
-								subscription: "opt_in",
-							},
-						],
-					}),
-					signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
-				},
-			);
-
-			if (!patchResponse.ok) {
-				const body = (await patchResponse.json()) as {
-					message?: string;
-				};
-				throw new Error(
-					body.message ?? `Resend API error: ${patchResponse.status}`,
+		// Resend 6.8 drops topics from contacts.create; use the dedicated endpoint.
+		const create = await resend.contacts.create({
+			email,
+			unsubscribed: false,
+		});
+		if (create.error) {
+			if (create.error.statusCode !== 409) {
+				throw new ResendRequestError(
+					create.error.message,
+					create.error.statusCode,
 				);
 			}
-
-			return c.json(
-				{
-					success: true,
-					message: "You're already subscribed!",
-				},
-				200,
-			);
-		}
-
-		if (getResponse.status !== 404) {
-			const body = (await getResponse.json()) as { message?: string };
-			throw new Error(
-				body.message ?? `Resend API error: ${getResponse.status}`,
-			);
-		}
-
-		// Contact does not exist — create it
-		const postResponse = await fetch("https://api.resend.com/contacts", {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${resendApiKey}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
+			// Only a duplicate permits updating the existing contact.
+			const update = await resend.contacts.update({
 				email,
 				unsubscribed: false,
-				topics: [
-					{
-						id: resendNewsletterTopicId,
-						subscription: "opt_in",
-					},
-				],
-			}),
-			signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
+			});
+			if (update.error) {
+				throw new ResendRequestError(
+					update.error.message,
+					update.error.statusCode,
+				);
+			}
+		}
+
+		const topic = await resend.contacts.topics.update({
+			email,
+			topics: [
+				{
+					id: resendNewsletterTopicId,
+					subscription: "opt_in",
+				},
+			],
 		});
-
-		if (!postResponse.ok) {
-			const isDuplicate =
-				postResponse.status === 409 || postResponse.status === 422;
-
-			if (!isDuplicate) {
-				const body = (await postResponse.json()) as {
-					message?: string;
-				};
-				throw new Error(
-					body.message ?? `Resend API error: ${postResponse.status}`,
-				);
-			}
-
-			// Race condition: contact was created between our GET and POST.
-			// Fall back to PATCH to ensure the subscription state is correct.
-			const patchResponse = await fetch(
-				`https://api.resend.com/contacts/${encodeURIComponent(email)}`,
-				{
-					method: "PATCH",
-					headers: {
-						Authorization: `Bearer ${resendApiKey}`,
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						unsubscribed: false,
-						topics: [
-							{
-								id: resendNewsletterTopicId,
-								subscription: "opt_in",
-							},
-						],
-					}),
-					signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
-				},
-			);
-
-			if (!patchResponse.ok) {
-				const body = (await patchResponse.json()) as {
-					message?: string;
-				};
-				throw new Error(
-					body.message ?? `Resend API error: ${patchResponse.status}`,
-				);
-			}
-
-			return c.json(
-				{
-					success: true,
-					message: "Successfully subscribed to the newsletter!",
-				},
-				200,
-			);
+		if (topic.error) {
+			throw new ResendRequestError(topic.error.message, topic.error.statusCode);
 		}
 
 		return c.json(
@@ -258,7 +173,19 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 			200,
 		);
 	} catch (error) {
-		logger.error("Failed to subscribe to newsletter", { error });
+		if (error instanceof ResendRequestError && error.statusCode === 429) {
+			logger.warn("Resend rate limited newsletter signup");
+			return c.json(
+				{
+					success: false,
+					message: "Too many requests. Please try again later.",
+				},
+				429,
+			);
+		}
+		logger.error("Failed to subscribe to newsletter", {
+			statusCode: error instanceof ResendRequestError ? error.statusCode : null,
+		});
 		return c.json(
 			{
 				success: false,
