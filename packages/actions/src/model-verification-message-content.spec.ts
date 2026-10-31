@@ -66,7 +66,10 @@ function completion(stream = false): Response {
 function verify(
 	streaming: boolean,
 	reject?: (payload: Payload) => boolean,
-	format: { apiFormat?: ProviderModelVerificationTarget["apiFormat"] } = {
+	format: {
+		apiFormat?: ProviderModelVerificationTarget["apiFormat"];
+		providerId?: string;
+	} = {
 		apiFormat: "openai-chat-completions",
 	},
 ) {
@@ -185,3 +188,49 @@ it.each([undefined, "provider-native", "openai-chat-completions"] as const)(
 		).toMatchObject({ status: "passed" });
 	},
 );
+
+it.each(["openai", "together-ai"])(
+	"checks registered %s native Chat Completions and rejects stale runs",
+	async (providerId) => {
+		const format = { providerId, apiFormat: "provider-native" as const };
+		expect(hasMessageContentVerification({ ...target, ...format }, [])).toBe(
+			false,
+		);
+		const { result } = await verify(
+			false,
+			({ messages }) =>
+				messages.some(
+					({ role, content }) => role === "system" && Array.isArray(content),
+				),
+			format,
+		);
+		expect(result.passed).toBe(false);
+		expect(
+			result.checks.find(({ id }) => id === "message_content"),
+		).toMatchObject({
+			status: "failed",
+			feedback: expect.stringContaining("system"),
+		});
+	},
+);
+
+it.each([
+	"anthropic",
+	"vertex-anthropic",
+	"azure-anthropic",
+	"aws-bedrock",
+	"google-ai-studio",
+	"glacier",
+	"google-vertex",
+	"quartz",
+])("does not probe OpenAI wire shapes on %s native protocol", (providerId) => {
+	const nativeTarget = {
+		...target,
+		providerId,
+		apiFormat: "provider-native" as const,
+	};
+	expect(
+		createQueuedModelVerificationChecks(nativeTarget).map(({ id }) => id),
+	).toEqual(["basic"]);
+	expect(hasMessageContentVerification(nativeTarget, [])).toBe(true);
+});

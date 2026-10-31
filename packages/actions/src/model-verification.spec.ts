@@ -10,6 +10,13 @@ import {
 } from "./model-verification.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
+// Capability fixtures isolate their checks; the content baseline has its own suite.
+vi.mock("./model-verification-compatibility.js", () => ({
+	requiresMessageContentVerification: (target: {
+		apiFormat?: string;
+		decisions?: boolean;
+	}) => !target.decisions && target.apiFormat === "openai-chat-completions",
+}));
 
 vi.mock("./gcp-access-token.js", () => ({
 	getGcpServiceAccountAccessToken: vi.fn(async () => "derived-access-token"),
@@ -351,9 +358,7 @@ describe("model verification", () => {
 			expect(result.checks.map((check) => check.id)).toEqual([
 				"basic",
 				"tools",
-				...(["provider-native", "openai-chat-completions"].includes(apiFormat)
-					? ["message_content"]
-					: []),
+				...(apiFormat === "openai-chat-completions" ? ["message_content"] : []),
 			]);
 			expect(result.passed).toBe(true);
 			const [toolEndpoint, toolRequest] = fetchImplementation.mock.calls[1];
@@ -366,7 +371,7 @@ describe("model verification", () => {
 
 	const toolOnly = {
 		...target,
-		providerId: "custom" as const,
+		providerId: "custom-carrier" as const,
 		streaming: false,
 		vision: false,
 		audio: false,
@@ -489,7 +494,7 @@ describe("model verification", () => {
 
 	const reasoningOnly = {
 		...target,
-		providerId: "custom" as const,
+		providerId: "custom-carrier" as const,
 		streaming: false,
 		vision: false,
 		audio: false,
@@ -768,7 +773,7 @@ describe("model verification", () => {
 		await runProviderModelVerification({
 			target: {
 				...target,
-				providerId: "custom",
+				providerId: "custom-carrier",
 				streaming: false,
 				vision: true,
 				audio: false,
@@ -813,7 +818,7 @@ describe("model verification", () => {
 	describe("optional checks", () => {
 		const basicOnly: ProviderModelVerificationTarget = {
 			...target,
-			providerId: "custom",
+			providerId: "custom-carrier",
 			streaming: false,
 			vision: false,
 			audio: false,

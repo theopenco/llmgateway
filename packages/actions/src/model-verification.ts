@@ -21,6 +21,7 @@ import {
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
+import { requiresMessageContentVerification } from "./model-verification-compatibility.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 import {
 	getProviderApiTransport,
@@ -2290,15 +2291,4 @@ export function hasMessageContentVerification(
 			(check) => check.id === "message_content" && check.status === "passed",
 		)
 	);
-}
-function requiresMessageContentVerification(
-	target: ProviderModelVerificationTarget,
-): boolean {
-	if (target.decisions) {
-		return false;
-	}
-	if (target.apiFormat && target.apiFormat !== "provider-native") {
-		return target.apiFormat === "openai-chat-completions";
-	}
-	return !providers.some((provider) => provider.id === target.providerId);
 }
