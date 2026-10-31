@@ -154,7 +154,8 @@ const MAX_DAYS_BACK = 36500;
 
 function randomDate(daysBack: number): Date {
 	const now = new Date();
-	const msBack = randomInt(0, daysBack * 24 * 60 * 60 * 1000 + 1);
+	const spanMs = daysBack * 24 * 60 * 60 * 1000;
+	const msBack = randomInt(0, spanMs + 1);
 	return new Date(now.getTime() - msBack);
 }
 
@@ -210,10 +211,7 @@ function generateLog(
 	const cost = costBeforeDiscount * discountMultiplier;
 
 	// Log-normal duration for wide spread (most fast, some very slow)
-	const duration = Math.max(
-		50,
-		Math.round(logNormalRandom(800, 1.0)),
-	);
+	const duration = Math.max(50, Math.round(logNormalRandom(800, 1.0)));
 
 	// Error states based on finish reason
 	const hasError = ["upstream_error", "client_error", "gateway_error"].includes(
@@ -246,7 +244,7 @@ function generateLog(
 		timeToFirstToken,
 		requestedModel: model.id,
 		requestedProvider: model.provider,
-		usedModel: model.id,
+		usedModel: `${model.provider}/${model.id}`,
 		usedProvider: model.provider,
 		responseSize: outputTokens * randomInt(3, 7), // Variable bytes-per-token estimate
 		promptTokens: String(inputTokens),
