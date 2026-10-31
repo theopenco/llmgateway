@@ -141,8 +141,7 @@ describe("shouldRetryRequest", () => {
 	});
 
 	it("does not fall back to another provider for provider-pinned requests", () => {
-		// Sticky sessions pin to one provider to keep the upstream prompt cache
-		// warm; switching providers mid-session would break the pin. Same-provider
+		// Non-portable reasoning prevents changing providers. Same-provider
 		// retries handle transient failures instead.
 		expect(shouldRetryRequest({ ...defaultOpts, providerPinned: true })).toBe(
 			false,
@@ -200,7 +199,7 @@ describe("shouldRetrySameKey", () => {
 	});
 
 	it("retries the pinned provider even when others exist", () => {
-		// Cross-provider fallback is disabled for sticky sessions, so the pinned
+		// Cross-provider fallback is disabled for non-portable reasoning, so the pinned
 		// provider is retried on the same key even when alternatives exist.
 		expect(
 			shouldRetrySameKey({
