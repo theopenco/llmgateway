@@ -73,8 +73,11 @@ export const Testimonials = () => (
 	/>
 );
 
+// Loaded cards are h-64 (MagicTweet); match it so the rows keep their height.
 export const TestimonialsFallback = () => (
 	<TestimonialsSection
-		renderCard={() => <TweetSkeleton className={cardClassName} />}
+		renderCard={() => (
+			<TweetSkeleton className={`${cardClassName} h-64 max-h-none`} />
+		)}
 	/>
 );
