@@ -44,6 +44,15 @@ function writeCookie(preference: TimeZonePreference) {
 	)}; path=/; max-age=${maxAge}; samesite=lax`;
 }
 
+function whenIdle(callback: () => void): () => void {
+	if (typeof requestIdleCallback === "function") {
+		const id = requestIdleCallback(callback, { timeout: 2000 });
+		return () => cancelIdleCallback(id);
+	}
+	const id = setTimeout(callback, 1);
+	return () => clearTimeout(id);
+}
+
 /**
  * Seeds the display timezone from the cookie the server already read, so the
  * first client render matches the server HTML exactly (no hydration mismatch,
@@ -97,12 +106,15 @@ export function TimeZoneProvider({
 				});
 			});
 		};
-		sync();
+		// The first read initialises Intl, which is slow on a cold start, so it
+		// waits for an idle moment instead of joining the hydration task.
+		const cancelInitialSync = whenIdle(sync);
 		// A long-lived tab outlives a system zone change, and there is no event
 		// for one; re-check whenever the tab is looked at again.
 		window.addEventListener("focus", sync);
 		document.addEventListener("visibilitychange", sync);
 		return () => {
+			cancelInitialSync();
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", sync);
 		};

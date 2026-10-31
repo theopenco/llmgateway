@@ -2,7 +2,6 @@
 
 import { Loader2, Terminal, ShieldCheck, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { formatApiKeyLimitCaps } from "@/components/api-keys/api-key-limit-fields";
@@ -29,6 +28,7 @@ import {
 } from "@/lib/components/select";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import {
 	CODING_AGENTS,

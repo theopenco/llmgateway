@@ -10,7 +10,6 @@ import {
 	X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { usePostHog } from "posthog-js/react";
 import {
 	startTransition,
 	useCallback,
@@ -21,6 +20,7 @@ import {
 } from "react";
 
 import { TooltipProvider } from "@/lib/components/tooltip";
+import { usePostHog } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
 import { DemoProvider, type DemoContextValue } from "./dashboard-demo/context";
@@ -67,21 +67,48 @@ export function DashboardDemo() {
 	const [windowFullscreen, setWindowFullscreen] = useState(false);
 	const frameRef = useRef<HTMLDivElement>(null);
 	const mainRef = useRef<HTMLDivElement>(null);
+	const bodyRef = useRef<HTMLDivElement>(null);
 	const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
 	);
 
-	useEffect(() => {
+	const mountBody = useCallback(() => {
 		const now = new Date();
 		// Mounts the body as a transition so its render never blocks input.
 		startTransition(() => {
-			setClock({
-				anchorDay: format(now, "yyyy-MM-dd"),
-				openedAt: now.getTime(),
-			});
+			setClock(
+				(current) =>
+					current ?? {
+						anchorDay: format(now, "yyyy-MM-dd"),
+						openedAt: now.getTime(),
+					},
+			);
 		});
-		return () => clearTimeout(noticeTimer.current);
 	}, []);
+
+	// The body (its charts, sample history and recharts) is the heaviest work on
+	// the page, so it renders once part of it is on screen. On phones the frame
+	// starts just below the hero and mounts on the first scroll; wider screens
+	// show it right away.
+	useEffect(() => {
+		const body = bodyRef.current;
+		if (!body) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					observer.disconnect();
+					mountBody();
+				}
+			},
+			{ threshold: 0.1 },
+		);
+		observer.observe(body);
+		return () => observer.disconnect();
+	}, [mountBody]);
+
+	useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
 	const history = useMemo(
 		() => (clock ? buildDailyActivity(clock.anchorDay, project) : []),
@@ -146,6 +173,7 @@ export function DashboardDemo() {
 	};
 
 	const start = () => {
+		mountBody();
 		setUnlocked(true);
 		startTransition(() => setStarted(true));
 		track("start", view || "dashboard");
@@ -268,6 +296,7 @@ export function DashboardDemo() {
 
 					<div className="relative min-h-0 flex-1">
 						<div
+							ref={bodyRef}
 							inert={!unlocked}
 							className={cn(
 								"relative flex bg-sidebar",

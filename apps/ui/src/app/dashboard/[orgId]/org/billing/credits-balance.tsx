@@ -1,12 +1,12 @@
 "use client";
 
 import { AlertCircle, CheckCircle, Clock, CreditCard } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef } from "react";
 
 import { Button } from "@/lib/components/button";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 export function CreditsBalance() {
 	const { selectedOrganization } = useDashboardState();

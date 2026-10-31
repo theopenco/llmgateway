@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -33,6 +32,7 @@ import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useFetchClient } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import type { Route } from "next";
 

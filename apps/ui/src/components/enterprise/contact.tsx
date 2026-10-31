@@ -2,7 +2,6 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, CheckCircle2, Info, Loader2 } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -29,6 +28,7 @@ import {
 import { Textarea } from "@/lib/components/textarea";
 import { countries } from "@/lib/countries";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import { CalendlyInline } from "./calendly-inline";
 
