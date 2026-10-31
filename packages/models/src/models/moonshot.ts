@@ -1121,6 +1121,13 @@ export const moonshotModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				supportsDeveloperRole: false,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "moonshot",
@@ -1188,6 +1195,13 @@ export const moonshotModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				supportsDeveloperRole: false,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "moonshot",
