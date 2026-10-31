@@ -2,6 +2,7 @@
 
 import {
 	createContext,
+	startTransition,
 	useCallback,
 	useContext,
 	useEffect,
@@ -65,17 +66,25 @@ export function TimeZoneProvider({
 	useEffect(() => {
 		const sync = () => {
 			const detected = getBrowserTimeZone();
-			setBrowserTimeZone(detected);
-			setPreference((current) => {
-				if (current.mode !== "local" || current.timeZone === detected) {
-					return current;
-				}
-				// Either the cookie is missing (server fell back to UTC) or the
-				// machine's zone has changed since it was written — travel, or the
-				// OS correcting itself. Either way the detected zone wins.
-				const next: TimeZonePreference = { mode: "local", timeZone: detected };
-				writeCookie(next);
-				return next;
+			// A transition, because this provider wraps the whole page: an urgent
+			// context change right after hydration forces every Suspense
+			// boundary still waiting to hydrate to do so in one blocking task.
+			startTransition(() => {
+				setBrowserTimeZone(detected);
+				setPreference((current) => {
+					if (current.mode !== "local" || current.timeZone === detected) {
+						return current;
+					}
+					// Either the cookie is missing (server fell back to UTC) or the
+					// machine's zone has changed since it was written — travel, or the
+					// OS correcting itself. Either way the detected zone wins.
+					const next: TimeZonePreference = {
+						mode: "local",
+						timeZone: detected,
+					};
+					writeCookie(next);
+					return next;
+				});
 			});
 		};
 		sync();

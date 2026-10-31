@@ -74,6 +74,19 @@ For TBT (lab proxy for INP on load):
   hydrates them as separate low-priority units. An async component inside
   (such as a tweet card) needs its own sized fallback, or the section streams
   in empty and shifts the layout.
+- A provider that wraps the page and changes its value after hydration (a
+  fetch result, a browser-only detection) forces every Suspense boundary that
+  has not hydrated yet to hydrate at that update's priority. React renders
+  default and sync updates together, so this becomes one long blocking task.
+  Set such state inside `startTransition` (see `TimeZoneProvider` and
+  `ProviderMarksProvider` in `packages/shared`).
+- `content-visibility: auto` with `contain-intrinsic-size: auto <guess>` on
+  below-the-fold sections keeps their elements out of style and layout until
+  they near the viewport (see the home page). Full-page screenshots leave
+  those sections blank; compare viewport screenshots while scrolling instead.
+- Measure with the API reachable. Some calls (provider marks) only cost main
+  thread time when they succeed; when the local API is down, mock the public
+  endpoints the page calls.
 - posthog-js downloads `surveys.js` unless `disable_surveys: true` is set, even
   when the project has surveys off.
 
