@@ -61,20 +61,15 @@ export default function Home() {
 		.filter((m) => !HIDDEN_MIGRATIONS.has(m.slug))
 		.map((m) => ({ slug: m.slug, fromProvider: m.fromProvider }));
 
-	// Each Suspense boundary hydrates on its own at low priority, so no part of
-	// the page, the navbar and hero included, adds to one long hydration task;
-	// React still hydrates a boundary first when it is clicked. A section that
-	// suspends needs a fallback with the same layout (see Testimonials) so it
-	// never streams in empty.
+	// Each Suspense boundary hydrates on its own at low priority once the hero
+	// is interactive, so below-the-fold sections no longer add to one long
+	// hydration task. A section that suspends needs a fallback with the same
+	// layout (see Testimonials) so it never streams in empty.
 	return (
 		<>
-			<Suspense>
-				<HeroRSC />
-			</Suspense>
+			<HeroRSC />
 			<main className={BELOW_FOLD_CHILDREN}>
-				<Suspense>
-					<LandingHero />
-				</Suspense>
+				<LandingHero />
 				<Suspense>
 					<TrustBar />
 				</Suspense>
