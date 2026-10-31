@@ -1,5 +1,10 @@
 import { logger } from "@llmgateway/logger";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
+import {
+	assertSafeUserContentUrl,
+	isTransientHostResolutionError,
+	fetchSafeUserUrl,
+} from "@llmgateway/shared/url-safety-node";
 
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
@@ -198,12 +203,29 @@ export async function processImageUrl(
 
 	// SSRF: remote content must not resolve to an internal host. This also
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
-	await assertSafeUserContentUrl(url);
+	try {
+		await assertSafeUserContentUrl(url);
+	} catch (error) {
+		if (isTransientHostResolutionError(error)) {
+			throw error;
+		}
+		throw new RequestError(
+			"Image URL is invalid or points to a disallowed host",
+		);
+	}
 	signal?.throwIfAborted();
 
 	let response: Response | undefined;
 	try {
-		response = await fetchNoRedirect(url, signal ? { signal } : undefined);
+		// Validate the socket's DNS result too: it can change after preflight.
+		const init = signal ? { signal } : undefined;
+		response = await fetchNoRedirect(
+			url,
+			init,
+			isProviderUrlGuardEnabled()
+				? () => fetchSafeUserUrl(url, init)
+				: undefined,
+		);
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -263,6 +285,16 @@ export async function processImageUrl(
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
+		}
+		// The guarded connector rejects a rebinding DNS result with EACCES.
+		if (
+			isProviderUrlGuardEnabled() &&
+			error instanceof Error &&
+			(error.cause as NodeJS.ErrnoException | undefined)?.code === "EACCES"
+		) {
+			throw new RequestError(
+				"Image URL is invalid or points to a disallowed host",
+			);
 		}
 		// The caller cancelled or timed out the download; it decides how to report it.
 		if (signal?.aborted) {

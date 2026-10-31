@@ -255,6 +255,36 @@ interface GoogleMessageExtended {
 	parts: GooglePart[];
 }
 
+async function toInlineImagePart(
+	imageUrl: string,
+	isProd: boolean,
+	maxImageSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
+): Promise<GooglePart> {
+	try {
+		const { data, mimeType } = await processImageUrl(
+			imageUrl,
+			isProd,
+			maxImageSizeMB,
+			userPlan,
+		);
+		return { inline_data: { mime_type: mimeType, data } };
+	} catch (error) {
+		// Don't expose the URL in the error message for security
+		const errorMsg = error instanceof Error ? error.message : "Unknown error";
+		// Preserve the RequestError type (and its status code) so the gateway
+		// returns a 4xx and logs a client_error row instead of treating a
+		// client-caused image failure as an unhandled 500.
+		if (error instanceof RequestError) {
+			throw new RequestError(
+				`Failed to process image: ${errorMsg}`,
+				error.statusCode,
+			);
+		}
+		throw new Error(`Failed to process image: ${errorMsg}`);
+	}
+}
+
 /**
  * Transforms OpenAI format messages to Google format, handling:
  * - Text content
@@ -290,23 +320,44 @@ export async function transformGoogleMessages(
 		if (m.role === "tool") {
 			// Check if there's already a user message for function responses we can append to
 			const lastMsg = result[result.length - 1];
+			// The response object is JSON, so an image inside it reaches the model
+			// as a base64 string. Images go up as inline_data parts right after it.
+			const images = Array.isArray(m.content)
+				? m.content.filter(isImageUrlContent)
+				: [];
 			const functionResponsePart: GooglePart = {
 				functionResponse: {
 					name: m.name ?? "unknown_function",
 					response: {
-						result: m.content,
+						result:
+							images.length > 0 && Array.isArray(m.content)
+								? m.content.filter((part) => !isImageUrlContent(part))
+								: m.content,
 					},
 				},
 			};
+			const toolParts = [
+				functionResponsePart,
+				...(await Promise.all(
+					images.map((image) =>
+						toInlineImagePart(
+							image.image_url.url,
+							isProd,
+							maxImageSizeMB,
+							userPlan,
+						),
+					),
+				)),
+			];
 
 			if (lastMsg && lastMsg.role === "user") {
 				// Append to existing user message
-				lastMsg.parts.push(functionResponsePart);
+				lastMsg.parts.push(...toolParts);
 			} else {
 				// Create new user message
 				result.push({
 					role: "user",
-					parts: [functionResponsePart],
+					parts: toolParts,
 				});
 			}
 			continue;
@@ -399,35 +450,14 @@ export async function transformGoogleMessages(
 					}
 					parts.push(textPart);
 				} else if (isImageUrlContent(content)) {
-					const imageUrl = content.image_url.url;
-					try {
-						const { data, mimeType } = await processImageUrl(
-							imageUrl,
+					parts.push(
+						await toInlineImagePart(
+							content.image_url.url,
 							isProd,
 							maxImageSizeMB,
 							userPlan,
-						);
-						parts.push({
-							inline_data: {
-								mime_type: mimeType,
-								data: data,
-							},
-						});
-					} catch (error) {
-						// Don't expose the URL in the error message for security
-						const errorMsg =
-							error instanceof Error ? error.message : "Unknown error";
-						// Preserve the RequestError type (and its status code) so the
-						// gateway returns a 4xx and logs a client_error row instead of
-						// treating a client-caused image failure as an unhandled 500.
-						if (error instanceof RequestError) {
-							throw new RequestError(
-								`Failed to process image: ${errorMsg}`,
-								error.statusCode,
-							);
-						}
-						throw new Error(`Failed to process image: ${errorMsg}`);
-					}
+						),
+					);
 				} else if (isInputAudioContent(content)) {
 					const mimeType = resolveGoogleAudioMime(
 						content.input_audio.format as GoogleAudioFormat,

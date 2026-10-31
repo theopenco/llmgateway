@@ -9404,10 +9404,16 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages).toHaveLength(3);
 		expect(requestBody.messages[0].content).toBe("describe this");
 		expect(requestBody.messages[1].role).toBe("tool");
 		expect(requestBody.messages[1].content).toBe("screenshot taken");
+		// The image moves to a user turn instead of being dropped.
+		expect(requestBody.messages[2].role).toBe("user");
+		expect(requestBody.messages[2].content).toContainEqual({
+			type: "image_url",
+			image_url: { url: "data:image/png;base64,abc" },
+		});
 	});
 
 	test("leaves tool message with plain string content unchanged", async () => {
@@ -9553,7 +9559,14 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages[0].content).toBe("");
+		expect(requestBody.messages[0].content).toBe(
+			"The tool returned an image, attached in the next user message.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+		expect(requestBody.messages[1].content).toContainEqual({
+			type: "image_url",
+			image_url: { url: "data:image/png;base64,abc" },
+		});
 	});
 
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
