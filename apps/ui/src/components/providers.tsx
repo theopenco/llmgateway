@@ -98,6 +98,9 @@ export function Providers({
 				ui_host: host,
 				capture_pageview: "history_change",
 				autocapture: true,
+				// The project runs no surveys, but posthog-js still downloads
+				// surveys.js unless they are disabled here.
+				disable_surveys: true,
 			});
 			const channel = classifyChannel(
 				document.referrer,
