@@ -5,6 +5,7 @@ import { NotificationChannelsSettings } from "@/components/settings/notification
 import { OrganizationIdSettings } from "@/components/settings/organization-id-settings";
 import { OrganizationLogoSettings } from "@/components/settings/organization-logo-settings";
 import { OrganizationNameSettings } from "@/components/settings/organization-name-settings";
+import { ProviderKeyAlertsSettings } from "@/components/settings/provider-key-alerts-settings";
 import {
 	Card,
 	CardContent,
@@ -65,6 +66,20 @@ export default function PreferencesPage() {
 						</CardHeader>
 						<CardContent>
 							<NotificationChannelsSettings />
+						</CardContent>
+					</Card>
+					<Card>
+						<CardHeader>
+							<CardTitle>Provider Key Alerts</CardTitle>
+							<CardDescription>
+								Tell owners and admins when your own provider keys or the LLM
+								Gateway credentials serving your credit traffic start failing,
+								for example after a key was revoked, ran out of quota, or lost
+								access to a model.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<ProviderKeyAlertsSettings />
 						</CardContent>
 					</Card>
 					<Card className="border-destructive/20">
