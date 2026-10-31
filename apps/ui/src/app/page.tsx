@@ -46,6 +46,13 @@ const Footer = dynamic(() => import("@/components/landing/footer"));
 
 const HIDDEN_MIGRATIONS = new Set(["vercel-ai-gateway", "portkey"]);
 
+// Sections after the hero skip style, layout and paint until they near the
+// viewport, so their ~2,000 elements stay out of every layout during load.
+const BELOW_FOLD =
+	"[content-visibility:auto] [contain-intrinsic-size:auto_1000px]";
+const BELOW_FOLD_CHILDREN =
+	"[&>*:not(:first-child)]:[content-visibility:auto] [&>*:not(:first-child)]:[contain-intrinsic-size:auto_1000px]";
+
 export default function Home() {
 	const migrations = allMigrations
 		.filter((m) => !HIDDEN_MIGRATIONS.has(m.slug))
@@ -58,7 +65,7 @@ export default function Home() {
 	return (
 		<>
 			<HeroRSC />
-			<main>
+			<main className={BELOW_FOLD_CHILDREN}>
 				<LandingHero />
 				<Suspense>
 					<TrustBar />
@@ -94,9 +101,11 @@ export default function Home() {
 					<CallToAction />
 				</Suspense>
 			</main>
-			<Suspense>
-				<Footer />
-			</Suspense>
+			<div className={BELOW_FOLD}>
+				<Suspense>
+					<Footer />
+				</Suspense>
+			</div>
 		</>
 	);
 }

@@ -11,7 +11,14 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	startTransition,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { TooltipProvider } from "@/lib/components/tooltip";
 import { cn } from "@/lib/utils";
@@ -41,19 +48,21 @@ interface Notice {
 	message: string;
 }
 
+interface DemoClock {
+	anchorDay: string;
+	openedAt: number;
+}
+
 export function DashboardDemo() {
 	const posthog = usePostHog();
 	const [view, setView] = useState<LiveView>("");
 	const [project, setProject] = useState<DemoProject>(DEMO_PROJECTS[0]);
-	const [clock, setClock] = useState({
-		anchorDay: DEMO_ANCHOR_DAY,
-		openedAt: DEMO_OPENED_AT,
-	});
+	const [clock, setClock] = useState<DemoClock | null>(null);
 	const [notice, setNotice] = useState<Notice | null>(null);
 	const [collapsed, setCollapsed] = useState(false);
 	const [mobileNavOpen, setMobileNavOpen] = useState(false);
 	const [unlocked, setUnlocked] = useState(false);
-	const [hydrated, setHydrated] = useState(false);
+	const [started, setStarted] = useState(false);
 	const [nativeFullscreen, setNativeFullscreen] = useState(false);
 	const [windowFullscreen, setWindowFullscreen] = useState(false);
 	const frameRef = useRef<HTMLDivElement>(null);
@@ -64,14 +73,19 @@ export function DashboardDemo() {
 
 	useEffect(() => {
 		const now = new Date();
-		setClock({ anchorDay: format(now, "yyyy-MM-dd"), openedAt: now.getTime() });
-		setHydrated(true);
+		// Mounts the body as a transition so its render never blocks input.
+		startTransition(() => {
+			setClock({
+				anchorDay: format(now, "yyyy-MM-dd"),
+				openedAt: now.getTime(),
+			});
+		});
 		return () => clearTimeout(noticeTimer.current);
 	}, []);
 
 	const history = useMemo(
-		() => buildDailyActivity(clock.anchorDay, project),
-		[clock.anchorDay, project],
+		() => (clock ? buildDailyActivity(clock.anchorDay, project) : []),
+		[clock, project],
 	);
 
 	const track = useCallback(
@@ -133,6 +147,7 @@ export function DashboardDemo() {
 
 	const start = () => {
 		setUnlocked(true);
+		startTransition(() => setStarted(true));
 		track("start", view || "dashboard");
 	};
 
@@ -169,8 +184,9 @@ export function DashboardDemo() {
 		navigate,
 		notify,
 		track,
-		openedAt: clock.openedAt,
-		anchorDay: clock.anchorDay,
+		openedAt: clock?.openedAt ?? DEMO_OPENED_AT,
+		anchorDay: clock?.anchorDay ?? DEMO_ANCHOR_DAY,
+		started,
 		project,
 		selectProject: (next) => {
 			setProject(next);
@@ -258,7 +274,7 @@ export function DashboardDemo() {
 								fullscreen ? "h-full" : "h-[560px] md:h-[680px]",
 							)}
 						>
-							{hydrated && (
+							{clock && (
 								<DemoBody
 									collapsed={collapsed}
 									onToggleSidebar={() => {
