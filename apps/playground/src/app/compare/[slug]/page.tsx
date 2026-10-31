@@ -369,7 +369,9 @@ export default async function ComparePage({ params }: PageProps) {
 					<p className="mt-4 text-xs text-muted-foreground">
 						Credits reset each cycle. Pay-as-you-go top-ups never expire and act
 						as a fallback.{" "}
-						{comparison.studio && comparison.studio !== "chat"
+						{comparison.studio === "video" ||
+						comparison.studio === "image" ||
+						comparison.studio === "audio"
 							? "Every plan, Starter included, covers every image, video and audio model."
 							: "Starter excludes frontier models (Opus, GPT-5, Gemini 2.5 Pro, Grok 4); Plus and Pro include everything."}
 					</p>
