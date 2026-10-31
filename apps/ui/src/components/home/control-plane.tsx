@@ -39,7 +39,7 @@ function Panel({
 						"rounded-full px-2 py-0.5 text-[10px] tracking-[0.12em]",
 						plan === "Enterprise"
 							? "bg-blue-500/15 text-blue-700 dark:text-blue-300"
-							: "bg-muted text-muted-foreground",
+							: "bg-muted text-foreground/70",
 					)}
 				>
 					{plan}
@@ -173,10 +173,10 @@ export function ControlPlane() {
 							Refund the order for <Redacted>jane.doe@acme.com</Redacted> paid
 							with card <Redacted>4242 4242 4242 4242</Redacted>
 							<div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-								<span className="rounded-full bg-orange-500/15 px-2 py-0.5 text-orange-700 dark:text-orange-300">
+								<span className="rounded-full bg-orange-500/15 px-2 py-0.5 text-orange-800 dark:text-orange-300">
 									2 entities redacted
 								</span>
-								<span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+								<span className="rounded-full bg-muted px-2 py-0.5 text-foreground/70">
 									before routing
 								</span>
 							</div>
