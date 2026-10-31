@@ -95,6 +95,14 @@ const modelSchema = z.object({
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
+			web_search: z.boolean().openapi({
+				description:
+					"Whether this mapping supports native web search through the web_search tool.",
+			}),
+			web_search_forced_only: z.boolean().openapi({
+				description:
+					'Whether this mapping only searches when the request forces it with tool_choice: {"type": "web_search"}. A web_search tool that is merely offered is not routed to it, and is dropped when no other mapping can choose to search on its own.',
+			}),
 			reasoning_efforts: z
 				.array(
 					z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
@@ -151,6 +159,10 @@ const modelSchema = z.object({
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
 	structured_outputs: z.boolean(),
+	web_search: z.boolean().openapi({
+		description:
+			"Whether at least one still-servable provider mapping supports native web search through the web_search tool (deactivated mappings are excluded).",
+	}),
 	free: z.boolean().optional(),
 	deprecated_at: z.string().optional(),
 	deactivated_at: z.string().optional(),
@@ -445,6 +457,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							}),
 							json_output: provider.jsonOutput === true,
 							structured_outputs: provider.jsonOutputSchema === true,
+							web_search: provider.webSearch === true,
 							free: model.free ?? false,
 							deprecated_at: provider.deprecatedAt?.toISOString(),
 							deactivated_at: provider.deactivatedAt?.toISOString(),
@@ -538,6 +551,9 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				structured_outputs: (model.providers as ProviderModelMapping[])
 					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
 					.some((p) => p.jsonOutputSchema === true),
+				web_search: (model.providers as ProviderModelMapping[])
+					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+					.some((p) => p.webSearch === true),
 				free: model.free ?? false,
 				// A model is only deprecated/deactivated once EVERY provider mapping
 				// is — the same `.every()` semantics used for filtering above. Report
@@ -587,6 +603,9 @@ function serializeProviderMapping(
 		tools: provider.tools ?? false,
 		parallelToolCalls: provider.parallelToolCalls ?? false,
 		reasoning: provider.reasoning ?? false,
+		web_search: provider.webSearch === true,
+		web_search_forced_only:
+			provider.webSearch === true && provider.webSearchForcedOnly === true,
 		reasoning_efforts: provider.reasoningEfforts,
 		reasoning_modes: provider.reasoningModes,
 		min_cacheable_tokens: provider.minCacheableTokens,
