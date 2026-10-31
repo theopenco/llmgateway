@@ -465,10 +465,50 @@ import type {
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
 	process.env.LLM_VERTEX_ANTHROPIC_PROJECT = _derivedProjectId;
+}
+
+/**
+ * Emit the full rate-limit-exceeded header set for a provider-cap 429,
+ * matching the org limiter (middleware/org-rate-limit.ts): Retry-After plus
+ * the legacy RateLimit-* fields (Reset is delta-seconds) alongside the
+ * X- variants (epoch reset). The structured RateLimit-Policy/RateLimit fields
+ * keep describing the organization RPM quota and are left untouched.
+ */
+function setProviderRateLimitExceededHeaders(
+	c: Context<ServerTypes>,
+	result: ProviderRateLimitResult,
+): void {
+	// When several windows are blocked, describe the one with the longest wait
+	// so limit and reset headers refer to the same policy.
+	const primaryWindow = result.blockedBy.reduce(
+		(slowest, window) =>
+			(result.limits[window].retryAfter ?? 0) >
+			(result.limits[slowest].retryAfter ?? 0)
+				? window
+				: slowest,
+		result.blockedBy[0] ?? "rpm",
+	);
+	const retryAfter =
+		result.limits[primaryWindow].retryAfter ??
+		result.retryAfter ??
+		providerRateLimitWindows[primaryWindow].seconds;
+	const limit = result.limits[primaryWindow].limit;
+
+	c.header("Retry-After", String(retryAfter));
+	c.header("RateLimit-Limit", String(limit));
+	c.header("RateLimit-Remaining", "0");
+	c.header("RateLimit-Reset", String(retryAfter));
+	c.header("X-RateLimit-Limit", String(limit));
+	c.header("X-RateLimit-Remaining", "0");
+	c.header(
+		"X-RateLimit-Reset",
+		String(Math.floor(Date.now() / 1000) + retryAfter),
+	);
 }
 
 /**
@@ -3246,15 +3286,7 @@ chat.openapi(completions, async (c) => {
 	const rejectProviderRateLimit = async (
 		result: ProviderRateLimitResult,
 	): Promise<never> => {
-		if (result.retryAfter) {
-			c.header("Retry-After", result.retryAfter.toString());
-			c.header("RateLimit-Reset", result.retryAfter.toString());
-			c.header(
-				"X-RateLimit-Reset",
-				(Math.floor(Date.now() / 1000) + result.retryAfter).toString(),
-			);
-		}
-		c.header("RateLimit-Remaining", "0");
+		setProviderRateLimitExceededHeaders(c, result);
 		const blockedLimits = result.blockedBy
 			.map(
 				(window) =>
@@ -15117,6 +15149,10 @@ chat.openapi(completions, async (c) => {
 					type: "upstream_error",
 					param: null,
 					code: "all_providers_failed",
+					requestedProvider,
+					usedProvider,
+					requestedModel: initialRequestedModel,
+					usedInternalModel,
 				},
 			},
 			502,
