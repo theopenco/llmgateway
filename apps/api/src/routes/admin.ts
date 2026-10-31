@@ -289,44 +289,52 @@ admin.use("/*", adminMiddleware);
 
 // Token counts split by billed token type, plus the cost each type accounts for.
 // Spliced into every admin stats payload so the dashboard can explain a cost
-// figure rather than only showing the lump sum. The three costs are slices of
+// figure rather than only showing the lump sum. The four costs are slices of
 // the row's total cost and do not have to add up to it: per-request, image,
-// audio, video and cache-write charges live outside this breakdown.
+// audio and video charges live outside this breakdown.
 const tokenBreakdownShape = {
 	inputTokens: z.number(),
 	cachedTokens: z.number(),
+	cacheWriteTokens: z.number(),
 	outputTokens: z.number(),
 	inputCost: z.number(),
 	cachedInputCost: z.number(),
+	cacheWriteInputCost: z.number(),
 	outputCost: z.number(),
 };
 
 interface TokenBreakdown {
 	inputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	outputTokens: number;
 	inputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	outputCost: number;
 }
 
 const EMPTY_TOKEN_BREAKDOWN: TokenBreakdown = {
 	inputTokens: 0,
 	cachedTokens: 0,
+	cacheWriteTokens: 0,
 	outputTokens: 0,
 	inputCost: 0,
 	cachedInputCost: 0,
+	cacheWriteInputCost: 0,
 	outputCost: 0,
 };
 
-// The history tables all expose the same six breakdown columns, so both the
+// The history tables all expose the same eight breakdown columns, so both the
 // per-row select list and the mapping back onto the API shape are shared.
 function tokenBreakdownSums(table: {
 	totalInputTokens: AnyColumn;
 	totalCachedTokens: AnyColumn;
+	totalCacheWriteTokens: AnyColumn;
 	totalOutputTokens: AnyColumn;
 	totalInputCost: AnyColumn;
 	totalCachedInputCost: AnyColumn;
+	totalCacheWriteInputCost: AnyColumn;
 	totalOutputCost: AnyColumn;
 }) {
 	return {
@@ -337,6 +345,10 @@ function tokenBreakdownSums(table: {
 		cachedTokens:
 			sql<number>`COALESCE(SUM(CAST(${table.totalCachedTokens} AS NUMERIC)), 0)`.as(
 				"cached_tokens",
+			),
+		cacheWriteTokens:
+			sql<number>`COALESCE(SUM(CAST(${table.totalCacheWriteTokens} AS NUMERIC)), 0)`.as(
+				"cache_write_tokens",
 			),
 		outputTokens:
 			sql<number>`COALESCE(SUM(CAST(${table.totalOutputTokens} AS NUMERIC)), 0)`.as(
@@ -349,6 +361,10 @@ function tokenBreakdownSums(table: {
 		cachedInputCost:
 			sql<number>`COALESCE(SUM(cast(${table.totalCachedInputCost} as double precision)), 0)`.as(
 				"cached_input_cost",
+			),
+		cacheWriteInputCost:
+			sql<number>`COALESCE(SUM(cast(${table.totalCacheWriteInputCost} as double precision)), 0)`.as(
+				"cache_write_input_cost",
 			),
 		outputCost:
 			sql<number>`COALESCE(SUM(cast(${table.totalOutputCost} as double precision)), 0)`.as(
@@ -368,6 +384,9 @@ function tokenBreakdownFromSub(sub: Record<keyof TokenBreakdown, SQLWrapper>) {
 		cachedTokens: sql<number>`COALESCE(${sub.cachedTokens}, 0)`.as(
 			"cached_tokens",
 		),
+		cacheWriteTokens: sql<number>`COALESCE(${sub.cacheWriteTokens}, 0)`.as(
+			"cache_write_tokens",
+		),
 		outputTokens: sql<number>`COALESCE(${sub.outputTokens}, 0)`.as(
 			"output_tokens",
 		),
@@ -375,6 +394,10 @@ function tokenBreakdownFromSub(sub: Record<keyof TokenBreakdown, SQLWrapper>) {
 		cachedInputCost: sql<number>`COALESCE(${sub.cachedInputCost}, 0)`.as(
 			"cached_input_cost",
 		),
+		cacheWriteInputCost:
+			sql<number>`COALESCE(${sub.cacheWriteInputCost}, 0)`.as(
+				"cache_write_input_cost",
+			),
 		outputCost: sql<number>`COALESCE(${sub.outputCost}, 0)`.as("output_cost"),
 	};
 }
@@ -392,6 +415,10 @@ function tokenBreakdownSubTotals(
 			sql<number>`COALESCE(SUM(COALESCE(${sub.cachedTokens}, 0)), 0)`.as(
 				"cached_tokens",
 			),
+		cacheWriteTokens:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.cacheWriteTokens}, 0)), 0)`.as(
+				"cache_write_tokens",
+			),
 		outputTokens:
 			sql<number>`COALESCE(SUM(COALESCE(${sub.outputTokens}, 0)), 0)`.as(
 				"output_tokens",
@@ -403,6 +430,10 @@ function tokenBreakdownSubTotals(
 		cachedInputCost:
 			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.cachedInputCost} as double precision), 0)), 0)`.as(
 				"cached_input_cost",
+			),
+		cacheWriteInputCost:
+			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.cacheWriteInputCost} as double precision), 0)), 0)`.as(
+				"cache_write_input_cost",
 			),
 		outputCost:
 			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.outputCost} as double precision), 0)), 0)`.as(
@@ -417,9 +448,11 @@ function toTokenBreakdown(
 	return {
 		inputTokens: Number(row?.inputTokens ?? 0),
 		cachedTokens: Number(row?.cachedTokens ?? 0),
+		cacheWriteTokens: Number(row?.cacheWriteTokens ?? 0),
 		outputTokens: Number(row?.outputTokens ?? 0),
 		inputCost: Number(row?.inputCost ?? 0),
 		cachedInputCost: Number(row?.cachedInputCost ?? 0),
+		cacheWriteInputCost: Number(row?.cacheWriteInputCost ?? 0),
 		outputCost: Number(row?.outputCost ?? 0),
 	};
 }
@@ -431,9 +464,11 @@ function addTokenBreakdown(
 	const value = toTokenBreakdown(row);
 	target.inputTokens += value.inputTokens;
 	target.cachedTokens += value.cachedTokens;
+	target.cacheWriteTokens += value.cacheWriteTokens;
 	target.outputTokens += value.outputTokens;
 	target.inputCost += value.inputCost;
 	target.cachedInputCost += value.cachedInputCost;
+	target.cacheWriteInputCost += value.cacheWriteInputCost;
 	target.outputCost += value.outputCost;
 }
 
@@ -8510,6 +8545,10 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
 						"cached_tokens",
 					),
+				cacheWriteTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cacheWriteTokens} AS NUMERIC))`.as(
+						"cache_write_tokens",
+					),
 				outputTokens:
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
@@ -8521,6 +8560,10 @@ admin.openapi(getModelDetail, async (c) => {
 				cachedInputCost:
 					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
+					),
+				cacheWriteInputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.cacheWriteInputCost} as double precision))`.as(
+						"cache_write_input_cost",
 					),
 				outputCost:
 					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
@@ -10694,6 +10737,10 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
 						"cached_tokens",
 					),
+				cacheWriteTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cacheWriteTokens} AS NUMERIC))`.as(
+						"cache_write_tokens",
+					),
 				outputTokens:
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
@@ -10705,6 +10752,10 @@ admin.openapi(getModelHistory, async (c) => {
 				cachedInputCost:
 					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
+					),
+				cacheWriteInputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.cacheWriteInputCost} as double precision))`.as(
+						"cache_write_input_cost",
 					),
 				outputCost:
 					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
@@ -10880,6 +10931,10 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
 						"cached_tokens",
 					),
+				cacheWriteTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cacheWriteTokens} AS NUMERIC))`.as(
+						"cache_write_tokens",
+					),
 				outputTokens:
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
@@ -10891,6 +10946,10 @@ admin.openapi(getMappingHistory, async (c) => {
 				cachedInputCost:
 					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
+					),
+				cacheWriteInputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.cacheWriteInputCost} as double precision))`.as(
+						"cache_write_input_cost",
 					),
 				outputCost:
 					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
@@ -13119,6 +13178,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
 					"cached_tokens",
 				),
+			cacheWriteTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+					"cache_write_tokens",
+				),
 			outputTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
 					"output_tokens",
@@ -13130,6 +13193,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedInputCost:
 				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision)), 0)`.as(
 					"cached_input_cost",
+				),
+			cacheWriteInputCost:
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cacheWriteInputCost} as double precision)), 0)`.as(
+					"cache_write_input_cost",
 				),
 			outputCost:
 				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.outputCost} as double precision)), 0)`.as(
@@ -13423,9 +13490,11 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					cost: sql<number>`0`.as("cost"),
 					inputTokens: sql<number>`0`.as("input_tokens"),
 					cachedTokens: sql<number>`0`.as("cached_tokens"),
+					cacheWriteTokens: sql<number>`0`.as("cache_write_tokens"),
 					outputTokens: sql<number>`0`.as("output_tokens"),
 					inputCost: sql<number>`0`.as("input_cost"),
 					cachedInputCost: sql<number>`0`.as("cached_input_cost"),
+					cacheWriteInputCost: sql<number>`0`.as("cache_write_input_cost"),
 					outputCost: sql<number>`0`.as("output_cost"),
 				})
 				.from(tables.modelProviderMapping)
