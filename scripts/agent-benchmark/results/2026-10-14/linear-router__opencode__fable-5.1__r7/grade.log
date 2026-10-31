@@ -1,0 +1,55 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/linear-router__opencode__fable-5.1__r7/repo[39m
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mComplex[2m > [22m[2mParameter with {.*} regexp
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mMulti match[2m > [22m[2m`params` per a handler[2m > [22m[2mGET /entry/123/show
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a label[2m > [22m[2mGET /abc
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a label[2m > [22m[2mGET /abc/sub
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /abc
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /reverse/abc in reverse registration order
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mPOST /all/abc with ALL middleware
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /posts/2024/comments with nested braces
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /files/foo/detail with regexp meta characters
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /user/123/profile with the default pattern
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /user/123/profile with the default pattern in reverse registration order
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mCapture regex pattern has trailing wildcard[2m > [22m[2mGET /foo/bar/file.html
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mCapture regex param with trailing wildcard on empty remainder[2m > [22m[2mGET /123
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mCapture regex param with trailing wildcard and sibling route[2m > [22m[2mGET /regex-abc/123/ghi
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing slash[2m > [22m[2mGET /book/
+[22m[39mSkip: LinearRouter allows trailing slashes
+
+ [32m✓[39m [30m[45m main [49m[39m src/router/linear-router/router.test.ts [2m([22m[2m106 tests[22m[2m | [22m[33m15 skipped[39m[2m)[22m[32m 29[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m91 passed[39m[22m[2m | [22m[33m15 skipped[39m[90m (106)[39m
+[2m   Start at [22m 21:30:17
+[2m   Duration [22m 400ms[2m (transform 128ms, setup 0ms, import 156ms, tests 29ms, environment 0ms)[22m
+
