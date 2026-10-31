@@ -8,6 +8,7 @@ import { Label, Pie, PieChart } from "recharts";
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useUsageMode } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useHydrated } from "@/hooks/useHydrated";
 import {
 	ChartContainer,
 	ChartTooltip,
@@ -102,7 +103,12 @@ export function CostBreakdownChart({
 	const effectiveProjectId = projectId ?? selectedProject?.id;
 
 	const api = useApi();
-	const { data, isLoading, error } = api.useQuery(
+	const hydrated = useHydrated();
+	const {
+		data: activity,
+		isLoading: activityLoading,
+		error,
+	} = api.useQuery(
 		"get",
 		"/activity",
 		{
@@ -121,6 +127,11 @@ export function CostBreakdownChart({
 			initialData,
 		},
 	);
+	// Without initialData this can be a query streamed from the server whose
+	// data lands before hydration; match the server's loading state first.
+	const awaitingHydration = !initialData && !hydrated;
+	const data = awaitingHydration ? undefined : activity;
+	const isLoading = awaitingHydration || activityLoading;
 
 	const { chartData, chartConfig, totalCost, creditsTotal, apiKeysTotal } =
 		useMemo(() => {
