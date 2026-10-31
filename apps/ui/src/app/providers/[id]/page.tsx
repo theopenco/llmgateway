@@ -411,13 +411,32 @@ export async function generateMetadata({
 		};
 	}
 
-	const modelCount =
-		activeModelCount(provider.id) ||
-		(modelDefinitions as readonly ModelDefinition[]).filter((model) =>
+	const servedModelIds = new Set(
+		apiModels
+			.filter((model) =>
+				model.mappings.some(
+					(mapping) =>
+						mapping.providerId === provider.id && mapping.status === "active",
+				),
+			)
+			.map((model) => model.id),
+	);
+	const unlistedModelIds = new Set(
+		apiModels
+			.filter((model) => model.unlistedProviderIds?.includes(provider.id))
+			.map((model) => model.id),
+	);
+	const staticFallbackCount = (
+		modelDefinitions as readonly ModelDefinition[]
+	).filter(
+		(model) =>
+			!servedModelIds.has(model.id) &&
+			!unlistedModelIds.has(model.id) &&
 			model.providers.some(
 				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
 			),
-		).length;
+	).length;
+	const modelCount = activeModelCount(provider.id) + staticFallbackCount;
 	const description = describe(provider.name, modelCount);
 
 	return {

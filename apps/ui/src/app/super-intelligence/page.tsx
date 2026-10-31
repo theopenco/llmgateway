@@ -17,9 +17,7 @@ const description =
 	"Executive Order 14434 replaces Artificial Intelligence (AI) with Super Intelligence (SI) across the US executive branch. What it covers, what it does not, and what it means for developers.";
 
 export const metadata: Metadata = {
-	title: pageTitle(
-		"Super Intelligence (SI) Explained – AI Renamed by Executive Order",
-	),
+	title: pageTitle("Super Intelligence (SI): AI Renamed by Executive Order"),
 	description,
 	alternates: { canonical: "/super-intelligence" },
 	openGraph: {

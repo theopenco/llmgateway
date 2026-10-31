@@ -25,8 +25,9 @@ export const removedModelRedirects: Record<string, string> = {
 };
 
 export function isRedirectedModelId(id: string): boolean {
+	const slug = id.toLowerCase();
 	return (
-		Object.hasOwn(renamedModelRedirects, id) ||
-		Object.hasOwn(removedModelRedirects, id)
+		Object.hasOwn(renamedModelRedirects, slug) ||
+		Object.hasOwn(removedModelRedirects, slug)
 	);
 }
