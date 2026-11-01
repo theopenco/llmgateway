@@ -38,7 +38,7 @@ Add the `reasoning_effort` parameter directly to your request:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (when several mappings are candidates, those that declare `reasoning_efforts` without the requested value are excluded from routing, and the request fails with a `400` when none remains; a request that resolves to a single mapping forwards the value and can surface a provider error), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (when several mappings are candidates, those that declare `reasoning_efforts` without the requested value are excluded from routing, and the request fails with a `400` when none remains; a request that resolves to a single mapping forwards the value and can surface a provider error, and built-in `auto` routing falls back to its default model instead of failing), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
 
 <Callout type="info">
 	OpenAI's reasoning models do not all accept the same effort values. The
@@ -49,9 +49,12 @@ Add the `reasoning_effort` parameter directly to your request:
 	eligible mapping remains — instead of forwarding an unsupported value to the
 	provider. A mapping that declares no `reasoning_efforts`, or a request that
 	resolves to a single mapping, receives the value unchanged and can return a
-	provider error. The exact values each provider mapping accepts are exposed as
-	`reasoning_efforts` on the [`/v1/models`](https://api.llmgateway.io/v1/models)
-	endpoint.
+	provider error. Built-in `auto` routing is another exception: when filtering
+	removes every candidate it falls back to the default model (currently Claude
+	Haiku 4.5) instead of returning a `400`, while a configured smart-routing
+	list, being exhaustive, still returns a `400`. The exact values each provider
+	mapping accepts are exposed as `reasoning_efforts` on the
+	[`/v1/models`](https://api.llmgateway.io/v1/models) endpoint.
 </Callout>
 
 ```bash
@@ -80,7 +83,7 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (when several mappings are candidates, those that declare `reasoning_efforts` without the requested value are excluded from routing, and the request fails with a `400` when none remains; a request that resolves to a single mapping forwards the value and can surface a provider error), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (when several mappings are candidates, those that declare `reasoning_efforts` without the requested value are excluded from routing, and the request fails with a `400` when none remains; a request that resolves to a single mapping forwards the value and can surface a provider error, and built-in `auto` routing falls back to its default model instead of failing), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
