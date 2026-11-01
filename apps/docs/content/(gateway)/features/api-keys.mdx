@@ -287,11 +287,14 @@ When API keys encounter IAM rule violations, the API returns a `403` with the st
 }
 ```
 
-Common error scenarios:
+Common `403` scenarios:
 
 - Model not allowed by IAM rules
 - Provider blocked by IAM rules
 - Pricing limits exceeded
+
+Key-validity failures return a `401` instead:
+
 - API key disabled or deleted
 - API key expired (TTL passed)
 - API key rolled, so the old secret is no longer valid

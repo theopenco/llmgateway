@@ -102,6 +102,8 @@ curl -X POST "https://api.llmgateway.io/v1/messages" \
   }'
 ```
 
+The endpoint accepts the API key either as `Authorization: Bearer` or as Anthropic's native `x-api-key` header, so `ANTHROPIC_API_KEY=llmgtwy_…` works as well as `ANTHROPIC_AUTH_TOKEN`.
+
 ### Response Format
 
 The endpoint returns responses in Anthropic's message format:
@@ -138,9 +140,9 @@ The endpoint returns responses in Anthropic's message format:
 
 `/v1/messages` expects Anthropic Messages requests and always answers in Anthropic's format. Because the two formats share `model` and `messages`, an OpenAI Chat Completions body can reach this endpoint by accident — and since unknown parameters are ignored rather than rejected, the request succeeds and returns an Anthropic response body that OpenAI SDKs cannot read. If your client reports an empty completion here, check that it is pointed at `/v1/chat/completions`.
 
-Unknown parameters are deliberately ignored rather than rejected, so a valid Anthropic request is never denied for carrying an extra field. As a consequence, OpenAI-only parameters (`response_format`, `stream_options`, `max_completion_tokens`, `n`, `stop`, `seed`, `frequency_penalty`, and similar) have no effect here — the model will not honour them. Use `/v1/chat/completions` if you need them.
+Unknown parameters are deliberately ignored rather than rejected, so a valid Anthropic request is never denied for carrying an extra field. As a consequence, OpenAI-only parameters (`response_format`, `n`, `frequency_penalty`, and similar) have no effect here — the model will not honour them. Use `/v1/chat/completions` if you need them. (`max_completion_tokens`, `stop`, `seed`, and `stream_options` are ignored on `/v1/chat/completions` too — use `max_tokens` for the token limit.) The Anthropic sampling and stop parameters `top_p`, `top_k`, and `stop_sequences` are currently ignored as well, and `temperature` must be between 0 and 1.
 
-A body that is _structurally_ OpenAI is rejected by the schema, as it always has been — OpenAI-shaped `tools` (`{"type": "function", "function": {…}}`), OpenAI content parts such as `image_url`, or assistant turns with `content: null`. Those rejections now name the mismatch and point at the right endpoint instead of returning an opaque validation error:
+A body that is _structurally_ OpenAI is rejected by the schema — OpenAI-shaped `tools` (`{"type": "function", "function": {…}}`) or assistant turns with `content: null`. Content blocks whose `type` the gateway does not recognize are instead accepted and silently dropped (so a client sending a newer Anthropic beta block degrades instead of failing every request) — this includes OpenAI content parts such as `image_url` and Anthropic `document` (PDF) blocks. `image` blocks must use a `base64` source; a URL source fails validation. The structural rejections name the mismatch and point at the right endpoint instead of returning an opaque validation error:
 
 ```json
 {
