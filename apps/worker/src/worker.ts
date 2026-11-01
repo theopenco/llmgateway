@@ -63,6 +63,7 @@ import {
 } from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
+import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
@@ -3879,14 +3880,19 @@ async function runDailyModelVerificationLoop() {
 	activeLoops++;
 	try {
 		while (!isStopRequested()) {
-			try {
-				await scheduleDailyModelVerifications();
-				await deliverModelVerificationRegressions();
-			} catch (error) {
-				logger.error(
-					"Error in daily model verification loop",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+			for (const service of [
+				scheduleDailyModelVerifications,
+				deliverModelVerificationRegressions,
+				deliverAirsideVerificationEmails,
+			]) {
+				try {
+					await service();
+				} catch (error) {
+					logger.error(
+						"Error in daily model verification loop",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
 			}
 			await interruptibleSleep(5 * 60 * 1000);
 		}

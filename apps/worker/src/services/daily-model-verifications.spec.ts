@@ -828,6 +828,23 @@ function additionalDailyTests() {
 			modelVerificationEnvironmentToken({ ...target, region: null }) === json,
 		).toBe(true);
 	});
+	it("keeps manual work eligible when its provider already has a running daily job", async () => {
+		const first = await seed();
+		await seed("catalogue", first.mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		expect(await claimNextModelVerification()).not.toBeNull();
+		const queued = await job(first.id);
+		const manualId = "manual-" + randomUUID();
+		await db.insert(tables.providerModelVerification).values({
+			id: manualId,
+			initiatedBy: "admin",
+			target: queued.target,
+			checks: queued.checks,
+			credentialSource: "managed",
+		});
+		expect((await claimNextModelVerification())?.id).toBe(manualId);
+		expect(await claimNextModelVerification()).toBeNull();
+	});
 }
 additionalDailyTests();
 function minutesAfterNow(minutes: number): Date {

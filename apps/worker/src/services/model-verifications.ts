@@ -232,7 +232,12 @@ export async function claimNextModelVerification(): Promise<VerificationRow | nu
 		const candidates = await tx
 			.select()
 			.from(tables.providerModelVerification)
-			.where(eq(tables.providerModelVerification.status, "queued"))
+			.where(
+				and(
+					eq(tables.providerModelVerification.status, "queued"),
+					sql`(${tables.providerModelVerification.id} NOT LIKE 'daily-verification:%' OR NOT EXISTS (SELECT 1 FROM ${tables.providerModelVerification} running WHERE running.status = 'running' AND running.target->>'providerId' = ${tables.providerModelVerification.target}->>'providerId'))`,
+				),
+			)
 			.orderBy(
 				sql`CASE WHEN ${tables.providerModelVerification.id} LIKE 'daily-verification:%' THEN 1 ELSE 0 END`,
 				sql`row_number() OVER (PARTITION BY ${tables.providerModelVerification.target}->>'providerId' ORDER BY ${tables.providerModelVerification.createdAt}, ${tables.providerModelVerification.id})`,
