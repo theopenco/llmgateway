@@ -187,6 +187,23 @@ describe("platform sessions", () => {
 		expect(newToken.status).toBe(200);
 	});
 
+	test("disabling end-user sessions revokes outstanding tokens", async () => {
+		const session = await mintSession("disabled-customer");
+		await db
+			.update(tables.project)
+			.set({ endUserEnabled: false })
+			.where(eq(tables.project.id, "test-project-id"));
+		const headers = { Authorization: `Bearer ${session.sessionToken}` };
+
+		const refresh = await app.request("/v1/sessions/refresh", {
+			method: "POST",
+			headers,
+		});
+		expect(refresh.status).toBe(401);
+		const balance = await app.request("/v1/wallet/balance", { headers });
+		expect(balance.status).toBe(401);
+	});
+
 	test("returns the intentionally public publishable key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-platform-publishable-key-id",

@@ -325,7 +325,12 @@ export async function findApiKeyByToken(
 				.where(inArray(endUserSessionTable.tokenHash, tokenHashes))
 				.limit(1);
 			const row = rows[0];
-			if (!row || row.session.status !== "active") {
+			// Disabling end-user sessions on the project revokes existing tokens.
+			if (
+				!row ||
+				row.session.status !== "active" ||
+				!row.project.endUserEnabled
+			) {
 				return undefined;
 			}
 
