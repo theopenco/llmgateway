@@ -5,7 +5,7 @@ import { z } from "zod";
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 import { createRoute } from "@/utils/create-route.js";
 
-import { db, eq, shortid, sql, tables } from "@llmgateway/db";
+import { and, db, eq, shortid, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	hashApiKeyForStorage,
@@ -414,7 +414,13 @@ const creditWallet = createRoute({
 		200: {
 			content: { "application/json": { schema: walletResponse } },
 			description:
-				"Server-side credit grant (e.g. free trial credits). Writes an adjustment ledger row.",
+				"Server-side credit grant (e.g. free trial credits). Live grants are funded from the organization's credits. Writes an adjustment ledger row.",
+		},
+		402: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Insufficient organization credits to fund a live grant.",
 		},
 	},
 });
@@ -431,6 +437,35 @@ platformSessions.openapi(creditWallet, async (c) => {
 
 	// Balance bump + ledger row must commit together.
 	const updated = await db.transaction(async (tx) => {
+		// Live grants spend on platform provider keys, so fund them from the
+		// developer org's credits like the top-up bonus. Test wallets are
+		// limited to free models and stay unfunded.
+		if (wallet.mode === "live") {
+			const [funded] = await tx
+				.update(tables.organization)
+				.set({ credits: sql`${tables.organization.credits} - ${amount}` })
+				.where(
+					and(
+						eq(tables.organization.id, wallet.organizationId),
+						sql`${tables.organization.credits} >= ${amount}`,
+					),
+				)
+				.returning({ id: tables.organization.id });
+			if (!funded) {
+				throw new HTTPException(402, {
+					message: "Insufficient organization credits to fund this grant",
+				});
+			}
+			await tx.insert(tables.transaction).values({
+				organizationId: wallet.organizationId,
+				type: "end_user_bonus",
+				amount: String(amount),
+				creditAmount: String(-amount),
+				status: "completed",
+				description: `End-user credit grant (wallet ${wallet.id})`,
+			});
+		}
+
 		const [row] = await tx
 			.update(tables.wallet)
 			.set({ balance: sql`${tables.wallet.balance} + ${amount}` })
@@ -450,13 +485,16 @@ platformSessions.openapi(creditWallet, async (c) => {
 		return row;
 	});
 
-	return c.json({
-		id: updated.id,
-		endCustomerId: updated.endCustomerId,
-		balance: updated.balance,
-		currency: updated.currency,
-		status: updated.status,
-	});
+	return c.json(
+		{
+			id: updated.id,
+			endCustomerId: updated.endCustomerId,
+			balance: updated.balance,
+			currency: updated.currency,
+			status: updated.status,
+		},
+		200,
+	);
 });
 
 export default platformSessions;

@@ -85,6 +85,13 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 		throw new HTTPException(401, { message: "Project is inactive" });
 	}
 
+	// Turning off end-user sessions revokes outstanding tokens, not only minting.
+	if (session.wallet.project && !session.wallet.project.endUserEnabled) {
+		throw new HTTPException(401, {
+			message: "End-user sessions are disabled for this project",
+		});
+	}
+
 	// Defense-in-depth origin allowlist (see gateway chat handler).
 	const allowedOrigins = session.wallet.project?.allowedOrigins ?? null;
 	const origin = c.req.header("Origin");

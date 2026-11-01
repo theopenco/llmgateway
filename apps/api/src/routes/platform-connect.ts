@@ -8,6 +8,7 @@ import { createRoute } from "@/utils/create-route.js";
 
 import { and, db, eq, shortid, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -34,6 +35,29 @@ platformConnect.use("*", async (c, next) => {
 		throw new HTTPException(403, {
 			message:
 				"Connect onboarding and payouts are not available in test mode. Use a live secret key.",
+		});
+	}
+	await next();
+});
+
+// The payout destination and the accrued margin belong to the organization,
+// while platform keys are project-scoped. Require the key's creator to still be
+// an organization owner or admin, matching org billing access.
+platformConnect.use("*", async (c, next) => {
+	const platformKey = c.get("platformKey");
+	if (!platformKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: platformKey.createdBy },
+			organizationId: { eq: platformKey.organizationId },
+		},
+	});
+	if (!isOrganizationAdmin(membership?.role)) {
+		throw new HTTPException(403, {
+			message:
+				"Connect onboarding and payouts require a secret key created by an organization owner or admin.",
 		});
 	}
 	await next();

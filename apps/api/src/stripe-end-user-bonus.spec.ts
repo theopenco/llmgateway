@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { db, eq, tables } from "@llmgateway/db";
 
 import {
+	handleChargeRefunded,
 	handleEndUserTopUpRefunded,
 	handleEndUserTopUpSucceeded,
 } from "./stripe.js";
@@ -174,6 +175,7 @@ describe("end-user top-up bonus", () => {
 				netCredited: "10",
 				bonusCredited: "5",
 			}),
+			"test",
 		);
 
 		expect(await getWalletBalance("wallet-test")).toBe(10);
@@ -184,6 +186,59 @@ describe("end-user top-up bonus", () => {
 			where: { walletId: { eq: "wallet-test" }, type: { eq: "bonus" } },
 		});
 		expect(bonus).toBeUndefined();
+	});
+
+	test("ignores a sandbox top-up that names a live wallet", async () => {
+		await seedWallet({
+			walletId: "wallet-live-sandbox",
+			customerId: "cust-live-sandbox",
+			externalId: "ext-live-sandbox",
+			mode: "live",
+		});
+
+		await handleEndUserTopUpSucceeded(
+			makeTopUpIntent("pi_sandbox_live", 1000, {
+				walletId: "wallet-live-sandbox",
+				netCredited: "10",
+				bonusCredited: "5",
+			}),
+			"test",
+		);
+
+		expect(await getWalletBalance("wallet-live-sandbox")).toBe(0);
+		expect(await getOrgCredits()).toBe(100);
+	});
+
+	test("ignores a sandbox refund of a live top-up", async () => {
+		await seedWallet({
+			walletId: "wallet-live-refund",
+			customerId: "cust-live-refund",
+			externalId: "ext-live-refund",
+			mode: "live",
+		});
+		await handleEndUserTopUpSucceeded(
+			makeTopUpIntent("pi_live_refund", 1000, {
+				walletId: "wallet-live-refund",
+				netCredited: "10",
+			}),
+		);
+
+		await handleChargeRefunded(
+			{
+				data: {
+					object: {
+						id: "ch_live_refund",
+						payment_intent: "pi_live_refund",
+						amount: 1000,
+						amount_refunded: 1000,
+						refunds: { data: [{ amount: 1000 }] },
+					},
+				},
+			} as unknown as Stripe.ChargeRefundedEvent,
+			{ endUserOnly: true },
+		);
+
+		expect(await getWalletBalance("wallet-live-refund")).toBe(10);
 	});
 
 	test("claws back the bonus and restores org credits on refund", async () => {

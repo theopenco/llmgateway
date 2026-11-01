@@ -2294,3 +2294,68 @@ describe("webhook route — invalid signature", () => {
 		expect(res.status).toBe(200);
 	});
 });
+
+describe("handleChargeRefunded — credit top-up after a declined attempt", () => {
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		await deleteAll();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("claws back the completed purchase, not the failed attempt", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_topup_retry",
+			credits: "150",
+		});
+		// The declined attempt on the same payment intent records base credits
+		// only; the retry that succeeded also granted a first-top-up bonus.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "credit_topup",
+			amount: "103.5",
+			creditAmount: "100",
+			currency: "USD",
+			status: "failed",
+			stripePaymentIntentId: "pi_topup_retry",
+		});
+		const [completed] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "103.5",
+				creditAmount: "150",
+				currency: "USD",
+				status: "completed",
+				stripePaymentIntentId: "pi_topup_retry",
+			})
+			.returning();
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_topup_retry", amount: 10350, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_topup_retry",
+				customer: "cus_topup_retry",
+				refunded: true,
+			}),
+		);
+
+		const refund = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: "re_topup_retry" } },
+		});
+		expect(refund?.relatedTransactionId).toBe(completed.id);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(Number(org?.credits)).toBe(0);
+	});
+});
