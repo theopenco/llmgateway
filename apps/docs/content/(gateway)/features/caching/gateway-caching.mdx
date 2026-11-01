@@ -75,9 +75,12 @@ The cache key is scoped to your **project** and includes the **resolved provider
 - Frequency and presence penalty
 - Response format
 - Tools/functions, tool choice, `parallel_tool_calls`, and the web search tool
-- Reasoning effort and reasoning max tokens
+- Reasoning effort, reasoning max tokens, reasoning context (omitting it equals `"auto"`), and reasoning mode
 - `prompt_cache_key`, `prompt_cache_retention`, `prompt_cache_options`
 - `n` and `service_tier`
+- `verbosity`, `effort`, and `image_config`
+- Provider-specific fields: `anthropic_safeguards`, `sensitive_word_check`, and `plugins`
+- The API format — a `/v1/messages` request never shares an entry with an otherwise identical `/v1/chat/completions` request
 - The response mode — streaming and non-streaming entries are kept separate, so an otherwise identical `stream: true` request never shares an entry with a non-streaming one
 
 <Callout type="info">
