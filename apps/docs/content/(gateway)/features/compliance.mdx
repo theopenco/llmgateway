@@ -142,13 +142,44 @@ Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for 
 
 ## Safety identifiers
 
-Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per API key. It contains no personal data — no email address, user id, organization name or key id — and it is the only thing that ties a report of abusive traffic back to the exact API key that sent it.
+LLM Gateway keeps **your end-user identifier** separate from **its provider-facing API-key identifier**. Sending an identifier helps correlate your users’ requests in gateway logs; it does not let you choose or override the identifier sent to providers.
 
-LLM Gateway forwards this fixed identifier only when its own credentials serve the request (credits billing), and only to upstream APIs that support it. Bring-your-own-key requests send no gateway safety identifier. Hybrid projects follow the credential used on each attempt, including retries and fallback. Check the [providers directory](https://llmgateway.io/providers) for upstream support.
+### Send an end-user identifier
 
-For your own end-user attribution, send an opaque `safety_identifier` of up to 128 characters on chat completions, Responses (including compaction), or decisions requests. It is recorded separately in request log metadata as `params.safety_identifier`, even without debug logging; it never changes the fixed upstream identifier. Native Messages requests use `metadata.user_id`, and `user` is accepted as a legacy fallback on chat and embeddings requests. Values longer than 128 characters in these legacy fields are not recorded.
+Choose a stable, opaque value for each end user and send it in the request body:
 
-Use the same client identifier for the same end user when correlating traffic or reporting a request to us. Do not include personal data. This identifier is request metadata, not prompt content, and is retained even when prompt/completion retention is disabled. It is not an authentication or authorization mechanism.
+| Endpoint                                                             | Request field       |
+| -------------------------------------------------------------------- | ------------------- |
+| Chat completions (`/v1/chat/completions`)                            | `safety_identifier` |
+| Responses (`/v1/responses`) and compaction (`/v1/responses/compact`) | `safety_identifier` |
+| Decisions (`/v1/decisions`)                                          | `safety_identifier` |
+| Native Messages (`/v1/messages`)                                     | `metadata.user_id`  |
+| Embeddings (`/v1/embeddings`)                                        | `user`              |
+
+For example, replace `your-model-id` with a model from the [models directory](https://llmgateway.io/models):
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model-id",
+    "messages": [{ "role": "user", "content": "Hello" }],
+    "safety_identifier": "app-user-42"
+  }'
+```
+
+Use a non-empty value of at most **128 characters**. Chat completions also accepts legacy `user` when `safety_identifier` is absent or `null`. Longer `safety_identifier` values are rejected; longer `user` or `metadata.user_id` values are not recorded as safety identifiers.
+
+In both credits and bring-your-own-key mode, the client value is saved in request log metadata as `params.safety_identifier`, even without debug logging. Reuse it for the same end user when correlating traffic or reporting requests to us. It remains metadata when prompt/completion retention is disabled and is subject to [metadata retention](/features/data-retention). Do not include personal data; it is not an authentication or authorization mechanism.
+
+### What providers receive
+
+LLM Gateway generates an opaque, random identifier once per gateway API key. It contains no personal data or API-key secret. Requests using the same API key share this provider-facing identifier even if they have different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
+
+- **Credits:** upstream APIs that support abuse attribution receive the fixed gateway API-key identifier, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
+- **Bring your own key (BYOK):** neither the gateway identifier nor your client identifier is sent as a provider safety identifier.
+- **Hybrid:** the credential used on each attempt determines the behavior, including retries and fallback. An attempt using your provider key follows BYOK behavior; one using LLM Gateway’s credentials follows credits behavior.
 
 ## Access Control
 

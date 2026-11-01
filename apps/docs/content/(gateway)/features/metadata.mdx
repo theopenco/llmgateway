@@ -29,6 +29,10 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   }'
 ```
 
+## End-user safety identifiers
+
+To correlate requests for an end user, send a `safety_identifier` in the request body. LLM Gateway records it separately as `params.safety_identifier`; it does not override the fixed API-key identifier used with providers. See [Safety identifiers](/features/compliance#safety-identifiers) for an example, endpoint-specific fields, and credits/BYOK forwarding rules.
+
 ## Best Practices
 
 ### Header Naming
