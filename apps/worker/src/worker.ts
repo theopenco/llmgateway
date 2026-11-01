@@ -1,5 +1,4 @@
 import { createHmac } from "node:crypto";
-import { lookup } from "node:dns/promises";
 
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
@@ -54,13 +53,13 @@ import {
 	isDailyWindowExpired,
 	isLoungeSource,
 	isPremiumWeekExpired,
-	isPrivateOrReservedIp,
 	usedModelBaseId,
 } from "@llmgateway/shared";
 import {
 	getLogRetentionCutoff,
 	LOG_RETENTION_DAYS,
 } from "@llmgateway/shared/log-retention";
+import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
@@ -3109,24 +3108,7 @@ const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
  * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
  * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
  */
-/**
- * SSRF guard for an outbound webhook delivery: validate the URL is https + not
- * an internal literal, then resolve the host and reject if any resolved address
- * is private/reserved (DNS rebinding protection). Throws on an unsafe target.
- */
-async function assertSafeWebhookTarget(rawUrl: string): Promise<void> {
-	const url = assertSafeWebhookUrl(rawUrl);
-	const resolved = await lookup(url.hostname, { all: true });
-	for (const { address } of resolved) {
-		if (isPrivateOrReservedIp(address)) {
-			throw new Error(
-				`Webhook host ${url.hostname} resolves to a disallowed address (${address})`,
-			);
-		}
-	}
-}
-
-async function processWebhookDeliveries(): Promise<void> {
+export async function processWebhookDeliveries(): Promise<void> {
 	const lockAcquired = await acquireLock(WEBHOOK_DELIVERY_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -3160,12 +3142,12 @@ async function processWebhookDeliveries(): Promise<void> {
 
 			const attempts = delivery.attempts + 1;
 			try {
-				// SSRF guard at delivery time: https + literal checks, plus resolve
-				// the host and reject if any address is private/reserved (defeats
-				// DNS rebinding between registration and delivery).
-				await assertSafeWebhookTarget(delivery.endpoint.url);
+				// SSRF guard at delivery time: https + literal checks here, then
+				// fetchSafeUserUrl rejects private/reserved addresses when the socket
+				// connects (no DNS rebinding window) and refuses redirects.
+				assertSafeWebhookUrl(delivery.endpoint.url);
 
-				const res = await fetch(delivery.endpoint.url, {
+				const res = await fetchSafeUserUrl(delivery.endpoint.url, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",

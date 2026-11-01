@@ -335,7 +335,7 @@ const event = lg.webhooks.constructEvent(
 <Callout type="warn">
 	Webhook URLs must be **https** and public — requests to private/internal
 	addresses are rejected (SSRF protection), both at registration and at delivery
-	time.
+	time. Redirects are not followed, so register the final URL.
 </Callout>
 
 ## Margin payouts (Stripe Connect)
