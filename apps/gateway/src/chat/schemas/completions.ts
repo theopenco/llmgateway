@@ -378,6 +378,10 @@ export const completionsRequestSchema = z.object({
 					max_uses: z.number().optional(),
 					allowed_domains: z.array(z.string()).optional(),
 					blocked_domains: z.array(z.string()).optional(),
+					external_web_access: z.boolean().optional().openapi({
+						description:
+							"OpenAI's live-access switch. `false` requests cache-only search: forwarded to OpenAI's Responses API, and on every other provider the tool is dropped instead of running a live search. Omitted or `true` is live search.",
+					}),
 				}),
 				z
 					.object({

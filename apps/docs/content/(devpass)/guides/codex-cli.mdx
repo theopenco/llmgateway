@@ -41,7 +41,6 @@ Merge these settings into `~/.codex/config.toml`:
 model = "deepseek-v4-flash"
 model_provider = "llmgateway"
 model_reasoning_effort = "low"
-web_search = "disabled"
 
 [model_providers.llmgateway]
 name = "LLM Gateway"
@@ -52,7 +51,7 @@ wire_api = "responses"
 
 The named provider reads your gateway key from the environment. You can keep your existing ChatGPT login. Current Codex versions use `responses`; changing an environment variable cannot switch them to Chat Completions.
 
-Web search is disabled for this example because the selected model does not support native web search. Enable it only after selecting a model with that capability in the&nbsp;[catalogue](https://llmgateway.io/models?features=webSearch).
+Codex's default cached web search works with every model: requests served by OpenAI on a model with native web search search OpenAI's cached index, and everything else answers without searching (see&nbsp;[cache-only search](/features/web-search#cache-only-search)). `web_search = "live"` needs a model with native web search from the&nbsp;[catalogue](https://llmgateway.io/models?features=webSearch).
 
 ## Start coding
 
@@ -80,7 +79,7 @@ Review the diff and test output, then check the request in your&nbsp;[LLM Gatewa
 ## Troubleshooting
 
 - **Authentication fails:** check that `model_provider` matches the provider table and that `LLMGATEWAY_API_KEY` is exported in the same shell.
-- **Native web search is unsupported:** set `web_search = "disabled"`, then start a new session.
+- **Native web search is unsupported:** `web_search = "live"` is set for a model without native web search. Remove it or choose a model with that capability, then start a new session.
 - **Model metadata or catalogue refresh warning:** Codex 0.153.4 can warn about missing metadata or the gateway's model-list response format. Our configured model still completed the task. Use an explicit model ID and verify the actual request result.
 - **Wrong endpoint:** the provider's `base_url` must end in `/v1`.
 
