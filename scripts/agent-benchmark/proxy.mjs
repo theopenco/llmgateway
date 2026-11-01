@@ -42,6 +42,41 @@ function textLength(value) {
 		: JSON.stringify(value).length;
 }
 
+function isToolResultBlock(block) {
+	return (
+		block?.type === "tool_result" || block?.type === "function_call_output"
+	);
+}
+
+function describeMessages(messages) {
+	const roles = { system: 0, user: 0, assistant: 0, tool: 0 };
+	let userChars = 0;
+	for (const m of messages) {
+		if (m?.type === "function_call_output" || m?.role === "tool") {
+			roles.tool++;
+		} else if (
+			m?.type === "function_call" ||
+			m?.type === "reasoning" ||
+			m?.role === "assistant"
+		) {
+			roles.assistant++;
+		} else if (m?.role === "system" || m?.role === "developer") {
+			roles.system++;
+		} else if (m?.role === "user") {
+			const blocks = Array.isArray(m.content) ? m.content : [m.content];
+			const text = blocks.filter((b) => !isToolResultBlock(b));
+			if (text.length < blocks.length) {
+				roles.tool++;
+			}
+			if (text.length > 0) {
+				roles.user++;
+				userChars += textLength(text.length === 1 ? text[0] : text);
+			}
+		}
+	}
+	return { roles, userChars };
+}
+
 function describeRequest(body) {
 	if (!body || typeof body !== "object") {
 		return {};
@@ -58,6 +93,7 @@ function describeRequest(body) {
 		model: body.model,
 		stream: body.stream === true,
 		messageCount: messages.length,
+		...describeMessages(messages),
 		toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
 		toolChars: textLength(body.tools),
 		systemChars:

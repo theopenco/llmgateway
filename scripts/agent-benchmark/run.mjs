@@ -52,7 +52,26 @@ const scratchRoot = join(workRoot, "runs", opts.suite);
 const empryoBin =
 	process.env.EMPRYO_BIN ?? join(homedir(), ".empryo", "bin", "empryo");
 const empryoRuntime = dirname(dirname(empryoBin));
-const empryoConfig = { cache: { ttl: "5m" } };
+const empryoConfig = {
+	cache: { ttl: "5m", coldPrune: false },
+	compaction: { onResume: false },
+	heavyWork: { slots: 0 },
+	agentFeatures: {
+		appendOnlyInstructions: true,
+		turnAudit: false,
+		finishNudge: "off",
+		requestMap: false,
+		fixHistory: false,
+		editEchoes: false,
+		codeMode: "off",
+		learnedResidency: "off",
+	},
+	skills: { autoManage: false, rememberSession: false, autoLoad: [] },
+	disabledTools: ["skills"],
+	liveSkills: false,
+	soulstack: { autoUpdate: false },
+	instructionFiles: [],
+};
 
 const sh = (cmd, args, cwd) =>
 	execFileSync(cmd, args, {
@@ -134,7 +153,18 @@ function startProxy(runId, logFile) {
 function agentCommand(agent, model, prompt, workdir, home) {
 	const gatewayId = model.gatewayId;
 	if (agent === "claude-code") {
+		const config = {
+			ANTHROPIC_BASE_URL: "https://api.llmgateway.io",
+			ANTHROPIC_MODEL: gatewayId,
+			ANTHROPIC_DEFAULT_OPUS_MODEL: gatewayId,
+			ANTHROPIC_DEFAULT_SONNET_MODEL: gatewayId,
+			ANTHROPIC_DEFAULT_HAIKU_MODEL: gatewayId,
+			CLAUDE_CODE_SUBAGENT_MODEL: gatewayId,
+			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+			DISABLE_AUTOUPDATER: "1",
+		};
 		return {
+			config,
 			cmd: "claude",
 			args: [
 				"-p",
@@ -144,50 +174,41 @@ function agentCommand(agent, model, prompt, workdir, home) {
 				"json",
 			],
 			env: {
-				ANTHROPIC_BASE_URL: "https://api.llmgateway.io",
+				...config,
 				ANTHROPIC_AUTH_TOKEN: apiKey,
 				ANTHROPIC_API_KEY: "",
-				ANTHROPIC_MODEL: gatewayId,
-				ANTHROPIC_DEFAULT_OPUS_MODEL: gatewayId,
-				ANTHROPIC_DEFAULT_SONNET_MODEL: gatewayId,
-				ANTHROPIC_DEFAULT_HAIKU_MODEL: gatewayId,
-				CLAUDE_CODE_SUBAGENT_MODEL: gatewayId,
-				CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-				DISABLE_AUTOUPDATER: "1",
 			},
 		};
 	}
 	if (agent === "opencode") {
 		const configDir = join(home, ".config", "opencode");
 		mkdirSync(configDir, { recursive: true });
-		writeFileSync(
-			join(configDir, "opencode.json"),
-			JSON.stringify(
-				{
-					$schema: "https://opencode.ai/config.json",
-					provider: {
-						llmgateway: {
-							options: { apiKey: "{env:LLMGATEWAY_API_KEY}" },
-							models: {
-								[gatewayId]: {
-									name: model.label,
-									tool_call: true,
-									reasoning: true,
-								},
-							},
+		const config = {
+			$schema: "https://opencode.ai/config.json",
+			provider: {
+				llmgateway: {
+					options: { apiKey: "{env:LLMGATEWAY_API_KEY}" },
+					models: {
+						[gatewayId]: {
+							name: model.label,
+							tool_call: true,
+							reasoning: true,
 						},
 					},
-					model: `llmgateway/${gatewayId}`,
-					small_model: `llmgateway/${gatewayId}`,
-					permission: { edit: "allow", bash: "allow", webfetch: "allow" },
-					autoupdate: false,
-					share: "disabled",
 				},
-				null,
-				2,
-			),
+			},
+			model: `llmgateway/${gatewayId}`,
+			small_model: `llmgateway/${gatewayId}`,
+			permission: { edit: "allow", bash: "allow", webfetch: "allow" },
+			autoupdate: false,
+			share: "disabled",
+		};
+		writeFileSync(
+			join(configDir, "opencode.json"),
+			JSON.stringify(config, null, 2),
 		);
 		return {
+			config,
 			cmd: "opencode",
 			args: [
 				"run",
@@ -226,6 +247,7 @@ function agentCommand(agent, model, prompt, workdir, home) {
 			}
 		}
 		return {
+			config: empryoConfig,
 			cmd: empryoBin,
 			args: [
 				"--headless",
@@ -410,6 +432,7 @@ async function runOne({ task, agent, modelKey, rep }) {
 		...proc,
 		...grade(task, workdir, runDir),
 		agentVersion: sh(command.cmd, ["--version"], workdir).trim().split("\n")[0],
+		agentConfig: command.config,
 	};
 	const stdout = readFileSync(join(scratch, "agent.stdout"), "utf8");
 	writeFileSync(join(runDir, "agent-output.tail.txt"), stdout.slice(-20_000));

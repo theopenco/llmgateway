@@ -19,10 +19,17 @@ real bugs with the same models, all billed through LLM Gateway.
   - OpenCode: `opencode run --auto --format json` with the built-in `llmgateway`
     provider. `small_model` is set to the model under test.
   - Empryo: `empryo --headless --json --mode auto` with the built-in `llmgateway` provider,
-    version 3.11.0-beta or later (`empryo update`). Its fresh config sets the Anthropic
+    version 3.11.0-beta or later (`empryo update`); each run's `result.json` records the exact
+    `agentVersion` and the `agentConfig` it ran with. Its fresh config sets the Anthropic
     prompt cache to five minutes (`cache.ttl: "5m"`), the same lifetime Claude Code and
     OpenCode use. Older builds asked for a one-hour cache, which costs 1.6x more per write
     and never pays off on runs that finish in a minute or two.
+    The same config pins every experimental feature off (finish check, not-done nudge,
+    cold prune, request map, fix history, edit echoes, code mode, learned tool loading,
+    heavy-work slots, compact on resume), keeping only the default "instruction edits as
+    messages". Skills (auto-manage, autoload, the `skills` tool, live refresh) and
+    instruction files (`EMPRYO.md`, `CLAUDE.md`, `AGENTS.md` and the rest) are off, so a
+    runner's own Empryo setup cannot add requests or prompt tokens.
 
 Each run gets a fresh `HOME` (and a fresh `EMPRYO_HOME`), so no user-level
 instructions, memory, plugins, skills or MCP servers leak in. The project files are
@@ -36,6 +43,9 @@ Every agent talks to `https://api.llmgateway.io` through `HTTPS_PROXY`, pointed 
 gateway returned (OpenAI chat, Responses or Anthropic Messages format) into
 `results/<suite>/<run>/requests.jsonl`. All three agents are measured by the same code,
 from the same responses the gateway billed, rather than by their own counters.
+Each line also counts the request's messages by role (`roles`: system, user, assistant, tool
+results) and the characters of non-tool user content (`userChars`), so text an agent injects
+between steps shows up without logging prompt bodies.
 
 - **Input tokens** include cached reads and cache writes.
 - **Cost** is computed per request from the pinned provider's list prices in
