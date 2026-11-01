@@ -303,7 +303,8 @@ The corresponding authenticated endpoints are `POST /v1/wallet/top-up` (`{ amoun
 ## Managing wallets & customers (server-side)
 
 ```ts
-// grant credits directly (e.g. free trial)
+// grant credits directly (e.g. free trial); live grants are funded from your
+// organization's credit balance and fail with 402 when it is too low
 await lg.wallets.credit({ walletId, amount: 5, reason: "Signup bonus" });
 
 const wallet = await lg.wallets.retrieve(walletId);

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import {
 	getApiKeyFingerprint,
 	hashApiKeyForStorage,
@@ -323,6 +323,50 @@ describe("platform sessions", () => {
 			where: { id: { eq: liveSession.walletId } },
 		});
 		expect(liveWallet?.balance).toBe("0");
+	});
+
+	test("live wallet grants are funded from organization credits", async () => {
+		await createLiveKey();
+		const res = await app.request("/v1/sessions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer sk_live_platform",
+			},
+			body: JSON.stringify({ customer: "live-grant-customer" }),
+		});
+		expect(res.status).toBe(201);
+		const { walletId } = (await res.json()) as SessionResponse;
+
+		function grant(amount: number) {
+			return app.request(`/v1/wallets/${walletId}/credit`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer sk_live_platform",
+				},
+				body: JSON.stringify({ amount }),
+			});
+		}
+		async function balances() {
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: "test-org-id" } },
+			});
+			const wallet = await db.query.wallet.findFirst({
+				where: { id: { eq: walletId } },
+			});
+			return { org: Number(org?.credits), wallet: Number(wallet?.balance) };
+		}
+
+		expect((await grant(5)).status).toBe(402);
+		expect(await balances()).toEqual({ org: 0, wallet: 0 });
+
+		await db
+			.update(tables.organization)
+			.set({ credits: "10" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		expect((await grant(5)).status).toBe(200);
+		expect(await balances()).toEqual({ org: 5, wallet: 5 });
 	});
 
 	test("test keys are rejected from Connect routes", async () => {
