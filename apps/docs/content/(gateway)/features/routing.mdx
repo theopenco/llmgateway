@@ -112,7 +112,8 @@ round-robin keys within the same provider, variant, region, and request scope.
 
 Round-robin keys form one pool at the first member's position, even when ordered
 keys appear between members. Order controls the pool's priority, not weights within
-it. For example, two round-robin keys ahead of an ordered key share initial
+it. The admin rotation-order view displays pool members together at that position.
+For example, two round-robin keys ahead of an ordered key share initial
 requests roughly 50/50; the ordered key is their fallback. An ordered key before
 the pool remains the primary. A pool with one eligible member uses that member.
 

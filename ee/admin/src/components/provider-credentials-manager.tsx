@@ -86,7 +86,10 @@ import {
 	errorWindowOption,
 	parseErrorWindow,
 } from "@/lib/provider-key-error-window";
-import { providerKeySelectionPositions } from "@/lib/provider-key-selection";
+import {
+	providerKeySelectionPositions,
+	providerKeySelectionOrder,
+} from "@/lib/provider-key-selection";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
@@ -791,17 +794,21 @@ export function ProviderCredentialsManager({
 		[liveCredentials],
 	);
 
-	// Rows arrive grouped by provider (the API orders by provider, then position),
-	// so each run becomes its own reorderable tbody.
+	// Keep each pool together at its first member in the provider's reorderable list.
 	const serverOrder = useMemo(() => {
-		const groups = new Map<string, string[]>();
+		const groups = new Map<string, ProviderCredential[]>();
 		for (const credential of liveCredentials) {
 			groups.set(credential.provider, [
 				...(groups.get(credential.provider) ?? []),
-				credential.id,
+				credential,
 			]);
 		}
-		return groups;
+		return new Map(
+			Array.from(groups, ([provider, keys]) => [
+				provider,
+				providerKeySelectionOrder(keys, isInRotation).map(({ id }) => id),
+			]),
+		);
 	}, [liveCredentials]);
 
 	const credentialById = useMemo(
@@ -1013,9 +1020,17 @@ export function ProviderCredentialsManager({
 			return;
 		}
 
+		const keys = ids.flatMap((id) => {
+			const credential = credentialById.get(id);
+			return credential ? [credential] : [];
+		});
+		const groupedIds = providerKeySelectionOrder(keys, isInRotation).map(
+			({ id }) => id,
+		);
+		setOrder((current) => new Map(current).set(provider, groupedIds));
 		setSavingProvider(provider);
 		reorderMutation.mutate(
-			{ body: { provider, credentialIds: ids } },
+			{ body: { provider, credentialIds: groupedIds } },
 			{
 				onSuccess: () => router.refresh(),
 				onError: () => setOrder(snapshot),
