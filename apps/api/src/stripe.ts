@@ -3693,11 +3693,14 @@ export async function handleChargeRefunded(
 	];
 
 	// Find the original transaction by stripePaymentIntentId first (covers
-	// credit_topup and any row that recorded the payment intent).
+	// credit_topup and any row that recorded the payment intent). Only the
+	// completed purchase granted credits; a declined attempt on the same payment
+	// intent leaves a failed row that must not be matched.
 	let originalTransaction = await db.query.transaction.findFirst({
 		where: {
 			stripePaymentIntentId: { eq: payment_intent as string },
 			type: { in: refundableTypes },
+			status: { eq: "completed" },
 		},
 	});
 
@@ -3725,6 +3728,7 @@ export async function handleChargeRefunded(
 				where: {
 					stripeInvoiceId: { eq: invoiceId },
 					type: { in: refundableTypes },
+					status: { eq: "completed" },
 				},
 			});
 		}
