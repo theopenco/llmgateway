@@ -91,17 +91,28 @@ import { ThemedImage } from "@/components/themed-image";
 <Opening paragraph: what the page is for and why you'd use it — one or two
 sentences, benefit-led.>
 
-<ThemedImage alt="<Page Name>" basePath="/learn/<slug>" />
+<ThemedImage
+	alt="<Page Name>"
+	basePath="/learn/<slug>"
+	width={<px>}
+	height={<px>}
+/>
 
 ## <Task-led section, e.g. "Creating a Master Key">
 
 <Short instructions. Bold UI element names like **Create Master Key**.>
 
-<ThemedImage alt="<Detail>" basePath="/learn/<slug>-<detail>" />
+<ThemedImage
+	alt="<Detail>"
+	basePath="/learn/<slug>-<detail>"
+	width={<px>}
+	height={<px>}
+/>
 ```
 
 House style:
 
+- `width` and `height` are the light PNG's pixel size (`next/image` requires both); add `darkHeight` when the dark capture's height differs.
 - **One `<ThemedImage>` right after the intro** showing the whole page; more for dialogs/sub-views where they help.
 - **Use a table** for column/field references (Field | Description).
 - **Callouts**: `type="info"` for plan gating ("Available on the [**Enterprise plan**](https://llmgateway.io/enterprise)…"), `type="warning"` for one-time secrets or destructive actions.
