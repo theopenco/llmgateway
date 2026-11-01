@@ -1504,11 +1504,23 @@ chats.openapi(forkSharedChat, async (c) => {
 		})
 		.from(tables.chatShare)
 		.innerJoin(tables.chat, eq(tables.chatShare.chatId, tables.chat.id))
+		.leftJoin(
+			tables.organization,
+			eq(tables.chatShare.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
 				eq(tables.chatShare.id, shareId),
 				isNull(tables.chatShare.deletedAt),
 				eq(tables.chat.status, "active"),
+				// Org shares follow the same lifecycle as getOrgShare.
+				or(
+					isNull(tables.chatShare.organizationId),
+					and(
+						eq(tables.organization.status, "active"),
+						eq(tables.organization.kind, "default"),
+					),
+				),
 			),
 		)
 		.limit(1);
