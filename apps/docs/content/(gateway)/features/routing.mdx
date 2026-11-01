@@ -528,9 +528,9 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	requests will be sent to the specified provider even if it is experiencing
 	issues, which may result in higher error rates. Retries may still occur
 	against another key for the same provider when multiple keys are configured —
-	and when the provider has a single gateway-managed key, a transient failure
-	(timeout, network error, or 5xx) is retried on that same key up to 2 times
-	with exponential backoff.
+	and when the provider is served by a single platform credential, a transient
+	failure (timeout, network error, or 5xx) may be retried on that same
+	credential, by default up to 2 times with exponential backoff.
 </Callout>
 
 When the `X-No-Fallback` header is used, the routing metadata in logs will include `noFallback: true` to indicate that fallback was disabled for that request.
