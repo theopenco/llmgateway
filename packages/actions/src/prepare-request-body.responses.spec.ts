@@ -124,7 +124,7 @@ describe("transform to OpenAI Responses API", () => {
 			{ role: "user", content: "weather?" },
 			{
 				role: "assistant",
-				content: null,
+				content: "",
 				reasoning: "call the tool",
 				tool_calls: [
 					{
@@ -144,6 +144,7 @@ describe("transform to OpenAI Responses API", () => {
 			"user",
 			"reasoning",
 			"function_call",
+			"assistant",
 			"function_call_output",
 		]);
 		expect(body.input[1]!.content).toEqual([
