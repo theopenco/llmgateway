@@ -1399,7 +1399,9 @@ async function handleCheckoutSessionCompleted(
 
 			const creditsLimit = getChatPlanCreditsLimit(chatPlanTier);
 
-			await db
+			// Only this handler sets chatPlanStripeSubscriptionId, so a match means
+			// the checkout was already processed; a redelivery must not reset usage.
+			const activated = await db
 				.update(tables.organization)
 				.set({
 					chatPlan: chatPlanTier,
@@ -1412,11 +1414,24 @@ async function handleCheckoutSessionCompleted(
 					chatPlanCardFingerprint: fingerprint,
 					subscriptionPaymentStatus: "current",
 				})
-				.where(eq(tables.organization.id, organizationId));
-
-			logger.info(
-				`Successfully activated chat plan ${chatPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
-			);
+				.where(
+					and(
+						eq(tables.organization.id, organizationId),
+						sql`${tables.organization.chatPlanStripeSubscriptionId} IS DISTINCT FROM ${subscriptionId}`,
+					),
+				)
+				.returning({ id: tables.organization.id });
+			// Still fall through on a redelivery: the invoice-keyed transaction
+			// insert below is deduplicated and may not have run the first time.
+			if (activated.length === 0) {
+				logger.info(
+					`Chat plan already activated for subscription ${subscriptionId}; not resetting usage on redelivered checkout`,
+				);
+			} else {
+				logger.info(
+					`Successfully activated chat plan ${chatPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
+				);
+			}
 
 			const stripeInvoiceId = session.invoice as string | undefined;
 			const existing = stripeInvoiceId
@@ -1866,6 +1881,27 @@ async function resolvePurchaserDistinctId(
 	return "organization";
 }
 
+/**
+ * Inside a transaction, serialize work on one credit top-up payment intent and
+ * report whether it was already credited. Returns true for a duplicate.
+ */
+async function claimCreditTopUpPaymentIntent(
+	tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+	paymentIntentId: string,
+): Promise<boolean> {
+	await tx.execute(
+		sql`SELECT pg_advisory_xact_lock(hashtext(${`credit-topup:${paymentIntentId}`}))`,
+	);
+	const existing = await tx.query.transaction.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: paymentIntentId },
+			type: { eq: "credit_topup" },
+			status: { eq: "completed" },
+		},
+	});
+	return Boolean(existing);
+}
+
 async function recordCreditTopUp({
 	organizationId,
 	finalCreditAmount,
@@ -1899,44 +1935,62 @@ async function recordCreditTopUp({
 	source: string;
 	bonusType?: BonusType | null;
 	purchaserUserId?: string | null;
-}) {
-	await db
-		.update(tables.organization)
-		.set({
-			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-			paymentFailureCount: 0,
-			lastPaymentFailureAt: null,
-			paymentFailureStartedAt: null,
-			lastTopUpAmount: creditAmount.toString(),
-		})
-		.where(eq(tables.organization.id, organizationId));
+}): Promise<boolean> {
+	// Credit and record the purchase atomically, serialized per payment intent,
+	// so overlapping or retried deliveries of one event credit it only once.
+	const completedTransaction = await db.transaction(async (tx) => {
+		if (stripePaymentIntentId) {
+			if (await claimCreditTopUpPaymentIntent(tx, stripePaymentIntentId)) {
+				return null;
+			}
+		}
 
-	// Reset low-balance email dedup so alerts can fire again on next cycle
-	await db
-		.delete(tables.followUpEmail)
-		.where(
-			and(
-				eq(tables.followUpEmail.organizationId, organizationId),
-				inArray(tables.followUpEmail.emailType, [
-					"low_balance_20",
-					"low_balance_5",
-				]),
-			),
+		await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+				paymentFailureCount: 0,
+				lastPaymentFailureAt: null,
+				paymentFailureStartedAt: null,
+				lastTopUpAmount: creditAmount.toString(),
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		// Reset low-balance email dedup so alerts can fire again on next cycle
+		await tx
+			.delete(tables.followUpEmail)
+			.where(
+				and(
+					eq(tables.followUpEmail.organizationId, organizationId),
+					inArray(tables.followUpEmail.emailType, [
+						"low_balance_20",
+						"low_balance_5",
+					]),
+				),
+			);
+
+		const [row] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "credit_topup",
+				creditAmount: finalCreditAmount.toString(),
+				amount: totalAmountInDollars.toString(),
+				currency,
+				status: "completed",
+				stripePaymentIntentId,
+				description,
+			})
+			.returning();
+		return row;
+	});
+
+	if (!completedTransaction) {
+		logger.info(
+			`Skipping duplicate credit top-up for payment intent ${stripePaymentIntentId}`,
 		);
-
-	const [completedTransaction] = await db
-		.insert(tables.transaction)
-		.values({
-			organizationId,
-			type: "credit_topup",
-			creditAmount: finalCreditAmount.toString(),
-			amount: totalAmountInDollars.toString(),
-			currency,
-			status: "completed",
-			stripePaymentIntentId,
-			description,
-		})
-		.returning();
+		return false;
+	}
 
 	// The completed transaction row now covers this amount in the velocity
 	// window's DB sum, so the initiation-time Redis reservation would count it
@@ -2033,6 +2087,7 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
+	return true;
 }
 
 export async function handleAirsideListingCheckout(
@@ -2242,7 +2297,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 
 	const bonusLabel = getBonusLabel(bonusType);
 
-	await recordCreditTopUp({
+	const recorded = await recordCreditTopUp({
 		organizationId,
 		finalCreditAmount,
 		bonusAmount,
@@ -2259,6 +2314,9 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		bonusType,
 		purchaserUserId: resolvedUser?.id ?? null,
 	});
+	if (!recorded) {
+		return;
+	}
 
 	await notifyCreditsPurchased({
 		email: userEmail ?? organization.billingEmail,
@@ -3171,53 +3229,66 @@ async function handlePaymentIntentSucceeded(
 			: `${topupNoun} via Stripe`;
 
 	if (transactionId) {
-		await db
-			.update(tables.organization)
-			.set({
-				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-				paymentFailureCount: 0,
-				lastPaymentFailureAt: null,
-				paymentFailureStartedAt: null,
-				lastTopUpAmount: creditAmount.toString(),
-			})
-			.where(eq(tables.organization.id, organizationId));
+		// Credit and complete the pending row atomically, serialized per payment
+		// intent, so a redelivered event cannot credit twice.
+		const completedTransactionId = await db.transaction(async (tx) => {
+			if (await claimCreditTopUpPaymentIntent(tx, paymentIntent.id)) {
+				return null;
+			}
 
-		// Reset low-balance email dedup so alerts can fire again on next cycle
-		await db
-			.delete(tables.followUpEmail)
-			.where(
-				and(
-					eq(tables.followUpEmail.organizationId, organizationId),
-					inArray(tables.followUpEmail.emailType, [
-						"low_balance_20",
-						"low_balance_5",
-					]),
-				),
-			);
+			await tx
+				.update(tables.organization)
+				.set({
+					credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+					paymentFailureCount: 0,
+					lastPaymentFailureAt: null,
+					paymentFailureStartedAt: null,
+					lastTopUpAmount: creditAmount.toString(),
+				})
+				.where(eq(tables.organization.id, organizationId));
 
-		const updatedTransaction = await db
-			.update(tables.transaction)
-			.set({
-				status: "completed",
-				stripePaymentIntentId: paymentIntent.id,
-				description:
-					bonusAmount > 0
-						? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-						: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
-				creditAmount: finalCreditAmount.toString(),
-				amount: totalAmountInDollars.toString(),
-			})
-			.where(eq(tables.transaction.id, transactionId))
-			.returning()
-			.then((rows) => rows[0]);
+			// Reset low-balance email dedup so alerts can fire again on next cycle
+			await tx
+				.delete(tables.followUpEmail)
+				.where(
+					and(
+						eq(tables.followUpEmail.organizationId, organizationId),
+						inArray(tables.followUpEmail.emailType, [
+							"low_balance_20",
+							"low_balance_5",
+						]),
+					),
+				);
 
-		let completedTransactionId: string;
+			const updatedTransaction = await tx
+				.update(tables.transaction)
+				.set({
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description:
+						bonusAmount > 0
+							? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+							: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
+					creditAmount: finalCreditAmount.toString(),
+					amount: totalAmountInDollars.toString(),
+				})
+				.where(
+					and(
+						eq(tables.transaction.id, transactionId),
+						eq(tables.transaction.organizationId, organizationId),
+					),
+				)
+				.returning()
+				.then((rows) => rows[0]);
 
-		if (!updatedTransaction) {
+			if (updatedTransaction) {
+				return updatedTransaction.id;
+			}
+
 			logger.warn(
 				`Could not find pending transaction ${transactionId} for organization ${organizationId}, creating new record`,
 			);
-			const [fallbackTransaction] = await db
+			const [fallbackTransaction] = await tx
 				.insert(tables.transaction)
 				.values({
 					organizationId,
@@ -3230,9 +3301,14 @@ async function handlePaymentIntentSucceeded(
 					description: transactionDescription,
 				})
 				.returning();
-			completedTransactionId = fallbackTransaction.id;
-		} else {
-			completedTransactionId = updatedTransaction.id;
+			return fallbackTransaction.id;
+		});
+
+		if (!completedTransactionId) {
+			logger.info(
+				`Skipping duplicate auto top-up for payment intent ${paymentIntent.id}`,
+			);
+			return;
 		}
 
 		const lineItems = [
@@ -3295,7 +3371,7 @@ async function handlePaymentIntentSucceeded(
 			},
 		});
 	} else {
-		await recordCreditTopUp({
+		const recorded = await recordCreditTopUp({
 			organizationId,
 			finalCreditAmount,
 			bonusAmount,
@@ -3309,6 +3385,9 @@ async function handlePaymentIntentSucceeded(
 			bonusType,
 			purchaserUserId: resolvedUser?.id ?? null,
 		});
+		if (!recorded) {
+			return;
+		}
 	}
 
 	await notifyCreditsPurchased({
