@@ -4,7 +4,7 @@ set -euo pipefail
 
 BASE_URL="http://localhost:4001"
 API_KEY="${LLM_GATEWAY_API_KEY:-test-token}"
-PROVIDER="glacier"
+PROVIDER="google-ai-studio"
 MODEL="gemini-3.1-flash-image"
 ASPECT_RATIO="1:1"
 EDIT_SIZE="1K"
@@ -22,7 +22,7 @@ Usage: scripts/generate-provider-image-mapping.sh [options]
 Options:
   --local                 Use http://localhost:4001
   --base-url URL          Override the API base URL
-  --provider NAME         Provider id (default: glacier)
+  --provider NAME         Provider id (default: google-ai-studio)
   --model NAME            Model id (default: gemini-3.1-flash-image)
   --mapping P/M           Provider/model mapping shorthand
   --prompt TEXT           Prompt for generated images

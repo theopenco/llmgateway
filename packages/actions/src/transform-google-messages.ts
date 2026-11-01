@@ -35,10 +35,7 @@ type GoogleAudioFormat =
 	| "webm";
 
 const VERTEX_FAMILY: ReadonlySet<string> = new Set(["google-vertex", "quartz"]);
-const AI_STUDIO_FAMILY: ReadonlySet<string> = new Set([
-	"google-ai-studio",
-	"glacier",
-]);
+const AI_STUDIO_FAMILY: ReadonlySet<string> = new Set(["google-ai-studio"]);
 
 const AI_STUDIO_AUDIO_MIME: Partial<Record<GoogleAudioFormat, string>> = {
 	wav: "audio/wav",

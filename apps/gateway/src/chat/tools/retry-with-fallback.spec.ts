@@ -594,12 +594,12 @@ describe("selectNextProvider", () => {
 
 	it("does not retry back to providers excluded by content filter routing", () => {
 		const providerScores = [
-			{ providerId: "glacier", score: -1, excludedByContentFilter: true },
+			{ providerId: "quartz", score: -1, excludedByContentFilter: true },
 			{ providerId: "google", score: 0.1 },
 			{ providerId: "openai", score: 0.2 },
 		];
 		const reroutedModelProviders = [
-			{ providerId: "glacier", externalId: "gemini-3-pro-image-preview" },
+			{ providerId: "quartz", externalId: "gemini-3-pro-image-preview" },
 			{ providerId: "google", externalId: "gemini-3-pro-image-preview" },
 			{ providerId: "openai", externalId: "gemini-3-pro-image-preview" },
 		];

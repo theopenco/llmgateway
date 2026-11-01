@@ -6,7 +6,6 @@ const NATIVE_NON_CHAT_PROVIDERS = new Set([
 	"azure-anthropic",
 	"aws-bedrock",
 	"google-ai-studio",
-	"glacier",
 	"google-vertex",
 	"quartz",
 ]);

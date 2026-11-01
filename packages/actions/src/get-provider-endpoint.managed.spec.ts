@@ -4,7 +4,6 @@ import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { managedCredentialOptions } from "./provider-key/managed.js";
 
 const ENV_VARS = [
-	"LLM_GLACIER_BASE_URL",
 	"LLM_GOOGLE_CLOUD_PROJECT",
 	"LLM_GOOGLE_VERTEX_REGION",
 	"LLM_GOOGLE_VERTEX_TOKEN_TYPE",
@@ -37,26 +36,24 @@ function managed(config: Record<string, string>) {
 
 describe("managed credential config in getProviderEndpoint", () => {
 	it("supplies a base URL the deployment has no env var for", () => {
-		delete process.env.LLM_GLACIER_BASE_URL;
+		delete process.env.LLM_OPENAI_BASE_URL;
 
 		const url = getProviderEndpoint(
-			"glacier",
+			"openai",
 			undefined,
-			"gemini-2.0-flash",
+			"gpt-4o-mini",
 			undefined,
 			false,
 			false,
 			false,
-			managed({ baseUrl: "https://glacier.managed.example" }),
+			managed({ baseUrl: "https://openai.managed.example" }),
 			0,
 			false,
 			undefined,
 			true,
 		);
 
-		expect(url).toBe(
-			"https://glacier.managed.example/v1beta/models/gemini-2.0-flash:generateContent",
-		);
+		expect(url).toBe("https://openai.managed.example/v1/chat/completions");
 	});
 
 	it("wins over an env var that is also set", () => {

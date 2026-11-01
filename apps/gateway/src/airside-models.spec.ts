@@ -366,7 +366,7 @@ describe("airside-listed models", () => {
 
 	test("resolves an Airside listing registered under a static alias", async () => {
 		await materializeTestMapping({
-			providerId: "glacier",
+			providerId: "quartz",
 			modelId: "nano banana pro",
 			externalId: "gemini-3-pro-image-carrier",
 			inputPrice: "2e-6",
@@ -382,7 +382,7 @@ describe("airside-listed models", () => {
 		});
 		expect(resolution?.pricingMappings).toHaveLength(1);
 		expect(resolution?.pricingMappings[0]).toMatchObject({
-			providerId: "glacier",
+			providerId: "quartz",
 			externalId: "gemini-3-pro-image-carrier",
 		});
 	});

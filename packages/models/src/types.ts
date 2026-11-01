@@ -581,7 +581,7 @@ export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
 	/**
-	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * Processing tier for the Gemini Developer API (google-ai-studio).
 	 * "flex" / "priority" select Flex / Priority inference. The served tier is
 	 * returned in the `x-gemini-service-tier` response header.
 	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.

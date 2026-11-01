@@ -152,29 +152,29 @@ describe("getUnifiedFinishReason", () => {
 		).toBe(UnifiedFinishReason.UNKNOWN);
 	});
 
-	it("maps Glacier finish reasons like Google AI Studio", () => {
-		expect(getUnifiedFinishReason("STOP", "glacier")).toBe(
+	it("maps Quartz finish reasons like Google Vertex", () => {
+		expect(getUnifiedFinishReason("STOP", "quartz")).toBe(
 			UnifiedFinishReason.COMPLETED,
 		);
-		expect(getUnifiedFinishReason("MAX_TOKENS", "glacier")).toBe(
+		expect(getUnifiedFinishReason("MAX_TOKENS", "quartz")).toBe(
 			UnifiedFinishReason.LENGTH_LIMIT,
 		);
-		expect(getUnifiedFinishReason("SAFETY", "glacier")).toBe(
+		expect(getUnifiedFinishReason("SAFETY", "quartz")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
-		expect(getUnifiedFinishReason("OTHER", "glacier")).toBe(
+		expect(getUnifiedFinishReason("OTHER", "quartz")).toBe(
 			UnifiedFinishReason.UNKNOWN,
 		);
 	});
 
-	it("maps Glacier image content filter finish reasons correctly", () => {
-		expect(getUnifiedFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier")).toBe(
+	it("maps Quartz image content filter finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("IMAGE_PROHIBITED_CONTENT", "quartz")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
-		expect(getUnifiedFinishReason("IMAGE_SAFETY", "glacier")).toBe(
+		expect(getUnifiedFinishReason("IMAGE_SAFETY", "quartz")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
-		expect(getUnifiedFinishReason("NO_IMAGE", "glacier")).toBe(
+		expect(getUnifiedFinishReason("NO_IMAGE", "quartz")).toBe(
 			UnifiedFinishReason.UNKNOWN,
 		);
 	});
@@ -272,7 +272,7 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "google-ai-studio")).toBe(
 			true,
 		);
-		expect(isExpectedUnknownFinishReason("OTHER", "glacier")).toBe(true);
+		expect(isExpectedUnknownFinishReason("OTHER", "quartz")).toBe(true);
 		expect(isExpectedUnknownFinishReason("OTHER", "google-vertex")).toBe(true);
 	});
 
@@ -280,7 +280,7 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(
 			isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "google-ai-studio"),
 		).toBe(true);
-		expect(isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "glacier")).toBe(
+		expect(isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "quartz")).toBe(
 			true,
 		);
 		expect(
@@ -316,7 +316,7 @@ describe("isExpectedUnknownFinishReason", () => {
 describe("isContentFilterFinishReason", () => {
 	it("returns true for Google-compatible image filter finish reasons", () => {
 		expect(
-			isContentFilterFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier"),
+			isContentFilterFinishReason("IMAGE_PROHIBITED_CONTENT", "quartz"),
 		).toBe(true);
 		expect(
 			isContentFilterFinishReason(
@@ -327,7 +327,7 @@ describe("isContentFilterFinishReason", () => {
 	});
 
 	it("returns false for Google OTHER finish reason", () => {
-		expect(isContentFilterFinishReason("OTHER", "glacier")).toBe(false);
+		expect(isContentFilterFinishReason("OTHER", "quartz")).toBe(false);
 	});
 
 	it("returns true for OpenAI content filters", () => {

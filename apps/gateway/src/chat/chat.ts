@@ -1081,7 +1081,6 @@ function withUsedCredential(
 function usesGoogleQueryToken(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -1090,7 +1089,6 @@ function usesGoogleQueryToken(provider: string): boolean {
 function isGoogleCompatibleProvider(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -12475,7 +12473,6 @@ chat.openapi(completions, async (c) => {
 								// Handle provider-specific finish reason extraction
 								switch (streamFormatProvider) {
 									case "google-ai-studio":
-									case "glacier":
 									case "google-vertex":
 									case "quartz":
 										// Preserve original Google finish reason for logging
