@@ -136,6 +136,11 @@ describe("responsesServerToolUseCount", () => {
 		expect(responsesServerToolUseCount({ input_tokens: 22 })).toBeUndefined();
 		expect(responsesServerToolUseCount(null)).toBeUndefined();
 	});
+
+	test("zero without server_tool_use when the upstream always reports it", () => {
+		expect(responsesServerToolUseCount({ input_tokens: 22 }, true)).toBe(0);
+		expect(responsesServerToolUseCount(undefined, true)).toBeUndefined();
+	});
 });
 
 describe("promptTokensShowSearchContext", () => {

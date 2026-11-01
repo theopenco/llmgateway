@@ -1823,11 +1823,17 @@ export async function prepareRequestBody(
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	// Org custom models keep the static lookup: their DB mapping was never
 	// used for request shaping.
+	// A web search request rerouted by `webSearchApiFormat` arrives under the
+	// generic transport, but is still shaped by its own provider's mapping.
+	const optionsProvider =
+		webSearchTool && resolvedProviderMapping?.webSearchApiFormat
+			? (resolvedProviderMapping.providerId as ProviderId)
+			: usedProvider;
 	const providerMappingForOptions = getProviderMapping(
 		resolvedProviderMapping && usedProvider !== "custom"
 			? [resolvedProviderMapping]
 			: modelDef?.providers,
-		usedProvider,
+		optionsProvider,
 		usedRegion,
 	);
 	// A forced search maps to `tool_choice: "required"` in the tool shape,
@@ -2939,7 +2945,8 @@ export async function prepareRequestBody(
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
 									...(reasoning_context !== undefined &&
-										(usedProvider === "openai" || usedProvider === "azure") && {
+										(optionsProvider === "openai" ||
+											optionsProvider === "azure") && {
 											context: reasoning_context,
 										}),
 									// Capability validation already rejected requests no

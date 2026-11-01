@@ -5,7 +5,9 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 import type {
 	BaseMessage,
 	ProviderId,
+	ProviderModelMapping,
 	ToolChoiceType,
+	WebSearchTool,
 } from "@llmgateway/models";
 
 interface ResponsesBody {
@@ -37,6 +39,8 @@ async function buildOpenAIResponsesBody(
 		reasoning_mode?: "standard" | "pro";
 		tool_choice?: ToolChoiceType;
 		provider?: { id: ProviderId; model: string; region: string | null };
+		webSearchTool?: WebSearchTool;
+		resolvedProviderMapping?: ProviderModelMapping;
 	} = {},
 ): Promise<ResponsesBody> {
 	const provider = opts.provider ?? {
@@ -68,7 +72,7 @@ async function buildOpenAIResponsesBody(
 		undefined, // image_config
 		undefined, // effort
 		undefined, // imageGenerations
-		undefined, // webSearchTool
+		opts.webSearchTool, // webSearchTool
 		undefined, // reasoning_max_tokens
 		true, // useResponsesApi
 		undefined, // prompt_cache_key
@@ -81,7 +85,7 @@ async function buildOpenAIResponsesBody(
 		undefined, // session_id
 		opts.reasoning_context, // reasoning_context
 		undefined, // safety_identifier
-		undefined, // resolvedProviderMapping
+		opts.resolvedProviderMapping, // resolvedProviderMapping
 		opts.reasoning_mode, // reasoning_mode
 	)) as unknown as ResponsesBody;
 }
@@ -153,6 +157,31 @@ describe("transform to OpenAI Responses API", () => {
 
 		const gpt = await buildOpenAIResponsesBody(messages);
 		expect(gpt.input.some((item) => item.type === "reasoning")).toBe(false);
+	});
+
+	test("shapes a web search reroute with its own provider's mapping", async () => {
+		const mapping = {
+			providerId: "deepseek",
+			externalId: "deepseek-v4-pro",
+			webSearchApiFormat: "openai-responses",
+			supportsDeveloperRole: false,
+		} as ProviderModelMapping;
+		const messages = [
+			{ role: "developer", content: "be brief" },
+			{ role: "user", content: "news?" },
+		] as unknown as BaseMessage[];
+		const body = await buildOpenAIResponsesBody(messages, {
+			provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+			webSearchTool: { type: "web_search" },
+			resolvedProviderMapping: mapping,
+		});
+		expect(body.input[0]!.role).toBe("system");
+
+		const withoutSearch = await buildOpenAIResponsesBody(messages, {
+			provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+			resolvedProviderMapping: mapping,
+		});
+		expect(withoutSearch.input[0]!.role).toBe("developer");
 	});
 
 	test("emits function_call items before the assistant message by default", async () => {

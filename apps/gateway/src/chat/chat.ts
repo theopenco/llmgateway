@@ -12388,6 +12388,7 @@ chat.openapi(completions, async (c) => {
 									// billable operations itself (DeepSeek).
 									const serverToolUse = responsesServerToolUseCount(
 										data.response?.usage,
+										usedProvider === "deepseek",
 									);
 									if (serverToolUse !== undefined) {
 										webSearchCount = serverToolUse;
@@ -15690,7 +15691,11 @@ chat.openapi(completions, async (c) => {
 		// A declared format leaves the count to response evidence below.
 		!!webSearchTool && !usedWebSearchFormat(),
 		!!webSearchTool?.forced && !usedWebSearchFormat(),
-		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
+		{
+			cacheThoughtSignatures: !zeroDataRetentionEnabled,
+			// DeepSeek omits server_tool_use when nothing billable ran.
+			serverToolUseAlwaysReported: usedProvider === "deepseek",
+		},
 	);
 	let { content, totalTokens, webSearchCount } = parsedResponse;
 	const {

@@ -140,12 +140,18 @@ export function reportedWebSearchCount(response: unknown): number {
  * `server_tool_use` (DeepSeek): successful searches plus page fetches, both
  * billed per call. Undefined when the field is absent, so callers fall back to
  * counting `web_search_call` items, which include failed and empty ones.
+ * With `alwaysReported` (the upstream omits the field when nothing billable
+ * ran), a `usage` object without it counts zero.
  */
 export function responsesServerToolUseCount(
 	usage: unknown,
+	alwaysReported = false,
 ): number | undefined {
-	if (!isRecord(usage) || !isRecord(usage.server_tool_use)) {
+	if (!isRecord(usage)) {
 		return undefined;
+	}
+	if (!isRecord(usage.server_tool_use)) {
+		return alwaysReported ? 0 : undefined;
 	}
 	let count = 0;
 	for (const value of [

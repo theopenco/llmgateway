@@ -195,7 +195,7 @@ tool's own fields win:
 OpenAI's other names for it, `web_search_preview` and dated variants such as
 `web_search_2025_08_26`, are accepted too, as is `filters.allowed_domains`.
 `tool_choice: {"type": "web_search"}` (or `web_search_preview`) requires a
-search.
+search (see [Requiring a Search](#requiring-a-search) for the exception).
 
 ## Requiring a Search
 
@@ -211,6 +211,9 @@ whether the question needs one. To require a search on every request, set
 	"tool_choice": { "type": "web_search" }
 }
 ```
+
+DeepSeek ignores a forced search: on a request it serves, the model still
+decides whether to search. Pin another provider when every request must search.
 
 Reach for this sparingly. A forced search is billed on every request that
 carries it, and the retrieved snippets are appended to your prompt, so they are

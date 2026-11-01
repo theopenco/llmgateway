@@ -71,7 +71,10 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
-	options?: { cacheThoughtSignatures?: boolean },
+	options?: {
+		cacheThoughtSignatures?: boolean;
+		serverToolUseAlwaysReported?: boolean;
+	},
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -1325,7 +1328,10 @@ export function parseProviderResponse(
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",
 				);
-				const serverToolUse = responsesServerToolUseCount(json.usage);
+				const serverToolUse = responsesServerToolUseCount(
+					json.usage,
+					options?.serverToolUseAlwaysReported,
+				);
 				if (serverToolUse !== undefined) {
 					webSearchCount = serverToolUse;
 				} else if (webSearchCalls.length > 0) {
