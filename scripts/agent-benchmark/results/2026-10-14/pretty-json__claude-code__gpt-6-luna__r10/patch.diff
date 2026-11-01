@@ -1,0 +1,117 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..db5382e 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -103,6 +103,90 @@ describe('JSON pretty by Middleware', () => {
+ }`)
+   })
+ 
++  it('Should pass through JSON responses with empty or invalid bodies', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/empty', (c) =>
++      c.newResponse(null, 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Test': 'unchanged',
++      })
++    )
++    app.get('/invalid', (c) =>
++      c.newResponse('not-json', 502, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++        'X-Test': 'unchanged',
++      })
++    )
++    app.get('/no-content', (c) =>
++      c.newResponse(null, 204, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Test': 'unchanged',
++      })
++    )
++    app.get('/not-modified', (c) =>
++      c.newResponse(null, 304, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Test': 'unchanged',
++      })
++    )
++
++    for (const [path, status, body, contentLength] of [
++      ['/empty', 200, '', '0'],
++      ['/invalid', 502, 'not-json', '8'],
++      ['/no-content', 204, '', '0'],
++      ['/not-modified', 304, '', '0'],
++    ] as const) {
++      const res = await app.request(`http://localhost${path}`)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.headers.get('Content-Length')).toBe(contentLength)
++      expect(res.headers.get('X-Test')).toBe('unchanged')
++      expect(await res.text()).toBe(body)
++    }
++  })
++
++  it('Should not fail when another middleware has read the response body', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('*', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/', (c) =>
++      c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'X-Test': 'unchanged',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++    expect(res.headers.get('X-Test')).toBe('unchanged')
++  })
++
++  it('Should remove Content-Length when prettifying a response', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '20',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++    expect(res.headers.has('Content-Length')).toBe(false)
++  })
++
+   it('Should not touch responses with non-JSON content-types', async () => {
+     const app = new Hono()
+     app.use('*', prettyJSON({ force: true }))
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..eb1027e 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,15 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      const response = c.res
++      let obj: unknown
++      try {
++        obj = await response.clone().json()
++      } catch {
++        return
++      }
++      response.headers.delete('Content-Length')
++      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), response)
+     }
+   }
+ }

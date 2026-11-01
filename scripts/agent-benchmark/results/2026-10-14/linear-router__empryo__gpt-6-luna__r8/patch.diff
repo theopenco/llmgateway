@@ -1,0 +1,43 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..44f7f69 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -78,3 +78,15 @@ describe('LinearRouter', () => {
+     })
+   })
+ })
++
++
++describe('LinearRouter empty parameter', () => {
++  it('does not match an empty named parameter', () => {
++    const router = new LinearRouter<string>()
++    router.add('GET', '/u/:id/posts', 'route')
++
++    const [res] = router.match('GET', '/u//posts')
++    expect(res).toHaveLength(0)
++  })
++})
++
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..a28c65f 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -117,6 +117,9 @@ export class LinearRouter<T> implements Router<T> {
+                   endValuePos = path.length
+                 }
+                 value = path.slice(pos + 1, endValuePos)
++                if (!value) {
++                  continue ROUTES_LOOP
++                }
+                 pos = endValuePos
+               }
+ 

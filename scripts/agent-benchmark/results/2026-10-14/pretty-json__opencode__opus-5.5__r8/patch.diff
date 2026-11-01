@@ -1,0 +1,29 @@
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..62c30dd 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,22 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      const res = c.res
++      // Nothing to prettify (e.g. 204/304) or the body was already consumed elsewhere.
++      if (!res.body || res.bodyUsed) {
++        return
++      }
++      let obj: unknown
++      try {
++        // Read from a clone so the original body stays intact if it is not valid JSON.
++        obj = JSON.parse(await res.clone().text())
++      } catch {
++        return
++      }
++      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), res)
++      // The `c.res` setter copies headers from the previous response, so remove the
++      // now-stale Content-Length afterwards.
++      c.res.headers.delete('Content-Length')
+     }
+   }
+ }

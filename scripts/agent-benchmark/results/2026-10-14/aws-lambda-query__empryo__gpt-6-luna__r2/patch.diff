@@ -1,0 +1,74 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..84324c3 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -425,6 +425,36 @@ describe('EventProcessor.createRequest', () => {
+   })
+ })
+ 
++describe('empty query parameter values', () => {
++  it('Should preserve empty query parameter values for version 1.0 API Gateway and ALB events', () => {
++    const queryStringParameters = {
++      empty: '',
++      present: '0',
++      omitted: undefined,
++    }
++    const apiGatewayEvent: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters,
++    }
++    const albEvent = {
++      httpMethod: 'GET',
++      path: '/my/path',
++      headers: { host: 'id.execute-api.us-east-1.amazonaws.com' },
++      queryStringParameters,
++      body: null,
++      isBase64Encoded: false,
++      requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++    } as unknown as LambdaEvent
++
++    expect(getProcessor(apiGatewayEvent).createRequest(apiGatewayEvent).url).toBe(
++      'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++    )
++    expect(getProcessor(albEvent).createRequest(albEvent).url).toBe(
++      'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++    )
++  })
++})
++
+ describe('handle', () => {
+   it('Should route a V1 REST event by its path even when a base path mapping adds rawPath', async () => {
+     const app = new Hono()
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..3f6748c 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,8 +465,8 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
++        .filter((entry): entry is [string, string] => entry[1] !== undefined)
++        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+         .join('&')
+     }
+   }
+@@ -555,7 +555,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter((entry): entry is [string, string] => entry[1] !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }

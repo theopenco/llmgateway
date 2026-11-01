@@ -1,0 +1,111 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..7d23a95 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,69 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should pass through JSON responses whose body cannot be parsed', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get(
++      '/204',
++      () => new Response(null, { status: 204, headers: { 'Content-Type': 'application/json' } })
++    )
++    app.get(
++      '/304',
++      () => new Response(null, { status: 304, headers: { 'Content-Type': 'application/json' } })
++    )
++    app.get('/empty', () => new Response('', { headers: { 'Content-Type': 'application/json' } }))
++    app.get(
++      '/invalid',
++      () =>
++        new Response('not json', {
++          status: 502,
++          headers: { 'Content-Type': 'application/json', 'Content-Length': '8' },
++        })
++    )
++    app.get('/consumed', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/consumed', (c) => c.json({ message: 'Hono!' }))
++
++    for (const status of [204, 304]) {
++      const res = await app.request(`http://localhost/${status}`)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.body).toBeNull()
++    }
++
++    const emptyRes = await app.request('http://localhost/empty')
++    expect(emptyRes.status).toBe(200)
++    expect(await emptyRes.text()).toBe('')
++
++    const invalidRes = await app.request('http://localhost/invalid')
++    expect(invalidRes.status).toBe(502)
++    expect(invalidRes.headers.get('Content-Length')).toBe('8')
++    expect(await invalidRes.text()).toBe('not json')
++
++    const consumedRes = await app.request('http://localhost/consumed')
++    expect(consumedRes.status).toBe(200)
++    expect(consumedRes.bodyUsed).toBe(true)
++  })
++
++  it('Should remove the original Content-Length when prettifying', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => {
++      const body = '{"message":"Hono!"}'
++      return c.body(body, 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': String(body.length),
++      })
++    })
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..329a035 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,21 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      if (!c.res.body || c.res.bodyUsed) {
++        return
++      }
++      let obj: unknown
++      try {
++        obj = JSON.parse(await c.res.clone().text())
++      } catch {
++        // Not parseable as JSON (or body not readable): pass through unchanged
++        return
++      }
++      const res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      res.headers.delete('Content-Length')
++      // Reset first so the `c.res` setter does not merge the stale Content-Length back in
++      c.res = undefined
++      c.res = res
+     }
+   }
+ }

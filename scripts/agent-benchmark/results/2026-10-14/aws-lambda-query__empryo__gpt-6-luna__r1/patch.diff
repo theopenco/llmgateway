@@ -1,0 +1,93 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..7fe2153 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -195,6 +195,29 @@ describe('EventProcessor.createResult with contentTypesAsBinary', () => {
+ })
+ 
+ describe('EventProcessor.createRequest', () => {
++  it('preserves empty query parameters for API Gateway v1 and ALB events', () => {
++    const v1Event: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++    }
++    const albEvent = {
++      httpMethod: 'GET',
++      path: '/my/path',
++      headers: { host: 'app.example.com' },
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++      body: null,
++      isBase64Encoded: false,
++      requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++    } as unknown as LambdaEvent
++
++    expect(getProcessor(v1Event).createRequest(v1Event).url).toBe(
++      'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++    )
++    expect(getProcessor(albEvent).createRequest(albEvent).url).toBe(
++      'https://app.example.com/my/path?empty=&present=0'
++    )
++  })
++
+   it('Should preserve percent-encoded values in query string for version 1.0', () => {
+     const event: LambdaEvent = {
+       ...baseV1Event,
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..d7bb904 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,7 +465,7 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
+         .join('&')
+     }
+@@ -555,7 +555,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }
+diff --git a/.empryo/genome.db b/.empryo/genome.db
+new file mode 100644
+index 0000000..d9f9b8a
+Binary files /dev/null and b/.empryo/genome.db differ
+diff --git a/.empryo/genome.db-shm b/.empryo/genome.db-shm
+new file mode 100644
+index 0000000..797697f
+Binary files /dev/null and b/.empryo/genome.db-shm differ
+diff --git a/.empryo/genome.db-wal b/.empryo/genome.db-wal
+new file mode 100644
+index 0000000..e69de29
+diff --git a/.empryo/memory-config.json b/.empryo/memory-config.json
+new file mode 100644
+index 0000000..58b778b
+--- /dev/null
++++ b/.empryo/memory-config.json
+@@ -0,0 +1,8 @@
++{
++  "writeScope": "project",
++  "readScope": "all",
++  "cleanup": {
++    "lastCleanupAt": null,
++    "sessionsSinceCleanup": 1
++  }
++}
+\ No newline at end of file
+diff --git a/.empryo/memory.db b/.empryo/memory.db
+new file mode 100644
+index 0000000..c92a1a6
+Binary files /dev/null and b/.empryo/memory.db differ
+diff --git a/.empryo/memory.db-shm b/.empryo/memory.db-shm
+new file mode 100644
+index 0000000..4346416
+Binary files /dev/null and b/.empryo/memory.db-shm differ
+diff --git a/.empryo/memory.db-wal b/.empryo/memory.db-wal
+new file mode 100644
+index 0000000..e69de29

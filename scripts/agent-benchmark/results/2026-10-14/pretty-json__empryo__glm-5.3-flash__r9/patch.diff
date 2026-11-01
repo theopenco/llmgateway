@@ -1,0 +1,98 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..b25165c 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,61 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should pass through responses with a JSON content-type but an unparseable body', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++
++    app.get('/204', (c) => c.body(null, 204, { 'Content-Type': 'application/json' }))
++    app.get('/empty', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    app.get('/invalid', (c) =>
++      c.body('not json', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++      })
++    )
++    app.get(
++      '/consumed',
++      (c, next) => next(),
++      async (c, next) => {
++        await next()
++        await c.res.text() // body already read by another middleware
++      }
++    )
++    app.get('/consumed', (c) => c.body('{"message":"Hono!"}', 200, { 'Content-Type': 'application/json' }))
++
++    const res204 = await app.request('http://localhost/204')
++    expect(res204.status).toBe(204)
++    expect(await res204.text()).toBe('')
++
++    const emptyRes = await app.request('http://localhost/empty')
++    expect(emptyRes.status).toBe(200)
++    expect(await emptyRes.text()).toBe('')
++
++    const invalidRes = await app.request('http://localhost/invalid')
++    expect(invalidRes.status).toBe(200)
++    expect(invalidRes.headers.get('Content-Length')).toBe('8')
++    expect(await invalidRes.text()).toBe('not json')
++
++    const consumedRes = await app.request('http://localhost/consumed')
++    expect(consumedRes.status).toBe(200)
++    expect(consumedRes.bodyUsed).toBe(true)
++  })
++
++  it('Should remove the original Content-Length header when prettifying', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse(JSON.stringify({ message: 'Hono!' }), 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '18',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.has('Content-Length')).toBe(false)
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..2d6575e 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,17 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
++      // Read from a clone so that the response is kept intact when the body is not parseable as JSON
++      let obj: unknown
++      try {
++        obj = await c.res.clone().json()
++      } catch {
++        // e.g. an empty 204 response or a body that is not valid JSON
++        return
++      }
+       c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      // The length of the body has changed, so remove the stale Content-Length
++      c.res.headers.delete('Content-Length')
+     }
+   }
+ }

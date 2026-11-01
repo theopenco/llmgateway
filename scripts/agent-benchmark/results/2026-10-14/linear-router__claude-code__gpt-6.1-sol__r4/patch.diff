@@ -1,0 +1,49 @@
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..6bbb466 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -1,3 +1,4 @@
++import { Hono } from '../../hono'
+ import { UnsupportedPathError } from '../../router'
+ import { runTest } from '../common.case.test'
+ import { LinearRouter } from './router'
+@@ -50,6 +51,20 @@ describe('LinearRouter', () => {
+     })
+   })
+ 
++  describe('Named parameter', () => {
++    it('does not match an empty path segment', async () => {
++      const app = new Hono({ router: new LinearRouter() })
++      app.get('/u/:id/posts', (c) => c.text(`id=${c.req.param('id')}`))
++
++      const empty = await app.request('/u//posts')
++      expect(empty.status).toBe(404)
++
++      const valid = await app.request('/u/123/posts')
++      expect(valid.status).toBe(200)
++      expect(await valid.text()).toBe('id=123')
++    })
++  })
++
+   describe('Trailing slash', () => {
+     const router = new LinearRouter<string>()
+ 
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..2bd9411 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -111,11 +111,11 @@ export class LinearRouter<T> implements Router<T> {
+               } else {
+                 let endValuePos = path.indexOf('/', pos + 1)
+                 if (endValuePos === -1) {
+-                  if (pos + 1 === path.length) {
+-                    continue ROUTES_LOOP
+-                  }
+                   endValuePos = path.length
+                 }
++                if (endValuePos === pos + 1) {
++                  continue ROUTES_LOOP
++                }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos
+               }
