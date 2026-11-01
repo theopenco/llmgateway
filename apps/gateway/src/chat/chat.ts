@@ -197,7 +197,7 @@ import {
 	preserveGoogleResponseText,
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
-	responsesServerToolUseCount,
+	billedServerToolUseCount,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -12353,8 +12353,12 @@ chat.openapi(completions, async (c) => {
 									);
 								} else if (isAnthropicMessagesProvider(transportProvider)) {
 									// For Anthropic, count successful web_search_tool_result
-									// blocks; errored searches carry an object and are not billed
-									if (
+									// blocks; errored searches carry an object and are not billed.
+									// DeepSeek's final message_delta reports the billed count.
+									const serverToolUse = billedServerToolUseCount(data.usage);
+									if (serverToolUse !== undefined) {
+										webSearchCount = serverToolUse;
+									} else if (
 										data.type === "content_block_start" &&
 										data.content_block?.type === "web_search_tool_result" &&
 										Array.isArray(data.content_block.content)
@@ -12386,7 +12390,7 @@ chat.openapi(completions, async (c) => {
 									// For OpenAI Responses API, count web_search_call.completed
 									// events, unless the terminal event's usage reports the
 									// billable operations itself (DeepSeek).
-									const serverToolUse = responsesServerToolUseCount(
+									const serverToolUse = billedServerToolUseCount(
 										data.response?.usage,
 										usedProvider === "deepseek",
 									);
@@ -13154,7 +13158,7 @@ chat.openapi(completions, async (c) => {
 											delta: {},
 											finish_reason: mapFinishReasonToOpenai(
 												finishReason,
-												usedProvider,
+												streamFormatProvider,
 												!!streamingToolCalls && streamingToolCalls.length > 0,
 											),
 										},
@@ -13441,7 +13445,7 @@ chat.openapi(completions, async (c) => {
 											delta: {},
 											finish_reason: mapFinishReasonToOpenai(
 												finishReason,
-												usedProvider,
+												streamFormatProvider,
 												!!streamingToolCalls && streamingToolCalls.length > 0,
 											),
 										},

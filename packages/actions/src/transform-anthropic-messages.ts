@@ -176,6 +176,7 @@ export async function transformAnthropicMessages(
 	minCacheableChars = 1024 * 4,
 	autoInjectCacheControl = true,
 	automaticCacheTtl?: "1h",
+	unsignedThinkingReplay = false,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
@@ -568,6 +569,20 @@ export async function transformAnthropicMessages(
 			m.role === "assistant" && provider
 				? anthropicThinkingBlocksFor(provider, m.reasoning_details)
 				: [];
+		// DeepSeek's Anthropic API 400s a thinking-mode tool continuation
+		// without the turn's thinking, but accepts it unsigned.
+		if (
+			unsignedThinkingReplay &&
+			m.role === "assistant" &&
+			thinkingBlocks.length === 0 &&
+			m.tool_calls?.length
+		) {
+			thinkingBlocks.push({
+				type: "thinking",
+				thinking: (m.reasoning_content ?? m.reasoning ?? "").trim(),
+				signature: "",
+			});
+		}
 
 		results.push({
 			content: [...thinkingBlocks, ...anthropicContent],

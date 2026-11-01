@@ -1,9 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	getProviderApiTransport,
 	getRequestApiFormat,
 	getUpstreamModelId,
 } from "./provider-api-format.js";
+
+describe("getProviderApiTransport", () => {
+	it("sends anthropic-messages through the Anthropic transport", () => {
+		expect(getProviderApiTransport("deepseek", "anthropic-messages")).toBe(
+			"anthropic",
+		);
+		expect(getProviderApiTransport("deepseek", "openai-responses")).toBe(
+			"openai",
+		);
+		expect(getProviderApiTransport("deepseek", undefined)).toBe("deepseek");
+	});
+});
 
 describe("getRequestApiFormat", () => {
 	const mapping = { webSearchApiFormat: "openai-responses" as const };

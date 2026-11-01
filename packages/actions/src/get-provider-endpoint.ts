@@ -5,8 +5,8 @@ import {
 	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
-	type ProviderApiFormat,
 	type ProviderId,
+	type RequestApiFormat,
 	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderDefinition,
@@ -335,7 +335,7 @@ export function getProviderEndpoint(
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
 	variant?: EnvVarVariant,
-	apiFormat?: ProviderApiFormat,
+	apiFormat?: RequestApiFormat,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -737,6 +737,13 @@ export function getProviderEndpoint(
 	}
 	if (apiFormat === "openai-responses") {
 		return appendPath(url, "/v1/responses");
+	}
+	if (apiFormat === "anthropic-messages") {
+		// DeepSeek serves its Anthropic-compatible API under `/anthropic`.
+		return appendPath(
+			url,
+			provider === "deepseek" ? "/anthropic/v1/messages" : "/v1/messages",
+		);
 	}
 	if (apiFormat === "google-vertex") {
 		return buildVertexCompatibleEndpoint(

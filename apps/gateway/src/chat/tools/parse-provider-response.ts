@@ -1,7 +1,7 @@
 import {
+	billedServerToolUseCount,
 	fromConverseReasoningContent,
 	pairedServerToolBlocks,
-	responsesServerToolUseCount,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
@@ -312,8 +312,14 @@ export function parseProviderResponse(
 					block.type === "web_search_tool_result" &&
 					Array.isArray(block.content),
 			);
+			// DeepSeek reports the billed searches and fetches, which can be
+			// fewer than its result blocks.
+			const billedServerToolUse = billedServerToolUseCount(json.usage);
+			if (billedServerToolUse !== undefined) {
+				webSearchCount = billedServerToolUse;
+			}
 			if (webSearchBlocks.length > 0) {
-				webSearchCount = webSearchBlocks.length;
+				webSearchCount = billedServerToolUse ?? webSearchBlocks.length;
 				// Extract citations from each web search result
 				for (const block of webSearchBlocks) {
 					for (const item of block.content) {
@@ -1328,7 +1334,7 @@ export function parseProviderResponse(
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",
 				);
-				const serverToolUse = responsesServerToolUseCount(
+				const serverToolUse = billedServerToolUseCount(
 					json.usage,
 					options?.serverToolUseAlwaysReported,
 				);

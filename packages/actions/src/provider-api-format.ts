@@ -3,16 +3,19 @@ import {
 	getProviderDefinition,
 	models,
 	type Provider,
-	type ProviderApiFormat,
 	type ProviderModelMapping,
+	type RequestApiFormat,
 } from "@llmgateway/models";
 
 export function getProviderApiTransport(
 	provider: Provider,
-	apiFormat: ProviderApiFormat | undefined,
+	apiFormat: RequestApiFormat | undefined,
 ): Provider {
 	if (!apiFormat || apiFormat === "provider-native") {
 		return provider;
+	}
+	if (apiFormat === "anthropic-messages") {
+		return "anthropic";
 	}
 	return apiFormat === "google-vertex" ? "google-vertex" : "openai";
 }
@@ -25,7 +28,7 @@ export function getRequestApiFormat(
 	mapping:
 		Pick<ProviderModelMapping, "apiFormat" | "webSearchApiFormat"> | undefined,
 	hasWebSearch: boolean,
-): ProviderApiFormat | undefined {
+): RequestApiFormat | undefined {
 	if (hasWebSearch && mapping?.webSearchApiFormat) {
 		return mapping.webSearchApiFormat;
 	}

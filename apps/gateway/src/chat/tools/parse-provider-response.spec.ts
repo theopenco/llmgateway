@@ -1276,6 +1276,33 @@ describe("parseProviderResponse", () => {
 			expect(result.webSearchCount).toBe(1);
 			expect(result.annotations).toHaveLength(1);
 		});
+
+		it("bills DeepSeek's reported tool_search count over its result blocks", () => {
+			const result = (n: number) => ({
+				type: "web_search_tool_result",
+				tool_use_id: `srvtoolu_${n}`,
+				content: [{ type: "web_search_result", url: "https://example.com" }],
+			});
+			const json = {
+				content: [result(1), result(2), { type: "text", text: "ok" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 100,
+					output_tokens: 5,
+					// The second search returned nothing billable upstream.
+					server_tool_use: { web_search_requests: 2, tool_search: 1 },
+				},
+			};
+
+			const parsed = parseProviderResponse(
+				"anthropic",
+				"deepseek-v4.1-flash-1017",
+				json,
+			);
+
+			expect(parsed.webSearchCount).toBe(1);
+			expect(parsed.annotations).toHaveLength(2);
+		});
 	});
 
 	describe("azure-anthropic", () => {

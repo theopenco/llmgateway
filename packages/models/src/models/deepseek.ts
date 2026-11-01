@@ -1536,6 +1536,12 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: true,
 				tools: true,
+				// Hosted search runs only on DeepSeek's Anthropic Messages API for
+				// Flash (the Responses API accepts the tool but never searches).
+				// Searches and page fetches both bill per successful call.
+				webSearch: true,
+				webSearchPrice: "0.00075",
+				webSearchApiFormat: "anthropic-messages",
 				// DeepSeek's API 400s on the OpenAI-only `developer` role
 				// ("unknown variant `developer`, expected one of `system`, `user`,
 				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to

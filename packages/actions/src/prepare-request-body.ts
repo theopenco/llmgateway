@@ -3982,6 +3982,7 @@ export async function prepareRequestBody(
 				minCacheableChars, // Model-specific minimum cacheable characters
 				autoCacheControlEnabled,
 				automaticCacheTtl,
+				optionsProvider === "deepseek",
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
