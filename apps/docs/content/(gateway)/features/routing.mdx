@@ -499,7 +499,7 @@ to route through your own endpoint instead.
 
 When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (from the time-decayed metrics window described above). If the uptime falls below %routing.retry.lowUptimeFallbackThreshold%%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues. The fallback threshold (default `90%`) is configurable. Models with [provider-bound reasoning](#smart-routing-algorithm) skip this reroute, since the alternative provider would reject the conversation's reasoning payloads.
 
-An explicitly requested provider that has exhausted a [global provider rate limit](#global-provider-rate-limits) without an applicable exemption is likewise rerouted to the best available alternative. With `X-No-Fallback: true` the request is rejected with a `429` instead.
+An explicitly requested provider that has exhausted a [global provider rate limit](#global-provider-rate-limits) without an applicable exemption is likewise rerouted to the best available alternative. With `X-No-Fallback: true` the request is rejected with a `429` instead. When no alternative is available, the request proceeds on the requested provider anyway — unless the exceeded cap is lax-mode or zero, which is still enforced with a `429`.
 
 <Callout type="info">
 	If the requested provider has low uptime but no alternative providers are
