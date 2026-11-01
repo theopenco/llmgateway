@@ -653,7 +653,6 @@ export async function calculateCosts(
 	// 560/image legacy default) on top of the text estimate.
 	const isGoogleProvider =
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz";
 	const imageInputTokensPerImage = resolveByResolution(

@@ -964,7 +964,6 @@ export async function resolveProviderContext(
 			credentialBaseUrl ?? airsideCustomBaseUrl,
 			upstreamModelName,
 			usedProvider === "google-ai-studio" ||
-				usedProvider === "glacier" ||
 				usedProvider === "google-vertex" ||
 				usedProvider === "quartz" ||
 				usedProvider === "vertex-anthropic" ||

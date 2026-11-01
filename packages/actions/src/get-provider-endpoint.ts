@@ -418,24 +418,6 @@ export function getProviderEndpoint(
 						getProviderDefaultBaseUrl(provider),
 					) ?? getProviderDefaultBaseUrl(provider);
 				break;
-			case "glacier":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"glacier",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "vertex-openai": {
 				const vertexOpenaiDefaultHost =
 					regionBaseUrl ?? "https://aiplatform.googleapis.com";
@@ -759,22 +741,6 @@ export function getProviderEndpoint(
 		case "anthropic":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
-			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = externalId
-				? `${url}/v1beta/models/${externalId}:${endpoint}`
-				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
-			const queryParams = [];
-			if (token) {
-				queryParams.push(`key=${token}`);
-			}
-			if (stream) {
-				queryParams.push("alt=sse");
-			}
-			return queryParams.length > 0
-				? `${baseEndpoint}?${queryParams.join("&")}`
-				: baseEndpoint;
-		}
-		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`

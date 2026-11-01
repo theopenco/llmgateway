@@ -1882,7 +1882,6 @@ export async function prepareRequestBody(
 		usedProvider === "azure" ||
 		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
-		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
@@ -4940,7 +4939,6 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body

@@ -1331,7 +1331,6 @@ function splitTools(
 function isGoogleQueryTokenProvider(provider: ProviderId): boolean {
 	return [
 		"google-ai-studio",
-		"glacier",
 		"google-vertex",
 		"quartz",
 		"vertex-anthropic",

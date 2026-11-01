@@ -6,7 +6,6 @@ import {
 } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
-const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -29,12 +28,6 @@ afterEach(() => {
 		delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 	} else {
 		process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalAiStudioBaseUrl;
-	}
-
-	if (originalGlacierBaseUrl === undefined) {
-		delete process.env.LLM_GLACIER_BASE_URL;
-	} else {
-		process.env.LLM_GLACIER_BASE_URL = originalGlacierBaseUrl;
 	}
 
 	if (originalVertexBaseUrl === undefined) {
@@ -225,30 +218,6 @@ describe("getProviderEndpoint", () => {
 			}),
 		).toBe(
 			"https://carrier.example/api/v1/publishers/google/models/gpt-5.6-luna:streamGenerateContent?key=provider-key&alt=sse",
-		);
-	});
-
-	it("builds Glacier endpoints from env base URL", () => {
-		process.env.LLM_GLACIER_BASE_URL = "https://glacier.example.com";
-
-		const endpoint = getProviderEndpoint(
-			"glacier",
-			undefined,
-			"gemini-2.5-pro",
-			"glacier-key",
-			true,
-		);
-
-		expect(endpoint).toBe(
-			"https://glacier.example.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?key=glacier-key&alt=sse",
-		);
-	});
-
-	it("requires Glacier base URL when no override is provided", () => {
-		delete process.env.LLM_GLACIER_BASE_URL;
-
-		expect(() => getProviderEndpoint("glacier")).toThrow(
-			"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
 		);
 	});
 

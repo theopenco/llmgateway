@@ -650,8 +650,8 @@ describe("provider keys route", () => {
 				Cookie: token,
 			},
 			body: JSON.stringify({
-				provider: "glacier",
-				token: "glacier-test-token",
+				provider: "quartz",
+				token: "quartz-test-token",
 				organizationId: "test-org-id",
 			}),
 		});
@@ -663,7 +663,7 @@ describe("provider keys route", () => {
 		const providerKey = await db.query.providerKey.findFirst({
 			where: {
 				provider: {
-					eq: "glacier",
+					eq: "quartz",
 				},
 			},
 		});
