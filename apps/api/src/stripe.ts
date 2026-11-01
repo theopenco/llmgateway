@@ -1457,30 +1457,34 @@ async function handleCheckoutSessionCompleted(
 						stripeInvoiceId: stripeInvoiceId,
 						description: `Lounge ${chatPlanTier.toUpperCase()} membership started via Stripe Checkout`,
 					})
+					// A concurrent delivery may insert the invoice-keyed row first.
+					.onConflictDoNothing()
 					.returning();
 
-				try {
-					const billingDetails =
-						await resolveChatPlanBillingDetails(organization);
-					await generateAndEmailInvoice({
-						organizationId: organization.id,
-						invoiceNumber: transaction.id,
-						invoiceDate: new Date(),
-						organizationName: organization.name,
-						...billingDetails,
-						lineItems: [
-							{
-								description: `Lounge ${chatPlanTier.toUpperCase()} membership ($${creditsLimit} credits included)`,
-								amount: (session.amount_total ?? 0) / 100,
-							},
-						],
-						currency: (session.currency ?? "USD").toUpperCase(),
-					});
-				} catch (e) {
-					logger.error(
-						"Invoice email failed (chat plan checkout); suppressing webhook failure",
-						e as Error,
-					);
+				if (transaction) {
+					try {
+						const billingDetails =
+							await resolveChatPlanBillingDetails(organization);
+						await generateAndEmailInvoice({
+							organizationId: organization.id,
+							invoiceNumber: transaction.id,
+							invoiceDate: new Date(),
+							organizationName: organization.name,
+							...billingDetails,
+							lineItems: [
+								{
+									description: `Lounge ${chatPlanTier.toUpperCase()} membership ($${creditsLimit} credits included)`,
+									amount: (session.amount_total ?? 0) / 100,
+								},
+							],
+							currency: (session.currency ?? "USD").toUpperCase(),
+						});
+					} catch (e) {
+						logger.error(
+							"Invoice email failed (chat plan checkout); suppressing webhook failure",
+							e as Error,
+						);
+					}
 				}
 			}
 
