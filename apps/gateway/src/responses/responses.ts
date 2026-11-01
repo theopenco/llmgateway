@@ -54,6 +54,7 @@ import {
 	processStreamChunk,
 	createCompletionEvents,
 	createFailedEvent,
+	getChatStreamError,
 	buildFinalOutputItems,
 } from "./tools/convert-streaming-to-responses.js";
 import {
@@ -63,6 +64,7 @@ import {
 } from "./tools/response-state.js";
 import { extractAdditionalTools } from "./tools/tool-registry.js";
 
+import type { ResponsesError } from "./tools/convert-streaming-to-responses.js";
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -636,13 +638,38 @@ responses.post("/", async (c) => {
 				});
 			}, KEEPALIVE_INTERVAL_MS);
 
-			const processLine = async (line: string) => {
+			// The chat stream reports upstream failures as `event: error` with an
+			// `{ error }` payload followed by [DONE]; track the event name so the
+			// failure ends this stream as response.failed, not response.completed.
+			let currentEventType: string | null = null;
+			let terminalSent = false;
+			const sendFailed = async (error?: ResponsesError) => {
+				terminalSent = true;
+				await sendCreated();
+				const failedEvent = createFailedEvent(state, error);
+				await stream.writeSSE({
+					event: failedEvent.event,
+					data: failedEvent.data,
+				});
+			};
+
+			const processLine = async (rawLine: string) => {
+				const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+				if (line === "") {
+					currentEventType = null;
+					return false;
+				}
+				if (line.startsWith("event: ")) {
+					currentEventType = line.slice(7).trim();
+					return false;
+				}
 				if (!line.startsWith("data: ")) {
 					return false;
 				}
 				const data = line.slice(6).trim();
 
 				if (data === "[DONE]") {
+					terminalSent = true;
 					await sendCreated();
 					// Send completion events
 					const completionEvents = createCompletionEvents(
@@ -696,6 +723,15 @@ responses.post("/", async (c) => {
 					return false;
 				}
 
+				const upstreamError = getChatStreamError(chunk, currentEventType);
+				if (upstreamError) {
+					logger.warn("Responses stream received an upstream error", {
+						code: upstreamError.code,
+					});
+					await sendFailed(upstreamError);
+					return true;
+				}
+
 				await sendCreated(chunk);
 				const events = processStreamChunk(chunk, state);
 				for (const event of events) {
@@ -727,8 +763,18 @@ responses.post("/", async (c) => {
 				}
 
 				// Process any remaining data in the buffer
-				if (buffer.trim()) {
-					await processLine(buffer);
+				if (buffer.trim() && (await processLine(buffer))) {
+					return;
+				}
+
+				// The chat stream always ends with [DONE]; ending without it means
+				// the response is incomplete, so it must not look successful.
+				if (!terminalSent && !stream.aborted) {
+					logger.warn("Responses stream ended without a terminal event");
+					await sendFailed({
+						code: "server_error",
+						message: "The response stream ended before completion",
+					});
 				}
 			} catch (error) {
 				// A client-side abort needs no terminal event — the socket is
@@ -745,12 +791,9 @@ responses.post("/", async (c) => {
 						error,
 					});
 					try {
-						await sendCreated();
-						const failedEvent = createFailedEvent(state);
-						await stream.writeSSE({
-							event: failedEvent.event,
-							data: failedEvent.data,
-						});
+						if (!terminalSent) {
+							await sendFailed();
+						}
 					} catch (sseError) {
 						logger.error("Failed to send response.failed event", {
 							error: sseError,
