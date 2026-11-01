@@ -643,5 +643,30 @@ function additionalEmailTimingTests() {
 			chooseAirsideVerificationEmail([healthy], [removed], now, at(1000)),
 		).toBeNull();
 	});
+	it("uses completed check outcomes rather than retained failed fallback probes for emails", async () => {
+		const fixture = await seed();
+		const partial = await verify(fixture, "passed");
+		const withFallbacks = partial.checks.map((check) => ({
+			...check,
+			probes: [
+				{ label: "refused fallback", status: "failed" as const },
+				{ label: "working fallback", status: "passed" as const },
+			],
+		}));
+		await db
+			.update(tables.providerModelVerification)
+			.set({ checks: withFallbacks })
+			.where(eq(tables.providerModelVerification.id, partial.id));
+		expect(await deliverAirsideVerificationEmails(now, sender)).toBe(0);
+		await verify(fixture, "failed", at(1000));
+		expect(await deliverAirsideVerificationEmails(at(1000), sender)).toBe(1);
+		const recovered = await verify(fixture, "passed", at(2000));
+		await db
+			.update(tables.providerModelVerification)
+			.set({ checks: withFallbacks })
+			.where(eq(tables.providerModelVerification.id, recovered.id));
+		expect(await deliverAirsideVerificationEmails(at(2000), sender)).toBe(1);
+		expect(sender.mock.calls[1][0].subject).toContain("recovered");
+	});
 }
 additionalEmailTimingTests();

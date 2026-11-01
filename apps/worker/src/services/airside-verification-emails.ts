@@ -114,10 +114,7 @@ function observation(
 			? expected
 					.filter((check) =>
 						job.checks.some(
-							(actual) =>
-								actual.id === check.id &&
-								(actual.status === "failed" ||
-									actual.probes?.some((probe) => probe.status === "failed")),
+							(actual) => actual.id === check.id && actual.status === "failed",
 						),
 					)
 					.map((check) => check.label)
@@ -129,10 +126,7 @@ function observation(
 		expected.length > 0 &&
 		expected.every((check) =>
 			job.checks.some(
-				(actual) =>
-					actual.id === check.id &&
-					actual.status === "passed" &&
-					!actual.probes?.some((probe) => probe.status === "failed"),
+				(actual) => actual.id === check.id && actual.status === "passed",
 			),
 		);
 	return {
