@@ -12,7 +12,7 @@ image:
   height: 1198
 ---
 
-# LLM Gateway
+## What LLM Gateway is
 
 LLM Gateway is an open-source API gateway that sits between your apps and LLM providers. One integration gives you access to 280+ models from 35+ providers—and the visibility to control costs.
 

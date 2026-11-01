@@ -9,15 +9,7 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 
-import type { ActivitT } from "@/types/activity";
-
-interface CostBreakdownCardProps {
-	initialActivityData?: ActivitT;
-}
-
-export function CostBreakdownCard({
-	initialActivityData,
-}: CostBreakdownCardProps) {
+export function CostBreakdownCard() {
 	return (
 		<Card>
 			<CardHeader>
@@ -27,7 +19,7 @@ export function CostBreakdownCard({
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
-				<CostBreakdownChart initialData={initialActivityData} />
+				<CostBreakdownChart />
 			</CardContent>
 		</Card>
 	);

@@ -133,14 +133,28 @@ export interface TypeSafeImagePlan {
 	refs: string[];
 }
 
-/**
- * Collects the image parts and gives each a fresh UUID reference, which can't
- * collide with the caller's text, where System One would otherwise swap in
- * the image. Checks everything it can without downloading.
- */
+/** Plans the `input_image` parts of OpenAI-shaped input. */
 export function planTypeSafeImages(input: DecisionInput): TypeSafeImagePlan {
-	const urls = inputImageUrls(input);
-	if (urls.length > MAX_TYPESAFE_IMAGES) {
+	return planTypeSafeImageUrls(inputImageUrls(input));
+}
+
+/**
+ * Checks image URLs without downloading them and gives each a fresh UUID
+ * reference, which can't collide with the caller's text, where System One
+ * would otherwise swap in the image.
+ */
+export function planTypeSafeImageUrls(urls: string[]): TypeSafeImagePlan {
+	checkTypeSafeImageUrls(urls);
+	return { urls, refs: urls.map(newImageRef) };
+}
+
+function newImageRef(): string {
+	return `image-${randomUUID()}`;
+}
+
+/** `otherImages` counts images already in the request, such as caller assets. */
+function checkTypeSafeImageUrls(urls: string[], otherImages = 0): void {
+	if (urls.length > 0 && urls.length + otherImages > MAX_TYPESAFE_IMAGES) {
 		throw badRequest(
 			`This decision model accepts at most ${MAX_TYPESAFE_IMAGES} images per request.`,
 		);
@@ -151,7 +165,6 @@ export function planTypeSafeImages(input: DecisionInput): TypeSafeImagePlan {
 			throw unsupportedImageFormat(mediaType);
 		}
 	}
-	return { urls, refs: urls.map(() => `image-${randomUUID()}`) };
 }
 
 /**
@@ -162,9 +175,9 @@ export function planTypeSafeImages(input: DecisionInput): TypeSafeImagePlan {
 export async function loadTypeSafeAssets(
 	plan: TypeSafeImagePlan,
 	loadImage: DecisionImageLoader,
+	usedBase64MB = 0,
 ): Promise<Record<string, TypeSafeImageAsset>> {
 	const assets: Record<string, TypeSafeImageAsset> = {};
-	let usedBase64MB = 0;
 	for (const [index, url] of plan.urls.entries()) {
 		const remainingBase64MB = MAX_TYPESAFE_IMAGE_BASE64_MB - usedBase64MB;
 		const remainingMB = remainingBase64MB / BASE64_PER_DECODED_BYTE;
@@ -185,6 +198,152 @@ export async function loadTypeSafeAssets(
 		assets[plan.refs[index]] = { type: "image", format, data_base64: data };
 	}
 	return assets;
+}
+
+/** Header that raises Jev's context from 64k to 262k tokens per request. */
+export const TYPESAFE_LONG_CONTEXT_HEADER = "TypeSafe-Danger-Zone-Long-Context";
+
+/**
+ * Text above which a request runs in long-context mode. OpenRouter uses the
+ * same threshold, and long context for every request with an image, so a
+ * request gets the same answer through either gateway.
+ */
+const LONG_CONTEXT_TEXT_BYTES = 32_000;
+
+/**
+ * TypeSafe opt-in headers for a System One body, given without its `assets`.
+ * Images and Box questions need the image opt-in.
+ */
+export function typeSafeRequestHeaders(
+	body: Record<string, unknown>,
+	options: { images: boolean; box?: boolean },
+): Record<string, string> | undefined {
+	const headers: Record<string, string> = {};
+	if (options.images || options.box) {
+		headers[TYPESAFE_IMAGES_HEADER] = "true";
+	}
+	if (
+		options.images ||
+		Buffer.byteLength(JSON.stringify(body)) > LONG_CONTEXT_TEXT_BYTES
+	) {
+		headers[TYPESAFE_LONG_CONTEXT_HEADER] = "true";
+	}
+	return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+/**
+ * URL of a Chat Completions `image_url` part (`{ type: "image_url",
+ * image_url: { url } }`), the inline image shape OpenRouter accepts in System
+ * One content. Undefined for any other value.
+ */
+function inlineImageUrl(value: unknown): string | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return undefined;
+	}
+	const part = value as Record<string, unknown>;
+	if (part.type !== "image_url") {
+		return undefined;
+	}
+	const imageUrl = part.image_url;
+	const url =
+		typeof imageUrl === "string"
+			? imageUrl
+			: imageUrl && typeof imageUrl === "object"
+				? (imageUrl as Record<string, unknown>).url
+				: undefined;
+	if (typeof url !== "string" || url.length === 0) {
+		throw badRequest("An image_url part needs an image_url.url string.");
+	}
+	return url;
+}
+
+/** Rewrites every inline image part in `value`, at any depth; keys stay text. */
+function replaceInlineImages(
+	value: unknown,
+	toRef: (url: string, part: unknown) => string,
+): unknown {
+	const url = inlineImageUrl(value);
+	if (url !== undefined) {
+		return toRef(url, value);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => replaceInlineImages(item, toRef));
+	}
+	if (value && typeof value === "object") {
+		// fromEntries defines own properties, so keys such as "__proto__"
+		// survive as data.
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [
+				key,
+				replaceInlineImages(item, toRef),
+			]),
+		);
+	}
+	return value;
+}
+
+/** System One content with inline image parts moved out into references. */
+export interface InlineImageExtraction<S, Q> {
+	state: S;
+	questions: Q;
+	plan: TypeSafeImagePlan;
+	/** The original image part behind each reference. */
+	partsByRef: Map<string, unknown>;
+}
+
+/**
+ * Moves inline `image_url` parts out of `state` and each question's
+ * `instructions` and `criteria`, as OpenRouter does for Jev: each part becomes
+ * a fresh reference, and `plan` lists the images to load as `assets`. TypeSafe
+ * reads images only from `assets`; a part left inline reaches the model as
+ * base64 text. `callerAssetCount` images the caller sent in `assets` count
+ * toward the per-request image cap.
+ */
+export function extractInlineImages<
+	S,
+	Q extends Record<string, { instructions: unknown; criteria?: unknown }>,
+>(state: S, questions: Q, callerAssetCount = 0): InlineImageExtraction<S, Q> {
+	const urls: string[] = [];
+	const refs: string[] = [];
+	const partsByRef = new Map<string, unknown>();
+	const toRef = (url: string, part: unknown) => {
+		const ref = newImageRef();
+		urls.push(url);
+		refs.push(ref);
+		partsByRef.set(ref, part);
+		return ref;
+	};
+	const nextState = replaceInlineImages(state, toRef) as S;
+	const nextQuestions = Object.fromEntries(
+		Object.entries(questions).map(([id, question]) => [
+			id,
+			{
+				...question,
+				instructions: replaceInlineImages(question.instructions, toRef),
+				...(question.criteria === undefined
+					? {}
+					: { criteria: replaceInlineImages(question.criteria, toRef) }),
+			},
+		]),
+	) as Q;
+	checkTypeSafeImageUrls(urls, callerAssetCount);
+	return {
+		state: nextState,
+		questions: nextQuestions,
+		plan: { urls, refs },
+		partsByRef,
+	};
+}
+
+/** Base64 MB in caller-supplied `assets`, counted against the image budget. */
+export function assetsBase64MB(
+	assets: Record<string, { data_base64: string }> | undefined,
+): number {
+	let total = 0;
+	for (const asset of Object.values(assets ?? {})) {
+		total += asset.data_base64.length / BYTES_PER_MB;
+	}
+	return total;
 }
 
 /**

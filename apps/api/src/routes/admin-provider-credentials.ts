@@ -92,6 +92,8 @@ import {
 	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -419,6 +421,14 @@ async function validateConfig(
 		throw new HTTPException(400, {
 			message: `Invalid setting(s) for ${provider}: ${exclusiveViolations.join(" ")}`,
 		});
+	}
+
+	if (
+		provider === "cloudflare" &&
+		config.accountId !== undefined &&
+		!CLOUDFLARE_ACCOUNT_ID_REGEX.test(config.accountId)
+	) {
+		throw new HTTPException(400, { message: CLOUDFLARE_ACCOUNT_ID_MESSAGE });
 	}
 
 	for (const [key, value] of Object.entries(config)) {

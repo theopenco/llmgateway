@@ -14,6 +14,8 @@ import {
 	supportsVideoEndFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
+	supportsVideoReferenceAudioInput,
+	supportsVideoReasoningEffort,
 } from "./video-generation-config.js";
 
 import type {
@@ -114,6 +116,72 @@ describe("video provider selection", () => {
 		expect(
 			supportsVideoEndFrameInput("google-vertex/veo-3.1-generate-preview:us"),
 		).toBe(true);
+	});
+});
+
+describe("FLUX 3 Max", () => {
+	const sizes: VideoSize[] = ["1280x720", "720x1280", "1920x1080", "1080x1920"];
+	const durations = Array.from({ length: 16 }, (_, i) => i + 5);
+	const flux: VideoCatalogModel = {
+		id: "flux-3-max",
+		mappings: [
+			{
+				...mapping,
+				modelId: "flux-3-max",
+				providerId: "fal-ai",
+				supportedVideoSizes: sizes,
+				supportedVideoDurationsSeconds: durations,
+				supportedVideoDurationsSecondsImageToVideo: null,
+			},
+		],
+	};
+
+	test.each(["flux-3-max", "fal-ai/flux-3-max", "fal-ai/flux-3-max:us"])(
+		"offers text and frame menus for %s",
+		(modelId) => {
+			for (const mode of ["none", "frames"] as const) {
+				expect(
+					getSupportedVideoRequestOptions([flux], [modelId], mode),
+				).toEqual({ sizes, durations });
+			}
+			expect(getVideoResolutions(sizes)).toEqual(["720p", "1080p"]);
+			for (const resolution of ["720p", "1080p"] as const) {
+				expect(getVideoOrientations(sizes, resolution)).toEqual([
+					"landscape",
+					"portrait",
+				]);
+			}
+			expect(supportsVideoFrameInput(modelId)).toBe(true);
+			expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+			expect(supportsVideoReasoningEffort(modelId)).toBe(true);
+			expect(supportsVideoReferenceInput(modelId)).toBe(false);
+			expect(supportsVideoReferenceVideoInput(modelId)).toBe(false);
+			expect(supportsVideoReferenceAudioInput(modelId)).toBe(false);
+			expect(
+				getSupportedVideoRequestOptions([flux], [modelId], "reference"),
+			).toEqual({ sizes: [], durations: [] });
+		},
+	);
+
+	test("matches canonical root and provider, never upstream ids", () => {
+		for (const modelId of [
+			"openai/flux-3-max",
+			"fal-ai/blackforestlabs/flux-3-max",
+			"fal-ai/other",
+		]) {
+			expect(supportsVideoFrameInput(modelId)).toBe(false);
+			expect(supportsVideoEndFrameInput(modelId)).toBe(false);
+			expect(supportsVideoReasoningEffort(modelId)).toBe(false);
+		}
+		for (const overrides of [{ providerId: "openai" }, { modelId: "other" }]) {
+			const model = {
+				...flux,
+				mappings: [{ ...flux.mappings[0], ...overrides }],
+			};
+			expect(
+				getSupportedVideoRequestOptions([model], [flux.id], "frames"),
+			).toEqual({ sizes: [], durations: [] });
+		}
 	});
 });
 

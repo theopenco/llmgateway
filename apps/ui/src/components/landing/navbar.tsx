@@ -33,7 +33,6 @@ import {
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
@@ -50,6 +49,7 @@ import {
 } from "@/lib/components/navigation-menu";
 import { useAppConfig } from "@/lib/config";
 import { LogoLockup } from "@/lib/icons/Logo";
+import { usePostHog } from "@/lib/posthog";
 import { useSystemBanner } from "@/lib/system-banner-context";
 import { cn } from "@/lib/utils";
 

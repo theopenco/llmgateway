@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { REASONING_EFFORTS } from "@llmgateway/models";
 import {
 	ROUTING_EXCLUSION_REASONS,
 	routingExclusionReasonMessage,
@@ -573,5 +574,95 @@ describe("preferToolChoiceCapableProviders", () => {
 				reasoningEffort: "none",
 			}),
 		).toEqual([canopywaveLike, capable]);
+	});
+});
+
+describe("declared reasoning efforts", () => {
+	const restricted = mapping({
+		reasoning: true,
+		reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+	});
+
+	it.each(REASONING_EFFORTS)(
+		"checks the exact requested effort %s",
+		(reasoningEffort) => {
+			expect(getProviderFilterReasons(restricted, { reasoningEffort })).toEqual(
+				restricted.reasoningEfforts?.includes(reasoningEffort)
+					? []
+					: [exclusionReason("reasoning_effort")],
+			);
+		},
+	);
+
+	it("does not substitute another effort when none of the mappings accepts it", () => {
+		const candidates = [
+			restricted,
+			mapping({ reasoning: true, reasoningEfforts: ["high"] }),
+		];
+		expect(
+			candidates.filter(
+				(provider) =>
+					getProviderFilterReasons(provider, { reasoningEffort: "medium" })
+						.length === 0,
+			),
+		).toEqual([]);
+	});
+
+	it("excludes an always-thinking mapping when none is requested", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({ reasoning: true, reasoningEfforts: ["high", "max"] }),
+				{ reasoningEffort: "none" },
+			),
+		).toEqual([exclusionReason("reasoning_effort")]);
+	});
+
+	it("keeps non-reasoning mappings eligible for none", () => {
+		expect(
+			getProviderFilterReasons(mapping({ reasoning: false }), {
+				reasoningEffort: "none",
+			}),
+		).toEqual([]);
+	});
+
+	it("preserves legacy mappings with undeclared efforts", () => {
+		expect(
+			getProviderFilterReasons(mapping({ reasoning: true }), {
+				reasoningEffort: "medium",
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects explicit efforts when the declared list is empty", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({ reasoning: true, reasoningEfforts: [] }),
+				{ reasoningEffort: "medium" },
+			),
+		).toEqual([exclusionReason("reasoning_effort")]);
+	});
+
+	it("does not constrain a request without an effort", () => {
+		expect(getProviderFilterReasons(restricted, {})).toEqual([]);
+	});
+
+	it("evaluates regional mappings independently", () => {
+		const candidates = [
+			mapping({ ...restricted, region: "us-east-1" }),
+			mapping({
+				...restricted,
+				region: "eu-west-1",
+				reasoningEfforts: ["medium", "high"],
+			}),
+		];
+		expect(
+			candidates
+				.filter(
+					(provider) =>
+						getProviderFilterReasons(provider, { reasoningEffort: "medium" })
+							.length === 0,
+				)
+				.map((provider) => provider.region),
+		).toEqual(["eu-west-1"]);
 	});
 });

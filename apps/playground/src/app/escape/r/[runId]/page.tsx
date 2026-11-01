@@ -27,7 +27,7 @@ export async function generateMetadata({
 
 	if (!data) {
 		return {
-			title: "Sandbox Escape run | Lounge by LLM Gateway",
+			title: "Sandbox Escape run",
 			robots: { index: false, follow: true },
 		};
 	}

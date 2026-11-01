@@ -3,6 +3,7 @@ import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonVercel } from "@/components/landing/comparison-vercel";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -82,7 +83,7 @@ export default function CompareVercelPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs Vercel AI Gateway — The Open Alternative",
+		title: pageTitle("LLM Gateway vs Vercel AI Gateway — The Open Alternative"),
 		description:
 			"Compare open-source, self-hostable routing with zero token markup and Enterprise guardrails vs Vercel AI Gateway's managed AI SDK service.",
 		alternates: {

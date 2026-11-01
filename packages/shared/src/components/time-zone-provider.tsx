@@ -2,11 +2,13 @@
 
 import {
 	createContext,
+	startTransition,
 	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
 	useState,
+	useRef,
 } from "react";
 
 import {
@@ -42,6 +44,15 @@ function writeCookie(preference: TimeZonePreference) {
 	)}; path=/; max-age=${maxAge}; samesite=lax`;
 }
 
+function whenIdle(callback: () => void): () => void {
+	if (typeof requestIdleCallback === "function") {
+		const id = requestIdleCallback(callback, { timeout: 2000 });
+		return () => cancelIdleCallback(id);
+	}
+	const id = setTimeout(callback, 1);
+	return () => clearTimeout(id);
+}
+
 /**
  * Seeds the display timezone from the cookie the server already read, so the
  * first client render matches the server HTML exactly (no hydration mismatch,
@@ -61,29 +72,49 @@ export function TimeZoneProvider({
 }) {
 	const [preference, setPreference] = useState<TimeZonePreference>(initial);
 	const [browserTimeZone, setBrowserTimeZone] = useState(initial.timeZone);
+	const persisted = useRef(serializeTimeZonePreference(initial));
+
+	useEffect(() => {
+		const serialized = serializeTimeZonePreference(preference);
+		if (persisted.current === serialized) {
+			return;
+		}
+		persisted.current = serialized;
+		writeCookie(preference);
+	}, [preference]);
 
 	useEffect(() => {
 		const sync = () => {
 			const detected = getBrowserTimeZone();
-			setBrowserTimeZone(detected);
-			setPreference((current) => {
-				if (current.mode !== "local" || current.timeZone === detected) {
-					return current;
-				}
-				// Either the cookie is missing (server fell back to UTC) or the
-				// machine's zone has changed since it was written — travel, or the
-				// OS correcting itself. Either way the detected zone wins.
-				const next: TimeZonePreference = { mode: "local", timeZone: detected };
-				writeCookie(next);
-				return next;
+			// A transition, because this provider wraps the whole page: an urgent
+			// context change right after hydration forces every Suspense
+			// boundary still waiting to hydrate to do so in one blocking task.
+			startTransition(() => {
+				setBrowserTimeZone(detected);
+				setPreference((current) => {
+					if (current.mode !== "local" || current.timeZone === detected) {
+						return current;
+					}
+					// Either the cookie is missing (server fell back to UTC) or the
+					// machine's zone has changed since it was written — travel, or the
+					// OS correcting itself. Either way the detected zone wins.
+					const next: TimeZonePreference = {
+						mode: "local",
+						timeZone: detected,
+					};
+					return next;
+				});
 			});
 		};
-		sync();
+		// The first read initialises Intl, which is slow on a cold start, so it
+		// waits for an idle moment instead of joining the hydration task.
+		const cancelInitialSync = whenIdle(sync);
 		// A long-lived tab outlives a system zone change, and there is no event
 		// for one; re-check whenever the tab is looked at again.
 		window.addEventListener("focus", sync);
 		document.addEventListener("visibilitychange", sync);
 		return () => {
+			cancelInitialSync();
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", sync);
 		};
@@ -94,7 +125,6 @@ export function TimeZoneProvider({
 			mode,
 			timeZone: mode === "utc" ? UTC_TIME_ZONE : getBrowserTimeZone(),
 		};
-		writeCookie(next);
 		setPreference(next);
 	}, []);
 

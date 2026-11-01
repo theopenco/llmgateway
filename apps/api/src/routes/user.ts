@@ -224,7 +224,7 @@ const completeOnboardingSchema = z.object({});
 
 const updatePasswordSchema = z.object({
 	currentPassword: z
-		.string({ required_error: "Current password is required" })
+		.string({ error: "Current password is required" })
 		.min(1, "Current password is required"),
 	newPassword: z
 		.string()

@@ -72,6 +72,65 @@ describe("getProviderMetricsFromHistory", () => {
 			totalRequests: 10,
 		});
 	});
+	it("scores each service tier on its own traffic", async () => {
+		const testModelId = `routing-tiers-${crypto.randomUUID()}`;
+		modelId = testModelId;
+		const providerId = "routing-provider";
+		const minuteTimestamp = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+
+		// 10 standard requests succeed; 10 flex requests are all shed upstream.
+		await db.insert(modelProviderMappingHistory).values({
+			modelId: testModelId,
+			providerId,
+			modelProviderMappingId: "routing-tiers-mapping",
+			usedMode: "credits",
+			minuteTimestamp,
+			logsCount: 20,
+			errorsCount: 10,
+			upstreamErrorsCount: 10,
+			totalOutputTokens: 300,
+			totalDuration: 3_000,
+			flexLogsCount: 10,
+			flexUpstreamErrorsCount: 10,
+			flexTotalOutputTokens: 100,
+			flexTotalDuration: 2_000,
+		});
+
+		const candidates = [{ modelId: testModelId, providerId }];
+		const key = metricsKey(testModelId, providerId);
+		const standard = {
+			modelId: testModelId,
+			providerId,
+			uptime: 100,
+			throughput: 200,
+			totalRequests: 10,
+		};
+
+		const [defaultTier, flex, priority] = await Promise.all([
+			getProviderMetricsFromHistory(candidates, DEFAULT_ROUTING_HISTORY),
+			getProviderMetricsFromHistory(
+				candidates,
+				DEFAULT_ROUTING_HISTORY,
+				"flex",
+			),
+			getProviderMetricsFromHistory(
+				candidates,
+				DEFAULT_ROUTING_HISTORY,
+				"priority",
+			),
+		]);
+
+		expect(defaultTier.get(key)).toEqual(standard);
+		expect(flex.get(key)).toEqual({
+			modelId: testModelId,
+			providerId,
+			uptime: 0,
+			throughput: 50,
+			totalRequests: 10,
+		});
+		// No priority traffic yet, so priority requests use the standard tier.
+		expect(priority.get(key)).toEqual(standard);
+	});
 	it("keeps routing metrics identical when idle buckets are absent", async () => {
 		modelId = `sparse-routing-${crypto.randomUUID()}`;
 		const candidates = [{ modelId, providerId: "routing-provider" }];

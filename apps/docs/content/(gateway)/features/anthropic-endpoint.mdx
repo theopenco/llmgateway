@@ -191,7 +191,7 @@ A `system` message inside `messages` (as Claude Code sends on recent Claude mode
 
 ### Tool definitions and results
 
-A tool's `strict: true` reaches the Anthropic API (with its structured-outputs beta) and OpenAI-compatible providers as `function.strict`; providers without an equivalent receive the tool without it. `allowed_callers` is forwarded to the Anthropic API only, with the advanced-tool-use beta, and stripped elsewhere.
+A tool's `strict: true` reaches the Anthropic API (with its structured-outputs beta) and OpenAI-compatible providers as `function.strict`; providers without an equivalent receive the tool without it. `allowed_callers` is forwarded to the Anthropic API only, with the advanced-tool-use beta, and stripped elsewhere. `eager_input_streaming: true` (fine-grained tool streaming) is forwarded to Anthropic models on the Anthropic API, Google Vertex AI and Microsoft Foundry, sent to Claude on AWS Bedrock as the request-wide fine-grained tool streaming beta when every tool sets it, and stripped elsewhere; `input_json_delta` events are relayed as they arrive from the upstream.
 
 Gemini models take tool schemas through Google's typed `parameters` carrier, which has no `const` or `additionalProperties`. A `const` is sent as a single-member `enum` (typed from the value when the node has no `type`; on non-string nodes, where Vertex rejects `enum`, it becomes an "Allowed values" hint in the description), and an explicit `enum` on the same node wins. `pattern` is forwarded on string nodes. `additionalProperties` is dropped. The same translation applies on `/v1/chat/completions`.
 

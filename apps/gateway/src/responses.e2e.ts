@@ -15,6 +15,8 @@ import {
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e.js";
 
+import { usesEncryptedReasoning } from "@llmgateway/models";
+
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 // Pick one model per provider to keep CI cost manageable while still
@@ -60,9 +62,7 @@ const encryptedReasoningModels = oneModelPerProvider(
 	reasoningModels.filter((m) =>
 		m.providers.some(
 			(p: ProviderModelMapping) =>
-				p.reasoning === true &&
-				p.supportsResponsesApi === true &&
-				(p.providerId === "openai" || p.providerId === "azure"),
+				p.supportsResponsesApi === true && usesEncryptedReasoning(p),
 		),
 	),
 );

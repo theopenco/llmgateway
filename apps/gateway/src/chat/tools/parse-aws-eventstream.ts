@@ -16,7 +16,29 @@ interface EventStreamMessage {
 	payload: Uint8Array;
 }
 
-export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
+/**
+ * A frame that breaks the EventStream framing rules can never become valid by
+ * waiting for more bytes, unlike a merely truncated one. Callers that keep an
+ * incremental buffer must abort instead of retrying, or they accumulate the
+ * rest of the response behind a frame that will never be consumed.
+ */
+export interface EventStreamParseResult {
+	messages: EventStreamMessage[];
+	invalid: boolean;
+	/** Bytes covered by `messages`; the rest is an incomplete or rejected frame. */
+	bytesConsumed: number;
+}
+
+/**
+ * Fixed per-message overhead: 8-byte prelude (total length + headers length) +
+ * 4-byte prelude CRC + 4-byte message CRC. A message with zero headers and an
+ * empty payload is exactly this many bytes, so no valid total length is smaller.
+ */
+const MIN_MESSAGE_LENGTH = 16;
+
+export function parseAwsEventStreamFrames(
+	buffer: Uint8Array,
+): EventStreamParseResult {
 	const messages: EventStreamMessage[] = [];
 	let offset = 0;
 
@@ -38,6 +60,20 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 			4,
 		).getUint32(0, false);
 
+		// Reject a corrupt or truncated prelude before trusting its length.
+		// A total length below the fixed overhead cannot describe a real frame,
+		// and totalLength === 0 would advance offset by 0 below and loop
+		// forever, pushing empty messages until the process runs out of memory.
+		if (totalLength < MIN_MESSAGE_LENGTH) {
+			return { messages, invalid: true, bytesConsumed: offset };
+		}
+
+		// Headers must fit within the message alongside the fixed overhead;
+		// an oversized headers length is corrupt and would read past the frame.
+		if (headersLength > totalLength - MIN_MESSAGE_LENGTH) {
+			return { messages, invalid: true, bytesConsumed: offset };
+		}
+
 		// Check if we have the full message
 		if (offset + totalLength > buffer.length) {
 			break;
@@ -50,10 +86,16 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 		const headers: Record<string, string> = {};
 		const headersEnd = headerOffset + headersLength;
 
+		// Reject fields that cross the header boundary before emitting payloads.
 		while (headerOffset < headersEnd) {
 			// Read header name length (1 byte)
 			const nameLength = buffer[headerOffset];
 			headerOffset += 1;
+
+			// Name plus the 1-byte value type must fit in the header section
+			if (headerOffset + nameLength + 1 > headersEnd) {
+				return { messages, invalid: true, bytesConsumed: offset };
+			}
 
 			// Read header name
 			const name = new TextDecoder().decode(
@@ -67,6 +109,10 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 
 			if (valueType === 7) {
 				// String value
+				if (headerOffset + 2 > headersEnd) {
+					return { messages, invalid: true, bytesConsumed: offset };
+				}
+
 				// Read value length (2 bytes, big-endian)
 				const valueLength = new DataView(
 					buffer.buffer,
@@ -74,6 +120,10 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 					2,
 				).getUint16(0, false);
 				headerOffset += 2;
+
+				if (headerOffset + valueLength > headersEnd) {
+					return { messages, invalid: true, bytesConsumed: offset };
+				}
 
 				// Read value
 				const value = new TextDecoder().decode(
@@ -99,7 +149,11 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 		offset += totalLength;
 	}
 
-	return messages;
+	return { messages, invalid: false, bytesConsumed: offset };
+}
+
+export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
+	return parseAwsEventStreamFrames(buffer).messages;
 }
 
 export function parseAwsEventStreamJson(buffer: Uint8Array): any[] {
@@ -119,36 +173,17 @@ export function parseAwsEventStreamJson(buffer: Uint8Array): any[] {
 		.filter((msg) => msg !== null);
 }
 
-/**
- * Converts AWS EventStream binary data to SSE text format for unified processing
- * Returns the converted string and the number of bytes consumed from the buffer
- */
 export function convertAwsEventStreamToSSE(buffer: Uint8Array): {
 	sse: string;
 	bytesConsumed: number;
+	invalid: boolean;
 } {
-	const messages = parseAwsEventStream(buffer);
+	const { messages, invalid, bytesConsumed } =
+		parseAwsEventStreamFrames(buffer);
 
-	if (messages.length === 0) {
-		return { sse: "", bytesConsumed: 0 };
-	}
-
-	// Calculate total bytes consumed
-	let bytesConsumed = 0;
 	const sseEvents: string[] = [];
 
 	for (const msg of messages) {
-		// Consume structurally complete frames even when their payload is not JSON.
-		const messageStart = bytesConsumed;
-		if (messageStart + 4 <= buffer.length) {
-			const totalLength = new DataView(
-				buffer.buffer,
-				buffer.byteOffset + messageStart,
-				4,
-			).getUint32(0, false);
-			bytesConsumed += totalLength;
-		}
-
 		try {
 			const json = JSON.parse(new TextDecoder().decode(msg.payload));
 
@@ -162,12 +197,14 @@ export function convertAwsEventStreamToSSE(buffer: Uint8Array): {
 			// Convert to SSE format: "data: {...}\n\n"
 			sseEvents.push(`data: ${JSON.stringify(enrichedJson)}\n\n`);
 		} catch {
-			// Skip invalid JSON
+			// Skip invalid JSON. The frame is still consumed: its framing is
+			// sound, so a following frame must still be processed.
 		}
 	}
 
 	return {
 		sse: sseEvents.join(""),
 		bytesConsumed,
+		invalid,
 	};
 }

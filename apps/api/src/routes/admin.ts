@@ -4795,6 +4795,35 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+const updateGlobalDiscount = createRoute({
+	method: "put",
+	path: "/discounts/{discountId}",
+	request: {
+		params: z.object({ discountId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: discountSchema.openapi({}) },
+			},
+			description: "Updated global discount.",
+		},
+		400: { description: "Invalid discount data." },
+		404: { description: "Discount not found." },
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
+		},
+	},
+});
+
 const routingScoreMultiplierSchema = z.object({
 	id: z.string(),
 	provider: z.string().nullable(),
@@ -4881,6 +4910,36 @@ const deleteRoutingScoreMultiplier = createRoute({
 			description: "Routing score multiplier deleted.",
 		},
 		404: { description: "Routing score multiplier not found." },
+	},
+});
+
+const updateRoutingScoreMultiplier = createRoute({
+	method: "put",
+	path: "/routing-score-multipliers/{multiplierId}",
+	request: {
+		params: z.object({ multiplierId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createRoutingScoreMultiplierBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultiplierSchema.openapi({}),
+				},
+			},
+			description: "Updated routing score multiplier.",
+		},
+		400: { description: "Invalid routing score multiplier." },
+		404: { description: "Routing score multiplier not found." },
+		409: {
+			description: "Routing score multiplier already exists for this target.",
+		},
 	},
 });
 
@@ -4993,6 +5052,38 @@ const deleteOrganizationDiscount = createRoute({
 		},
 		404: {
 			description: "Discount not found.",
+		},
+	},
+});
+
+const updateOrganizationDiscount = createRoute({
+	method: "put",
+	path: "/organizations/{orgId}/discounts/{discountId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			discountId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: discountSchema.openapi({}) },
+			},
+			description: "Updated organization discount.",
+		},
+		400: { description: "Invalid discount data." },
+		404: { description: "Discount not found." },
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
 		},
 	},
 });
@@ -5385,6 +5476,107 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 	return c.json({ success: true });
 });
 
+function isUniqueViolation(error: unknown, constraint: string): boolean {
+	const cause = error instanceof Error && error.cause ? error.cause : error;
+	return (
+		typeof cause === "object" &&
+		cause !== null &&
+		"code" in cause &&
+		cause.code === "23505" &&
+		"constraint" in cause &&
+		cause.constraint === constraint
+	);
+}
+
+const DUPLICATE_DISCOUNT_MESSAGE =
+	"A discount already exists for this provider/model combination";
+const DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE =
+	"A routing score multiplier already exists for this provider/model combination";
+
+async function updateDiscount(
+	discountId: string,
+	organizationId: string | null,
+	body: z.infer<typeof createDiscountBodySchema>,
+) {
+	const orgScope =
+		organizationId === null
+			? isNull(tables.discount.organizationId)
+			: eq(tables.discount.organizationId, organizationId);
+	const scope = and(eq(tables.discount.id, discountId), orgScope);
+
+	const [before] = await db
+		.select()
+		.from(tables.discount)
+		.where(scope)
+		.limit(1);
+	if (!before) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+	const validation = await validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	// The unique constraint treats NULL targets as distinct, so check explicitly.
+	const [duplicate] = await db
+		.select({ id: tables.discount.id })
+		.from(tables.discount)
+		.where(
+			and(
+				orgScope,
+				ne(tables.discount.id, discountId),
+				provider
+					? eq(tables.discount.provider, provider)
+					: isNull(tables.discount.provider),
+				model
+					? eq(tables.discount.model, model)
+					: isNull(tables.discount.model),
+			),
+		)
+		.limit(1);
+	if (duplicate) {
+		throw new HTTPException(409, { message: DUPLICATE_DISCOUNT_MESSAGE });
+	}
+
+	let updated: typeof before | undefined;
+	try {
+		[updated] = await cdb
+			.update(tables.discount)
+			.set({
+				provider,
+				model,
+				discountPercent: new Decimal(body.discountPercent).div(100).toFixed(4),
+				reason: body.reason ?? null,
+				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+			})
+			.where(scope)
+			.returning();
+	} catch (error) {
+		if (isUniqueViolation(error, "discount_org_provider_model_unique")) {
+			throw new HTTPException(409, { message: DUPLICATE_DISCOUNT_MESSAGE });
+		}
+		throw error;
+	}
+	if (!updated) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return { before, updated };
+}
+
+admin.openapi(updateGlobalDiscount, async (c) => {
+	const { discountId } = c.req.valid("param");
+	const { updated } = await updateDiscount(
+		discountId,
+		null,
+		c.req.valid("json"),
+	);
+	return c.json(formatDiscount(updated), 200);
+});
+
 admin.openapi(getRoutingScoreMultipliers, async (c) => {
 	const multipliers = await db
 		.select()
@@ -5455,6 +5647,81 @@ admin.openapi(deleteRoutingScoreMultiplier, async (c) => {
 	}
 
 	return c.json({ success: true });
+});
+
+admin.openapi(updateRoutingScoreMultiplier, async (c) => {
+	const { multiplierId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	const [existing] = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+		.limit(1);
+	if (!existing) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
+	}
+
+	const validation = await validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const [duplicate] = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(
+			and(
+				ne(tables.routingScoreMultiplier.id, multiplierId),
+				provider
+					? eq(tables.routingScoreMultiplier.provider, provider)
+					: isNull(tables.routingScoreMultiplier.provider),
+				model
+					? eq(tables.routingScoreMultiplier.model, model)
+					: isNull(tables.routingScoreMultiplier.model),
+			),
+		)
+		.limit(1);
+	if (duplicate) {
+		throw new HTTPException(409, {
+			message: DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE,
+		});
+	}
+
+	let updated: typeof tables.routingScoreMultiplier.$inferSelect | undefined;
+	try {
+		[updated] = await cdb
+			.update(tables.routingScoreMultiplier)
+			.set({
+				provider,
+				model,
+				scoreMultiplier: new Decimal(body.scoreMultiplier).div(100).toFixed(4),
+				reason: body.reason ?? null,
+				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+			})
+			.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+			.returning();
+	} catch (error) {
+		if (
+			isUniqueViolation(error, "routing_score_multiplier_provider_model_unique")
+		) {
+			throw new HTTPException(409, {
+				message: DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE,
+			});
+		}
+		throw error;
+	}
+	if (!updated) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
+	}
+
+	return c.json(formatRoutingScoreMultiplier(updated), 200);
 });
 
 admin.openapi(getAllOrganizationDiscounts, async (c) => {
@@ -5628,6 +5895,31 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 	});
 
 	return c.json({ success: true });
+});
+
+admin.openapi(updateOrganizationDiscount, async (c) => {
+	const user = c.get("user");
+	const { orgId, discountId } = c.req.valid("param");
+	const { before, updated } = await updateDiscount(
+		discountId,
+		orgId,
+		c.req.valid("json"),
+	);
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "discount.update",
+		resourceType: "discount",
+		resourceId: updated.id,
+		metadata: {
+			before: formatDiscount(before),
+			after: formatDiscount(updated),
+			source: "admin",
+		},
+	});
+
+	return c.json(formatDiscount(updated), 200);
 });
 
 // --- Available Options Handler ---
@@ -5993,15 +6285,7 @@ async function updateRateLimit(
 			return { before, updated };
 		});
 	} catch (error) {
-		const cause = error instanceof Error && error.cause ? error.cause : error;
-		if (
-			typeof cause === "object" &&
-			cause !== null &&
-			"code" in cause &&
-			cause.code === "23505" &&
-			"constraint" in cause &&
-			cause.constraint === "rate_limit_org_provider_model_unique"
-		) {
+		if (isUniqueViolation(error, "rate_limit_org_provider_model_unique")) {
 			throw new HTTPException(409, {
 				message:
 					"A rate limit already exists for this provider/model/limit type combination",
@@ -6212,7 +6496,7 @@ const updateContentFilterSettingsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: contentFilterSettingsSchema.openapi({}),
+					schema: contentFilterSettingsSchema,
 				},
 			},
 		},
@@ -6469,7 +6753,7 @@ const getModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Model error-rate Discord alert rules.",
@@ -6484,7 +6768,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 		},
@@ -6493,7 +6777,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Updated model error-rate Discord alert rules.",

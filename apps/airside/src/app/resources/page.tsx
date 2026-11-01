@@ -24,11 +24,55 @@ export const metadata: Metadata = {
 	},
 };
 
+const BASE_URL = "https://airside.llmgateway.io";
+
+const schema = {
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "CollectionPage",
+			name: "LLM provider guides and free tools",
+			description:
+				"Guides and free calculators for LLM inference providers listing on LLM Gateway.",
+			url: `${BASE_URL}/resources`,
+			mainEntity: {
+				"@type": "ItemList",
+				itemListElement: RESOURCE_PAGES.map((page, index) => ({
+					"@type": "ListItem",
+					position: index + 1,
+					name: page.title,
+					url: `${BASE_URL}${page.href}`,
+				})),
+			},
+		},
+		{
+			"@type": "BreadcrumbList",
+			itemListElement: [
+				{ "@type": "ListItem", position: 1, name: "Airside", item: BASE_URL },
+				{
+					"@type": "ListItem",
+					position: 2,
+					name: "Provider resources",
+					item: `${BASE_URL}/resources`,
+				},
+			],
+		},
+	],
+};
+
 export default function Resources() {
 	return (
 		<>
 			<Header />
 			<main className="mx-auto min-h-[70vh] max-w-6xl px-4 py-16 sm:px-6">
+				<script
+					type="application/ld+json"
+					// Static resource metadata, escaped for script context.
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+					dangerouslySetInnerHTML={{
+						__html: JSON.stringify(schema).replace(/</g, "\\u003c"),
+					}}
+				/>
 				<p className="text-primary font-mono text-xs tracking-widest uppercase">
 					Before your first request
 				</p>

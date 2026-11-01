@@ -7,6 +7,7 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
+import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { allUseCases } from "content-collections";
@@ -38,7 +39,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: entry.metaTitle ?? entry.title,
+		title: pageTitle(entry.metaTitle ?? entry.title),
 		description: entry.description,
 		alternates: { canonical: `/use-cases/${entry.slug}` },
 		openGraph: {

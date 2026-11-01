@@ -152,4 +152,44 @@ describe("corsMiddleware", () => {
 			"MCP-Protocol-Version",
 		);
 	});
+
+	it("allows gateway control headers and exposes the cache marker", async () => {
+		process.env.GATEWAY_CORS_ORIGINS = "https://www.typingmind.com";
+
+		const preflight = await app.request("/v1/chat/completions", {
+			method: "OPTIONS",
+			headers: {
+				Origin: "https://www.typingmind.com",
+				"Access-Control-Request-Method": "POST",
+				"Access-Control-Request-Headers": "x-no-cache,x-session-id",
+			},
+		});
+
+		const allowHeaders = (
+			preflight.headers.get("Access-Control-Allow-Headers") ?? ""
+		)
+			.split(",")
+			.map((header) => header.trim().toLowerCase());
+		for (const header of [
+			"x-no-cache",
+			"x-no-fallback",
+			"x-session-id",
+			"x-session-affinity",
+			"session_id",
+			"session-id",
+		]) {
+			expect(allowHeaders).toContain(header);
+		}
+
+		const res = await app.request("/v1/models", {
+			headers: { Origin: "https://www.typingmind.com" },
+		});
+
+		const exposeHeaders = (
+			res.headers.get("Access-Control-Expose-Headers") ?? ""
+		)
+			.split(",")
+			.map((header) => header.trim().toLowerCase());
+		expect(exposeHeaders).toContain("x-llmgateway-cache");
+	});
 });

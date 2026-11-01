@@ -212,7 +212,8 @@ export function stripAnthropicToolExtensions(
 				tool.type !== "function" ||
 				(tool.defer_loading === undefined &&
 					tool.cache_control === undefined &&
-					tool.allowed_callers === undefined)
+					tool.allowed_callers === undefined &&
+					tool.eager_input_streaming === undefined)
 			) {
 				return tool;
 			}
@@ -220,6 +221,7 @@ export function stripAnthropicToolExtensions(
 				defer_loading: _deferLoading,
 				cache_control: _cacheControl,
 				allowed_callers: _allowedCallers,
+				eager_input_streaming: _eagerInputStreaming,
 				...rest
 			} = tool;
 			return rest;

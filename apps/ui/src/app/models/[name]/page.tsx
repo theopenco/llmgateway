@@ -49,6 +49,7 @@ import {
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
+import { pageTitle } from "@/lib/page-title";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -836,10 +837,12 @@ export async function generateMetadata({
 
 	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
 	const pitch = `Use ${model.name ?? model.id} via one OpenAI-compatible API with live per-token pricing across providers.`;
-	const description =
-		model.description && model.description.length + pitch.length <= 250
-			? `${model.description} ${pitch}`
-			: (model.description ?? pitch);
+	const shortPitch = "Live per-token pricing across providers via one API.";
+	const description = !model.description
+		? pitch
+		: ([pitch, shortPitch]
+				.map((suffix) => `${model.description} ${suffix}`)
+				.find((candidate) => candidate.length <= 160) ?? model.description);
 
 	const primaryProvider =
 		getCheapestOgMapping(model, discounts)?.providerId ?? "default";
@@ -847,7 +850,7 @@ export async function generateMetadata({
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {
-		title,
+		title: pageTitle(title),
 		description,
 		alternates: {
 			canonical,

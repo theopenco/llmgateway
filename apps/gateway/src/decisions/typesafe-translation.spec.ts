@@ -8,6 +8,10 @@ import {
 	planTypeSafeImages,
 	toTypeSafeRequest,
 	type DecisionRequestBody,
+	extractInlineImages,
+	typeSafeRequestHeaders,
+	TYPESAFE_IMAGES_HEADER,
+	TYPESAFE_LONG_CONTEXT_HEADER,
 } from "./typesafe-translation.js";
 
 function imageInput(urls: string[]): DecisionRequestBody["input"] {
@@ -90,6 +94,77 @@ describe("typesafe translation", () => {
 			),
 		).rejects.toThrow("may total at most");
 		expect(limits).toHaveLength(3);
+	});
+
+	it("moves inline image parts out of state, instructions and criteria", () => {
+		const part = (url: string) => ({ type: "image_url", image_url: { url } });
+		const { state, questions, plan, partsByRef } = extractInlineImages(
+			{
+				door: { frames: [part("a"), "text"] },
+				image_url: "keys and plain values stay text",
+			},
+			{
+				same: { type: "noul", instructions: ["Compare", part("b")] },
+				pick: {
+					type: "choice",
+					instructions: "Which?",
+					criteria: { thumbs_up: part("c"), none: null },
+				},
+			},
+		);
+
+		const [a, b, c] = plan.refs;
+		expect(plan.urls).toEqual(["a", "b", "c"]);
+		expect(state).toEqual({
+			door: { frames: [a, "text"] },
+			image_url: "keys and plain values stay text",
+		});
+		expect(questions).toEqual({
+			same: { type: "noul", instructions: ["Compare", b] },
+			pick: {
+				type: "choice",
+				instructions: "Which?",
+				criteria: { thumbs_up: c, none: null },
+			},
+		});
+		expect(partsByRef.get(c)).toEqual(part("c"));
+	});
+
+	it("rejects inline images Jev can't read", () => {
+		expect(() =>
+			extractInlineImages(
+				[{ type: "image_url", image_url: { url: "data:image/webp;base64,x" } }],
+				{},
+			),
+		).toThrow("PNG and JPEG");
+		expect(() =>
+			extractInlineImages({ type: "image_url", image_url: {} }, {}),
+		).toThrow("image_url.url");
+		const inline = { type: "image_url", image_url: { url: "x" } };
+		expect(() =>
+			extractInlineImages([inline], {}, MAX_TYPESAFE_IMAGES),
+		).toThrow("at most");
+		expect(
+			extractInlineImages([inline], {}, MAX_TYPESAFE_IMAGES - 1).plan.urls,
+		).toHaveLength(1);
+	});
+
+	it("opts into images and long context the way OpenRouter does", () => {
+		expect(typeSafeRequestHeaders({ state: "short" }, { images: false })).toBe(
+			undefined,
+		);
+		expect(
+			typeSafeRequestHeaders({ state: "short" }, { images: true }),
+		).toEqual({
+			[TYPESAFE_IMAGES_HEADER]: "true",
+			[TYPESAFE_LONG_CONTEXT_HEADER]: "true",
+		});
+		expect(
+			typeSafeRequestHeaders({ state: "short" }, { images: false, box: true }),
+		).toEqual({ [TYPESAFE_IMAGES_HEADER]: "true" });
+		expect(
+			typeSafeRequestHeaders({ state: "x".repeat(32_001) }, { images: false }),
+		).toEqual({ [TYPESAFE_LONG_CONTEXT_HEADER]: "true" });
 	});
 
 	it("rejects image input it has no assets for", () => {

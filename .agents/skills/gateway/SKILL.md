@@ -11,7 +11,7 @@ The gateway is latency-critical and high-throughput.
 
 - Read no `log` rows on the request path, however narrow the query or short the cache. Credit gates, spend and limit checks, and routing signals come from Redis counters maintained on the write path (incremented at `insertLog`, settled by the billing worker) or small cached rows.
 - Route on the capability field curated for it (`supportedToolChoices`, `serviceTiers`, `supportsAssistantPrefill`, …). `supportedParameters` is a partial list.
-- Provider-bound reasoning (mappings where `usesEncryptedReasoning` holds: `reasoning: true` on an `encryptedReasoning` provider) can only verify on the account that produced it. `chat/tools/reasoning-credential-pin.ts` pins a replaying turn to that credential, including a `pending_deletion` key; new credential selection must honor the pin. Before the first attempt, `stripForeignReasoning` drops OpenAI-format payloads pinned to another credential or already rejected (`rememberRejectedReasoning`), so a conversation that failed over does not fail once per turn. A retry that leaves the credential goes through `resolveProviderContextForRetry`, which drops all OpenAI-format encrypted reasoning; Gemini signatures cannot be dropped and still block fallback. New bound-reasoning shapes belong in `providerBoundReasoningIds`.
+- Provider-bound reasoning (mappings where `usesEncryptedReasoning` holds: `reasoning: true` with the mapping's `encryptedReasoning` override or provider default) can only verify on the account that produced it. `chat/tools/reasoning-credential-pin.ts` pins a replaying turn to that credential, including a `pending_deletion` key; new credential selection must honor the pin. Before the first attempt, `stripForeignReasoning` drops OpenAI-format payloads pinned to another credential or already rejected (`rememberRejectedReasoning`), so a conversation that failed over does not fail once per turn. A retry that leaves the credential goes through `resolveProviderContextForRetry`, which drops all OpenAI-format encrypted reasoning; Gemini signatures cannot be dropped and still block fallback. A successful session fallback tombstones the optional reasoning it omitted, so an old credential pin cannot reclaim the session. New bound-reasoning shapes belong in `providerBoundReasoningIds`.
 - Bare model ids route only to deployments in the model's full context-window tier (`getContextTierMinSize` in `packages/models`). Do not add prompt-size estimates to provider selection for a fixed model; chars/4 misjudges per-model tokenizers.
 
 ## User-supplied URLs
@@ -31,6 +31,12 @@ Worker requests to a BYOK base URL or webhook target pass `tenantControlled`
 to `fetchWithSignals` in `apps/worker/src/services/video-jobs.ts`. Route every non-`data:` URL through the guard
 wherever remote content is inlined (e.g. `requiresBase64Images` mappings).
 
+Start content-download deadlines before URL/DNS validation and keep them through
+body consumption. Race unabortable validation awaits; late completion must never
+start a fetch. Cancel active readers on abort: some Node fetch runtimes lose body
+aborts during garbage collection. Cover validation, header and body stalls with
+real-HTTP and forced-GC regression tests.
+
 ## Errors
 
 Keep `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts` conservative.
@@ -44,12 +50,11 @@ raise the misclassification risk and confirm first.
 ## Content filter
 
 The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) is stateless and
-receives only the prompt. Every verdict, passes included, comes back with the
-prompt fingerprint (`VECTORAL_SAFETY_HASH_ALL`) and is stored on the log's
-content filter response; the admin export
-(`/admin/content-filter/internal-checks/export`) is the only record. The
-content filter log columns never leave the admin surface: customer-facing log
-APIs omit them.
+receives only the prompt. Every verdict, passes included, is stored on the log's
+content filter response, the only record; it carries the prompt fingerprint
+while the classifier runs with its hash-all option. Exports, including the
+pseudonymized vendor sample, are in the `internal-classifier` skill.
+Customer-facing log APIs never return the content filter log columns.
 
 Every classifier fails open. OpenAI moderation retries a network error or 5xx
 once and logs the retried attempt at `warn`. Final failures log at

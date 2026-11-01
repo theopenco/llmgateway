@@ -2000,95 +2000,18 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
  * This allows clients to register and receive their client_id
  */
 async function oauthRegisterHandler(c: Context): Promise<Response> {
+	const schema = z.object({
+		client_name: z.string().nullish(),
+		redirect_uris: z.unknown(),
+		api_key: z.string().nullish(),
+	});
+	let body: z.infer<typeof schema>;
 	try {
-		const body = await c.req.json();
-
-		// For MCP, the client provides their API key during registration
-		// We use the API key as the client_id
-		const clientName = body.client_name ?? "mcp-client";
-		const redirectUris = body.redirect_uris ?? [];
-
-		// Check if an API key was provided (either in body or header)
-		let apiKey = body.api_key;
-		if (!apiKey) {
-			const authHeader = c.req.header("Authorization");
-			if (authHeader?.startsWith("Bearer ")) {
-				apiKey = authHeader.slice(7);
-			}
-		}
-
-		if (!apiKey) {
-			// Generate a placeholder client_id - the user will need to configure their actual API key
-			// This allows the OAuth flow to start, and the API key can be provided later
-			return c.json(
-				{
-					error: "invalid_request",
-					error_description:
-						"API key required. Provide your LLM Gateway API key in the request body as 'api_key' or in Authorization header.",
-				},
-				400,
-			);
-		}
-
-		// Validate redirect_uris if provided
-		const validatedRedirectUris: string[] = [];
-		if (Array.isArray(redirectUris)) {
-			for (const uri of redirectUris) {
-				if (typeof uri !== "string") {
-					continue;
-				}
-				try {
-					const parsedUri = new URL(uri);
-					// Only allow http for loopback, https for everything else
-					const isLoopback =
-						parsedUri.hostname === "127.0.0.1" ||
-						parsedUri.hostname === "[::1]" ||
-						parsedUri.hostname === "localhost";
-
-					if (isLoopback && parsedUri.protocol === "http:") {
-						validatedRedirectUris.push(uri);
-					} else if (parsedUri.protocol === "https:") {
-						validatedRedirectUris.push(uri);
-					}
-					// Skip invalid URIs (non-https, non-loopback)
-				} catch {
-					// Skip invalid URIs
-				}
-			}
-		}
-
-		// Store the client registration
-		registeredClients.set(apiKey, {
-			clientId: apiKey,
-			clientName,
-			redirectUris: validatedRedirectUris,
-			createdAt: Date.now(),
-		});
-
-		// Clean up old client registrations (older than 30 days)
-		// eslint-disable-next-line no-mixed-operators
-		const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-		for (const [id, client] of registeredClients.entries()) {
-			if (client.createdAt < thirtyDaysAgo) {
-				registeredClients.delete(id);
-			}
-		}
-
-		// Return registration response with API key as client_id
-		return c.json(
-			{
-				client_id: apiKey,
-				client_secret: apiKey, // Same as client_id for our simplified flow
-				client_name: clientName,
-				redirect_uris: validatedRedirectUris,
-				grant_types: ["authorization_code", "client_credentials"],
-				response_types: ["code"],
-				token_endpoint_auth_method: "client_secret_basic",
-			},
-			201,
-		);
+		body = schema.parse(await c.req.json<unknown>());
 	} catch (error) {
-		logger.error("OAuth registration error", toError(error));
+		if (!(error instanceof SyntaxError) && !(error instanceof z.ZodError)) {
+			throw error;
+		}
 		return c.json(
 			{
 				error: "invalid_request",
@@ -2097,6 +2020,89 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 			400,
 		);
 	}
+
+	// For MCP, the client provides their API key during registration
+	// We use the API key as the client_id
+	const clientName = body.client_name ?? "mcp-client";
+	const redirectUris = body.redirect_uris ?? [];
+
+	// Check if an API key was provided (either in body or header)
+	let apiKey = body.api_key;
+	if (!apiKey) {
+		const authHeader = c.req.header("Authorization");
+		if (authHeader?.startsWith("Bearer ")) {
+			apiKey = authHeader.slice(7);
+		}
+	}
+
+	if (!apiKey) {
+		return c.json(
+			{
+				error: "invalid_request",
+				error_description:
+					"API key required. Provide your LLM Gateway API key in the request body as 'api_key' or in Authorization header.",
+			},
+			400,
+		);
+	}
+
+	// Validate redirect_uris if provided
+	const validatedRedirectUris: string[] = [];
+	if (Array.isArray(redirectUris)) {
+		for (const uri of redirectUris) {
+			if (typeof uri !== "string") {
+				continue;
+			}
+			try {
+				const parsedUri = new URL(uri);
+				// Only allow http for loopback, https for everything else
+				const isLoopback =
+					parsedUri.hostname === "127.0.0.1" ||
+					parsedUri.hostname === "[::1]" ||
+					parsedUri.hostname === "localhost";
+
+				if (isLoopback && parsedUri.protocol === "http:") {
+					validatedRedirectUris.push(uri);
+				} else if (parsedUri.protocol === "https:") {
+					validatedRedirectUris.push(uri);
+				}
+				// Skip invalid URIs (non-https, non-loopback)
+			} catch {
+				// Skip invalid URIs
+			}
+		}
+	}
+
+	// Store the client registration
+	registeredClients.set(apiKey, {
+		clientId: apiKey,
+		clientName,
+		redirectUris: validatedRedirectUris,
+		createdAt: Date.now(),
+	});
+
+	// Clean up old client registrations (older than 30 days)
+	// eslint-disable-next-line no-mixed-operators
+	const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+	for (const [id, client] of registeredClients.entries()) {
+		if (client.createdAt < thirtyDaysAgo) {
+			registeredClients.delete(id);
+		}
+	}
+
+	// Return registration response with API key as client_id
+	return c.json(
+		{
+			client_id: apiKey,
+			client_secret: apiKey, // Same as client_id for our simplified flow
+			client_name: clientName,
+			redirect_uris: validatedRedirectUris,
+			grant_types: ["authorization_code", "client_credentials"],
+			response_types: ["code"],
+			token_endpoint_auth_method: "client_secret_basic",
+		},
+		201,
+	);
 }
 
 /**

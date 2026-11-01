@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 
 import { Button } from "@/lib/components/button";
+import { usePostHog } from "@/lib/posthog";
 
 // Conversion card embeddable in markdown content via the `BlogCta` override in
 // getMarkdownOptions. The DevPass variant leans into the passport/boarding-pass

@@ -3,9 +3,9 @@
 import { ArrowRight, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { usePostHog } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
 type RailVariant = "devpass" | "gateway";

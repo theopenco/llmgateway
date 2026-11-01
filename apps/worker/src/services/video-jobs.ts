@@ -209,6 +209,8 @@ function selectLoadBalancedItem<T>(
 
 function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
+		case "fal-ai":
+			return "https://queue.fal.run";
 		case "openai":
 			return "https://api.openai.com";
 		case "xai":
@@ -333,12 +335,27 @@ async function resolveVideoProviderContext(
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
 	if (job.usedMode === "api-keys") {
-		const providerKey = await findActiveProviderKey(
-			job.organizationId,
-			job.usedProvider,
-			job.requestId,
-			getVideoProviderKeyFilter(providerId),
-		);
+		let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		if (providerId === "fal-ai") {
+			if (!job.providerKeyId) {
+				throw new Error("The creating fal credential is missing from this job");
+			}
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					id: { eq: job.providerKeyId },
+					organizationId: { eq: job.organizationId },
+					provider: { eq: job.usedProvider },
+					status: { in: ["active", "pending_deletion"] },
+				},
+			});
+		} else {
+			providerKey = await findActiveProviderKey(
+				job.organizationId,
+				job.usedProvider,
+				job.requestId,
+				getVideoProviderKeyFilter(providerId),
+			);
+		}
 		if (!providerKey) {
 			throw new Error(`No API key set for provider: ${job.usedProvider}`);
 		}
@@ -455,7 +472,7 @@ function getVideoProviderHeaders(
 	}
 
 	return {
-		Authorization: `Bearer ${providerContext.token}`,
+		Authorization: `${job.usedProvider === "fal-ai" ? "Key" : "Bearer"} ${providerContext.token}`,
 	};
 }
 
@@ -482,6 +499,7 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		case "submitted":
 		case "waiting":
 		case "queuing":
+		case "in_queue":
 			return "queued";
 		case "in_progress":
 		case "in-progress":
@@ -2203,10 +2221,114 @@ async function fetchBytedanceStatus(
 	});
 }
 
+async function fetchFalStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const externalId = getVideoMapping(job)?.externalId;
+	if (!externalId) {
+		throw new Error("Missing fal video model mapping");
+	}
+	// fal queue URLs use owner/app, never the submission's endpoint subpath.
+	// Derive from our catalogue and pinned credential, not provider-issued URLs:
+	// even BYOK responses cannot redirect the Authorization header elsewhere.
+	const appPath = externalId
+		.split("/")
+		.slice(0, 2)
+		.map(encodeURIComponent)
+		.join("/");
+	const resultUrl = joinUrl(
+		providerContext.baseUrl,
+		`/${appPath}/requests/${encodeURIComponent(job.upstreamId)}`,
+	);
+	const init = {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	};
+	const { body: queue, response } = await fetchJsonResponse(
+		`${resultUrl}/status`,
+		init,
+		providerContext.tenantControlled,
+	);
+	if (!response.ok) {
+		throw new Error(
+			`fal queue status request failed with status ${response.status}`,
+		);
+	}
+	const status = normalizeVideoStatus(queue.status);
+	if (status !== "completed") {
+		return addRequestedVideoMetadata(job, { ...queue, status });
+	}
+
+	const { body: result, response: resultResponse } = await fetchJsonResponse(
+		resultUrl,
+		init,
+		providerContext.tenantControlled,
+	);
+	if (!resultResponse.ok) {
+		// COMPLETED only means a result exists. Validation and generation errors
+		// surface here. Transient/auth failures back off without resubmission.
+		if (resultResponse.status !== 400 && resultResponse.status !== 422) {
+			throw new Error(
+				`fal queue result request failed with status ${resultResponse.status}`,
+			);
+		}
+		const firstDetail = Array.isArray(result.detail)
+			? (result.detail[0] as { msg?: unknown } | undefined)
+			: undefined;
+		const message =
+			typeof result.detail === "string"
+				? result.detail
+				: typeof firstDetail?.msg === "string"
+					? firstDetail.msg
+					: typeof result.error === "string"
+						? result.error
+						: "fal video generation failed";
+		return addRequestedVideoMetadata(job, {
+			status: /cancelled|canceled/i.test(message) ? "canceled" : "failed",
+			progress: 100,
+			error: { message, details: result },
+			fal_queue_response: queue,
+		});
+	}
+	if (result.error || !extractContentUrl(result)) {
+		return addRequestedVideoMetadata(job, {
+			status: "failed",
+			progress: 100,
+			error: {
+				message:
+					typeof result.error === "string"
+						? result.error
+						: "fal result did not include a video",
+				details: result,
+			},
+			fal_queue_response: queue,
+		});
+	}
+	const video =
+		result.video && typeof result.video === "object"
+			? (result.video as Record<string, unknown>)
+			: null;
+	return addRequestedVideoMetadata(job, {
+		...result,
+		status: "completed",
+		progress: 100,
+		mime_type:
+			typeof video?.content_type === "string"
+				? video.content_type
+				: "video/mp4",
+		fal_queue_response: queue,
+	});
+}
+
 async function fetchUpstreamStatus(
 	job: VideoJobRecord,
 ): Promise<Record<string, unknown>> {
 	const providerContext = await resolveVideoProviderContext(job);
+
+	if (job.usedProvider === "fal-ai") {
+		return await fetchFalStatus(job, providerContext);
+	}
 
 	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return await fetchGoogleVertexStatus(job, providerContext);
@@ -2283,6 +2405,7 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "xai" ||
+		job.usedProvider === "fal-ai" ||
 		isGoogleVertexVideoProvider(job.usedProvider) ||
 		isGoogleAiStudioVideoProvider(job.usedProvider) ||
 		isMinimaxVideoProvider(job.usedProvider) ||

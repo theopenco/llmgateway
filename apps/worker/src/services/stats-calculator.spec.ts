@@ -510,6 +510,87 @@ describe("stats-calculator", () => {
 			]);
 		});
 
+		it("splits routing metrics by requested service tier", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+			const base = {
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				hasError: false,
+				cached: false,
+				promptTokens: "10",
+				completionTokens: "100",
+				totalTokens: "110",
+				unifiedFinishReason: "completed",
+				mode: "credits" as const,
+				usedMode: "credits" as const,
+				createdAt: new Date(previousMinuteStart.getTime() + 30000),
+			};
+			await db.insert(log).values([
+				{ ...base, id: "standard-log", requestId: "standard" },
+				{
+					...base,
+					id: "flex-error-log",
+					requestId: "flex-error",
+					requestedServiceTier: "flex",
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					completionTokens: "0",
+					duration: 500,
+				},
+				{
+					...base,
+					id: "flex-ok-log",
+					requestId: "flex-ok",
+					requestedServiceTier: "flex",
+					duration: 4000,
+				},
+				{
+					...base,
+					id: "priority-log",
+					requestId: "priority",
+					requestedServiceTier: "priority",
+					streamed: true,
+					timeToFirstToken: 150,
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const [row] = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					and(
+						eq(modelProviderMappingHistory.modelId, "gpt-4"),
+						eq(modelProviderMappingHistory.providerId, "openai"),
+						eq(modelProviderMappingHistory.usedMode, "credits"),
+					),
+				);
+			expect(row).toMatchObject({
+				logsCount: 4,
+				upstreamErrorsCount: 1,
+				flexLogsCount: 2,
+				flexUpstreamErrorsCount: 1,
+				flexClientErrorsCount: 0,
+				flexTotalDuration: 4500,
+				flexTotalOutputTokens: 100,
+				flexTimeToFirstTokenCount: 0,
+				priorityLogsCount: 1,
+				priorityUpstreamErrorsCount: 0,
+				priorityTotalDuration: 1000,
+				priorityTotalOutputTokens: 100,
+				priorityTotalTimeToFirstToken: 150,
+				priorityTimeToFirstTokenCount: 1,
+			});
+		});
+
 		it("should only count requests that recorded a time to first token", async () => {
 			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
 

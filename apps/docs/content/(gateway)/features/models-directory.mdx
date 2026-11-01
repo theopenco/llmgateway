@@ -75,6 +75,23 @@ Use `?mapped=true` for provider-prefixed entries. Existing query filters, includ
 permissions and project configuration; it does not check remaining credits,
 usage budgets, or current provider health.
 
+## Provider deployments and pricing
+
+Capabilities and prices belong to individual provider mappings, not just model
+families. Use the [models page](https://llmgateway.io/models) to check a deployment's
+context window, reasoning controls, vision and tool support before pinning it.
+Different upstream deployments of the same family can have different limits and
+rates, including peak and off-peak token pricing.
+
+The gateway omits unsupported sampling controls and clamps temperature to the
+configured deployment ceiling. For deployments that reject empty text blocks,
+it removes those blocks while preserving the rest of the message.
+
+For bring-your-own-key access, a provider's model list does not guarantee that your
+key has that model enabled. Activate the required service in the provider's
+console and use the region associated with your key. The gateway catalogue lists
+only the regions configured for each mapping.
+
 ## Related
 
 - [Knowledge base → Models](/learn/models) — a walkthrough of the page itself.

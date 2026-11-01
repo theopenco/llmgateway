@@ -107,13 +107,18 @@ describe("/v1/messages tool definition and tool_result fidelity", () => {
 		return captured.at(-1)!;
 	}
 
-	test("forwards strict and allowed_callers on custom tools", async () => {
+	test("forwards strict, allowed_callers and eager_input_streaming on custom tools", async () => {
 		await setup();
 
 		const upstream = await send({
 			messages: [{ role: "user", content: "Weather in Paris?" }],
 			tools: [
-				{ ...weatherTool, strict: true, allowed_callers: ["code_execution"] },
+				{
+					...weatherTool,
+					strict: true,
+					allowed_callers: ["code_execution"],
+					eager_input_streaming: true,
+				},
 				{ ...weatherTool, name: "get_time" },
 			],
 		});
@@ -121,9 +126,11 @@ describe("/v1/messages tool definition and tool_result fidelity", () => {
 			name: "get_weather",
 			strict: true,
 			allowed_callers: ["code_execution"],
+			eager_input_streaming: true,
 		});
 		expect(upstream.tools[1]).not.toHaveProperty("strict");
 		expect(upstream.tools[1]).not.toHaveProperty("allowed_callers");
+		expect(upstream.tools[1]).not.toHaveProperty("eager_input_streaming");
 	});
 
 	test("keeps an image inside a tool_result as an image block", async () => {

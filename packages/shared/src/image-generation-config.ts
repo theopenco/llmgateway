@@ -79,6 +79,8 @@ export function getModelImageConfig(model: string) {
 	const isGemini31FlashLiteImage = lower.includes(
 		"gemini-3.1-flash-lite-image",
 	);
+	// Ignores imageSize and always returns 1024px images.
+	const isGemini25FlashImage = lower.includes("gemini-2.5-flash-image");
 
 	const isGrokImagine20 = lower.includes("grok-imagine-image-2-0");
 
@@ -106,7 +108,7 @@ export function getModelImageConfig(model: string) {
 								? (["1K", "1.5K", "2K"] as const)
 								: isSeedream
 									? (["2K", "4K"] as const)
-									: isGemini31FlashLiteImage
+									: isGemini31FlashLiteImage || isGemini25FlashImage
 										? (["1K"] as const)
 										: isGemini31FlashImage
 											? (["0.5K", "1K", "2K", "4K"] as const)

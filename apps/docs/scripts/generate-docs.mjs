@@ -12,7 +12,30 @@ const openapi = createOpenAPI({
 
 const out = "./content/(gateway)/(api)";
 
-async function addDescriptionsFromContent() {
+function describeOperation(spec, path, method) {
+	const operation = spec.paths?.[path]?.[method];
+	const base = (operation?.description || operation?.summary || "")
+		.replace(/\s+/g, " ")
+		.trim();
+	const sentence = base && !/[.!?]$/.test(base) ? `${base}.` : base;
+	const suffix = `API reference for ${method.toUpperCase()} ${path}: request parameters, response schema and code samples.`;
+	const combined = sentence ? `${sentence} ${suffix}` : suffix;
+	if (combined.length <= 160) {
+		return combined;
+	}
+	const sentences = sentence.split(/(?<=[.!?])\s+/);
+	let fitted = sentences[0];
+	for (const next of sentences.slice(1)) {
+		if (`${fitted} ${next}`.length > 160) {
+			break;
+		}
+		fitted = `${fitted} ${next}`;
+	}
+	return fitted;
+}
+
+async function addDescriptionsFromOpenApi() {
+	const spec = JSON.parse(await readFile("./openapi.json", "utf8"));
 	const entries = await readdir(out);
 	for (const entry of entries) {
 		if (!entry.endsWith(".mdx") || entry === "index.mdx") {
@@ -25,24 +48,39 @@ async function addDescriptionsFromContent() {
 			continue;
 		}
 		const [, frontmatter, body] = match;
-		if (/\ndescription:\s/.test(`\n${frontmatter}`)) {
+		const operationMatch = body.match(
+			/operations=\{\[\{"path":"([^"]+)","method":"([a-z]+)"\}\]\}/,
+		);
+		if (!operationMatch) {
 			continue;
 		}
-		const contentMatch = frontmatter.match(
-			/structuredData:[\s\S]*?contents:\n\s+- content:\s+(.+)$/m,
+		const description = describeOperation(
+			spec,
+			operationMatch[1],
+			operationMatch[2],
 		);
-		const description = contentMatch?.[1]?.trim();
 		if (!description) {
 			continue;
 		}
-		const sanitized = description.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-		const updatedFrontmatter = `title: ${
-			frontmatter.match(/^title:\s*(.+)$/m)?.[1] ?? entry
-		}\ndescription: "${sanitized}"\n${frontmatter
-			.split("\n")
-			.filter((line) => !line.startsWith("title:"))
-			.join("\n")}`;
-		await writeFile(filePath, `---\n${updatedFrontmatter}\n---\n${body}`);
+		let inDescription = false;
+		const lines = frontmatter.split("\n").filter((line) => {
+			if (line.startsWith("description:")) {
+				inDescription = true;
+				return false;
+			}
+			if (inDescription && /^\s/.test(line)) {
+				return false;
+			}
+			inDescription = false;
+			return true;
+		});
+		const titleIndex = lines.findIndex((line) => line.startsWith("title:"));
+		lines.splice(
+			titleIndex + 1,
+			0,
+			`description: ${JSON.stringify(description)}`,
+		);
+		await writeFile(filePath, `---\n${lines.join("\n")}\n---\n${body}`);
 	}
 }
 
@@ -61,7 +99,7 @@ async function generate() {
 		includeDescription: true,
 	});
 
-	await addDescriptionsFromContent();
+	await addDescriptionsFromOpenApi();
 }
 
 void generate();

@@ -178,7 +178,7 @@ function getResponsesApiUserMessage(input: unknown): string {
 		.join(" ");
 }
 
-function buildAwsEventStreamMessage(
+export function buildAwsEventStreamMessage(
 	eventType: string,
 	payload: Record<string, unknown>,
 ): Uint8Array {
@@ -1492,9 +1492,11 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 
 mockOpenAIServer.post("/v1/systemone", async (c) => {
 	const body = await c.req.json();
+	const hasBox = Object.values(
+		(body.questions ?? {}) as Record<string, { type: string }>,
+	).some((question) => question.type === "box");
 	if (
-		body.assets &&
-		Object.keys(body.assets).length > 0 &&
+		((body.assets && Object.keys(body.assets).length > 0) || hasBox) &&
 		c.req.header("TypeSafe-Danger-Zone-Images") !== "true"
 	) {
 		c.status(400);
@@ -1543,6 +1545,14 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	)) {
 		if (question.type === "noul") {
 			answers[id] = { type: "noul", noul: harmful ? 0.97 : 0.01 };
+			continue;
+		}
+		if (question.type === "box") {
+			answers[id] = {
+				type: "box",
+				box: { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 },
+				confidence: 0.9,
+			};
 			continue;
 		}
 		if (question.type === "choice") {

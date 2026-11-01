@@ -186,7 +186,7 @@ describe("chat-projects", () => {
 			req.headers.delete("Content-Type");
 		}
 		const res = await app.request(req);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(415);
 		expect(await db.query.chatProject.findMany()).toHaveLength(0);
 	});
 

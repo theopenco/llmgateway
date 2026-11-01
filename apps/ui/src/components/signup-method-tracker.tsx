@@ -1,10 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef } from "react";
 
 import { useUser } from "@/hooks/useUser";
+import { usePostHog } from "@/lib/posthog";
 
 /**
  * Fires `user_signed_up` for OAuth registrations.

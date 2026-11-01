@@ -454,19 +454,7 @@ export async function rememberRejectedReasoning<
 			});
 			rejected = ids;
 		}
-		const value = JSON.stringify({
-			rejected: true,
-		} satisfies RejectedReasoning);
-		const pipeline = redisClient.pipeline();
-		for (const id of rejected) {
-			pipeline.set(
-				pinKey(organizationId, id),
-				value,
-				"EX",
-				REASONING_CREDENTIAL_PIN_TTL_SECONDS,
-			);
-		}
-		await pipeline.exec();
+		await markDiscardedReasoning(organizationId, rejected);
 	} catch (error) {
 		logger.warn("Failed to record rejected reasoning", {
 			organizationId,
@@ -659,4 +647,38 @@ export async function resolveReasoningCredentialPin(params: {
 		return undefined;
 	}
 	return { kind: "byok", providerKey: row };
+}
+async function markDiscardedReasoning(
+	organizationId: string,
+	ids: readonly string[],
+): Promise<void> {
+	if (ids.length === 0) {
+		return;
+	}
+	try {
+		const value = JSON.stringify({
+			rejected: true,
+		} satisfies RejectedReasoning);
+		const pipeline = redisClient.pipeline();
+		for (const id of ids) {
+			pipeline.set(
+				pinKey(organizationId, id),
+				value,
+				"EX",
+				REASONING_CREDENTIAL_PIN_TTL_SECONDS,
+			);
+		}
+		await pipeline.exec();
+	} catch (error) {
+		logger.warn("Failed to record discarded reasoning", {
+			organizationId,
+			error,
+		});
+	}
+}
+/** Keep reasoning omitted by a successful fallback from reclaiming its old provider. */
+export async function rememberDroppedReasoning<
+	T extends { role: string; reasoning_details?: unknown },
+>(organizationId: string, messages: readonly T[]): Promise<void> {
+	await markDiscardedReasoning(organizationId, accountBoundIds(messages));
 }

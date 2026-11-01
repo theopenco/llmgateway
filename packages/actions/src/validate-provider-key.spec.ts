@@ -239,6 +239,26 @@ describe("validateProviderKey error reporting", () => {
 		expect(warnSpy).toHaveBeenCalled();
 	});
 
+	it("returns malformed key settings at warn level without calling upstream", async () => {
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const result = await validateProviderKey(
+			"cloudflare",
+			"cf-test",
+			undefined,
+			false,
+			{ cloudflare_account_id: "not-an-account-id" },
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.error).toContain("Cloudflare account ID is invalid");
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalled();
+	});
+
 	it("falls back to status text when the body carries no message", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response("not json", { status: 401, statusText: "Unauthorized" }),

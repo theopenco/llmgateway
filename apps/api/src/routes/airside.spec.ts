@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
@@ -139,7 +140,14 @@ async function passPreflight(
 			maxOutput: 100_000_000,
 			...overrides,
 		},
-		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{
+				id: "message_content",
+				label: "Message content compatibility",
+				status: "passed",
+			},
+		],
 		status: "passed",
 		completedAt: new Date(),
 	});
@@ -267,7 +275,14 @@ async function createModel(
 					undefined,
 			...(body.decisions === true ? { decisions: true } : {}),
 		},
-		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{
+				id: "message_content",
+				label: "Message content compatibility",
+				status: "passed",
+			},
+		],
 		status: "passed",
 		completedAt: new Date(),
 	});
@@ -312,13 +327,51 @@ describe("airside provider portal", () => {
 				}),
 			]),
 		);
-		expect(oss?.prices.some((price) => price.providerId === "nanogpt")).toBe(
-			false,
-		);
+		expect(
+			oss?.prices.some((price) => price.providerId === "together-ai"),
+		).toBe(false);
 		const tiered = data.models.find((model) => model.id === "gemini-2.5-pro");
 		expect(
 			tiered?.prices.some((price) => price.providerId === "google-ai-studio"),
 		).toBe(false);
+	});
+
+	it("hides removed catalogue providers without deleting history", async () => {
+		await db
+			.insert(tables.provider)
+			.values([
+				{ id: "retired-catalogue", name: "Retired Carrier", description: "" },
+				{ id: "mistral", name: "Mistral", description: "" },
+			])
+			.onConflictDoNothing();
+		const response = await app.request("/internal/providers");
+		expect(response.status).toBe(200);
+		const data = (await response.json()) as {
+			providers: Array<{ id: string }>;
+		};
+		const ids = data.providers.map((provider) => provider.id);
+		expect(ids).toContain("mistral");
+		expect(ids).not.toContain("retired-catalogue");
+		resetModelSearchRowsMemo();
+		for (const query of ["Retired Carrier", "Mistral"]) {
+			const search = await app.request(
+				`/internal/models/search?q=${encodeURIComponent(query)}`,
+			);
+			expect(search.status).toBe(200);
+			const result = (await search.json()) as {
+				providers: Array<{ id: string }>;
+			};
+			const providerIds = result.providers.map((provider) => provider.id);
+			expect(providerIds).not.toContain("retired-catalogue");
+			if (query === "Mistral") {
+				expect(providerIds).toContain("mistral");
+			}
+		}
+		expect(
+			await db.query.provider.findFirst({
+				where: { id: { eq: "retired-catalogue" } },
+			}),
+		).toMatchObject({ status: "active" });
 	});
 
 	beforeEach(async () => {
@@ -327,6 +380,7 @@ describe("airside provider portal", () => {
 	});
 
 	afterEach(async () => {
+		resetModelSearchRowsMemo();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		if (originalAdminEmails === undefined) {
@@ -917,6 +971,28 @@ describe("airside provider portal", () => {
 		expect((await widened.json()).message).toContain(
 			"changed after verification",
 		);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				checks: stored!.checks
+					.filter((check) => check.id !== "message_content")
+					.map((check) => ({ ...check, status: "passed" as const })),
+			})
+			.where(eq(tables.providerModelVerification.id, stored!.id));
+		const stale = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(stale.status).toBe(409);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				checks: stored!.checks.map((check) => ({
+					...check,
+					status: "passed" as const,
+				})),
+			})
+			.where(eq(tables.providerModelVerification.id, stored!.id));
 		const created = await app.request(
 			"/airside/models",
 			json(cookie, submission),
@@ -1151,6 +1227,23 @@ describe("airside provider portal", () => {
 		);
 
 		await passPreflight(model.id);
+		const latest = await db.query.providerModelVerification.findFirst({
+			where: { draftModelId: { eq: model.id } },
+			orderBy: { createdAt: "desc" },
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				checks: latest!.checks.filter(
+					(check) => check.id !== "message_content",
+				),
+			})
+			.where(eq(tables.providerModelVerification.id, latest!.id));
+		expect((await patch({ vision: true })).status).toBe(409);
+		await db
+			.update(tables.providerModelVerification)
+			.set({ checks: latest!.checks })
+			.where(eq(tables.providerModelVerification.id, latest!.id));
 		expect((await patch({ vision: true })).status).toBe(200);
 		// Only the latest run counts: a later failure blocks again.
 		await db.insert(tables.providerModelVerification).values({
@@ -5343,7 +5436,7 @@ describe("airside provider portal", () => {
 			);
 
 		// Pending registrations publish nothing.
-		expect((await listed()).airsideProfile).toBeNull();
+		expect(await listed()).toBeUndefined();
 		await activateClaim("acme-sky");
 		expect((await listed()).airsideProfile).toEqual({
 			website: carrierProfile.website,
@@ -5362,6 +5455,14 @@ describe("airside provider portal", () => {
 			},
 			compliance: null,
 		});
+		const search = await app.request("/internal/models/search?q=acme");
+		expect(search.status).toBe(200);
+		const result = (await search.json()) as {
+			providers: Array<{ id: string }>;
+		};
+		expect(
+			result.providers.some((provider) => provider.id === "acme-sky"),
+		).toBe(true);
 	});
 
 	it("reports missing profile fields on legacy custom claims", async () => {

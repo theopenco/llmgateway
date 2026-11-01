@@ -10,8 +10,8 @@
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "pnpm gen-docs && fumadocs-mdx && next build && cp ./openapi.json ./.next/standalone/apps/docs/ && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/docs/.next/ && test -d public && cp -r public .next/standalone/apps/docs/",
-		"dev": "next dev --turbo --port ${DOCS_PORT:-3005}",
+		"build": "pnpm gen-docs && fumadocs-mdx && next build --webpack && node scripts/check-bundle-size.mjs && cp ./openapi.json ./.next/standalone/apps/docs/ && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/docs/.next/ && test -d public && cp -r public .next/standalone/apps/docs/",
+		"dev": "pnpm gen-docs && next dev --turbo --port ${DOCS_PORT:-3005}",
 		"format": "eslint --fix . && prettier --write .",
 		"gen-docs": "node scripts/generate-docs.mjs && node scripts/update-content-modified.mjs",
 		"generate": "pnpm gen-docs",
@@ -40,8 +40,8 @@
 		"lucide-react": "^0.544.0",
 		"next": "16.4.3",
 		"posthog-js": "1.372.1",
-		"react": "^19.3.0",
-		"react-dom": "^19.3.0",
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1",
 		"remark": "15.0.1",
 		"remark-gfm": "4.0.1",
 		"remark-mdx": "3.1.1",
@@ -49,7 +49,7 @@
 		"shiki": "3.22.0",
 		"tailwind-merge": "^3.3.1",
 		"unist-util-visit": "5.1.0",
-		"zod": "3.25.76"
+		"zod": "4.6.7"
 	},
 	"devDependencies": {
 		"@playwright/test": "1.64.1",

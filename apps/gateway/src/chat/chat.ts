@@ -71,6 +71,8 @@ import {
 	withWalletCredits,
 } from "@/lib/end-user-session.js";
 import {
+	canUseModel,
+	enterpriseOnlyModelMessage,
 	getLicensedOrganizationEnvVariant,
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
@@ -128,7 +130,11 @@ import {
 import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
-import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import {
+	directProviderRoutingMetadata,
+	getNoFallbackRoutingMetadata,
+	withRoutingAttempts,
+} from "@/lib/routing-metadata.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -374,6 +380,7 @@ import {
 	resolveReasoningCredentialPin,
 	stripAccountBoundReasoning,
 	stripForeignReasoning,
+	rememberDroppedReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
 	flushTaggedStreamingRemainder,
@@ -3278,10 +3285,10 @@ chat.openapi(completions, async (c) => {
 	// OpenAI-format encrypted reasoning is dropped on a retry that leaves its
 	// credential (see resolveProviderContextForRetry), so only reasoning that
 	// cannot be dropped — Gemini signatures — still blocks fallback.
+	// Session affinity preserves caches, but must not prevent error fallback.
 	const isProviderPinned = () =>
-		sessionStickyEnabled ||
-		(hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
-			usedProviderEncryptsReasoning());
+		hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
+		usedProviderEncryptsReasoning();
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -3472,6 +3479,23 @@ chat.openapi(completions, async (c) => {
 	const isStarterChatPlan = Boolean(
 		organization?.kind === "chat" && organization.chatPlan === "starter",
 	);
+	if (
+		!canUseModel(
+			modelInfo as ModelDefinition,
+			organization.id,
+			organization.plan,
+		)
+	) {
+		const message = enterpriseOnlyModelMessage(modelInfo.id);
+		await logGatewayRejection({
+			message,
+			statusCode: 403,
+			statusText: "Forbidden",
+			cause: "enterprise_only_model",
+		});
+		throw new HTTPException(403, { message });
+	}
+
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
 			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at lounge.llmgateway.io/pricing to access frontier models.`,
@@ -4483,6 +4507,16 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			if (
+				!canUseModel(
+					modelDef as ModelDefinition,
+					organization.id,
+					organization.plan,
+				)
+			) {
+				continue;
+			}
+
 			// Starter chat plan can't reach blocked frontier models. Enforce it
 			// during auto-selection too, otherwise an "auto" request would skip
 			// the pre-routing check above and resolve to a blocked model.
@@ -4981,6 +5015,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+				service_tier,
 			);
 			applyCustomProviderUptime(
 				metricsMap,
@@ -5342,6 +5377,7 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							session: sessionStickyEnabled,
 						},
+						service_tier,
 					);
 					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
@@ -5598,6 +5634,7 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								session: sessionStickyEnabled,
 							},
+							service_tier,
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
@@ -5682,6 +5719,8 @@ chat.openapi(completions, async (c) => {
 				},
 			],
 			routingCfg,
+			undefined,
+			service_tier,
 		);
 
 		const metrics = metricsMap.get(
@@ -5802,6 +5841,7 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								session: sessionStickyEnabled,
 							},
+							service_tier,
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
@@ -6219,6 +6259,7 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						session: sessionStickyEnabled,
 					},
+					service_tier,
 				);
 				applyCustomProviderUptime(
 					metricsMap,
@@ -6500,6 +6541,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+				service_tier,
 			);
 		}
 
@@ -6799,6 +6841,39 @@ chat.openapi(completions, async (c) => {
 			providerKeyId: providerKey.id,
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
+	}
+	// Records a failed upstream attempt before its log row is written, so the
+	// row carries the full routing trail. A terminal attempt takes finalLogId,
+	// which is what earlier attempts' retriedByLogId points at.
+	function recordFailedAttempt(
+		attempts: RoutingAttempt[],
+		provider: string,
+		statusCode: number,
+		errorType: string,
+		willRetry: boolean,
+	): string {
+		const logId = willRetry ? shortid() : finalLogId;
+		attempts.push(
+			buildRoutingAttempt(
+				provider,
+				usedInternalModel,
+				statusCode,
+				errorType,
+				false,
+				{
+					region: usedRegion,
+					apiKeyHash: usedApiKeyHash,
+					credentialSource: currentCredentialSource(),
+					...currentProviderKeyIdentity(),
+					logId,
+				},
+			),
+		);
+		routingMetadata = withRoutingAttempts(
+			routingMetadata ?? directProviderRoutingMetadata(provider),
+			attempts,
+		);
+		return logId;
 	}
 	// The credential the current attempt sends, as recorded against the
 	// account-bound reasoning it produces.
@@ -8912,6 +8987,37 @@ chat.openapi(completions, async (c) => {
 	}
 	const contextsWithoutEncryptedReasoning = new WeakSet();
 
+	async function pinSuccessfulFallback(options: {
+		failedProviders: ReadonlySet<string>;
+		finishReason: string | null | undefined;
+		hasError: boolean;
+		canceled?: boolean;
+	}): Promise<void> {
+		if (
+			!sessionStickyEnabled ||
+			!sessionId ||
+			!usedProvider ||
+			options.failedProviders.size === 0 ||
+			options.hasError ||
+			options.canceled ||
+			!["completed", "length_limit", "tool_calls"].includes(
+				getUnifiedFinishReason(options.finishReason, transportProvider),
+			)
+		) {
+			return;
+		}
+		await rememberDroppedReasoning(
+			retryProjectContext.organizationId,
+			messages,
+		);
+		await createSessionProviderStore(
+			retryProjectContext.organizationId,
+			modelInfo.id,
+			sessionId,
+			routingCfg.session.ttlSeconds,
+		).set(usedProvider, usedRegion);
+	}
+
 	async function applyResolvedProviderContext(
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
@@ -9471,6 +9577,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null, // Not applicable for canceled request
@@ -9803,7 +9910,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryTimeout &&
 								shouldRetrySameKey({
 									usedProvider,
-									providerPinned: isProviderPinned(),
+									providerPinned: sessionStickyEnabled || isProviderPinned(),
 									errorType: "upstream_timeout",
 									statusCode: 0,
 									envVarName,
@@ -9820,6 +9927,14 @@ chat.openapi(completions, async (c) => {
 									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
+
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
+							);
 
 							const baseLogEntry = createLogEntry(
 								requestId,
@@ -9856,7 +9971,6 @@ chat.openapi(completions, async (c) => {
 								timeoutPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -9899,22 +10013,6 @@ chat.openapi(completions, async (c) => {
 							});
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -9927,43 +10025,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryTimeout) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -10043,7 +10109,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryFetch &&
 								shouldRetrySameKey({
 									usedProvider,
-									providerPinned: isProviderPinned(),
+									providerPinned: sessionStickyEnabled || isProviderPinned(),
 									errorType: "network_error",
 									statusCode: 0,
 									envVarName,
@@ -10060,6 +10126,14 @@ chat.openapi(completions, async (c) => {
 									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
+
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
+							);
 
 							const baseLogEntry = createLogEntry(
 								requestId,
@@ -10096,7 +10170,6 @@ chat.openapi(completions, async (c) => {
 								fetchErrorPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -10158,22 +10231,6 @@ chat.openapi(completions, async (c) => {
 							}
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -10186,43 +10243,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryFetch) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -10371,7 +10396,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryHttpError &&
 							shouldRetrySameKey({
 								usedProvider,
-								providerPinned: isProviderPinned(),
+								providerPinned: sessionStickyEnabled || isProviderPinned(),
 								errorType: finishReason,
 								statusCode: res.status,
 								envVarName,
@@ -10388,6 +10413,17 @@ chat.openapi(completions, async (c) => {
 								.rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
+
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							res.status,
+							finishReason === "content_filter" ||
+								finishReason === "client_error"
+								? finishReason
+								: getErrorType(res.status),
+							willRetryRequest,
+						);
 
 						const baseLogEntry = createLogEntry(
 							requestId,
@@ -10424,7 +10460,6 @@ chat.openapi(completions, async (c) => {
 							streamingErrorPluginIds,
 							undefined, // No plugin results for error case
 						);
-						const attemptLogId = shortid();
 
 						const contentFilterPromptTokens =
 							finishReason === "content_filter"
@@ -10533,22 +10568,6 @@ chat.openapi(completions, async (c) => {
 						}
 
 						if (willRetrySameProvider && sameProviderRetryContext) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
@@ -10561,43 +10580,11 @@ chat.openapi(completions, async (c) => {
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
 							await sameKeyRetryDelay(sameKeyRetryCount);
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							retryAttempt--;
 							continue;
 						}
 
 						if (willRetryHttpError) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 							continue;
 						}
@@ -10762,7 +10749,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryStreamingError &&
 							shouldRetrySameKey({
 								usedProvider,
-								providerPinned: isProviderPinned(),
+								providerPinned: sessionStickyEnabled || isProviderPinned(),
 								errorType,
 								statusCode: inferredStatusCode,
 								envVarName,
@@ -10782,32 +10769,13 @@ chat.openapi(completions, async (c) => {
 							willRetryStreamingError ||
 							willRetrySameKey;
 
-						const attemptLogId = shortid();
-						routingAttempts.push(
-							buildRoutingAttempt(
-								usedProvider,
-								usedInternalModel,
-								inferredStatusCode,
-								getErrorType(inferredStatusCode),
-								false,
-								{
-									region: usedRegion,
-									apiKeyHash: usedApiKeyHash,
-									credentialSource: currentCredentialSource(),
-									...currentProviderKeyIdentity(),
-									logId: attemptLogId,
-								},
-							),
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							inferredStatusCode,
+							getErrorType(inferredStatusCode),
+							willRetryRequest,
 						);
-						routingMetadata = {
-							...(routingMetadata ?? {
-								availableProviders: [usedProvider],
-								selectedProvider: usedProvider,
-								selectionReason: "direct-provider-specified",
-								providerScores: [],
-							}),
-							routing: [...routingAttempts],
-						};
 
 						const baseLogEntry = createLogEntry(
 							requestId,
@@ -10984,28 +10952,10 @@ chat.openapi(completions, async (c) => {
 
 				// Update routingMetadata with all routing attempts for DB logging
 				if (routingMetadata) {
-					// Enrich providerScores with failure info from routing attempts
-					const failedMap = new Map(
-						routingAttempts
-							.filter((a) => !a.succeeded)
-							.map((f) => [f.provider, f]),
+					routingMetadata = withRoutingAttempts(
+						routingMetadata,
+						routingAttempts,
 					);
-					routingMetadata = {
-						...routingMetadata,
-						routing: routingAttempts,
-						providerScores: routingMetadata.providerScores.map((score) => {
-							const failure = failedMap.get(score.providerId);
-							if (failure) {
-								return {
-									...score,
-									failed: true,
-									status_code: failure.status_code,
-									error_type: failure.error_type,
-								};
-							}
-							return score;
-						}),
-					};
 				}
 
 				// If all retries exhausted without a successful response
@@ -11130,6 +11080,10 @@ chat.openapi(completions, async (c) => {
 					pending: "",
 				};
 				let shouldTerminateStream = false;
+				// Set when the AWS EventStream parser rejects a frame outright. The
+				// abort is emitted after the current chunk's valid events so the
+				// client never receives data after [DONE].
+				let malformedEventStreamFrame = false;
 
 				// Response healing for streaming mode
 				const streamingResponseHealingEnabled = plugins?.some(
@@ -11192,13 +11146,28 @@ chat.openapi(completions, async (c) => {
 							binaryBuffer = newBuffer;
 
 							// Parse and convert available events
-							const { sse, bytesConsumed } =
+							const { sse, bytesConsumed, invalid } =
 								convertAwsEventStreamToSSE(binaryBuffer);
 							chunk = sse;
 
 							// Remove consumed bytes from binary buffer
 							if (bytesConsumed > 0) {
 								binaryBuffer = binaryBuffer.slice(bytesConsumed);
+							}
+
+							// A frame that breaks the EventStream framing can never be
+							// consumed, however many bytes follow, so binaryBuffer would
+							// grow (and be re-copied) for the rest of the response while
+							// the client receives nothing. Flush what parsed, then abort.
+							if (invalid) {
+								logger.error("Malformed AWS EventStream frame", {
+									provider: usedProvider,
+									model: usedInternalModel,
+									binaryBufferSize: binaryBuffer.length,
+								});
+								malformedEventStreamFrame = true;
+								shouldTerminateStream = true;
+								binaryBuffer = new Uint8Array(0);
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE
@@ -11218,8 +11187,13 @@ chat.openapi(completions, async (c) => {
 							rawUpstreamData += chunk;
 						}
 
-						// Check buffer size to prevent memory exhaustion
-						if (buffer.length > MAX_BUFFER_SIZE) {
+						// Check buffer size to prevent memory exhaustion. binaryBuffer is
+						// covered too: an incomplete AWS EventStream frame yields an empty
+						// chunk, so the decoded string buffer alone would never trip this.
+						if (
+							buffer.length > MAX_BUFFER_SIZE ||
+							binaryBuffer.length > MAX_BUFFER_SIZE
+						) {
 							const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
 							logger.error(
 								`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
@@ -11280,7 +11254,8 @@ chat.openapi(completions, async (c) => {
 						// the event can actually complete.
 						if (
 							buffer.length > SSE_SCAN_SKIP_MIN_BUFFER &&
-							!chunkMayCompleteSseEvent(chunk)
+							!chunkMayCompleteSseEvent(chunk) &&
+							!shouldTerminateStream
 						) {
 							continue;
 						}
@@ -12635,6 +12610,54 @@ chat.openapi(completions, async (c) => {
 							buffer = bufferCopy.slice(processedLength);
 						}
 
+						if (malformedEventStreamFrame && !doneSent) {
+							malformedEventStreamFrame = false;
+							const malformedMessage =
+								"Upstream sent a malformed AWS EventStream frame";
+							streamingError = {
+								message: malformedMessage,
+								type: "upstream_error",
+								code: "malformed_event_stream",
+								details: {
+									statusCode: 502,
+									statusText: "Malformed Event Stream",
+									responseText: malformedMessage,
+									provider: usedProvider,
+									model: usedInternalModel,
+								},
+							};
+							finishReason = "upstream_error";
+
+							try {
+								await writeSSEAndCache({
+									event: "error",
+									data: JSON.stringify({
+										error: {
+											message: malformedMessage,
+											type: "upstream_error",
+											code: "malformed_event_stream",
+											param: null,
+											responseText: malformedMessage,
+										},
+									}),
+									id: String(eventId++),
+								});
+								if (!doneSent) {
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+								}
+							} catch (sseError) {
+								logger.error(
+									"Failed to send malformed event stream error SSE",
+									toError(sseError),
+								);
+							}
+						}
+
 						if (shouldTerminateStream) {
 							break;
 						}
@@ -13708,6 +13731,13 @@ chat.openapi(completions, async (c) => {
 							? streamingError.details.statusCode
 							: 500;
 
+					await pinSuccessfulFallback({
+						failedProviders: failedProviderIds,
+						finishReason,
+						hasError: streamingError !== null,
+						canceled,
+					});
+
 					await insertLogEntry({
 						...baseLogEntry,
 						providerKeyId: trackedKeyHealthId ?? null,
@@ -14004,6 +14034,7 @@ chat.openapi(completions, async (c) => {
 
 		await insertLogEntry({
 			...baseLogEntry,
+			id: finalLogId,
 			providerKeyId: trackedKeyHealthId ?? null,
 			duration: Date.now() - startTime,
 			timeToFirstToken: null, // Not applicable for canceled request
@@ -14357,7 +14388,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryFetchNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					providerPinned: isProviderPinned(),
+					providerPinned: sessionStickyEnabled || isProviderPinned(),
 					errorType: "network_error",
 					statusCode: 0,
 					envVarName,
@@ -14373,6 +14404,14 @@ chat.openapi(completions, async (c) => {
 				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
+
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				0,
+				getErrorType(0),
+				willRetryRequest,
+			);
 
 			const baseLogEntry = createLogEntry(
 				requestId,
@@ -14409,7 +14448,6 @@ chat.openapi(completions, async (c) => {
 				nonStreamingFetchErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			await insertLogEntry({
 				...baseLogEntry,
@@ -14472,22 +14510,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -14500,43 +14522,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryFetchNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
@@ -14624,6 +14614,13 @@ chat.openapi(completions, async (c) => {
 						},
 					);
 
+					recordFailedAttempt(
+						routingAttempts,
+						usedProvider!,
+						res.status,
+						isTimeoutBody ? "upstream_timeout" : "upstream_error",
+						false,
+					);
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
 						requestId,
@@ -14663,6 +14660,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
@@ -14811,7 +14809,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryHttpNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					providerPinned: isProviderPinned(),
+					providerPinned: sessionStickyEnabled || isProviderPinned(),
 					errorType: finishReason,
 					statusCode: res.status,
 					envVarName,
@@ -14827,6 +14825,16 @@ chat.openapi(completions, async (c) => {
 				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
+
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				res.status,
+				finishReason === "content_filter" || finishReason === "client_error"
+					? finishReason
+					: getErrorType(res.status),
+				willRetryRequest,
+			);
 
 			const baseLogEntry = createLogEntry(
 				requestId,
@@ -14863,7 +14871,6 @@ chat.openapi(completions, async (c) => {
 				providerErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			const nonStreamContentFilterPromptTokens =
 				finishReason === "content_filter"
@@ -14991,22 +14998,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -15019,43 +15010,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryHttpNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
@@ -15193,26 +15152,7 @@ chat.openapi(completions, async (c) => {
 
 	// Update routingMetadata with all routing attempts for DB logging
 	if (routingMetadata) {
-		// Enrich providerScores with failure info from routing attempts
-		const failedMap = new Map(
-			routingAttempts.filter((a) => !a.succeeded).map((f) => [f.provider, f]),
-		);
-		routingMetadata = {
-			...routingMetadata,
-			routing: routingAttempts,
-			providerScores: routingMetadata.providerScores.map((score) => {
-				const failure = failedMap.get(score.providerId);
-				if (failure) {
-					return {
-						...score,
-						failed: true,
-						status_code: failure.status_code,
-						error_type: failure.error_type,
-					};
-				}
-				return score;
-			}),
-		};
+		routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 	}
 
 	if (!res || !res.ok) {
@@ -15379,6 +15319,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...sseLogEntry,
+					id: finalLogId,
 					providerKeyId: trackedKeyHealthId ?? null,
 					duration: Date.now() - startTime,
 					timeToFirstToken: null,
@@ -15578,27 +15519,7 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 			if (routingMetadata) {
-				const failedMap = new Map(
-					routingAttempts
-						.filter((a) => !a.succeeded)
-						.map((f) => [f.provider, f]),
-				);
-				routingMetadata = {
-					...routingMetadata,
-					routing: routingAttempts,
-					providerScores: routingMetadata.providerScores.map((score) => {
-						const failure = failedMap.get(score.providerId);
-						if (failure) {
-							return {
-								...score,
-								failed: true,
-								status_code: failure.status_code,
-								error_type: failure.error_type,
-							};
-						}
-						return score;
-					}),
-				};
+				routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 			}
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -15640,6 +15561,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				id: finalLogId,
 				providerKeyId: trackedKeyHealthId ?? null,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
@@ -16249,6 +16171,12 @@ chat.openapi(completions, async (c) => {
 		base64Images.length > 0
 			? base64Images.map((img) => img.image_url.url).join("\n")
 			: content;
+
+	await pinSuccessfulFallback({
+		failedProviders: failedProviderIds,
+		finishReason,
+		hasError: hasEmptyNonStreamingResponse,
+	});
 
 	await insertLogEntry({
 		...baseLogEntry,

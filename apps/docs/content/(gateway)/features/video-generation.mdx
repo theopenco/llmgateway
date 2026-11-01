@@ -10,6 +10,7 @@ LLMGateway supports asynchronous video generation through an OpenAI-compatible `
 
 Currently available models:
 
+- **FLUX 3 Max** (`flux-3-max`) through `fal-ai` (720p, 1080p; 5–20 seconds; optional audio; first/last frames)
 - **Veo 3.1** through `google-vertex` (720p, 1080p, 4k)
 - **Gemini Omni 1.1 Flash** through `google-ai-studio` (360p, 720p, 1080p, 4k; frames, references, and source video edit/extend; always with audio)
 - **Seedance 2.5** through `bytedance` (480p, 720p, 1080p; clips up to 30 seconds)
@@ -41,6 +42,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | `seconds`          | number           | yes      | Duration in seconds. Supported values depend on the model (see below)                                                      |
 | `size`             | string           | no       | `widthxheight`, limited to the sizes supported by the selected model and provider                                          |
 | `audio`            | boolean          | no       | Whether to include audio in the output (default `true`). Only honored when the model supports both audio and silent output |
+| `reasoning_effort` | string           | no       | FLUX 3 Max only: prompt reasoning effort, `low` or `high` (default `high`); not a visual-quality or resolution setting     |
 | `image`            | object           | no       | Optional first frame for image-to-video generation (see first/last frame inputs below)                                     |
 | `last_frame`       | object           | no       | Optional ending frame when `image` is provided (see first/last frame inputs below)                                         |
 | `reference_images` | array            | no       | One to three provider-specific image inputs                                                                                |
@@ -56,6 +58,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 
 | Model family          | Provider           | Supported sizes                                                                                  | Supported durations |
 | --------------------- | ------------------ | ------------------------------------------------------------------------------------------------ | ------------------- |
+| FLUX 3 Max            | `fal-ai`           | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `5`–`20`            |
 | Veo 3.1               | `google-vertex`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                       | `4`, `6`, `8`, `10` |
 | Gemini Omni 1.1 Flash | `google-ai-studio` | `640x360`, `360x640`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `3`–`10`            |
 | Seedance 2.5          | `bytedance`        | `848x480`, `854x480`, `480x854`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                | `4`–`30`            |
@@ -73,19 +76,42 @@ Requests return `400` when the selected provider cannot serve the requested `siz
 
 **KLING v3.0 Turbo**, **MiniMax H3 Max**, and **Gemini Omni 1.1 Flash** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
 
+### FLUX 3 Max options
+
+Use `flux-3-max` for automatic routing or `fal-ai/flux-3-max` to pin fal. Choose 720p or 1080p in landscape (16:9) or portrait (9:16), and any integer duration from 5 through 20 seconds. `audio` can be `true` (default) or `false`.
+
+`reasoning_effort` controls prompt reasoning: `low` or `high` (default). The gateway forwards it as fal's `reasoning_level`. It does not select visual quality; use `size` for output resolution. Other models reject an explicit `reasoning_effort`.
+
+FLUX accepts a start frame (`image`) and an optional end frame (`last_frame`, requires `image`). It does **not** accept arbitrary reference images, reference video/audio, or source video inputs.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fal-ai/flux-3-max",
+    "prompt": "A cinematic aerial shot above a rainforest waterfall at sunrise",
+    "seconds": 5,
+    "size": "1920x1080",
+    "audio": false,
+    "reasoning_effort": "low"
+  }'
+```
+
 ### First/last frame inputs
 
 Frame inputs interpolate a video between a starting frame and an optional ending frame. You provide the first frame as `image` and, optionally, the ending frame as `last_frame`. The gateway tags each one with the correct role for the provider, so you don't set roles yourself.
 
-| Field        | Required           | Accepted input                   | Available on                                                                                                                                                             |
-| ------------ | ------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), `minimax`, `xai`               |
-| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), **MiniMax H3 Max** (`minimax`) |
+| Field        | Required           | Accepted input                   | Available on                                                                                                                                                                                        |
+| ------------ | ------------------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **FLUX 3 Max** (`fal-ai`), **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), `minimax`, `xai`               |
+| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **FLUX 3 Max** (`fal-ai`), **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), **MiniMax H3 Max** (`minimax`) |
 
 #### Rules and limits
 
 - **Seedance scope.** Frame inputs are supported on **Seedance 2.5**, **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 2.0 Mini** (`seedance-2-5`, `seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
 - **KLING scope.** Frame inputs are supported on **KLING v3.0**, **KLING v3.0 Pro**, and **KLING v3.0 Turbo** (`kling-v3-0`, `kling-v3-0-pro`, `kling-v3-0-turbo`). The gateway uploads base64 frames to AtlasCloud's media endpoint automatically, so both HTTPS URLs and base64 data URLs are accepted.
+- **FLUX scope.** FLUX 3 Max (`fal-ai`) accepts first and last frames as HTTPS URLs or base64 data URLs; use `image` for the start and `last_frame` for the optional end.
 - **`last_frame` requires `image`.** Providing `last_frame` without `image` returns a `400`.
 - **Not combinable with references.** First/last frame inputs (`image`, `last_frame`) cannot be combined with reference inputs (`reference_images`, `input_reference`, `reference_videos`, `reference_audios`).
 
@@ -373,6 +399,8 @@ Failed, canceled, and expired jobs report a cost of `0`.
 `google-vertex` follows Vertex AI's long-running operation flow. The gateway submits Veo generation with `predictLongRunning`, polls with `fetchPredictOperation`, and streams the final bytes through the gateway content endpoint once the operation is done.
 
 `google-ai-studio` uses the Gemini Interactions API. The gateway creates a background interaction, polls it until the video is ready, and streams the generated file through the gateway content endpoint. Google deletes the generated file after 48 hours, which the job reports as `expires_at`.
+
+`fal-ai` uses fal's asynchronous queue API. The gateway submits FLUX 3 Max to the text-to-video or image-to-video endpoint, polls the queued request, and exposes the final video through the gateway content endpoint.
 
 `bytedance` uses the ModelArk `/contents/generations/tasks` endpoint. The gateway submits the job, polls the upstream task status, and exposes the final video bytes through the gateway content endpoint once the task succeeds.
 

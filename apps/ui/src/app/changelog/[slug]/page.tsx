@@ -8,6 +8,7 @@ import { ChangelogTags } from "@/components/changelog-tags";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { changelogProducts } from "@/lib/changelog";
+import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { CopyMarkdownButton } from "./copy-markdown-button";
@@ -197,7 +198,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${entry.title} - Changelog`,
+		title: pageTitle(`${entry.title} - Changelog`),
 		description: entry.summary ?? "LLM Gateway changelog entry",
 		alternates: { canonical: `/changelog/${entry.slug}` },
 		openGraph: {

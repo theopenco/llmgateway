@@ -1170,6 +1170,35 @@ describe("calculateCosts", () => {
 		expect(result.inputCost).toBeCloseTo(526 * (2 / 1e6));
 	});
 
+	it("bills gemini-2.5-flash-image text output at the text rate", async () => {
+		// Live AI Studio usage: 1302 candidate tokens, 1290 of them IMAGE
+		const result = await calculateCosts(
+			"gemini-2.5-flash-image",
+			"google-vertex",
+			null,
+			5,
+			1302,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			undefined,
+			1290,
+		);
+
+		const imageCost = 1290 * (30 / 1e6);
+		const textCost = 12 * (2.5 / 1e6);
+		expect(result.imageOutputTokens).toBe(1290);
+		expect(result.imageOutputCost).toBeCloseTo(imageCost);
+		expect(result.outputCost).toBeCloseTo(textCost + imageCost);
+		expect(result.inputCost).toBeCloseTo(5 * (0.3 / 1e6));
+	});
+
 	it("should track image output tokens and costs separately", async () => {
 		// Test with gemini-3-pro-image-preview for image output
 		const result = await calculateCosts(

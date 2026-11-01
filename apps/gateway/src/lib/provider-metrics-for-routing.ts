@@ -1,6 +1,7 @@
 import {
 	getProviderMetricsFromHistory,
 	getProjectRoutingUsage,
+	isRoutedServiceTier,
 	metricsKey,
 	type ProviderMetrics,
 } from "@llmgateway/db";
@@ -16,7 +17,9 @@ import {
  * configured; otherwise the built-in defaults. Either way this runs the
  * same on-demand weighted aggregation against
  * model_provider_mapping_history, cached in SWR by (history-config-hash,
- * model-set) for resilience and to keep concurrent requests cheap.
+ * model-set) for resilience and to keep concurrent requests cheap. Metrics
+ * cover only traffic at the request's service tier (flex, priority, or
+ * standard otherwise).
  */
 export async function getProviderMetricsForRouting(
 	combinations: Array<{
@@ -26,11 +29,16 @@ export async function getProviderMetricsForRouting(
 	}>,
 	cfg?: ResolvedRoutingConfig,
 	usageContext?: { projectId: string; promptTokens: number; session?: boolean },
+	serviceTier?: string,
 ): Promise<Map<string, ProviderMetrics>> {
 	const history = cfg?.history ?? DEFAULT_ROUTING_HISTORY;
 	const thresholds = cfg?.thresholds ?? DEFAULT_ROUTING_THRESHOLDS;
 	const [metrics, usage] = await Promise.all([
-		getProviderMetricsFromHistory(combinations, history),
+		getProviderMetricsFromHistory(
+			combinations,
+			history,
+			isRoutedServiceTier(serviceTier) ? serviceTier : undefined,
+		),
 		usageContext &&
 		(usageContext.promptTokens >= thresholds.cachePromptTokens ||
 			usageContext.session)

@@ -160,6 +160,173 @@ describe("systemone", () => {
 		expect(log?.upstreamRequest).toMatchObject({ assets });
 	});
 
+	test("/v1/systemone moves inline image parts into assets", async () => {
+		await seedKeys("systemone-inline");
+		await seedProviderKey("systemone-inline");
+
+		const png = "iVBORw0KGgo=";
+		const jpg = "/9j/4AAQSkZJRg==";
+		const part = (data: string, mime: string) => ({
+			type: "image_url",
+			image_url: { url: `data:${mime};base64,${data}` },
+		});
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-inline",
+			},
+			body: JSON.stringify({
+				model: "jev-1.14.0",
+				state: ["Product photo:", part(png, "image/png")],
+				questions: {
+					urgency: {
+						type: "noul",
+						instructions: ["Same item as", part(jpg, "image/jpeg"), "?"],
+					},
+					severity: {
+						type: "score",
+						instructions: "How worn is it?",
+						criteria: ["New", part(jpg, "image/jpeg")],
+					},
+				},
+			}),
+		});
+
+		const json = await res.json();
+		// The mock rejects assets sent without the opt-in header.
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		// The legend echoes each level as sent; the image level comes back as
+		// the caller's part, not the gateway's reference.
+		expect(json.answers.severity.legend).toEqual({
+			"0": "New",
+			"1": part(jpg, "image/jpeg"),
+		});
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.14.0");
+		const upstream = log?.upstreamRequest as {
+			state: string[];
+			questions: {
+				urgency: { instructions: string[] };
+				severity: { criteria: string[] };
+			};
+			assets: Record<string, unknown>;
+		};
+		const stateRef = upstream.state[1];
+		const instructionRef = upstream.questions.urgency.instructions[1];
+		const criteriaRef = upstream.questions.severity.criteria[1];
+		expect(upstream.state[0]).toBe("Product photo:");
+		expect(upstream.assets).toEqual({
+			[stateRef]: { type: "image", format: "png", data_base64: png },
+			[instructionRef]: { type: "image", format: "jpg", data_base64: jpg },
+			[criteriaRef]: { type: "image", format: "jpg", data_base64: jpg },
+		});
+		const { assets: _assets, ...content } = upstream;
+		expect(JSON.stringify(content)).not.toContain("base64");
+	});
+
+	test("/v1/systemone keeps caller assets next to inline image parts", async () => {
+		await seedKeys("systemone-mixed");
+		await seedProviderKey("systemone-mixed");
+
+		const assets = {
+			"a3f1c2e8-door": {
+				type: "image",
+				format: "jpg",
+				data_base64: "/9j/4AAQSkZJRg==",
+			},
+		};
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-mixed",
+			},
+			body: JSON.stringify({
+				model: "jev-1.14.0",
+				state: {
+					door: "a3f1c2e8-door",
+					badge: {
+						type: "image_url",
+						image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+					},
+				},
+				assets,
+				questions: { urgency: QUESTIONS.urgency },
+			}),
+		});
+
+		expect(res.status, await res.clone().text()).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const upstream = logs.find((l) => l.usedModel === "typesafe/jev-1.14.0")
+			?.upstreamRequest as {
+			state: { door: string; badge: string };
+			assets: Record<string, unknown>;
+		};
+		expect(upstream.state.door).toBe("a3f1c2e8-door");
+		expect(Object.keys(upstream.assets).sort()).toEqual(
+			["a3f1c2e8-door", upstream.state.badge].sort(),
+		);
+	});
+
+	test("/v1/systemone rejects inline images Jev can't read", async () => {
+		await seedKeys("systemone-webp");
+		await seedProviderKey("systemone-webp");
+
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-webp",
+			},
+			body: JSON.stringify({
+				model: "jev-1.14.0",
+				state: [
+					{
+						type: "image_url",
+						image_url: { url: "data:image/webp;base64,UklGRg==" },
+					},
+				],
+				questions: { urgency: QUESTIONS.urgency },
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain("PNG and JPEG");
+	});
+
+	test("/v1/systemone answers box questions", async () => {
+		await seedKeys("systemone-box");
+		await seedProviderKey("systemone-box");
+
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-box",
+			},
+			body: JSON.stringify({
+				model: "jev-1.14.0",
+				state: {
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+				},
+				questions: {
+					product: { type: "box", instructions: "the product in `state`" },
+				},
+			}),
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.answers.product).toMatchObject({
+			type: "box",
+			box: { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 },
+		});
+	});
+
 	test("/v1/systemone rejects a chat model", async () => {
 		await seedKeys("systemone-chat-model");
 

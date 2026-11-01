@@ -9,9 +9,12 @@
 	],
 	"scripts": {
 		"build": "pnpm generate && next build --turbopack && tsc && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/ui/.next/ && test -d public && cp -r public .next/standalone/apps/ui/",
-		"dev": "next dev --port ${UI_PORT:-3002} --turbopack",
+		"dev": "pnpm generate:product-og-images && next dev --port ${UI_PORT:-3002} --turbopack",
+		"fonts:check": "python3 scripts/fonts/subset_fonts.py --check",
+		"fonts:subset": "python3 scripts/fonts/subset_fonts.py",
 		"format": "eslint --fix . && prettier --write .",
-		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts && tsx src/scripts/generate-provider-sprites.ts",
+		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts && tsx src/scripts/generate-provider-sprites.ts && pnpm generate:product-og-images",
+		"generate:product-og-images": "tsx src/scripts/generate-product-og-images.ts",
 		"lint": "eslint . && prettier --check .",
 		"start": "next start",
 		"test:e2e": "playwright test"
@@ -84,9 +87,9 @@
 		"posthog-node": "5.10.4",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
-		"react": "^19.3.0",
+		"react": "^19.3.1",
 		"react-day-picker": "9.13.2",
-		"react-dom": "^19.3.0",
+		"react-dom": "^19.3.1",
 		"react-hook-form": "7.65.0",
 		"react-tweet": "3.3.0",
 		"recharts": "^2.15.4",
@@ -108,6 +111,6 @@
 		"postcss": "^8.5.26",
 		"sharp": "0.35.5",
 		"tailwindcss": "^4.1.12",
-		"zod": "3.25.76"
+		"zod": "4.6.7"
 	}
 }

@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ImageResponse } from "next/og";
-import sharp from "sharp";
 
 import Logo, { LogoLockup } from "@/lib/icons/Logo";
 import { ogSize } from "@/lib/og";
@@ -161,11 +160,13 @@ export async function productOgImage({
 	accent,
 	glow,
 }: ProductOgOptions) {
-	const image = await sharp(
-		join(process.cwd(), "public/home/products", screenshot),
-	)
-		.png()
-		.toBuffer();
+	const image = await readFile(
+		join(
+			process.cwd(),
+			"public/og-products",
+			screenshot.replace(/\.webp$/, ".png"),
+		),
+	);
 	return await renderCard({
 		glow,
 		children: (

@@ -59,6 +59,9 @@ export function Providers({ children, config, timeZone }: ProvidersProps) {
 				ui_host: host,
 				capture_pageview: "history_change",
 				autocapture: true,
+				// The project runs no surveys, but posthog-js still downloads
+				// surveys.js unless they are disabled here.
+				disable_surveys: true,
 			});
 		};
 		// Captures fired before init() are dropped by posthog-js, so the idle

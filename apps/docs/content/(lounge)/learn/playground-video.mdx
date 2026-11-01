@@ -35,6 +35,9 @@ The controls under the prompt adapt to the selected model (or, in compare mode, 
 - **Audio** can be toggled when the model supports both silent and audio output; otherwise it is fixed.
 - **First frame** and **last frame** are offered only on models that accept them. A last frame requires a first frame, and models that only take a starting image do not show the last-frame button.
 - **Reference images, videos and audio** appear on models that support them.
+- **Prompt reasoning** (FLUX 3 Max only) sets how much reasoning the model spends on your prompt, low or high. It does not change resolution or visual quality.
+
+While a video renders, the card shows its progress. Models whose provider reports no progress, such as FLUX 3 Max on fal, show how long the job has been running instead. The video appears in place as soon as it is ready.
 
 The estimated cost of the generation (summed across compared models) is shown next to the Generate button. Before submitting, the gateway requires your organization to have at least the estimated cost (and never less than $1.00) available after subtracting what its still-running video jobs have already reserved; otherwise the request is rejected before anything is generated.
 

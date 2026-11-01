@@ -9,7 +9,7 @@ import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { z } from "zod/v3";
+import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -52,7 +52,7 @@ const USE_CASES = [
 type UseCase = (typeof USE_CASES)[number]["value"];
 
 const scoreSchema = z
-	.number({ required_error: "Score it 1–5." })
+	.number({ error: "Score it 1–5." })
 	.int()
 	.min(1, "Score it 1–5.")
 	.max(5);
@@ -63,11 +63,11 @@ const formSchema = z.object({
 	qualityScore: scoreSchema,
 	speedScore: scoreSchema,
 	wouldRecommend: z.boolean({
-		required_error: "Approve or deny — customs insists.",
+		error: "Approve or deny — customs insists.",
 	}),
 	primaryUseCase: z.enum(
 		USE_CASES.map((u) => u.value) as [UseCase, ...UseCase[]],
-		{ errorMap: () => ({ message: "Pick your main use." }) },
+		{ error: "Pick your main use." },
 	),
 	comment: z
 		.string()

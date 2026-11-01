@@ -92,7 +92,7 @@ async function readBodyWithLimit(
 
 			received += value.byteLength;
 			if (received > maxSizeBytes) {
-				await reader.cancel();
+				cancelImageBody(reader);
 				const actualSizeMB = received / (1024 * 1024);
 				logger.warn("Image size exceeds limit while downloading", {
 					size: received,
@@ -201,11 +201,9 @@ export async function processImageUrl(
 	await assertSafeUserContentUrl(url);
 	signal?.throwIfAborted();
 
+	let response: Response | undefined;
 	try {
-		const response = await fetchNoRedirect(
-			url,
-			signal ? { signal } : undefined,
-		);
+		response = await fetchNoRedirect(url, signal ? { signal } : undefined);
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -222,7 +220,7 @@ export async function processImageUrl(
 		// going to be accepted.
 		const contentType = response.headers
 			.get("content-type")
-			?.split(";")[0]
+			?.split(";", 1)[0]
 			.trim()
 			.toLowerCase();
 		if (!contentType || !contentType.startsWith("image/")) {
@@ -279,5 +277,18 @@ export async function processImageUrl(
 
 		// Generic error for all other cases
 		throw new Error("Failed to process image from URL");
+	} finally {
+		if (response?.body && !response.bodyUsed) {
+			cancelImageBody(response.body);
+		}
 	}
+}
+function cancelImageBody(
+	body: ReadableStream<Uint8Array> | ReadableStreamDefaultReader<Uint8Array>,
+): void {
+	void body.cancel().catch((error: unknown) => {
+		logger.warn("Could not cancel image response body", {
+			err: error instanceof Error ? error : new Error(String(error)),
+		});
+	});
 }

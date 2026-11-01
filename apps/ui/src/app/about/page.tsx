@@ -5,13 +5,14 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
+import { pageTitle } from "@/lib/page-title";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "About",
+	title: pageTitle("About LLM Gateway — The Open-Source LLM API Gateway"),
 	description:
 		"LLM Gateway is an open-source LLM API gateway routing requests across 40+ providers through one OpenAI-compatible API. Learn who builds it and why.",
 	alternates: { canonical: "/about" },

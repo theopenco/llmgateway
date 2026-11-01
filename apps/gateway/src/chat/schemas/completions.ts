@@ -238,7 +238,7 @@ export const completionsRequestSchema = z.object({
 				json_schema: z.object({
 					name: z.string(),
 					description: z.string().optional(),
-					schema: z.record(z.any()),
+					schema: z.record(z.string(), z.any()),
 					strict: z.boolean().optional(),
 				}),
 			}),
@@ -324,7 +324,7 @@ export const completionsRequestSchema = z.object({
 					function: z.object({
 						name: z.string(),
 						description: z.string().optional(),
-						parameters: z.record(z.any()).optional(),
+						parameters: z.record(z.string(), z.any()).optional(),
 						strict: z.boolean().optional().openapi({
 							description:
 								"Ask the provider to constrain tool arguments to the schema. Forwarded to OpenAI-compatible providers and, as Anthropic's tool-level `strict`, to the Anthropic Messages API. Dropped for providers without an equivalent.",
@@ -333,6 +333,10 @@ export const completionsRequestSchema = z.object({
 					allowed_callers: z.array(z.string()).optional().openapi({
 						description:
 							"Anthropic only. Which callers may invoke the tool (programmatic tool calling). Stripped for every other provider.",
+					}),
+					eager_input_streaming: z.boolean().optional().openapi({
+						description:
+							"Anthropic only. Streams the tool input as the model generates it (fine-grained tool streaming) instead of buffering each parameter until it validates. Claude on AWS Bedrock gets it as the request-wide fine-grained tool streaming beta when every tool sets it. Stripped for every other provider.",
 					}),
 					defer_loading: z.boolean().optional().openapi({
 						description:

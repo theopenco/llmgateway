@@ -26,6 +26,17 @@ import { getBedrockProfilePrefix } from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
+/**
+ * A provider key's settings (account id, resource, workspace id) are missing or
+ * malformed — tenant input, not a gateway fault.
+ */
+export class ProviderConfigError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "ProviderConfigError";
+	}
+}
+
 function appendPath(url: string, path: string): string {
 	let urlEnd = url.length;
 	while (urlEnd > 0 && url[urlEnd - 1] === "/") {
@@ -101,12 +112,12 @@ function resolveWorkspaceScopedEndpoint(
 		if (fallback) {
 			return fallback;
 		}
-		throw new Error(
+		throw new ProviderConfigError(
 			`Provider ${provider} region ${region} is only reachable through a workspace-dedicated endpoint - set the workspace id on the provider key or via the ${regionalEnvVar} env var`,
 		);
 	}
 	if (!isProviderHostnameLabel(workspaceId)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			`Provider ${provider} workspace id is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${regionalEnvVar} env var)`,
 		);
 	}
@@ -227,23 +238,20 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
-	nanogpt: "https://nano-gpt.com/api",
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
 	reve: "https://api.reve.com",
 	xiaomi: "https://api.xiaomimimo.com",
 	canopywave: "https://inference.canopywave.io",
-	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
-	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
-	consensusprotocol: "https://api.consensusprotocol.org",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 	typesafe: "https://api.typesafe.ai",
+	"fal-ai": "https://queue.fal.run",
 };
 
 /**
@@ -269,7 +277,7 @@ export function getDecisionsUpstreamPath(provider: ProviderId): string {
  */
 export function getAzureFoundryBaseUrl(resource: string): string {
 	if (!isProviderHostnameLabel(resource)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
 		);
 	}
@@ -281,12 +289,12 @@ export function getCloudflareWorkersAiBaseUrl(
 	accountId: string | undefined,
 ): string {
 	if (!accountId) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Cloudflare requires an account ID - set via provider options or the LLM_CLOUDFLARE_ACCOUNT_ID env var",
 		);
 	}
 	if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Cloudflare account ID is invalid - must be 32 lowercase hex characters",
 		);
 	}
@@ -402,6 +410,7 @@ export function getProviderEndpoint(
 			case "google-vertex":
 			case "xiaomi":
 			case "runpod":
+			case "fal-ai":
 				url =
 					envValueOrDefault(
 						provider,
@@ -588,13 +597,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureEnv = getProviderEnvConfig("azure");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure requires a resource or a base URL - set either via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} / ${azureEnv?.optional?.baseUrl ?? "LLM_AZURE_BASE_URL"} env vars`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureEnv = getProviderEnvConfig("azure");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
 					);
 				}
@@ -617,13 +626,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
 					);
 				}
@@ -646,13 +655,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure Anthropic resource is required - set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
 					);
 				}
@@ -745,6 +754,8 @@ export function getProviderEndpoint(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return url;
 		case "anthropic":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
@@ -910,8 +921,15 @@ export function getProviderEndpoint(
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":
-			if (externalId === "kimi-k3") {
+			if (
+				externalId === "kimi-k3" ||
+				externalId === "kimi-k3.1-pro" ||
+				externalId === "kimi-k3.1-pro-highspeed"
+			) {
 				return appendPath(url, "/v2/moonshot-kimi/openai/v1/chat/completions");
+			}
+			if (externalId === "glm-5.3") {
+				return appendPath(url, "/v2/b1dd8hy2hqo1nb/openai/v1/chat/completions");
 			}
 			throw new Error(`Unsupported Runpod model: ${model}`);
 		case "zai":
@@ -1127,13 +1145,10 @@ export function getProviderEndpoint(
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
-		case "nanogpt":
 		case "canopywave":
 		case "minimax":
 		case "xiaomi":
-		case "embercloud":
 		case "ranoai":
-		case "consensusprotocol":
 		case "atria":
 		case "cloudflare":
 		case "custom":

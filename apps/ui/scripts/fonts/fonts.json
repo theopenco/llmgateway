@@ -1,0 +1,87 @@
+{
+	"contentRoots": [
+		"apps/ui/src",
+		"apps/ui/content-collections.ts",
+		"packages/shared/src",
+		"packages/models/src"
+	],
+	"corePunctuation": "U+00A0,U+2013,U+2014,U+2018,U+2019,U+201C,U+201D,U+2026",
+	"extendedBlocks": "U+00A0-00FF,U+0100-017F",
+	"modules": [
+		{
+			"output": "apps/ui/src/fonts/site.ts",
+			"export": "siteFontVariables",
+			"kind": "variables",
+			"fonts": [
+				{
+					"name": "inter",
+					"cssVariable": "--font-inter",
+					"source": "apps/ui/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+					"license": "apps/ui/node_modules/@fontsource-variable/inter/LICENSE",
+					"weight": "100 900",
+					"display": "swap",
+					"usedAxes": { "wght": [400, 700] },
+					"features": ["calt", "ccmp", "kern", "mark", "mkmk", "tnum"],
+					"hinting": true,
+					"chars": "content"
+				},
+				{
+					"name": "geistMono",
+					"cssVariable": "--font-geist-mono",
+					"source": "apps/ui/node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+					"license": "apps/ui/node_modules/@fontsource-variable/geist-mono/LICENSE",
+					"weight": "100 900",
+					"display": "swap",
+					"usedAxes": { "wght": [400, 700] },
+					"features": ["ccmp", "mark", "mkmk"],
+					"hinting": true,
+					"chars": "content"
+				},
+				{
+					"name": "plusJakarta",
+					"cssVariable": "--font-display",
+					"source": "apps/ui/node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2",
+					"license": "apps/ui/node_modules/@fontsource-variable/plus-jakarta-sans/LICENSE",
+					"weight": "200 800",
+					"display": "swap",
+					"usedAxes": { "wght": [400, 700] },
+					"features": ["calt", "ccmp", "kern", "liga", "mark", "tnum"],
+					"hinting": true,
+					"chars": "content"
+				}
+			]
+		},
+		{
+			"output": "apps/ui/src/fonts/editorial.ts",
+			"export": "editorialFontStyle",
+			"kind": "style",
+			"fonts": [
+				{
+					"name": "editorial",
+					"source": "apps/ui/node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2",
+					"license": "apps/ui/node_modules/@fontsource/instrument-serif/LICENSE",
+					"weight": "400",
+					"style": "normal",
+					"display": "swap",
+					"adjustFontFallback": "Times New Roman",
+					"features": ["ccmp", "kern", "liga", "mark", "mkmk"],
+					"hinting": true,
+					"chars": "none"
+				},
+				{
+					"name": "editorialItalic",
+					"family": "editorial",
+					"source": "apps/ui/node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2",
+					"license": "apps/ui/node_modules/@fontsource/instrument-serif/LICENSE",
+					"weight": "400",
+					"style": "italic",
+					"display": "swap",
+					"preload": false,
+					"features": ["ccmp", "kern", "liga", "mark", "mkmk"],
+					"hinting": true,
+					"chars": "none"
+				}
+			]
+		}
+	]
+}

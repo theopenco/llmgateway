@@ -4,6 +4,7 @@ import { atlascloudModels } from "./models/atlascloud.js";
 import { atriaModels } from "./models/atria.js";
 import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
+import { blackForestLabsModels } from "./models/black-forest-labs.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -628,6 +629,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Overrides the provider default for credential-bound reasoning payloads. */
+	encryptedReasoning?: boolean;
 	/** Responses API reasoning summary mode. Defaults to detailed. */
 	reasoningSummary?: "auto" | "detailed";
 	/**
@@ -648,8 +651,8 @@ export interface ProviderModelMapping {
 	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
 	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
 	 * its own list. The gateway forwards effort values to the provider as-is
-	 * (unsupported values fail upstream); this metadata is exposed via the
-	 * models APIs so clients can present valid options. When unset, the
+	 * and excludes mappings that declare an incompatible effort during automatic
+	 * provider selection. The models APIs expose the list for clients. When unset, the
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
@@ -969,6 +972,11 @@ export interface ModelDefinition {
 	 */
 	free?: boolean;
 	/**
+	 * Only organizations with enterprise access (KYC'd) may request this
+	 * model; everyone else gets a 403 and auto routing never selects it.
+	 */
+	enterpriseOnly?: boolean;
+	/**
 	 * Rate limit tier for free models (defaults to 'low' if not specified)
 	 * - low: Standard rate limits for free models
 	 * - high: More generous rate limits for free models
@@ -1040,6 +1048,7 @@ export const models = [
 	...atriaModels,
 	...baaiModels,
 	...baiduModels,
+	...blackForestLabsModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,

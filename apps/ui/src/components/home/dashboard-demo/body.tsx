@@ -1,29 +1,82 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
+import dynamic from "next/dynamic";
+
 import { cn } from "@/lib/utils";
 
-import { ActivityView } from "./activity-view";
-import { AgentsView } from "./agents-view";
-import { AnalyticsView } from "./analytics-view";
-import { ApiKeysView } from "./api-keys-view";
-import { AuditLogsView } from "./audit-logs-view";
 import { useDemo } from "./context";
 import { EnterpriseBanner } from "./controls";
-import { GuardrailsView } from "./guardrails-view";
-import { ModelUsageView } from "./model-usage-view";
 import { OverviewView } from "./overview-view";
-import { PreferencesView } from "./preferences-view";
-import { RoutingView } from "./routing-view";
-import { SdkView } from "./sdk-view";
-import { SecurityEventsView } from "./security-events-view";
 import { DemoSidebarBody } from "./sidebar";
-import { SsoView } from "./sso-view";
-import { TeamView } from "./team-view";
 import { DemoMobileHeader, DemoTopBar } from "./top-bar";
-import { UsageView } from "./usage-view";
 
 import type { LiveView } from "./nav";
 import type { RefObject } from "react";
+
+function ViewLoading() {
+	return (
+		<div className="flex h-full items-center justify-center">
+			<Loader2 className="size-5 animate-spin text-muted-foreground" />
+		</div>
+	);
+}
+
+// Only the overview shows until a visitor starts the demo, so every other view
+// loads on first visit instead of in the homepage's hydration bundle.
+const ActivityView = dynamic(
+	() => import("./activity-view").then((m) => m.ActivityView),
+	{ loading: ViewLoading },
+);
+const AgentsView = dynamic(
+	() => import("./agents-view").then((m) => m.AgentsView),
+	{ loading: ViewLoading },
+);
+const AnalyticsView = dynamic(
+	() => import("./analytics-view").then((m) => m.AnalyticsView),
+	{ loading: ViewLoading },
+);
+const ApiKeysView = dynamic(
+	() => import("./api-keys-view").then((m) => m.ApiKeysView),
+	{ loading: ViewLoading },
+);
+const AuditLogsView = dynamic(
+	() => import("./audit-logs-view").then((m) => m.AuditLogsView),
+	{ loading: ViewLoading },
+);
+const GuardrailsView = dynamic(
+	() => import("./guardrails-view").then((m) => m.GuardrailsView),
+	{ loading: ViewLoading },
+);
+const ModelUsageView = dynamic(
+	() => import("./model-usage-view").then((m) => m.ModelUsageView),
+	{ loading: ViewLoading },
+);
+const PreferencesView = dynamic(
+	() => import("./preferences-view").then((m) => m.PreferencesView),
+	{ loading: ViewLoading },
+);
+const RoutingView = dynamic(
+	() => import("./routing-view").then((m) => m.RoutingView),
+	{ loading: ViewLoading },
+);
+const SdkView = dynamic(() => import("./sdk-view").then((m) => m.SdkView), {
+	loading: ViewLoading,
+});
+const SecurityEventsView = dynamic(
+	() => import("./security-events-view").then((m) => m.SecurityEventsView),
+	{ loading: ViewLoading },
+);
+const SsoView = dynamic(() => import("./sso-view").then((m) => m.SsoView), {
+	loading: ViewLoading,
+});
+const TeamView = dynamic(() => import("./team-view").then((m) => m.TeamView), {
+	loading: ViewLoading,
+});
+const UsageView = dynamic(
+	() => import("./usage-view").then((m) => m.UsageView),
+	{ loading: ViewLoading },
+);
 
 const ENTERPRISE_NOTES: Partial<Record<LiveView, string>> = {
 	"settings/routing":

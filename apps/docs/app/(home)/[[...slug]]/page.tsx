@@ -16,6 +16,8 @@ import { marketingGuideCanonical } from "@/lib/guide-canonical";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
+import { fitTitle } from "@llmgateway/shared/seo-title";
+
 import type { Metadata } from "next";
 
 export async function generateMetadata({
@@ -40,13 +42,26 @@ export async function generateMetadata({
 	// the layout template, so it gets an absolute, keyword-carrying title
 	// instead. The visible page H1 (frontmatter title) is unchanged.
 	const isRoot = page.url === "/";
+	// API reference and dashboard knowledge-base pages reuse feature names
+	// ("OCR", "Guardrails"), so their titles get a section qualifier to stay
+	// unique against the matching /features page.
+	const sectionQualifier =
+		"_openapi" in page.data
+			? "API Reference"
+			: page.url.startsWith("/learn/")
+				? "Dashboard Guide"
+				: undefined;
 	const metaTitle = isRoot
 		? "LLM Gateway Documentation — OpenAI-Compatible AI Gateway"
-		: page.data.title;
+		: sectionQualifier
+			? `${page.data.title} — ${sectionQualifier}`
+			: page.data.title;
 
 	return {
 		metadataBase: new URL(docsBaseUrl),
-		title: isRoot ? { absolute: metaTitle } : metaTitle,
+		title: isRoot
+			? { absolute: metaTitle }
+			: fitTitle(metaTitle, " | LLM Gateway Docs", ["LLM Gateway"]),
 		description: page.data.description,
 		alternates: {
 			canonical: canonicalUrl,

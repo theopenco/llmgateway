@@ -37,6 +37,20 @@ provider definition preserves its provider ID, existing pins, and session
 preferences for models still listed in Airside. Models without an active listing
 stop being available from that provider.
 
+## Reasoning-effort compatibility
+
+Automatic provider selection checks `reasoning_effort` (or `reasoning.effort`)
+against each mapping's declared `reasoningEfforts` before scoring. A mapping that
+does not accept the requested level is excluded, including for `auto`, `smart`,
+dynamic routes, session reuse, and fallback. The gateway does not substitute
+another level for an effort you supplied. If no eligible mapping remains, the
+request fails before reaching a provider.
+
+`none` can use a non-reasoning mapping; a reasoning mapping with declared efforts
+must explicitly accept `none`. Mappings without declared efforts retain the
+legacy reasoning-capability check. See the live [models page](https://llmgateway.io/models)
+for each deployment's supported efforts.
+
 ## Global Provider Rate Limits
 
 Administrators can set global or organization-specific caps on requests per
@@ -174,6 +188,8 @@ This makes routing react quickly to a provider that just started failing or slow
 
 Only requests served on LLM Gateway's own credentials feed these metrics. Requests on your own [provider keys](/learn/provider-keys) never count toward a provider's uptime, so a misconfigured key cannot degrade routing for anyone else.
 
+Metrics are also kept per [service tier](/features/service-tiers): a `flex` request is scored on the provider's recent `flex` traffic, a `priority` request on its `priority` traffic, and every other request on standard-tier traffic. A provider shedding `flex` load therefore does not lose standard or `priority` traffic. A tier without recent traffic of its own on a provider uses that provider's standard-tier metrics.
+
 **Prompt Caching and Token Costs**:
 
 For estimated prompts of at least **%routing.thresholds.cachePromptTokens% tokens**, or when choosing a session's provider, routing blends each provider's uncached and cached input prices and weights output by the expected output:input token ratio. Coding sessions that mostly reuse prompt tokens can therefore favor a provider with cheaper cache reads even when its uncached input price is higher. Providers without a cached input price use their full input price.
@@ -233,7 +249,7 @@ To solve the "cold start problem" where new or unused providers never get traffi
 
 The exploration rate is configurable per project through the routing configuration (`thresholds.explorationRate`), and self-hosted deployments can override it globally with the `EXPLORATION_RATE` environment variable (a number between `0` and `1`).
 
-Models with provider-bound reasoning never explore. OpenAI encrypted reasoning and Gemini thought signatures can only be verified by the provider that issued them, so a turn randomly sent elsewhere would fail with an error such as `invalid_encrypted_content`.
+Models with provider-bound reasoning never explore. This is a per-mapping capability: a reasoning model without opaque provider-bound payloads keeps normal exploration and uptime fallback, even when other models from the same provider use encrypted reasoning. OpenAI encrypted reasoning and Gemini thought signatures can only be verified by the provider that issued them, so a turn randomly sent elsewhere would fail with an error such as `invalid_encrypted_content`.
 
 **Stable Provider Preference**:
 
@@ -264,9 +280,9 @@ In a project in **hybrid** mode, routing first narrows the candidates to provide
 
 [Dynamic routes](/features/dynamic-routes) can specify provider preference order.
 After eligibility checks and hybrid-mode key preference, that order controls the
-initial provider and cross-provider fallback on non-sticky requests. A healthy
-session pin still wins; if it becomes unavailable, the next request selects a
-replacement using the order. Sticky requests still skip cross-provider retries.
+initial provider and cross-provider fallback. A healthy session pin still wins
+initial selection; retryable failures can move the session to the next eligible
+provider in that order.
 Regional selection within a provider still uses scores. These requests skip
 random exploration and record `provider-order` when the order decides selection.
 
@@ -399,13 +415,14 @@ Request compatibility takes precedence over the saved pin. The gateway first fil
 An established pin yields only when its provider can no longer serve the session well. A session selects and pins a replacement when its provider:
 
 - Drops below the session uptime threshold (default %routing.session.uptimeThreshold%%), except for sessions on models with provider-bound reasoning, or
-- Is filtered out of the candidate set (health or compatibility filtering).
+- Is filtered out of the candidate set (health or compatibility filtering), or
+- Returns a retryable error, including an upstream `429`, before output reaches the client and another eligible provider succeeds.
 
-Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
+Session affinity does not block [automatic retry & fallback](#automatic-retry--fallback). After configured alternate keys are exhausted, a retryable failure can immediately switch to another eligible provider of the same model, without waiting for uptime metrics to cross a threshold. Once that replacement completes successfully, the session pin moves to its provider and region for subsequent turns. Failed or canceled replacements do not update the pin. Switching providers starts a new upstream prompt cache.
 
-Re-pinning follows the same selection rules as the first request: explicit dynamic-route order chooses the provider and scores choose its region; otherwise weighted scoring chooses the provider.
+Re-selection between requests follows the first-request rules: explicit dynamic-route order chooses the provider and scores choose its region; otherwise weighted scoring chooses the provider. Within a request, fallback tries the remaining eligible providers in routing order and pins the successful replacement.
 
-Sessions on models with provider-bound reasoning keep their eligible provider through uptime dips, because OpenAI encrypted reasoning and Gemini thought signatures cannot be replayed on another provider. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
+Sessions on models with provider-bound reasoning keep their eligible provider through uptime dips. Error fallback can omit optional OpenAI-format encrypted reasoning, but signed Gemini calls remain pinned because their signatures cannot be replayed on another provider. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
 
 The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
 
@@ -577,7 +594,6 @@ Automatic retry to a different provider is disabled when:
 
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
-- The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
 - The request replays signed Gemini thought parts on a model that returns them — another provider would reject them. Image models and other models without reasoning keep fallback. OpenAI encrypted reasoning does not block fallback: the retry is sent without it (see below).
 - No alternative providers are available for the requested model
 - The maximum retry count (default 2) has been exhausted
@@ -595,16 +611,17 @@ with provider-bound reasoning, the gateway remembers which key produced each
 encrypted reasoning item or thought signature, and the turn that replays it is
 routed to that provider and sent with that same key, with or without a session
 id. A conversation without a remembered key (older than 24 hours since its last
-turn) uses normal routing and key selection. Only models that reason on that
-provider are pinned; image models and other models without reasoning use normal
-routing and key selection.
+turn) uses normal routing and key selection. Only mappings that return provider-bound reasoning are pinned; other mappings
+use normal routing and key selection.
 
 If that key fails with a retryable error (a rate limit, a timeout, a server
 error), the request still fails over to another key or provider. OpenAI
 encrypted reasoning is optional context, so the retry is sent without it: the
 model reasons afresh without the conversation's earlier reasoning on that
 request, instead of the request failing.
-After such a failover the conversation carries reasoning from more than one
+After a successful sticky-session failover, the optional OpenAI-format reasoning omitted by the retry is remembered as discarded. Replaying that older history cannot override the replacement session pin, even when the replacement returns no new encrypted reasoning.
+
+After other failovers the conversation can carry reasoning from more than one
 account. Later turns are pinned to the key that produced the newest reasoning,
 and the items the other key produced are left out of the request up front; the
 items from the pinned key are replayed as usual.

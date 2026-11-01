@@ -10,7 +10,7 @@ import { usePostHog } from "posthog-js/react";
 import { Suspense, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { z } from "zod/v3";
+import { z } from "zod";
 
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";

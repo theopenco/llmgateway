@@ -20,7 +20,9 @@ export function requireJsonBody<R extends RouteInput>(config: R): R {
 	const rejectsEmpty = Object.entries(body.content).some(
 		([mediaType, media]) =>
 			JSON_MEDIA_TYPE.test(mediaType) &&
-			media?.schema instanceof z.ZodType &&
+			media !== undefined &&
+			"schema" in media &&
+			media.schema instanceof z.ZodType &&
 			!media.schema.safeParse({}).success,
 	);
 	if (!rejectsEmpty) {

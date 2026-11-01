@@ -2,6 +2,33 @@ import type { ModelDefinition } from "@/models.js";
 
 export const stepfunModels = [
 	{
+		id: "step-5-preview",
+		name: "Step 5 Preview",
+		description:
+			"StepFun's multimodal reasoning preview model with a 1M-token context window, structured output, and function calling.",
+		family: "stepfun",
+		releasedAt: new Date("2026-09-23"),
+		providers: [
+			{
+				providerId: "tencent",
+				externalId: "step-5-preview",
+				inputPrice: "1e-6",
+				outputPrice: "2.7e-6",
+				cachedInputPrice: "0.05e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "step-3.7-flash",
 		name: "Step 3.7 Flash",
 		description:

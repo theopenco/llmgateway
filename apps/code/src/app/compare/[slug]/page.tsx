@@ -10,6 +10,7 @@ import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
 import { SwitchIn60 } from "@/components/SwitchIn60";
 import { Button } from "@/components/ui/button";
+import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { allComparisons } from "content-collections";
@@ -49,7 +50,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: entry.metaTitle ?? entry.title,
+		title: pageTitle(entry.metaTitle ?? entry.title),
 		description: entry.description,
 		alternates: { canonical: `/compare/${entry.slug}` },
 		openGraph: {

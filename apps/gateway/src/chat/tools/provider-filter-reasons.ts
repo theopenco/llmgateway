@@ -183,8 +183,12 @@ export function getProviderFilterReasons(
 	// provider.
 	if (
 		options.reasoningEffort !== undefined &&
-		options.reasoningEffort !== "none" &&
-		provider.reasoning !== true
+		((options.reasoningEffort !== "none" && provider.reasoning !== true) ||
+			(provider.reasoning === true &&
+				provider.reasoningEfforts !== undefined &&
+				!provider.reasoningEfforts.some(
+					(effort) => effort === options.reasoningEffort,
+				)))
 	) {
 		reasons.push(exclusionReason("reasoning_effort"));
 	}

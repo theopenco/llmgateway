@@ -4,11 +4,12 @@ import Link from "next/link";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { JsonLd } from "@/components/seo/json-ld";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Contact",
+	title: pageTitle("Contact LLM Gateway — Support, Sales & Community"),
 	description:
 		"Contact the LLM Gateway team: email support, Discord community, GitHub issues, and enterprise sales. Company details and postal address included.",
 	alternates: { canonical: "/contact" },

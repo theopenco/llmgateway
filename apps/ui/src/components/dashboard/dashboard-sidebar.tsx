@@ -22,7 +22,6 @@ import {
 	type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useTheme } from "next-themes";
-import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect, useRef } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
@@ -95,6 +94,7 @@ import {
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
+import { usePostHog } from "@/lib/posthog";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 

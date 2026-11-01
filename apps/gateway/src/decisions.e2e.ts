@@ -1,3 +1,5 @@
+import { deflateSync } from "node:zlib";
+
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
@@ -13,6 +15,53 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { app } from "./app.js";
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+	let c = n;
+	for (let k = 0; k < 8; k++) {
+		c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+	}
+	return c >>> 0;
+});
+
+function crc32(data: Buffer): number {
+	let crc = 0xffffffff;
+	for (const byte of data) {
+		crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+	}
+	return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+	const length = Buffer.alloc(4);
+	length.writeUInt32BE(data.length);
+	const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+	const crc = Buffer.alloc(4);
+	crc.writeUInt32BE(crc32(body));
+	return Buffer.concat([length, body, crc]);
+}
+
+/** A solid RGB PNG; Jev rejects images under 280 pixels per side. */
+function solidPngDataUrl(size: number, rgb: [number, number, number]): string {
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(size, 0);
+	header.writeUInt32BE(size, 4);
+	header[8] = 8; // bit depth
+	header[9] = 2; // truecolor
+	const row = Buffer.concat([
+		Buffer.from([0]),
+		Buffer.alloc(size * 3, Buffer.from(rgb)),
+	]);
+	const png = Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		pngChunk("IHDR", header),
+		pngChunk("IDAT", deflateSync(Buffer.concat(Array(size).fill(row)))),
+		pngChunk("IEND", Buffer.alloc(0)),
+	]);
+	return `data:image/png;base64,${png.toString("base64")}`;
+}
+
+const RED_PNG_DATA_URL = solidPngDataUrl(400, [220, 20, 20]);
 
 describe("e2e decisions", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
@@ -104,4 +153,76 @@ describe("e2e decisions", getConcurrentTestOptions(), () => {
 			expect(Number(log.cost)).toBeGreaterThan(0);
 		},
 	);
+
+	test.each(decisionModels.filter(({ provider }) => provider.vision))(
+		"decisions image $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const res = await app.request("/v1/decisions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model,
+					input: [
+						{
+							role: "user",
+							content: [{ type: "input_image", image_url: RED_PNG_DATA_URL }],
+						},
+					],
+					questions: [
+						{
+							type: "predicate",
+							name: "is_red",
+							instructions: "Is the image a solid red square?",
+						},
+					],
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(json.answers[0].probability).toBeGreaterThan(0.5);
+		},
+	);
+
+	// OpenRouter's System One shape: image parts inline in `state`, which
+	// TypeSafe only reads once the gateway moves them into `assets`.
+	test.each(
+		decisionModels.filter(
+			({ provider }) => provider.vision && provider.providerId === "typesafe",
+		),
+	)("systemone inline image $model", getTestOptions(), async ({ model }) => {
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-no-fallback": "true",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model,
+				state: [
+					"Photo:",
+					{ type: "image_url", image_url: { url: RED_PNG_DATA_URL } },
+				],
+				questions: {
+					is_red: {
+						type: "noul",
+						instructions: "Is the photo a solid red square?",
+					},
+				},
+			}),
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.answers.is_red.noul).toBeGreaterThan(0.5);
+		// A 400x400 image costs a few hundred tokens; as base64 text it would
+		// cost thousands.
+		expect(json.usage.input_tokens).toBeLessThan(1500);
+	});
 });

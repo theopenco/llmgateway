@@ -6,6 +6,7 @@
 		"index",
 		"docker",
 		"docker-compose",
+		"split-deployment",
 		"enterprise-license",
 		"kubernetes",
 		"aws",

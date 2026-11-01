@@ -1745,3 +1745,23 @@ it("routes GPT-6 Astra chat requests through Responses for tool support", () => 
 		getProviderEndpoint("openai", "https://example.com", "gpt-6-astra"),
 	).toBe("https://example.com/v1/responses");
 });
+
+it.each([
+	["kimi-k3.1-pro", "moonshot-kimi"],
+	["kimi-k3.1-pro-highspeed", "moonshot-kimi"],
+	["glm-5.3", "b1dd8hy2hqo1nb"],
+])("routes Runpod %s to its public endpoint", (model, endpoint) => {
+	delete process.env.LLM_RUNPOD_BASE_URL;
+	expect(getProviderEndpoint("runpod", undefined, model)).toBe(
+		`https://api.runpod.ai/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+	process.env.LLM_RUNPOD_BASE_URL = "https://runpod-override.example";
+	expect(getProviderEndpoint("runpod", undefined, model)).toBe(
+		`https://runpod-override.example/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+	expect(
+		getProviderEndpoint("runpod", "https://proxy.example.com/runpod/", model),
+	).toBe(
+		`https://proxy.example.com/runpod/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+});

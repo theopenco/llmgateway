@@ -1,5 +1,7 @@
 # Airside by LLM Gateway
 
+Last updated: 2026-10-31
+
 > Airside is the self-service provider portal for LLM Gateway. LLM API providers can verify their domain, submit models and pricing for approval, and track routed traffic. Providers control their routing discount and the gateway margin they accept.
 
 ## How it works
@@ -40,8 +42,13 @@
 - Docs: https://docs.llmgateway.io
 - Airside feature docs: https://docs.llmgateway.io/features/airside
 
+## Airworthy certification
+
+- Airworthy (standard AW-1) certifies that an inference provider's claims on AI training, prompt logging, data retention, headquarters and audits were checked against evidence by LLM Gateway: https://airside.llmgateway.io/airworthy
+
 ## Provider resources
 
+- All guides and free tools: https://airside.llmgateway.io/resources
 - Listing guide: https://airside.llmgateway.io/guides/list-your-llm-api
 - Inference pricing guide: https://airside.llmgateway.io/guides/llm-inference-pricing
 - Free token cost calculator: https://airside.llmgateway.io/tools/token-cost-calculator

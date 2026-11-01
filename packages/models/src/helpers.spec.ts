@@ -11,6 +11,9 @@ import { expandAllProviderRegions } from "./region-helpers.js";
 
 import type { ProviderModelMapping } from "./models.js";
 
+const samePrice = (a: string | undefined, b: string | undefined) =>
+	a === undefined || b === undefined ? a === b : Number(a) === Number(b);
+
 const peakPricedMapping = {
 	inputPrice: "0.14e-6",
 	outputPrice: "0.28e-6",
@@ -246,6 +249,51 @@ describe("catalogue tier peak pricing", () => {
 								`${mapping.providerId}/${model.id}${scope.id ? `:${scope.id}` : ""} ${tier.name}`,
 							);
 						}
+					}
+				}
+			}
+		}
+		expect(violations).toEqual([]);
+	});
+});
+
+describe("catalogue base prices under peak pricing", () => {
+	// Billing and routing resolve peakPricing, but /v1/models and price
+	// sorting read the base rates, so they must be one of the two periods.
+	it("matches the peak or off-peak rates", () => {
+		const now = new Date();
+		const violations: string[] = [];
+		for (const model of models) {
+			for (const mapping of model.providers as readonly ProviderModelMapping[]) {
+				if (mapping.deactivatedAt && mapping.deactivatedAt <= now) {
+					continue;
+				}
+				const scopes = [
+					{ id: "", ...mapping },
+					// Regions inherit every unset field, as expandProviderRegions does.
+					...(mapping.regions ?? []).map(({ id, ...overrides }) => ({
+						...mapping,
+						...overrides,
+						id,
+					})),
+				];
+				for (const scope of scopes) {
+					if (!scope.peakPricing || scope.inputPrice === undefined) {
+						continue;
+					}
+					const matches = [
+						scope.peakPricing.peak,
+						scope.peakPricing.offPeak,
+					].some(
+						(rates) =>
+							samePrice(rates.inputPrice, scope.inputPrice) &&
+							samePrice(rates.outputPrice, scope.outputPrice) &&
+							samePrice(rates.cachedInputPrice, scope.cachedInputPrice),
+					);
+					if (!matches) {
+						violations.push(
+							`${mapping.providerId}/${model.id}${scope.id ? `:${scope.id}` : ""}`,
+						);
 					}
 				}
 			}

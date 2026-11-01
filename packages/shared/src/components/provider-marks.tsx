@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, use, useEffect, useState } from "react";
+import {
+	createContext,
+	startTransition,
+	use,
+	useEffect,
+	useState,
+} from "react";
 
 import { CarrierMark } from "./carrier-mark";
 
@@ -36,7 +42,10 @@ export function ProviderMarksProvider({
 					throw new Error(`HTTP ${res.status}`);
 				}
 				const data = (await res.json()) as { marks: ProviderMarks };
-				setMarks(data.marks);
+				// A transition: this context wraps the whole page, and an urgent
+				// change forces every Suspense boundary still waiting to hydrate to
+				// do so in one blocking task.
+				startTransition(() => setMarks(data.marks));
 			} catch (error) {
 				// Non-fatal: icons fall back to the bundled logos, so warn instead
 				// of raising the dev error overlay when the API is unreachable.

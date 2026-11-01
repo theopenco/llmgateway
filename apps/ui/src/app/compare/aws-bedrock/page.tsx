@@ -3,6 +3,7 @@ import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonBedrock } from "@/components/landing/comparison-bedrock";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -82,7 +83,9 @@ export default function CompareBedrockPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs AWS Bedrock — The Cloud-Neutral Alternative",
+		title: pageTitle(
+			"LLM Gateway vs AWS Bedrock — The Cloud-Neutral Alternative",
+		),
 		description:
 			"Compare multiple providers behind one OpenAI-compatible API vs Amazon Bedrock. Keep Bedrock with 0% markup plus failover, caching, and cost analytics.",
 		alternates: { canonical: "/compare/aws-bedrock" },

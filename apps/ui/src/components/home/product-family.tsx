@@ -1,10 +1,10 @@
 import { ArrowUpRight } from "lucide-react";
 
+import { editorialFontStyle } from "@/fonts/editorial";
 import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
-import { editorial } from "./fonts";
 import styles from "./home.module.css";
 import { ProductSlider, type Slide } from "./product-slider";
 import { TrackedLink } from "./tracked-link";
@@ -100,7 +100,7 @@ const PRODUCTS: Product[] = [
 		track: "llm_gateway",
 		cta: "Explore the gateway",
 		accent: "bg-sky-500",
-		ink: "text-sky-600 dark:text-sky-300",
+		ink: "text-sky-700 dark:text-sky-300",
 		slug: "gateway",
 		activeTone:
 			"border-sky-500/40 bg-sky-500/15 text-sky-800 dark:text-sky-200",
@@ -142,7 +142,7 @@ const PRODUCTS: Product[] = [
 		track: "observability",
 		cta: "See the dashboards",
 		accent: "bg-violet-400",
-		ink: "text-violet-600 dark:text-violet-300",
+		ink: "text-violet-700 dark:text-violet-300",
 		slug: "observability",
 		activeTone:
 			"border-violet-500/40 bg-violet-500/15 text-violet-800 dark:text-violet-200",
@@ -189,7 +189,7 @@ const PRODUCTS: Product[] = [
 		track: "devpass",
 		cta: "Get a DevPass",
 		accent: "bg-emerald-500",
-		ink: "text-emerald-600 dark:text-emerald-300",
+		ink: "text-emerald-700 dark:text-emerald-300",
 		slug: "devpass",
 		activeTone:
 			"border-emerald-500/40 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
@@ -205,7 +205,7 @@ const PRODUCTS: Product[] = [
 		track: "lounge",
 		cta: "Enter the Lounge",
 		accent: "bg-amber-400",
-		ink: "text-amber-600 dark:text-amber-300",
+		ink: "text-amber-700 dark:text-amber-300",
 		slug: "lounge",
 		activeTone:
 			"border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-200",
@@ -221,10 +221,10 @@ const PRODUCTS: Product[] = [
 		track: "airside",
 		cta: "List your models",
 		accent: "bg-rose-500",
-		ink: "text-rose-600 dark:text-rose-300",
+		ink: "text-rose-700 dark:text-rose-300",
 		slug: "airside",
 		activeTone:
-			"border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-200",
+			"border-rose-500/40 bg-rose-500/15 text-rose-900 dark:text-rose-200",
 		slides: [
 			{
 				slug: "operations",
@@ -359,11 +359,8 @@ function BoardingPass({ product }: { product: Product }) {
 			<div className="flex items-center gap-4 px-6 pt-3 pb-6 md:px-8 md:pb-7">
 				<div className="flex shrink-0 items-end gap-2">
 					<span
-						className={cn(
-							editorial.className,
-							"text-5xl leading-[0.8]",
-							product.ink,
-						)}
+						className={cn("text-5xl leading-[0.8]", product.ink)}
+						style={editorialFontStyle}
 					>
 						{product.gate}
 					</span>

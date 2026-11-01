@@ -241,18 +241,18 @@
 	from {
 		opacity: 0;
 		transform: translateY(12px);
-		filter: blur(12px);
 	}
 	to {
 		opacity: 1;
 		transform: translateY(0);
-		filter: blur(0);
 	}
 }
 
 /*
  * CSS-driven hero entrance. Unlike the JS-driven motion variants, these paint
  * the SSR HTML immediately (no hydration gate), which keeps FCP/LCP fast.
+ * Opacity and transform only: the compositor runs them, so a busy main thread
+ * during hydration can't stall the entrance.
  */
 @utility animate-hero-enter {
 	animation: hero-enter 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;

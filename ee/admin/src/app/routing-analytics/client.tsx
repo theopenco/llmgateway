@@ -71,12 +71,16 @@ import type {
 	RoutingSelectionReason,
 } from "@llmgateway/shared/routing-telemetry";
 
-type RoutingWindow = "24h" | "3d" | "7d";
+type RoutingWindow = "1h" | "2h" | "4h" | "8h" | "24h" | "3d" | "7d";
 
 const WINDOW_OPTIONS: { value: RoutingWindow; label: string }[] = [
-	{ value: "24h", label: "24 hours" },
-	{ value: "3d", label: "3 days" },
-	{ value: "7d", label: "7 days" },
+	{ value: "1h", label: "1h" },
+	{ value: "2h", label: "2h" },
+	{ value: "4h", label: "4h" },
+	{ value: "8h", label: "8h" },
+	{ value: "24h", label: "24h" },
+	{ value: "3d", label: "3d" },
+	{ value: "7d", label: "7d" },
 ];
 
 type MetricKey = "score" | "uptime" | "latency" | "throughput";
@@ -1121,7 +1125,8 @@ export function RoutingAnalyticsClient() {
 												type="monotone"
 												stroke={`var(--color-${mapping.chartKey})`}
 												strokeWidth={2}
-												dot={false}
+												// Short windows have too few buckets for a visible line.
+												dot={metricChartData.length <= 8}
 												connectNulls={false}
 											/>
 										) : (

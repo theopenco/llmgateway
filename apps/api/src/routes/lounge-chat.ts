@@ -60,7 +60,7 @@ loungeChat.openapi(
 										z.object({
 											id: z.string().min(1).max(255),
 											role: z.enum(["user", "assistant", "system"]),
-											parts: z.array(z.record(z.unknown())).min(1),
+											parts: z.array(z.record(z.string(), z.unknown())).min(1),
 										}),
 									)
 									.min(1),

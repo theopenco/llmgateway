@@ -1701,7 +1701,7 @@ export function LogDetailClient({
 								<div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm">
 									<RefreshCw className="h-4 w-4 text-amber-600" />
 									<span className="text-amber-700">
-										This request was retried and succeeded.
+										This request was retried.
 									</span>
 									<Link
 										href={`/dashboard/${orgId}/${projectId}/activity/${log.retriedByLogId}`}

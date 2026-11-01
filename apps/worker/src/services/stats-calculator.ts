@@ -22,8 +22,14 @@ import {
 	lt,
 	and,
 	inArray,
+	ROUTED_SERVICE_TIERS,
+	TIER_ROUTING_METRIC_COLUMNS,
+	TIER_ROUTING_METRIC_NAMES,
+	tierRoutingMetricColumn,
 	type Column,
 	type SQL,
+	type TierRoutingMetric,
+	type TierRoutingMetricColumn,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
@@ -82,7 +88,67 @@ const mappingHistoryLabels = {
 	providerId: sql<string>`min(${modelProviderMappingHistory.providerId})`,
 };
 
-interface MappingMinuteStats {
+// Per-tier routing slices of the mapping history (see TIER_ROUTING_METRICS).
+function tierRoutingMetricsSql(): Record<
+	TierRoutingMetricColumn,
+	SQL.Aliased<number>
+> {
+	const fields = {} as Record<TierRoutingMetricColumn, SQL.Aliased<number>>;
+	for (const tier of ROUTED_SERVICE_TIERS) {
+		const inTier = sql`${log.requestedServiceTier} = ${tier}`;
+		const countWhere = (condition?: SQL) =>
+			condition
+				? sql`count(*) filter (where ${inTier} and ${condition})`
+				: sql`count(*) filter (where ${inTier})`;
+		const sumWhere = (expr: SQL | Column) =>
+			sql`coalesce(sum(${expr}) filter (where ${inTier}), 0)`;
+		const expressions: Record<TierRoutingMetric, SQL> = {
+			LogsCount: countWhere(),
+			ClientErrorsCount: countWhere(
+				sql`${log.unifiedFinishReason} = 'client_error'`,
+			),
+			GatewayErrorsCount: countWhere(
+				sql`${log.unifiedFinishReason} = 'gateway_error'`,
+			),
+			UpstreamErrorsCount: countWhere(
+				sql`${log.unifiedFinishReason} = 'upstream_error'`,
+			),
+			TotalOutputTokens: sumWhere(
+				sql`case when ${log.cached} = false then cast(${log.completionTokens} as integer) else 0 end`,
+			),
+			TotalDuration: sumWhere(log.duration),
+			TotalTimeToFirstToken: sumWhere(log.timeToFirstToken),
+			TotalTimeToFirstReasoningToken: sumWhere(log.timeToFirstReasoningToken),
+			TimeToFirstTokenCount: sql`count(${log.timeToFirstToken}) filter (where ${inTier})`,
+			TimeToFirstReasoningTokenCount: sql`count(${log.timeToFirstReasoningToken}) filter (where ${inTier})`,
+		};
+		for (const metric of TIER_ROUTING_METRIC_NAMES) {
+			const column = tierRoutingMetricColumn(tier, metric);
+			fields[column] = sql<number>`(${expressions[metric]})::int`.as(column);
+		}
+	}
+	return fields;
+}
+
+function emptyTierRoutingMetrics(): Record<TierRoutingMetricColumn, number> {
+	const metrics = {} as Record<TierRoutingMetricColumn, number>;
+	for (const column of TIER_ROUTING_METRIC_COLUMNS) {
+		metrics[column] = 0;
+	}
+	return metrics;
+}
+
+function pickTierRoutingMetrics(
+	stat: MappingMinuteStats | undefined,
+): Record<TierRoutingMetricColumn, number> {
+	const metrics = emptyTierRoutingMetrics();
+	for (const column of TIER_ROUTING_METRIC_COLUMNS) {
+		metrics[column] = stat?.[column] ?? 0;
+	}
+	return metrics;
+}
+
+interface MappingMinuteStats extends Record<TierRoutingMetricColumn, number> {
 	modelId: string | null;
 	providerId: string | null;
 	region: string | null;
@@ -163,6 +229,7 @@ function createEmptyMappingMinuteStats(
 		serviceTierImplicitCount: 0,
 		serviceTierServedCount: 0,
 		serviceTierUnconfirmedCount: 0,
+		...emptyTierRoutingMetrics(),
 	};
 }
 
@@ -204,6 +271,9 @@ function mergeMappingMinuteStats(
 	target.serviceTierImplicitCount += source.serviceTierImplicitCount;
 	target.serviceTierServedCount += source.serviceTierServedCount;
 	target.serviceTierUnconfirmedCount += source.serviceTierUnconfirmedCount;
+	for (const column of TIER_ROUTING_METRIC_COLUMNS) {
+		target[column] += source[column];
+	}
 	return target;
 }
 
@@ -241,11 +311,13 @@ const HISTORY_METRIC_COLUMNS = [
 	"serviceTierUnconfirmedCount",
 ] as const;
 
-// Only the minute mapping history tracks retried errors (error-rate alerts).
+// Only the minute mapping history tracks retried errors (error-rate alerts)
+// and the per-tier routing slices.
 const MAPPING_HISTORY_METRIC_COLUMNS = [
 	...HISTORY_METRIC_COLUMNS,
 	"retriedGatewayErrorsCount",
 	"retriedUpstreamErrorsCount",
+	...TIER_ROUTING_METRIC_COLUMNS,
 ] as const;
 
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
@@ -917,6 +989,7 @@ async function calculateHistoryForMinute(
 				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${log.usedServiceTier} is null then 1 else 0 end)::int`.as(
 					"serviceTierUnconfirmedCount",
 				),
+			...tierRoutingMetricsSql(),
 		})
 		.from(log)
 		.where(
@@ -1108,6 +1181,7 @@ async function calculateHistoryForMinute(
 				serviceTierImplicitCount,
 				serviceTierServedCount,
 				serviceTierUnconfirmedCount,
+				...pickTierRoutingMetrics(stat),
 			});
 		}
 	}

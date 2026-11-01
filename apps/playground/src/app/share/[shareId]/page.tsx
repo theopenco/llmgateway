@@ -83,16 +83,18 @@ function meetsIndexThreshold(messages: SharedMessage[]): boolean {
 	let hasValidAssistantTurn = false;
 	for (const message of messages) {
 		const text = message.content?.replace(/\s+/g, " ").trim() ?? "";
+		// Counted in code points to match the sitemap listing's char_length.
+		const length = Array.from(text).length;
 		if (
 			!hasValidUserTurn &&
 			message.role === "user" &&
-			text.length >= MIN_USER_PROMPT_CHARS
+			length >= MIN_USER_PROMPT_CHARS
 		) {
 			hasValidUserTurn = true;
 		} else if (
 			!hasValidAssistantTurn &&
 			message.role === "assistant" &&
-			text.length >= MIN_ASSISTANT_RESPONSE_CHARS
+			length >= MIN_ASSISTANT_RESPONSE_CHARS
 		) {
 			hasValidAssistantTurn = true;
 		}
@@ -158,7 +160,7 @@ export async function generateMetadata({
 	const url = `/share/${shareId}`;
 
 	return {
-		title: `${title} | Lounge by LLM Gateway`,
+		title,
 		description,
 		alternates: {
 			canonical: url,

@@ -11,7 +11,7 @@ import { usePostHog } from "posthog-js/react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import * as z from "zod/v3";
+import * as z from "zod";
 
 import {
 	ChatBrandBadge,
