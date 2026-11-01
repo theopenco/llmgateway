@@ -37,6 +37,14 @@ start a fetch. Cancel active readers on abort: some Node fetch runtimes lose bod
 aborts during garbage collection. Cover validation, header and body stalls with
 real-HTTP and forced-GC regression tests.
 
+## Managed key selection
+
+Availability probes must pass `advanceRoundRobin: false` through credential
+resolution; only upstream attempts reserve round-robin turns. On cursor failure,
+retain ordered degradation for the request and use the existing uptime-aware
+selector. Import counters in low-level helpers from
+`@llmgateway/instrumentation/metrics` to avoid initializing tracing.
+
 ## Errors
 
 Keep `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts` conservative.

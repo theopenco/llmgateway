@@ -197,3 +197,27 @@ describe("managed key strategy selection", () => {
 		expect(evalSpy).toHaveBeenCalledOnce();
 	});
 });
+it("preserves uptime-aware ordered selection throughout a degraded request", async () => {
+	const cursor = vi
+		.spyOn(redisClient, "eval")
+		.mockRejectedValueOnce(new Error("cursor unavailable"));
+	vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+	const ordered = vi.fn((keys: Key[]) => keys.at(-1));
+	await withManagedKeySelection(async () => {
+		const options = {
+			provider: "openai",
+			variant: "default",
+			region: null,
+			excludedKeyIds: new Set<string>(),
+		};
+		expect(
+			(await selectManagedProviderKey([a, b, c], options, ordered))?.id,
+		).toBe("c");
+		options.excludedKeyIds.add("c");
+		expect(
+			(await selectManagedProviderKey([a, b, c], options, ordered))?.id,
+		).toBe("b");
+	});
+	expect(ordered).toHaveBeenCalledTimes(2);
+	expect(cursor).toHaveBeenCalledOnce();
+});

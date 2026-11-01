@@ -2,13 +2,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
-import { managedKeySelectionDegradedTotal } from "@llmgateway/instrumentation";
+import { managedKeySelectionDegradedTotal } from "@llmgateway/instrumentation/metrics";
 import { logger } from "@llmgateway/logger";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
 import { isTrackedKeyHealthy } from "./api-key-health.js";
 
-type SelectionState = Map<string, Promise<string[]>>;
+type PoolOrder = { kind: "round_robin"; ids: string[] } | { kind: "ordered" };
+type SelectionState = Map<string, Promise<PoolOrder>>;
 const selectionContext = new AsyncLocalStorage<SelectionState>();
 const CURSOR_TTL_SECONDS = 24 * 60 * 60;
 const CURSOR_TIMEOUT_MS = 100;
@@ -52,7 +53,7 @@ async function rotatePool(
 	items: ManagedKey[],
 	key: string,
 	provider: string,
-): Promise<string[]> {
+): Promise<PoolOrder> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		if (redisClient.status !== "ready") {
@@ -75,16 +76,19 @@ async function rotatePool(
 			throw new Error("Invalid round-robin cursor");
 		}
 		const offset = cursor % items.length;
-		return [...items.slice(offset), ...items.slice(0, offset)].map(
-			(item) => item.id,
-		);
+		return {
+			kind: "round_robin",
+			ids: [...items.slice(offset), ...items.slice(0, offset)].map(
+				(item) => item.id,
+			),
+		};
 	} catch (error) {
 		managedKeySelectionDegradedTotal.inc();
 		logger.warn("Round-robin cursor unavailable; using ordered keys", {
 			provider,
 			error,
 		});
-		return items.map((item) => item.id);
+		return { kind: "ordered" };
 	} finally {
 		if (timer) {
 			clearTimeout(timer);
@@ -142,7 +146,11 @@ export async function selectManagedProviderKey<T extends ManagedKey>(
 			order = rotatePool(eligible, key, options.provider);
 			state?.set(key, order);
 		}
-		for (const id of await order) {
+		const selection = await order;
+		if (selection.kind === "ordered") {
+			return selectOrdered(eligible);
+		}
+		for (const id of selection.ids) {
 			const item = eligible.find((candidate) => candidate.id === id);
 			if (item) {
 				return item;

@@ -5,6 +5,11 @@
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
 	"exports": {
+		"./metrics": {
+			"types": "./dist/metrics.d.ts",
+			"import": "./dist/metrics.js",
+			"default": "./dist/metrics.js"
+		},
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",

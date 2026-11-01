@@ -52,7 +52,7 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
-import { managedKeySelectionsTotal } from "@llmgateway/instrumentation";
+import { managedKeySelectionsTotal } from "@llmgateway/instrumentation/metrics";
 import { logger } from "@llmgateway/logger";
 import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
 import {
