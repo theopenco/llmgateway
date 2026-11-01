@@ -369,6 +369,50 @@ describe("platform sessions", () => {
 		expect(await balances()).toEqual({ org: 5, wallet: 5 });
 	});
 
+	test("Connect routes reject live keys created by a project admin", async () => {
+		await db.insert(tables.user).values({
+			id: "project-admin-user-id",
+			name: "Project Admin",
+			email: "project-admin@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "project-admin-user-id",
+			organizationId: "test-org-id",
+			role: "project_admin",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "project-admin-live-key-id",
+			...hashApiKeyForStorage("sk_live_project_admin"),
+			projectId: "test-project-id",
+			description: "Live platform secret",
+			keyType: "platform_secret",
+			createdBy: "project-admin-user-id",
+		});
+
+		const onboard = await app.request("/v1/connect/onboard", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer sk_live_project_admin",
+			},
+			body: JSON.stringify({
+				refreshUrl: "https://example.com/refresh",
+				returnUrl: "https://example.com/return",
+			}),
+		});
+		expect(onboard.status).toBe(403);
+		const payouts = await app.request("/v1/connect/payouts", {
+			method: "POST",
+			headers: { Authorization: "Bearer sk_live_project_admin" },
+		});
+		expect(payouts.status).toBe(403);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(org?.stripeConnectAccountId).toBeNull();
+	});
+
 	test("test keys are rejected from Connect routes", async () => {
 		const res = await app.request("/v1/connect/status", {
 			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },

@@ -340,7 +340,7 @@ const event = lg.webhooks.constructEvent(
 
 ## Margin payouts (Stripe Connect)
 
-Your accrued markup is held as a margin balance. Onboard a connected account and pay it out:
+Your accrued markup is held as a margin balance for the whole organization. Onboard a connected account and pay it out with a live secret key created by an organization owner or admin; keys created by project admins get `403`:
 
 ```ts
 const { url } = await lg.connect.createOnboardingLink({
