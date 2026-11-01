@@ -11,7 +11,6 @@ import {
 	Code2,
 	Cpu,
 } from "lucide-react";
-import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -223,11 +222,7 @@ function LoginForm() {
 				<div className="absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500/8 blur-[100px]" />
 
 				<div className="relative z-10 flex flex-1 flex-col justify-center px-12 xl:px-16">
-					<motion.div
-						initial={{ opacity: 0, y: 20 }}
-						animate={{ opacity: 1, y: 0 }}
-						transition={{ duration: 0.6, ease: "easeOut" }}
-					>
+					<div>
 						<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1">
 							<div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
 							<span className="text-xs font-medium text-emerald-400">
@@ -242,15 +237,10 @@ function LoginForm() {
 						<p className="mt-4 max-w-md text-lg text-zinc-400">
 							Your dev environment is ready. Pick up where you left off.
 						</p>
-					</motion.div>
+					</div>
 
 					{/* Terminal mockup */}
-					<motion.div
-						initial={{ opacity: 0, y: 20 }}
-						animate={{ opacity: 1, y: 0 }}
-						transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}
-						className="mt-10 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/80"
-					>
+					<div className="mt-10 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/80">
 						<div className="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-2.5">
 							<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
 							<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
@@ -266,14 +256,9 @@ function LoginForm() {
 							</p>
 							<p className="mt-1 text-emerald-400">All systems operational.</p>
 						</div>
-					</motion.div>
+					</div>
 
-					<motion.div
-						initial={{ opacity: 0 }}
-						animate={{ opacity: 1 }}
-						transition={{ duration: 0.6, delay: 0.4 }}
-						className="mt-8 flex items-center gap-6"
-					>
+					<div className="mt-8 flex items-center gap-6">
 						<div className="flex items-center gap-2 text-zinc-500">
 							<Terminal className="h-4 w-4" />
 							<span className="text-xs">CLI Tools</span>
@@ -286,18 +271,13 @@ function LoginForm() {
 							<Cpu className="h-4 w-4" />
 							<span className="text-xs">Smart Plans</span>
 						</div>
-					</motion.div>
+					</div>
 				</div>
 			</div>
 
 			{/* Right Form Panel */}
 			<div className="flex w-full flex-col justify-center px-6 py-10 sm:px-12 lg:w-1/2 lg:px-16 xl:px-24">
-				<motion.div
-					initial={{ opacity: 0, y: 12 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.4, ease: "easeOut" }}
-					className="mx-auto w-full max-w-[400px]"
-				>
+				<div className="mx-auto w-full max-w-[400px]">
 					{/* Mobile brand header */}
 					<div className="mb-6 lg:hidden">
 						<div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1">
@@ -425,7 +405,7 @@ function LoginForm() {
 							Don&apos;t have an account? Sign up
 						</Link>
 					</p>
-				</motion.div>
+				</div>
 			</div>
 		</div>
 	);
