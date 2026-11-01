@@ -432,7 +432,7 @@ function RotationPosition({
 		return (
 			<span
 				className="text-xs tabular-nums text-muted-foreground"
-				title={`Step ${position} within this provider, audience and region. Round-robin members share one pool; ordered keys are individual fallbacks.`}
+				title={`Step ${position} within this provider, audience and region. Round-robin members share one pool; ordered keys keep individual positions before or after it.`}
 			>
 				{position}
 				{credential.selectionStrategy === "round_robin" ? " · Pool" : ""}
@@ -1096,9 +1096,9 @@ export function ProviderCredentialsManager({
 			<TabsContent value="credentials" className="flex flex-col gap-2">
 				<p className="text-xs text-muted-foreground">
 					Positions are per provider, audience and region. Eligible round-robin
-					keys share one pool at their earliest member’s position; ordered keys
-					remain individual fallbacks. Model access, health and limits can
-					change eligibility.
+					keys share one pool at their earliest member’s position. Ordered keys
+					keep individual positions before or after the pool. Model access,
+					health and limits can change eligibility.
 				</p>
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<EnvSourceNote
