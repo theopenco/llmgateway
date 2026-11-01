@@ -1,22 +1,10 @@
+import { getSafeRedirectPath } from "@llmgateway/shared/safe-redirect";
+
 const validationOrigin = "https://llmgateway.invalid";
 
 /** Keep authentication callbacks on the current application origin. */
 export function getAuthRedirect(target: string | null | undefined): string {
-	if (
-		!target?.startsWith("/") ||
-		target.startsWith("//") ||
-		target.includes("\\")
-	) {
-		return "/dashboard";
-	}
-	try {
-		const url = new URL(target, validationOrigin);
-		return url.origin === validationOrigin
-			? `${url.pathname}${url.search}${url.hash}`
-			: "/dashboard";
-	} catch {
-		return "/dashboard";
-	}
+	return getSafeRedirectPath(target, "/dashboard");
 }
 
 export function getAuthPagePath(

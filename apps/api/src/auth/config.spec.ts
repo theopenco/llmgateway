@@ -7,6 +7,7 @@ import { randomInt } from "@llmgateway/shared/random";
 
 import {
 	apiAuth,
+	checkAndRecordSignupAttempt,
 	isClientAuthError,
 	isClientJsonError,
 	redisClient,
@@ -857,6 +858,33 @@ describe("Signup country blocking", () => {
 		);
 
 		expect(response.status).not.toBe(403);
+	});
+});
+
+describe("atomic signup reservations", () => {
+	test("admits only one concurrent attempt per IP", async () => {
+		const ip = "192.0.2.123";
+		const keys = [
+			`signup_rate_limit:${ip}`,
+			`signup_rate_limit_attempts:${ip}`,
+		];
+		await redisClient.del(...keys);
+		try {
+			const before = Date.now();
+			const attempts = await Promise.all(
+				Array.from({ length: 12 }, () => checkAndRecordSignupAttempt(ip)),
+			);
+			const admitted = attempts.filter((attempt) => attempt.allowed);
+			expect(admitted).toHaveLength(1);
+			for (const attempt of attempts) {
+				expect(attempt.resetTime).toBeGreaterThanOrEqual(before + 60_000);
+				expect(attempt.resetTime).toBeLessThanOrEqual(Date.now() + 60_000);
+			}
+			await redisClient.del(...keys);
+			expect((await checkAndRecordSignupAttempt(ip)).allowed).toBe(true);
+		} finally {
+			await redisClient.del(...keys);
+		}
 	});
 });
 
