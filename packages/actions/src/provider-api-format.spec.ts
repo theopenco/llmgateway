@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { getUpstreamModelId } from "./provider-api-format.js";
+import {
+	getRequestApiFormat,
+	getUpstreamModelId,
+} from "./provider-api-format.js";
+
+describe("getRequestApiFormat", () => {
+	const mapping = { webSearchApiFormat: "openai-responses" as const };
+
+	it("switches to webSearchApiFormat only for web search requests", () => {
+		expect(getRequestApiFormat(mapping, true)).toBe("openai-responses");
+		expect(getRequestApiFormat(mapping, false)).toBeUndefined();
+	});
+
+	it("keeps apiFormat without a webSearchApiFormat", () => {
+		expect(
+			getRequestApiFormat({ apiFormat: "openai-chat-completions" }, true),
+		).toBe("openai-chat-completions");
+		expect(getRequestApiFormat(undefined, true)).toBeUndefined();
+	});
+});
 
 describe("getUpstreamModelId", () => {
 	it.each([

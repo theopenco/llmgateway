@@ -346,6 +346,8 @@ Web search is billed per search call at the model's web search price — for exa
 
 On [Airside](/features/airside#web-search-format) listings that declare a web search format, a search is billed only when the response shows one ran: `url_citation` annotations, a search counter in `usage` (`server_tool_use.web_search_requests` or `num_search_queries`), or reported prompt tokens beyond what the request itself could encode to — the retrieved pages the endpoint added to the prompt. Offering or requiring a search bills nothing on its own.
 
+When the upstream reports its billable server-side operations in `usage.server_tool_use` (`tool_search`, `tool_fetch`), every successful search and page fetch is billed as one search call. Failed searches and searches that return no results are not billed.
+
 ## Combining with Function Tools
 
 You can use web search alongside regular function tools:

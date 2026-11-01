@@ -4,6 +4,7 @@ import {
 	applyWebSearchFormat,
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
+	responsesServerToolUseCount,
 } from "./web-search-format.js";
 
 describe("applyWebSearchFormat", () => {
@@ -113,6 +114,27 @@ describe("reportedWebSearchCount", () => {
 				usage: { prompt_tokens: 559 },
 			}),
 		).toBe(0);
+	});
+});
+
+describe("responsesServerToolUseCount", () => {
+	test("sums successful searches and page fetches", () => {
+		expect(
+			responsesServerToolUseCount({
+				input_tokens: 72239,
+				server_tool_use: { tool_search: 4, tool_fetch: 4 },
+			}),
+		).toBe(8);
+		expect(
+			responsesServerToolUseCount({
+				server_tool_use: { tool_search: 1, tool_fetch: 0 },
+			}),
+		).toBe(1);
+	});
+
+	test("undefined without server_tool_use", () => {
+		expect(responsesServerToolUseCount({ input_tokens: 22 })).toBeUndefined();
+		expect(responsesServerToolUseCount(null)).toBeUndefined();
 	});
 });
 

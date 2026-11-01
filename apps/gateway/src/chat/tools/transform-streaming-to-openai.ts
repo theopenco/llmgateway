@@ -1174,6 +1174,7 @@ export function transformStreamingToOpenai(
 					case "response.output_text.done":
 					case "response.reasoning_summary_text.done":
 					case "response.reasoning_summary_part.done":
+					case "response.reasoning_text.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
 					case "response.web_search_call.completed": {
@@ -1264,8 +1265,10 @@ export function transformStreamingToOpenai(
 						break;
 					}
 
+					// DeepSeek streams raw reasoning (reasoning_text) instead of a summary.
 					case "response.reasoning_summary_part.added":
 					case "response.reasoning_summary_text.delta":
+					case "response.reasoning_text.delta":
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",

@@ -13,6 +13,7 @@ import { posthog } from "@/posthog.js";
 import {
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getRequestApiFormat,
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
@@ -837,7 +838,10 @@ export async function resolveProviderContext(
 		usedProvider,
 		usedRegion,
 	);
-	const apiFormat = providerMappingForSelected?.apiFormat;
+	const apiFormat = getRequestApiFormat(
+		providerMappingForSelected,
+		!!options.webSearchTool,
+	);
 	const transportProvider = getProviderApiTransport(usedProvider, apiFormat);
 
 	// --- Region validation ---

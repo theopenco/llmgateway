@@ -18,6 +18,21 @@ export function getProviderApiTransport(
 }
 
 /**
+ * API surface a request is sent on: the mapping's `webSearchApiFormat` when
+ * the request carries a web search tool, else its `apiFormat`.
+ */
+export function getRequestApiFormat(
+	mapping:
+		Pick<ProviderModelMapping, "apiFormat" | "webSearchApiFormat"> | undefined,
+	hasWebSearch: boolean,
+): ProviderApiFormat | undefined {
+	if (hasWebSearch && mapping?.webSearchApiFormat) {
+		return mapping.webSearchApiFormat;
+	}
+	return mapping?.apiFormat;
+}
+
+/**
  * Model-id prefix of the cross-region inference profile serving an AWS Bedrock
  * OpenAI-format mapping in `region`, or undefined when the region is served
  * in-region by Mantle.

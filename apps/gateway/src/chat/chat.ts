@@ -171,6 +171,7 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getRequestApiFormat,
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
@@ -196,6 +197,7 @@ import {
 	preserveGoogleResponseText,
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
+	responsesServerToolUseCount,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -6709,7 +6711,7 @@ chat.openapi(completions, async (c) => {
 	let airsideCustomBaseUrl = await resolveAirsideProviderBaseUrl(usedProvider);
 	let transportProvider = getProviderApiTransport(
 		usedProvider,
-		imageGenProviderMapping?.apiFormat,
+		getRequestApiFormat(imageGenProviderMapping, !!webSearchTool),
 	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
@@ -7767,7 +7769,7 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel,
 				activeVertexTokenType,
 				envVariant,
-				getUsedProviderMapping()?.apiFormat,
+				getRequestApiFormat(getUsedProviderMapping(), !!webSearchTool),
 			);
 		url = await routeProjectlessVertexEndpoint(
 			buildUrl(credentialOptions),
@@ -12381,8 +12383,17 @@ chat.openapi(completions, async (c) => {
 										}
 									}
 								} else if (streamFormatProvider === "openai") {
-									// For OpenAI Responses API, count web_search_call.completed events
-									if (data.type === "response.web_search_call.completed") {
+									// For OpenAI Responses API, count web_search_call.completed
+									// events, unless the terminal event's usage reports the
+									// billable operations itself (DeepSeek).
+									const serverToolUse = responsesServerToolUseCount(
+										data.response?.usage,
+									);
+									if (serverToolUse !== undefined) {
+										webSearchCount = serverToolUse;
+									} else if (
+										data.type === "response.web_search_call.completed"
+									) {
 										webSearchCount++;
 									}
 								} else if (streamFormatProvider === "perplexity") {

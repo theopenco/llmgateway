@@ -570,6 +570,12 @@ export interface ProviderModelMapping {
 	 */
 	apiFormat?: ProviderApiFormat;
 	/**
+	 * API surface for requests carrying a `web_search` tool, when the
+	 * provider serves hosted search on a different surface than `apiFormat`
+	 * (e.g. DeepSeek: Responses API only). Other requests keep `apiFormat`.
+	 */
+	webSearchApiFormat?: ProviderApiFormat;
+	/**
 	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
 	 * (`global`, `us`, …) are real inference profiles, served by
 	 * bedrock-runtime under the region-prefixed model id. Without it every

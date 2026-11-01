@@ -321,6 +321,12 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
+				// Hosted search runs only on the Responses API (chat completions
+				// rejects the tool). Searches and page fetches both bill per
+				// successful call, so each counts as one search.
+				webSearch: true,
+				webSearchPrice: "0.00075",
+				webSearchApiFormat: "openai-responses",
 				// DeepSeek's API 400s on the OpenAI-only `developer` role
 				// ("unknown variant `developer`, expected one of `system`, `user`,
 				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to

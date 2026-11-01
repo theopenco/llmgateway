@@ -251,6 +251,55 @@ describe("parseProviderResponse", () => {
 			]);
 		});
 
+		it("reads DeepSeek reasoning_text content and bills server_tool_use", () => {
+			const json = {
+				id: "resp_ds",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_1",
+						summary: [],
+						content: [{ type: "reasoning_text", text: "search first" }],
+						encrypted_content: null,
+					},
+					{
+						type: "web_search_call",
+						status: "completed",
+						action: { type: "search", queries: ["q"] },
+					},
+					{
+						type: "web_search_call",
+						status: "completed",
+						action: { type: "open_page", url: "https://example.com" },
+					},
+					{
+						type: "web_search_call",
+						status: "completed",
+						action: { type: "search", queries: ["empty"] },
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "done" }],
+					},
+				],
+				usage: {
+					input_tokens: 5556,
+					output_tokens: 119,
+					total_tokens: 5675,
+					server_tool_use: { tool_search: 1, tool_fetch: 1 },
+				},
+			};
+
+			const result = parseProviderResponse("openai", "deepseek-v4-pro", json);
+
+			expect(result.reasoningContent).toBe("search first");
+			// The empty search is not billed upstream.
+			expect(result.webSearchCount).toBe(2);
+		});
+
 		it("leaves reasoningDetails null when reasoning items carry no encrypted content", () => {
 			const json = {
 				id: "resp_123",

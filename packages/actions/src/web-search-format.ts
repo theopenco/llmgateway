@@ -136,6 +136,30 @@ export function reportedWebSearchCount(response: unknown): number {
 }
 
 /**
+ * Billable hosted-tool operations a Responses API `usage` reports in
+ * `server_tool_use` (DeepSeek): successful searches plus page fetches, both
+ * billed per call. Undefined when the field is absent, so callers fall back to
+ * counting `web_search_call` items, which include failed and empty ones.
+ */
+export function responsesServerToolUseCount(
+	usage: unknown,
+): number | undefined {
+	if (!isRecord(usage) || !isRecord(usage.server_tool_use)) {
+		return undefined;
+	}
+	let count = 0;
+	for (const value of [
+		usage.server_tool_use.tool_search,
+		usage.server_tool_use.tool_fetch,
+	]) {
+		if (typeof value === "number" && value > 0) {
+			count += value;
+		}
+	}
+	return count;
+}
+
+/**
  * Whether the upstream reported more prompt tokens than the text-only request
  * it was sent could encode to. No tokenizer emits more than one token per
  * UTF-8 byte, so the excess is content the upstream added to the prompt — on

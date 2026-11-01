@@ -1,6 +1,7 @@
 import {
 	fromConverseReasoningContent,
 	pairedServerToolBlocks,
+	responsesServerToolUseCount,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
@@ -1222,8 +1223,19 @@ export function parseProviderResponse(
 					)
 					.filter(Boolean)
 					.join("\n\n");
-				if (summaryText) {
-					reasoningContent = summaryText;
+				// DeepSeek returns raw reasoning in `content` and no summary.
+				const reasoningText = reasoningOutputs
+					.flatMap(({ item }: any) =>
+						Array.isArray(item.content)
+							? item.content
+									.filter((part: any) => part?.type === "reasoning_text")
+									.map((part: any) => part.text ?? "")
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n");
+				if (summaryText || reasoningText) {
+					reasoningContent = summaryText || reasoningText;
 				}
 
 				// Collect encrypted reasoning payloads (returned when the upstream
@@ -1313,7 +1325,10 @@ export function parseProviderResponse(
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",
 				);
-				if (webSearchCalls.length > 0) {
+				const serverToolUse = responsesServerToolUseCount(json.usage);
+				if (serverToolUse !== undefined) {
+					webSearchCount = serverToolUse;
+				} else if (webSearchCalls.length > 0) {
 					webSearchCount = webSearchCalls.length;
 				}
 

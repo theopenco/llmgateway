@@ -119,6 +119,41 @@ describe("transform to OpenAI Responses API", () => {
 		expect(reasoningItems[0]!.id).toBe("rs_tagged");
 	});
 
+	test("replays DeepSeek V4 reasoning as a reasoning_text item before its tool calls", async () => {
+		const messages: BaseMessage[] = [
+			{ role: "user", content: "weather?" },
+			{
+				role: "assistant",
+				content: null,
+				reasoning: "call the tool",
+				tool_calls: [
+					{
+						id: "call_1",
+						type: "function",
+						function: { name: "get_weather", arguments: "{}" },
+					},
+				],
+			},
+			{ role: "tool", content: "sunny", tool_call_id: "call_1" },
+		];
+		const body = await buildOpenAIResponsesBody(messages, {
+			provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+		});
+
+		expect(body.input.map((item) => item.type ?? item.role)).toEqual([
+			"user",
+			"reasoning",
+			"function_call",
+			"function_call_output",
+		]);
+		expect(body.input[1]!.content).toEqual([
+			{ type: "reasoning_text", text: "call the tool" },
+		]);
+
+		const gpt = await buildOpenAIResponsesBody(messages);
+		expect(gpt.input.some((item) => item.type === "reasoning")).toBe(false);
+	});
+
 	test("emits function_call items before the assistant message by default", async () => {
 		const body = await buildOpenAIResponsesBody([
 			{ role: "user", content: "weather?" },
