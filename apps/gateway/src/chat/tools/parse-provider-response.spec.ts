@@ -1302,6 +1302,20 @@ describe("parseProviderResponse", () => {
 
 			expect(parsed.webSearchCount).toBe(1);
 			expect(parsed.annotations).toHaveLength(2);
+
+			// Without the counters, DeepSeek billed nothing.
+			const unbilled = parseProviderResponse(
+				"anthropic",
+				"deepseek-v4.1-flash-1017",
+				{ ...json, usage: { input_tokens: 100, output_tokens: 5 } },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ serverToolUseAlwaysReported: true },
+			);
+			expect(unbilled.webSearchCount).toBeNull();
 		});
 	});
 

@@ -1557,8 +1557,15 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"tool_choice",
 					"reasoning_effort",
 				],
+				// "required" and named-function tool_choice 400 with "Thinking mode
+				// does not support this tool_choice" until thinking is disabled
+				// (verified live 2026-11-01 on chat completions and the Anthropic
+				// API, which also accepts "required" with thinking on).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
 			},
 			{
 				providerId: "alibaba",

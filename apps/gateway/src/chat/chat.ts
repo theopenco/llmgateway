@@ -12355,7 +12355,11 @@ chat.openapi(completions, async (c) => {
 									// For Anthropic, count successful web_search_tool_result
 									// blocks; errored searches carry an object and are not billed.
 									// DeepSeek's final message_delta reports the billed count.
-									const serverToolUse = billedServerToolUseCount(data.usage);
+									const serverToolUse = billedServerToolUseCount(
+										data.usage,
+										usedProvider === "deepseek" &&
+											data.type === "message_delta",
+									);
 									if (serverToolUse !== undefined) {
 										webSearchCount = serverToolUse;
 									} else if (

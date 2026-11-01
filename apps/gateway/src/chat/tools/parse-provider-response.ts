@@ -314,7 +314,10 @@ export function parseProviderResponse(
 			);
 			// DeepSeek reports the billed searches and fetches, which can be
 			// fewer than its result blocks.
-			const billedServerToolUse = billedServerToolUseCount(json.usage);
+			const billedServerToolUse = billedServerToolUseCount(
+				json.usage,
+				options?.serverToolUseAlwaysReported,
+			);
 			if (billedServerToolUse !== undefined) {
 				webSearchCount = billedServerToolUse;
 			}
