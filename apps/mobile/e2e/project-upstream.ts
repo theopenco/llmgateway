@@ -3,7 +3,9 @@ import { z } from "zod";
 const requestSchema = z.object({
 	model: z.string(),
 	stream: z.boolean().optional(),
-	messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
+	messages: z.array(
+		z.object({ role: z.string(), content: z.unknown().optional() }),
+	),
 	tools: z
 		.array(z.object({ function: z.object({ name: z.string() }) }))
 		.optional(),
@@ -11,7 +13,7 @@ const requestSchema = z.object({
 const stats = { knowledgeRequests: 0, memoryRequests: 0 };
 const responsesSchema = z.object({
 	model: z.string(),
-	input: z.unknown(),
+	input: z.unknown().optional(),
 	tools: z.array(z.object({ name: z.string() })).optional(),
 });
 

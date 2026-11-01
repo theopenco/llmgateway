@@ -1,7 +1,6 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { usePostHog } from "posthog-js/react";
 
 import { EnterprisePlanTerm } from "@/components/billing/enterprise-plan-term";
 import { Badge } from "@/lib/components/badge";
@@ -18,6 +17,7 @@ import { useToast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import { getOrganizationTerm } from "@llmgateway/shared";
 import { useRerenderAt } from "@llmgateway/shared/components";

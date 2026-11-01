@@ -1,6 +1,7 @@
 import { changelogPath, changelogTags } from "@/lib/changelog";
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
+import { isRedirectedModelId } from "@/lib/model-redirects";
 import { slugify } from "@/lib/slugify";
 
 import {
@@ -436,7 +437,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
-		listedModelIds.add(model.id);
+		listedModelIds.add(model.id.toLowerCase());
 
 		// Model uptime pages and model+provider sub-pages are intentionally
 		// excluded from the sitemap: uptime pages are thin templates that
@@ -449,7 +450,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	);
 	for (const model of apiModels) {
 		if (
-			listedModelIds.has(model.id) ||
+			listedModelIds.has(model.id.toLowerCase()) ||
+			isRedirectedModelId(model.id) ||
 			!model.mappings.some(
 				(mapping) =>
 					mapping.status === "active" && !isMappingDeactivated(mapping),
@@ -462,7 +464,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
-		listedModelIds.add(model.id);
+		listedModelIds.add(model.id.toLowerCase());
 	}
 
 	// Provider pages

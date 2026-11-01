@@ -2,7 +2,7 @@ import type { ZodIssue } from "zod";
 
 /**
  * Metadata-only view of Zod issues for application logs: the failing path and
- * code, plus the type names of an `invalid_type` issue. `message`, `received`,
+ * code, plus the expected type of an `invalid_type` issue. `message`, `input`,
  * `keys` and nested union issues can echo the rejected request body, so they
  * never reach the log.
  */
@@ -12,7 +12,6 @@ export function summarizeZodIssues(issues: ZodIssue[]) {
 		path: issue.path.join("."),
 		...(issue.code === "invalid_type" && {
 			expected: issue.expected,
-			received: issue.received,
 		}),
 	}));
 }

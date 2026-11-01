@@ -179,7 +179,7 @@ function toKey(date: Date) {
 }
 
 export function OverviewView() {
-	const { anchorDay, history, project, notify, track } = useDemo();
+	const { anchorDay, history, project, notify, track, started } = useDemo();
 	const [pickedRange, setPickedRange] = useState<UsageDateRange | null>(null);
 	const [usageMode, setUsageMode] = useState<UsageMode>("total");
 	const [metric, setMetric] = useState<"costs" | "requests">("costs");
@@ -516,25 +516,29 @@ export function OverviewView() {
 						<QuickActionsCard className="min-w-0 @6xl/demo:col-span-3" />
 					</div>
 
-					<div className="grid gap-4 @6xl/demo:grid-cols-7">
-						<div className="min-w-0 space-y-4 @6xl/demo:col-span-4">
-							<CostBreakdownCard
-								activity={rawActivityData}
-								usageMode={usageMode}
-								projectName={project.name}
-							/>
-							<RecentActivityCard
-								activityData={activityData}
-								isLoading={false}
-							/>
+					{/* The locked frame never shows these cards, so they mount once the
+					    demo starts. */}
+					{started && (
+						<div className="grid gap-4 @6xl/demo:grid-cols-7">
+							<div className="min-w-0 space-y-4 @6xl/demo:col-span-4">
+								<CostBreakdownCard
+									activity={rawActivityData}
+									usageMode={usageMode}
+									projectName={project.name}
+								/>
+								<RecentActivityCard
+									activityData={activityData}
+									isLoading={false}
+								/>
+							</div>
+							<div className="min-w-0 @6xl/demo:col-span-3">
+								<ErrorsReliabilityCard
+									activityData={activityData}
+									isLoading={false}
+								/>
+							</div>
 						</div>
-						<div className="min-w-0 @6xl/demo:col-span-3">
-							<ErrorsReliabilityCard
-								activityData={activityData}
-								isLoading={false}
-							/>
-						</div>
-					</div>
+					)}
 				</div>
 			</div>
 		</div>

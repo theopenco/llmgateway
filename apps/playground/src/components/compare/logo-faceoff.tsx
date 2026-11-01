@@ -56,7 +56,7 @@ export function ThemTile({
 	}
 
 	if (brand?.mode === "mark") {
-		const { Icon, colorClass } = brand;
+		const { Icon, colorClass, scale = 0.6 } = brand;
 		return (
 			<div
 				className={cn(
@@ -70,8 +70,8 @@ export function ThemTile({
 				<Icon
 					className={colorClass}
 					style={{
-						width: Math.round(size * 0.6),
-						height: Math.round(size * 0.6),
+						width: Math.round(size * scale),
+						height: Math.round(size * scale),
 					}}
 				/>
 			</div>

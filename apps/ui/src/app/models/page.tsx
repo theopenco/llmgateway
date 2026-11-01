@@ -6,6 +6,7 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { pageTitle } from "@/lib/page-title";
 
 const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/coding", label: "Best models for coding" },
@@ -39,7 +40,7 @@ export const metadata = {
 	alternates: {
 		canonical: "https://llmgateway.io/models",
 	},
-	title: "LLM Models List — Compare 250+ AI Models & Live Prices",
+	title: pageTitle("LLM Models List — Compare 250+ AI Models & Live Prices"),
 	description:
 		"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities. Call any model via one API.",
 	openGraph: {

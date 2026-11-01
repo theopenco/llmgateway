@@ -213,6 +213,26 @@ export const zaiModels = [
 		releasedAt: new Date("2026-08-14"),
 		providers: [
 			{
+				providerId: "runpod",
+				externalId: "glm-5.3",
+				// Adaptive thinking can omit reasoning on simple tool calls.
+				reasoningOutput: "omit",
+				inputPrice: "0.77e-6",
+				cachedInputPrice: "0.143e-6",
+				outputPrice: "2.42e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
 				providerId: "tencent",
 				externalId: "glm-5.3",
 				inputPrice: "1.4e-6",

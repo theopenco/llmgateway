@@ -7,6 +7,7 @@ import {
 	SiGatewayStats,
 } from "@/components/super-intelligence/si-gateway";
 import { PageViewTracker } from "@/components/super-intelligence/tracking";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
@@ -14,7 +15,7 @@ const description =
 	"SI Gateway: one OpenAI-compatible API for every Super Intelligence (SI) model, with routing, failover, cost tracking and audit-ready logs.";
 
 export const metadata: Metadata = {
-	title: "SI Gateway – One API for Every Super Intelligence Model",
+	title: pageTitle("SI Gateway – One API for Every Super Intelligence Model"),
 	description,
 	alternates: { canonical: "/si-gateway" },
 	openGraph: {

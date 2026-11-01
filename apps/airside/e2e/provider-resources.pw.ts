@@ -104,7 +104,12 @@ test("provider resources render indexable content and link every guide and tool"
 		const json = await page
 			.locator('script[type="application/ld+json"]')
 			.textContent();
-		expect(JSON.parse(json!).url).toBe(`https://airside.llmgateway.io${path}`);
+		const graph = JSON.parse(json!)["@graph"] as Array<{
+			"@type": string;
+			url?: string;
+		}>;
+		expect(graph.map((node) => node["@type"])).toContain("BreadcrumbList");
+		expect(graph[0].url).toBe(`https://airside.llmgateway.io${path}`);
 		expect(
 			await page.evaluate(
 				() => document.documentElement.scrollWidth <= window.innerWidth,

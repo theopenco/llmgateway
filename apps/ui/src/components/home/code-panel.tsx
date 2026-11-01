@@ -160,7 +160,7 @@ export function CodePanel({
 			{header}
 
 			<div>
-				<div className="flex min-h-11 items-center gap-3 px-3 pt-2 font-mono text-[11px] text-black/45 dark:text-white/45">
+				<div className="flex min-h-11 items-center gap-3 px-3 pt-2 font-mono text-[11px] text-black/60 dark:text-white/55">
 					<span className="shrink-0 pl-2">{file}</span>
 					{endpoint && (
 						<span className="truncate rounded-md border border-black/10 bg-white px-2 py-0.5 text-black/65 dark:border-white/10 dark:bg-white/5 dark:text-white/65">
@@ -192,7 +192,10 @@ export function CodePanel({
 					<code className="grid grid-cols-[auto_1fr] gap-x-5">
 						{lines.map((line, i) => (
 							<Fragment key={i}>
-								<span className="select-none text-right text-black/25 dark:text-white/25">
+								<span
+									aria-hidden
+									className="select-none text-right text-black/55 dark:text-white/50"
+								>
 									{i + 1}
 								</span>
 								<span className="whitespace-pre">
@@ -228,7 +231,7 @@ export function CodePanel({
 					href={docsHref}
 					target={docsExternal ? "_blank" : undefined}
 					rel={docsExternal ? "noopener noreferrer" : undefined}
-					className="inline-flex items-center gap-1 text-black/50 transition-colors hover:text-black dark:text-white/50 dark:hover:text-white"
+					className="inline-flex items-center gap-1 text-black/60 transition-colors hover:text-black dark:text-white/60 dark:hover:text-white"
 				>
 					{docsLabel}
 					<ArrowUpRight className="size-4" />

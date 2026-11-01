@@ -921,8 +921,15 @@ export function getProviderEndpoint(
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":
-			if (externalId === "kimi-k3") {
+			if (
+				externalId === "kimi-k3" ||
+				externalId === "kimi-k3.1-pro" ||
+				externalId === "kimi-k3.1-pro-highspeed"
+			) {
 				return appendPath(url, "/v2/moonshot-kimi/openai/v1/chat/completions");
+			}
+			if (externalId === "glm-5.3") {
+				return appendPath(url, "/v2/b1dd8hy2hqo1nb/openai/v1/chat/completions");
 			}
 			throw new Error(`Unsupported Runpod model: ${model}`);
 		case "zai":

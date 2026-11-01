@@ -171,6 +171,15 @@ test("restores pending signatures and converts interrupted web execution into an
 	).toBe(part.toolName);
 });
 
+test("an input-streaming part saved before its input arrived reads as interrupted", () => {
+	const { input: _input, ...streaming } = { ...part, state: "input-streaming" };
+	expect(readToolParts(JSON.stringify([streaming]))[0]).toMatchObject({
+		state: "output-error",
+		errorText:
+			"This request was interrupted before approval. Ask again to create a new request.",
+	});
+});
+
 test("invalid stored tool data produces an actionable error", () => {
 	expect(() => readToolParts('{"broken":true}')).toThrow("Saved tool requests");
 	expect(() =>

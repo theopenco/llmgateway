@@ -9,7 +9,13 @@ import {
 	Pill,
 	clipText,
 } from "@/components/compare/og-shared";
-import { getComparison, getComparisonSlugs, US } from "@/lib/comparisons";
+import {
+	getComparison,
+	getComparisonSlugs,
+	STUDIOS,
+	studioOf,
+	US,
+} from "@/lib/comparisons";
 
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
@@ -36,6 +42,9 @@ export default async function CompareOgImage({
 	const competitor = comparison?.competitor ?? "the alternatives";
 	const tagline =
 		comparison?.competitorTagline ?? "Every model, one subscription";
+	const studio = comparison ? studioOf(comparison) : STUDIOS.chat;
+	const isChat = studio === STUDIOS.chat;
+	const title = `${studio.product} vs ${competitor}`;
 	const plusValue = US.plans.plus.value;
 	const plusCredits = Number.isInteger(plusValue)
 		? String(plusValue)
@@ -77,7 +86,7 @@ export default async function CompareOgImage({
 								letterSpacing: "0.02em",
 							}}
 						>
-							Chat comparison
+							{studio.label} comparison
 						</span>
 					</div>
 				</div>
@@ -132,14 +141,14 @@ export default async function CompareOgImage({
 				<span
 					style={{
 						display: "flex",
-						fontSize: competitor.length > 12 ? 60 : 68,
+						fontSize: title.length > 34 ? 52 : title.length > 22 ? 60 : 68,
 						fontWeight: 800,
 						lineHeight: 1.04,
 						color: "#FAFAFA",
 						maxWidth: 1010,
 					}}
 				>
-					Lounge vs {competitor}
+					{title}
 				</span>
 				<span
 					style={{
@@ -164,9 +173,13 @@ export default async function CompareOgImage({
 				}}
 			>
 				<div style={{ display: "flex", gap: 10 }}>
-					<Pill>Every frontier model</Pill>
-					<Pill>One subscription</Pill>
-					<Pill>${plusCredits} credits on Plus</Pill>
+					<Pill>{isChat ? "Every frontier model" : "Provider rates"}</Pill>
+					<Pill>{isChat ? "One subscription" : "Side-by-side models"}</Pill>
+					<Pill>
+						{studio.membership
+							? `$${plusCredits} credits on Plus`
+							: "Pay per token"}
+					</Pill>
 				</div>
 				<span style={{ color: "#A1A1AA", fontSize: 21, fontWeight: 500 }}>
 					lounge.llmgateway.io

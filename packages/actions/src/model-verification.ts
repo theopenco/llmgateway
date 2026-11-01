@@ -21,6 +21,7 @@ import {
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
+import { requiresMessageContentVerification } from "./model-verification-compatibility.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 import {
 	getProviderApiTransport,
@@ -46,6 +47,7 @@ import type {
 
 export type ModelVerificationCheckId =
 	| "basic"
+	| "message_content"
 	| "streaming"
 	| "vision"
 	| "audio"
@@ -621,6 +623,13 @@ function verificationDefinitions(
 				target.modelName,
 				target.maxOutput,
 			),
+		});
+	}
+	if (requiresMessageContentVerification(target)) {
+		definitions.push({
+			id: "message_content",
+			label: "Message content compatibility",
+			request: createBasicVerificationRequest(target.modelName),
 		});
 	}
 	return definitions;
@@ -1670,6 +1679,15 @@ async function runCheck(
 	reportProbes: ProbeReporter,
 	onTimeout: TimeoutReporter,
 ): Promise<CheckOutcome> {
+	if (definition.id === "message_content") {
+		return await runMessageContentCheck(
+			definition,
+			options,
+			context,
+			reportProbes,
+			onTimeout,
+		);
+	}
 	if (definition.id === "reasoning" || definition.id === "reasoning_budget") {
 		return await runReasoningCheck(
 			definition,
@@ -2200,5 +2218,77 @@ export function decryptClaimVerificationKey(
 		ciphertext,
 		claimVerificationKeyRowId(claimId),
 		verificationCredentialScope(providerCompanyId),
+	);
+}
+async function runMessageContentCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	context: CheckContext,
+	reportProbes: ProbeReporter,
+	onTimeout: TimeoutReporter,
+): Promise<CheckOutcome> {
+	const probes: ProviderModelVerificationProbe[] = [];
+	let firstFailure: CheckFailure | null = null;
+	for (const stream of options.target.streaming ? [false, true] : [false]) {
+		for (const role of ["system", "assistant", "user"] as const) {
+			const label = `${role} text array (${stream ? "streaming" : "non-streaming"})`;
+			const messages: BaseMessage[] =
+				role === "assistant"
+					? [
+							{ role: "user", content: "Reply with exactly OK." },
+							{
+								role,
+								content: [
+									{ type: "text", text: "O" },
+									{ type: "text", text: "K" },
+								],
+							},
+							{ role: "user", content: "Repeat your previous answer." },
+						]
+					: [
+							{
+								role,
+								content: [
+									{ type: "text", text: "Reply with " },
+									{ type: "text", text: "exactly OK." },
+								],
+							},
+							...(role === "system"
+								? [{ role: "user" as const, content: "Proceed." }]
+								: []),
+						];
+			const failure = await attemptCheck(
+				{
+					...definition,
+					request: { model: options.target.modelName, messages, stream },
+				},
+				options,
+				{ ...context, basicUsage: undefined },
+				onTimeout,
+			);
+			probes.push(probeResult(label, failure));
+			await reportProbes(probes);
+			if (failure) {
+				firstFailure ??= {
+					...failure,
+					message: `${label}: ${failure.message}`,
+				};
+				if (failure.transient) {
+					return { failure: firstFailure, probes };
+				}
+			}
+		}
+	}
+	return { failure: firstFailure, probes };
+}
+export function hasMessageContentVerification(
+	target: ProviderModelVerificationTarget,
+	checks: ProviderModelVerificationCheck[],
+): boolean {
+	return (
+		!requiresMessageContentVerification(target) ||
+		checks.some(
+			(check) => check.id === "message_content" && check.status === "passed",
+		)
 	);
 }

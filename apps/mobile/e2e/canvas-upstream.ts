@@ -3,7 +3,9 @@ import { z } from "zod";
 const schema = z.object({
 	model: z.string(),
 	stream: z.boolean().optional(),
-	messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
+	messages: z.array(
+		z.object({ role: z.string(), content: z.unknown().optional() }),
+	),
 });
 const stats = { generated: 0, instructions: false, model: "" };
 export const canvasFixture = {

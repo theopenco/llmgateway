@@ -40,8 +40,8 @@
 		"lucide-react": "^0.544.0",
 		"next": "16.4.3",
 		"posthog-js": "1.372.1",
-		"react": "^19.3.0",
-		"react-dom": "^19.3.0",
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1",
 		"remark": "15.0.1",
 		"remark-gfm": "4.0.1",
 		"remark-mdx": "3.1.1",
@@ -49,7 +49,7 @@
 		"shiki": "3.22.0",
 		"tailwind-merge": "^3.3.1",
 		"unist-util-visit": "5.1.0",
-		"zod": "3.25.76"
+		"zod": "4.6.7"
 	},
 	"devDependencies": {
 		"@playwright/test": "1.64.1",

@@ -1,11 +1,11 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
 import { CodePanel, type CopyKind } from "@/components/home/code-panel";
 import { ProviderLogo } from "@/components/landing/provider-logo";
+import { usePostHog } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
 import type dimensions from "@/lib/provider-logo-dimensions.json";

@@ -1,6 +1,5 @@
 "use client";
 
-import { LazyMotion, m } from "framer-motion";
 import { useEffect, useId, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -8,11 +7,6 @@ import { cn } from "@/lib/utils";
 import { randomFloatBetween } from "@llmgateway/shared/random";
 
 import type { RefObject } from "react";
-
-// LazyMotion + m keep framer-motion's animation runtime out of the initial
-// bundle of pages that render the landing graph.
-const loadMotionFeatures = () =>
-	import("@/components/motion-features").then((mod) => mod.default);
 
 export interface AnimatedBeamProps {
 	className?: string;
@@ -41,7 +35,7 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 	toRef,
 	curvature = 0,
 	reverse = false, // Include the reverse prop
-	duration = randomFloatBetween(4, 7),
+	duration,
 	delay = 0,
 	pathColor = "gray",
 	pathWidth = 2,
@@ -56,21 +50,13 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 	const id = useId();
 	const [pathD, setPathD] = useState("");
 	const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
+	// Picked once: a new random value on every render would restart the sweep.
+	const [sweepDuration] = useState(() => duration ?? randomFloatBetween(4, 7));
 
 	// Calculate the gradient coordinates based on the reverse prop
 	const gradientCoordinates = reverse
-		? {
-				x1: ["90%", "-10%"],
-				x2: ["100%", "0%"],
-				y1: ["0%", "0%"],
-				y2: ["0%", "0%"],
-			}
-		: {
-				x1: ["10%", "110%"],
-				x2: ["0%", "100%"],
-				y1: ["0%", "0%"],
-				y2: ["0%", "0%"],
-			};
+		? { x1: "90%;-10%", x2: "100%;0%" }
+		: { x1: "10%;110%", x2: "0%;100%" };
 
 	useEffect(() => {
 		const updatePath = () => {
@@ -112,13 +98,11 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 			}
 		});
 
-		// Observe the container element
+		// Observe the container element. Its first callback sets the initial
+		// path once layout is done, so hydration never forces a reflow.
 		if (containerRef.current) {
 			resizeObserver.observe(containerRef.current);
 		}
-
-		// Call the updatePath initially to set the initial path
-		updatePath();
 
 		// Clean up the observer on component unmount
 		return () => {
@@ -136,64 +120,63 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 	]);
 
 	return (
-		<LazyMotion features={loadMotionFeatures} strict>
-			<svg
-				fill="none"
-				width={svgDimensions.width}
-				height={svgDimensions.height}
-				xmlns="http://www.w3.org/2000/svg"
-				className={cn(
-					"pointer-events-none absolute left-0 top-0 transform-gpu stroke-2",
-					className,
-				)}
-				viewBox={`0 0 ${svgDimensions.width} ${svgDimensions.height}`}
-			>
-				<path
-					d={pathD}
-					stroke={pathColor}
-					strokeWidth={pathWidth}
-					strokeOpacity={pathOpacity}
-					strokeLinecap="round"
-				/>
-				<path
-					d={pathD}
-					strokeWidth={pathWidth}
-					stroke={`url(#${id})`}
-					strokeOpacity="1"
-					strokeLinecap="round"
-				/>
-				<defs>
-					<m.linearGradient
-						className="transform-gpu"
-						id={id}
-						gradientUnits="userSpaceOnUse"
-						initial={{
-							x1: "0%",
-							x2: "0%",
-							y1: "0%",
-							y2: "0%",
-						}}
-						animate={{
-							x1: gradientCoordinates.x1,
-							x2: gradientCoordinates.x2,
-							y1: gradientCoordinates.y1,
-							y2: gradientCoordinates.y2,
-						}}
-						transition={{
-							delay,
-							duration,
-							ease: [0.16, 1, 0.3, 1], // https://easings.net/#easeOutExpo
-							repeat: Infinity,
-							repeatDelay: 0,
-						}}
-					>
-						<stop stopColor={gradientStartColor} stopOpacity="0" />
-						<stop stopColor={gradientStartColor} />
-						<stop offset="32.5%" stopColor={gradientStopColor} />
-						<stop offset="100%" stopColor={gradientStopColor} stopOpacity="0" />
-					</m.linearGradient>
-				</defs>
-			</svg>
-		</LazyMotion>
+		<svg
+			fill="none"
+			width={svgDimensions.width}
+			height={svgDimensions.height}
+			xmlns="http://www.w3.org/2000/svg"
+			className={cn(
+				"pointer-events-none absolute left-0 top-0 transform-gpu stroke-2",
+				className,
+			)}
+			viewBox={`0 0 ${svgDimensions.width} ${svgDimensions.height}`}
+		>
+			<path
+				d={pathD}
+				stroke={pathColor}
+				strokeWidth={pathWidth}
+				strokeOpacity={pathOpacity}
+				strokeLinecap="round"
+			/>
+			<path
+				d={pathD}
+				strokeWidth={pathWidth}
+				stroke={`url(#${id})`}
+				strokeOpacity="1"
+				strokeLinecap="round"
+			/>
+			<defs>
+				<linearGradient
+					className="transform-gpu"
+					id={id}
+					gradientUnits="userSpaceOnUse"
+					x1="0%"
+					x2="0%"
+					y1="0%"
+					y2="0%"
+				>
+					{/* SMIL runs the sweep natively, so the page keeps no JS
+					    animation loop running for beams that are off screen. */}
+					{pathD &&
+						(["x1", "x2"] as const).map((attribute) => (
+							<animate
+								key={attribute}
+								attributeName={attribute}
+								values={gradientCoordinates[attribute]}
+								keyTimes="0;1"
+								calcMode="spline"
+								keySplines="0.16 1 0.3 1"
+								begin={`${delay}s`}
+								dur={`${sweepDuration}s`}
+								repeatCount="indefinite"
+							/>
+						))}
+					<stop stopColor={gradientStartColor} stopOpacity="0" />
+					<stop stopColor={gradientStartColor} />
+					<stop offset="32.5%" stopColor={gradientStopColor} />
+					<stop offset="100%" stopColor={gradientStopColor} stopOpacity="0" />
+				</linearGradient>
+			</defs>
+		</svg>
 	);
 };

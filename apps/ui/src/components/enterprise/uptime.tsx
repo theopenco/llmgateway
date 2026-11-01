@@ -214,7 +214,7 @@ export function UptimeVisualization({
 								/>
 							</div>
 							<div className="w-12 shrink-0 text-right sm:w-20">
-								<span className="text-xs font-mono font-bold text-emerald-600 sm:text-sm dark:text-emerald-400">
+								<span className="text-xs font-mono font-bold text-emerald-700 sm:text-sm dark:text-emerald-400">
 									99.9999%
 								</span>
 							</div>
@@ -235,7 +235,7 @@ export function UptimeVisualization({
 								uptime per provider
 							</div>
 							<div className="mt-4 border-t border-red-500/10 pt-4">
-								<div className="font-mono text-lg font-bold text-red-500 dark:text-red-400">
+								<div className="font-mono text-lg font-bold text-red-700 dark:text-red-400">
 									~22 days
 								</div>
 								<div className="text-sm text-muted-foreground">
@@ -263,7 +263,7 @@ export function UptimeVisualization({
 								combined uptime across providers
 							</div>
 							<div className="mt-4 border-t border-emerald-500/10 pt-4">
-								<div className="font-mono text-lg font-bold text-emerald-600 dark:text-emerald-400">
+								<div className="font-mono text-lg font-bold text-emerald-700 dark:text-emerald-400">
 									&lt;32 seconds
 								</div>
 								<div className="text-sm text-muted-foreground">

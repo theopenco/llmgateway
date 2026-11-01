@@ -17,7 +17,6 @@ import {
 	Plus,
 } from "lucide-react";
 import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -36,6 +35,7 @@ import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
+import { usePostHog } from "@/lib/posthog";
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 

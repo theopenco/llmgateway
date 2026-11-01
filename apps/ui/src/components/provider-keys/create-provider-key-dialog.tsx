@@ -1,6 +1,5 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePostHog } from "posthog-js/react";
 import React, { useMemo, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -25,6 +24,7 @@ import {
 import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import {
 	providers,

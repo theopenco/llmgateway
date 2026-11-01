@@ -472,7 +472,7 @@ async function persistMessage(
 const chatSupportMessageSchema = z.object({
 	id: z.string().optional(),
 	role: z.enum(["system", "developer", "user", "assistant"], {
-		errorMap: () => ({ message: "Invalid message role" }),
+		error: "Invalid message role",
 	}),
 	parts: z.array(z.object({ type: z.string() }).passthrough()),
 	metadata: z.unknown().optional(),

@@ -1,10 +1,10 @@
 "use client";
-import { usePostHog } from "posthog-js/react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
 import { useAppConfig } from "@/lib/config";
+import { usePostHog } from "@/lib/posthog";
 
 import { AnimatedGroup } from "./animated-group";
 

@@ -1,12 +1,12 @@
 "use client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useAuthClient } from "@/lib/auth-client";
 import { getAuthPagePath } from "@/lib/auth-redirect";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import type { Route } from "next";
 

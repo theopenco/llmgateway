@@ -196,7 +196,18 @@ describe("chat sharing permissions", () => {
 		});
 	});
 
+	async function addAssistantReply() {
+		await db.insert(tables.message).values({
+			chatId,
+			role: "assistant",
+			content:
+				"Here is a reply long enough to clear the index threshold for shared conversations.",
+			sequence: 1,
+		});
+	}
+
 	test("discovery opt-in lists the share without enabling forks", async () => {
+		await addAssistantReply();
 		const shareId = await share({ allowDiscovery: true });
 		const listing = (await (
 			await app.request("/public/chats/share")
@@ -208,6 +219,16 @@ describe("chat sharing permissions", () => {
 			),
 		).toBe("index, follow");
 		expect((await fork(shareId)).status).toBe(403);
+	});
+
+	test("discovery opt-in keeps thin conversations out of the listing", async () => {
+		const shareId = await share({ allowDiscovery: true });
+		expect(await (await app.request("/public/chats/share")).json()).toEqual({
+			shares: [],
+		});
+		expect((await app.request(`/public/chats/share/${shareId}`)).status).toBe(
+			200,
+		);
 	});
 
 	test("fork consent allows an independent copy without enabling discovery", async () => {
@@ -291,6 +312,7 @@ describe("chat sharing permissions", () => {
 	});
 
 	test("archived originals disappear from discovery and cannot be read or forked", async () => {
+		await addAssistantReply();
 		const shareId = await share({ allowDiscovery: true, allowForking: true });
 		await db
 			.update(tables.chat)

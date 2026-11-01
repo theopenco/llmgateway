@@ -3,9 +3,11 @@ import { z } from "zod";
 export const moderationApiPayloadResultSchema = z
 	.object({
 		flagged: z.boolean().optional(),
-		categories: z.record(z.boolean()).optional(),
-		category_scores: z.record(z.number()).optional(),
-		category_applied_input_types: z.record(z.array(z.string())).optional(),
+		categories: z.record(z.string(), z.boolean()).optional(),
+		category_scores: z.record(z.string(), z.number()).optional(),
+		category_applied_input_types: z
+			.record(z.string(), z.array(z.string()))
+			.optional(),
 	})
 	.passthrough();
 
@@ -66,7 +68,7 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	flagged: z.boolean(),
 	matchedCategories: z.array(z.string()),
 	// Highest score per category across every moderation result.
-	categoryScores: z.record(z.number()),
+	categoryScores: z.record(z.string(), z.number()),
 	moderationFailed: z.boolean(),
 	// Absent on evaluations written before the classifier became selectable;
 	// those all ran on OpenAI moderation.
@@ -95,7 +97,7 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 			violation: z.boolean(),
 			flagged: z.boolean(),
 			matchedCategories: z.array(z.string()),
-			categoryScores: z.record(z.number()),
+			categoryScores: z.record(z.string(), z.number()),
 			moderationFailed: z.boolean(),
 			durationMs: z.number().nonnegative().optional(),
 			/** True when the shadow classifier disagreed with the deciding one. */
