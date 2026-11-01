@@ -87,6 +87,26 @@ Each check lists the upstream requests it actually sent. A check can be more tha
 
 Where a check can tell the difference between a capability and a dialect, it narrows the listing itself. A `tool_choice` mode your endpoint mishandles is dropped while tool calls stay on, and a `reasoning_effort` tier your endpoint rejects outright is retried at another tier — reasoning stays on and only the rejected tiers come off your declared set. If one tier is rejected the check goes on to try the others, since a tier left declared is one the gateway will forward verbatim. So a deployment implementing only a subset of the tiers verifies without losing reasoning, and you do not have to know which subset in advance.
 
+### Daily verification and regression alerts
+
+When enabled by the operator, the worker rechecks every live chat and typed-decision mapping across the [catalogue](https://llmgateway.io/models), including regional deployments and Airside listings. This uses the same declared-capability and limit checks as preflight, including its optional-check policy. Image, video, audio-only, embedding, moderation, reranking, and other non-chat outputs are not supported by this verifier and are not scheduled.
+
+The worker scans on startup and every five minutes, queuing at most one scheduled run per mapping per UTC calendar day across all replicas. It does not backfill missed days. An existing queued or running verification delays scheduling until a later scan; manual runs take priority, and scheduled runs rotate between providers with at most one running per provider. A large queue can therefore finish after the day it was scheduled.
+
+Only active providers, models, and mappings qualify. Deactivated mappings and paused, draft, rejected, or delisted Airside listings are excluded. Eligibility and the current declaration are checked again before execution and alert delivery. If the declaration changed or a usable key disappeared, the run is retained as failed with skipped checks, not reported as a capability regression. Completed runs remain in the existing verification history. Daily runs never delist models or change capabilities, prices, tool-choice modes, or reasoning tiers.
+
+Claimed providers use their current saved **test key**, never their managed serving key. Unclaimed catalogue mappings use an active managed key allowed for the model, or the provider credential configured on the worker. Terminal history ciphertext is never reused; rotating or removing a test key takes effect on the next execution. Providers without a usable credential are skipped. Verification requests consume upstream resources, including large context-window probes, without appearing in gateway usage or billing.
+
+For self-hosting, configure these worker environment variables:
+
+- `AIRSIDE_DAILY_VERIFICATION_ENABLED=true` enables scheduling; it is disabled by default. Turning it off stops new scheduled runs; already queued runs continue to drain.
+- `MODEL_VERIFICATION_CONCURRENCY` sets parallel verification consumers per worker replica (1–16; default 4). Scheduled runs still serialize per provider across replicas; manual runs are prioritized but do not interrupt an in-flight verification.
+- `AIRSIDE_VERIFICATION_DISCORD_WEBHOOK_URL` enables Discord regression alerts independently of scheduling. Leave it unset to disable delivery. Configure the usual database, encryption secret, and provider credentials on the worker too. No external cron job or database migration is needed.
+
+An alert requires a failed check or probe that previously passed for the same deployment and compatible declaration. The most recent observed result is the baseline: unchanged persistent failures do not alert every day, recovery re-arms detection, and new or optional checks do not generate regression alerts without a prior pass. Existing manual and carrier verification history can supply that baseline.
+
+Alerts contain only provider/model identifiers, region, check IDs, verification ID, and completion time; they omit credentials, prompts, upstream feedback, and responses, and disable mentions. Delivery has a five-second timeout. Network and HTTP failures retain retry state in the existing job-progress table, retry after at least five minutes, and respect `Retry-After` up to seven days. New alert candidates are discovered for seven days after queueing; previously attempted deliveries keep retrying after that discovery window. Successful sends are durably deduplicated across replicas. A crash after Discord accepts a message but before the database commits can still duplicate that message.
+
 ### Web search format
 
 A listing that declares **web search** also picks the shape its Chat Completions endpoint takes a search in:

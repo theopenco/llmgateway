@@ -10,6 +10,7 @@
  *
  * See: packages/db/src/cdb-resilience.spec.ts for documentation of this behavior.
  */
+import { narrowManagedKeysToRegion } from "@llmgateway/actions";
 import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
@@ -53,7 +54,7 @@ import {
 	wallet as walletTable,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
+import { providers, getRegionScopedDefaultRegion } from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	isProviderBaseUrlOverrideAllowed,
@@ -1134,43 +1135,6 @@ export async function hasManagedProviderCredential(
 	provider: string,
 ): Promise<boolean> {
 	return (await listManagedProviderKeys(provider)).length > 0;
-}
-
-/**
- * Narrow a provider's managed credentials to the ones that can serve this
- * region.
- *
- * With a region in hand, a credential pinned to it wins and a region-agnostic
- * one is the fallback — the same precedence `{ENV}__{REGION}` has over `{ENV}`.
- *
- * Without one, the request is sent to the provider's default region. A
- * region-agnostic credential still serves it, and so does one pinned to that
- * default region — which is all a provider with no global region can offer,
- * since every one of its credentials is necessarily region-scoped (Alibaba).
- * Providers whose credential works across regions (AWS Bedrock) are excluded
- * from that last step by `getRegionScopedDefaultRegion`: a region on their
- * credential is the operator scoping it deliberately, so the request fails
- * rather than borrowing a credential meant for another region.
- */
-function narrowManagedKeysToRegion(
-	keys: ProviderKey[],
-	provider: string,
-	region: string | undefined,
-): ProviderKey[] {
-	if (region) {
-		const pinned = keys.filter((key) => key.region === region);
-		return pinned.length > 0 ? pinned : keys.filter((key) => !key.region);
-	}
-
-	const regionAgnostic = keys.filter((key) => !key.region);
-	if (regionAgnostic.length > 0) {
-		return regionAgnostic;
-	}
-
-	const defaultRegion = getRegionScopedDefaultRegion(provider);
-	return defaultRegion
-		? keys.filter((key) => key.region === defaultRegion)
-		: [];
 }
 
 /**

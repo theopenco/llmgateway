@@ -5,8 +5,10 @@ import {
 	readProviderKey,
 	redactToken,
 	runProviderModelVerification,
+	modelVerificationEnvironmentToken,
+	narrowManagedKeysToRegion,
 } from "@llmgateway/actions";
-import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
+import { and, asc, cdb, db, eq, lt, tables, sql } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getProviderEnvVar,
@@ -14,6 +16,11 @@ import {
 	REASONING_EFFORTS,
 	TOOL_CHOICE_MODES,
 } from "@llmgateway/models";
+
+import {
+	isDailyModelVerification,
+	resolveDailyVerificationCredential,
+} from "./daily-model-verifications.js";
 
 import type { RunModelVerificationOptions } from "@llmgateway/actions";
 import type {
@@ -63,11 +70,15 @@ async function managedCredential(
 		},
 		orderBy: { sortOrder: "asc", createdAt: "asc" },
 	});
-	const key = keys.find(
-		(candidate) =>
-			!candidate.allowedModels?.length ||
-			candidate.allowedModels.includes(job.target.externalId),
-	);
+	const key = narrowManagedKeysToRegion(
+		keys.filter(
+			(candidate) =>
+				!candidate.allowedModels?.length ||
+				candidate.allowedModels.includes(job.target.externalId),
+		),
+		job.target.providerId,
+		job.target.region ?? undefined,
+	)[0];
 	if (!key) {
 		throw new Error("No active managed credential can verify this mapping.");
 	}
@@ -81,9 +92,11 @@ async function managedCredential(
 
 function environmentCredential(job: VerificationRow): string {
 	const envName = getProviderEnvVar(job.target.providerId);
-	const token = envName
-		? firstEnvironmentCredential(process.env[envName] ?? "")
-		: "";
+	const token = isDailyModelVerification(job)
+		? modelVerificationEnvironmentToken(job.target)
+		: envName
+			? firstEnvironmentCredential(process.env[envName] ?? "")
+			: "";
 	if (!token) {
 		throw new Error(
 			"No environment credential is configured for this provider. Re-run the verification with a provider API key.",
@@ -120,6 +133,21 @@ async function resolvePlatformCredential(
 async function resolveCredential(
 	job: VerificationRow,
 ): Promise<ResolvedCredential> {
+	if (isDailyModelVerification(job)) {
+		const current = await resolveDailyVerificationCredential(job);
+		if (current.providerKey) {
+			return {
+				providerKey: current.providerKey,
+				baseUrl: current.baseUrl,
+				skipEnvVars: !getProviderDefinition(job.target.providerId),
+			};
+		}
+		return await resolvePlatformCredential({
+			...job,
+			providerCompanyId: null,
+			credentialSource: current.credentialSource,
+		});
+	}
 	// A run with no carrier (an admin run against a catalogue mapping) has no
 	// claim to resolve; admin runs against a carrier's listing keep the
 	// claim-scoped path so a custom carrier's base URL still applies.
@@ -201,34 +229,75 @@ export async function claimNextModelVerification(): Promise<VerificationRow | nu
 					),
 				);
 		}
-		const [job] = await tx
+		const candidates = await tx
 			.select()
 			.from(tables.providerModelVerification)
 			.where(eq(tables.providerModelVerification.status, "queued"))
-			.orderBy(asc(tables.providerModelVerification.createdAt))
-			.limit(1)
-			.for("update", { skipLocked: true });
-		if (!job) {
-			return null;
-		}
-		const [claimed] = await tx
-			.update(tables.providerModelVerification)
-			.set({
-				status: "running",
-				startedAt: new Date(),
-				completedAt: null,
-				summary: null,
-				attempts: job.attempts + 1,
-			})
-			.where(
-				and(
-					eq(tables.providerModelVerification.id, job.id),
-					eq(tables.providerModelVerification.status, "queued"),
-					eq(tables.providerModelVerification.attempts, job.attempts),
-				),
+			.orderBy(
+				sql`CASE WHEN ${tables.providerModelVerification.id} LIKE 'daily-verification:%' THEN 1 ELSE 0 END`,
+				sql`row_number() OVER (PARTITION BY ${tables.providerModelVerification.target}->>'providerId' ORDER BY ${tables.providerModelVerification.createdAt}, ${tables.providerModelVerification.id})`,
+				asc(tables.providerModelVerification.createdAt),
 			)
-			.returning();
-		return claimed ?? null;
+			.limit(100);
+		for (const candidate of candidates) {
+			const [job] = await tx
+				.select()
+				.from(tables.providerModelVerification)
+				.where(
+					and(
+						eq(tables.providerModelVerification.id, candidate.id),
+						eq(tables.providerModelVerification.status, "queued"),
+					),
+				)
+				.for("update", { skipLocked: true });
+			if (!job) {
+				continue;
+			}
+			if (isDailyModelVerification(job)) {
+				const [provider] = await tx
+					.select({ id: tables.provider.id })
+					.from(tables.provider)
+					.where(eq(tables.provider.id, job.target.providerId))
+					.for("update", { skipLocked: true });
+				if (!provider) {
+					continue;
+				}
+				const [running] = await tx
+					.select({ id: tables.providerModelVerification.id })
+					.from(tables.providerModelVerification)
+					.where(
+						and(
+							eq(tables.providerModelVerification.status, "running"),
+							sql`${tables.providerModelVerification.target}->>'providerId' = ${job.target.providerId}`,
+						),
+					)
+					.limit(1);
+				if (running) {
+					continue;
+				}
+			}
+			const [claimed] = await tx
+				.update(tables.providerModelVerification)
+				.set({
+					status: "running",
+					startedAt: new Date(),
+					completedAt: null,
+					summary: null,
+					attempts: job.attempts + 1,
+				})
+				.where(
+					and(
+						eq(tables.providerModelVerification.id, job.id),
+						eq(tables.providerModelVerification.status, "queued"),
+						eq(tables.providerModelVerification.attempts, job.attempts),
+					),
+				)
+				.returning();
+			if (claimed) {
+				return claimed;
+			}
+		}
+		return null;
 	});
 }
 
@@ -500,8 +569,10 @@ export async function processNextModelVerification(
 				capabilities: disprovedCapabilities(result.checks),
 			});
 		}
-		await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
-		await narrowReasoningEfforts(job, result.unsupportedReasoningEfforts);
+		if (!isDailyModelVerification(job)) {
+			await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
+			await narrowReasoningEfforts(job, result.unsupportedReasoningEfforts);
+		}
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
 			return true;
@@ -513,7 +584,14 @@ export async function processNextModelVerification(
 			),
 			token,
 		);
-		checks = terminalChecks(checks, feedback);
+		checks =
+			isDailyModelVerification(job) && !token
+				? checks.map((check) => ({
+						...check,
+						status: "skipped" as const,
+						feedback: "Scheduled verification is currently unavailable.",
+					}))
+				: terminalChecks(checks, feedback);
 		const completed = await db
 			.update(tables.providerModelVerification)
 			.set({

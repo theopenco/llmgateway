@@ -66,6 +66,10 @@ import { posthog } from "./posthog.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
+	scheduleDailyModelVerifications,
+	modelVerificationConcurrency,
+} from "./services/daily-model-verifications.js";
+import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
 	sendLowBalanceEmail,
@@ -81,6 +85,7 @@ import {
 	runTenantStatsByokSplitBackfillStep,
 } from "./services/hourly-stats-backfill.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
+import { deliverModelVerificationRegressions } from "./services/model-verification-regressions.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
 import {
@@ -3697,7 +3702,14 @@ export async function startWorker() {
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
-	void runModelVerificationLoop();
+	for (
+		let consumer = 0;
+		consumer < modelVerificationConcurrency();
+		consumer++
+	) {
+		void runModelVerificationLoop();
+	}
+	void runDailyModelVerificationLoop();
 	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
@@ -3861,5 +3873,24 @@ export async function enforceRetentionPlanGating(
 		return 0;
 	} finally {
 		await releaseLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	}
+}
+async function runDailyModelVerificationLoop() {
+	activeLoops++;
+	try {
+		while (!isStopRequested()) {
+			try {
+				await scheduleDailyModelVerifications();
+				await deliverModelVerificationRegressions();
+			} catch (error) {
+				logger.error(
+					"Error in daily model verification loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+			await interruptibleSleep(5 * 60 * 1000);
+		}
+	} finally {
+		activeLoops--;
 	}
 }

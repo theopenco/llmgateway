@@ -13,12 +13,8 @@ import { cdb, db, eq, shortid, tables } from "@llmgateway/db";
 import { hasProviderEnvironmentToken } from "@llmgateway/models";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
+import type { VerificationTargetInput } from "@llmgateway/actions";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
-import type {
-	ProviderApiFormat,
-	ToolChoiceMode,
-	WebSearchFormat,
-} from "@llmgateway/models";
 
 export type ModelVerificationRow =
 	typeof tables.providerModelVerification.$inferSelect;
@@ -57,31 +53,6 @@ export const modelVerificationSchema = z.object({
 	startedAt: z.string().nullable(),
 	completedAt: z.string().nullable(),
 });
-
-export interface VerificationTargetInput {
-	providerId: string;
-	modelName: string;
-	externalId?: string | null;
-	apiFormat?: ProviderApiFormat | null;
-	decisions?: boolean | null;
-	region?: string | null;
-	streaming?: boolean | null;
-	vision?: boolean | null;
-	audio?: boolean | null;
-	tools?: boolean | null;
-	supportedToolChoices?: ToolChoiceMode[] | null;
-	jsonOutput?: boolean | null;
-	jsonOutputSchema?: boolean | null;
-	reasoning?: boolean | null;
-	reasoningMaxTokens?: boolean | null;
-	reasoningEfforts?: string[] | null;
-	webSearch?: boolean | null;
-	webSearchFormat?: WebSearchFormat | null;
-	contextSize?: number | null;
-	maxOutput?: number | null;
-	promptCaching?: boolean | null;
-}
-
 const CAPABILITY_KEYS = [
 	"streaming",
 	"vision",
@@ -133,56 +104,6 @@ export function pickCapabilities(metadata: object): CapabilityOverrides {
 		}
 	}
 	return overrides as CapabilityOverrides;
-}
-
-export function buildVerificationTarget(
-	input: VerificationTargetInput,
-): ProviderModelVerificationTarget {
-	const target: ProviderModelVerificationTarget = {
-		providerId: input.providerId,
-		modelName: input.modelName,
-		externalId: input.externalId ?? input.modelName,
-		apiFormat: input.apiFormat ?? "openai-chat-completions",
-		region: input.region ?? null,
-		streaming: input.streaming ?? true,
-		vision: input.vision ?? false,
-		audio: input.audio ?? false,
-		tools: input.tools ?? false,
-		supportedToolChoices: input.supportedToolChoices ?? null,
-		jsonOutput: input.jsonOutput ?? false,
-		jsonOutputSchema: input.jsonOutputSchema ?? false,
-		reasoning: input.reasoning ?? false,
-		reasoningMaxTokens: input.reasoningMaxTokens ?? false,
-		reasoningEfforts: input.reasoningEfforts ?? null,
-		webSearch: input.webSearch ?? false,
-		webSearchFormat: input.webSearchFormat ?? null,
-		contextSize: input.contextSize ?? null,
-		maxOutput: input.maxOutput ?? null,
-		promptCaching: input.promptCaching ?? false,
-	};
-	if (!input.decisions) {
-		return target;
-	}
-	// A decision listing is served on `/v1/decisions`: only image input and
-	// the input window describe it, so chat capabilities are never claimed.
-	return {
-		...target,
-		decisions: true,
-		apiFormat: "openai-chat-completions",
-		streaming: false,
-		audio: false,
-		tools: false,
-		supportedToolChoices: null,
-		jsonOutput: false,
-		jsonOutputSchema: false,
-		reasoning: false,
-		reasoningMaxTokens: false,
-		reasoningEfforts: null,
-		webSearch: false,
-		webSearchFormat: null,
-		maxOutput: null,
-		promptCaching: false,
-	};
 }
 
 interface DeclaredPrices {
@@ -580,3 +501,4 @@ export function serializeVerificationHistoryEntry(
 		actorEmail: audience === "admin" ? (actor?.email ?? null) : null,
 	};
 }
+export { buildVerificationTarget } from "@llmgateway/actions";

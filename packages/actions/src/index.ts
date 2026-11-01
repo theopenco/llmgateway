@@ -38,3 +38,5 @@ export * from "./notification-access.js";
 export * from "./compliance-alerts.js";
 export * from "./data-streams.js";
 export * from "./data-stream-runner.js";
+export * from "./model-verification-target.js";
+export * from "./provider-key/region.js";
