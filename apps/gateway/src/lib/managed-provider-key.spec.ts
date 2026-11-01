@@ -54,6 +54,40 @@ async function insertManaged(
 
 // Rows are deleted per case, but the managed-credential lookup stays cached in
 // this worker's Redis and would leak into later spec files.
+describe("managed provider-key selection strategies", () => {
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await redisClient.flushdb();
+	});
+
+	it("alternates opt-in keys while keeping an ordered key as fallback", async () => {
+		await insertManaged({
+			id: "rr-a",
+			sortOrder: 0,
+			selectionStrategy: "round_robin",
+		});
+		await insertManaged({
+			id: "rr-b",
+			sortOrder: 1,
+			selectionStrategy: "round_robin",
+		});
+		await insertManaged({ id: "rr-fallback", sortOrder: 2 });
+		const selected = [];
+		for (let index = 0; index < 4; index++) {
+			selected.push((await findManagedProviderKey("openai"))?.id);
+		}
+		expect(selected).toEqual(["rr-a", "rr-b", "rr-a", "rr-b"]);
+		expect(
+			(
+				await findManagedProviderKey("openai", {
+					excludedKeyIds: new Set(["rr-a", "rr-b"]),
+				})
+			)?.id,
+		).toBe("rr-fallback");
+	});
+});
 afterAll(async () => {
 	await waitForSwrMirrorWrites();
 	await db.delete(providerKey);

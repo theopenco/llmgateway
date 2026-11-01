@@ -106,6 +106,8 @@ import type {
 	ProviderValidationResult,
 } from "@llmgateway/models";
 
+const selectionStrategySchema = z.enum(["ordered", "round_robin"]);
+
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
 adminProviderCredentials.use("/*", adminMiddleware);
@@ -130,6 +132,7 @@ const credentialSchema = z.object({
 	provider: z.string(),
 	comment: z.string().nullable(),
 	variant: variantSchema,
+	selectionStrategy: selectionStrategySchema,
 	region: z.string().nullable(),
 	status: z
 		.enum(["active", "inactive", "pending_deletion", "deleted"])
@@ -321,6 +324,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		provider: row.provider,
 		comment: row.comment,
 		variant: row.variant,
+		selectionStrategy: row.selectionStrategy,
 		region: row.region,
 		status: row.status,
 		deletionRequestedAt: row.deletionRequestedAt,
@@ -1957,6 +1961,7 @@ const createCredential = createRoute({
 						token: z.string().min(1),
 						comment: z.string().max(500).optional(),
 						variant: variantSchema.optional(),
+						selectionStrategy: selectionStrategySchema.optional(),
 						region: z.string().max(64).optional(),
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
@@ -2039,6 +2044,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				tokenHash: getApiKeyFingerprint(body.token),
 				comment: body.comment?.trim() || null,
 				variant: body.variant ?? "default",
+				selectionStrategy: body.selectionStrategy ?? "ordered",
 				region: body.region?.trim() || null,
 				config,
 				usageLimit: body.usageLimit ?? null,
@@ -2090,6 +2096,7 @@ const updateCredential = createRoute({
 						token: z.string().min(1).optional(),
 						comment: z.string().max(500).nullable().optional(),
 						variant: variantSchema.optional(),
+						selectionStrategy: selectionStrategySchema.optional(),
 						region: z.string().max(64).nullable().optional(),
 						status: statusSchema.optional(),
 						config: z.record(z.string(), z.string()).optional(),
@@ -2256,6 +2263,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 	if (body.variant !== undefined) {
 		updates.variant = body.variant;
+	}
+	if (body.selectionStrategy !== undefined) {
+		updates.selectionStrategy = body.selectionStrategy;
 	}
 	if (body.region !== undefined) {
 		updates.region = body.region?.trim() || null;

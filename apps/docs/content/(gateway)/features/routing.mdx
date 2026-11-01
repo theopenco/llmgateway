@@ -89,6 +89,32 @@ exemption, including credential and region changes; cross-provider fallback
 does not. Administrators can configure lax limits globally or for a specific
 organization, with the same precedence and counter scopes as other modes.
 
+## Platform Credential Selection
+
+Administrators can choose a selection strategy for each platform-managed provider
+key. **Ordered** is the default: existing key order and health-aware failover are
+unchanged. **Round robin** shares initial requests evenly among healthy, eligible
+round-robin keys within the same provider, variant, region, and request scope.
+
+Round-robin keys form one pool at the first member's position, even when ordered
+keys appear between members. Order controls the pool's priority, not weights within
+it. For example, two round-robin keys ahead of an ordered key share initial
+requests roughly 50/50; the ordered key is their fallback. An ordered key before
+the pool remains the primary. A pool with one eligible member uses that member.
+
+Retryable failures try other eligible pool members before lower-priority ordered
+keys, within the endpoint's existing retry budget. Inactive, excluded, or capped
+keys cannot re-enter through balancing; existing soft/lax exemptions still apply.
+If no permitted key is healthy, existing last-resort health handling applies.
+Cursor state is shared across gateway replicas; if it is unavailable, selection
+degrades to ordered keys for the request. Availability checks do not consume turns.
+
+This does not change provider routing, prices, workload-learning thresholds, or
+provider/session pins. A provider pin does not normally pin a particular account,
+so round robin can affect account-local prompt-cache hits. Required credential
+pins, including encrypted-reasoning replays, still take precedence. Organization
+BYOK keys and environment credentials retain their existing selection behavior.
+
 ## Model Selection
 
 ### Any Model Name
