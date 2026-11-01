@@ -1707,6 +1707,7 @@ async function hasManagedVideoCredential(
 	const managedKey = await findManagedProviderKey(providerId, {
 		variant,
 		filter: getManagedVideoCredentialFilter(providerId),
+		advanceRoundRobin: false,
 	});
 	if (!managedKey) {
 		return false;

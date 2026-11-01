@@ -55,6 +55,8 @@ export interface RealtimePreflightInput {
 	 */
 	intent?: string;
 	clientIp?: string;
+	/** Secret minting checks availability without selecting an upstream account. */
+	advanceRoundRobin?: boolean;
 }
 
 export interface RealtimePreflightResult {
@@ -374,6 +376,7 @@ async function runRealtimePreflightInner(
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
+				advanceRoundRobin: input.advanceRoundRobin,
 			},
 		);
 		managedKey = platformCredential.managedKey;

@@ -81,6 +81,18 @@ export const gatewayInflightRequests = new Gauge({
 });
 
 // Counter for requests shed by a concurrency limit. scope="pod" is the
+export const managedKeySelectionsTotal = new Counter({
+	name: "managed_key_selections_total",
+	help: "Managed credential selections by strategy and initial or retry attempt",
+	labelNames: ["strategy", "attempt"] as const,
+	registers: [metricsRegistry],
+});
+
+export const managedKeySelectionDegradedTotal = new Counter({
+	name: "managed_key_selection_degraded_total",
+	help: "Round-robin selections degraded to ordered keys after cursor errors",
+	registers: [metricsRegistry],
+});
 // pod-wide backpressure cap (HTTP 529); scope="org" is a per-organization
 // in-flight limit (HTTP 429). Lets us alert on dropped traffic and see how
 // often limits are hit, rather than inferring it from the gauge riding the cap.

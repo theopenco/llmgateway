@@ -52,6 +52,7 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
+import { managedKeySelectionsTotal } from "@llmgateway/instrumentation/metrics";
 import { logger } from "@llmgateway/logger";
 import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
 import {
@@ -70,6 +71,7 @@ import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
+import { selectManagedProviderKey } from "./managed-key-selection.js";
 import {
 	getRateLimitedProviderKeyIds,
 	type ProviderKeyRateLimitExemption,
@@ -1083,6 +1085,8 @@ export interface FindManagedProviderKeyOptions {
 	excludedKeyIds?: ReadonlySet<string>;
 	filter?: (key: ProviderKey) => boolean;
 	rateLimitExemption?: ProviderKeyRateLimitExemption;
+	/** Availability checks never reserve a round-robin turn. */
+	advanceRoundRobin?: boolean;
 }
 
 /**
@@ -1185,12 +1189,36 @@ export async function findManagedProviderKey(
 	provider: string,
 	options: FindManagedProviderKeyOptions = {},
 ): Promise<ProviderKey | undefined> {
-	return await selectAvailableProviderKey(
-		await listManagedProviderKeyCandidates(provider, options),
-		options.selectionScope,
-		options.excludedKeyIds,
+	const candidates = await listManagedProviderKeyCandidates(provider, options);
+	if (!candidates.some((key) => key.selectionStrategy === "round_robin")) {
+		const selected = await selectAvailableProviderKey(
+			candidates,
+			options.selectionScope,
+			options.excludedKeyIds,
+			options.rateLimitExemption,
+		);
+		return recordManagedKeySelection(selected, options);
+	}
+	const rateLimited = await getRateLimitedProviderKeyIds(
+		candidates.filter((key) => !options.excludedKeyIds?.has(key.id)),
 		options.rateLimitExemption,
 	);
+	const selected = await selectManagedProviderKey(
+		candidates,
+		{
+			provider,
+			variant: candidates[0]?.variant ?? "default",
+			region: candidates[0]?.region ?? null,
+			selectionScope: options.selectionScope,
+			excludedKeyIds: new Set([
+				...(options.excludedKeyIds ?? []),
+				...rateLimited,
+			]),
+			advanceRoundRobin: options.advanceRoundRobin,
+		},
+		(items) => selectProviderKeyWithFailover(items, options.selectionScope),
+	);
+	return recordManagedKeySelection(selected, options);
 }
 
 /**
@@ -1844,4 +1872,16 @@ export async function findUserFromOrganization(
 			return results[0];
 		},
 	);
+}
+function recordManagedKeySelection(
+	key: ProviderKey | undefined,
+	options: FindManagedProviderKeyOptions,
+): ProviderKey | undefined {
+	if (key && options.advanceRoundRobin !== false) {
+		managedKeySelectionsTotal.inc({
+			strategy: key.selectionStrategy ?? "ordered",
+			attempt: options.excludedKeyIds?.size ? "retry" : "initial",
+		});
+	}
+	return key;
 }

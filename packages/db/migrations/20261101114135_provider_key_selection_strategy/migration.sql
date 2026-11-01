@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD COLUMN "selection_strategy" text DEFAULT 'ordered' NOT NULL;
