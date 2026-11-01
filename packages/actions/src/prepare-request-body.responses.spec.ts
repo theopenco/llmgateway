@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type {
@@ -182,6 +184,24 @@ describe("transform to OpenAI Responses API", () => {
 			resolvedProviderMapping: mapping,
 		});
 		expect(withoutSearch.input[0]!.role).toBe("developer");
+	});
+
+	test("keeps tool_choice none on the DeepSeek web search reroute", async () => {
+		const mapping = models
+			.find((m) => m.id === "deepseek-v4-pro")!
+			.providers.find(
+				(p) => p.providerId === "deepseek",
+			) as ProviderModelMapping;
+		const body = await buildOpenAIResponsesBody(
+			[{ role: "user", content: "news?" }],
+			{
+				provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+				webSearchTool: { type: "web_search" },
+				resolvedProviderMapping: mapping,
+				tool_choice: "none",
+			},
+		);
+		expect(body.tool_choice).toBe("none");
 	});
 
 	test("emits function_call items before the assistant message by default", async () => {
