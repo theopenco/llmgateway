@@ -76,6 +76,38 @@ describe("transformAnthropicMessages", () => {
 		});
 	});
 
+	it("covers the text message a Responses API turn splits from its tool call", async () => {
+		const split = [
+			{ role: "user", content: "weather?" },
+			{ role: "assistant", content: "Checking.", reasoning: "look it up" },
+			{ ...messages[1], reasoning_content: undefined },
+			{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+			{ role: "assistant", content: "It is" },
+		] as unknown as BaseMessage[];
+		const result = await transformAnthropicMessages(
+			split,
+			false,
+			"anthropic",
+			"deepseek-v4.1-flash-1017",
+			20,
+			null,
+			0,
+			4096,
+			false,
+			undefined,
+			true,
+		);
+		const firstBlock = (index: number) =>
+			(result[index]!.content as Array<{ type: string; thinking?: string }>)[0];
+		expect(firstBlock(1)).toMatchObject({
+			type: "thinking",
+			thinking: "look it up",
+		});
+		expect(firstBlock(2)).toMatchObject({ type: "thinking", thinking: "" });
+		// A trailing assistant prefill stays as sent.
+		expect(firstBlock(4)!.type).toBe("text");
+	});
+
 	it("never invents thinking blocks for Anthropic", async () => {
 		const [, assistant] = await transform(false);
 		expect(
