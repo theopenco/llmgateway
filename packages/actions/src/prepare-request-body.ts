@@ -1813,6 +1813,20 @@ export async function prepareRequestBody(
 		usedProvider,
 		usedRegion,
 	);
+	// Cache-only search (`external_web_access: false`) exists only on OpenAI's
+	// Responses API. Anywhere else the tool would run a live, billed search the
+	// caller did not ask for, so it is dropped.
+	if (
+		webSearchTool?.external_web_access === false &&
+		!(
+			usedProvider === "openai" &&
+			providerMappingForOptions?.webSearch === true &&
+			(useResponsesApi ??
+				providerMappingForOptions.supportsResponsesApi === true)
+		)
+	) {
+		webSearchTool = undefined;
+	}
 	// A forced search maps to `tool_choice: "required"` in the tool shape,
 	// unless the mapping declares it does not take that mode.
 	const formatToolChoices = (
@@ -3070,12 +3084,16 @@ export async function prepareRequestBody(
 						type: "web_search";
 						user_location?: unknown;
 						search_context_size?: string;
+						external_web_access?: false;
 					} = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
 					}
 					if (webSearchTool.search_context_size) {
 						webSearch.search_context_size = webSearchTool.search_context_size;
+					}
+					if (webSearchTool.external_web_access === false) {
+						webSearch.external_web_access = false;
 					}
 					responsesBody.tools.push(webSearch);
 					// The Responses API takes the same directive the gateway accepts,
