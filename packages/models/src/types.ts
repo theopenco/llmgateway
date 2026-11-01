@@ -834,6 +834,13 @@ export interface WebSearchTool {
 	 */
 	blocked_domains?: string[];
 	/**
+	 * `false` asks for OpenAI's cache-only search, which never fetches live
+	 * pages. Only OpenAI's Responses API offers it; every other upstream drops
+	 * the tool rather than running a live search. Omitted or `true` is live
+	 * search.
+	 */
+	external_web_access?: boolean;
+	/**
 	 * Whether the caller demanded a search rather than offering one, i.e. sent
 	 * `tool_choice: {type: "web_search"}`. Not part of the tool the client
 	 * sends: the gateway derives it from `tool_choice` and carries it here so

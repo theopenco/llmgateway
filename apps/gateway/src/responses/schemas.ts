@@ -407,6 +407,8 @@ export const responsesRequestSchema = z
 						max_uses: z.number().optional(),
 						allowed_domains: z.array(z.string()).optional(),
 						blocked_domains: z.array(z.string()).optional(),
+						// `false` is OpenAI's cache-only search; see the chat schema.
+						external_web_access: z.boolean().optional(),
 						// OpenAI's shape for the domain allow-list.
 						filters: z
 							.object({ allowed_domains: z.array(z.string()).optional() })

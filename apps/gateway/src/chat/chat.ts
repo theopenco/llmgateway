@@ -2184,6 +2184,11 @@ chat.openapi(completions, async (c) => {
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
 	let webSearchTool: WebSearchTool | undefined;
+	// A cache-only search (`external_web_access: false`, Codex's default) is
+	// kept apart from `webSearchTool`, so it never drives validation, routing,
+	// or billing. Request shaping forwards it to upstreams with a cache-only
+	// mode (OpenAI's Responses API) and drops it everywhere else.
+	let cachedOnlyWebSearchTool: WebSearchTool | undefined;
 	if (tools && Array.isArray(tools)) {
 		// allowed_domains and blocked_domains are mutually exclusive; providers
 		// accept only one, and silently preferring one would drop the caller's
@@ -2216,7 +2221,7 @@ chat.openapi(completions, async (c) => {
 		if (webSearchToolIndex !== -1) {
 			// Cast to any to access properties since the schema allows both function and web_search tools
 			const foundTool = tools[webSearchToolIndex] as any;
-			webSearchTool = {
+			const extracted: WebSearchTool = {
 				type: "web_search",
 				user_location: foundTool.user_location,
 				search_context_size: foundTool.search_context_size,
@@ -2233,6 +2238,15 @@ chat.openapi(completions, async (c) => {
 			};
 			// Remove the web_search tool from the tools array so it's not sent as a regular tool
 			tools.splice(webSearchToolIndex, 1);
+			if (foundTool.external_web_access === false) {
+				cachedOnlyWebSearchTool = { ...extracted, external_web_access: false };
+				// Nothing else was offered: validate as a tool-free request.
+				if (tools.length === 0) {
+					tools = undefined;
+				}
+			} else {
+				webSearchTool = extracted;
+			}
 		}
 	}
 
@@ -7861,7 +7875,7 @@ chat.openapi(completions, async (c) => {
 			tools: tools?.length ? tools : undefined,
 			tool_choice,
 			parallel_tool_calls,
-			webSearchTool,
+			webSearchTool: webSearchTool ?? cachedOnlyWebSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
 			// Schema documents omitting reasoning.context as equivalent to "auto"
@@ -8725,7 +8739,7 @@ chat.openapi(completions, async (c) => {
 			image_config,
 			effort,
 			isImageGeneration,
-			webSearchTool,
+			webSearchTool ?? cachedOnlyWebSearchTool,
 			reasoning_max_tokens,
 			useResponsesApi,
 			prompt_cache_key,
@@ -8949,7 +8963,7 @@ chat.openapi(completions, async (c) => {
 				session_id: sessionId,
 				safetyIdentifier: retrySafetyIdentifier,
 				effort,
-				webSearchTool,
+				webSearchTool: webSearchTool ?? cachedOnlyWebSearchTool,
 				image_config,
 				sensitive_word_check,
 				maxImageSizeMB,

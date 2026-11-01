@@ -156,6 +156,25 @@ Restrict which domains the model may search with `allowed_domains`, or exclude d
 }
 ```
 
+### Cache-only search
+
+OpenAI's `external_web_access: false` asks for a search of OpenAI's cached
+index only, without fetching live pages. Codex CLI sends it on every request
+unless its `web_search` setting is `"live"` or `"disabled"`:
+
+```json
+{
+	"type": "web_search",
+	"external_web_access": false
+}
+```
+
+The gateway forwards it to OpenAI's Responses API, which bills each search it
+runs like a live one. No other provider has a cache-only mode, so there the
+gateway drops the tool: the request is validated, routed and billed as if it had
+no web search, and works on models without native web search. Omitted or
+`true` means live search.
+
 ### Shorthand: `web_search: true`
 
 As a shortcut, set the top-level `web_search` body field to `true` instead of adding the tool — the gateway injects a default `web_search` tool for you (it has no effect if the tool is already present):
