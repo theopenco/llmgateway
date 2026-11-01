@@ -381,7 +381,7 @@ async function handleTestModeWebhookEvent(event: Stripe.Event): Promise<void> {
 		case "payment_intent.succeeded": {
 			const pi = event.data.object;
 			if (pi.metadata?.kind === "end_user_topup") {
-				await handleEndUserTopUpSucceeded(pi);
+				await handleEndUserTopUpSucceeded(pi, "test");
 			} else {
 				logger.warn("Ignoring non-SDK test-mode payment_intent.succeeded", {
 					paymentIntentId: pi.id,
@@ -2286,6 +2286,9 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
  */
 export async function handleEndUserTopUpSucceeded(
 	paymentIntent: Stripe.PaymentIntent,
+	// Mode of the secret that verified the webhook; only wallets of the same
+	// mode may be credited.
+	eventMode: StripeMode = "live",
 ) {
 	const md = paymentIntent.metadata;
 	const walletId = md.walletId;
@@ -2326,6 +2329,15 @@ export async function handleEndUserTopUpSucceeded(
 	});
 	if (!wallet) {
 		logger.error(`Wallet not found for end-user top-up: ${walletId}`);
+		return;
+	}
+	if (wallet.mode !== eventMode) {
+		logger.error("Ignoring end-user top-up for a wallet of another mode", {
+			paymentIntentId: paymentIntent.id,
+			walletId,
+			walletMode: wallet.mode,
+			eventMode,
+		});
 		return;
 	}
 
@@ -3617,6 +3629,23 @@ export async function handleChargeRefunded(
 		},
 	});
 	if (walletTopUp) {
+		// Sandbox refunds may only reverse sandbox wallets, and live refunds only
+		// live ones.
+		const eventMode: StripeMode = options.endUserOnly ? "test" : "live";
+		const topUpWallet = await db.query.wallet.findFirst({
+			where: { id: { eq: walletTopUp.walletId } },
+			columns: { mode: true },
+		});
+		if (topUpWallet?.mode !== eventMode) {
+			logger.error("Ignoring end-user refund for a wallet of another mode", {
+				paymentIntentId: payment_intent as string,
+				walletId: walletTopUp.walletId,
+				walletMode: topUpWallet?.mode,
+				eventMode,
+			});
+			return;
+		}
+
 		// `amount_refunded` is cumulative across repeated partial refunds, so the
 		// amount for *this* event is the most recent refund on the charge.
 		const latestRefund = charge.refunds?.data?.[0];
