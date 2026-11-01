@@ -1,4 +1,5 @@
 import {
+	billedServerToolUseCount,
 	fromConverseReasoningContent,
 	pairedServerToolBlocks,
 	sealAnthropicThinkingBlock,
@@ -70,7 +71,10 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
-	options?: { cacheThoughtSignatures?: boolean },
+	options?: {
+		cacheThoughtSignatures?: boolean;
+		serverToolUseAlwaysReported?: boolean;
+	},
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -308,8 +312,17 @@ export function parseProviderResponse(
 					block.type === "web_search_tool_result" &&
 					Array.isArray(block.content),
 			);
+			// DeepSeek reports the billed searches and fetches, which can be
+			// fewer than its result blocks.
+			const billedServerToolUse = billedServerToolUseCount(
+				json.usage,
+				options?.serverToolUseAlwaysReported,
+			);
+			if (billedServerToolUse !== undefined) {
+				webSearchCount = billedServerToolUse;
+			}
 			if (webSearchBlocks.length > 0) {
-				webSearchCount = webSearchBlocks.length;
+				webSearchCount = billedServerToolUse ?? webSearchBlocks.length;
 				// Extract citations from each web search result
 				for (const block of webSearchBlocks) {
 					for (const item of block.content) {
@@ -1221,8 +1234,19 @@ export function parseProviderResponse(
 					)
 					.filter(Boolean)
 					.join("\n\n");
-				if (summaryText) {
-					reasoningContent = summaryText;
+				// DeepSeek returns raw reasoning in `content` and no summary.
+				const reasoningText = reasoningOutputs
+					.flatMap(({ item }: any) =>
+						Array.isArray(item.content)
+							? item.content
+									.filter((part: any) => part?.type === "reasoning_text")
+									.map((part: any) => part.text ?? "")
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n");
+				if (summaryText || reasoningText) {
+					reasoningContent = summaryText || reasoningText;
 				}
 
 				// Collect encrypted reasoning payloads (returned when the upstream
@@ -1312,7 +1336,13 @@ export function parseProviderResponse(
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",
 				);
-				if (webSearchCalls.length > 0) {
+				const serverToolUse = billedServerToolUseCount(
+					json.usage,
+					options?.serverToolUseAlwaysReported,
+				);
+				if (serverToolUse !== undefined) {
+					webSearchCount = serverToolUse;
+				} else if (webSearchCalls.length > 0) {
 					webSearchCount = webSearchCalls.length;
 				}
 

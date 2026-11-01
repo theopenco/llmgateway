@@ -647,7 +647,7 @@ export function transformResponseToOpenai(
 						},
 						finish_reason: mapFinishReasonToOpenai(
 							finishReason,
-							usedProvider,
+							responseProvider,
 							!!toolResults,
 						),
 					},

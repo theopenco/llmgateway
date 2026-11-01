@@ -1410,7 +1410,10 @@ function extractEncryptedReasoningItems(
 	return items;
 }
 
-function transformMessagesForResponsesApi(messages: any[]): any[] {
+function transformMessagesForResponsesApi(
+	messages: any[],
+	replayReasoningText = false,
+): any[] {
 	const items: any[] = [];
 
 	// FIFO of function calls emitted from assistant tool_calls that have not yet
@@ -1477,6 +1480,20 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		if (msg.role === "assistant") {
 			const reasoningItems = extractEncryptedReasoningItems(msg);
 			items.push(...reasoningItems);
+			// DeepSeek V4 400s a thinking-mode tool continuation unless the
+			// turn's plain reasoning comes back as a `reasoning_text` item.
+			if (
+				replayReasoningText &&
+				reasoningItems.length === 0 &&
+				typeof msg.reasoning_content === "string" &&
+				msg.tool_calls?.length > 0
+			) {
+				items.push({
+					type: "reasoning",
+					summary: [],
+					content: [{ type: "reasoning_text", text: msg.reasoning_content }],
+				});
+			}
 			// A reasoning-only carrier (a prior turn that ended before emitting a
 			// message, e.g. on max_output_tokens) has no message to emit — the
 			// reasoning items above are the whole turn.
@@ -1806,11 +1823,17 @@ export async function prepareRequestBody(
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	// Org custom models keep the static lookup: their DB mapping was never
 	// used for request shaping.
+	// A web search request rerouted by `webSearchApiFormat` arrives under the
+	// generic transport, but is still shaped by its own provider's mapping.
+	const optionsProvider =
+		webSearchTool && resolvedProviderMapping?.webSearchApiFormat
+			? (resolvedProviderMapping.providerId as ProviderId)
+			: usedProvider;
 	const providerMappingForOptions = getProviderMapping(
 		resolvedProviderMapping && usedProvider !== "custom"
 			? [resolvedProviderMapping]
 			: modelDef?.providers,
-		usedProvider,
+		optionsProvider,
 		usedRegion,
 	);
 	// Cache-only search (`external_web_access: false`) exists only on OpenAI's
@@ -2870,6 +2893,7 @@ export async function prepareRequestBody(
 				// - Convert tool role messages to function_call_output items
 				const transformedMessages = transformMessagesForResponsesApi(
 					messagesWithReasoningDetails,
+					isDeepseekV4,
 				);
 
 				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
@@ -2934,7 +2958,8 @@ export async function prepareRequestBody(
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
 									...(reasoning_context !== undefined &&
-										(usedProvider === "openai" || usedProvider === "azure") && {
+										(optionsProvider === "openai" ||
+											optionsProvider === "azure") && {
 											context: reasoning_context,
 										}),
 									// Capability validation already rejected requests no
@@ -3974,6 +3999,7 @@ export async function prepareRequestBody(
 				minCacheableChars, // Model-specific minimum cacheable characters
 				autoCacheControlEnabled,
 				automaticCacheTtl,
+				optionsProvider === "deepseek",
 			);
 
 			// Transform tools from OpenAI format to Anthropic format

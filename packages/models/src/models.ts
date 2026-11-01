@@ -82,6 +82,12 @@ export const PROVIDER_API_FORMATS = [
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
 
 /**
+ * API surfaces a single request can be sent on: the mapping formats plus
+ * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ */
+export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
+
+/**
  * Pricing tier for models with context-length based pricing
  */
 export interface PricingTier {
@@ -569,6 +575,13 @@ export interface ProviderModelMapping {
 	 * surfaces for different models. Defaults to the provider's native format.
 	 */
 	apiFormat?: ProviderApiFormat;
+	/**
+	 * API surface for requests carrying a `web_search` tool, when the
+	 * provider serves hosted search on a different surface than `apiFormat`
+	 * (e.g. DeepSeek: Responses API on V4 Pro, Anthropic Messages API on
+	 * Flash). Other requests keep `apiFormat`.
+	 */
+	webSearchApiFormat?: RequestApiFormat;
 	/**
 	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
 	 * (`global`, `us`, …) are real inference profiles, served by

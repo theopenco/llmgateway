@@ -321,6 +321,12 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
+				// Hosted search runs only on the Responses API (chat completions
+				// rejects the tool). Searches and page fetches both bill per
+				// successful call, so each counts as one search.
+				webSearch: true,
+				webSearchPrice: "0.00075",
+				webSearchApiFormat: "openai-responses",
 				// DeepSeek's API 400s on the OpenAI-only `developer` role
 				// ("unknown variant `developer`, expected one of `system`, `user`,
 				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
@@ -336,8 +342,14 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"tool_choice",
 					"reasoning_effort",
 				],
+				// "required" and named-function tool_choice 400 with "Thinking mode
+				// does not support this tool_choice" until thinking is disabled
+				// (verified live 2026-11-01 on chat completions and Responses).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
 			},
 			{
 				providerId: "together-ai",
@@ -1524,6 +1536,12 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: true,
 				tools: true,
+				// Hosted search runs only on DeepSeek's Anthropic Messages API for
+				// Flash (the Responses API accepts the tool but never searches).
+				// Searches and page fetches both bill per successful call.
+				webSearch: true,
+				webSearchPrice: "0.00075",
+				webSearchApiFormat: "anthropic-messages",
 				// DeepSeek's API 400s on the OpenAI-only `developer` role
 				// ("unknown variant `developer`, expected one of `system`, `user`,
 				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
@@ -1539,8 +1557,15 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"tool_choice",
 					"reasoning_effort",
 				],
+				// "required" and named-function tool_choice 400 with "Thinking mode
+				// does not support this tool_choice" until thinking is disabled
+				// (verified live 2026-11-01 on chat completions and the Anthropic
+				// API, which also accepts "required" with thinking on).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
 			},
 			{
 				providerId: "alibaba",

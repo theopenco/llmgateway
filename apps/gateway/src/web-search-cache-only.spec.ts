@@ -133,7 +133,7 @@ describe("cache-only web search (external_web_access: false)", () => {
 		});
 	}
 
-	test("drops it on a model without native web search instead of a 400", async () => {
+	test("drops it on a provider without cache-only search instead of searching", async () => {
 		await setup("deepseek");
 
 		const res = await send("/v1/responses", {
@@ -165,7 +165,7 @@ describe("cache-only web search (external_web_access: false)", () => {
 		expect(captured.at(-1)!.body).not.toHaveProperty("tools");
 	});
 
-	test("still rejects live web search on that model", async () => {
+	test("still runs a live web search there", async () => {
 		await setup("deepseek");
 
 		const res = await send("/v1/responses", {
@@ -174,11 +174,10 @@ describe("cache-only web search (external_web_access: false)", () => {
 			tools: [functionTool, { type: "web_search" }],
 		});
 
-		expect(res.status).toBe(400);
-		expect(JSON.stringify(await res.json())).toContain(
-			"does not support native web search",
-		);
-		expect(captured).toHaveLength(0);
+		expect(res.status).toBe(200);
+		const { url, body } = captured.at(-1)!;
+		expect(url).toMatch(/\/responses$/);
+		expect(body.tools).toContainEqual({ type: "web_search" });
 	});
 
 	test("forwards it to OpenAI's Responses API", async () => {

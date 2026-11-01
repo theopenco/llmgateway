@@ -176,6 +176,7 @@ export async function transformAnthropicMessages(
 	minCacheableChars = 1024 * 4,
 	autoInjectCacheControl = true,
 	automaticCacheTtl?: "1h",
+	unsignedThinkingReplay = false,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
@@ -244,7 +245,7 @@ export async function transformAnthropicMessages(
 		}
 	}
 
-	for (const m of groupedMessages) {
+	for (const [messageIndex, m] of groupedMessages.entries()) {
 		let content: MessageContent[] = [];
 
 		// A tool-result message has its content rebuilt into a tool_result block
@@ -568,6 +569,22 @@ export async function transformAnthropicMessages(
 			m.role === "assistant" && provider
 				? anthropicThinkingBlocksFor(provider, m.reasoning_details)
 				: [];
+		// DeepSeek's Anthropic API 400s a thinking-mode tool loop unless every
+		// assistant message in it carries thinking, but accepts it unsigned.
+		// Responses API clients split a turn's text and tool calls into two
+		// assistant messages, so cover every one except a trailing prefill.
+		if (
+			unsignedThinkingReplay &&
+			m.role === "assistant" &&
+			thinkingBlocks.length === 0 &&
+			(m.tool_calls?.length || messageIndex < groupedMessages.length - 1)
+		) {
+			thinkingBlocks.push({
+				type: "thinking",
+				thinking: (m.reasoning_content ?? m.reasoning ?? "").trim(),
+				signature: "",
+			});
+		}
 
 		results.push({
 			content: [...thinkingBlocks, ...anthropicContent],

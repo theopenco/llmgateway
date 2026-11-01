@@ -655,6 +655,31 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
+	describe("anthropic-messages api format", () => {
+		it("targets DeepSeek's Anthropic-compatible API", () => {
+			const endpoint = getProviderEndpoint(
+				"deepseek",
+				undefined,
+				"deepseek-flash",
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				undefined,
+				false,
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				"anthropic-messages",
+			);
+
+			expect(endpoint).toBe("https://api.deepseek.com/anthropic/v1/messages");
+		});
+	});
+
 	describe("azure-anthropic", () => {
 		it("builds the Microsoft Foundry Anthropic Messages endpoint", () => {
 			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "llmg-us-east-2";

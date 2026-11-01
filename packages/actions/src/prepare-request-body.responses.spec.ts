@@ -1,11 +1,15 @@
 import { describe, expect, test } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type {
 	BaseMessage,
 	ProviderId,
+	ProviderModelMapping,
 	ToolChoiceType,
+	WebSearchTool,
 } from "@llmgateway/models";
 
 interface ResponsesBody {
@@ -37,6 +41,8 @@ async function buildOpenAIResponsesBody(
 		reasoning_mode?: "standard" | "pro";
 		tool_choice?: ToolChoiceType;
 		provider?: { id: ProviderId; model: string; region: string | null };
+		webSearchTool?: WebSearchTool;
+		resolvedProviderMapping?: ProviderModelMapping;
 	} = {},
 ): Promise<ResponsesBody> {
 	const provider = opts.provider ?? {
@@ -68,7 +74,7 @@ async function buildOpenAIResponsesBody(
 		undefined, // image_config
 		undefined, // effort
 		undefined, // imageGenerations
-		undefined, // webSearchTool
+		opts.webSearchTool, // webSearchTool
 		undefined, // reasoning_max_tokens
 		true, // useResponsesApi
 		undefined, // prompt_cache_key
@@ -81,7 +87,7 @@ async function buildOpenAIResponsesBody(
 		undefined, // session_id
 		opts.reasoning_context, // reasoning_context
 		undefined, // safety_identifier
-		undefined, // resolvedProviderMapping
+		opts.resolvedProviderMapping, // resolvedProviderMapping
 		opts.reasoning_mode, // reasoning_mode
 	)) as unknown as ResponsesBody;
 }
@@ -117,6 +123,85 @@ describe("transform to OpenAI Responses API", () => {
 		expect(reasoningItems).toHaveLength(1);
 		expect(reasoningItems[0]!.encrypted_content).toBe("tagged-blob");
 		expect(reasoningItems[0]!.id).toBe("rs_tagged");
+	});
+
+	test("replays DeepSeek V4 reasoning as a reasoning_text item before its tool calls", async () => {
+		const messages: BaseMessage[] = [
+			{ role: "user", content: "weather?" },
+			{
+				role: "assistant",
+				content: "",
+				reasoning: "call the tool",
+				tool_calls: [
+					{
+						id: "call_1",
+						type: "function",
+						function: { name: "get_weather", arguments: "{}" },
+					},
+				],
+			},
+			{ role: "tool", content: "sunny", tool_call_id: "call_1" },
+		];
+		const body = await buildOpenAIResponsesBody(messages, {
+			provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+		});
+
+		expect(body.input.map((item) => item.type ?? item.role)).toEqual([
+			"user",
+			"reasoning",
+			"function_call",
+			"assistant",
+			"function_call_output",
+		]);
+		expect(body.input[1]!.content).toEqual([
+			{ type: "reasoning_text", text: "call the tool" },
+		]);
+
+		const gpt = await buildOpenAIResponsesBody(messages);
+		expect(gpt.input.some((item) => item.type === "reasoning")).toBe(false);
+	});
+
+	test("shapes a web search reroute with its own provider's mapping", async () => {
+		const mapping = {
+			providerId: "deepseek",
+			externalId: "deepseek-v4-pro",
+			webSearchApiFormat: "openai-responses",
+			supportsDeveloperRole: false,
+		} as ProviderModelMapping;
+		const messages = [
+			{ role: "developer", content: "be brief" },
+			{ role: "user", content: "news?" },
+		] as unknown as BaseMessage[];
+		const body = await buildOpenAIResponsesBody(messages, {
+			provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+			webSearchTool: { type: "web_search" },
+			resolvedProviderMapping: mapping,
+		});
+		expect(body.input[0]!.role).toBe("system");
+
+		const withoutSearch = await buildOpenAIResponsesBody(messages, {
+			provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+			resolvedProviderMapping: mapping,
+		});
+		expect(withoutSearch.input[0]!.role).toBe("developer");
+	});
+
+	test("keeps tool_choice none on the DeepSeek web search reroute", async () => {
+		const mapping = models
+			.find((m) => m.id === "deepseek-v4-pro")!
+			.providers.find(
+				(p) => p.providerId === "deepseek",
+			) as ProviderModelMapping;
+		const body = await buildOpenAIResponsesBody(
+			[{ role: "user", content: "news?" }],
+			{
+				provider: { id: "openai", model: "deepseek-v4-pro", region: null },
+				webSearchTool: { type: "web_search" },
+				resolvedProviderMapping: mapping,
+				tool_choice: "none",
+			},
+		);
+		expect(body.tool_choice).toBe("none");
 	});
 
 	test("emits function_call items before the assistant message by default", async () => {

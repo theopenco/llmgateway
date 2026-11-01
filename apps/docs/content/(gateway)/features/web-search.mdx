@@ -214,7 +214,7 @@ tool's own fields win:
 OpenAI's other names for it, `web_search_preview` and dated variants such as
 `web_search_2025_08_26`, are accepted too, as is `filters.allowed_domains`.
 `tool_choice: {"type": "web_search"}` (or `web_search_preview`) requires a
-search.
+search (see [Requiring a Search](#requiring-a-search) for the exception).
 
 ## Requiring a Search
 
@@ -230,6 +230,9 @@ whether the question needs one. To require a search on every request, set
 	"tool_choice": { "type": "web_search" }
 }
 ```
+
+DeepSeek ignores a forced search: on a request it serves, the model still
+decides whether to search. Pin another provider when every request must search.
 
 Reach for this sparingly. A forced search is billed on every request that
 carries it, and the retrieved snippets are appended to your prompt, so they are
@@ -364,6 +367,8 @@ Web search costs are rolled into the total `cost` reported in the usage object:
 Web search is billed per search call at the model's web search price — for example, $0.01 per call on OpenAI reasoning models (GPT-5, o-series). The web search charge is included in the top-level `cost` value and surfaced separately as `cost_details.web_search_cost`.
 
 On [Airside](/features/airside#web-search-format) listings that declare a web search format, a search is billed only when the response shows one ran: `url_citation` annotations, a search counter in `usage` (`server_tool_use.web_search_requests` or `num_search_queries`), or reported prompt tokens beyond what the request itself could encode to — the retrieved pages the endpoint added to the prompt. Offering or requiring a search bills nothing on its own.
+
+When the upstream reports its billable server-side operations in `usage.server_tool_use` (`tool_search`, `tool_fetch`), every successful search and page fetch is billed as one search call. Failed searches and searches that return no results are not billed.
 
 ## Combining with Function Tools
 
