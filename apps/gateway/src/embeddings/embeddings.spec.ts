@@ -245,6 +245,50 @@ describe("embeddings", () => {
 		});
 	});
 
+	test("/v1/embeddings omits user when the provider key turns forwarding off", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-safety-off",
+			...hashApiKeyForStorage("real-token-embeddings-safety-off"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-embeddings-safety-off",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"provider-key-embeddings-safety-off",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+			forwardSafetyIdentifier: false,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-safety-off",
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				input: "safety attribution off input",
+				user: "client-controlled-user",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const logs = await waitForLogs(1);
+		const embeddingLog = logs.find(
+			(log) => log.usedModel === "openai/text-embedding-3-small",
+		);
+		expect(embeddingLog?.upstreamRequest).toBeDefined();
+		expect(embeddingLog?.upstreamRequest).not.toHaveProperty("user");
+	});
+
 	test("/v1/embeddings returns upstream error when no alternate key is available", async () => {
 		resetFailOnceCounter();
 

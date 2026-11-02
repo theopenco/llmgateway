@@ -21,6 +21,7 @@ import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLabel,
@@ -294,6 +295,36 @@ export function ProviderKeysList({
 						title: forwardCacheControl
 							? "Prompt-cache markers forwarded"
 							: "Prompt-cache markers stripped",
+					});
+					void queryClient.invalidateQueries({ queryKey });
+				},
+				onError: (error: unknown) =>
+					toast({
+						title: "Error",
+						description:
+							(error as { message?: string } | undefined)?.message ??
+							"Failed to update setting",
+						variant: "destructive",
+					}),
+			},
+		);
+	};
+
+	const toggleForwardSafetyIdentifier = (
+		id: string,
+		forwardSafetyIdentifier: boolean,
+	) => {
+		toggleMutation.mutate(
+			{
+				params: { path: { id } },
+				body: { forwardSafetyIdentifier },
+			},
+			{
+				onSuccess: () => {
+					toast({
+						title: forwardSafetyIdentifier
+							? "Safety identifier forwarded"
+							: "Safety identifier no longer forwarded",
 					});
 					void queryClient.invalidateQueries({ queryKey });
 				},
@@ -667,6 +698,22 @@ export function ProviderKeysList({
 																						: "Set limits"}
 																				</DropdownMenuItem>
 																			</ProviderKeyLimitDialog>
+																		)}
+																		{!customLocked && (
+																			<DropdownMenuCheckboxItem
+																				checked={
+																					providerKey.forwardSafetyIdentifier
+																				}
+																				disabled={toggleMutation.isPending}
+																				onCheckedChange={(checked) =>
+																					toggleForwardSafetyIdentifier(
+																						providerKey.id,
+																						checked,
+																					)
+																				}
+																			>
+																				Forward safety identifier
+																			</DropdownMenuCheckboxItem>
 																		)}
 																		<DropdownMenuItem
 																			onClick={() =>

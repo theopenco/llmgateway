@@ -8,6 +8,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { posthog } from "@/posthog.js";
 
 import {
@@ -1146,7 +1147,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_options,
 		options.session_id,
 		undefined,
-		options.safetyIdentifier,
+		forwardedSafetyIdentifier(providerKey, options.safetyIdentifier),
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,
