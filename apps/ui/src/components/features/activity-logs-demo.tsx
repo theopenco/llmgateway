@@ -1,3 +1,5 @@
+"use client";
+
 import { LogCard } from "@/components/dashboard/log-card";
 import {
 	Card,
