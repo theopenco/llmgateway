@@ -135,6 +135,7 @@ import {
 	getNoFallbackRoutingMetadata,
 	withRoutingAttempts,
 } from "@/lib/routing-metadata.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -8751,7 +8752,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			apiKey.safetyIdentifier,
+			forwardedSafetyIdentifier(providerKey, apiKey.safetyIdentifier),
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,

@@ -18,6 +18,7 @@ import { assertProviderCompliant } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 
 import { readProviderKey } from "@llmgateway/actions";
 
@@ -103,9 +104,10 @@ export interface RealtimePreflightResult {
 	clientIp: string | undefined;
 	/**
 	 * Stable, privacy-preserving identifier forwarded upstream via the
-	 * OpenAI-Safety-Identifier header.
+	 * OpenAI-Safety-Identifier header; undefined when the provider key turns
+	 * forwarding off.
 	 */
-	safetyIdentifier: string;
+	safetyIdentifier: string | undefined;
 }
 
 export function getAvailableCredits(organization: Organization): number {
@@ -466,6 +468,9 @@ async function runRealtimePreflightInner(
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
-		safetyIdentifier: apiKey.safetyIdentifier,
+		safetyIdentifier: forwardedSafetyIdentifier(
+			providerKey,
+			apiKey.safetyIdentifier,
+		),
 	};
 }

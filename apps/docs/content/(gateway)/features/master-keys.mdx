@@ -769,14 +769,15 @@ curl -X POST https://internal.llmgateway.io/v1/master/custom-providers \
 
 Body parameters:
 
-| Field                   | Type               | Description                                                                                  |
-| ----------------------- | ------------------ | -------------------------------------------------------------------------------------------- |
-| `name`                  | string             | Lowercase letters and single hyphens only. Unique per organization; used in the model string |
-| `baseUrl`               | string             | OpenAI-compatible base URL. Internal/reserved addresses are rejected                         |
-| `token`                 | string             | Upstream API key. Stored server-side, never returned                                         |
-| `customModelsOnly`      | boolean (optional) | Restrict the provider to models defined in your custom catalog. Default `false`              |
-| `forwardCacheControl`   | boolean (optional) | Forward `cache_control` markers to the provider instead of stripping them. Default `true`    |
-| `complianceAttestation` | object (optional)  | Self-attested compliance posture. `attestedAt` / `attestedByUserId` are stamped server-side  |
+| Field                     | Type               | Description                                                                                              |
+| ------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `name`                    | string             | Lowercase letters and single hyphens only. Unique per organization; used in the model string             |
+| `baseUrl`                 | string             | OpenAI-compatible base URL. Internal/reserved addresses are rejected                                     |
+| `token`                   | string             | Upstream API key. Stored server-side, never returned                                                     |
+| `customModelsOnly`        | boolean (optional) | Restrict the provider to models defined in your custom catalog. Default `false`                          |
+| `forwardCacheControl`     | boolean (optional) | Forward `cache_control` markers to the provider instead of stripping them. Default `true`                |
+| `forwardSafetyIdentifier` | boolean (optional) | Send the API key's [safety identifier](/features/compliance#safety-identifiers) upstream. Default `true` |
+| `complianceAttestation`   | object (optional)  | Self-attested compliance posture. `attestedAt` / `attestedByUserId` are stamped server-side              |
 
 Response (201): the created custom provider.
 
@@ -798,14 +799,15 @@ curl -X PATCH https://internal.llmgateway.io/v1/master/custom-providers/pk_... \
 
 Body parameters (all optional, at least one required):
 
-| Field                   | Type                     | Description                                    |
-| ----------------------- | ------------------------ | ---------------------------------------------- |
-| `baseUrl`               | string                   | Repoint the provider at a new endpoint         |
-| `token`                 | string                   | Rotate the upstream API key                    |
-| `status`                | `"active" \| "inactive"` | Disable the provider without deleting it       |
-| `customModelsOnly`      | boolean                  | Toggle the custom-catalog restriction          |
-| `forwardCacheControl`   | boolean                  | Toggle forwarding of `cache_control` markers   |
-| `complianceAttestation` | object \| null           | Replace the attestation, or `null` to clear it |
+| Field                     | Type                     | Description                                    |
+| ------------------------- | ------------------------ | ---------------------------------------------- |
+| `baseUrl`                 | string                   | Repoint the provider at a new endpoint         |
+| `token`                   | string                   | Rotate the upstream API key                    |
+| `status`                  | `"active" \| "inactive"` | Disable the provider without deleting it       |
+| `customModelsOnly`        | boolean                  | Toggle the custom-catalog restriction          |
+| `forwardCacheControl`     | boolean                  | Toggle forwarding of `cache_control` markers   |
+| `forwardSafetyIdentifier` | boolean                  | Toggle forwarding of the safety identifier     |
+| `complianceAttestation`   | object \| null           | Replace the attestation, or `null` to clear it |
 
 The provider `name` cannot be changed through the master API — it is the routing segment your model strings reference. Owners and admins can rename a custom provider from the dashboard, which changes the `<name>/<model>` prefix clients must use.
 

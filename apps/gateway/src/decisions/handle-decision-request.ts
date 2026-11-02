@@ -59,6 +59,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -581,6 +582,21 @@ export async function handleDecisionRequest(
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
 
+	// The body carries the API key's safety identifier; a provider key with
+	// forwarding turned off gets it without one.
+	const keySafetyIdentifier = apiKey.safetyIdentifier;
+	function bodyForProviderKey(
+		providerKey: InferSelectModel<typeof tables.providerKey> | undefined,
+	): Record<string, unknown> {
+		if (
+			forwardedSafetyIdentifier(providerKey, keySafetyIdentifier) !== undefined
+		) {
+			return upstreamBody;
+		}
+		const { safety_identifier: _safetyIdentifier, ...body } = upstreamBody;
+		return body;
+	}
+
 	interface DecisionAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		/** Platform-managed credential when one served this attempt. */
@@ -723,7 +739,7 @@ export async function handleDecisionRequest(
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}${upstreamRequest.path}`,
 			tenantBaseUrl: providerKeyInner?.baseUrl ?? airsideBaseUrl ?? null,
-			requestBody: upstreamBody,
+			requestBody: bodyForProviderKey(providerKeyInner),
 		};
 	}
 
@@ -766,7 +782,10 @@ export async function handleDecisionRequest(
 			...upstreamBody,
 			...(await upstreamRequest.loadBody(loadSignal)),
 		};
-		attempt = { ...attempt, requestBody: upstreamBody };
+		attempt = {
+			...attempt,
+			requestBody: bodyForProviderKey(attempt.providerKey),
+		};
 	}
 
 	const controller = new AbortController();

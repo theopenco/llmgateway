@@ -1516,6 +1516,83 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("forwardSafetyIdentifier", () => {
+		async function patchKey(id: string, forwardSafetyIdentifier: boolean) {
+			return await app.request(`/keys/provider/${id}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ forwardSafetyIdentifier }),
+			});
+		}
+
+		async function createCustom(body: Record<string, unknown>) {
+			await setPlan("enterprise");
+			return await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "custom",
+					token: "custom-test-token",
+					name: "mycustom",
+					baseUrl: "https://api.example.com",
+					organizationId: "test-org-id",
+					...body,
+				}),
+			});
+		}
+
+		test("defaults to on for new and pre-existing keys", async () => {
+			const row = await db.query.providerKey.findFirst({
+				where: { id: { eq: "test-provider-key-id" } },
+			});
+			expect(row?.forwardSafetyIdentifier).toBe(true);
+
+			const res = await createCustom({});
+			expect(res.status).toBe(200);
+			expect((await res.json()).providerKey.forwardSafetyIdentifier).toBe(true);
+		});
+
+		test("stores an explicit opt-out on create", async () => {
+			const res = await createCustom({ forwardSafetyIdentifier: false });
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.forwardSafetyIdentifier).toBe(false);
+			const row = await db.query.providerKey.findFirst({
+				where: { id: { eq: json.providerKey.id } },
+			});
+			expect(row?.forwardSafetyIdentifier).toBe(false);
+		});
+
+		test("PATCH toggles the flag on a catalogue key and audits it", async () => {
+			const off = await patchKey("test-provider-key-id", false);
+			expect(off.status).toBe(200);
+			expect((await off.json()).providerKey.forwardSafetyIdentifier).toBe(
+				false,
+			);
+
+			const entries = await db.query.auditLog.findMany({
+				where: {
+					organizationId: { eq: "test-org-id" },
+					action: { eq: "provider_key.update" },
+				},
+			});
+			const change = entries
+				.map(
+					(e) =>
+						(
+							e.metadata as {
+								changes?: Record<string, { old: unknown; new: unknown }>;
+							}
+						)?.changes?.forwardSafetyIdentifier,
+				)
+				.find(Boolean);
+			expect(change).toEqual({ old: true, new: false });
+
+			const on = await patchKey("test-provider-key-id", true);
+			expect((await on.json()).providerKey.forwardSafetyIdentifier).toBe(true);
+		});
+	});
+
 	describe("PATCH /keys/provider/{id} rename", () => {
 		async function seedCustomKey(id = "test-custom-key-id", name = "mycustom") {
 			await setPlan("enterprise");

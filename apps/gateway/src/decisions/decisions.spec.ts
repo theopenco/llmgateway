@@ -130,6 +130,33 @@ describe("decisions", () => {
 		});
 	});
 
+	test("/v1/decisions omits safety_identifier when the provider key turns forwarding off", async () => {
+		await seedApiKey("decisions-safety-off");
+		await seedProviderKey("decisions-safety-off", "openai");
+		await db
+			.update(tables.providerKey)
+			.set({ forwardSafetyIdentifier: false })
+			.where(eq(tables.providerKey.id, "provider-key-decisions-safety-off"));
+
+		const res = await postDecision("decisions-safety-off", {
+			model: "gpt-6-luna-decisions",
+			input: [
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Billing question." }],
+				},
+			],
+			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
+		expect(log?.upstreamRequest).toBeDefined();
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+	});
+
 	test("/v1/decisions serves Jev by translating to TypeSafe System One", async () => {
 		await seedApiKey("decisions-jev");
 		await seedProviderKey("decisions-jev", "typesafe");

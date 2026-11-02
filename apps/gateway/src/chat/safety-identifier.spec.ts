@@ -136,4 +136,47 @@ describe("chat safety identifier", () => {
 			safety_identifier: apiKey?.safetyIdentifier,
 		});
 	});
+
+	test("omits the identifier when the provider key turns forwarding off", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-safety-off",
+			...hashApiKeyForStorage("real-token-safety-off"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-safety-off",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-safety-off",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+			forwardSafetyIdentifier: false,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-safety-off",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [{ role: "user", content: "Hello" }],
+				safety_identifier: "client-controlled",
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((entry) => entry.apiKeyId === "token-id-safety-off");
+		expect(log?.upstreamRequest).toBeDefined();
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+		expect(log?.upstreamRequest).not.toHaveProperty("user");
+	});
 });
