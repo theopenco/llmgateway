@@ -1147,7 +1147,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_options,
 		options.session_id,
 		undefined,
-		forwardedSafetyIdentifier(providerKey, options.safetyIdentifier),
+		forwardedSafetyIdentifier(managedKey, options.safetyIdentifier),
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,

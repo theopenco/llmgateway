@@ -146,8 +146,6 @@ Providers that offer an abuse-attribution identifier receive an opaque, random v
 
 Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from the API key that authenticated the request.
 
-Requests served by your own provider keys forward the identifier by default. To stop sending it for a key, open the key's menu on the **Provider Keys** page and turn off **Forward safety identifier** (`forwardSafetyIdentifier` in the API). Requests served by LLM Gateway's credits always forward it.
-
 ## Access Control
 
 Only organization **owners** and **admins** can view and change the compliance policy.

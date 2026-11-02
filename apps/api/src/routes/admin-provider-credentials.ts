@@ -162,6 +162,8 @@ const credentialSchema = z.object({
 	allowedModels: z.array(z.string()).nullable(),
 	/** Whether the daily model sync may append newly served models. */
 	modelSyncEnabled: z.boolean(),
+	/** Whether requests served by this credential send the API key's safety identifier upstream. */
+	forwardSafetyIdentifier: z.boolean(),
 	/** Request and token caps; the credential leaves rotation while at one. */
 	...providerKeyRateLimitsOutputShape,
 });
@@ -338,6 +340,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 		modelSyncEnabled: row.modelSyncEnabled,
+		forwardSafetyIdentifier: row.forwardSafetyIdentifier,
 		...pickProviderKeyRateLimits(row),
 	};
 }
@@ -1977,6 +1980,7 @@ const createCredential = createRoute({
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 						/**
@@ -2060,6 +2064,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
 				modelSyncEnabled: body.modelSyncEnabled ?? true,
+				forwardSafetyIdentifier: body.forwardSafetyIdentifier ?? true,
 				...providerKeyRateLimitUpdates(body),
 			})
 			.returning();
@@ -2118,6 +2123,7 @@ const updateCredential = createRoute({
 						 */
 						allowedModelsBase: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 					}),
@@ -2288,6 +2294,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 	if (body.modelSyncEnabled !== undefined) {
 		updates.modelSyncEnabled = body.modelSyncEnabled;
+	}
+	if (body.forwardSafetyIdentifier !== undefined) {
+		updates.forwardSafetyIdentifier = body.forwardSafetyIdentifier;
 	}
 
 	// Reactivating an over-limit credential without raising or clearing the

@@ -2198,8 +2198,8 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), caller-supplied Anthropic-style
 		// `cache_control` markers are forwarded upstream instead of stripped.
 		forwardCacheControl: boolean().notNull().default(false),
-		// When false, the API key's safety identifier is not sent upstream on
-		// requests served by this key.
+		// Managed only: when false, the API key's safety identifier is not sent
+		// upstream on requests this credential serves. Ignored for BYOK keys.
 		forwardSafetyIdentifier: boolean().notNull().default(true),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),

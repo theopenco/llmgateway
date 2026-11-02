@@ -1606,7 +1606,6 @@ const createCustomProviderBody = z.object({
 	token: providerTokenField,
 	customModelsOnly: z.boolean().optional(),
 	forwardCacheControl: z.boolean().optional(),
-	forwardSafetyIdentifier: z.boolean().optional(),
 	complianceAttestation: complianceAttestationSchema.optional(),
 });
 
@@ -1617,7 +1616,6 @@ const updateCustomProviderBody = z
 		status: z.enum(["active", "inactive"]).optional(),
 		customModelsOnly: z.boolean().optional(),
 		forwardCacheControl: z.boolean().optional(),
-		forwardSafetyIdentifier: z.boolean().optional(),
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 	})
 	.refine((v) => Object.keys(v).length > 0, {
@@ -1662,7 +1660,6 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		token,
 		customModelsOnly,
 		forwardCacheControl,
-		forwardSafetyIdentifier,
 		complianceAttestation,
 	} = c.req.valid("json");
 
@@ -1691,7 +1688,6 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			// New keys forward by default; the column default (false) keeps keys
 			// created before this setting existed on the old behaviour.
 			forwardCacheControl: forwardCacheControl ?? true,
-			forwardSafetyIdentifier: forwardSafetyIdentifier ?? true,
 			complianceAttestation: complianceAttestation
 				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
 				: null,
@@ -1708,7 +1704,6 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			provider: "custom",
 			resourceName: name,
 			forwardCacheControl: providerKey.forwardCacheControl,
-			forwardSafetyIdentifier: providerKey.forwardSafetyIdentifier,
 		},
 	});
 
@@ -1827,7 +1822,6 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		status,
 		customModelsOnly,
 		forwardCacheControl,
-		forwardSafetyIdentifier,
 		complianceAttestation,
 	} = c.req.valid("json");
 
@@ -1861,9 +1855,6 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	}
 	if (forwardCacheControl !== undefined) {
 		updates.forwardCacheControl = forwardCacheControl;
-	}
-	if (forwardSafetyIdentifier !== undefined) {
-		updates.forwardSafetyIdentifier = forwardSafetyIdentifier;
 	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
@@ -1907,15 +1898,6 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		changes.forwardCacheControl = {
 			old: existing.forwardCacheControl,
 			new: forwardCacheControl,
-		};
-	}
-	if (
-		forwardSafetyIdentifier !== undefined &&
-		existing.forwardSafetyIdentifier !== forwardSafetyIdentifier
-	) {
-		changes.forwardSafetyIdentifier = {
-			old: existing.forwardSafetyIdentifier,
-			new: forwardSafetyIdentifier,
 		};
 	}
 	if (complianceAttestation !== undefined) {

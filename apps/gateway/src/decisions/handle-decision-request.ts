@@ -582,14 +582,14 @@ export async function handleDecisionRequest(
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
 
-	// The body carries the API key's safety identifier; a provider key with
-	// forwarding turned off gets it without one.
+	// The body carries the API key's safety identifier; a managed credential
+	// with forwarding turned off gets it without one.
 	const keySafetyIdentifier = apiKey.safetyIdentifier;
-	function bodyForProviderKey(
-		providerKey: InferSelectModel<typeof tables.providerKey> | undefined,
+	function bodyForCredential(
+		managedKey: InferSelectModel<typeof tables.providerKey> | undefined,
 	): Record<string, unknown> {
 		if (
-			forwardedSafetyIdentifier(providerKey, keySafetyIdentifier) !== undefined
+			forwardedSafetyIdentifier(managedKey, keySafetyIdentifier) !== undefined
 		) {
 			return upstreamBody;
 		}
@@ -739,7 +739,7 @@ export async function handleDecisionRequest(
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}${upstreamRequest.path}`,
 			tenantBaseUrl: providerKeyInner?.baseUrl ?? airsideBaseUrl ?? null,
-			requestBody: bodyForProviderKey(providerKeyInner),
+			requestBody: bodyForCredential(managedKeyInner),
 		};
 	}
 
@@ -784,7 +784,7 @@ export async function handleDecisionRequest(
 		};
 		attempt = {
 			...attempt,
-			requestBody: bodyForProviderKey(attempt.providerKey),
+			requestBody: bodyForCredential(attempt.managedKey),
 		};
 	}
 

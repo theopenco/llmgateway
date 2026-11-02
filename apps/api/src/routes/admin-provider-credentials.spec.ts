@@ -64,6 +64,7 @@ interface Credential {
 	usage: string;
 	maskedToken: string;
 	tokenHash: string | null;
+	forwardSafetyIdentifier: boolean;
 	maxRpm: number | null;
 	maxRpd: number | null;
 	maxTpm: number | null;
@@ -155,6 +156,41 @@ describe("admin provider credentials", () => {
 			where: { id: { eq: credential.id } },
 		});
 		expect(row?.selectionStrategy).toBe("ordered");
+	});
+
+	test("forwards the safety identifier by default and toggles it", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "test-safety-token",
+			skipValidation: true,
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as { credential: Credential };
+		expect(credential.forwardSafetyIdentifier).toBe(true);
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect((await patch({ forwardSafetyIdentifier: false })).status).toBe(200);
+		expect((await list())[0].forwardSafetyIdentifier).toBe(false);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.forwardSafetyIdentifier).toBe(false);
+
+		const off = await create({
+			provider: "openai",
+			token: "test-safety-token-off",
+			forwardSafetyIdentifier: false,
+			skipValidation: true,
+		});
+		expect(off.status).toBe(201);
+		expect(
+			((await off.json()) as { credential: Credential }).credential
+				.forwardSafetyIdentifier,
+		).toBe(false);
 	});
 
 	test("creates round-robin credentials and rejects invalid strategies", async () => {
