@@ -5,7 +5,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const QUESTIONS = [
@@ -130,13 +130,22 @@ describe("decisions", () => {
 		});
 	});
 
-	test("/v1/decisions omits safety_identifier when the provider key turns forwarding off", async () => {
+	test("/v1/decisions omits safety_identifier when the managed credential turns forwarding off", async () => {
 		await seedApiKey("decisions-safety-off");
-		await seedProviderKey("decisions-safety-off", "openai");
-		await db
-			.update(tables.providerKey)
-			.set({ forwardSafetyIdentifier: false })
-			.where(eq(tables.providerKey.id, "provider-key-decisions-safety-off"));
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-decisions-safety-off",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-decisions-safety-off",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+			forwardSafetyIdentifier: false,
+		});
 
 		const res = await postDecision("decisions-safety-off", {
 			model: "gpt-6-luna-decisions",

@@ -153,7 +153,6 @@ export const providerKeySchema = z.object({
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	customModelsOnly: z.boolean(),
 	forwardCacheControl: z.boolean(),
-	forwardSafetyIdentifier: z.boolean(),
 	complianceAttestation: complianceAttestationSchema
 		.extend({
 			attestedAt: z.string().optional(),
@@ -179,7 +178,6 @@ export const providerKeyPublicSchema = z.object({
 	status: providerKeySchema.shape.status,
 	customModelsOnly: providerKeySchema.shape.customModelsOnly,
 	forwardCacheControl: providerKeySchema.shape.forwardCacheControl,
-	forwardSafetyIdentifier: providerKeySchema.shape.forwardSafetyIdentifier,
 	complianceAttestation: providerKeySchema.shape.complianceAttestation,
 	organizationId: z.string(),
 	/** USD spend cap; the key auto-deactivates when usage reaches it. */
@@ -222,7 +220,6 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		status: publicProviderKeyStatus(row.status),
 		customModelsOnly: row.customModelsOnly,
 		forwardCacheControl: row.forwardCacheControl,
-		forwardSafetyIdentifier: row.forwardSafetyIdentifier,
 		// The organization's own compliance attestation for its custom provider,
 		// shown back in the dashboard. Not secret-bearing.
 		complianceAttestation: row.complianceAttestation,
@@ -502,8 +499,6 @@ const createProviderKeySchema = z.object({
 	allowedModels: allowedModelsSchema,
 	// Custom providers only: forward caller `cache_control` markers upstream.
 	forwardCacheControl: z.boolean().optional(),
-	// Send the API key's safety identifier upstream. Defaults to true.
-	forwardSafetyIdentifier: z.boolean().optional(),
 	...providerKeyRateLimitsInputShape,
 });
 
@@ -524,8 +519,6 @@ const updateProviderKeyStatusSchema = z
 		// Custom providers only: forward caller `cache_control` markers upstream
 		// instead of stripping them.
 		forwardCacheControl: z.boolean().optional(),
-		// Send the API key's safety identifier upstream.
-		forwardSafetyIdentifier: z.boolean().optional(),
 		// Custom providers only: self-attested compliance posture. `null` clears
 		// the attestation (restoring the fail-closed blocked state).
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
@@ -541,7 +534,6 @@ const updateProviderKeyStatusSchema = z
 			v.description !== undefined ||
 			v.customModelsOnly !== undefined ||
 			v.forwardCacheControl !== undefined ||
-			v.forwardSafetyIdentifier !== undefined ||
 			v.complianceAttestation !== undefined ||
 			v.usageLimit !== undefined ||
 			v.allowedModels !== undefined,
@@ -596,7 +588,6 @@ keysProvider.openapi(create, async (c) => {
 		usageLimit,
 		allowedModels: requestedAllowedModels,
 		forwardCacheControl,
-		forwardSafetyIdentifier,
 		...rateLimitInput
 	} = c.req.valid("json");
 
@@ -845,7 +836,6 @@ keysProvider.openapi(create, async (c) => {
 			// keys created before this setting existed on the old behaviour.
 			forwardCacheControl:
 				provider === "custom" ? (forwardCacheControl ?? true) : false,
-			forwardSafetyIdentifier: forwardSafetyIdentifier ?? true,
 			...providerKeyRateLimitUpdates(rateLimitInput),
 		})
 		.returning();
@@ -861,9 +851,6 @@ keysProvider.openapi(create, async (c) => {
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
 			...(providerKey.forwardCacheControl && { forwardCacheControl: true }),
-			...(!providerKey.forwardSafetyIdentifier && {
-				forwardSafetyIdentifier: false,
-			}),
 		},
 	});
 
@@ -1169,7 +1156,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 		description,
 		customModelsOnly,
 		forwardCacheControl,
-		forwardSafetyIdentifier,
 		complianceAttestation,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
@@ -1208,7 +1194,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 		description !== undefined ||
 		customModelsOnly !== undefined ||
 		forwardCacheControl !== undefined ||
-		forwardSafetyIdentifier !== undefined ||
 		complianceAttestation !== undefined ||
 		usageLimit !== undefined ||
 		Object.keys(rateLimitUpdates).length > 0 ||
@@ -1293,7 +1278,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 		description?: string | null;
 		customModelsOnly?: boolean;
 		forwardCacheControl?: boolean;
-		forwardSafetyIdentifier?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
@@ -1323,9 +1307,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 	if (forwardCacheControl !== undefined) {
 		updates.forwardCacheControl = forwardCacheControl;
-	}
-	if (forwardSafetyIdentifier !== undefined) {
-		updates.forwardSafetyIdentifier = forwardSafetyIdentifier;
 	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
@@ -1389,15 +1370,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 		changes.forwardCacheControl = {
 			old: providerKey.forwardCacheControl,
 			new: forwardCacheControl,
-		};
-	}
-	if (
-		forwardSafetyIdentifier !== undefined &&
-		providerKey.forwardSafetyIdentifier !== forwardSafetyIdentifier
-	) {
-		changes.forwardSafetyIdentifier = {
-			old: providerKey.forwardSafetyIdentifier,
-			new: forwardSafetyIdentifier,
 		};
 	}
 	if (complianceAttestation !== undefined) {

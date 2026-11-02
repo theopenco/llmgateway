@@ -104,8 +104,8 @@ export interface RealtimePreflightResult {
 	clientIp: string | undefined;
 	/**
 	 * Stable, privacy-preserving identifier forwarded upstream via the
-	 * OpenAI-Safety-Identifier header; undefined when the provider key turns
-	 * forwarding off.
+	 * OpenAI-Safety-Identifier header; undefined when the managed credential
+	 * turns forwarding off.
 	 */
 	safetyIdentifier: string | undefined;
 }
@@ -469,7 +469,7 @@ async function runRealtimePreflightInner(
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
 		safetyIdentifier: forwardedSafetyIdentifier(
-			providerKey,
+			managedKey,
 			apiKey.safetyIdentifier,
 		),
 	};

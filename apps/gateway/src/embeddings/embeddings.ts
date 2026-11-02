@@ -910,10 +910,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			const forwarded = forwardedSafetyIdentifier(
-				providerKey,
-				safetyIdentifier,
-			);
+			const forwarded = forwardedSafetyIdentifier(managedKey, safetyIdentifier);
 			if (
 				forwarded !== undefined &&
 				(providerId === "openai" || providerId === "azure")

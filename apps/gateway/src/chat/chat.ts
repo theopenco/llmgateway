@@ -8752,7 +8752,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			forwardedSafetyIdentifier(providerKey, apiKey.safetyIdentifier),
+			forwardedSafetyIdentifier(managedKey, apiKey.safetyIdentifier),
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,

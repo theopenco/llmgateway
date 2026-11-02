@@ -491,6 +491,15 @@ function ManagedCredentialCells({
 							Carrier key
 						</Badge>
 					) : null}
+					{credential.forwardSafetyIdentifier ? null : (
+						<Badge
+							variant="outline"
+							className="font-sans text-[11px]"
+							title="Requests served by this credential send no safety identifier upstream."
+						>
+							No safety ID
+						</Badge>
+					)}
 				</div>
 				{credential.tokenHash ? (
 					<div
@@ -1370,6 +1379,7 @@ export function ProviderCredentialsManager({
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								modelSyncEnabled: values.modelSyncEnabled,
+								forwardSafetyIdentifier: values.forwardSafetyIdentifier,
 								...values.rateLimits,
 								skipValidation: values.skipValidation,
 								carrierKey: values.carrierKey,
@@ -1415,6 +1425,7 @@ export function ProviderCredentialsManager({
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								allowedModelsBase: editing.allowedModels,
 								modelSyncEnabled: values.modelSyncEnabled,
+								forwardSafetyIdentifier: values.forwardSafetyIdentifier,
 								...values.rateLimits,
 								skipValidation: values.skipValidation,
 							},
@@ -1484,6 +1495,8 @@ interface CredentialFormValues {
 	allowedModels: string[];
 	/** Let the daily model sync append models the account starts serving. */
 	modelSyncEnabled: boolean;
+	/** Send the API key's safety identifier upstream on requests this key serves. */
+	forwardSafetyIdentifier: boolean;
 	rateLimits: ProviderKeyRateLimits;
 	skipValidation: boolean;
 	/** Custom carriers, on create: serve the carrier with this key. */
@@ -1710,6 +1723,9 @@ function CredentialDialog({
 	);
 	const [modelSyncEnabled, setModelSyncEnabled] = useState(
 		credential?.modelSyncEnabled ?? true,
+	);
+	const [forwardSafetyIdentifier, setForwardSafetyIdentifier] = useState(
+		credential?.forwardSafetyIdentifier ?? true,
 	);
 	const [rateLimits, setRateLimits] = useState(() =>
 		toProviderKeyRateLimitInputs(credential),
@@ -2020,6 +2036,7 @@ function CredentialDialog({
 			usageLimit: trimmedLimit,
 			allowedModels,
 			modelSyncEnabled,
+			forwardSafetyIdentifier,
 			rateLimits: parsedRateLimits.limits,
 			skipValidation,
 			carrierKey,
@@ -2551,6 +2568,28 @@ function CredentialDialog({
 						values={rateLimits}
 						onChange={setRateLimits}
 					/>
+
+					<div className="flex items-start gap-2">
+						<Switch
+							id="forward-safety-identifier"
+							checked={forwardSafetyIdentifier}
+							onCheckedChange={setForwardSafetyIdentifier}
+						/>
+						<div className="flex flex-col gap-1">
+							<Label
+								htmlFor="forward-safety-identifier"
+								className="font-normal"
+							>
+								Forward safety identifier
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Sends the calling API key's stable safety identifier upstream
+								(e.g. OpenAI <code>safety_identifier</code>, Anthropic{" "}
+								<code>metadata.user_id</code>) on requests this credential
+								serves. Turn off to send none.
+							</p>
+						</div>
+					</div>
 
 					{credential && isDeletedCredential(credential) ? (
 						<div className="flex flex-col gap-2">

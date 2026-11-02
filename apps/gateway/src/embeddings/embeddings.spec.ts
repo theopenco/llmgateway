@@ -8,7 +8,7 @@ import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("embeddings", () => {
@@ -245,7 +245,7 @@ describe("embeddings", () => {
 		});
 	});
 
-	test("/v1/embeddings omits user when the provider key turns forwarding off", async () => {
+	test("/v1/embeddings omits user when the managed credential turns forwarding off", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-safety-off",
 			...hashApiKeyForStorage("real-token-embeddings-safety-off"),
@@ -254,16 +254,18 @@ describe("embeddings", () => {
 			createdBy: "user-id",
 		});
 
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-embeddings-safety-off",
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-embeddings-safety-off",
+			provider: "openai",
 			...encryptProviderKeyForStorage(
 				"openai-token",
-				"provider-key-embeddings-safety-off",
-				"org-id",
+				"managed-embeddings-safety-off",
+				null,
 			),
-			provider: "openai",
-			organizationId: "org-id",
-			baseUrl: harness.mockServerUrl,
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
 			forwardSafetyIdentifier: false,
 		});
 
