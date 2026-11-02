@@ -1,5 +1,3 @@
-"use client";
-
 import { CheckCircle2, Clock, DollarSign } from "lucide-react";
 
 import { Badge } from "@/lib/components/badge";
