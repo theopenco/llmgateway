@@ -86,6 +86,10 @@ import {
 	errorWindowOption,
 	parseErrorWindow,
 } from "@/lib/provider-key-error-window";
+import {
+	providerKeySelectionPositions,
+	providerKeySelectionOrder,
+} from "@/lib/provider-key-selection";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
@@ -428,9 +432,10 @@ function RotationPosition({
 		return (
 			<span
 				className="text-xs tabular-nums text-muted-foreground"
-				title={`Position ${position} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
+				title={`Step ${position} within this provider, audience and region. Round-robin members share one pool; ordered keys keep individual positions before or after it.`}
 			>
 				{position}
+				{credential.selectionStrategy === "round_robin" ? " · Pool" : ""}
 			</span>
 		);
 	}
@@ -472,6 +477,11 @@ function ManagedCredentialCells({
 			<TableCell className="font-mono text-xs">
 				<div className="flex items-center gap-1.5">
 					{credential.maskedToken}
+					<Badge variant="outline" className="font-sans text-[11px]">
+						{credential.selectionStrategy === "round_robin"
+							? "Round robin"
+							: "Ordered"}
+					</Badge>
 					{credential.carrierKey ? (
 						<Badge
 							variant="secondary"
@@ -784,17 +794,21 @@ export function ProviderCredentialsManager({
 		[liveCredentials],
 	);
 
-	// Rows arrive grouped by provider (the API orders by provider, then position),
-	// so each run becomes its own reorderable tbody.
+	// Keep each pool together at its first member in the provider's reorderable list.
 	const serverOrder = useMemo(() => {
-		const groups = new Map<string, string[]>();
+		const groups = new Map<string, ProviderCredential[]>();
 		for (const credential of liveCredentials) {
 			groups.set(credential.provider, [
 				...(groups.get(credential.provider) ?? []),
-				credential.id,
+				credential,
 			]);
 		}
-		return groups;
+		return new Map(
+			Array.from(groups, ([provider, keys]) => [
+				provider,
+				providerKeySelectionOrder(keys, isInRotation).map(({ id }) => id),
+			]),
+		);
 	}, [liveCredentials]);
 
 	const credentialById = useMemo(
@@ -882,18 +896,13 @@ export function ProviderCredentialsManager({
 	 * rotation.
 	 */
 	const rotationPositions = useMemo(() => {
-		const positions = new Map<string, number>();
-		order.forEach((ids) => {
-			let position = 0;
-			for (const id of ids) {
+		const eligible = Array.from(order.values()).flatMap((ids) =>
+			ids.flatMap((id) => {
 				const credential = credentialById.get(id);
-				if (credential && isInRotation(credential)) {
-					position++;
-					positions.set(id, position);
-				}
-			}
-		});
-		return positions;
+				return credential && isInRotation(credential) ? [credential] : [];
+			}),
+		);
+		return providerKeySelectionPositions(eligible);
 	}, [order, credentialById]);
 
 	const envByProvider = useMemo(() => {
@@ -1011,9 +1020,17 @@ export function ProviderCredentialsManager({
 			return;
 		}
 
+		const keys = ids.flatMap((id) => {
+			const credential = credentialById.get(id);
+			return credential ? [credential] : [];
+		});
+		const groupedIds = providerKeySelectionOrder(keys, isInRotation).map(
+			({ id }) => id,
+		);
+		setOrder((current) => new Map(current).set(provider, groupedIds));
 		setSavingProvider(provider);
 		reorderMutation.mutate(
-			{ body: { provider, credentialIds: ids } },
+			{ body: { provider, credentialIds: groupedIds } },
 			{
 				onSuccess: () => router.refresh(),
 				onError: () => setOrder(snapshot),
@@ -1077,6 +1094,12 @@ export function ProviderCredentialsManager({
 			)}
 
 			<TabsContent value="credentials" className="flex flex-col gap-2">
+				<p className="text-xs text-muted-foreground">
+					Positions are per provider, audience and region. Eligible round-robin
+					keys share one pool at their earliest member’s position. Ordered keys
+					keep individual positions before or after the pool. Model access,
+					health and limits can change eligibility.
+				</p>
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<EnvSourceNote
 						source={envSource}
@@ -1340,6 +1363,7 @@ export function ProviderCredentialsManager({
 								token: values.token,
 								comment: values.comment || undefined,
 								variant: values.variant,
+								selectionStrategy: values.selectionStrategy,
 								region: values.region || undefined,
 								config: values.config,
 								usageLimit: values.usageLimit || undefined,
@@ -1379,6 +1403,7 @@ export function ProviderCredentialsManager({
 								...(values.token ? { token: values.token } : {}),
 								comment: values.comment || null,
 								variant: values.variant,
+								selectionStrategy: values.selectionStrategy,
 								region: values.region || null,
 								// A deleted credential keeps its status; the API rejects any.
 								...(isDeletedCredential(editing)
@@ -1449,6 +1474,7 @@ interface CredentialFormValues {
 	token: string;
 	comment: string;
 	variant: Variant;
+	selectionStrategy: "ordered" | "round_robin";
 	region: string;
 	status: "active" | "inactive";
 	config: Record<string, string>;
@@ -1668,6 +1694,9 @@ function CredentialDialog({
 	const [variant, setVariant] = useState<Variant>(
 		(credential?.variant as Variant) ?? "default",
 	);
+	const [selectionStrategy, setSelectionStrategy] = useState<
+		"ordered" | "round_robin"
+	>(credential?.selectionStrategy ?? "ordered");
 	const [region, setRegion] = useState(credential?.region ?? "");
 	const [status, setStatus] = useState<"active" | "inactive">(
 		credential?.status === "inactive" ? "inactive" : "active",
@@ -1984,6 +2013,7 @@ function CredentialDialog({
 			token,
 			comment,
 			variant,
+			selectionStrategy,
 			region,
 			status,
 			config,
@@ -2205,6 +2235,21 @@ function CredentialDialog({
 
 					<div className="grid grid-cols-2 gap-3">
 						<div className="flex flex-col gap-2">
+							<Label htmlFor="selection-strategy">Selection strategy</Label>
+							<Select
+								value={selectionStrategy}
+								onValueChange={(value) =>
+									setSelectionStrategy(value as "ordered" | "round_robin")
+								}
+							>
+								<SelectTrigger id="selection-strategy">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="ordered">Ordered</SelectItem>
+									<SelectItem value="round_robin">Round robin</SelectItem>
+								</SelectContent>
+							</Select>
 							<Label htmlFor="variant">Applies to</Label>
 							<Select
 								value={variant}

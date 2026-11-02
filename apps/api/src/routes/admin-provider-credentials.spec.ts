@@ -56,6 +56,7 @@ interface Credential {
 	provider: string;
 	comment: string | null;
 	variant: string;
+	selectionStrategy: "ordered" | "round_robin";
 	region: string | null;
 	status: string | null;
 	config: Record<string, string>;
@@ -121,6 +122,60 @@ describe("admin provider credentials", () => {
 		const json = (await res.json()) as { credentials: Credential[] };
 		return json.credentials;
 	}
+
+	test("selection strategy defaults and omitted patches preserve it", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "test-selection-token",
+			skipValidation: true,
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as { credential: Credential };
+		expect(credential.selectionStrategy).toBe("ordered");
+		const patch = (body: Record<string, unknown>) =>
+			app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect((await patch({ selectionStrategy: "round_robin" })).status).toBe(
+			200,
+		);
+		expect((await list())[0].selectionStrategy).toBe("round_robin");
+		const unchanged = await patch({ comment: "updated" });
+		expect(unchanged.status).toBe(200);
+		expect(
+			((await unchanged.json()) as { credential: Credential }).credential
+				.selectionStrategy,
+		).toBe("round_robin");
+		expect((await patch({ selectionStrategy: "random" })).status).toBe(400);
+		expect((await patch({ selectionStrategy: null })).status).toBe(400);
+		expect((await patch({ selectionStrategy: "ordered" })).status).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.selectionStrategy).toBe("ordered");
+	});
+
+	test("creates round-robin credentials and rejects invalid strategies", async () => {
+		const body = {
+			provider: "openai",
+			token: "test-selection-token",
+			skipValidation: true,
+		};
+		const res = await create({ ...body, selectionStrategy: "round_robin" });
+		expect(res.status).toBe(201);
+		expect(
+			((await res.json()) as { credential: Credential }).credential
+				.selectionStrategy,
+		).toBe("round_robin");
+		expect(
+			(await create({ ...body, selectionStrategy: "random" })).status,
+		).toBe(400);
+		expect((await create({ ...body, selectionStrategy: null })).status).toBe(
+			400,
+		);
+	});
 
 	test("requires authentication", async () => {
 		const res = await app.request("/admin/provider-credentials");

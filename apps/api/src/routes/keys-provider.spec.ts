@@ -85,6 +85,44 @@ describe("provider keys route", () => {
 		});
 	});
 
+	test("does not expose or accept managed selection strategy on BYOK keys", async () => {
+		const headers = { Cookie: token, "Content-Type": "application/json" };
+		const created = await app.request("/keys/provider", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				provider: "inference.net",
+				token: "test-selection-token",
+				organizationId: "test-org-id",
+				selectionStrategy: "round_robin",
+			}),
+		});
+		expect(created.status).toBe(200);
+		const { providerKey } = await created.json();
+		expect(providerKey).not.toHaveProperty("selectionStrategy");
+		const updated = await app.request(`/keys/provider/${providerKey.id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({
+				status: "active",
+				selectionStrategy: "round_robin",
+			}),
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).providerKey).not.toHaveProperty(
+			"selectionStrategy",
+		);
+		const listed = await app.request("/keys/provider", { headers });
+		expect(listed.status).toBe(200);
+		for (const key of (await listed.json()).providerKeys) {
+			expect(key).not.toHaveProperty("selectionStrategy");
+		}
+		const stored = await db.query.providerKey.findFirst({
+			where: { id: { eq: providerKey.id } },
+		});
+		expect(stored?.selectionStrategy).toBe("ordered");
+	});
+
 	test("GET /keys/provider unauthorized", async () => {
 		const res = await app.request("/keys/provider");
 		expect(res.status).toBe(401);

@@ -2281,6 +2281,9 @@ export const providerKey = snakeCase.table(
 		// default: `default(0)` would tie a new key with position 0 and slot it
 		// second.
 		sortOrder: integer(),
+		selectionStrategy: text({ enum: ["ordered", "round_robin"] })
+			.notNull()
+			.default("ordered"),
 		organizationId: text().references(() => organization.id, {
 			onDelete: "cascade",
 		}),
