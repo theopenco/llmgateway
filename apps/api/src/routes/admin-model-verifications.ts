@@ -20,15 +20,11 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 
+import { mappingTarget } from "@llmgateway/actions";
 import { db, desc, eq, inArray, isNotNull, and, tables } from "@llmgateway/db";
-import {
-	expandAllProviderRegions,
-	models as catalogueModels,
-} from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
-import type { ProviderModelMapping } from "@llmgateway/models";
 
 /**
  * Admin-run capability verification ("preflight e2e") for any served mapping.
@@ -41,8 +37,6 @@ export const adminModelVerifications = new OpenAPIHono<ServerTypes>();
 adminModelVerifications.use("/*", adminMiddleware);
 
 const CANCELLED = "Cancelled by an administrator.";
-
-type MappingRow = typeof tables.modelProviderMapping.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
 
 function isUniqueViolation(err: unknown): boolean {
@@ -50,64 +44,6 @@ function isUniqueViolation(err: unknown): boolean {
 		(err as { code?: string; cause?: { code?: string } })?.code ??
 		(err as { cause?: { code?: string } })?.cause?.code;
 	return code === "23505";
-}
-
-/**
- * Static-catalogue mapping rows keep declaration-only columns such as
- * `reasoning_efforts` and `supported_tool_choices` null in the database — those
- * live in the shared definition — so the target reads them from the catalogue
- * and falls back to the row for Airside-materialized mappings.
- */
-function catalogueMappingFor(
-	mapping: MappingRow,
-): ProviderModelMapping | undefined {
-	const model = catalogueModels.find((entry) => entry.id === mapping.modelId);
-	if (!model) {
-		return undefined;
-	}
-	const expanded = expandAllProviderRegions(model.providers);
-	return (
-		expanded.find(
-			(entry) =>
-				entry.providerId === mapping.providerId &&
-				(entry.region ?? null) === mapping.region,
-		) ?? expanded.find((entry) => entry.providerId === mapping.providerId)
-	);
-}
-
-function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
-	return buildVerificationTarget({
-		providerId: mapping.providerId,
-		modelName: mapping.modelId,
-		externalId: mapping.externalId,
-		apiFormat: mapping.apiFormat,
-		decisions: mapping.decisions,
-		region: mapping.region,
-		streaming: mapping.streaming,
-		vision: mapping.vision,
-		audio: mapping.audio,
-		tools: mapping.tools,
-		supportedToolChoices:
-			catalogueMappingFor(mapping)?.supportedToolChoices ??
-			mapping.supportedToolChoices ??
-			null,
-		jsonOutput: mapping.jsonOutput,
-		jsonOutputSchema: mapping.jsonOutputSchema,
-		reasoning: mapping.reasoning,
-		reasoningMaxTokens: mapping.reasoningMaxTokens,
-		reasoningEfforts:
-			catalogueMappingFor(mapping)?.reasoningEfforts ??
-			mapping.reasoningEfforts ??
-			null,
-		webSearch: mapping.webSearch,
-		webSearchFormat:
-			catalogueMappingFor(mapping)?.webSearchFormat ??
-			mapping.webSearchFormat ??
-			null,
-		contextSize: mapping.contextSize,
-		maxOutput: mapping.maxOutput,
-		promptCaching: mapping.cachedInputPrice !== null,
-	});
 }
 
 /** Capabilities awaiting review are part of what the listing claims, so an
