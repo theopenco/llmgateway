@@ -1417,7 +1417,11 @@ async function handleCheckoutSessionCompleted(
 				.where(
 					and(
 						eq(tables.organization.id, organizationId),
-						sql`${tables.organization.chatPlanStripeSubscriptionId} IS DISTINCT FROM ${subscriptionId}`,
+						// Without a subscription id there is nothing to match a redelivery
+						// on, so keep activating as before.
+						subscriptionId
+							? sql`${tables.organization.chatPlanStripeSubscriptionId} IS DISTINCT FROM ${subscriptionId}`
+							: undefined,
 					),
 				)
 				.returning({ id: tables.organization.id });
