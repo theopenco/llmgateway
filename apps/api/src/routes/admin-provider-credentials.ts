@@ -92,6 +92,8 @@ import {
 	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -105,6 +107,8 @@ import type {
 	ProviderId,
 	ProviderValidationResult,
 } from "@llmgateway/models";
+
+const selectionStrategySchema = z.enum(["ordered", "round_robin"]);
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
@@ -130,6 +134,7 @@ const credentialSchema = z.object({
 	provider: z.string(),
 	comment: z.string().nullable(),
 	variant: variantSchema,
+	selectionStrategy: selectionStrategySchema,
 	region: z.string().nullable(),
 	status: z
 		.enum(["active", "inactive", "pending_deletion", "deleted"])
@@ -157,6 +162,8 @@ const credentialSchema = z.object({
 	allowedModels: z.array(z.string()).nullable(),
 	/** Whether the daily model sync may append newly served models. */
 	modelSyncEnabled: z.boolean(),
+	/** Whether requests served by this credential send the API key's safety identifier upstream. */
+	forwardSafetyIdentifier: z.boolean(),
 	/** Request and token caps; the credential leaves rotation while at one. */
 	...providerKeyRateLimitsOutputShape,
 });
@@ -321,6 +328,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		provider: row.provider,
 		comment: row.comment,
 		variant: row.variant,
+		selectionStrategy: row.selectionStrategy,
 		region: row.region,
 		status: row.status,
 		deletionRequestedAt: row.deletionRequestedAt,
@@ -332,6 +340,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 		modelSyncEnabled: row.modelSyncEnabled,
+		forwardSafetyIdentifier: row.forwardSafetyIdentifier,
 		...pickProviderKeyRateLimits(row),
 	};
 }
@@ -415,6 +424,14 @@ async function validateConfig(
 		throw new HTTPException(400, {
 			message: `Invalid setting(s) for ${provider}: ${exclusiveViolations.join(" ")}`,
 		});
+	}
+
+	if (
+		provider === "cloudflare" &&
+		config.accountId !== undefined &&
+		!CLOUDFLARE_ACCOUNT_ID_REGEX.test(config.accountId)
+	) {
+		throw new HTTPException(400, { message: CLOUDFLARE_ACCOUNT_ID_MESSAGE });
 	}
 
 	for (const [key, value] of Object.entries(config)) {
@@ -1957,11 +1974,13 @@ const createCredential = createRoute({
 						token: z.string().min(1),
 						comment: z.string().max(500).optional(),
 						variant: variantSchema.optional(),
+						selectionStrategy: selectionStrategySchema.optional(),
 						region: z.string().max(64).optional(),
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 						/**
@@ -2039,11 +2058,13 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				tokenHash: getApiKeyFingerprint(body.token),
 				comment: body.comment?.trim() || null,
 				variant: body.variant ?? "default",
+				selectionStrategy: body.selectionStrategy ?? "ordered",
 				region: body.region?.trim() || null,
 				config,
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
 				modelSyncEnabled: body.modelSyncEnabled ?? true,
+				forwardSafetyIdentifier: body.forwardSafetyIdentifier ?? true,
 				...providerKeyRateLimitUpdates(body),
 			})
 			.returning();
@@ -2090,6 +2111,7 @@ const updateCredential = createRoute({
 						token: z.string().min(1).optional(),
 						comment: z.string().max(500).nullable().optional(),
 						variant: variantSchema.optional(),
+						selectionStrategy: selectionStrategySchema.optional(),
 						region: z.string().max(64).nullable().optional(),
 						status: statusSchema.optional(),
 						config: z.record(z.string(), z.string()).optional(),
@@ -2101,6 +2123,7 @@ const updateCredential = createRoute({
 						 */
 						allowedModelsBase: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 					}),
@@ -2257,6 +2280,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (body.variant !== undefined) {
 		updates.variant = body.variant;
 	}
+	if (body.selectionStrategy !== undefined) {
+		updates.selectionStrategy = body.selectionStrategy;
+	}
 	if (body.region !== undefined) {
 		updates.region = body.region?.trim() || null;
 	}
@@ -2268,6 +2294,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 	if (body.modelSyncEnabled !== undefined) {
 		updates.modelSyncEnabled = body.modelSyncEnabled;
+	}
+	if (body.forwardSafetyIdentifier !== undefined) {
+		updates.forwardSafetyIdentifier = body.forwardSafetyIdentifier;
 	}
 
 	// Reactivating an over-limit credential without raising or clearing the

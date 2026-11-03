@@ -1,5 +1,3 @@
-"use client";
-
 import { formatDistanceToNow } from "date-fns";
 import { Key, Copy, MoreVertical, Shield } from "lucide-react";
 

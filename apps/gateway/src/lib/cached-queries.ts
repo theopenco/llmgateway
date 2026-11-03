@@ -10,6 +10,7 @@
  *
  * See: packages/db/src/cdb-resilience.spec.ts for documentation of this behavior.
  */
+import { narrowManagedKeysToRegion } from "@llmgateway/actions";
 import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
@@ -52,8 +53,9 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
+import { managedKeySelectionsTotal } from "@llmgateway/instrumentation/metrics";
 import { logger } from "@llmgateway/logger";
-import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
+import { providers, getRegionScopedDefaultRegion } from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	isProviderBaseUrlOverrideAllowed,
@@ -70,6 +72,7 @@ import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
+import { selectManagedProviderKey } from "./managed-key-selection.js";
 import {
 	getRateLimitedProviderKeyIds,
 	type ProviderKeyRateLimitExemption,
@@ -1083,6 +1086,8 @@ export interface FindManagedProviderKeyOptions {
 	excludedKeyIds?: ReadonlySet<string>;
 	filter?: (key: ProviderKey) => boolean;
 	rateLimitExemption?: ProviderKeyRateLimitExemption;
+	/** Availability checks never reserve a round-robin turn. */
+	advanceRoundRobin?: boolean;
 }
 
 /**
@@ -1137,43 +1142,6 @@ export async function hasManagedProviderCredential(
 }
 
 /**
- * Narrow a provider's managed credentials to the ones that can serve this
- * region.
- *
- * With a region in hand, a credential pinned to it wins and a region-agnostic
- * one is the fallback — the same precedence `{ENV}__{REGION}` has over `{ENV}`.
- *
- * Without one, the request is sent to the provider's default region. A
- * region-agnostic credential still serves it, and so does one pinned to that
- * default region — which is all a provider with no global region can offer,
- * since every one of its credentials is necessarily region-scoped (Alibaba).
- * Providers whose credential works across regions (AWS Bedrock) are excluded
- * from that last step by `getRegionScopedDefaultRegion`: a region on their
- * credential is the operator scoping it deliberately, so the request fails
- * rather than borrowing a credential meant for another region.
- */
-function narrowManagedKeysToRegion(
-	keys: ProviderKey[],
-	provider: string,
-	region: string | undefined,
-): ProviderKey[] {
-	if (region) {
-		const pinned = keys.filter((key) => key.region === region);
-		return pinned.length > 0 ? pinned : keys.filter((key) => !key.region);
-	}
-
-	const regionAgnostic = keys.filter((key) => !key.region);
-	if (regionAgnostic.length > 0) {
-		return regionAgnostic;
-	}
-
-	const defaultRegion = getRegionScopedDefaultRegion(provider);
-	return defaultRegion
-		? keys.filter((key) => key.region === defaultRegion)
-		: [];
-}
-
-/**
  * Find a platform-managed provider credential for credits-mode traffic
  * (cacheable).
  *
@@ -1185,12 +1153,36 @@ export async function findManagedProviderKey(
 	provider: string,
 	options: FindManagedProviderKeyOptions = {},
 ): Promise<ProviderKey | undefined> {
-	return await selectAvailableProviderKey(
-		await listManagedProviderKeyCandidates(provider, options),
-		options.selectionScope,
-		options.excludedKeyIds,
+	const candidates = await listManagedProviderKeyCandidates(provider, options);
+	if (!candidates.some((key) => key.selectionStrategy === "round_robin")) {
+		const selected = await selectAvailableProviderKey(
+			candidates,
+			options.selectionScope,
+			options.excludedKeyIds,
+			options.rateLimitExemption,
+		);
+		return recordManagedKeySelection(selected, options);
+	}
+	const rateLimited = await getRateLimitedProviderKeyIds(
+		candidates.filter((key) => !options.excludedKeyIds?.has(key.id)),
 		options.rateLimitExemption,
 	);
+	const selected = await selectManagedProviderKey(
+		candidates,
+		{
+			provider,
+			variant: candidates[0]?.variant ?? "default",
+			region: candidates[0]?.region ?? null,
+			selectionScope: options.selectionScope,
+			excludedKeyIds: new Set([
+				...(options.excludedKeyIds ?? []),
+				...rateLimited,
+			]),
+			advanceRoundRobin: options.advanceRoundRobin,
+		},
+		(items) => selectProviderKeyWithFailover(items, options.selectionScope),
+	);
+	return recordManagedKeySelection(selected, options);
 }
 
 /**
@@ -1844,4 +1836,16 @@ export async function findUserFromOrganization(
 			return results[0];
 		},
 	);
+}
+function recordManagedKeySelection(
+	key: ProviderKey | undefined,
+	options: FindManagedProviderKeyOptions,
+): ProviderKey | undefined {
+	if (key && options.advanceRoundRobin !== false) {
+		managedKeySelectionsTotal.inc({
+			strategy: key.selectionStrategy ?? "ordered",
+			attempt: options.excludedKeyIds?.size ? "retry" : "initial",
+		});
+	}
+	return key;
 }

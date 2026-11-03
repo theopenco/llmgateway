@@ -1378,9 +1378,9 @@ describe("getCheapestFromAvailableProviders", () => {
 		// Mirrors the DeepSeek V4 Pro first-party mapping: peak 01:00-04:00 and
 		// 06:00-10:00 UTC at double the off-peak rates.
 		const deepseekLikeMapping = {
-			inputPrice: "0.435e-6",
-			outputPrice: "0.87e-6",
-			cachedInputPrice: "0.003625e-6",
+			inputPrice: "0.66e-6",
+			outputPrice: "1.98e-6",
+			cachedInputPrice: "0.022e-6",
 			peakPricing: {
 				peak: {
 					inputPrice: "1.32e-6",

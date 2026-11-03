@@ -36,7 +36,6 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -51,7 +50,6 @@ import {
 	toAnthropicWebFetchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
@@ -296,6 +294,9 @@ function normalizeImageModeration(
 async function fetchImageAsBlob(
 	url: string,
 	index: number,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
 ): Promise<{ blob: Blob; filename: string }> {
 	const parsed = parseDataUrl(url);
 	if (parsed) {
@@ -314,18 +315,17 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
-	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
-		);
-	}
-	const mimeType =
-		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
-	const buffer = await response.arrayBuffer();
+	// Reuse SSRF validation and the streaming byte cap before building multipart.
+	const { data, mimeType } = await processImageUrl(
+		url,
+		isProd,
+		maxSizeMB,
+		userPlan,
+	);
+
+	const raw = Buffer.from(data, "base64");
+	const buffer = new ArrayBuffer(raw.byteLength);
+	new Uint8Array(buffer).set(raw);
 	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
 	return {
 		blob: new Blob([buffer], { type: mimeType }),
@@ -402,7 +402,6 @@ const OPENAI_CHAT_BODY_PROVIDERS: ReadonlySet<string> = new Set([
 	"cerebras",
 	"xiaomi",
 	"deepseek",
-	"gonka24",
 ]);
 
 /**
@@ -1411,7 +1410,10 @@ function extractEncryptedReasoningItems(
 	return items;
 }
 
-function transformMessagesForResponsesApi(messages: any[]): any[] {
+function transformMessagesForResponsesApi(
+	messages: any[],
+	replayReasoningText = false,
+): any[] {
 	const items: any[] = [];
 
 	// FIFO of function calls emitted from assistant tool_calls that have not yet
@@ -1478,6 +1480,20 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		if (msg.role === "assistant") {
 			const reasoningItems = extractEncryptedReasoningItems(msg);
 			items.push(...reasoningItems);
+			// DeepSeek V4 400s a thinking-mode tool continuation unless the
+			// turn's plain reasoning comes back as a `reasoning_text` item.
+			if (
+				replayReasoningText &&
+				reasoningItems.length === 0 &&
+				typeof msg.reasoning_content === "string" &&
+				msg.tool_calls?.length > 0
+			) {
+				items.push({
+					type: "reasoning",
+					summary: [],
+					content: [{ type: "reasoning_text", text: msg.reasoning_content }],
+				});
+			}
 			// A reasoning-only carrier (a prior turn that ended before emitting a
 			// message, e.g. on max_output_tokens) has no message to emit — the
 			// reasoning items above are the whole turn.
@@ -1781,6 +1797,13 @@ export async function prepareRequestBody(
 	// are still sent, just without deferral, so the request degrades to ordinary
 	// eager tool loading instead of failing on an unknown property.
 	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	// Read before the strip below: Bedrock Converse has no per-tool field and
+	// takes fine-grained tool streaming as a request-wide beta instead, so it
+	// only applies when every tool opted in to unvalidated partial input.
+	const functionToolsForEager = tools?.filter(isFunctionTool) ?? [];
+	const eagerToolInputStreaming =
+		functionToolsForEager.length > 0 &&
+		functionToolsForEager.every((tool) => tool.eager_input_streaming === true);
 	if (!anthropicMessagesApi) {
 		if (tools?.some(isToolSearchTool)) {
 			logger.warn(
@@ -1800,13 +1823,33 @@ export async function prepareRequestBody(
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	// Org custom models keep the static lookup: their DB mapping was never
 	// used for request shaping.
+	// A web search request rerouted by `webSearchApiFormat` arrives under the
+	// generic transport, but is still shaped by its own provider's mapping.
+	const optionsProvider =
+		webSearchTool && resolvedProviderMapping?.webSearchApiFormat
+			? (resolvedProviderMapping.providerId as ProviderId)
+			: usedProvider;
 	const providerMappingForOptions = getProviderMapping(
 		resolvedProviderMapping && usedProvider !== "custom"
 			? [resolvedProviderMapping]
 			: modelDef?.providers,
-		usedProvider,
+		optionsProvider,
 		usedRegion,
 	);
+	// Cache-only search (`external_web_access: false`) exists only on OpenAI's
+	// Responses API. Anywhere else the tool would run a live, billed search the
+	// caller did not ask for, so it is dropped.
+	if (
+		webSearchTool?.external_web_access === false &&
+		!(
+			usedProvider === "openai" &&
+			providerMappingForOptions?.webSearch === true &&
+			(useResponsesApi ??
+				providerMappingForOptions.supportsResponsesApi === true)
+		)
+	) {
+		webSearchTool = undefined;
+	}
 	// A forced search maps to `tool_choice: "required"` in the tool shape,
 	// unless the mapping declares it does not take that mode.
 	const formatToolChoices = (
@@ -1862,7 +1905,6 @@ export async function prepareRequestBody(
 		usedProvider === "azure" ||
 		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
-		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
@@ -1971,7 +2013,9 @@ export async function prepareRequestBody(
 			}
 
 			const decoded = await Promise.all(
-				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+				imageUrls.map((url, index) =>
+					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),
+				),
 			);
 			const fieldName = decoded.length === 1 ? "image" : "image[]";
 			for (const { blob, filename } of decoded) {
@@ -2508,7 +2552,11 @@ export async function prepareRequestBody(
 
 	if (
 		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
-		usedProvider === "runpod"
+		usedProvider === "runpod" ||
+		(usedProvider === "tencent" &&
+			["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"].includes(
+				usedInternalModel,
+			))
 	) {
 		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
@@ -2845,6 +2893,7 @@ export async function prepareRequestBody(
 				// - Convert tool role messages to function_call_output items
 				const transformedMessages = transformMessagesForResponsesApi(
 					messagesWithReasoningDetails,
+					isDeepseekV4,
 				);
 
 				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
@@ -2909,7 +2958,8 @@ export async function prepareRequestBody(
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
 									...(reasoning_context !== undefined &&
-										(usedProvider === "openai" || usedProvider === "azure") && {
+										(optionsProvider === "openai" ||
+											optionsProvider === "azure") && {
 											context: reasoning_context,
 										}),
 									// Capability validation already rejected requests no
@@ -3058,12 +3108,16 @@ export async function prepareRequestBody(
 						type: "web_search";
 						user_location?: unknown;
 						search_context_size?: string;
+						external_web_access?: false;
 					} = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
 					}
 					if (webSearchTool.search_context_size) {
 						webSearch.search_context_size = webSearchTool.search_context_size;
+					}
+					if (webSearchTool.external_web_access === false) {
+						webSearch.external_web_access = false;
 					}
 					responsesBody.tools.push(webSearch);
 					// The Responses API takes the same directive the gateway accepts,
@@ -3945,6 +3999,7 @@ export async function prepareRequestBody(
 				minCacheableChars, // Model-specific minimum cacheable characters
 				autoCacheControlEnabled,
 				automaticCacheTtl,
+				optionsProvider === "deepseek",
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -3963,6 +4018,9 @@ export async function prepareRequestBody(
 						...(tool.function.strict === true && { strict: true }),
 						...(tool.allowed_callers && {
 							allowed_callers: tool.allowed_callers,
+						}),
+						...(tool.eager_input_streaming !== undefined && {
+							eager_input_streaming: tool.eager_input_streaming,
 						}),
 						// Budget and TTL ordering were both settled above, where the
 						// system pass needed the resulting count.
@@ -4891,10 +4949,22 @@ export async function prepareRequestBody(
 				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
 			}
 
+			if (
+				usesBedrockClaudeConverse &&
+				stream &&
+				eagerToolInputStreaming &&
+				requestBody.toolConfig
+			) {
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					...(requestBody.additionalModelRequestFields.anthropic_beta ?? []),
+					"fine-grained-tool-streaming-2025-05-14",
+				];
+			}
+
 			break;
 		}
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body
@@ -5488,52 +5558,6 @@ export async function prepareRequestBody(
 			break;
 		}
 
-		case "gonka24": {
-			if (stream) {
-				requestBody.stream_options = {
-					include_usage: true,
-				};
-			}
-			if (response_format) {
-				requestBody.response_format = response_format;
-			}
-
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
-
-			// Gonka24 keeps thinking off by default, and only the binary `thinking`
-			// switch turns it on — `reasoning_effort` alone never does, and the
-			// chat-template flag is ignored. So the effort decides the switch:
-			// "none" disables, any other tier enables. The effort is forwarded
-			// alongside it because the deployment validates it against its enum and
-			// grades the tiers by intent; today they measure the same (low/medium/
-			// high differ by ~6% in reasoning length over 40 samples each, well
-			// inside noise), but forwarding means real grading works the moment the
-			// provider implements it, with no gateway change.
-			if (supportsReasoning && reasoning_effort !== undefined) {
-				requestBody.thinking =
-					reasoning_effort === "none"
-						? { type: "disabled" }
-						: { type: "enabled" };
-				requestBody.reasoning_effort = reasoning_effort;
-			}
-			break;
-		}
-
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
@@ -5595,21 +5619,7 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					if (usedProvider === "embercloud") {
-						// embercloud's documented request body uses a nested
-						// `reasoning` object (`reasoning.enabled` +
-						// `reasoning.effort`) instead of the flat OpenAI-style
-						// `reasoning_effort` field, which it silently ignores
-						// (https://embercloud.ai/docs/request-body). "none"
-						// maps to enabled: false; any other tier enables
-						// reasoning at the requested effort.
-						requestBody.reasoning =
-							reasoning_effort === "none"
-								? { enabled: false }
-								: { enabled: true, effort: reasoning_effort };
-					} else {
-						requestBody.reasoning_effort = reasoning_effort;
-					}
+					requestBody.reasoning_effort = reasoning_effort;
 				}
 			}
 			break;

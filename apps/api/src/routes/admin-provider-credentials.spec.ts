@@ -30,6 +30,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as LlmGatewayActions from "@llmgateway/actions";
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 // Spy on the live probe so the pinned-model selection in
 // validateCredentialToken can be asserted without real upstream calls. The
@@ -55,6 +56,7 @@ interface Credential {
 	provider: string;
 	comment: string | null;
 	variant: string;
+	selectionStrategy: "ordered" | "round_robin";
 	region: string | null;
 	status: string | null;
 	config: Record<string, string>;
@@ -62,6 +64,7 @@ interface Credential {
 	usage: string;
 	maskedToken: string;
 	tokenHash: string | null;
+	forwardSafetyIdentifier: boolean;
 	maxRpm: number | null;
 	maxRpd: number | null;
 	maxTpm: number | null;
@@ -120,6 +123,95 @@ describe("admin provider credentials", () => {
 		const json = (await res.json()) as { credentials: Credential[] };
 		return json.credentials;
 	}
+
+	test("selection strategy defaults and omitted patches preserve it", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "test-selection-token",
+			skipValidation: true,
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as { credential: Credential };
+		expect(credential.selectionStrategy).toBe("ordered");
+		const patch = (body: Record<string, unknown>) =>
+			app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect((await patch({ selectionStrategy: "round_robin" })).status).toBe(
+			200,
+		);
+		expect((await list())[0].selectionStrategy).toBe("round_robin");
+		const unchanged = await patch({ comment: "updated" });
+		expect(unchanged.status).toBe(200);
+		expect(
+			((await unchanged.json()) as { credential: Credential }).credential
+				.selectionStrategy,
+		).toBe("round_robin");
+		expect((await patch({ selectionStrategy: "random" })).status).toBe(400);
+		expect((await patch({ selectionStrategy: null })).status).toBe(400);
+		expect((await patch({ selectionStrategy: "ordered" })).status).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.selectionStrategy).toBe("ordered");
+	});
+
+	test("forwards the safety identifier by default and toggles it", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "test-safety-token",
+			skipValidation: true,
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as { credential: Credential };
+		expect(credential.forwardSafetyIdentifier).toBe(true);
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect((await patch({ forwardSafetyIdentifier: false })).status).toBe(200);
+		expect((await list())[0].forwardSafetyIdentifier).toBe(false);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.forwardSafetyIdentifier).toBe(false);
+
+		const off = await create({
+			provider: "openai",
+			token: "test-safety-token-off",
+			forwardSafetyIdentifier: false,
+			skipValidation: true,
+		});
+		expect(off.status).toBe(201);
+		expect(
+			((await off.json()) as { credential: Credential }).credential
+				.forwardSafetyIdentifier,
+		).toBe(false);
+	});
+
+	test("creates round-robin credentials and rejects invalid strategies", async () => {
+		const body = {
+			provider: "openai",
+			token: "test-selection-token",
+			skipValidation: true,
+		};
+		const res = await create({ ...body, selectionStrategy: "round_robin" });
+		expect(res.status).toBe(201);
+		expect(
+			((await res.json()) as { credential: Credential }).credential
+				.selectionStrategy,
+		).toBe("round_robin");
+		expect(
+			(await create({ ...body, selectionStrategy: "random" })).status,
+		).toBe(400);
+		expect((await create({ ...body, selectionStrategy: null })).status).toBe(
+			400,
+		);
+	});
 
 	test("requires authentication", async () => {
 		const res = await app.request("/admin/provider-credentials");
@@ -229,6 +321,16 @@ describe("admin provider credentials", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(await res.text()).toContain("projeckt");
+	});
+
+	test("rejects a malformed Cloudflare account id", async () => {
+		const res = await create({
+			provider: "cloudflare",
+			token: "cf-key",
+			config: { accountId: "not-an-account-id" },
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("32 lowercase hex");
 	});
 
 	test("rejects an unknown provider", async () => {
@@ -3210,13 +3312,19 @@ describe("managed credential Airside listings", () => {
 		await deleteAll();
 	});
 
-	/** A catalogue provider whose models all come from Airside listings. */
+	/** A catalogue provider with no live static mapping, so every model it
+	 *  serves comes from Airside listings. */
 	function airsideOnlyProvider(): string {
+		const now = new Date();
 		const provider = catalogueProviders.find(
 			(entry) =>
 				entry.id !== "custom" &&
 				!catalogueModels.some((model) =>
-					model.providers.some((mapping) => mapping.providerId === entry.id),
+					(model.providers as readonly ProviderModelMapping[]).some(
+						(mapping) =>
+							mapping.providerId === entry.id &&
+							(!mapping.deactivatedAt || mapping.deactivatedAt > now),
+					),
 				),
 		);
 		expect(provider).toBeDefined();

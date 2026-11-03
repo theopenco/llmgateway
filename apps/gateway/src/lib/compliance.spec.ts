@@ -217,7 +217,7 @@ describe("getActiveCompliancePolicy for DevPass", () => {
 		expect(policy).toBeDefined();
 		expect(isProviderIdCompliant("openai", policy!)).toBe(true);
 		expect(isProviderIdCompliant("deepseek", policy!)).toBe(false);
-		expect(isProviderIdCompliant("glacier", policy!)).toBe(false);
+		expect(isProviderIdCompliant("quartz", policy!)).toBe(false);
 	});
 });
 

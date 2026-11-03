@@ -54,6 +54,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -914,8 +915,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			if (providerId === "openai" || providerId === "azure") {
-				requestBody.user = safetyIdentifier;
+			const forwarded = forwardedSafetyIdentifier(managedKey, safetyIdentifier);
+			if (
+				forwarded !== undefined &&
+				(providerId === "openai" || providerId === "azure")
+			) {
+				requestBody.user = forwarded;
 			}
 		}
 

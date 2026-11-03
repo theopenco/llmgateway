@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import Decimal from "decimal.js";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -43,19 +44,38 @@ interface TargetOptions {
 	mappings: ProviderModelMapping[];
 }
 
+type AdjustmentValues = TargetData & { value: number };
+
+/** An existing row as returned by the API; values are stored as decimals. */
+interface ExistingAdjustment extends TargetData {
+	id: string;
+}
+
 interface AdjustmentFormProps extends TargetOptions {
 	kind: "discount" | "routing";
+	/** Edits this entry; omitted to create a new one. */
+	initial?: AdjustmentValues;
 	submitting: boolean;
 	submitError: string | null;
 	resetSubmit: () => void;
-	onSubmit: (
-		data: TargetData & { value: number },
-		onSuccess: () => void,
-	) => void;
+	onSubmit: (data: AdjustmentValues, onSuccess: () => void) => void;
+}
+
+/** Converts a stored decimal (0.25) to the percentage the form edits (25). */
+function decimalToPercent(decimal: string): number {
+	return new Decimal(decimal).times(100).toNumber();
+}
+
+/** Formats an ISO timestamp for a `datetime-local` input in local time. */
+function toDateTimeLocal(iso: string): string {
+	const date = new Date(iso);
+	const offsetMs = date.getTimezoneOffset() * 60_000;
+	return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
 function AdjustmentForm({
 	kind,
+	initial,
 	providers,
 	mappings,
 	submitting,
@@ -70,6 +90,7 @@ function AdjustmentForm({
 	const [value, setValue] = useState("");
 	const [reason, setReason] = useState("");
 	const [expiresAt, setExpiresAt] = useState("");
+	const isEdit = initial !== undefined;
 
 	const filteredMappings = useMemo(
 		() =>
@@ -108,11 +129,11 @@ function AdjustmentForm({
 				: "No change to routing preference or customer billing.";
 
 	const reset = () => {
-		setProvider("__all__");
-		setModel("__all__");
-		setValue("");
-		setReason("");
-		setExpiresAt("");
+		setProvider(initial?.provider ?? "__all__");
+		setModel(initial?.model ?? "__all__");
+		setValue(initial ? String(initial.value) : "");
+		setReason(initial?.reason ?? "");
+		setExpiresAt(initial?.expiresAt ? toDateTimeLocal(initial.expiresAt) : "");
 		setError(null);
 		resetSubmit();
 	};
@@ -146,10 +167,7 @@ function AdjustmentForm({
 				reason: reason || null,
 				expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
 			},
-			() => {
-				setOpen(false);
-				reset();
-			},
+			() => setOpen(false),
 		);
 	};
 	const shownError = error ?? submitError;
@@ -158,24 +176,40 @@ function AdjustmentForm({
 		<Dialog
 			open={open}
 			onOpenChange={(nextOpen) => {
+				if (submitting) {
+					return;
+				}
 				setOpen(nextOpen);
-				if (!nextOpen) {
+				if (nextOpen) {
 					reset();
 				}
 			}}
 		>
 			<DialogTrigger asChild>
-				<Button size="sm">
-					<Plus className="h-4 w-4" />
-					Add {noun}
-				</Button>
+				{isEdit ? (
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label={`Edit ${noun.toLowerCase()}`}
+						title={`Edit ${noun.toLowerCase()}`}
+					>
+						<Pencil className="h-4 w-4" />
+					</Button>
+				) : (
+					<Button size="sm">
+						<Plus className="h-4 w-4" />
+						Add {noun}
+					</Button>
+				)}
 			</DialogTrigger>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Add {noun}</DialogTitle>
+					<DialogTitle>
+						{isEdit ? "Edit" : "Add"} {noun}
+					</DialogTitle>
 					<DialogDescription>
 						{isDiscount
-							? "Create a customer discount for a provider, model, or combination."
+							? `${isEdit ? "Update" : "Create"} a customer discount for a provider, model, or combination.`
 							: "Use a negative percentage to prioritize or a positive percentage to deprioritize. Customer billing is unchanged."}
 					</DialogDescription>
 				</DialogHeader>
@@ -199,8 +233,10 @@ function AdjustmentForm({
 											})()}
 											{selectedProvider.name}
 										</span>
-									) : (
+									) : provider === "__all__" ? (
 										"All Providers"
+									) : (
+										provider
 									)}
 								</SelectValue>
 							</SelectTrigger>
@@ -228,7 +264,9 @@ function AdjustmentForm({
 								<SelectValue>
 									{selectedModel
 										? `${selectedModel.modelName} (${selectedModel.modelId})`
-										: "All Models"}
+										: model === "__all__"
+											? "All Models"
+											: model}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
@@ -307,7 +345,7 @@ function AdjustmentForm({
 						</Button>
 						<Button type="submit" disabled={submitting}>
 							{submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-							Create {noun}
+							{isEdit ? "Save Changes" : `Create ${noun}`}
 						</Button>
 					</DialogFooter>
 				</form>
@@ -317,79 +355,147 @@ function AdjustmentForm({
 }
 
 interface DiscountFormProps extends TargetOptions {
-	/** Creates an organization discount; omitted for a global discount. */
+	/** Targets an organization discount; omitted for a global discount. */
 	orgId?: string;
+	/** Edits this discount; omitted to create a new one. */
+	discount?: ExistingAdjustment & { discountPercent: string };
 }
 
-export function DiscountForm({ orgId, ...options }: DiscountFormProps) {
+export function DiscountForm({
+	orgId,
+	discount,
+	...options
+}: DiscountFormProps) {
 	const $api = useApi();
 	const router = useRouter();
-	const onSuccess = () => router.refresh();
-	const globalMutation = $api.useMutation("post", "/admin/discounts", {
+	const config = {
 		meta: { inlineError: true },
-		onSuccess,
-	});
-	const orgMutation = $api.useMutation(
+		onSuccess: () => router.refresh(),
+	};
+	const createGlobal = $api.useMutation("post", "/admin/discounts", config);
+	const createOrg = $api.useMutation(
 		"post",
 		"/admin/organizations/{orgId}/discounts",
-		{ meta: { inlineError: true }, onSuccess },
+		config,
 	);
-	const mutation = orgId ? orgMutation : globalMutation;
+	const updateGlobal = $api.useMutation(
+		"put",
+		"/admin/discounts/{discountId}",
+		config,
+	);
+	const updateOrg = $api.useMutation(
+		"put",
+		"/admin/organizations/{orgId}/discounts/{discountId}",
+		config,
+	);
+	const mutation = discount
+		? orgId
+			? updateOrg
+			: updateGlobal
+		: orgId
+			? createOrg
+			: createGlobal;
 
 	return (
 		<AdjustmentForm
 			kind="discount"
 			{...options}
+			initial={
+				discount && {
+					...discount,
+					value: decimalToPercent(discount.discountPercent),
+				}
+			}
 			submitting={mutation.isPending}
 			submitError={
 				mutation.isError
-					? apiErrorMessage(mutation.error, "Failed to create discount")
+					? apiErrorMessage(
+							mutation.error,
+							`Failed to ${discount ? "update" : "create"} discount`,
+						)
 					: null
 			}
 			resetSubmit={mutation.reset}
 			onSubmit={({ value, ...data }, done) => {
 				const body = { ...data, discountPercent: value };
-				if (orgId) {
-					orgMutation.mutate(
-						{ params: { path: { orgId } }, body },
-						{ onSuccess: done },
+				const callbacks = { onSuccess: done };
+				if (discount && orgId) {
+					updateOrg.mutate(
+						{ params: { path: { orgId, discountId: discount.id } }, body },
+						callbacks,
 					);
+				} else if (discount) {
+					updateGlobal.mutate(
+						{ params: { path: { discountId: discount.id } }, body },
+						callbacks,
+					);
+				} else if (orgId) {
+					createOrg.mutate({ params: { path: { orgId } }, body }, callbacks);
 				} else {
-					globalMutation.mutate({ body }, { onSuccess: done });
+					createGlobal.mutate({ body }, callbacks);
 				}
 			}}
 		/>
 	);
 }
 
-export function RoutingScoreMultiplierForm(options: TargetOptions) {
+interface RoutingScoreMultiplierFormProps extends TargetOptions {
+	/** Edits this multiplier; omitted to create a new one. */
+	multiplier?: ExistingAdjustment & { scoreMultiplier: string };
+}
+
+export function RoutingScoreMultiplierForm({
+	multiplier,
+	...options
+}: RoutingScoreMultiplierFormProps) {
 	const $api = useApi();
 	const router = useRouter();
-	const mutation = $api.useMutation(
+	const config = {
+		meta: { inlineError: true },
+		onSuccess: () => router.refresh(),
+	};
+	const create = $api.useMutation(
 		"post",
 		"/admin/routing-score-multipliers",
-		{ meta: { inlineError: true }, onSuccess: () => router.refresh() },
+		config,
 	);
+	const update = $api.useMutation(
+		"put",
+		"/admin/routing-score-multipliers/{multiplierId}",
+		config,
+	);
+	const mutation = multiplier ? update : create;
 
 	return (
 		<AdjustmentForm
 			kind="routing"
 			{...options}
+			initial={
+				multiplier && {
+					...multiplier,
+					value: decimalToPercent(multiplier.scoreMultiplier),
+				}
+			}
 			submitting={mutation.isPending}
 			submitError={
 				mutation.isError
 					? apiErrorMessage(
 							mutation.error,
-							"Failed to create routing multiplier",
+							`Failed to ${multiplier ? "update" : "create"} routing multiplier`,
 						)
 					: null
 			}
 			resetSubmit={mutation.reset}
 			onSubmit={({ value, ...data }, done) => {
-				mutation.mutate(
-					{ body: { ...data, scoreMultiplier: value } },
-					{ onSuccess: done },
-				);
+				const body = { ...data, scoreMultiplier: value };
+				if (multiplier) {
+					update.mutate(
+						{ params: { path: { multiplierId: multiplier.id } }, body },
+						{ onSuccess: done },
+					);
+				} else {
+					create.mutate({ body }, { onSuccess: done });
+				}
 			}}
 		/>
 	);

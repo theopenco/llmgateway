@@ -331,6 +331,14 @@ export const filteredModels = models
 
 		return false; // Otherwise, exclude free models in non-full mode
 	})
+	// Enterprise-only models switch the shared test org to the enterprise plan
+	// (see e2eOrgPlan), so they only run when explicitly selected.
+	.filter(
+		(model) =>
+			!(model as ModelDefinition).enterpriseOnly ||
+			specifiedModels !== null ||
+			specifiedProviders !== null,
+	)
 	// Filter by TEST_MODELS or TEST_PROVIDERS if specified
 	.filter((model) => {
 		if (!specifiedModels && !specifiedProviders) {
@@ -346,6 +354,12 @@ export const filteredModels = models
 			return matchesTestModel(provider.providerId, model.id, provider.region);
 		});
 	});
+
+const e2eOrgPlan = filteredModels.some(
+	(model) => (model as ModelDefinition).enterpriseOnly,
+)
+	? "enterprise"
+	: "pro";
 
 export const testModels = filteredModels
 	// If any model has test: "only", only include those models
@@ -1436,7 +1450,7 @@ export async function beforeAllHook() {
 			id: "org-id",
 			name: "Test Organization",
 			billingEmail: "user@test.com",
-			plan: "pro",
+			plan: e2eOrgPlan,
 			retentionLevel: "retain",
 			credits: "100",
 		})
@@ -1444,7 +1458,7 @@ export async function beforeAllHook() {
 			target: tables.organization.id,
 			set: {
 				retentionLevel: "retain",
-				plan: "pro",
+				plan: e2eOrgPlan,
 				credits: "100",
 			},
 		});

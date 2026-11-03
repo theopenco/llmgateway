@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { readJsonBody } from "@/lib/read-json-body";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
@@ -67,18 +68,18 @@ function badRequest(message: string, status = 400) {
 }
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody<MoveRequestBody>(req);
 	const user = await getUser();
 
 	if (!user) {
 		return badRequest("Unauthorized", 401);
 	}
 
-	let body: MoveRequestBody;
-	try {
-		body = (await req.json()) as MoveRequestBody;
-	} catch {
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
 		return badRequest("Invalid JSON");
 	}
+	const body = bodyResult.body;
 
 	const levelId = Number(body.levelId);
 	if (!isValidLevelId(levelId)) {

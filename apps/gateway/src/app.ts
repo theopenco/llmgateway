@@ -39,6 +39,7 @@ import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
+import { withManagedKeySelection } from "./lib/managed-key-selection.js";
 import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
@@ -102,6 +103,8 @@ This document: https://api.llmgateway.io/openapi.json (mirrored at https://llmga
 };
 
 export const app = new OpenAPIHono<ServerTypes>();
+
+app.use("*", async (_c, next) => await withManagedKeySelection(next));
 
 const honoRequestLogger = createHonoRequestLogger({ service: "gateway" });
 

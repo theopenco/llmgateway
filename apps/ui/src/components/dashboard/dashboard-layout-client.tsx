@@ -1,6 +1,5 @@
 "use client";
 
-import { usePostHog } from "posthog-js/react";
 import { type ReactNode, useEffect } from "react";
 
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
@@ -12,6 +11,7 @@ import { TopBar } from "@/components/dashboard/top-bar";
 import { EmailVerificationBanner } from "@/components/email-verification-banner";
 import { DashboardProvider } from "@/lib/dashboard-context";
 import { useDashboardState } from "@/lib/dashboard-state";
+import { usePostHog } from "@/lib/posthog";
 import { useSystemBanner } from "@/lib/system-banner-context";
 
 import { SystemBannerBar } from "@llmgateway/shared/system-banner";

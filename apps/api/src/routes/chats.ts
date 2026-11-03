@@ -56,7 +56,7 @@ const messageSchema = z.object({
 	reasoning: z.string().nullable(), // Reasoning content
 	tools: z.string().nullable(), // JSON string of tool parts
 	sources: z.string().nullable(), // JSON string of web search source citations
-	metadata: z.record(z.unknown()).nullable(),
+	metadata: z.record(z.string(), z.unknown()).nullable(),
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
@@ -118,7 +118,7 @@ const orgShareSchema = z.object({
 			reasoning: z.string().nullable(),
 			tools: z.string().nullable(),
 			sources: z.string().nullable(),
-			metadata: z.record(z.unknown()).nullable().optional(),
+			metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 			sequence: z.number(),
 			createdAt: z.string().datetime(),
 		}),
@@ -136,7 +136,7 @@ const sharedMessageSnapshotSchema = z.array(
 		reasoning: z.string().nullable(),
 		tools: z.string().nullable(),
 		sources: z.string().nullable().optional(),
-		metadata: z.record(z.unknown()).nullable().optional(),
+		metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 		sequence: z.number(),
 		createdAt: z.string().datetime(),
 	}),
@@ -180,7 +180,7 @@ const createMessageSchema = z
 		reasoning: z.string().optional(), // Reasoning content
 		tools: z.string().optional(), // Tool parts JSON
 		sources: z.string().optional(), // Web search source citations JSON
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.refine(
 		(data) =>
