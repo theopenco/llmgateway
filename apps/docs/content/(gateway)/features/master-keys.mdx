@@ -291,6 +291,8 @@ Response (201):
 }
 ```
 
+API-key create and update requests also accept `providerCompliancePolicy`: a [compliance policy](/features/compliance#api-key-policies) object, or `null` to remove key-specific settings. Key responses include the saved policy. Enabled organization policies remain mandatory; key policies can only add restrictions.
+
 ### Update a gateway API key
 
 `PATCH /v1/master/keys/{id}`

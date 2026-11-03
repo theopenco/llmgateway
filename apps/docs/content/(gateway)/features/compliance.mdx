@@ -88,7 +88,22 @@ These indicators evaluate the requirements only — deliberately ignoring the al
 
 Elsewhere in the dashboard (for example the API-key provider filter), the colored dot next to a provider is simply the provider's **brand color** and carries no compliance meaning.
 
-These restrictions are **organization-wide** and take precedence over member-level and API-key-level [IAM rules](/features/api-keys): they are enforced after IAM evaluation, so no user-, team-, or key-level allow rule can grant access to a provider or model the compliance policy excludes.
+Organization-level restrictions are **organization-wide** and take precedence over member-level and API-key-level [IAM rules](/features/api-keys): they are enforced after IAM evaluation, so no user-, team-, or key-level allow rule can grant access to a provider or model the compliance policy excludes.
+
+## API key policies
+
+On Enterprise, open an API key’s **Compliance** action to configure the same requirements, headquarters filters, and provider/model lists for that key. Organization owners and admins can manage these policies. **Settings → Compliance** also lists active, unexpired keys with explicit settings across the organization’s projects, including policies that are currently disabled.
+
+The organization policy is a mandatory baseline, not an overridable default:
+
+- Every enabled organization requirement still applies; a key can only add restrictions.
+- Provider, model, and country allowlists must each pass both policies. Disjoint allowlists block all matching traffic.
+- A blocklist at either level wins over an allowlist at the other.
+- Disabling or removing the key policy leaves organization restrictions intact. With the organization policy off, an enabled key policy works independently.
+
+Key-level **Zero data retention** forces metadata-only logging and bypasses caching for that key’s requests without changing organization retention or other keys. It also requires `store: false` for Responses requests and blocks asynchronous video generation. Unlike organization-wide ZDR, it does not require changing every project’s caching settings first.
+
+Configuring key policies requires Enterprise access. Saved restrictions remain enforced after a subscription change; owners and admins can remove a key policy to return to organization-only enforcement. Compliance alerts continue to evaluate the organization policy, not individual key policies.
 
 ## Enforcement
 
@@ -97,7 +112,7 @@ When no available provider for a model meets the policy — or a pinned provider
 ```json
 {
 	"error": {
-		"message": "This request was blocked by your organization's provider compliance policy. No available provider for deepseek-v3.2 meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy."
+		"message": "This request was blocked by your organization or API key provider compliance policy. No available provider for requested-model meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy."
 	}
 }
 ```

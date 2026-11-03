@@ -100,6 +100,7 @@ function makeSessionApiKey(models?: string[]): GatewayApiKey {
 		projectId: "project-1",
 		createdBy: "user-1",
 		safetyIdentifier: "key_test",
+		providerCompliancePolicy: null,
 		endUserSession: {
 			id: "session-1",
 			walletId: "wallet-1",

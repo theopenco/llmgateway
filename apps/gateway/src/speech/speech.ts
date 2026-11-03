@@ -643,7 +643,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -660,12 +660,17 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 	// Enterprise provider compliance policy: speech resolves to a single
 	// provider, so block before sending if it doesn't meet the org's policy.
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -1032,7 +1037,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	if (tieredContentFilterPlan) {
 		// Prompts never reach a classifier's provider when the org's compliance
 		// policy excludes it.
-		const compliancePolicy = getActiveCompliancePolicy(organization);
+		const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
 		const classifierAllowed = (classifier: ContentFilterClassifier) =>
 			isContentFilterClassifierCompliant(classifier, compliancePolicy);
 		const started = await startTieredContentFilter({

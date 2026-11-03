@@ -482,14 +482,19 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
 	// before sending if the org's policy doesn't permit it.
-	await assertProviderCompliant(organization, "openai", {
-		organizationId: project.organizationId,
-		modelId: moderationModelId,
-		apiKeyId: apiKey.id,
-		model: upstreamModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		"openai",
+		{
+			organizationId: project.organizationId,
+			modelId: moderationModelId,
+			apiKeyId: apiKey.id,
+			model: upstreamModel,
+		},
+		apiKey,
+	);
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.

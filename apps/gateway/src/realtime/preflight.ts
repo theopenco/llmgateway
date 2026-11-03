@@ -326,12 +326,17 @@ async function runRealtimePreflightInner(
 		);
 	}
 
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: match.modelId,
-		apiKeyId: apiKey.id,
-		model: input.requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: match.modelId,
+			apiKeyId: apiKey.id,
+			model: input.requestedModel,
+		},
+		apiKey,
+	);
 
 	// Input transcription bills a second model, so resolve up front which ASR
 	// mappings this key may actually use. Doing it here (rather than per

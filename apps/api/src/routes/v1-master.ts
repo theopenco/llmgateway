@@ -17,6 +17,7 @@ import {
 } from "@/lib/iam-rules.js";
 import { getOrgProjectIds } from "@/lib/org-projects.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import { providerCompliancePolicySchema } from "@/lib/provider-compliance-policy.js";
 import {
 	getUsageReport,
 	USAGE_DIMENSIONS,
@@ -89,6 +90,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
 export const v1Master = new OpenAPIHono<ServerTypes>();
 
@@ -196,6 +198,7 @@ interface SerializableApiKey {
 	createdAt: Date;
 	updatedAt: Date;
 	description: string;
+	providerCompliancePolicy: ProviderCompliancePolicy | null;
 	kind: "regular" | "playground";
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
@@ -229,6 +232,7 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		createdAt: apiKey.createdAt,
 		updatedAt: apiKey.updatedAt,
 		description: apiKey.description,
+		providerCompliancePolicy: apiKey.providerCompliancePolicy,
 		kind: apiKey.kind,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
@@ -362,6 +366,9 @@ const createApiKeyBody = z.object({
 	description: z.string().min(1).max(255),
 	usageLimit: nonNegativeDecimal.nullable().optional(),
 	periodUsageLimit: nonNegativeDecimal.nullable().optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional(),
 	periodUsageDurationValue: z.number().int().positive().nullable().optional(),
 	periodUsageDurationUnit: apiKeyPeriodUnit.nullable().optional(),
 });
@@ -372,6 +379,7 @@ const apiKeyResponseSchema = z.object({
 	updatedAt: z.date(),
 	token: z.string(),
 	description: z.string(),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
 	createdBy: z.string(),
@@ -441,6 +449,7 @@ v1Master.openapi(createApiKey, async (c) => {
 				updatedAt: apiKey.updatedAt,
 				token,
 				description: apiKey.description,
+				providerCompliancePolicy: apiKey.providerCompliancePolicy,
 				status: apiKey.status,
 				projectId: apiKey.projectId,
 				createdBy: apiKey.createdBy,
@@ -651,6 +660,7 @@ const apiKeyDetailSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	description: z.string(),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	kind: z.enum(["regular", "playground"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
@@ -677,6 +687,9 @@ const updateApiKeyBody = z
 		status: z.enum(["active", "inactive"]).optional(),
 		usageLimit: nonNegativeDecimal.nullable().optional(),
 		periodUsageLimit: nonNegativeDecimal.nullable().optional(),
+		providerCompliancePolicy: providerCompliancePolicySchema
+			.nullable()
+			.optional(),
 		periodUsageDurationValue: z.number().int().positive().nullable().optional(),
 		periodUsageDurationUnit: apiKeyPeriodUnit.nullable().optional(),
 	})
@@ -754,6 +767,9 @@ v1Master.openapi(updateApiKey, async (c) => {
 		hasPeriodConfigChanged(existing, nextLimitConfig);
 
 	const setPayload: Record<string, unknown> = {};
+	if (updates.providerCompliancePolicy !== undefined) {
+		setPayload.providerCompliancePolicy = updates.providerCompliancePolicy;
+	}
 	if (updates.description !== undefined) {
 		setPayload.description = updates.description;
 	}
@@ -789,10 +805,25 @@ v1Master.openapi(updateApiKey, async (c) => {
 		: {};
 	const limitChanged = Object.keys(limitChanges).length > 0;
 
-	if (limitChanged || descriptionChanged || statusChanged) {
+	const compliancePolicyChanged =
+		updates.providerCompliancePolicy !== undefined &&
+		JSON.stringify(existing.providerCompliancePolicy) !==
+			JSON.stringify(updates.providerCompliancePolicy);
+	if (
+		limitChanged ||
+		descriptionChanged ||
+		statusChanged ||
+		compliancePolicyChanged
+	) {
 		const changes: Record<string, { old: unknown; new: unknown }> = {
 			...limitChanges,
 		};
+		if (compliancePolicyChanged) {
+			changes.providerCompliancePolicy = {
+				old: existing.providerCompliancePolicy,
+				new: updates.providerCompliancePolicy,
+			};
+		}
 		if (descriptionChanged) {
 			changes.description = {
 				old: existing.description,

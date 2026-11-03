@@ -10,6 +10,8 @@ A **session** ties together the requests that belong to the same conversation or
 
 Sessions are the foundation for several features. Today they power **sticky provider routing** and **session-level observability**; more session-scoped capabilities will build on the same identifier over time.
 
+Provider stickiness never overrides [compliance policies](/features/compliance): each turn must satisfy both the enabled organization policy and any policy on the API key making that request.
+
 ## Setting the session id
 
 For chat completions, the session key is resolved in priority order — the first present value wins:

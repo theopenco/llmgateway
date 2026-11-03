@@ -32,6 +32,12 @@ each with its own page:
 | [Provider keys](/learn/provider-keys)                 | Bring your own upstream provider credentials so requests bill to your provider account |
 | [Platform secret keys](/features/embeddable-payments) | Mint end-user sessions from your backend when using the Payments SDK (`sk_…`)          |
 
+## Enterprise compliance policies
+
+Owners and admins can open a key’s **Compliance** action to configure [provider compliance requirements](/features/compliance#api-key-policies), headquarters restrictions, and provider/model lists. Key policies can narrow access but never relax enabled organization policies or bypass IAM rules. They also work independently when organization policies are disabled.
+
+The organization **Settings → Compliance** page lists active, unexpired keys with explicit policies across all projects. Removing a key policy restores organization-only enforcement.
+
 ## Creating API Keys
 
 ### Via Dashboard

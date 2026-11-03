@@ -1262,7 +1262,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			const mcpOrganization = await findOrganizationById(
 				mcpProject.organizationId,
 			);
-			zeroDataRetentionEnabled = isZeroDataRetentionEnabled(mcpOrganization);
+			zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+				mcpOrganization,
+				apiKeyRecord,
+			);
 			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
 		}
 	} catch (error) {
