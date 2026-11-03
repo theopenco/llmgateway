@@ -1127,7 +1127,8 @@ responses.post("/compact", async (c) => {
 			? chatJson.model
 			: req.model;
 
-	if (!zeroDataRetentionEnabled) {
+	// SDK state is wallet-scoped; this cache is project-scoped.
+	if (!zeroDataRetentionEnabled && !authResult.apiKey.endUserSession) {
 		await storeResponse(
 			compactionId,
 			{
