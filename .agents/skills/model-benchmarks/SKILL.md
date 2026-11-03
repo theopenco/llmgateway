@@ -14,8 +14,13 @@ node .agents/skills/model-benchmarks/scripts/run-benchmark.mjs <model-id> [bench
 
 The wrapper builds `@llmgateway/benchmarks`, creates an absolute output path,
 and writes results under `.context/benchmarks`. It defaults to every active
-mapping, the `smoke` profile, and a 120-second per-target budget. Override those
-defaults with ordinary CLI options, for example:
+mapping and the `smoke` profile. The per-target budget defaults per profile —
+`smoke` 2 min, `load` 10 min, `standard` and `coding` 15 min, `--suite` or
+`--external` 10 min — so slow providers finish the profile. `standard` runs its
+throughput case (`fixed_output_stream`) last: when a target's summary shows
+`—` for TTFT and tok/s, it ran out of budget, so rerun with a larger `--budget`
+rather than comparing it. Override those defaults with ordinary CLI options, for
+example:
 
 ```bash
 node .agents/skills/model-benchmarks/scripts/run-benchmark.mjs <model-id> \
@@ -25,7 +30,7 @@ node .agents/skills/model-benchmarks/scripts/run-benchmark.mjs <model-id> \
 Do not pass `--output` or `--format`; the wrapper owns them. Set
 `BENCHMARK_OUTPUT_DIR` when results belong elsewhere. The benchmark CLI reads
 `LLM_GATEWAY_API_KEY`, falls back to `LLMGATEWAY_API_KEY`, and loads the root
-`.env` file.
+`.env` file when it exists.
 
 ## Profiles
 
@@ -42,10 +47,11 @@ node .agents/skills/model-benchmarks/scripts/run-benchmark.mjs <model-id> \
   --profile coding --budget 300000 --timeout 120000
 ```
 
-A budget is a maximum per target, not total run time. A request already in
-flight may finish after its target reaches the budget. Keep cache and fallback
-disabled unless the user explicitly asks otherwise, so results stay pinned to
-the selected mapping.
+A budget is a maximum per target, not total run time; targets run one after
+another, so a run can take up to the budget times the number of mappings. A
+request already in flight may finish after its target reaches the budget. Keep
+cache and fallback disabled unless the user explicitly asks otherwise, so
+results stay pinned to the selected mapping.
 
 The wrapper preserves:
 
@@ -92,7 +98,12 @@ node .agents/skills/model-benchmarks/scripts/render-results.mjs <absolute-json-p
 ```
 
 If a run makes requests but saves no JSON, report the loss and ask before
-rerunning. After completion, link the reports and summarize quality,
+rerunning. Every trial of a target failing with `http_429` "maximum 0 requests
+per day" means an admin rate limit blocks that mapping; report it instead of
+comparing. A run measures a mostly idle endpoint with short prompts, so before
+calling a provider fast or slow in production, benchmark the exact model in
+question and compare with production rollups (`database` skill). After
+completion, link the reports and summarize quality,
 reliability, TTFT, total latency, throughput, buffering, truncation, cost, and
 provider errors. For `coding`, also summarize solve rate, turns and tool calls
 per task, invalid and repeated tool calls, and the stop reasons.

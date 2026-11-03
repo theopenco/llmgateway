@@ -16,7 +16,8 @@ const HELP = `Usage:
 Defaults:
   --mapping '*'
   --profile smoke
-  --budget 120000
+  --budget per profile: smoke 120000, standard 900000, load 600000,
+           coding 900000, --suite/--external 600000
 
 Results are written beneath .context/benchmarks. Set BENCHMARK_OUTPUT_DIR to
 override that directory. Do not pass --output or --format.
@@ -26,6 +27,28 @@ function hasOption(arguments_, names) {
 	return arguments_.some((argument) =>
 		names.some((name) => argument === name || argument.startsWith(`${name}=`)),
 	);
+}
+
+// Per-target budgets sized so slow providers finish the profile; `standard`
+// runs its throughput case last, so a short budget drops it.
+const DEFAULT_BUDGET_MS = {
+	smoke: 120_000,
+	standard: 900_000,
+	load: 600_000,
+	coding: 900_000,
+};
+const DEFAULT_CUSTOM_BUDGET_MS = 600_000;
+
+function optionValue(arguments_, name) {
+	for (const [index, argument] of arguments_.entries()) {
+		if (argument === name) {
+			return arguments_[index + 1];
+		}
+		if (argument.startsWith(`${name}=`)) {
+			return argument.slice(name.length + 1);
+		}
+	}
+	return undefined;
 }
 
 function run(command, arguments_) {
@@ -60,11 +83,21 @@ const benchmarkArguments = ["--model", modelId, ...arguments_];
 if (!hasOption(arguments_, ["--mapping"])) {
 	benchmarkArguments.push("--mapping", "*");
 }
-if (!hasOption(arguments_, ["--profile", "--suite", "--external"])) {
+const hasProfile = hasOption(arguments_, ["--profile"]);
+const hasCustomCases = hasOption(arguments_, ["--suite", "--external"]);
+if (!hasProfile && !hasCustomCases) {
 	benchmarkArguments.push("--profile", "smoke");
 }
 if (!hasOption(arguments_, ["--budget", "--no-budget"])) {
-	benchmarkArguments.push("--budget", "120000");
+	let budgetMs = DEFAULT_BUDGET_MS.smoke;
+	if (hasProfile) {
+		budgetMs =
+			DEFAULT_BUDGET_MS[optionValue(arguments_, "--profile")] ??
+			DEFAULT_CUSTOM_BUDGET_MS;
+	} else if (hasCustomCases) {
+		budgetMs = DEFAULT_CUSTOM_BUDGET_MS;
+	}
+	benchmarkArguments.push("--budget", String(budgetMs));
 }
 
 const outputDirectory = resolve(
