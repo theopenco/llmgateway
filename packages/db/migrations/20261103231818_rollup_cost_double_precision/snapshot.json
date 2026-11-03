@@ -1,9 +1,10 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "212826cd-2739-40b2-b702-5ebe4393dc3c",
+  "id": "6dc18ef4-5838-4147-94ba-4386c1effb59",
   "prevIds": [
-    "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
+    "32c42d20-233a-4cc5-96ce-800ed23b8758",
+    "76884d58-0fd7-4778-bd7d-f42aab0ca074"
   ],
   "ddl": [
     {
@@ -134,6 +135,18 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "content_filter_hourly_api_key_stats",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "content_filter_hourly_error_stats",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "content_filter_hourly_latency_stats",
       "entityType": "tables",
       "schema": "public"
@@ -165,6 +178,12 @@
     {
       "isRlsEnabled": false,
       "name": "crm_contact",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "crm_integration",
       "entityType": "tables",
       "schema": "public"
     },
@@ -386,6 +405,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "model_price_state",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "model_provider_mapping",
       "entityType": "tables",
       "schema": "public"
@@ -530,6 +555,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "playground_decision_history",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "playground_image_history",
       "entityType": "tables",
       "schema": "public"
@@ -603,6 +634,12 @@
     {
       "isRlsEnabled": false,
       "name": "provider",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "provider_certification",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1479,6 +1516,19 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
+      "default": "'key_' || replace(gen_random_uuid()::text, '-', '')",
+      "generated": null,
+      "identity": null,
+      "name": "safety_identifier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
@@ -2159,6 +2209,123 @@
       "generated": null,
       "identity": null,
       "name": "api_keys_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_client_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_gateway_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_upstream_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_duration",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_duration_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_reasoning_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_model_stats"
@@ -3498,6 +3665,123 @@
       "generated": null,
       "identity": null,
       "name": "api_keys_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_client_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_gateway_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_upstream_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_duration",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_duration_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_reasoning_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -5229,6 +5513,383 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hour_timestamp",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "api_key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "category",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "classifier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'deciding'",
+      "generated": null,
+      "identity": null,
+      "name": "role",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "sampled_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "violation_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "blocked_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hour_timestamp",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "classifier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "source",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "input_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "last_message",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "last_request_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_seen_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "content_filter_hourly_latency_stats"
     },
     {
@@ -5596,6 +6257,19 @@
       "table": "content_filter_hourly_model_stats"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "internal_scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_model_stats"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -5786,6 +6460,19 @@
       "generated": null,
       "identity": null,
       "name": "role",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "content_filter_hourly_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "internal_scope",
       "entityType": "columns",
       "schema": "public",
       "table": "content_filter_hourly_stats"
@@ -6274,6 +6961,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_ref",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_activity"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -6413,6 +7113,136 @@
       "entityType": "columns",
       "schema": "public",
       "table": "crm_contact"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "account_email",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "display_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "credentials",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "shared",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "crm_integration"
     },
     {
       "type": "text",
@@ -15717,6 +16547,45 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "mapping_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_price_state"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "prices",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_price_state"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_price_state"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "public",
@@ -15809,6 +16678,19 @@
       "generated": null,
       "identity": null,
       "name": "region",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "decisions",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -16199,6 +17081,19 @@
       "generated": null,
       "identity": null,
       "name": "web_search_forced_only",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "web_search_format",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -16914,6 +17809,266 @@
       "generated": null,
       "identity": null,
       "name": "service_tier_unconfirmed_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_logs_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_client_errors_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_gateway_errors_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_upstream_errors_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_total_output_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_total_duration",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_total_time_to_first_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_total_time_to_first_reasoning_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_time_to_first_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "flex_time_to_first_reasoning_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_logs_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_client_errors_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_gateway_errors_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_upstream_errors_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_total_output_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_total_duration",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_total_time_to_first_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_total_time_to_first_reasoning_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_time_to_first_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "priority_time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping_history"
@@ -18002,6 +19157,32 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
+      "default": "'used'",
+      "generated": null,
+      "identity": null,
+      "name": "model_scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notification_preference"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'[]'",
+      "generated": null,
+      "identity": null,
+      "name": "model_ids",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notification_preference"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
@@ -18825,6 +20006,32 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_premium_week_start",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_daily_credits_used",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_day_start",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -20933,6 +22140,136 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "prompt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "title",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "input_images",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "questions",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "models",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "playground_image_history"
     },
     {
@@ -22256,6 +23593,19 @@
       "default": "0",
       "generated": null,
       "identity": null,
+      "name": "api_keys_client_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
       "name": "api_keys_gateway_error_count",
       "entityType": "columns",
       "schema": "public",
@@ -22270,6 +23620,84 @@
       "generated": null,
       "identity": null,
       "name": "api_keys_upstream_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_duration",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_duration_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_reasoning_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_model_stats"
@@ -24030,6 +25458,123 @@
       "table": "project_hourly_stats"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_client_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_gateway_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_upstream_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_duration",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_duration_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_total_time_to_first_reasoning_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_time_to_first_reasoning_token_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -24587,6 +26132,201 @@
       "entityType": "columns",
       "schema": "public",
       "table": "provider"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_claim_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "certificate_number",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'active'",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "attested",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "review_note",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "issued_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "issued_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "revoked_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "revoked_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "revoke_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_certification"
     },
     {
       "type": "text",
@@ -25616,6 +27356,19 @@
       "table": "provider_draft_model"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "decisions",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -25837,6 +27590,19 @@
       "table": "provider_draft_model"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "web_search_format",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -25936,6 +27702,58 @@
       "generated": null,
       "identity": null,
       "name": "delist_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_requested_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_requested_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_reviewed_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "relist_review_note",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
@@ -26123,6 +27941,32 @@
       "table": "provider_key"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "forward_cache_control",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "true",
+      "generated": null,
+      "identity": null,
+      "name": "forward_safety_identifier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": false,
@@ -26144,6 +27988,19 @@
       "generated": null,
       "identity": null,
       "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "deletion_requested_at",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
@@ -26299,7 +28156,85 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "max_rpm",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_rpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpm",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'strict'",
+      "generated": null,
+      "identity": null,
+      "name": "rate_limit_mode",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "sort_order",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'ordered'",
+      "generated": null,
+      "identity": null,
+      "name": "selection_strategy",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
@@ -27886,6 +29821,32 @@
       "generated": null,
       "identity": null,
       "name": "max_rpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "rate_limit"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpm",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "rate_limit"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_tpd",
       "entityType": "columns",
       "schema": "public",
       "table": "rate_limit"
@@ -32670,6 +34631,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "safety_identifier",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "api_key_safety_identifier_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "end_customer_wallet_id",
           "isExpression": false,
           "asc": true,
@@ -33557,6 +35539,83 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
+      "name": "content_filter_hourly_api_key_stats_org_ts_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "content_filter_hourly_error_stats_ts_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "content_filter_hourly_error_stats_org_ts_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
       "name": "content_filter_hourly_model_stats_org_ts_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -33713,6 +35772,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "external_ref",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "external_ref IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "crm_activity_external_ref_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "crm_activity"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "account_id",
           "isExpression": false,
           "asc": true,
@@ -33736,6 +35816,34 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "crm_contact"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "provider",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "account_email",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "crm_integration_provider_email_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "crm_integration"
     },
     {
       "nameExplicit": true,
@@ -35085,6 +37193,69 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "used_model",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_used_model_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "split_part(regexp_replace(\"used_model\", '^[^/]*/', ''), ':', 1)",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "(\"has_error\" = true OR \"unified_finish_reason\" IN ('client_error', 'gateway_error', 'upstream_error'))",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_error_project_id_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "end_user_session_id",
           "isExpression": false,
           "asc": true,
@@ -35105,6 +37276,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_end_user_session_id_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "gateway_content_filter_response IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_content_filter_created_at_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"
@@ -36149,6 +38341,76 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "provider_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "model_provider_mapping_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "logs_count",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "total_cost",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "client_errors_count",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "gateway_errors_count",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "upstream_errors_count",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "logs_count > 0",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "mpm_history_hourly_provider_ts_active_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_provider_mapping_history_hourly"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -37057,6 +39319,27 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
+      "name": "playground_decision_history_user_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
       "name": "playground_image_history_user_id_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -37460,6 +39743,69 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "provider"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "certificate_number",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_certification_number_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "provider_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "status = 'active'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_certification_active_provider_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "provider_claim_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_certification_claim_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_certification"
     },
     {
       "nameExplicit": true,
@@ -38439,6 +40785,13 @@
         },
         {
           "value": "coalesce(\"model\", '__all_models__')",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "(case when \"max_rpm\" is not null then 'rpm' when \"max_rpd\" is not null then 'rpd' when \"max_tpm\" is not null then 'tpm' when \"max_tpd\" is not null then 'tpd' end)",
           "isExpression": true,
           "asc": true,
           "nullsFirst": false,
@@ -40662,6 +43015,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "crm_integration_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "crm_integration"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "provider_key_id"
       ],
       "schemaTo": "public",
@@ -41240,6 +43610,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "mapping_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "model_provider_mapping",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "model_price_state_mapping_id_model_provider_mapping_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "model_price_state"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "model_id"
       ],
       "schemaTo": "public",
@@ -41759,6 +44146,40 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "playground_decision_history_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "playground_decision_history_geENW95goubL_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "playground_decision_history"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "playground_image_history_user_id_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -41950,6 +44371,57 @@
       "entityType": "fks",
       "schema": "public",
       "table": "prompt_version"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "provider_claim_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "provider_claim",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "provider_certification_provider_claim_id_provider_claim_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "issued_by"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "provider_certification_issued_by_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_certification"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "revoked_by"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "provider_certification_revoked_by_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_certification"
     },
     {
       "nameExplicit": false,
@@ -42151,6 +44623,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "provider_draft_model_created_by_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "relist_requested_by"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "provider_draft_model_relist_requested_by_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "provider_draft_model"
@@ -43448,6 +45937,26 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "content_filter_hourly_api_key_stats_pkey",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "content_filter_hourly_error_stats_pkey",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "content_filter_hourly_latency_stats_pkey",
       "schema": "public",
       "table": "content_filter_hourly_latency_stats",
@@ -43501,6 +46010,16 @@
       "name": "crm_contact_pkey",
       "schema": "public",
       "table": "crm_contact",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "crm_integration_pkey",
+      "schema": "public",
+      "table": "crm_integration",
       "entityType": "pks"
     },
     {
@@ -43865,6 +46384,16 @@
     },
     {
       "columns": [
+        "mapping_id"
+      ],
+      "nameExplicit": false,
+      "name": "model_price_state_pkey",
+      "schema": "public",
+      "table": "model_price_state",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         "id"
       ],
       "nameExplicit": false,
@@ -44108,6 +46637,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "playground_decision_history_pkey",
+      "schema": "public",
+      "table": "playground_decision_history",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "playground_image_history_pkey",
       "schema": "public",
       "table": "playground_image_history",
@@ -44231,6 +46770,16 @@
       "name": "provider_pkey",
       "schema": "public",
       "table": "provider",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "provider_certification_pkey",
+      "schema": "public",
+      "table": "provider_certification",
       "entityType": "pks"
     },
     {
@@ -44738,6 +47287,42 @@
       "nameExplicit": true,
       "columns": [
         "hour_timestamp",
+        "organization_id",
+        "project_id",
+        "api_key_id",
+        "category",
+        "classifier",
+        "role"
+      ],
+      "nullsNotDistinct": false,
+      "name": "content_filter_hourly_api_key_stats_bucket_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "content_filter_hourly_api_key_stats"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "hour_timestamp",
+        "organization_id",
+        "project_id",
+        "classifier",
+        "source",
+        "kind",
+        "input_type",
+        "status",
+        "code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "content_filter_hourly_error_stats_bucket_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "content_filter_hourly_error_stats"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "hour_timestamp",
         "classifier",
         "internal_scope"
       ],
@@ -44757,7 +47342,8 @@
         "used_provider",
         "category",
         "classifier",
-        "role"
+        "role",
+        "internal_scope"
       ],
       "nullsNotDistinct": false,
       "name": "content_filter_hourly_model_stats_bucket_unique",
@@ -44773,7 +47359,8 @@
         "project_id",
         "category",
         "classifier",
-        "role"
+        "role",
+        "internal_scope"
       ],
       "nullsNotDistinct": false,
       "name": "content_filter_hourly_stats_bucket_unique",

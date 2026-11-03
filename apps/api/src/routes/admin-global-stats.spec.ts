@@ -66,8 +66,7 @@ const BUCKETS: Bucket[] = [
 ];
 
 // The per-bucket fixture above also lands in the window every query covers.
-// The cost columns are double precision, so these literals round-trip exactly
-// and the expectation is simply their sum.
+// The double precision columns round-trip these JavaScript-number fixtures.
 const BASE_FIXTURE_COST = BUCKETS.reduce((sum, bucket) => sum + bucket.cost, 0);
 
 interface GlobalStatsResponse {
@@ -794,8 +793,8 @@ describe("admin — global stats mode/kind dimensions", () => {
 		).toBe("default");
 	});
 
-	// Costs are stored in double precision columns and summed in NUMERIC, so the
-	// all-time totals this page shows are exact however the rows were grouped.
+	// Double precision storage and NUMERIC accumulation keep this fixture
+	// consistent to the displayed cent across the different groupings.
 	// Under the previous float4 storage the headline stopped matching the slices
 	// underneath it. A handful of rows never showed it; the drift only appears at
 	// production magnitude, hence the bulk fixture.
@@ -842,9 +841,8 @@ describe("admin — global stats mode/kind dimensions", () => {
 		expect(byKind).toBeCloseTo(body.totals.cost, 2);
 		expect(timeseriesTotal).toBeCloseTo(body.totals.cost, 2);
 
-		// Double precision holds PER_ROW_COST exactly, so the total must match the
-		// literal rather than a storage-rounded stand-in. The same fixture drifted
-		// by ~0.38 under float4 storage, far beyond a cent.
+		// Compare with the JavaScript-number fixture, not a float4-rounded
+		// stand-in. The old storage drifted by more than a cent.
 		expect(body.totals.cost).toBeCloseTo(
 			PER_ROW_COST * DAYS * BUCKETS.length + BASE_FIXTURE_COST, // eslint-disable-line no-mixed-operators
 			2,

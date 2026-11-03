@@ -174,8 +174,8 @@ export function getBaseAggregationFields() {
 		// running sum runs out of its ~7 significant digits and the bucket is stored
 		// already-wrong. Casting to double precision first keeps the accumulation
 		// accurate, and the rollup cost columns are double precision too, so the
-		// bucket is stored without float4 rounding (a few rollups not yet widened
-		// still round the final value once).
+		// bucket avoids an additional float4 rounding step. The log values remain
+		// float4, and rollups outside this migration still round the final sum.
 		cost: sumLogMoney(log.cost, "cost"),
 		inputCost: sumLogMoney(log.inputCost, "inputCost"),
 		outputCost: sumLogMoney(log.outputCost, "outputCost"),
