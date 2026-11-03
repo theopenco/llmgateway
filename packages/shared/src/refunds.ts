@@ -117,7 +117,7 @@ export function buildRefundDescription(
 	const ratio = originalAmount.gt(0)
 		? new Decimal(refundAmountDollars).div(originalAmount)
 		: new Decimal(1);
-	if (ratio.gte("0.9995")) {
+	if (ratio.gte(1)) {
 		return `Refund: ${label}`;
 	}
 	return `Partial refund (${ratio.mul(100).toFixed(1)}%): ${label}`;

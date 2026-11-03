@@ -28,3 +28,24 @@ describe("refund descriptions", () => {
 		);
 	});
 });
+describe("refund completion boundary", () => {
+	it.each([99.95, 99.96, 99.99])(
+		"keeps a %s refund partial when the displayed percentage rounds up",
+		(refund) => {
+			expect(
+				buildRefundDescription(refund, {
+					amount: "100.00",
+					description: "Test purchase",
+				}),
+			).toBe("Partial refund (100.0%): Test purchase");
+		},
+	);
+	it("marks only an entire purchase as fully refunded", () => {
+		expect(
+			buildRefundDescription(100, {
+				amount: "100.00",
+				description: "Test purchase",
+			}),
+		).toBe("Refund: Test purchase");
+	});
+});
