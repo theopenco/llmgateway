@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { z } from "zod/v3";
+import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -42,7 +42,7 @@ export interface ExistingFeedback {
 const formSchema = z
 	.object({
 		reason: z.enum(DEV_PLAN_CANCELLATION_REASONS, {
-			errorMap: () => ({ message: "Please pick a reason." }),
+			error: "Please pick a reason.",
 		}),
 		comments: z
 			.string()

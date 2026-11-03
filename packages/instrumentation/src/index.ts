@@ -165,4 +165,6 @@ export {
 	startMetricsServer,
 	type ChatCompletionMetrics,
 	type DbPoolStats,
+	managedKeySelectionsTotal,
+	managedKeySelectionDegradedTotal,
 } from "./metrics.js";

@@ -24,7 +24,7 @@ They also expose [usage and cost reporting](#usage-and-cost-reporting), so you c
 
 ## Limits
 
-- Maximum **10 active master keys per organization**.
+- Maximum **10 master keys per organization**, counting active and inactive keys — only deleting a key frees a slot.
 - Programmatic project and API-key creation enforces the same per-org and per-project limits as the dashboard flow.
 
 ## Managing master keys
@@ -95,12 +95,14 @@ curl -X POST https://internal.llmgateway.io/v1/master/projects \
 
 Body parameters:
 
-| Field                  | Type                                             | Description                |
-| ---------------------- | ------------------------------------------------ | -------------------------- |
-| `name`                 | string                                           | Project name (1–255 chars) |
-| `cachingEnabled`       | boolean (optional)                               | Default `false`            |
-| `cacheDurationSeconds` | number (optional)                                | 10–31536000, default 60    |
-| `mode`                 | `"api-keys" \| "credits" \| "hybrid"` (optional) | Default `"hybrid"`         |
+| Field                      | Type                                             | Description                                                       |
+| -------------------------- | ------------------------------------------------ | ----------------------------------------------------------------- |
+| `name`                     | string                                           | Project name (1–255 chars)                                        |
+| `cachingEnabled`           | boolean (optional)                               | Default `false`                                                   |
+| `cacheDurationSeconds`     | number (optional)                                | 10–31536000, default 60                                           |
+| `providerCacheControlMode` | `"auto" \| "passthrough" \| "off"` (optional)    | [Provider cache writes](/features/caching/provider-cache-control) |
+| `providerCacheAutoTtl`     | `"5m" \| "1h"` (optional)                        | TTL for auto-injected cache markers                               |
+| `mode`                     | `"api-keys" \| "credits" \| "hybrid"` (optional) | Default `"hybrid"`                                                |
 
 Response (201): the created project.
 
@@ -129,6 +131,7 @@ Body parameters (all optional, at least one required):
 | `cachingEnabled`           | boolean                               |                                                                   |
 | `cacheDurationSeconds`     | number                                | 10–31536000                                                       |
 | `providerCacheControlMode` | `"auto" \| "passthrough" \| "off"`    | [Provider cache writes](/features/caching/provider-cache-control) |
+| `providerCacheAutoTtl`     | `"5m" \| "1h"`                        | TTL for auto-injected cache markers                               |
 | `mode`                     | `"api-keys" \| "credits" \| "hybrid"` |                                                                   |
 | `status`                   | `"active" \| "inactive"`              | Toggle the project without deleting                               |
 
@@ -175,7 +178,7 @@ Response (200):
 			"projectName": "Customer ACME",
 			"createdBy": "usr_...",
 			"createdByEmail": "member@example.com",
-			"maskedToken": "llmgtwy_...abcd",
+			"maskedToken": "llmgtwy_AbCd•••••",
 			"usageLimit": "100.00",
 			"usage": "42.13",
 			"periodUsageLimit": "10.00",
@@ -229,7 +232,7 @@ Response (200):
 		"projectName": "Customer ACME",
 		"createdBy": "usr_...",
 		"createdByEmail": "member@example.com",
-		"maskedToken": "llmgtwy_...abcd",
+		"maskedToken": "llmgtwy_AbCd•••••",
 		"usageLimit": "100.00",
 		"usage": "42.13",
 		"periodUsageLimit": "10.00",
@@ -733,7 +736,7 @@ Response (200):
 			"provider": "custom",
 			"name": "acme",
 			"baseUrl": "https://llm.acme.example.com",
-			"maskedToken": "sk-a...cret",
+			"maskedToken": "sk-abc123def•••••",
 			"status": "active",
 			"customModelsOnly": true,
 			"complianceAttestation": null,
