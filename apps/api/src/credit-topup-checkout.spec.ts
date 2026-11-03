@@ -125,6 +125,7 @@ function paymentIntentEvent(
 		},
 	} as unknown as Stripe.Event;
 }
+describe("credit top-up payment ownership", creditTopUpOwnershipTests);
 
 async function deliver(event: Stripe.Event, expectedStatus = 200) {
 	stripeMock.webhooks.constructEvent.mockReturnValue(event);
@@ -466,3 +467,124 @@ describe("credit top-up via Stripe Checkout", () => {
 		expect(transactions[0].status).toBe("completed");
 	});
 });
+function creditTopUpOwnershipTests() {
+	beforeEach(async () => {
+		await deleteAll();
+		fetchMock.mockClear();
+		vi.stubGlobal("fetch", fetchMock);
+		stripeMock.webhooks.constructEvent.mockReset();
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Test Organization",
+			billingEmail: USER_EMAIL,
+			stripeCustomerId: CUSTOMER_ID,
+			credits: "0",
+		});
+	});
+
+	afterEach(async () => {
+		vi.unstubAllGlobals();
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test.each(["checkout", "manual", "auto"] as const)(
+		"does not acknowledge another organization's completed payment (%s)",
+		async (source) => {
+			const otherOrgId = "org-topup-completed-other";
+			await db.insert(tables.organization).values({
+				id: otherOrgId,
+				name: "Other Organization",
+				billingEmail: "other@example.com",
+				credits: "10",
+			});
+			await db.insert(tables.transaction).values({
+				organizationId: otherOrgId,
+				type: "credit_topup",
+				status: "completed",
+				stripePaymentIntentId: PAYMENT_INTENT_ID,
+				creditAmount: "10",
+			});
+			await db.insert(tables.followUpEmail).values({
+				organizationId: ORG_ID,
+				emailType: "low_balance_5",
+				sentTo: USER_EMAIL,
+			});
+			const event =
+				source === "checkout"
+					? checkoutSessionCompletedEvent()
+					: paymentIntentEvent("payment_intent.succeeded", {
+							...checkoutMetadata,
+							...(source === "auto"
+								? { transactionId: "missing-pending-topup" }
+								: {}),
+						});
+			await deliver(event, 400);
+			const org = await db.query.organization.findFirst({
+				where: { id: ORG_ID },
+			});
+			const otherOrg = await db.query.organization.findFirst({
+				where: { id: otherOrgId },
+			});
+			expect(org?.credits).toBe("0");
+			expect(otherOrg?.credits).toBe("10");
+			expect(await db.query.transaction.findMany()).toHaveLength(1);
+			expect(
+				await db.query.followUpEmail.findMany({
+					where: { organizationId: ORG_ID },
+				}),
+			).toHaveLength(1);
+			expect(discordNotification()).toBeNull();
+		},
+	);
+
+	test.each([
+		{ type: "credit_refund", status: "pending", stripePaymentIntentId: null },
+		{
+			type: "credit_topup",
+			status: "completed",
+			stripePaymentIntentId: "pi_other_completed",
+		},
+		{
+			type: "credit_topup",
+			status: "pending",
+			stripePaymentIntentId: "pi_other_pending",
+		},
+	] as const)(
+		"does not claim an ineligible auto top-up row ($type/$status/$stripePaymentIntentId)",
+		async (values) => {
+			const [referenced] = await db
+				.insert(tables.transaction)
+				.values({
+					organizationId: ORG_ID,
+					amount: "10.35",
+					creditAmount: "10",
+					...values,
+				})
+				.returning();
+			const event = paymentIntentEvent("payment_intent.succeeded", {
+				...checkoutMetadata,
+				transactionId: referenced.id,
+			});
+			await deliver(event);
+			expect(
+				await db.query.transaction.findFirst({ where: { id: referenced.id } }),
+			).toEqual(referenced);
+			await deliver(event);
+			const org = await db.query.organization.findFirst({
+				where: { id: ORG_ID },
+			});
+			expect(org?.credits).toBe("10");
+			const completed = await db.query.transaction.findMany({
+				where: {
+					organizationId: ORG_ID,
+					type: "credit_topup",
+					status: "completed",
+					stripePaymentIntentId: PAYMENT_INTENT_ID,
+				},
+			});
+			expect(completed).toHaveLength(1);
+			expect(completed[0].id).not.toBe(referenced.id);
+		},
+	);
+}
