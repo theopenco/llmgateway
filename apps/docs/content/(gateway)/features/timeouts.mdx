@@ -37,8 +37,9 @@ longer in total when a retry or provider fallback starts a fresh attempt.
   retired during a deploy, in-flight requests get up to 8 minutes to finish
   before the connection is closed. Retry a stream that ends without its final
   chunk.
-- **On timeout** the gateway returns a `504` with type `timeout_error` (see
-  [Error Handling](/resources/error-handling)). If the limit is hit
+- **On timeout** the gateway returns a `504` with type `upstream_timeout` and
+  code `timeout`; on `/v1/messages` it surfaces as an Anthropic `timeout_error`
+  (see [Error Handling](/resources/error-handling)). If the limit is hit
   mid-stream, the stream terminates.
 
 ## Long-running agentic workloads
