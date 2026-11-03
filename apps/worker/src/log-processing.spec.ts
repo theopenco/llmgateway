@@ -1559,9 +1559,8 @@ describe("Log Processing", () => {
 		});
 	});
 
-	// A row that deterministically fails must never be able to hold up the
-	// queue: the batch always takes the oldest logs first, so without isolation
-	// one bad row freezes credit deduction for every organization.
+	// Isolate unreadable rows within the shared budget. SQL failures stay queued
+	// until recovery; they do not prove that the selected row is corrupt.
 	describe("poison log isolation", () => {
 		const insertLog = async (overrides: Partial<typeof log.$inferInsert>) => {
 			const [entry] = await db
