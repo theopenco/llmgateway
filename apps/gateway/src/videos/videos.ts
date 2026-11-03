@@ -2905,17 +2905,20 @@ async function requireVideoJobForProject(
 		});
 	}
 
-	await assertProviderCompliant(
-		organization,
-		job.usedProvider,
-		{
-			organizationId: organization.id,
-			modelId: job.model,
-			apiKeyId: apiKey.id,
-			model: getFormattedUsedVideoModel(job.usedProvider, job.usedModel),
-		},
-		apiKey,
-	);
+	// Preserve historical org-only video access; the added read guard is opt-in.
+	if (apiKey.providerCompliancePolicy?.enabled) {
+		await assertProviderCompliant(
+			organization,
+			job.usedProvider,
+			{
+				organizationId: organization.id,
+				modelId: job.model,
+				apiKeyId: apiKey.id,
+				model: getFormattedUsedVideoModel(job.usedProvider, job.usedModel),
+			},
+			apiKey,
+		);
+	}
 
 	return job;
 }

@@ -86,3 +86,17 @@ export function assertCanManageCompliancePolicy(
 		});
 	}
 }
+export function assertApiKeyComplianceWritesEnabled(
+	policy: ProviderCompliancePolicy | null | undefined,
+): void {
+	if (
+		policy !== undefined &&
+		policy !== null &&
+		process.env.API_KEY_COMPLIANCE_ENABLED !== "true"
+	) {
+		throw new HTTPException(503, {
+			message:
+				"API key compliance configuration is not enabled for this deployment",
+		});
+	}
+}

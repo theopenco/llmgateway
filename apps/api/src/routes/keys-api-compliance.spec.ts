@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -24,6 +24,7 @@ describe("API key compliance policies", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
+		vi.stubEnv("API_KEY_COMPLIANCE_ENABLED", "true");
 		cookie = await createTestUser();
 		await db.insert(tables.organization).values({
 			id: organizationId,
@@ -51,6 +52,7 @@ describe("API key compliance policies", () => {
 
 	afterEach(async () => {
 		await deleteAll();
+		vi.unstubAllEnvs();
 	});
 
 	function request(path: string, method = "GET", body?: unknown) {
@@ -621,6 +623,112 @@ describe("API key compliance policies", () => {
 				(await db.query.apiKey.findFirst({ where: { id: keyId } }))
 					?.providerCompliancePolicy,
 			).toEqual(policy);
+		},
+	);
+	test.each([undefined, "false"] as const)(
+		"rollout gate defaults closed (%s) without affecting organization policies",
+		async (flag) => {
+			vi.stubEnv("API_KEY_COMPLIANCE_ENABLED", flag);
+			await db
+				.update(tables.apiKey)
+				.set({ providerCompliancePolicy: policy })
+				.where(eq(tables.apiKey.id, keyId));
+			const token = `mk-${crypto.randomUUID()}`;
+			await db.insert(tables.masterKey).values({
+				id: "rollout-compliance-master",
+				organizationId,
+				createdBy: "test-user-id",
+				tokenHash: getApiKeyFingerprint(token),
+				maskedToken: "mk-****",
+				description: "Test Master Key",
+			});
+			const master = (path: string, method: string, body: unknown) =>
+				app.request(`/v1/master${path}`, {
+					method,
+					headers: {
+						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(body),
+				});
+			for (const next of [policy, { enabled: false }]) {
+				expect((await update(next)).status).toBe(503);
+				expect(
+					(
+						await request("/keys/api", "POST", {
+							projectId,
+							description: "Gated policy",
+							providerCompliancePolicy: next,
+						})
+					).status,
+				).toBe(503);
+				expect(
+					(
+						await master(`/keys/${keyId}`, "PATCH", {
+							providerCompliancePolicy: next,
+						})
+					).status,
+				).toBe(503);
+				expect(
+					(
+						await master("/keys", "POST", {
+							projectId,
+							description: "Gated policy",
+							providerCompliancePolicy: next,
+						})
+					).status,
+				).toBe(503);
+			}
+			expect(
+				(await db.query.apiKey.findFirst({ where: { id: keyId } }))
+					?.providerCompliancePolicy,
+			).toEqual(policy);
+			expect(
+				(
+					await request(`/keys/api/${keyId}`, "PATCH", {
+						description: "Unrelated update",
+					})
+				).status,
+			).toBe(200);
+			expect(
+				(
+					await master(`/keys/${keyId}`, "PATCH", {
+						description: "Unrelated master update",
+					})
+				).status,
+			).toBe(200);
+			expect(
+				(
+					await request("/keys/api", "POST", {
+						projectId,
+						description: "Inherited organization policy",
+					})
+				).status,
+			).toBe(200);
+			expect(
+				(
+					await master("/keys", "POST", {
+						projectId,
+						description: "Inherited organization policy",
+					})
+				).status,
+			).toBe(201);
+			const orgUpdate = await request(`/orgs/${organizationId}`, "PATCH", {
+				providerCompliancePolicy: { enabled: true, requireGdpr: true },
+			});
+			expect(orgUpdate.status, await orgUpdate.text()).toBe(200);
+			expect((await update(null)).status).toBe(200);
+			await db
+				.update(tables.apiKey)
+				.set({ providerCompliancePolicy: policy })
+				.where(eq(tables.apiKey.id, keyId));
+			expect(
+				(
+					await master(`/keys/${keyId}`, "PATCH", {
+						providerCompliancePolicy: null,
+					})
+				).status,
+			).toBe(200);
 		},
 	);
 });

@@ -105,6 +105,14 @@ Key-level **Zero data retention** forces metadata-only logging and bypasses cach
 
 Configuring key policies requires Enterprise access. Saved restrictions remain enforced after a subscription change; owners and admins can remove a key policy to return to organization-only enforcement. Compliance alerts continue to evaluate the organization policy, not individual key policies.
 
+### Deployment rollout
+
+Key-level policy configuration is off by default. After applying the database migration, upgrade every gateway instance and drain pre-upgrade realtime sessions. Then set `API_KEY_COMPLIANCE_ENABLED=true` on the internal API to allow new key-policy settings. Deploy the editor last. Until enabled, key-policy create/update requests return `503`; ordinary key operations and organization policy updates are unaffected. Owners and admins can still clear a key policy with `null`.
+
+The rollout switch controls configuration only: saved organization and API-key restrictions remain enforced even when the switch is off. Existing keys default to no explicit policy and continue to use their organization policy unchanged.
+
+Organization policies continue to govern video creation without retroactively blocking historical video downloads. An enabled key policy additionally checks historical video access against both organization and key restrictions.
+
 ## Enforcement
 
 When no available provider for a model meets the policy — or a pinned provider is non-compliant — the gateway returns a `403`:

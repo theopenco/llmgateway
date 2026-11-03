@@ -20,6 +20,7 @@ import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.j
 import {
 	providerCompliancePolicySchema,
 	assertCanManageCompliancePolicy,
+	assertApiKeyComplianceWritesEnabled,
 } from "@/lib/provider-compliance-policy.js";
 import {
 	getUsageReport,
@@ -782,6 +783,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 			updates.providerCompliancePolicy,
 			issuer?.role,
 		);
+		assertApiKeyComplianceWritesEnabled(updates.providerCompliancePolicy);
 		setPayload.providerCompliancePolicy = updates.providerCompliancePolicy;
 	}
 	if (updates.description !== undefined) {

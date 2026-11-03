@@ -25,6 +25,7 @@ import {
 	assertEnterpriseForCompliancePolicy,
 	providerCompliancePolicySchema,
 	assertCanManageCompliancePolicy,
+	assertApiKeyComplianceWritesEnabled,
 } from "@/lib/provider-compliance-policy.js";
 import {
 	getUserProjectIds,
@@ -1243,6 +1244,8 @@ export async function createApiKeyForProject(
 		creatorMembership?.role,
 	);
 
+	assertApiKeyComplianceWritesEnabled(input.providerCompliancePolicy);
+
 	// A key's limits must stay at or below the creator's effective member budget.
 	// Skipped for programmatic (master-key) creation, which has no interactive
 	// member context; the gateway still enforces the member budget at request time.
@@ -2191,6 +2194,7 @@ keysApi.openapi(updateStatus, async (c) => {
 		access.organizationRole,
 	);
 	assertEnterpriseForCompliancePolicy(providerCompliancePolicy, organization);
+	assertApiKeyComplianceWritesEnabled(providerCompliancePolicy);
 
 	// Resolve the effective TTL: an explicit value (or null) overrides, otherwise
 	// keep whatever expiry the key already had.
