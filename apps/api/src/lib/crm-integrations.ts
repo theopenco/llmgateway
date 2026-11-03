@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 import { openConnector, sealConnector } from "./connectors/crypto.js";
 
@@ -18,10 +19,14 @@ export const GMAIL_SCOPES = [
 	"https://www.googleapis.com/auth/gmail.readonly",
 	"https://www.googleapis.com/auth/gmail.send",
 ];
+export const CALENDAR_SCOPE =
+	"https://www.googleapis.com/auth/calendar.events.readonly";
+export const GOOGLE_SCOPES = [...GMAIL_SCOPES, CALENDAR_SCOPE];
 
 const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
+const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const CALENDLY_API = "https://api.calendly.com";
 
 export function googleClient() {
@@ -58,6 +63,9 @@ const gmailCredentialsSchema = z.object({
 	accessToken: z.string(),
 	refreshToken: z.string(),
 	expiresAt: z.number(),
+	// Space-separated scopes Google granted; absent on connections made
+	// before calendar access was requested.
+	scope: z.string().optional(),
 });
 type GmailCredentials = z.infer<typeof gmailCredentialsSchema>;
 
@@ -173,7 +181,7 @@ export function gmailAuthorizeUrl(state: string): string {
 		client_id: clientId,
 		redirect_uri: gmailCallbackUrl(),
 		response_type: "code",
-		scope: GMAIL_SCOPES.join(" "),
+		scope: GOOGLE_SCOPES.join(" "),
 		access_type: "offline",
 		prompt: "consent",
 		include_granted_scopes: "true",
@@ -257,12 +265,22 @@ export async function exchangeGmailCode(code: string): Promise<{
 		accessToken: token.access_token,
 		refreshToken: token.refresh_token,
 		expiresAt: tokenExpiry(token.expires_in),
+		scope: token.scope,
 	};
 	const profile = await gmailRequest(credentials.accessToken, "/profile");
 	const email = z
 		.object({ emailAddress: z.string().email() })
 		.parse(profile).emailAddress;
 	return { credentials, email: email.toLowerCase() };
+}
+
+export function hasCalendarAccess(row: CrmIntegrationRow): boolean {
+	try {
+		const scope = openGmailCredentials(row).scope;
+		return !!scope && scope.split(" ").includes(CALENDAR_SCOPE);
+	} catch {
+		return false;
+	}
 }
 
 async function gmailAccessToken(row: CrmIntegrationRow): Promise<string> {
@@ -278,6 +296,7 @@ async function gmailAccessToken(row: CrmIntegrationRow): Promise<string> {
 		accessToken: token.access_token,
 		refreshToken: token.refresh_token ?? credentials.refreshToken,
 		expiresAt: tokenExpiry(token.expires_in),
+		scope: credentials.scope,
 	};
 	await db
 		.update(tables.crmIntegration)
@@ -491,21 +510,32 @@ export interface CrmMailThreadSummary {
 
 const METADATA_HEADERS = ["Subject", "From", "To", "Cc", "Date", "Message-ID"];
 
-export function gmailQueryFor(emails: string[]): string {
-	const terms = emails
-		.slice(0, 25)
-		.flatMap((e) => [`from:${e}`, `to:${e}`, `cc:${e}`]);
+/**
+ * Gmail search for everything exchanged with an account: every known address
+ * plus, for companies with a corporate domain, anyone else at that domain, so
+ * a colleague who was never added as a contact still shows up.
+ */
+export function gmailQueryFor(
+	emails: string[],
+	domain?: string | null,
+): string {
+	const addresses = emails.slice(0, 25);
+	const scopes = domain ? [...addresses, `@${domain}`] : addresses;
+	const terms = scopes.flatMap((e) => [`from:${e}`, `to:${e}`, `cc:${e}`]);
 	return `{${terms.join(" ")}} -in:spam -in:trash`;
 }
 
 export async function listGmailThreads(
 	row: CrmIntegrationRow,
 	emails: string[],
+	domain?: string | null,
 	max = 20,
 ): Promise<CrmMailThreadSummary[]> {
-	if (!emails.length) {
+	if (!emails.length && !domain) {
 		return [];
 	}
+	const mailboxDomain = row.accountEmail.split("@")[1];
+	const searchDomain = domain && domain !== mailboxDomain ? domain : null;
 	const token = await gmailAccessToken(row);
 	const list = z
 		.object({
@@ -514,7 +544,7 @@ export async function listGmailThreads(
 		.parse(
 			await gmailRequest(token, "/threads", {
 				query: new URLSearchParams({
-					q: gmailQueryFor(emails),
+					q: gmailQueryFor(emails, searchDomain),
 					maxResults: String(max),
 				}),
 			}),
@@ -627,6 +657,298 @@ export async function sendGmail(
 		}),
 	});
 	return z.object({ id: z.string(), threadId: z.string() }).parse(sent);
+}
+
+// --- Google Calendar --------------------------------------------------------
+
+const calendarEventSchema = z.object({
+	id: z.string(),
+	status: z.string().optional(),
+	summary: z.string().optional(),
+	description: z.string().optional(),
+	location: z.string().optional(),
+	htmlLink: z.string().optional(),
+	hangoutLink: z.string().optional(),
+	start: z.object({
+		dateTime: z.string().optional(),
+		date: z.string().optional(),
+	}),
+	end: z.object({
+		dateTime: z.string().optional(),
+		date: z.string().optional(),
+	}),
+	organizer: z
+		.object({
+			email: z.string().optional(),
+			displayName: z.string().optional(),
+		})
+		.optional(),
+	attendees: z
+		.array(
+			z.object({
+				email: z.string().optional(),
+				displayName: z.string().optional(),
+				responseStatus: z.string().optional(),
+				organizer: z.boolean().optional(),
+				self: z.boolean().optional(),
+				resource: z.boolean().optional(),
+			}),
+		)
+		.optional(),
+	conferenceData: z
+		.object({
+			entryPoints: z
+				.array(
+					z.object({
+						entryPointType: z.string().optional(),
+						uri: z.string().optional(),
+					}),
+				)
+				.optional(),
+		})
+		.optional(),
+});
+
+export interface CrmCalendarAttendee {
+	email: string;
+	name: string | null;
+	responseStatus: string;
+	organizer: boolean;
+	self: boolean;
+}
+
+export interface CrmCalendarEvent {
+	integrationId: string;
+	calendar: string;
+	eventId: string;
+	summary: string;
+	description: string | null;
+	startAt: string;
+	endAt: string;
+	allDay: boolean;
+	joinUrl: string | null;
+	location: string | null;
+	htmlLink: string | null;
+	organizerEmail: string | null;
+	attendees: CrmCalendarAttendee[];
+}
+
+function serializeCalendarEvent(
+	row: CrmIntegrationRow,
+	event: z.infer<typeof calendarEventSchema>,
+): CrmCalendarEvent {
+	const allDay = !event.start.dateTime;
+	const toIso = (value: string | undefined) =>
+		value ? new Date(value).toISOString() : new Date(0).toISOString();
+	const video = event.conferenceData?.entryPoints?.find(
+		(e) => e.entryPointType === "video" && e.uri,
+	)?.uri;
+	return {
+		integrationId: row.id,
+		calendar: row.accountEmail,
+		eventId: event.id,
+		summary: event.summary?.trim() || "(no title)",
+		description: event.description ? htmlToText(event.description) : null,
+		startAt: toIso(event.start.dateTime ?? event.start.date),
+		endAt: toIso(event.end.dateTime ?? event.end.date),
+		allDay,
+		joinUrl: event.hangoutLink ?? video ?? null,
+		location: event.location ?? null,
+		htmlLink: event.htmlLink ?? null,
+		organizerEmail: event.organizer?.email?.toLowerCase() ?? null,
+		attendees: (event.attendees ?? [])
+			.filter((a) => a.email && !a.resource)
+			.map((a) => ({
+				email: a.email!.toLowerCase(),
+				name: a.displayName?.trim() || null,
+				responseStatus: a.responseStatus ?? "needsAction",
+				organizer: a.organizer ?? false,
+				self: a.self ?? false,
+			})),
+	};
+}
+
+async function calendarRequest(
+	token: string,
+	path: string,
+	query?: URLSearchParams,
+): Promise<unknown> {
+	const url = new URL(`${CALENDAR_API}${path}`);
+	if (query) {
+		url.search = query.toString();
+	}
+	const response = await externalFetch(url, {
+		headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+	});
+	if (response.status === 401 || response.status === 403) {
+		throw new HTTPException(409, {
+			message:
+				"Calendar access is missing. Reconnect the mailbox to grant calendar access.",
+		});
+	}
+	if (response.status === 404) {
+		throw new HTTPException(404, { message: "Calendar event not found" });
+	}
+	if (!response.ok) {
+		logger.warn("CRM Calendar request failed", {
+			path,
+			status: response.status,
+		});
+		throw new HTTPException(502, {
+			message: `Calendar request failed (${response.status})`,
+		});
+	}
+	return await response.json();
+}
+
+export async function listCalendarEvents(
+	row: CrmIntegrationRow,
+	range: { from: Date; to: Date },
+	max = 100,
+): Promise<CrmCalendarEvent[]> {
+	const token = await gmailAccessToken(row);
+	const parsed = z
+		.object({ items: z.array(calendarEventSchema).optional() })
+		.parse(
+			await calendarRequest(
+				token,
+				"/calendars/primary/events",
+				new URLSearchParams({
+					timeMin: range.from.toISOString(),
+					timeMax: range.to.toISOString(),
+					singleEvents: "true",
+					orderBy: "startTime",
+					maxResults: String(max),
+				}),
+			),
+		);
+	return (parsed.items ?? [])
+		.filter((e) => e.status !== "cancelled")
+		.map((e) => serializeCalendarEvent(row, e));
+}
+
+export async function getCalendarEvent(
+	row: CrmIntegrationRow,
+	eventId: string,
+): Promise<CrmCalendarEvent> {
+	const token = await gmailAccessToken(row);
+	const event = calendarEventSchema.parse(
+		await calendarRequest(
+			token,
+			`/calendars/primary/events/${encodeURIComponent(eventId)}`,
+		),
+	);
+	return serializeCalendarEvent(row, event);
+}
+
+// --- AI research ------------------------------------------------------------
+
+export function researchConfigured(): boolean {
+	return Boolean(researchApiKey());
+}
+
+function researchApiKey(): string | undefined {
+	return (
+		process.env.CRM_RESEARCH_GATEWAY_API_KEY?.trim() ||
+		process.env.SUPPORT_CHAT_API_KEY?.trim()
+	);
+}
+
+export function researchModel(): string {
+	return process.env.CRM_RESEARCH_MODEL?.trim() || "openai/gpt-5.2";
+}
+
+export interface ResearchResult {
+	text: string;
+	model: string;
+	sources: string[];
+}
+
+/**
+ * Runs a web-search-grounded brief through the gateway. The prompt asks for
+ * plain text so the admin UI can show it verbatim; citations come back as
+ * URL annotations and are listed separately.
+ */
+export async function runWebResearch(input: {
+	system: string;
+	prompt: string;
+}): Promise<ResearchResult> {
+	const apiKey = researchApiKey();
+	if (!apiKey) {
+		throw new HTTPException(503, {
+			message:
+				"AI research is not configured: set CRM_RESEARCH_GATEWAY_API_KEY on the API.",
+		});
+	}
+	const model = researchModel();
+	const response = await fetch(`${getGatewayApiBaseUrl()}/chat/completions`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${apiKey}`,
+			"x-source": "admin-crm-research",
+		},
+		body: JSON.stringify({
+			model,
+			messages: [
+				{ role: "system", content: input.system },
+				{ role: "user", content: input.prompt },
+			],
+			tools: [{ type: "web_search" }],
+			max_tokens: 1800,
+		}),
+		signal: AbortSignal.timeout(120_000),
+	});
+	if (!response.ok) {
+		const detail = await response.text().catch(() => "");
+		logger.warn("CRM research request failed", {
+			status: response.status,
+			detail: detail.slice(0, 300),
+		});
+		throw new HTTPException(502, {
+			message: `Research model request failed (${response.status})`,
+		});
+	}
+	const parsed = z
+		.object({
+			model: z.string().optional(),
+			choices: z.array(
+				z.object({
+					message: z.object({
+						content: z.string().nullable(),
+						annotations: z
+							.array(
+								z.object({
+									type: z.string().optional(),
+									url_citation: z
+										.object({ url: z.string(), title: z.string().optional() })
+										.optional(),
+								}),
+							)
+							.optional(),
+					}),
+				}),
+			),
+		})
+		.safeParse(await response.json());
+	if (!parsed.success || !parsed.data.choices[0]?.message.content) {
+		throw new HTTPException(502, {
+			message: "Research model returned no answer",
+		});
+	}
+	const message = parsed.data.choices[0].message;
+	const sources = [
+		...new Set(
+			(message.annotations ?? [])
+				.map((a) => a.url_citation?.url)
+				.filter((u): u is string => !!u),
+		),
+	];
+	return {
+		text: message.content!.trim(),
+		model: parsed.data.model ?? model,
+		sources,
+	};
 }
 
 // --- Calendly -------------------------------------------------------------

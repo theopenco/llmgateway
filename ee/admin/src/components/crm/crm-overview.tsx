@@ -7,6 +7,7 @@ import {
 	ArrowUpRight,
 	Download,
 	KanbanSquare,
+	PhoneCall,
 	Plug,
 	Plus,
 	Search,
@@ -616,6 +617,12 @@ export function CrmOverview() {
 					>
 						<Link href="/crm/settings">
 							<Plug className="h-4 w-4" />
+						</Link>
+					</Button>
+					<Button variant="outline" size="sm" asChild>
+						<Link href="/crm/calls">
+							<PhoneCall className="h-4 w-4" />
+							Calls
 						</Link>
 					</Button>
 					<Button variant="outline" size="sm" asChild>

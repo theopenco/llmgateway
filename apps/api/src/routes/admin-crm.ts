@@ -6,11 +6,9 @@ import {
 	type CrmAccountSummary,
 	type CrmBookEntry,
 	corporateDomain,
-	loadActivityStats,
 	loadCrmBook,
-	loadOrgUsage,
+	loadSummaries,
 	parseUserAgent,
-	summarizeAccount,
 } from "@/lib/crm.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
@@ -115,23 +113,6 @@ const kpisSchema = z.object({
 	atRisk: z.number(),
 	spend30d: z.number(),
 });
-
-async function loadSummaries(now: Date) {
-	const book = await loadCrmBook(now);
-	const entries = [...book.values()];
-	const [usage, activity] = await Promise.all([
-		loadOrgUsage(
-			entries.flatMap((e) => e.orgs.map((o) => o.id)),
-			now,
-		),
-		loadActivityStats(now),
-	]);
-	return {
-		book,
-		usage,
-		summaries: entries.map((e) => summarizeAccount(e, usage, activity, now)),
-	};
-}
 
 function computeKpis(
 	summaries: CrmAccountSummary[],

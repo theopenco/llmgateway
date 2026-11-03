@@ -214,6 +214,9 @@ describe("CRM integrations", () => {
 			expect(gmailQueryFor(["a@x.io"])).toBe(
 				"{from:a@x.io to:a@x.io cc:a@x.io} -in:spam -in:trash",
 			);
+			expect(gmailQueryFor(["a@x.io"], "x.io")).toBe(
+				"{from:a@x.io to:a@x.io cc:a@x.io from:@x.io to:@x.io cc:@x.io} -in:spam -in:trash",
+			);
 		});
 
 		it("builds a threaded RFC 2822 message", () => {
@@ -432,6 +435,7 @@ describe("CRM integrations", () => {
 		const body = await res.json();
 		expect(queries[0]).toContain("from:jane@acme-corp.com");
 		expect(queries[0]).toContain("to:ops@acme-corp.com");
+		expect(queries[0]).toContain("from:@acme-corp.com");
 		expect(body.mailboxes).toEqual([
 			{
 				id: "gmail-contact@llmgateway.io",

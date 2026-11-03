@@ -104,6 +104,21 @@ function ConnectionRow({
 							{row.webhook ? "live webhook" : "sync on open"}
 						</span>
 					) : null}
+					{row.provider === "gmail" ? (
+						<span
+							className={cn(
+								"inline-flex items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase",
+								row.calendar
+									? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+									: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+							)}
+						>
+							<CalendarDays className="h-3 w-3" />
+							{row.calendar
+								? "mail + calendar"
+								: "mail only · reconnect for calendar"}
+						</span>
+					) : null}
 				</p>
 				<p className="mt-0.5 text-xs text-muted-foreground">
 					Connected by {row.mine ? "you" : (row.ownerEmail ?? "a teammate")} on{" "}
@@ -177,9 +192,10 @@ function GmailConnect({ available }: { available: boolean }) {
 				<div className="flex-1">
 					<h3 className="text-sm font-semibold">Connect a Gmail mailbox</h3>
 					<p className="mt-1 text-xs text-muted-foreground">
-						Sign in with the Google account whose mail you want in the CRM. For
-						a delegated inbox such as contact@, sign in as that account itself;
-						Google does not expose delegated mail to the API.
+						Sign in with the Google account whose mail and calendar you want in
+						the CRM. For a delegated inbox such as contact@, sign in as that
+						account itself; Google does not expose delegated mail to the API.
+						Reconnecting an existing mailbox adds calendar access.
 					</p>
 					{!available ? (
 						<p className="mt-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">

@@ -26,6 +26,31 @@ activity feed (`crm_activity.external_ref` keeps them idempotent).
   shown to all admins; sending needs the mailbox to be yours or shared.
 - Replies keep the Gmail thread (`threadId`, `In-Reply-To`, `References`).
 
+## Google Calendar and call briefings
+
+- The Gmail connection also asks for `calendar.events.readonly`. Mailboxes
+  connected before that scope existed show "mail only" on `/crm/settings` and
+  need a reconnect.
+- `/crm/calls` lists events from every connected primary calendar (next 7 to
+  30 days) that have at least one attendee outside the mailbox's domain, each
+  matched to a CRM account through its attendees (corporate domain, contact,
+  member or lead email). Unmatched companies can be added as prospects from
+  the briefing.
+- A briefing (`/crm/calls/<integration>/<event>`) composes the account record,
+  the attendees' contact and platform data, email threads with them and recent
+  activity.
+
+## AI research
+
+- "Research company" / "Research person" on a briefing call
+  `POST /admin/crm/research`, which runs a web-search-grounded prompt through
+  the gateway (`tools: [{ type: "web_search" }]`) and stores the answer as a
+  `note` activity titled `AI research: …` on the account, with the cited
+  URLs appended.
+- Config: `CRM_RESEARCH_GATEWAY_API_KEY` (a gateway API key on the company
+  org; falls back to `SUPPORT_CHAT_API_KEY`) and `CRM_RESEARCH_MODEL`
+  (default `openai/gpt-5.2`, any model with native web search).
+
 ## Calendly
 
 - Each admin pastes a personal access token (Calendly → Integrations → API &

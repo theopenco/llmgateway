@@ -820,3 +820,21 @@ export async function resolveAccountIdForEmail(
 	}
 	return null;
 }
+
+/** The book plus a summary row per account, as the CRM list and details use. */
+export async function loadSummaries(now: Date = new Date()) {
+	const book = await loadCrmBook(now);
+	const entries = [...book.values()];
+	const [usage, activity] = await Promise.all([
+		loadOrgUsage(
+			entries.flatMap((e) => e.orgs.map((o) => o.id)),
+			now,
+		),
+		loadActivityStats(now),
+	]);
+	return {
+		book,
+		usage,
+		summaries: entries.map((e) => summarizeAccount(e, usage, activity, now)),
+	};
+}

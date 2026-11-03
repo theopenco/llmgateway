@@ -16,6 +16,7 @@ import {
 	getGmailThread,
 	gmailAuthorizeUrl,
 	gmailConfigured,
+	hasCalendarAccess,
 	listCalendlyEventTypes,
 	listCalendlyMeetings,
 	listGmailThreads,
@@ -69,6 +70,9 @@ const integrationSchema = z.object({
 	mine: z.boolean(),
 	shared: z.boolean(),
 	webhook: z.boolean(),
+	// Gmail connections made before calendar access was requested need a
+	// reconnect to show up on the calls page.
+	calendar: z.boolean(),
 	schedulingUrl: z.string().nullable(),
 	createdAt: z.string(),
 });
@@ -116,6 +120,7 @@ function serializeIntegration(
 		mine: row.userId === userId,
 		shared: row.shared,
 		webhook,
+		calendar: row.provider === "gmail" && hasCalendarAccess(row),
 		schedulingUrl,
 		createdAt: row.createdAt.toISOString(),
 	};
@@ -475,7 +480,12 @@ async function accountContext(id: string) {
 		throw new HTTPException(404, { message: "Account not found" });
 	}
 	const people = await loadAccountPeople(entry);
-	return { entry, people, emails: people.map((p) => p.email) };
+	return {
+		entry,
+		people,
+		emails: people.map((p) => p.email),
+		domain: entry.domain,
+	};
 }
 
 const listAccountMail = createRoute({
@@ -506,7 +516,7 @@ const listAccountMail = createRoute({
 adminCrmIntegrations.openapi(listAccountMail, async (c) => {
 	const { id } = c.req.valid("param");
 	const userId = c.get("user")!.id;
-	const [{ emails }, integrations] = await Promise.all([
+	const [{ emails, domain }, integrations] = await Promise.all([
 		accountContext(id),
 		db.query.crmIntegration.findMany({ where: { provider: "gmail" } }),
 	]);
@@ -514,7 +524,7 @@ adminCrmIntegrations.openapi(listAccountMail, async (c) => {
 	const results = await Promise.all(
 		integrations.map(async (row) => {
 			try {
-				return await listGmailThreads(row, emails);
+				return await listGmailThreads(row, emails, domain);
 			} catch (error) {
 				errors.push({
 					mailbox: row.accountEmail,
