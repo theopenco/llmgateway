@@ -21,6 +21,7 @@ import {
 	loadEndUserWallet,
 } from "@/lib/end-user-session.js";
 import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import {
@@ -35,7 +36,6 @@ import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	compactRequestSchema,
@@ -100,7 +100,7 @@ function forwardedHeaders(c: Context<ServerTypes>): Record<string, string> {
 		"x-debug": c.req.header("x-debug") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
-		...forwardedIpHeaders(c.req.raw.headers),
+		...internalPrincipalHeaders(c.req.raw.headers),
 		...forwardedCustomHeaders(c.req.raw.headers),
 		...Object.fromEntries(
 			optional

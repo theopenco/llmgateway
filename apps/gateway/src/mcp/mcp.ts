@@ -26,6 +26,7 @@ import {
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
@@ -37,7 +38,6 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
@@ -1311,7 +1311,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				405,
 			);
 		}
-		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
+		const clientHeaders = internalPrincipalHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",
@@ -1440,7 +1440,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
+		const clientHeaders = internalPrincipalHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",

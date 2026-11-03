@@ -476,13 +476,16 @@ describe("MCP account analytics", () => {
 					.set({ teamId: "mcp-ip-team" })
 					.where(eq(tables.userOrganization.id, "mcp-member-membership"));
 				await db
+					.insert(tables.organizationTeamProject)
+					.values({ teamId: "mcp-ip-team", projectId: "mcp-project" });
+				await db
 					.insert(tables.organizationTeamIamRule)
 					.values({ ...rule, teamId: "mcp-ip-team" });
 			}
 			for (const [path, input] of [
 				["account", undefined],
 				["usage", period],
-				["usage-breakdown", { ...period, groupBy: "model" }],
+				["usage/breakdown", { ...period, group_by: "model" }],
 			] as const) {
 				const response = await app.request(`/mcp/${path}`, {
 					method: input ? "POST" : "GET",
@@ -494,6 +497,17 @@ describe("MCP account analytics", () => {
 					body: input ? JSON.stringify(input) : undefined,
 				});
 				expect(response.status, await response.text()).toBe(403);
+				const permitted = await app.request(`/mcp/${path}`, {
+					method: input ? "POST" : "GET",
+					headers: {
+						Authorization: "Bearer mcp-member-token",
+						"Content-Type": "application/json",
+						Origin: "https://client.example",
+						[getClientIpHeaderName()]: "192.0.2.10",
+					},
+					body: input ? JSON.stringify(input) : undefined,
+				});
+				expect(permitted.status, await permitted.text()).toBe(200);
 			}
 		},
 	);

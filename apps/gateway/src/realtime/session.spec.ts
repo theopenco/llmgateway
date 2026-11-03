@@ -2166,3 +2166,54 @@ describe("realtime private item reads", () => {
 		session.shutdown(1000, "test_done");
 	});
 });
+
+describe("realtime audio recovery after transient authorization failure", () => {
+	it.each([false, true])(
+		"retries the next PCM chunk without a boundary event (ASR enabled: %s)",
+		async (asrEnabled) => {
+			const { upstream, client, session, clientSends } = asrEnabled
+				? await openAsrInputSession()
+				: await openSession(createSession());
+			vi.clearAllMocks();
+			vi.mocked(findApiKeyByToken).mockRejectedValueOnce(
+				new Error("account lookup temporarily unavailable"),
+			);
+			clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+			await flush();
+			expect(upstream.sent).toHaveLength(0);
+			expect(
+				client.sent.some((text) => text.includes("gate_unavailable")),
+			).toBe(true);
+			clientSends({ type: "input_audio_buffer.append", audio: "BBBB" });
+			clientSends({ type: "input_audio_buffer.append", audio: "CCCC" });
+			await flush();
+			expect(upstream.sent.map((text) => JSON.parse(text) as unknown)).toEqual([
+				{ type: "input_audio_buffer.append", audio: "BBBB" },
+				{ type: "input_audio_buffer.append", audio: "CCCC" },
+			]);
+			expect(findApiKeyByToken).toHaveBeenCalledTimes(asrEnabled ? 3 : 2);
+			expect(validateRequestModelAccess).toHaveBeenCalledTimes(
+				asrEnabled ? 2 : 1,
+			);
+			clientSends({ type: "input_audio_buffer.commit" });
+			await flush();
+			expect(upstream.sent).toHaveLength(3);
+			expect(findApiKeyByToken).toHaveBeenCalledTimes(asrEnabled ? 3 : 2);
+			session.shutdown(1000, "test_done");
+		},
+	);
+
+	it("still latches a nontransient usage denial for subsequent PCM chunks", async () => {
+		const { upstream, session, clientSends } = await openAsrInputSession();
+		vi.mocked(assertApiKeyWithinUsageLimits).mockImplementationOnce(() => {
+			throw new Error("key usage limit denied");
+		});
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		await flush();
+		clientSends({ type: "input_audio_buffer.append", audio: "BBBB" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(findApiKeyByToken).toHaveBeenCalledTimes(1);
+		session.shutdown(1000, "test_done");
+	});
+});

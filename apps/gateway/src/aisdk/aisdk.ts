@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { app } from "@/app.js";
 import { forwardedCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import {
 	filterAccessibleModels,
@@ -11,7 +12,6 @@ import {
 
 import { logger } from "@llmgateway/logger";
 import { models } from "@llmgateway/models";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	asStatusCode,
@@ -76,7 +76,7 @@ function forwardedHeaders(c: Context<ServerTypes>): Record<string, string> {
 		"User-Agent": c.req.header("User-Agent") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("ai-sdk"),
-		...forwardedIpHeaders(c.req.raw.headers),
+		...internalPrincipalHeaders(c.req.raw.headers),
 		...forwardedCustomHeaders(c.req.raw.headers),
 		...Object.fromEntries(
 			passthrough

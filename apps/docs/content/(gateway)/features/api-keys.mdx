@@ -208,7 +208,9 @@ IAM (Identity Access Management) rules provide fine-grained access control over 
 
 ### Endpoint coverage
 
-Model/provider restrictions apply to every inference path: chat completions, Responses and compaction, Messages, all AI SDK protocol versions, image generation and edits, embeddings, moderation, OCR, rerank, search, typed decisions, speech, transcription, video creation, and realtime. Internal adapters preserve credentials and the configured trusted client IP; retries and fallback cannot widen access. Realtime also checks transcription models before receiving audio and revalidates access when a session enables transcription.
+Applicable IAM and compliance checks cover every inference path: chat completions, Responses and compaction, Messages, all AI SDK protocol versions, image generation and edits, embeddings, moderation, OCR, rerank, search, typed decisions, speech, transcription, video creation, and realtime. Internal adapters preserve credentials and the configured trusted client IP; retries and fallback cannot widen access. Realtime also checks transcription models before receiving audio and revalidates access when a session enables transcription.
+
+Moderation intentionally ignores model and pricing IAM rules for compatibility. It still enforces provider/IP ceilings and organization/API-key compliance policies.
 
 Authenticated model discovery and AI SDK config omit models blocked by organization/key compliance or IAM. The unauthenticated model catalogue and public MCP discovery remain public metadata.
 

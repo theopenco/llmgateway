@@ -484,7 +484,10 @@ export class RealtimeProxySession {
 				this.forwardToUpstream(text);
 				return;
 			case "input_audio_buffer.commit":
-				if (!(await this.authorizeInputAudio())) {
+				if (
+					this.inputAudioCommitBlocked ||
+					!(await this.authorizeInputAudio())
+				) {
 					this.resetInputAudioTurn();
 					return;
 				}
@@ -2013,6 +2016,9 @@ export class RealtimeProxySession {
 		transcriptionMatch: RealtimeMappingMatch | null = this.transcriptionEnabled
 			? (this.transcription?.match ?? null)
 			: null,
+		onDenied?: (
+			failure: Extract<AuthorizeAccountResult, { ok: false }>,
+		) => void,
 	): Promise<boolean> {
 		const matches =
 			transcriptionMatch &&
@@ -2030,6 +2036,7 @@ export class RealtimeProxySession {
 				return false;
 			}
 			if (!authorization.ok) {
+				onDenied?.(authorization);
 				this.refuseTurn(authorization.code, authorization.message);
 				if (authorization.severity === "close") {
 					this.drainOrShutdown(1008, authorization.code);
@@ -2047,18 +2054,27 @@ export class RealtimeProxySession {
 		if (this.inputAudioAuthorized) {
 			return true;
 		}
-		if (!(await this.authorizeInputContent())) {
-			this.inputAudioDenied = true;
+		if (
+			!(await this.authorizeInputContent(undefined, ({ severity }) => {
+				this.inputAudioDenied = severity !== "transient";
+			}))
+		) {
+			// Do not commit audio that was dropped, even if lookup recovers next.
+			this.inputAudioCommitBlocked = true;
 			return false;
 		}
 		this.inputAudioAuthorized = true;
+		this.inputAudioCommitBlocked = false;
 		return true;
 	}
 
 	private resetInputAudioTurn(): void {
 		this.inputAudioAuthorized = false;
 		this.inputAudioDenied = false;
+		this.inputAudioCommitBlocked = false;
 	}
+
+	private inputAudioCommitBlocked = false;
 }
 
 function itemContainsImageContent(item: Record<string, unknown>): boolean {
