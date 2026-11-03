@@ -220,7 +220,6 @@ it.each([
 	"azure-anthropic",
 	"aws-bedrock",
 	"google-ai-studio",
-	"glacier",
 	"google-vertex",
 	"quartz",
 ])("does not probe OpenAI wire shapes on %s native protocol", (providerId) => {

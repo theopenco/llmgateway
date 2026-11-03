@@ -5,7 +5,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const QUESTIONS = [
@@ -129,6 +129,42 @@ describe("decisions", () => {
 		expect(log?.params).toMatchObject({
 			safety_identifier: "client-controlled",
 		});
+	});
+
+	test("/v1/decisions omits safety_identifier when the managed credential turns forwarding off", async () => {
+		await seedApiKey("decisions-safety-off");
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-decisions-safety-off",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-decisions-safety-off",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+			forwardSafetyIdentifier: false,
+		});
+
+		const res = await postDecision("decisions-safety-off", {
+			model: "gpt-6-luna-decisions",
+			input: [
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Billing question." }],
+				},
+			],
+			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
+		expect(log?.upstreamRequest).toBeDefined();
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
 	});
 
 	test("/v1/decisions serves Jev by translating to TypeSafe System One", async () => {

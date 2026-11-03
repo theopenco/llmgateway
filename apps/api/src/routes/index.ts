@@ -11,6 +11,8 @@ import { adminAirside } from "./admin-airside.js";
 import { adminBenchmarks } from "./admin-benchmarks.js";
 import { adminContentFilterErrors } from "./admin-content-filter-errors.js";
 import { adminContentFilter } from "./admin-content-filter.js";
+import { adminCrmCalls } from "./admin-crm-calls.js";
+import { adminCrmIntegrations } from "./admin-crm-integrations.js";
 import { adminCrm } from "./admin-crm.js";
 import { adminInternalClassifierChecks } from "./admin-internal-classifier-checks.js";
 import { adminLicense } from "./admin-license.js";
@@ -48,6 +50,7 @@ import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
 import { modelSurvey } from "./model-survey.js";
 import { notifications } from "./notifications.js";
+import { organizationProjects } from "./organization-projects.js";
 import { organizationSkills } from "./organization-skills.js";
 import { organizationTeams } from "./organization-teams.js";
 import organization from "./organization.js";
@@ -114,6 +117,8 @@ routes.route("/admin", adminAirsideCertification);
 routes.route("/admin", adminModelVerifications);
 routes.route("/admin", adminSdk);
 routes.route("/admin", adminCrm);
+routes.route("/admin", adminCrmIntegrations);
+routes.route("/admin", adminCrmCalls);
 
 routes.route("/airside", airside);
 
@@ -126,6 +131,7 @@ routes.route("/projects", projects);
 routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
+routes.route("/orgs", organizationProjects);
 routes.route("/orgs", organizationSkills);
 routes.route("/orgs", complianceAlerts);
 routes.route("/team", team);

@@ -64,6 +64,8 @@ Beyond attribute-based requirements, the **Provider & Model Restrictions** card 
 - **Blocked providers / blocked models** — deny lists. A listed provider or model is always blocked, even when it satisfies every requirement above.
 - **Allowed providers / allowed models** — fine-grained allow lists. When non-empty, only the listed providers (or models) may be used; everything else is blocked. An empty list applies no restriction.
 
+Model lists take versioned model IDs. An entry also covers requests through a [virtual model](/learn/models#virtual-models) alias that currently resolves to it.
+
 Deny lists always win over allow lists, and both compose with the requirements above — an allow-listed provider must still satisfy every active certification, data-policy, and country requirement.
 
 <Callout type="warn">
@@ -177,7 +179,7 @@ In both credits and bring-your-own-key mode, the client value is saved in reques
 
 LLM Gateway generates an opaque, random identifier once per gateway API key. It contains no personal data or API-key secret. Requests using the same API key share this provider-facing identifier even if they have different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
 
-- **Credits:** upstream APIs that support abuse attribution receive the fixed gateway API-key identifier, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
+- **Credits:** upstream APIs that support abuse attribution receive the fixed gateway API-key identifier when forwarding is enabled on the gateway-managed credential, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
 - **Bring your own key (BYOK):** neither the gateway identifier nor your client identifier is sent as a provider safety identifier.
 - **Hybrid:** the credential used on each attempt determines the behavior, including retries and fallback. An attempt using your provider key follows BYOK behavior; one using LLM Gateway’s credentials follows credits behavior.
 

@@ -4516,6 +4516,62 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
+	test.each(["openai/gpt-4o-mini", "openai/gpt-5.5"])(
+		"/v1/responses streams an upstream 400 from %s as response.failed",
+		async (model) => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-responses-upstream-error-stream",
+				...hashApiKeyForStorage("real-token-responses-upstream-error-stream"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-responses-upstream-error-stream",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-responses-upstream-error-stream",
+					"org-id",
+				),
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-responses-upstream-error-stream",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model,
+					stream: true,
+					input: `TRIGGER_STATUS_400 ${model}`,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const events = (await res.text())
+				.split("\n")
+				.filter((line) => line.startsWith("data: "))
+				.map((line) => JSON.parse(line.slice(6)));
+			expect(events.map((event) => event.type)).toEqual([
+				"response.created",
+				"response.failed",
+			]);
+			expect(events[1].response).toMatchObject({
+				status: "failed",
+				error: { code: "invalid_prompt", message: expect.any(String) },
+			});
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].finishReason).toBe("client_error");
+		},
+	);
+
 	test("/v1/chat/completions keeps the service tier when a retry rotates keys", async () => {
 		// The customer-visible failure this guards against: an upstream 429 on
 		// one key rotates the request onto another key for the same provider, and

@@ -135,7 +135,10 @@ import {
 	getNoFallbackRoutingMetadata,
 	withRoutingAttempts,
 } from "@/lib/routing-metadata.js";
-import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
+import {
+	forwardedSafetyIdentifier,
+	getClientSafetyIdentifierParams,
+} from "@/lib/safety-identifier.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -172,6 +175,7 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getRequestApiFormat,
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
@@ -197,6 +201,7 @@ import {
 	preserveGoogleResponseText,
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
+	billedServerToolUseCount,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -249,6 +254,7 @@ import {
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
+	getRequestedModelAlias,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -1082,7 +1088,6 @@ function withUsedCredential(
 function usesGoogleQueryToken(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -1091,7 +1096,6 @@ function usesGoogleQueryToken(provider: string): boolean {
 function isGoogleCompatibleProvider(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -2185,6 +2189,11 @@ chat.openapi(completions, async (c) => {
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
 	let webSearchTool: WebSearchTool | undefined;
+	// A cache-only search (`external_web_access: false`, Codex's default) is
+	// kept apart from `webSearchTool`, so it never drives validation, routing,
+	// or billing. Request shaping forwards it to upstreams with a cache-only
+	// mode (OpenAI's Responses API) and drops it everywhere else.
+	let cachedOnlyWebSearchTool: WebSearchTool | undefined;
 	if (tools && Array.isArray(tools)) {
 		// allowed_domains and blocked_domains are mutually exclusive; providers
 		// accept only one, and silently preferring one would drop the caller's
@@ -2217,7 +2226,7 @@ chat.openapi(completions, async (c) => {
 		if (webSearchToolIndex !== -1) {
 			// Cast to any to access properties since the schema allows both function and web_search tools
 			const foundTool = tools[webSearchToolIndex] as any;
-			webSearchTool = {
+			const extracted: WebSearchTool = {
 				type: "web_search",
 				user_location: foundTool.user_location,
 				search_context_size: foundTool.search_context_size,
@@ -2234,6 +2243,15 @@ chat.openapi(completions, async (c) => {
 			};
 			// Remove the web_search tool from the tools array so it's not sent as a regular tool
 			tools.splice(webSearchToolIndex, 1);
+			if (foundTool.external_web_access === false) {
+				cachedOnlyWebSearchTool = { ...extracted, external_web_access: false };
+				// Nothing else was offered: validate as a tool-free request.
+				if (tools.length === 0) {
+					tools = undefined;
+				}
+			} else {
+				webSearchTool = extracted;
+			}
 		}
 	}
 
@@ -3766,6 +3784,9 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
+	const requestedModelAlias = parseResult.dynamicRouteName
+		? undefined
+		: getRequestedModelAlias(modelInput, modelInfo.id);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -3773,6 +3794,7 @@ chat.openapi(completions, async (c) => {
 		requestedModel: modelInfo.id,
 		requestedProvider,
 		customProviderName,
+		requestedModelAlias,
 		activeModelInfo: modelInfo,
 		clientIp,
 	});
@@ -3826,6 +3848,7 @@ chat.openapi(completions, async (c) => {
 						requestedModel: modelInfo.id,
 						requestedProvider: "custom",
 						customProviderName: providerKey.name,
+						requestedModelAlias,
 						activeModelInfo: { ...modelInfo, providers: [mapping] },
 						clientIp,
 						smartRouting: true,
@@ -6715,7 +6738,7 @@ chat.openapi(completions, async (c) => {
 	let airsideCustomBaseUrl = await resolveAirsideProviderBaseUrl(usedProvider);
 	let transportProvider = getProviderApiTransport(
 		usedProvider,
-		imageGenProviderMapping?.apiFormat,
+		getRequestApiFormat(imageGenProviderMapping, !!webSearchTool),
 	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
@@ -7773,7 +7796,7 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel,
 				activeVertexTokenType,
 				envVariant,
-				getUsedProviderMapping()?.apiFormat,
+				getRequestApiFormat(getUsedProviderMapping(), !!webSearchTool),
 			);
 		url = await routeProjectlessVertexEndpoint(
 			buildUrl(credentialOptions),
@@ -7867,7 +7890,7 @@ chat.openapi(completions, async (c) => {
 			tools: tools?.length ? tools : undefined,
 			tool_choice,
 			parallel_tool_calls,
-			webSearchTool,
+			webSearchTool: webSearchTool ?? cachedOnlyWebSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
 			// Schema documents omitting reasoning.context as equivalent to "auto"
@@ -8731,7 +8754,7 @@ chat.openapi(completions, async (c) => {
 			image_config,
 			effort,
 			isImageGeneration,
-			webSearchTool,
+			webSearchTool ?? cachedOnlyWebSearchTool,
 			reasoning_max_tokens,
 			useResponsesApi,
 			prompt_cache_key,
@@ -8743,7 +8766,9 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			providerKey ? undefined : apiKey.safetyIdentifier,
+			providerKey
+				? undefined
+				: forwardedSafetyIdentifier(managedKey, apiKey.safetyIdentifier),
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
@@ -8955,7 +8980,7 @@ chat.openapi(completions, async (c) => {
 				session_id: sessionId,
 				safetyIdentifier: retrySafetyIdentifier,
 				effort,
-				webSearchTool,
+				webSearchTool: webSearchTool ?? cachedOnlyWebSearchTool,
 				image_config,
 				sensitive_word_check,
 				maxImageSizeMB,
@@ -12357,8 +12382,16 @@ chat.openapi(completions, async (c) => {
 									);
 								} else if (isAnthropicMessagesProvider(transportProvider)) {
 									// For Anthropic, count successful web_search_tool_result
-									// blocks; errored searches carry an object and are not billed
-									if (
+									// blocks; errored searches carry an object and are not billed.
+									// DeepSeek's final message_delta reports the billed count.
+									const serverToolUse = billedServerToolUseCount(
+										data.usage,
+										usedProvider === "deepseek" &&
+											data.type === "message_delta",
+									);
+									if (serverToolUse !== undefined) {
+										webSearchCount = serverToolUse;
+									} else if (
 										data.type === "content_block_start" &&
 										data.content_block?.type === "web_search_tool_result" &&
 										Array.isArray(data.content_block.content)
@@ -12387,8 +12420,18 @@ chat.openapi(completions, async (c) => {
 										}
 									}
 								} else if (streamFormatProvider === "openai") {
-									// For OpenAI Responses API, count web_search_call.completed events
-									if (data.type === "response.web_search_call.completed") {
+									// For OpenAI Responses API, count web_search_call.completed
+									// events, unless the terminal event's usage reports the
+									// billable operations itself (DeepSeek).
+									const serverToolUse = billedServerToolUseCount(
+										data.response?.usage,
+										usedProvider === "deepseek",
+									);
+									if (serverToolUse !== undefined) {
+										webSearchCount = serverToolUse;
+									} else if (
+										data.type === "response.web_search_call.completed"
+									) {
 										webSearchCount++;
 									}
 								} else if (streamFormatProvider === "perplexity") {
@@ -12467,7 +12510,6 @@ chat.openapi(completions, async (c) => {
 								// Handle provider-specific finish reason extraction
 								switch (streamFormatProvider) {
 									case "google-ai-studio":
-									case "glacier":
 									case "google-vertex":
 									case "quartz":
 										// Preserve original Google finish reason for logging
@@ -13148,7 +13190,7 @@ chat.openapi(completions, async (c) => {
 											delta: {},
 											finish_reason: mapFinishReasonToOpenai(
 												finishReason,
-												usedProvider,
+												streamFormatProvider,
 												!!streamingToolCalls && streamingToolCalls.length > 0,
 											),
 										},
@@ -13435,7 +13477,7 @@ chat.openapi(completions, async (c) => {
 											delta: {},
 											finish_reason: mapFinishReasonToOpenai(
 												finishReason,
-												usedProvider,
+												streamFormatProvider,
 												!!streamingToolCalls && streamingToolCalls.length > 0,
 											),
 										},
@@ -15685,7 +15727,11 @@ chat.openapi(completions, async (c) => {
 		// A declared format leaves the count to response evidence below.
 		!!webSearchTool && !usedWebSearchFormat(),
 		!!webSearchTool?.forced && !usedWebSearchFormat(),
-		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
+		{
+			cacheThoughtSignatures: !zeroDataRetentionEnabled,
+			// DeepSeek omits server_tool_use when nothing billable ran.
+			serverToolUseAlwaysReported: usedProvider === "deepseek",
+		},
 	);
 	let { content, totalTokens, webSearchCount } = parsedResponse;
 	const {

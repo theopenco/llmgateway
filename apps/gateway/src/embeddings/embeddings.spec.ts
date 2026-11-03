@@ -8,7 +8,7 @@ import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("embeddings", () => {
@@ -244,6 +244,52 @@ describe("embeddings", () => {
 		expect(embeddingLog?.params).toMatchObject({
 			safety_identifier: "client-controlled-user",
 		});
+	});
+
+	test("/v1/embeddings omits user when the managed credential turns forwarding off", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-safety-off",
+			...hashApiKeyForStorage("real-token-embeddings-safety-off"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-embeddings-safety-off",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-embeddings-safety-off",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+			forwardSafetyIdentifier: false,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-safety-off",
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				input: "safety attribution off input",
+				user: "client-controlled-user",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const logs = await waitForLogs(1);
+		const embeddingLog = logs.find(
+			(log) => log.usedModel === "openai/text-embedding-3-small",
+		);
+		expect(embeddingLog?.upstreamRequest).toBeDefined();
+		expect(embeddingLog?.upstreamRequest).not.toHaveProperty("user");
 	});
 
 	test("/v1/embeddings returns upstream error when no alternate key is available", async () => {

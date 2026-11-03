@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getClientSafetyIdentifierParams } from "./safety-identifier.js";
+import {
+	getClientSafetyIdentifierParams,
+	forwardedSafetyIdentifier,
+} from "./safety-identifier.js";
 
 describe("client safety identifier metadata", () => {
 	it.each([
@@ -27,5 +30,31 @@ describe("client safety identifier metadata", () => {
 		expect(getClientSafetyIdentifierParams({ user: "a".repeat(128) })).toEqual({
 			safety_identifier: "a".repeat(128),
 		});
+	});
+});
+
+describe("forwardedSafetyIdentifier", () => {
+	it("forwards unless a managed credential turns it off", () => {
+		expect(forwardedSafetyIdentifier(undefined, "key_a")).toBe("key_a");
+		expect(
+			forwardedSafetyIdentifier(
+				{ managed: true, forwardSafetyIdentifier: true },
+				"key_a",
+			),
+		).toBe("key_a");
+		expect(
+			forwardedSafetyIdentifier(
+				{ managed: true, forwardSafetyIdentifier: false },
+				"key_a",
+			),
+		).toBeUndefined();
+	});
+	it("ignores the setting on organization keys", () => {
+		expect(
+			forwardedSafetyIdentifier(
+				{ managed: false, forwardSafetyIdentifier: false },
+				"key_a",
+			),
+		).toBe("key_a");
 	});
 });

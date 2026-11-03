@@ -5,8 +5,8 @@ import {
 	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
-	type ProviderApiFormat,
 	type ProviderId,
+	type RequestApiFormat,
 	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderDefinition,
@@ -335,7 +335,7 @@ export function getProviderEndpoint(
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
 	variant?: EnvVarVariant,
-	apiFormat?: ProviderApiFormat,
+	apiFormat?: RequestApiFormat,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -417,24 +417,6 @@ export function getProviderEndpoint(
 						"baseUrl",
 						getProviderDefaultBaseUrl(provider),
 					) ?? getProviderDefaultBaseUrl(provider);
-				break;
-			case "glacier":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"glacier",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
-					);
-				}
 				break;
 			case "vertex-openai": {
 				const vertexOpenaiDefaultHost =
@@ -738,6 +720,13 @@ export function getProviderEndpoint(
 	if (apiFormat === "openai-responses") {
 		return appendPath(url, "/v1/responses");
 	}
+	if (apiFormat === "anthropic-messages") {
+		// DeepSeek serves its Anthropic-compatible API under `/anthropic`.
+		return appendPath(
+			url,
+			provider === "deepseek" ? "/anthropic/v1/messages" : "/v1/messages",
+		);
+	}
 	if (apiFormat === "google-vertex") {
 		return buildVertexCompatibleEndpoint(
 			"google-vertex",
@@ -759,22 +748,6 @@ export function getProviderEndpoint(
 		case "anthropic":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
-			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = externalId
-				? `${url}/v1beta/models/${externalId}:${endpoint}`
-				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
-			const queryParams = [];
-			if (token) {
-				queryParams.push(`key=${token}`);
-			}
-			if (stream) {
-				queryParams.push("alt=sse");
-			}
-			return queryParams.length > 0
-				? `${baseEndpoint}?${queryParams.join("&")}`
-				: baseEndpoint;
-		}
-		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`

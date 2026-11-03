@@ -6,7 +6,7 @@ import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, inArray, tables, eq } from "@llmgateway/db";
+import { cdb, db, inArray, tables, eq } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -252,5 +252,86 @@ describe("safety identifier credential modes", () => {
 			expect(log.upstreamRequest).not.toHaveProperty("user");
 			expect(log.upstreamRequest).not.toHaveProperty("metadata");
 		}
+	});
+
+	test("omits the identifier when the managed credential turns forwarding off", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-safety-off",
+			...hashApiKeyForStorage("real-token-safety-off"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-safety-off",
+			provider: "openai",
+			...encryptProviderKeyForStorage("sk-managed", "managed-safety-off", null),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+			forwardSafetyIdentifier: false,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-safety-off",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [{ role: "user", content: "Hello" }],
+				safety_identifier: "client-controlled",
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((entry) => entry.apiKeyId === "token-id-safety-off");
+		expect(log?.upstreamRequest).toBeDefined();
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+		expect(log?.upstreamRequest).not.toHaveProperty("user");
+	});
+
+	test("omits the identifier on BYOK even when the managed-only setting is off", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-safety-byok",
+			...hashApiKeyForStorage("real-token-safety-byok"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-safety-byok",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-safety-byok",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+			forwardSafetyIdentifier: false,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-safety-byok",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [{ role: "user", content: "Hello" }],
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((entry) => entry.apiKeyId === "token-id-safety-byok");
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
 	});
 });
