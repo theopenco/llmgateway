@@ -564,7 +564,8 @@ logs.openapi(get, async (c) => {
 	}
 
 	// Get all projects associated with the user's organizations
-	const projectsQuery: any = {
+	// If projectId is provided, check if it belongs to user's organizations
+	const projects = await db.query.project.findMany({
 		where: {
 			organizationId: {
 				in: orgId ? [orgId] : organizationIds,
@@ -572,15 +573,9 @@ logs.openapi(get, async (c) => {
 			status: {
 				ne: "deleted",
 			},
+			...(projectId ? { id: { eq: projectId } } : {}),
 		},
-	};
-
-	// If projectId is provided, check if it belongs to user's organizations
-	if (projectId) {
-		projectsQuery.where.id = projectId;
-	}
-
-	const projects = await db.query.project.findMany(projectsQuery);
+	});
 
 	if (!projects.length) {
 		return c.json({
@@ -1011,7 +1006,8 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	}
 
 	// Get all projects associated with the user's organizations
-	const projectsQuery: any = {
+	// If projectId is provided, check if it belongs to user's organizations
+	const projects = await db.query.project.findMany({
 		where: {
 			organizationId: {
 				in: orgId ? [orgId] : organizationIds,
@@ -1019,15 +1015,9 @@ logs.openapi(uniqueModelsGet, async (c) => {
 			status: {
 				ne: "deleted",
 			},
+			...(projectId ? { id: { eq: projectId } } : {}),
 		},
-	};
-
-	// If projectId is provided, check if it belongs to user's organizations
-	if (projectId) {
-		projectsQuery.where.id = projectId;
-	}
-
-	const projects = await db.query.project.findMany(projectsQuery);
+	});
 
 	if (!projects.length) {
 		return c.json({

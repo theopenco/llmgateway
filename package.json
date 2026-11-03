@@ -22,6 +22,7 @@
 		"migrations": "pnpm --filter db migrations",
 		"migrations:check": "pnpm --filter db migrations:check",
 		"migrations:lint": "pnpm --filter db migrations:lint",
+		"migrations:up": "pnpm --filter db migrations:up",
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
 		"push": "pnpm push-dev && pnpm push-test",
 		"push-dev": "pnpm --filter db push",
@@ -56,6 +57,8 @@
 		"commitlint": "21.2.4",
 		"concurrently": "^10.0.4",
 		"dotenv": "17.4.2",
+		"drizzle-kit": "1.0.0-rc.5",
+		"drizzle-orm": "1.0.0-rc.5",
 		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^9.34.0",
 		"eslint-import-resolver-typescript": "4.4.5",
@@ -85,6 +88,8 @@
 	],
 	"pnpm": {
 		"overrides": {
+			"drizzle-kit": "$drizzle-kit",
+			"drizzle-orm": "$drizzle-orm",
 			"shiki": "3.22.0",
 			"flatted": ">=3.4.0",
 			"rollup": ">=4.59.0",
@@ -157,11 +162,6 @@
 			"@hookform/resolvers": {
 				"peerDependencies": {
 					"zod": "*"
-				}
-			},
-			"drizzle-kit": {
-				"peerDependencies": {
-					"drizzle-orm": ">=1.0.0-rc.4"
 				}
 			}
 		},
