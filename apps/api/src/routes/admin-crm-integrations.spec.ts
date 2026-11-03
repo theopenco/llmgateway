@@ -212,8 +212,13 @@ describe("CRM integrations", () => {
 				htmlToText("<div>Hi&nbsp;there<br>bye</div><p>&amp; more</p>"),
 			).toBe("Hi there\nbye\n& more");
 			expect(htmlToText("a &amp;lt;b&gt; <scr<script>ipt>x</script> c")).toBe(
-				"a &lt;b> <scr c",
+				"a &lt;b> ipt>x c",
 			);
+			expect(
+				htmlToText(
+					"<style>p{}</style><p>Hi <b>there</b><script>alert(1)</script></p>",
+				),
+			).toBe("Hi there");
 			expect(gmailQueryFor(["a@x.io"])).toBe(
 				"{from:a@x.io to:a@x.io cc:a@x.io} -in:spam -in:trash",
 			);

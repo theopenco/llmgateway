@@ -430,17 +430,36 @@ function decodeEntities(text: string): string {
 	);
 }
 
-// Repeats until nothing changes, so nested or split tags cannot survive.
+const SKIPPED_ELEMENTS = ["script", "style"];
+
+// Linear scan rather than regex replacement: every "<" opens a tag that runs
+// to the next ">", and script/style bodies are dropped up to their close tag,
+// so no tag fragment can survive a single pass.
 function stripTags(html: string): string {
-	let previous: string;
-	let current = html;
-	do {
-		previous = current;
-		current = current
-			.replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
-			.replace(/<[^>]*>/g, "");
-	} while (current !== previous);
-	return current;
+	let out = "";
+	let i = 0;
+	while (i < html.length) {
+		if (html[i] !== "<") {
+			out += html[i];
+			i += 1;
+			continue;
+		}
+		const lower = html.slice(i + 1, i + 8).toLowerCase();
+		const skipped = SKIPPED_ELEMENTS.find((name) => lower.startsWith(name));
+		if (skipped) {
+			const close = html.toLowerCase().indexOf(`</${skipped}`, i);
+			if (close === -1) {
+				break;
+			}
+			i = close;
+		}
+		const end = html.indexOf(">", i);
+		if (end === -1) {
+			break;
+		}
+		i = end + 1;
+	}
+	return out;
 }
 
 export function htmlToText(html: string): string {
