@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fetchSafeUserUrl } from "./url-safety-node.js";
+import {
+	fetchSafeUserContentUrl,
+	fetchSafeUserUrl,
+} from "./url-safety-node.js";
 
 import type { LookupFunction } from "node:net";
 
@@ -23,19 +26,27 @@ vi.mock("undici", () => ({
 	fetch: mocks.fetch,
 }));
 
-describe("fetchSafeUserUrl", () => {
+describe.each([fetchSafeUserUrl, fetchSafeUserContentUrl])("%s", (fetchUrl) => {
+	beforeEach(() => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		mocks.fetch.mockClear();
+	});
+	afterEach(() => vi.unstubAllEnvs());
 	it("forces redirect errors on every fetch", async () => {
 		mocks.fetch.mockResolvedValue(new Response(null, { status: 204 }));
 
-		await fetchSafeUserUrl("https://mcp.example.com/rpc", {
+		const signal = new AbortController().signal;
+		await fetchUrl("https://mcp.example.com/rpc", {
 			method: "POST",
 			redirect: "follow",
+			signal,
 		});
 
 		expect(mocks.fetch).toHaveBeenCalledWith(
 			new URL("https://mcp.example.com/rpc"),
 			expect.objectContaining({
 				method: "POST",
+				signal,
 				redirect: "error",
 				dispatcher: expect.anything(),
 			}),
@@ -45,15 +56,15 @@ describe("fetchSafeUserUrl", () => {
 	it("rejects http before starting a fetch", async () => {
 		mocks.fetch.mockClear();
 
-		await expect(
-			fetchSafeUserUrl("http://mcp.example.com/rpc"),
-		).rejects.toThrow("must use https");
+		await expect(fetchUrl("http://mcp.example.com/rpc")).rejects.toThrow(
+			"must use https",
+		);
 		expect(mocks.fetch).not.toHaveBeenCalled();
 	});
 
 	it("rejects unsafe addresses during socket DNS lookup", async () => {
 		mocks.fetch.mockResolvedValue(new Response(null, { status: 204 }));
-		await fetchSafeUserUrl("https://mcp.example.com/rpc");
+		await fetchUrl("https://mcp.example.com/rpc");
 
 		const options = mocks.agentOptions[0] as {
 			connect?: { lookup?: LookupFunction };

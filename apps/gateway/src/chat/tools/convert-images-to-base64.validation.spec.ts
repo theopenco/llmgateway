@@ -4,7 +4,10 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { convertImagesToBase64 } from "./convert-images-to-base64.js";
 
-vi.mock("@llmgateway/shared/url-safety-node", () => ({
+import type * as UrlSafetyModule from "@llmgateway/shared/url-safety-node";
+
+vi.mock("@llmgateway/shared/url-safety-node", async (importOriginal) => ({
+	...(await importOriginal<typeof UrlSafetyModule>()),
 	assertSafeUserContentUrl: vi.fn(),
 }));
 
@@ -19,6 +22,7 @@ describe("provider image validation deadline", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(0);
 		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "50");
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
 		guard.mockResolvedValue(undefined);
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response(new Uint8Array([1, 2, 3]), {

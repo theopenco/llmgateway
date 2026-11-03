@@ -20,6 +20,7 @@ import {
 	ne,
 	sql,
 	tables,
+	or,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -1896,6 +1897,7 @@ async function resolvePurchaserDistinctId(
 async function claimCreditTopUpPaymentIntent(
 	tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
 	paymentIntentId: string,
+	organizationId: string,
 ): Promise<boolean> {
 	await tx.execute(
 		sql`SELECT pg_advisory_xact_lock(hashtext(${`credit-topup:${paymentIntentId}`}))`,
@@ -1907,6 +1909,11 @@ async function claimCreditTopUpPaymentIntent(
 			status: { eq: "completed" },
 		},
 	});
+	if (existing && existing.organizationId !== organizationId) {
+		throw new Error(
+			"Credit top-up payment intent belongs to another organization",
+		);
+	}
 	return Boolean(existing);
 }
 
@@ -1930,7 +1937,7 @@ async function recordCreditTopUp({
 	creditAmount: number;
 	totalAmountInDollars: number;
 	currency: string;
-	stripePaymentIntentId: string | null;
+	stripePaymentIntentId: string;
 	description: string;
 	organization: {
 		name: string;
@@ -1944,59 +1951,78 @@ async function recordCreditTopUp({
 	bonusType?: BonusType | null;
 	purchaserUserId?: string | null;
 }): Promise<boolean> {
-	// Credit and record the purchase atomically, serialized per payment intent,
-	// so overlapping or retried deliveries of one event credit it only once.
-	const completedTransaction = await db.transaction(async (tx) => {
-		if (stripePaymentIntentId) {
-			if (await claimCreditTopUpPaymentIntent(tx, stripePaymentIntentId)) {
+	// Keep the credit, alert reset and completed ledger row atomic.
+	let completedTransaction: { id: string } | null;
+	try {
+		completedTransaction = await db.transaction(async (tx) => {
+			if (
+				stripePaymentIntentId &&
+				(await claimCreditTopUpPaymentIntent(
+					tx,
+					stripePaymentIntentId,
+					organizationId,
+				))
+			) {
 				return null;
 			}
-		}
+			await tx
+				.update(tables.organization)
+				.set({
+					credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+					paymentFailureCount: 0,
+					lastPaymentFailureAt: null,
+					paymentFailureStartedAt: null,
+					lastTopUpAmount: creditAmount.toString(),
+				})
+				.where(eq(tables.organization.id, organizationId));
 
-		await tx
-			.update(tables.organization)
-			.set({
-				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-				paymentFailureCount: 0,
-				lastPaymentFailureAt: null,
-				paymentFailureStartedAt: null,
-				lastTopUpAmount: creditAmount.toString(),
-			})
-			.where(eq(tables.organization.id, organizationId));
+			// Reset low-balance email dedup so alerts can fire again on next cycle
+			await tx
+				.delete(tables.followUpEmail)
+				.where(
+					and(
+						eq(tables.followUpEmail.organizationId, organizationId),
+						inArray(tables.followUpEmail.emailType, [
+							"low_balance_20",
+							"low_balance_5",
+						]),
+					),
+				);
 
-		// Reset low-balance email dedup so alerts can fire again on next cycle
-		await tx
-			.delete(tables.followUpEmail)
-			.where(
-				and(
-					eq(tables.followUpEmail.organizationId, organizationId),
-					inArray(tables.followUpEmail.emailType, [
-						"low_balance_20",
-						"low_balance_5",
-					]),
-				),
-			);
+			const [row] = await tx
+				.insert(tables.transaction)
+				.values({
+					organizationId,
+					type: "credit_topup",
+					creditAmount: finalCreditAmount.toString(),
+					amount: totalAmountInDollars.toString(),
+					currency,
+					status: "completed",
+					stripePaymentIntentId,
+					description,
+				})
+				.returning();
 
-		const [row] = await tx
-			.insert(tables.transaction)
-			.values({
+			return row;
+		});
+	} catch (err) {
+		if (
+			await isCompletedCreditTopUpConflict(
+				err,
 				organizationId,
-				type: "credit_topup",
-				creditAmount: finalCreditAmount.toString(),
-				amount: totalAmountInDollars.toString(),
-				currency,
-				status: "completed",
 				stripePaymentIntentId,
-				description,
-			})
-			.returning();
-		return row;
-	});
+			)
+		) {
+			logger.info(
+				`Skipping duplicate credit top-up for organization ${organizationId} (concurrent delivery for ${stripePaymentIntentId})`,
+			);
+			return false;
+		}
+		throw err;
+	}
 
 	if (!completedTransaction) {
-		logger.info(
-			`Skipping duplicate credit top-up for payment intent ${stripePaymentIntentId}`,
-		);
+		logger.info("Skipping previously completed credit top-up");
 		return false;
 	}
 
@@ -2095,6 +2121,7 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
+
 	return true;
 }
 
@@ -2305,7 +2332,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 
 	const bonusLabel = getBonusLabel(bonusType);
 
-	const recorded = await recordCreditTopUp({
+	const applied = await recordCreditTopUp({
 		organizationId,
 		finalCreditAmount,
 		bonusAmount,
@@ -2322,7 +2349,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		bonusType,
 		purchaserUserId: resolvedUser?.id ?? null,
 	});
-	if (!recorded) {
+	if (!applied) {
 		return;
 	}
 
@@ -3191,6 +3218,7 @@ async function handlePaymentIntentSucceeded(
 
 	const existingTransaction = await db.query.transaction.findFirst({
 		where: {
+			organizationId: { eq: organizationId },
 			stripePaymentIntentId: { eq: paymentIntent.id },
 			type: { eq: "credit_topup" },
 			status: { eq: "completed" },
@@ -3239,78 +3267,105 @@ async function handlePaymentIntentSucceeded(
 	if (transactionId) {
 		// Credit and complete the pending row atomically, serialized per payment
 		// intent, so a redelivered event cannot credit twice.
-		const completedTransactionId = await db.transaction(async (tx) => {
-			if (await claimCreditTopUpPaymentIntent(tx, paymentIntent.id)) {
-				return null;
-			}
+		let completedTransactionId: string | null;
+		try {
+			completedTransactionId = await db.transaction(async (tx) => {
+				if (
+					await claimCreditTopUpPaymentIntent(
+						tx,
+						paymentIntent.id,
+						organizationId,
+					)
+				) {
+					return null;
+				}
 
-			await tx
-				.update(tables.organization)
-				.set({
-					credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-					paymentFailureCount: 0,
-					lastPaymentFailureAt: null,
-					paymentFailureStartedAt: null,
-					lastTopUpAmount: creditAmount.toString(),
-				})
-				.where(eq(tables.organization.id, organizationId));
+				await tx
+					.update(tables.organization)
+					.set({
+						credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+						paymentFailureCount: 0,
+						lastPaymentFailureAt: null,
+						paymentFailureStartedAt: null,
+						lastTopUpAmount: creditAmount.toString(),
+					})
+					.where(eq(tables.organization.id, organizationId));
 
-			// Reset low-balance email dedup so alerts can fire again on next cycle
-			await tx
-				.delete(tables.followUpEmail)
-				.where(
-					and(
-						eq(tables.followUpEmail.organizationId, organizationId),
-						inArray(tables.followUpEmail.emailType, [
-							"low_balance_20",
-							"low_balance_5",
-						]),
-					),
+				// Reset low-balance email dedup so alerts can fire again on next cycle
+				await tx
+					.delete(tables.followUpEmail)
+					.where(
+						and(
+							eq(tables.followUpEmail.organizationId, organizationId),
+							inArray(tables.followUpEmail.emailType, [
+								"low_balance_20",
+								"low_balance_5",
+							]),
+						),
+					);
+
+				const updatedTransaction = await tx
+					.update(tables.transaction)
+					.set({
+						status: "completed",
+						stripePaymentIntentId: paymentIntent.id,
+						description:
+							bonusAmount > 0
+								? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+								: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
+						creditAmount: finalCreditAmount.toString(),
+						amount: totalAmountInDollars.toString(),
+					})
+					.where(
+						and(
+							eq(tables.transaction.id, transactionId),
+							eq(tables.transaction.organizationId, organizationId),
+							eq(tables.transaction.type, "credit_topup"),
+							ne(tables.transaction.status, "completed"),
+							or(
+								isNull(tables.transaction.stripePaymentIntentId),
+								eq(tables.transaction.stripePaymentIntentId, paymentIntent.id),
+							),
+						),
+					)
+					.returning()
+					.then((rows) => rows[0]);
+
+				if (updatedTransaction) {
+					return updatedTransaction.id;
+				}
+
+				logger.warn(
+					`Could not find pending transaction ${transactionId} for organization ${organizationId}, creating new record`,
 				);
-
-			const updatedTransaction = await tx
-				.update(tables.transaction)
-				.set({
-					status: "completed",
-					stripePaymentIntentId: paymentIntent.id,
-					description:
-						bonusAmount > 0
-							? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-							: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
-					creditAmount: finalCreditAmount.toString(),
-					amount: totalAmountInDollars.toString(),
-				})
-				.where(
-					and(
-						eq(tables.transaction.id, transactionId),
-						eq(tables.transaction.organizationId, organizationId),
-					),
-				)
-				.returning()
-				.then((rows) => rows[0]);
-
-			if (updatedTransaction) {
-				return updatedTransaction.id;
-			}
-
-			logger.warn(
-				`Could not find pending transaction ${transactionId} for organization ${organizationId}, creating new record`,
-			);
-			const [fallbackTransaction] = await tx
-				.insert(tables.transaction)
-				.values({
+				const [fallbackTransaction] = await tx
+					.insert(tables.transaction)
+					.values({
+						organizationId,
+						type: "credit_topup",
+						creditAmount: finalCreditAmount.toString(),
+						amount: totalAmountInDollars.toString(),
+						currency: paymentIntent.currency.toUpperCase(),
+						status: "completed",
+						stripePaymentIntentId: paymentIntent.id,
+						description: transactionDescription,
+					})
+					.returning();
+				return fallbackTransaction.id;
+			});
+		} catch (err) {
+			if (
+				await isCompletedCreditTopUpConflict(
+					err,
 					organizationId,
-					type: "credit_topup",
-					creditAmount: finalCreditAmount.toString(),
-					amount: totalAmountInDollars.toString(),
-					currency: paymentIntent.currency.toUpperCase(),
-					status: "completed",
-					stripePaymentIntentId: paymentIntent.id,
-					description: transactionDescription,
-				})
-				.returning();
-			return fallbackTransaction.id;
-		});
+					paymentIntent.id,
+				)
+			) {
+				logger.info("Skipping concurrently completed auto top-up");
+				return;
+			}
+			throw err;
+		}
 
 		if (!completedTransactionId) {
 			logger.info(
@@ -3379,7 +3434,7 @@ async function handlePaymentIntentSucceeded(
 			},
 		});
 	} else {
-		const recorded = await recordCreditTopUp({
+		const applied = await recordCreditTopUp({
 			organizationId,
 			finalCreditAmount,
 			bonusAmount,
@@ -3393,7 +3448,7 @@ async function handlePaymentIntentSucceeded(
 			bonusType,
 			purchaserUserId: resolvedUser?.id ?? null,
 		});
-		if (!recorded) {
+		if (!applied) {
 			return;
 		}
 	}
@@ -5948,4 +6003,33 @@ export async function handleSubscriptionCreated(
 		);
 		throw error;
 	}
+}
+async function isCompletedCreditTopUpConflict(
+	error: unknown,
+	organizationId: string,
+	paymentIntentId: string | null,
+): Promise<boolean> {
+	const wrapped = error as {
+		code?: string;
+		constraint?: string;
+		cause?: { code?: string; constraint?: string };
+	};
+	const violation = wrapped?.cause ?? wrapped;
+	if (
+		!paymentIntentId ||
+		violation?.code !== "23505" ||
+		violation.constraint !== "transaction_credit_topup_payment_intent_unique"
+	) {
+		return false;
+	}
+	return Boolean(
+		await db.query.transaction.findFirst({
+			where: {
+				organizationId: { eq: organizationId },
+				stripePaymentIntentId: { eq: paymentIntentId },
+				type: { eq: "credit_topup" },
+				status: { eq: "completed" },
+			},
+		}),
+	);
 }

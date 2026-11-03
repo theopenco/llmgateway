@@ -1,7 +1,10 @@
 import { raceClientAbort } from "@/lib/client-abort.js";
 
 import { logger } from "@llmgateway/logger";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import {
+	assertSafeUserContentUrl,
+	fetchSafeUserContentUrl,
+} from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
 
@@ -59,8 +62,7 @@ async function fetchImageWithRetry(
 				}
 				urlValidated = true;
 			}
-			const response = await fetch(url, {
-				redirect: "error",
+			const response = await fetchSafeUserContentUrl(url, {
 				signal: controller.signal,
 			});
 			if (response.ok) {
