@@ -31,8 +31,9 @@ import {
 	isOrgAlertRecipient,
 	processComplianceAlerts,
 } from "./compliance-alerts.js";
+import { processModelPriceAlerts } from "./model-price-alerts.js";
+import { canReadEvent } from "./notification-scope.js";
 
-import type { ApiKeyScope } from "@llmgateway/actions";
 import type { notificationPreference } from "@llmgateway/db";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -78,21 +79,6 @@ export function providerHasIssues(
 	);
 }
 
-function canReadEvent(
-	scope: ApiKeyScope,
-	event: Pick<Event, "projectId" | "apiKeyId">,
-): boolean {
-	if (!event.projectId) {
-		return false;
-	}
-	return (
-		scope.privilegedProjectIds.includes(event.projectId) ||
-		(scope.restrictedProjectIds.includes(event.projectId) &&
-			!!event.apiKeyId &&
-			scope.ownApiKeyIds.includes(event.apiKeyId))
-	);
-}
-
 async function recordEvent(
 	userId: string,
 	preference: Preference,
@@ -111,7 +97,10 @@ async function recordEvent(
 
 export async function processNotifications(now = new Date()): Promise<void> {
 	const preferences = await db.query.notificationPreference.findMany({
-		where: { OR: [{ inApp: true }, { email: true }] },
+		where: {
+			type: { in: ["budget", "model_retirement", "provider_issue"] },
+			OR: [{ inApp: true }, { email: true }],
+		},
 	});
 	const userIds = [...new Set(preferences.map((p) => p.userId))];
 	const mappings = await db.query.modelProviderMapping.findMany({
@@ -286,6 +275,14 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 	}
+	try {
+		await processModelPriceAlerts(now);
+	} catch (error) {
+		logger.error(
+			"Model price alert processing failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
 	await deliverNotificationEmails(now);
 }
 
@@ -355,11 +352,17 @@ export async function deliverNotificationEmails(
 			if (!preference) {
 				continue;
 			}
-			const scope = await getApiKeyScope(
-				item.userId,
-				await getUserProjectIds(item.userId),
-			);
-			if (!canReadEvent(scope, item)) {
+			// Price changes are public catalogue events with no project to check.
+			if (
+				item.type !== "model_price_change" &&
+				!canReadEvent(
+					await getApiKeyScope(
+						item.userId,
+						await getUserProjectIds(item.userId),
+					),
+					item,
+				)
+			) {
 				continue;
 			}
 		}
