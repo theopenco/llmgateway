@@ -32,8 +32,9 @@ import type { PgTable } from "drizzle-orm/pg-core";
 // scope: high-volume, disruptive rewrite).
 
 // Columns whose name matches this are monetary and must be double precision in
-// the rollup tables. "savings" covers discountSavings, which is a cost delta.
-const COST_COLUMN = /cost|savings/i;
+// the rollup tables. "savings" covers discountSavings, which is a cost delta,
+// and "margin" covers providerMarginAmount, which is a sum of cost shares.
+const COST_COLUMN = /cost|savings|margin/i;
 
 // The 12 derived rollup tables named in the issue's "Proposed scope", plus the two
 // global hourly tables that were added later and share the global column helpers.
@@ -78,12 +79,12 @@ describe("rollup cost columns (#3630)", () => {
 		expect(Object.keys(rollupTables)).toHaveLength(14);
 	});
 
-	it("migrates exactly 154 rollup cost columns to double precision", () => {
+	it("migrates exactly 157 rollup cost columns to double precision", () => {
 		const total = Object.values(rollupTables).reduce(
 			(sum, table) => sum + costColumns(table).length,
 			0,
 		);
-		expect(total).toBe(154);
+		expect(total).toBe(157);
 	});
 
 	it("leaves the raw log cost columns as real (out of scope)", () => {

@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3456c51e-7a42-4e96-bb3f-3e9725343acd",
+  "id": "212826cd-2739-40b2-b702-5ebe4393dc3c",
   "prevIds": [
-    "2b4da116-bcc3-4958-ad85-27e4087acbb3"
+    "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
   ],
   "ddl": [
     {
@@ -9015,7 +9015,7 @@
       "table": "global_hourly_model_stats"
     },
     {
-      "type": "real",
+      "type": "double precision",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -10627,7 +10627,7 @@
       "table": "global_model_stats"
     },
     {
-      "type": "real",
+      "type": "double precision",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -18499,6 +18499,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "provider_access_restriction",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "smart_routing_config",
       "entityType": "columns",
       "schema": "public",
@@ -22145,7 +22158,7 @@
       "table": "project_hourly_model_stats"
     },
     {
-      "type": "real",
+      "type": "double precision",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,

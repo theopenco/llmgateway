@@ -6199,7 +6199,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		// Gateway margin earned on Airside-carrier traffic:
 		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
 		// requests. 0 for providers without routing settings.
-		providerMarginAmount: real().notNull().default(0),
+		providerMarginAmount: doublePrecision().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -6833,7 +6833,7 @@ const globalModelStatsColumns = () => ({
 	// Gateway margin earned on Airside-carrier traffic:
 	// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
 	// requests. 0 for providers without routing settings.
-	providerMarginAmount: real().notNull().default(0),
+	providerMarginAmount: doublePrecision().notNull().default(0),
 });
 
 export const globalModelStats = snakeCase.table(
