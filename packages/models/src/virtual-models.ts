@@ -9,6 +9,24 @@ export function getModelAliases(modelId: string): string[] {
 }
 
 /**
+ * Every ref a deny list must match for `modelId`: the id, its aliases, and,
+ * when `modelId` is itself an alias (e.g. an Airside listing named after
+ * one), the catalogue model it names and that model's aliases.
+ */
+export function getModelDenyRefs(modelId: string): string[] {
+	const catalogue = models as ModelDefinition[];
+	const canonical =
+		catalogue.find((model) => model.id === modelId) ??
+		catalogue.find((model) => model.aliases?.includes(modelId));
+	return Array.from(
+		new Set([
+			modelId,
+			...(canonical ? [canonical.id, ...(canonical.aliases ?? [])] : []),
+		]),
+	);
+}
+
+/**
  * The alias `modelInput` (bare, `provider/alias` or `provider/alias:region`)
  * named, when it resolved to catalogue model `modelId`.
  */

@@ -7,7 +7,7 @@ import {
 	customModelRef,
 	customProviderRef,
 	getAttestationComplianceFailures,
-	getModelAliases,
+	getModelDenyRefs,
 	getModelPolicyListFailures,
 	getProviderComplianceFailures,
 	getProviderDefinition,
@@ -111,8 +111,9 @@ export function isModelIdCompliant(
 	return modelListFailures(modelId, policy, context).length === 0;
 }
 
-// A blocked alias blocks the model it resolves to; an allow list must still
-// name the model itself, so an alias-only entry never widens access.
+// A blocked alias blocks the model it resolves to, and a blocked model blocks
+// listings named after its aliases; an allow list must still name the model
+// itself, so an alias-only entry never widens access.
 function modelListFailures(
 	modelId: string,
 	policy: ProviderCompliancePolicy,
@@ -124,7 +125,7 @@ function modelListFailures(
 	const failures = getModelPolicyListFailures(modelRefs, policy);
 	if (
 		!failures.includes("blockedModels") &&
-		!isModelAllowedByPolicy(getModelAliases(modelId), {
+		!isModelAllowedByPolicy(getModelDenyRefs(modelId), {
 			...policy,
 			allowedModels: undefined,
 		})

@@ -2388,6 +2388,21 @@ describe("validateRequestModelAccess — virtual model aliases", () => {
 		expect((await check(VIRTUAL)).allowed).toBe(false);
 	});
 
+	it("deny_models naming the cut blocks a listing named after its alias", async () => {
+		keyRules([
+			makeRule({ ruleType: "deny_models", ruleValue: { models: [CUT] } }),
+		]);
+		const listing = { ...cut, id: VIRTUAL };
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			providerAccessRestriction: null,
+			requestedModel: VIRTUAL,
+			activeModelInfo: listing,
+		});
+		expect(result.allowed).toBe(false);
+	});
+
 	it("validateModelAccess denies the cut for a key rule naming the alias", async () => {
 		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
 			makeRule({ ruleType: "deny_models", ruleValue: { models: [VIRTUAL] } }),

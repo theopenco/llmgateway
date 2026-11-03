@@ -434,6 +434,15 @@ describe("model lists with virtual aliases", () => {
 		);
 	});
 
+	it("a blocked model blocks a listing named after its alias", () => {
+		expect(
+			isModelIdCompliant("deepseek-v4.1-flash-latest", {
+				enabled: true,
+				blockedModels: [CUT],
+			}),
+		).toBe(false);
+	});
+
 	it("an alias-only allow list does not admit the model", () => {
 		expect(
 			isModelIdCompliant(CUT, {

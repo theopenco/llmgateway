@@ -11,6 +11,7 @@ import {
 	customModelRef,
 	customProviderRef,
 	getModelAliases,
+	getModelDenyRefs,
 	isProviderMappingAllowedByRestriction,
 	models,
 	type ModelDefinition,
@@ -164,8 +165,8 @@ function modelRuleRefs(
 }
 
 // Allow rules also match the alias the request named. Deny rules match every
-// alias of the model, so a rule naming an alias blocks the model that alias
-// resolves to under any spelling; unclear refs only ever narrow access.
+// related ref (getModelDenyRefs), so a rule naming an alias or its model
+// blocks both under any spelling; unclear refs only ever narrow access.
 function allowModelRuleRefs(
 	modelDef: ModelDefinition,
 	customProviderName: string | undefined,
@@ -184,7 +185,7 @@ function denyModelRuleRefs(
 ): string[] {
 	return [
 		...modelRuleRefs(modelDef, customProviderName),
-		...getModelAliases(modelDef.id),
+		...getModelDenyRefs(modelDef.id),
 	];
 }
 

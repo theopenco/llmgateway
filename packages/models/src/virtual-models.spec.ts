@@ -5,6 +5,7 @@ import { isModelAllowedByPolicy } from "./providers.js";
 import {
 	expandVirtualModels,
 	getModelAliases,
+	getModelDenyRefs,
 	getRequestedModelAlias,
 	getVirtualModelTarget,
 } from "./virtual-models.js";
@@ -75,6 +76,16 @@ describe("requested model aliases", () => {
 		expect(getRequestedModelAlias(input, "deepseek-v4.1-flash-1017")).toBe(
 			alias,
 		);
+	});
+	it("relates a model, its aliases and listings named after them for deny lists", () => {
+		const refs = ["deepseek-v4.1-flash-latest", "deepseek-v4.1-flash-1017"];
+		expect(getModelDenyRefs("deepseek-v4.1-flash-1017").sort()).toEqual(
+			[...refs].sort(),
+		);
+		expect(getModelDenyRefs("deepseek-v4.1-flash-latest").sort()).toEqual(
+			[...refs].sort(),
+		);
+		expect(getModelDenyRefs("unknown-model")).toEqual(["unknown-model"]);
 	});
 	it("ignores an alias of another model", () => {
 		expect(
