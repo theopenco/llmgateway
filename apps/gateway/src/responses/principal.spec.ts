@@ -26,6 +26,8 @@ const state = vi.hoisted(() => ({
 	},
 	wallet: { id: "wallet", status: "active", balance: "1", mode: "live" },
 	stored: vi.fn(),
+	store: vi.fn(),
+	zdr: false,
 	readAccess: vi.fn(),
 	forward: vi.fn(),
 	budget: vi.fn(),
@@ -44,7 +46,7 @@ vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: state.limits,
 }));
 vi.mock("@/lib/compliance.js", () => ({
-	isZeroDataRetentionEnabled: vi.fn(() => false),
+	isZeroDataRetentionEnabled: vi.fn(() => state.zdr),
 }));
 vi.mock("@/lib/client-error-log.js", () => ({
 	logGatewayClientError: vi.fn(),
@@ -64,7 +66,7 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 vi.mock("./tools/response-state.js", () => ({
 	getStoredResponse: state.stored,
-	storeResponse: vi.fn(),
+	storeResponse: state.store,
 	resolveItemReferences: vi.fn((items) => items),
 }));
 
@@ -106,6 +108,7 @@ beforeEach(() => {
 	state.key.endUserSession = undefined;
 	state.project.status = "active";
 	state.wallet.status = "active";
+	state.zdr = false;
 	state.forward.mockImplementation(() =>
 		Response.json(
 			{
@@ -252,6 +255,82 @@ describe("Responses principals", () => {
 				).status,
 			).toBe(403);
 			expect(state.forward).not.toHaveBeenCalled();
+		},
+	);
+	it.each([false, true])(
+		"successful SDK compaction remains stateless with ZDR=%s",
+		async (zdr) => {
+			session();
+			state.zdr = zdr;
+			state.forward.mockResolvedValueOnce(
+				Response.json({
+					id: "chat",
+					model: "gpt-4o",
+					choices: [
+						{
+							message: { role: "assistant", content: "Compact summary" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+				}),
+			);
+			const response = await request(
+				"/compact",
+				{ model: "gpt-4o", input: "SDK conversation" },
+				"https://allowed.example",
+			);
+			expect(response.status).toBe(200);
+			expect(await response.json()).toMatchObject({
+				object: "response.compaction",
+				output: expect.arrayContaining([
+					expect.objectContaining({ type: "compaction" }),
+				]),
+			});
+			expect(state.forward).toHaveBeenCalledOnce();
+			expect(state.store).not.toHaveBeenCalled();
+			expect(state.stored).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([false, true])(
+		"regular-key compaction preserves existing storage with ZDR=%s",
+		async (zdr) => {
+			state.zdr = zdr;
+			state.forward.mockResolvedValueOnce(
+				Response.json({
+					id: "chat",
+					model: "gpt-4o",
+					choices: [
+						{
+							message: { role: "assistant", content: "Compact summary" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+				}),
+			);
+			const response = await request("/compact", {
+				model: "gpt-4o",
+				input: "Regular conversation",
+			});
+			expect(response.status).toBe(200);
+			expect(state.store).toHaveBeenCalledTimes(zdr ? 0 : 1);
+			if (!zdr) {
+				expect(state.store).toHaveBeenCalledWith(
+					expect.any(String),
+					expect.objectContaining({
+						input: [
+							{
+								type: "message",
+								role: "user",
+								content: "Regular conversation",
+							},
+						],
+					}),
+					"project",
+				);
+			}
 		},
 	);
 });
