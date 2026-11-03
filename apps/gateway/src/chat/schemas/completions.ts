@@ -238,7 +238,7 @@ export const completionsRequestSchema = z.object({
 				json_schema: z.object({
 					name: z.string(),
 					description: z.string().optional(),
-					schema: z.record(z.any()),
+					schema: z.record(z.string(), z.any()),
 					strict: z.boolean().optional(),
 				}),
 			}),
@@ -324,7 +324,7 @@ export const completionsRequestSchema = z.object({
 					function: z.object({
 						name: z.string(),
 						description: z.string().optional(),
-						parameters: z.record(z.any()).optional(),
+						parameters: z.record(z.string(), z.any()).optional(),
 						strict: z.boolean().optional().openapi({
 							description:
 								"Ask the provider to constrain tool arguments to the schema. Forwarded to OpenAI-compatible providers and, as Anthropic's tool-level `strict`, to the Anthropic Messages API. Dropped for providers without an equivalent.",
@@ -378,6 +378,10 @@ export const completionsRequestSchema = z.object({
 					max_uses: z.number().optional(),
 					allowed_domains: z.array(z.string()).optional(),
 					blocked_domains: z.array(z.string()).optional(),
+					external_web_access: z.boolean().optional().openapi({
+						description:
+							"OpenAI's live-access switch. `false` requests cache-only search: forwarded to OpenAI's Responses API, and on every other provider the tool is dropped instead of running a live search. Omitted or `true` is live search.",
+					}),
 				}),
 				z
 					.object({

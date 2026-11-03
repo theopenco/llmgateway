@@ -8,6 +8,7 @@ import { Label, Pie, PieChart } from "recharts";
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useUsageMode } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useHydrated } from "@/hooks/useHydrated";
 import {
 	ChartContainer,
 	ChartTooltip,
@@ -91,7 +92,7 @@ export function CostBreakdownChart({
 	apiKeyId,
 }: CostBreakdownChartProps) {
 	const searchParams = useSearchParams();
-	const { selectedProject } = useDashboardNavigation();
+	const { currentProject } = useDashboardNavigation();
 	const usageMode = useUsageMode();
 
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
@@ -99,10 +100,15 @@ export function CostBreakdownChart({
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
-	const effectiveProjectId = projectId ?? selectedProject?.id;
+	const effectiveProjectId = projectId ?? currentProject?.id;
 
 	const api = useApi();
-	const { data, isLoading, error } = api.useQuery(
+	const hydrated = useHydrated();
+	const {
+		data: activity,
+		isLoading: activityLoading,
+		error,
+	} = api.useQuery(
 		"get",
 		"/activity",
 		{
@@ -121,6 +127,11 @@ export function CostBreakdownChart({
 			initialData,
 		},
 	);
+	// Without initialData this can be a query streamed from the server whose
+	// data lands before hydration; match the server's loading state first.
+	const awaitingHydration = !initialData && !hydrated;
+	const data = awaitingHydration ? undefined : activity;
+	const isLoading = awaitingHydration || activityLoading;
 
 	const { chartData, chartConfig, totalCost, creditsTotal, apiKeysTotal } =
 		useMemo(() => {
@@ -299,9 +310,9 @@ export function CostBreakdownChart({
 			<div className="flex h-full items-center justify-center">
 				<p className="text-muted-foreground">
 					No cost data available
-					{selectedProject && (
+					{currentProject && (
 						<span className="block mt-1 text-sm">
-							Project: {selectedProject.name}
+							Project: {currentProject.name}
 						</span>
 					)}
 				</p>
@@ -362,11 +373,11 @@ export function CostBreakdownChart({
 				</PieChart>
 			</ChartContainer>
 			<div className="flex min-w-0 flex-1 flex-col justify-center gap-3 text-sm">
-				{selectedProject && (
+				{currentProject && (
 					<p className="text-muted-foreground">
 						Project:{" "}
 						<span className="font-medium text-foreground">
-							{selectedProject.name}
+							{currentProject.name}
 						</span>
 					</p>
 				)}

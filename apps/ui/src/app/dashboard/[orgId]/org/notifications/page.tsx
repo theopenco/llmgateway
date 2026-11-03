@@ -13,6 +13,8 @@ import { Skeleton } from "@/lib/components/skeleton";
 import { Switch } from "@/lib/components/switch";
 import { useApi } from "@/lib/fetch-client";
 
+import { PriceChangeScope } from "./price-change-scope";
+
 import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
 const DESCRIPTIONS: Record<
@@ -53,6 +55,11 @@ const DESCRIPTIONS: Record<
 		title: "Data streams",
 		description:
 			"As an owner or admin, hear when a data stream is paused after repeated delivery failures.",
+	},
+	model_price_change: {
+		title: "Model price changes",
+		description:
+			"Hear when a provider changes the base token, image input, request or web search price of a model.",
 	},
 	marketing: {
 		title: "Product tips and offers",
@@ -113,6 +120,10 @@ export default function NotificationsPage() {
 									</div>
 									{preferences.data?.preferences.map((preference) => {
 										const copy = DESCRIPTIONS[preference.category];
+										// A bundle older than the API has no copy for new categories.
+										if (!copy) {
+											return null;
+										}
 										return (
 											<div
 												key={preference.category}
@@ -147,6 +158,19 @@ export default function NotificationsPage() {
 																))}
 															</select>
 														</label>
+													)}
+													{preference.modelScope && (
+														<PriceChangeScope
+															key={preference.modelIds?.join(",")}
+															scope={preference.modelScope}
+															modelIds={preference.modelIds ?? []}
+															disabled={busy}
+															onSave={(value) =>
+																save.mutate({
+																	body: { ...preference, ...value },
+																})
+															}
+														/>
 													)}
 												</div>
 												<div className="flex justify-center">

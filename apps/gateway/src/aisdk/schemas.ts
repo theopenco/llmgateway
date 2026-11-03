@@ -18,7 +18,7 @@ const filePartDataSchema = z.union([
 			data: z.unknown().optional(),
 			url: z.string().optional(),
 			text: z.string().optional(),
-			reference: z.record(z.unknown()).optional(),
+			reference: z.record(z.string(), z.unknown()).optional(),
 		})
 		.passthrough(),
 ]);
@@ -38,7 +38,7 @@ const contentPartSchema = z
 		approvalId: z.string().optional(),
 		approved: z.boolean().optional(),
 		reason: z.string().optional(),
-		providerOptions: z.record(z.unknown()).optional(),
+		providerOptions: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
 
@@ -46,7 +46,7 @@ const messageSchema = z
 	.object({
 		role: z.enum(["system", "user", "assistant", "tool"]),
 		content: z.union([z.string(), z.array(contentPartSchema)]),
-		providerOptions: z.record(z.unknown()).optional(),
+		providerOptions: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
 
@@ -56,9 +56,9 @@ const toolSchema = z
 		name: z.string().optional(),
 		id: z.string().optional(),
 		description: z.string().optional(),
-		inputSchema: z.record(z.unknown()).optional(),
-		args: z.record(z.unknown()).optional(),
-		providerOptions: z.record(z.unknown()).optional(),
+		inputSchema: z.record(z.string(), z.unknown()).optional(),
+		args: z.record(z.string(), z.unknown()).optional(),
+		providerOptions: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
 
@@ -75,7 +75,7 @@ export const languageModelCallOptionsSchema = z
 		responseFormat: z
 			.object({
 				type: z.enum(["text", "json"]),
-				schema: z.record(z.unknown()).optional(),
+				schema: z.record(z.string(), z.unknown()).optional(),
 				name: z.string().optional(),
 				description: z.string().optional(),
 			})
@@ -89,8 +89,10 @@ export const languageModelCallOptionsSchema = z
 			})
 			.optional(),
 		includeRawChunks: z.boolean().optional(),
-		providerOptions: z.record(z.record(z.unknown())).optional(),
-		headers: z.record(z.string().optional()).optional(),
+		providerOptions: z
+			.record(z.string(), z.record(z.string(), z.unknown()))
+			.optional(),
+		headers: z.record(z.string(), z.string().optional()).optional(),
 	})
 	.passthrough();
 

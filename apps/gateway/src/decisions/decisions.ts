@@ -1,5 +1,4 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { HTTPException } from "hono/http-exception";
 
 import {
 	rateLimitHeaders,
@@ -9,18 +8,18 @@ import {
 import {
 	DECISIONS_UPSTREAM_PATH,
 	getDecisionsUpstreamPath,
-	processImageUrl,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import { handleDecisionRequest } from "./handle-decision-request.js";
+import { loadDecisionImage } from "./load-decision-image.js";
 import {
 	decisionInputHasImages,
 	fromTypeSafeResponse,
 	loadTypeSafeAssets,
 	planTypeSafeImages,
 	toTypeSafeRequest,
-	TYPESAFE_IMAGES_HEADER,
+	typeSafeRequestHeaders,
 } from "./typesafe-translation.js";
 
 import type {
@@ -29,45 +28,6 @@ import type {
 } from "./typesafe-translation.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
-
-/**
- * Decodes a data URL or downloads an image URL through the SSRF guard. The
- * download stops when `signal` aborts: the client disconnected or the image
- * deadline passed.
- */
-async function loadDecisionImage(
-	url: string,
-	maxSizeMB: number,
-	signal: AbortSignal,
-): Promise<{ data: string; mimeType: string }> {
-	try {
-		return await processImageUrl(
-			url,
-			process.env.NODE_ENV === "production",
-			maxSizeMB,
-			null,
-			signal,
-		);
-	} catch (error) {
-		if (signal.aborted) {
-			if (
-				signal.reason instanceof DOMException &&
-				signal.reason.name === "TimeoutError"
-			) {
-				throw new HTTPException(400, {
-					message: "Invalid image input: downloading the images timed out",
-				});
-			}
-			throw error;
-		}
-		throw new HTTPException(400, {
-			message:
-				error instanceof Error
-					? `Invalid image input: ${error.message}`
-					: "Invalid image input",
-		});
-	}
-}
 
 const inputTextSchema = z.object({
 	type: z.literal("input_text"),
@@ -381,12 +341,20 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 				};
 			}
 			const images = planTypeSafeImages(request.input);
+			const body = toTypeSafeRequest(upstreamModel, request, images.refs);
 			return {
 				path: getDecisionsUpstreamPath(providerId as ProviderId),
-				body: toTypeSafeRequest(upstreamModel, request, images.refs),
+				body,
+				// Azure's System One route takes neither images nor TypeSafe's
+				// opt-ins.
+				headers:
+					providerId === "typesafe"
+						? typeSafeRequestHeaders(body, {
+								images: images.urls.length > 0,
+							})
+						: undefined,
 				...(images.urls.length > 0
 					? {
-							headers: { [TYPESAFE_IMAGES_HEADER]: "true" },
 							// System One takes images as inline base64 assets, so
 							// remote URLs are downloaded.
 							loadBody: async (signal) => ({

@@ -22,7 +22,7 @@ const toolSchema = z
 			"output-error",
 			"output-denied",
 		]),
-		input: z.unknown(),
+		input: z.unknown().optional(),
 		output: z.unknown().optional(),
 		errorText: z.string().optional(),
 		approval: z
@@ -43,7 +43,7 @@ export function readToolParts(raw?: string | null): ToolPart[] {
 			return [];
 		}
 		return z
-			.array(z.record(z.unknown()))
+			.array(z.record(z.string(), z.unknown()))
 			.parse(JSON.parse(raw))
 			.map((stored) => {
 				if (
@@ -179,7 +179,7 @@ export async function answerToolCall({
 		);
 	}
 	const target = toolTarget(part);
-	const input = z.record(z.unknown()).parse(part.input);
+	const input = z.record(z.string(), z.unknown()).parse(part.input);
 	signal.throwIfAborted();
 	const provisional = replace(
 		toolOutcome(

@@ -47,6 +47,11 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return {
+				...requestIdHeader,
+				Authorization: `Key ${token}`,
+			};
 		case "anthropic":
 			return {
 				...requestIdHeader,
@@ -54,7 +59,6 @@ export function getProviderHeaders(
 				"anthropic-version": "2023-06-01",
 			};
 		case "google-ai-studio":
-		case "glacier":
 		case "quartz":
 			return requestIdHeader;
 		case "google-vertex": {
