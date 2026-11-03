@@ -5,6 +5,7 @@ import {
 	models as modelDefinitions,
 	type ModelDefinition,
 	type ProviderModelMapping,
+	getVirtualModelTarget,
 } from "@llmgateway/models";
 
 import { fetchModels } from "./fetch-models";
@@ -205,16 +206,30 @@ export function publicModelDefinition(
 }
 
 /** Public model definition from both catalogue sources. */
-export const findPublicModelDefinition = cache(
-	async (modelId: string): Promise<ModelDefinition | null> => {
-		const staticModel = modelDefinitions.find(
-			(model) => model.id === modelId,
-		) as ModelDefinition | undefined;
-		const apiModels = await fetchModels();
-		const apiModel = apiModels.find((model) => model.id === modelId);
-		if (apiModel) {
-			return publicModelDefinition(apiModel, staticModel);
-		}
-		return staticModel ?? null;
-	},
-);
+export const findPublicModelDefinition = cache(async (modelId: string) => {
+	return resolvePublicModelDefinition(modelId, await fetchModels());
+});
+export function resolvePublicModelDefinition(
+	modelId: string,
+	apiModels: ApiModel[],
+): (ModelDefinition & { virtualModelTarget?: string }) | null {
+	const virtualTarget = getVirtualModelTarget(modelId);
+	const canonicalId = virtualTarget?.id ?? modelId;
+	const staticModel = modelDefinitions.find(
+		(model) => model.id === canonicalId,
+	) as ModelDefinition | undefined;
+	const apiModel = apiModels.find((model) => model.id === canonicalId);
+	const resolved = apiModel
+		? publicModelDefinition(apiModel, staticModel)
+		: (staticModel ?? null);
+	if (!resolved || !virtualTarget) {
+		return resolved;
+	}
+	return {
+		...resolved,
+		id: modelId,
+		name: modelId,
+		aliases: [],
+		virtualModelTarget: canonicalId,
+	};
+}

@@ -2,7 +2,6 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import {
@@ -35,6 +34,7 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
+import { usePostHog } from "@/lib/posthog";
 
 import { TimeZoneSetting } from "@llmgateway/shared";
 

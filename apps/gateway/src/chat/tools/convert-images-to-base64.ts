@@ -1,7 +1,26 @@
+import { raceClientAbort } from "@/lib/client-abort.js";
+
 import { logger } from "@llmgateway/logger";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
+
+// Per-attempt deadline for provider-returned image downloads.
+const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
+// Node clamps larger timer delays to 1 ms.
+const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
+
+/** Use positive, timer-safe integers; zero must not disable image conversion. */
+export function resolveImageFetchTimeoutMs(): number {
+	const value = process.env.IMAGE_FETCH_TIMEOUT_MS?.trim();
+	if (!value) {
+		return DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+	}
+	const raw = Number(value);
+	return Number.isInteger(raw) && raw > 0 && raw <= MAX_IMAGE_FETCH_TIMEOUT_MS
+		? raw
+		: DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+}
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -9,25 +28,49 @@ const RETRY_DELAY_MS = 1000;
 async function fetchImageWithRetry(
 	url: string,
 ): Promise<{ contentType: string; base64: string } | null> {
-	try {
-		await assertSafeUserContentUrl(url);
-	} catch (error) {
-		logger.warn("Refusing unsafe image URL from provider response", {
-			url,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return null;
-	}
-
+	let urlValidated = false;
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+		const controller = new AbortController();
+		// Keep the controller alive through body consumption, including during GC.
+		const timeout = setTimeout(() => {
+			controller.abort(
+				new DOMException(
+					"The operation was aborted due to timeout",
+					"TimeoutError",
+				),
+			);
+		}, resolveImageFetchTimeoutMs());
+		timeout.unref();
 		try {
-			const response = await fetch(url, { redirect: "error" });
+			if (!urlValidated) {
+				try {
+					await raceClientAbort(
+						assertSafeUserContentUrl(url),
+						controller.signal,
+						controller,
+					);
+					controller.signal.throwIfAborted();
+				} catch (error) {
+					logger.warn("Refusing unsafe image URL from provider response", {
+						url,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					return null;
+				}
+				urlValidated = true;
+			}
+			const response = await fetch(url, {
+				redirect: "error",
+				signal: controller.signal,
+			});
 			if (response.ok) {
 				const contentType = response.headers.get("content-type") ?? "image/png";
-				const arrayBuffer = await response.arrayBuffer();
-				const base64 = Buffer.from(arrayBuffer).toString("base64");
+				const buffer = await readImageResponse(response, controller.signal);
+				const base64 = buffer.toString("base64");
 				return { contentType, base64 };
 			}
+
+			await response.body?.cancel();
 
 			// Retry on 404 (CDN propagation delay) or 5xx (transient server error)
 			if (response.status === 404 || response.status >= 500) {
@@ -58,6 +101,9 @@ async function fetchImageWithRetry(
 				error: error instanceof Error ? error.message : String(error),
 			});
 			return null;
+		} finally {
+			clearTimeout(timeout);
+			controller.abort();
 		}
 	}
 	return null;
@@ -91,4 +137,42 @@ export async function convertImagesToBase64(
 			return image;
 		}),
 	);
+}
+async function readImageResponse(
+	response: Response,
+	signal: AbortSignal,
+): Promise<Buffer> {
+	const reader = response.body?.getReader();
+	if (!reader) {
+		return Buffer.alloc(0);
+	}
+	const chunks: Uint8Array[] = [];
+	// Older fetch implementations can lose body aborts during garbage collection.
+	const cancel = () => {
+		void reader.cancel(signal.reason).catch((error: unknown) => {
+			if (error !== signal.reason) {
+				logger.warn("Failed to cancel image download", {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		});
+	};
+	signal.addEventListener("abort", cancel, { once: true });
+	try {
+		if (signal.aborted) {
+			cancel();
+		}
+		signal.throwIfAborted();
+		while (true) {
+			const { done, value } = await reader.read();
+			signal.throwIfAborted();
+			if (done) {
+				return Buffer.concat(chunks);
+			}
+			chunks.push(value);
+		}
+	} finally {
+		signal.removeEventListener("abort", cancel);
+		reader.releaseLock();
+	}
 }

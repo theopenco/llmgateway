@@ -56,6 +56,7 @@ interface Credential {
 	provider: string;
 	comment: string | null;
 	variant: string;
+	selectionStrategy: "ordered" | "round_robin";
 	region: string | null;
 	status: string | null;
 	config: Record<string, string>;
@@ -63,6 +64,7 @@ interface Credential {
 	usage: string;
 	maskedToken: string;
 	tokenHash: string | null;
+	forwardSafetyIdentifier: boolean;
 	maxRpm: number | null;
 	maxRpd: number | null;
 	maxTpm: number | null;
@@ -121,6 +123,95 @@ describe("admin provider credentials", () => {
 		const json = (await res.json()) as { credentials: Credential[] };
 		return json.credentials;
 	}
+
+	test("selection strategy defaults and omitted patches preserve it", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "test-selection-token",
+			skipValidation: true,
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as { credential: Credential };
+		expect(credential.selectionStrategy).toBe("ordered");
+		const patch = (body: Record<string, unknown>) =>
+			app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect((await patch({ selectionStrategy: "round_robin" })).status).toBe(
+			200,
+		);
+		expect((await list())[0].selectionStrategy).toBe("round_robin");
+		const unchanged = await patch({ comment: "updated" });
+		expect(unchanged.status).toBe(200);
+		expect(
+			((await unchanged.json()) as { credential: Credential }).credential
+				.selectionStrategy,
+		).toBe("round_robin");
+		expect((await patch({ selectionStrategy: "random" })).status).toBe(400);
+		expect((await patch({ selectionStrategy: null })).status).toBe(400);
+		expect((await patch({ selectionStrategy: "ordered" })).status).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.selectionStrategy).toBe("ordered");
+	});
+
+	test("forwards the safety identifier by default and toggles it", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "test-safety-token",
+			skipValidation: true,
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as { credential: Credential };
+		expect(credential.forwardSafetyIdentifier).toBe(true);
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect((await patch({ forwardSafetyIdentifier: false })).status).toBe(200);
+		expect((await list())[0].forwardSafetyIdentifier).toBe(false);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.forwardSafetyIdentifier).toBe(false);
+
+		const off = await create({
+			provider: "openai",
+			token: "test-safety-token-off",
+			forwardSafetyIdentifier: false,
+			skipValidation: true,
+		});
+		expect(off.status).toBe(201);
+		expect(
+			((await off.json()) as { credential: Credential }).credential
+				.forwardSafetyIdentifier,
+		).toBe(false);
+	});
+
+	test("creates round-robin credentials and rejects invalid strategies", async () => {
+		const body = {
+			provider: "openai",
+			token: "test-selection-token",
+			skipValidation: true,
+		};
+		const res = await create({ ...body, selectionStrategy: "round_robin" });
+		expect(res.status).toBe(201);
+		expect(
+			((await res.json()) as { credential: Credential }).credential
+				.selectionStrategy,
+		).toBe("round_robin");
+		expect(
+			(await create({ ...body, selectionStrategy: "random" })).status,
+		).toBe(400);
+		expect((await create({ ...body, selectionStrategy: null })).status).toBe(
+			400,
+		);
+	});
 
 	test("requires authentication", async () => {
 		const res = await app.request("/admin/provider-credentials");

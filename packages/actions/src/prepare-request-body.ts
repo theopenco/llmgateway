@@ -36,7 +36,6 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -51,7 +50,6 @@ import {
 	toAnthropicWebFetchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
@@ -296,6 +294,9 @@ function normalizeImageModeration(
 async function fetchImageAsBlob(
 	url: string,
 	index: number,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
 ): Promise<{ blob: Blob; filename: string }> {
 	const parsed = parseDataUrl(url);
 	if (parsed) {
@@ -314,18 +315,17 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
-	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
-		);
-	}
-	const mimeType =
-		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
-	const buffer = await response.arrayBuffer();
+	// Reuse SSRF validation and the streaming byte cap before building multipart.
+	const { data, mimeType } = await processImageUrl(
+		url,
+		isProd,
+		maxSizeMB,
+		userPlan,
+	);
+
+	const raw = Buffer.from(data, "base64");
+	const buffer = new ArrayBuffer(raw.byteLength);
+	new Uint8Array(buffer).set(raw);
 	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
 	return {
 		blob: new Blob([buffer], { type: mimeType }),
@@ -1410,7 +1410,10 @@ function extractEncryptedReasoningItems(
 	return items;
 }
 
-function transformMessagesForResponsesApi(messages: any[]): any[] {
+function transformMessagesForResponsesApi(
+	messages: any[],
+	replayReasoningText = false,
+): any[] {
 	const items: any[] = [];
 
 	// FIFO of function calls emitted from assistant tool_calls that have not yet
@@ -1477,6 +1480,20 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		if (msg.role === "assistant") {
 			const reasoningItems = extractEncryptedReasoningItems(msg);
 			items.push(...reasoningItems);
+			// DeepSeek V4 400s a thinking-mode tool continuation unless the
+			// turn's plain reasoning comes back as a `reasoning_text` item.
+			if (
+				replayReasoningText &&
+				reasoningItems.length === 0 &&
+				typeof msg.reasoning_content === "string" &&
+				msg.tool_calls?.length > 0
+			) {
+				items.push({
+					type: "reasoning",
+					summary: [],
+					content: [{ type: "reasoning_text", text: msg.reasoning_content }],
+				});
+			}
 			// A reasoning-only carrier (a prior turn that ended before emitting a
 			// message, e.g. on max_output_tokens) has no message to emit — the
 			// reasoning items above are the whole turn.
@@ -1806,13 +1823,33 @@ export async function prepareRequestBody(
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	// Org custom models keep the static lookup: their DB mapping was never
 	// used for request shaping.
+	// A web search request rerouted by `webSearchApiFormat` arrives under the
+	// generic transport, but is still shaped by its own provider's mapping.
+	const optionsProvider =
+		webSearchTool && resolvedProviderMapping?.webSearchApiFormat
+			? (resolvedProviderMapping.providerId as ProviderId)
+			: usedProvider;
 	const providerMappingForOptions = getProviderMapping(
 		resolvedProviderMapping && usedProvider !== "custom"
 			? [resolvedProviderMapping]
 			: modelDef?.providers,
-		usedProvider,
+		optionsProvider,
 		usedRegion,
 	);
+	// Cache-only search (`external_web_access: false`) exists only on OpenAI's
+	// Responses API. Anywhere else the tool would run a live, billed search the
+	// caller did not ask for, so it is dropped.
+	if (
+		webSearchTool?.external_web_access === false &&
+		!(
+			usedProvider === "openai" &&
+			providerMappingForOptions?.webSearch === true &&
+			(useResponsesApi ??
+				providerMappingForOptions.supportsResponsesApi === true)
+		)
+	) {
+		webSearchTool = undefined;
+	}
 	// A forced search maps to `tool_choice: "required"` in the tool shape,
 	// unless the mapping declares it does not take that mode.
 	const formatToolChoices = (
@@ -1868,7 +1905,6 @@ export async function prepareRequestBody(
 		usedProvider === "azure" ||
 		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
-		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
@@ -1977,7 +2013,9 @@ export async function prepareRequestBody(
 			}
 
 			const decoded = await Promise.all(
-				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+				imageUrls.map((url, index) =>
+					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),
+				),
 			);
 			const fieldName = decoded.length === 1 ? "image" : "image[]";
 			for (const { blob, filename } of decoded) {
@@ -2514,7 +2552,12 @@ export async function prepareRequestBody(
 
 	if (
 		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
-		usedProvider === "runpod"
+		(usedProvider === "baidu" && usedInternalModel === "kimi-k3") ||
+		usedProvider === "runpod" ||
+		(usedProvider === "tencent" &&
+			["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"].includes(
+				usedInternalModel,
+			))
 	) {
 		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
@@ -2851,6 +2894,7 @@ export async function prepareRequestBody(
 				// - Convert tool role messages to function_call_output items
 				const transformedMessages = transformMessagesForResponsesApi(
 					messagesWithReasoningDetails,
+					isDeepseekV4,
 				);
 
 				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
@@ -2915,7 +2959,8 @@ export async function prepareRequestBody(
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
 									...(reasoning_context !== undefined &&
-										(usedProvider === "openai" || usedProvider === "azure") && {
+										(optionsProvider === "openai" ||
+											optionsProvider === "azure") && {
 											context: reasoning_context,
 										}),
 									// Capability validation already rejected requests no
@@ -3064,12 +3109,16 @@ export async function prepareRequestBody(
 						type: "web_search";
 						user_location?: unknown;
 						search_context_size?: string;
+						external_web_access?: false;
 					} = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
 					}
 					if (webSearchTool.search_context_size) {
 						webSearch.search_context_size = webSearchTool.search_context_size;
+					}
+					if (webSearchTool.external_web_access === false) {
+						webSearch.external_web_access = false;
 					}
 					responsesBody.tools.push(webSearch);
 					// The Responses API takes the same directive the gateway accepts,
@@ -3951,6 +4000,7 @@ export async function prepareRequestBody(
 				minCacheableChars, // Model-specific minimum cacheable characters
 				autoCacheControlEnabled,
 				automaticCacheTtl,
+				optionsProvider === "deepseek",
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -4916,7 +4966,6 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body

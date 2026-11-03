@@ -58,9 +58,13 @@ export const adminRoutingAnalytics = new OpenAPIHono<ServerTypes>();
 
 adminRoutingAnalytics.use("/*", adminMiddleware);
 
-const routingWindowSchema = z.enum(["24h", "3d", "7d"]);
+const routingWindowSchema = z.enum(["1h", "2h", "4h", "8h", "24h", "3d", "7d"]);
 
 const WINDOW_HOURS: Record<z.infer<typeof routingWindowSchema>, number> = {
+	"1h": 1,
+	"2h": 2,
+	"4h": 4,
+	"8h": 8,
 	"24h": 24,
 	"3d": 72,
 	"7d": 168,

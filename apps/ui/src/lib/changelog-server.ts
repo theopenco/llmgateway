@@ -48,14 +48,25 @@ export function getChangelogListing(
 export function changelogMetadata(page: number, tag?: ChangelogTag): Metadata {
 	const title = `${tag ? `${changelogProducts[tag].name} ` : ""}Changelog${page > 1 ? ` — Page ${page}` : " — Product Updates"}`;
 	const description = tag
-		? changelogProducts[tag].description
+		? `${changelogProducts[tag].description} Browse every release note, new feature and fix, newest first.`
 		: "Explore the latest features, improvements, and fixes across LLM Gateway, DevPass, Lounge, and Airside. Filter by product and browse previous releases.";
 	const canonical = changelogPath(tag, page);
 	return {
 		title,
 		description,
 		alternates: { canonical },
-		openGraph: { title, description, type: "website", url: canonical },
-		twitter: { card: "summary_large_image", title, description },
+		openGraph: {
+			title,
+			description,
+			type: "website",
+			url: canonical,
+			...(tag ? { images: ["/opengraph.png"] } : {}),
+		},
+		twitter: {
+			card: "summary_large_image",
+			title,
+			description,
+			...(tag ? { images: ["/opengraph.png"] } : {}),
+		},
 	};
 }

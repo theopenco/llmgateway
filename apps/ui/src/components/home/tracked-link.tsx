@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
 
 import { AuthLink } from "@/components/shared/auth-link";
+import { usePostHog } from "@/lib/posthog";
 
 import type { Route } from "next";
 import type { ReactNode } from "react";

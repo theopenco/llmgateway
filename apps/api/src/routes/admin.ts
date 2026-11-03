@@ -6498,7 +6498,7 @@ const updateContentFilterSettingsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: contentFilterSettingsSchema.openapi({}),
+					schema: contentFilterSettingsSchema,
 				},
 			},
 		},
@@ -6755,7 +6755,7 @@ const getModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Model error-rate Discord alert rules.",
@@ -6770,7 +6770,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 		},
@@ -6779,7 +6779,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Updated model error-rate Discord alert rules.",
