@@ -62,6 +62,10 @@ For **gateway-raised** errors (authentication failures, usage limits, validation
 	`unsupported_parameter_combination`.
 </Callout>
 
+## Compressed Request Bodies
+
+Request bodies may be compressed with `Content-Encoding: gzip` (or `x-gzip`), `deflate`, `br`, or `zstd`, including stacked codings such as `gzip, br`; `identity` is passed through unchanged. An unsupported coding returns `415`, a body that does not decode with its declared coding returns `400`, and a compressed body larger than 100 MiB, before or after decoding, returns `413`.
+
 ## Upstream Provider Errors
 
 Errors from the upstream provider follow different rules on the chat completions path. The status codes below apply to non-streaming requests; for streaming requests these same outcomes arrive as SSE `error` events on the already-open `200` response instead, while failures raised before the stream opens still return normal JSON — see [Streaming Errors](#streaming-errors).
