@@ -18,11 +18,11 @@ An organization with twenty projects had no single place to see which of them st
 
 Each project is a card with a daily request sparkline for the last 7, 30 or 90 days, plus requests, spend, error rate, last activity, routing strategy and API key count. Summary tiles at the top add up projects, active projects, requests and spend across the organization.
 
-| Filter         | Shows projects that                                     |
-| -------------- | ------------------------------------------------------- |
-| **Active**     | Served at least one request in the selected period      |
-| **Idle**       | Have older traffic but nothing in the selected period   |
-| **Never used** | Have never served a request                             |
+| Filter         | Shows projects that                                   |
+| -------------- | ----------------------------------------------------- |
+| **Active**     | Served at least one request in the selected period    |
+| **Idle**       | Have older traffic but nothing in the selected period |
+| **Never used** | Have never served a request                           |
 
 Search by name or ID, and sort by requests, spend, most recent activity, name or creation date.
 

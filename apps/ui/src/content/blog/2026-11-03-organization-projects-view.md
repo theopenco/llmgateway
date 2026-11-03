@@ -31,15 +31,15 @@ Projects are cheap to create, so they pile up. A prototype from the spring, a ha
 
 Every project is a card. The sparkline plots requests per day over the period you pick, **7**, **30** or **90 days**, so a project that went quiet two weeks ago looks different from one that never stopped. Under it:
 
-| Field           | What it tells you                                                |
-| --------------- | ---------------------------------------------------------------- |
-| **Requests**    | Traffic in the period                                            |
-| **Spend**       | Cost in the period                                               |
-| **Errors**      | Share of requests that failed, highlighted at 5% or more         |
-| **Last active** | The most recent hour with traffic, even outside the period       |
-| **Mode**        | Billing mode: provider keys, credits or hybrid                   |
-| **Routing**     | The project's default routing strategy                           |
-| **API keys**    | How many keys can still call it                                  |
+| Field           | What it tells you                                          |
+| --------------- | ---------------------------------------------------------- |
+| **Requests**    | Traffic in the period                                      |
+| **Spend**       | Cost in the period                                         |
+| **Errors**      | Share of requests that failed, highlighted at 5% or more   |
+| **Last active** | The most recent hour with traffic, even outside the period |
+| **Mode**        | Billing mode: provider keys, credits or hybrid             |
+| **Routing**     | The project's default routing strategy                     |
+| **API keys**    | How many keys can still call it                            |
 
 Four tiles at the top add it up across the organization: number of projects, how many were active in the period, total requests with a daily trend, and total spend. The numbers come from the same hourly usage rollups as the project dashboards, so they match what each project shows on its own page.
 
