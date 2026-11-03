@@ -3643,14 +3643,16 @@ export async function startWorker() {
 			await interruptibleSleep(5000);
 			syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
 		}
-		try {
-			await syncProvidersAndModels();
-		} finally {
-			if (syncLocked) {
+		if (syncLocked) {
+			try {
+				await syncProvidersAndModels();
+			} finally {
 				await releaseLock(MODEL_SYNC_LOCK_KEY);
 			}
+			logger.info("Initial sync completed");
+		} else {
+			logger.warn("Skipping initial model sync because the lock is held");
 		}
-		logger.info("Initial sync completed");
 	} catch (error) {
 		logger.error(
 			"Error during initial sync",
