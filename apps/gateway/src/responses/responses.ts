@@ -1,6 +1,3 @@
-import { promisify } from "node:util";
-import { zstdDecompress } from "node:zlib";
-
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
@@ -74,8 +71,6 @@ import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-
-const zstdDecompressAsync = promisify(zstdDecompress);
 
 export const responses = new Hono<ServerTypes>();
 
@@ -249,14 +244,7 @@ async function authenticateRequest(
 responses.post("/", async (c) => {
 	let rawBody: unknown;
 	try {
-		const contentEncoding = c.req.header("content-encoding");
-		if (contentEncoding === "zstd") {
-			const compressed = await c.req.arrayBuffer();
-			const decompressed = await zstdDecompressAsync(Buffer.from(compressed));
-			rawBody = JSON.parse(decompressed.toString("utf8"));
-		} else {
-			rawBody = await c.req.json();
-		}
+		rawBody = await c.req.json();
 	} catch {
 		const message = "Invalid JSON in request body";
 		logger.warn("Invalid Responses API JSON", {
@@ -913,14 +901,7 @@ responses.post("/", async (c) => {
 responses.post("/compact", async (c) => {
 	let rawBody: unknown;
 	try {
-		const contentEncoding = c.req.header("content-encoding");
-		if (contentEncoding === "zstd") {
-			const compressed = await c.req.arrayBuffer();
-			const decompressed = await zstdDecompressAsync(Buffer.from(compressed));
-			rawBody = JSON.parse(decompressed.toString("utf8"));
-		} else {
-			rawBody = await c.req.json();
-		}
+		rawBody = await c.req.json();
 	} catch {
 		const message = "Invalid JSON in request body";
 		logger.warn("Invalid Responses compact JSON", {

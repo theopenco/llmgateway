@@ -979,6 +979,7 @@ export const notificationTypes = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"model_price_change",
 ] as const;
 
 const emailCategories = [
@@ -7758,6 +7759,9 @@ export interface ComplianceAlertSettings {
 	recipientAudience: AlertAudience;
 }
 
+export const notificationModelScopes = ["all", "selected", "used"] as const;
+export type NotificationModelScope = (typeof notificationModelScopes)[number];
+
 export const notificationPreference = snakeCase.table(
 	"notification_preference",
 	{
@@ -7769,6 +7773,11 @@ export const notificationPreference = snakeCase.table(
 		inApp: boolean().notNull().default(false),
 		email: boolean().notNull().default(false),
 		budgetThreshold: integer().notNull().default(80),
+		// Which models `model_price_change` alerts cover; unused by other types.
+		modelScope: text({ enum: notificationModelScopes })
+			.notNull()
+			.default("used"),
+		modelIds: json().$type<string[]>().notNull().default([]),
 	},
 	(table) => [unique().on(table.userId, table.type)],
 );
@@ -7907,6 +7916,18 @@ export const complianceProviderState = snakeCase.table(
 	},
 	(table) => [unique().on(table.organizationId, table.providerId)],
 );
+
+// Last prices seen per mapping, so the worker can detect price changes.
+export const modelPriceState = snakeCase.table("model_price_state", {
+	mappingId: text()
+		.primaryKey()
+		.references(() => modelProviderMapping.id, { onDelete: "cascade" }),
+	prices: json().$type<Record<string, string | null>>().notNull(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+});
 
 export const loungeConnection = snakeCase.table(
 	"lounge_connection",

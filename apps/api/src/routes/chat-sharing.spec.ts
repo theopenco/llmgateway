@@ -287,6 +287,23 @@ describe("chat sharing permissions", () => {
 		});
 	});
 
+	test("organization shares cannot be forked after the organization is deleted", async () => {
+		await organization();
+		const shareId = await share({
+			visibility: "organization",
+			organizationId: "share-org",
+			allowForking: true,
+		});
+		await db
+			.update(tables.organization)
+			.set({ status: "deleted" })
+			.where(eq(tables.organization.id, "share-org"));
+		const chatsBefore = await db.query.chat.findMany();
+
+		expect((await fork(shareId)).status).toBe(404);
+		expect(await db.query.chat.findMany()).toHaveLength(chatsBefore.length);
+	});
+
 	test("organization shares deny member forks without consent", async () => {
 		await organization();
 		const shareId = await share({

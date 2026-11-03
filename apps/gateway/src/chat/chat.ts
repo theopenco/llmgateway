@@ -251,6 +251,7 @@ import {
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
+	getRequestedModelAlias,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -3778,6 +3779,9 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
+	const requestedModelAlias = parseResult.dynamicRouteName
+		? undefined
+		: getRequestedModelAlias(modelInput, modelInfo.id);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -3785,6 +3789,7 @@ chat.openapi(completions, async (c) => {
 		requestedModel: modelInfo.id,
 		requestedProvider,
 		customProviderName,
+		requestedModelAlias,
 		activeModelInfo: modelInfo,
 		clientIp,
 	});
@@ -3838,6 +3843,7 @@ chat.openapi(completions, async (c) => {
 						requestedModel: modelInfo.id,
 						requestedProvider: "custom",
 						customProviderName: providerKey.name,
+						requestedModelAlias,
 						activeModelInfo: { ...modelInfo, providers: [mapping] },
 						clientIp,
 						smartRouting: true,

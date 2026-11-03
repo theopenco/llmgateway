@@ -273,6 +273,15 @@ When an `allow_ip_cidrs` rule is configured and the gateway cannot determine the
 - **Deny rules always apply**: a request matching any deny rule is rejected, regardless of allow rules.
 - **Moderation is special-cased**: `/v1/moderations` runs a fixed moderation model that cannot appear in model allowlists, so only provider and IP rules apply to it — model and pricing rules are skipped.
 
+### Virtual model aliases
+
+A [virtual model](/learn/models#virtual-models) alias resolves to the versioned model it currently names before rules run:
+
+- A rule naming the versioned ID covers requests through the alias.
+- `deny_models` naming an alias blocks the model it currently resolves to, through the alias or its versioned ID.
+- `allow_models` naming an alias admits only requests that use the alias. Add the versioned ID to allow pinned requests too.
+- The same applies to end-user session model scopes. When the alias moves to a new version, these rules follow it.
+
 ## Member-Level IAM Rules
 
 The same rule types can also be configured **per organization member** by owners and admins on the [Team page](/learn/team) (admins cannot modify an owner's rules). Member-level rules act as an organization-wide ceiling for that member:

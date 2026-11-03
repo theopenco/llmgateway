@@ -1446,6 +1446,8 @@ export const deepseekModels = [
 	},
 	{
 		id: "deepseek-v4.1-flash-1017",
+		aliases: ["deepseek-v4.1-flash-latest"],
+		aliasesAreVirtual: true,
 		name: "DeepSeek V4.1 Flash 1017",
 		description:
 			"DeepSeek's October 2026 update of V4.1 Flash, with native vision, 1M context, and reasoning.",

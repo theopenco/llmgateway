@@ -64,6 +64,8 @@ Beyond attribute-based requirements, the **Provider & Model Restrictions** card 
 - **Blocked providers / blocked models** — deny lists. A listed provider or model is always blocked, even when it satisfies every requirement above.
 - **Allowed providers / allowed models** — fine-grained allow lists. When non-empty, only the listed providers (or models) may be used; everything else is blocked. An empty list applies no restriction.
 
+Model lists take versioned model IDs. An entry also covers requests through a [virtual model](/learn/models#virtual-models) alias that currently resolves to it.
+
 Deny lists always win over allow lists, and both compose with the requirements above — an allow-listed provider must still satisfy every active certification, data-policy, and country requirement.
 
 <Callout type="warn">

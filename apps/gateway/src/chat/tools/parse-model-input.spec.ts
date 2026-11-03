@@ -45,6 +45,34 @@ describe("parseModelInput / resolveModelInfo catalog-id-only routing", () => {
 	});
 });
 
+describe("parseModelInput virtual aliases", () => {
+	it("routes a bare virtual alias to its current cut", () => {
+		const result = parseModelInput("deepseek-v4.1-flash-latest");
+		expect(result.requestedModel).toBe("deepseek-v4.1-flash-1017");
+		expect(result.requestedProvider).toBeUndefined();
+		expect(
+			resolveModelInfo(result.requestedModel, result.requestedProvider)
+				.modelInfo.id,
+		).toBe("deepseek-v4.1-flash-1017");
+	});
+
+	it("routes a provider-prefixed virtual alias to its current cut", () => {
+		const result = parseModelInput("tencent/deepseek-v4.1-flash-latest");
+		expect(result.requestedModel).toBe("deepseek-v4.1-flash-1017");
+		expect(result.requestedProvider).toBe("tencent");
+	});
+
+	it("keeps rejecting a provider that does not serve the alias target", () => {
+		expect(() => parseModelInput("openai/deepseek-v4.1-flash-latest")).toThrow(
+			/does not support/,
+		);
+	});
+
+	it("does not route non-virtual search aliases", () => {
+		expect(() => parseModelInput("nano banana")).toThrow(/not supported/);
+	});
+});
+
 describe("parseModelInput legacy custom/ prefix", () => {
 	// "custom" is a catalogue provider id, so "custom/<name>/<model>" used to
 	// parse with requestedProvider "custom" but no customProviderName, skipping
