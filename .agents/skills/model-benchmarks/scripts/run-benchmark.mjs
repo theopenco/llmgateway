@@ -16,8 +16,9 @@ const HELP = `Usage:
 Defaults:
   --mapping '*'
   --profile smoke
-  --budget per profile: smoke 120000, standard 900000, load 600000,
+  --budget per profile: smoke 120000, standard 900000, load 1800000,
            coding 900000, --suite/--external 600000
+  --timeout 300000
 
 Results are written beneath .context/benchmarks. Set BENCHMARK_OUTPUT_DIR to
 override that directory. Do not pass --output or --format.
@@ -34,10 +35,13 @@ function hasOption(arguments_, names) {
 const DEFAULT_BUDGET_MS = {
 	smoke: 120_000,
 	standard: 900_000,
-	load: 600_000,
+	load: 1_800_000,
 	coding: 900_000,
 };
 const DEFAULT_CUSTOM_BUDGET_MS = 600_000;
+// A 60-second request timeout aborts long streams from slow providers and
+// reports them as `stream_read_error`.
+const DEFAULT_TIMEOUT_MS = 300_000;
 
 function optionValue(arguments_, name) {
 	for (const [index, argument] of arguments_.entries()) {
@@ -98,6 +102,9 @@ if (!hasOption(arguments_, ["--budget", "--no-budget"])) {
 		budgetMs = DEFAULT_CUSTOM_BUDGET_MS;
 	}
 	benchmarkArguments.push("--budget", String(budgetMs));
+}
+if (!hasOption(arguments_, ["--timeout"])) {
+	benchmarkArguments.push("--timeout", String(DEFAULT_TIMEOUT_MS));
 }
 
 const outputDirectory = resolve(
