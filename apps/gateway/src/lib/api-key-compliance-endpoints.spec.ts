@@ -219,7 +219,7 @@ describe("API key compliance endpoint enforcement", () => {
 						],
 					}),
 				});
-			const response = await request("glm-4.7");
+			const response = await request("gpt-oss-120b");
 			expect([500, 502], await response.text()).toContain(response.status);
 			expect(upstreamUrls.some((url) => url.includes("/together-ai/"))).toBe(
 				true,
@@ -227,7 +227,7 @@ describe("API key compliance endpoint enforcement", () => {
 			expect(upstreamUrls.some((url) => url.includes("/cerebras/"))).toBe(
 				false,
 			);
-			const pinnedResponse = await request("cerebras/glm-4.7", true);
+			const pinnedResponse = await request("cerebras/gpt-oss-120b", true);
 			expect(pinnedResponse.status, await pinnedResponse.text()).toBe(403);
 			expect(upstreamUrls.some((url) => url.includes("/cerebras/"))).toBe(
 				false,
