@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
+import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
 	eq,
@@ -55,6 +56,13 @@ describe("Log Processing", () => {
 		// stray unprocessed logs left in the shared test DB by an earlier suite can
 		// starve this test's own logs out of the batch. Clear them up front.
 		await db.delete(log).where(isNull(log.processedAt));
+
+		// The quarantine budget is a Redis counter keyed on the wall-clock window,
+		// so it would otherwise carry over between tests and runs.
+		const budgetKeys = await redisClient.keys("credit-quarantine-budget:*");
+		if (budgetKeys.length > 0) {
+			await redisClient.del(budgetKeys);
+		}
 
 		const testIdSuffix = randomUUID();
 		currentTestIds = {
@@ -1388,6 +1396,66 @@ describe("Log Processing", () => {
 				where: { id: { eq: testOrg.id } },
 			});
 			expect(Number(org!.credits)).toBeCloseTo(99.97, 8);
+		});
+
+		test("stops quarantining once the window budget is spent", async () => {
+			// A fault that is not row-specific fails every batch down to size 1, so
+			// an uncapped loop would retire the whole queue unbilled. Past the
+			// budget the queue must stall instead, keeping the rows billable.
+			const previousBudget = process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+			process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = "1";
+
+			const entries = [
+				await insertLog({ createdAt: new Date(Date.now() - 3000) }),
+				await insertLog({ createdAt: new Date(Date.now() - 2000) }),
+				await insertLog({ createdAt: new Date(Date.now() - 1000) }),
+			];
+
+			try {
+				await db.execute(
+					sql`drop trigger if exists global_org_guard on "organization"`,
+				);
+				// Raises for every organization row, the way a worker running ahead
+				// of its migration or a broken trigger would.
+				await db.execute(sql`
+					create or replace function global_org_guard() returns trigger as $$
+					begin
+						raise exception 'global fault';
+					end;
+					$$ language plpgsql
+				`);
+				await db.execute(
+					sql`create trigger global_org_guard before update on "organization" for each row execute function global_org_guard()`,
+				);
+
+				await batchProcessLogs();
+				await batchProcessLogs();
+			} finally {
+				await db.execute(
+					sql`drop trigger if exists global_org_guard on "organization"`,
+				);
+				await db.execute(sql`drop function if exists global_org_guard()`);
+				if (previousBudget === undefined) {
+					delete process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+				} else {
+					process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = previousBudget;
+				}
+			}
+
+			const states = await Promise.all(
+				entries.map(
+					async (entry) =>
+						await db.query.log.findFirst({ where: { id: { eq: entry.id } } }),
+				),
+			);
+			const quarantined = states.filter((entry) => entry!.processedAt);
+			// One slot, so one row was dropped and the rest stayed billable.
+			expect(quarantined).toHaveLength(1);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(100, 8);
 		});
 	});
 });

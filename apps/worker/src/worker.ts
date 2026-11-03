@@ -19,6 +19,7 @@ import {
 	consumeFromQueue,
 	LOG_QUEUE,
 	publishToQueue,
+	redisClient,
 } from "@llmgateway/cache";
 import {
 	addApiKeyPeriodDuration,
@@ -171,6 +172,19 @@ const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 // row its billing, while bounding how long one poison row can stall billing.
 const POISON_LOG_MAX_ATTEMPTS =
 	Number(process.env.CREDIT_POISON_LOG_MAX_ATTEMPTS) || 3;
+// Quarantining assumes the fault is row-specific. A fault that is not — a
+// worker deployed ahead of its migration, a broken trigger on `organization` —
+// fails every batch down to size 1, so an uncapped loop would drop the whole
+// queue unbilled, one row per pass. Past this budget the pass stops
+// quarantining and lets the queue stall instead: that is the pre-isolation
+// behaviour, which loses no billing and recovers on its own once the fault is
+// fixed. Counted per fixed window across all replicas.
+const QUARANTINE_BUDGET_WINDOW_SECONDS =
+	Number(process.env.CREDIT_QUARANTINE_WINDOW_SECONDS) || 3600;
+const DEFAULT_QUARANTINE_BUDGET = 5;
+// Pause after the budget is spent, so a pass that can only fail does not keep
+// narrowing against an unhealthy database once per caller interval.
+const QUARANTINE_STALL_BACKOFF_MS = 5000;
 // 1s: this interval is the floor of the spend-to-balance settlement gap the
 // credit gates operate on, so it directly bounds how far a burst can
 // overshoot a balance. Idle cost is one lock round-trip per tick.
@@ -2063,6 +2077,41 @@ function describeError(error: Error): string {
 }
 
 /**
+ * Claims one slot from the quarantine budget. The counter lives in Redis so it
+ * survives a worker restart — a crash loop must not hand itself a fresh
+ * allowance — and is shared by every replica. The slot is taken before the row
+ * is retired, so a quarantine that then fails still costs its slot; erring
+ * towards fewer dropped rows is the point.
+ *
+ * Returns false once the budget for the current window is spent, or when the
+ * counter cannot be read: the caller then leaves the row queued, because a
+ * stalled queue is recoverable and an unbilled row is not.
+ */
+async function claimQuarantineBudget(): Promise<boolean> {
+	// Read per call so a test (and an operator editing the deployment) does not
+	// depend on module load order.
+	const budget =
+		Number(process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW) ||
+		DEFAULT_QUARANTINE_BUDGET;
+	const windowMs = QUARANTINE_BUDGET_WINDOW_SECONDS * 1000;
+	const key = `credit-quarantine-budget:${Math.floor(Date.now() / windowMs)}`;
+
+	try {
+		const used = await redisClient.incr(key);
+		if (used === 1) {
+			await redisClient.expire(key, QUARANTINE_BUDGET_WINDOW_SECONDS);
+		}
+		return used <= budget;
+	} catch (error) {
+		logger.error(
+			"Failed to claim a credit quarantine budget slot; leaving the log queued",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return false;
+	}
+}
+
+/**
  * Retires a log the batch could not process, so it stops blocking the queue.
  * Marking it processed is the whole mechanism: every other consumer keys off
  * `processed_at IS NULL`, and leaving it null would just move the stall. Why it
@@ -2112,6 +2161,9 @@ async function quarantineLog(
  * every good row ahead of it still commits, and the row itself is quarantined
  * once it has failed on its own {@link POISON_LOG_MAX_ATTEMPTS} times. Bounded
  * at ~log2(CREDIT_BATCH_SIZE) extra transactions per pass.
+ *
+ * Quarantines are capped per window ({@link claimQuarantineBudget}): a fault
+ * that is not row-specific stalls the queue rather than retiring it unbilled.
  */
 export async function batchProcessLogs(): Promise<number> {
 	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
@@ -2168,6 +2220,29 @@ export async function batchProcessLogs(): Promise<number> {
 				// bill — a healthy row.
 				await interruptibleSleep(250 * singleLogAttempts);
 				continue;
+			}
+
+			if (!(await claimQuarantineBudget())) {
+				// Too many rows are failing for this to be one poison row. Stall
+				// instead of billing nobody: the rows stay queued and drain once the
+				// platform-wide fault is fixed. Page on this.
+				logger.error(
+					`Quarantine budget for the current ${QUARANTINE_BUDGET_WINDOW_SECONDS}s window is spent: leaving log ${poisonLog.id} queued and stalling credit processing`,
+					result.error,
+					{
+						kind: "log-quarantine-budget-spent",
+						logId: poisonLog.id,
+						organizationId: poisonLog.organizationId,
+						reason: result.error
+							? describeError(result.error)
+							: "unknown error",
+					},
+				);
+				// Narrowing a batch that cannot commit costs ~log2(batch) failing
+				// transactions per pass, so back off before the caller's next pass
+				// rather than hammering an already unhealthy database.
+				await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
+				return 0;
 			}
 
 			await quarantineLog(poisonLog.id, poisonLog.organizationId, result.error);
