@@ -37,6 +37,7 @@ import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
+import { VirtualModelBanner } from "@/components/models/virtual-model-banner";
 import { JsonLd } from "@/components/seo/json-ld";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
@@ -58,6 +59,7 @@ import {
 	providers as providerDefinitions,
 	expandAllProviderRegions,
 	type StabilityLevel,
+	getVirtualModelTarget,
 } from "@llmgateway/models";
 import {
 	formatPerUnitPrice,
@@ -77,13 +79,14 @@ export const revalidate = 60;
 export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
+	const canonicalName = getVirtualModelTarget(decodedName)?.id ?? decodedName;
 
 	// Fetchers resolve to fallbacks, so an early notFound can leave them pending.
 	const modelDefPromise = findPublicModelDefinition(decodedName);
 	const pageDataPromise = Promise.all([
-		fetchModelDiscounts(decodedName),
+		fetchModelDiscounts(canonicalName),
 		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
+			params: { query: { modelId: canonicalName } },
 		}),
 		fetchProviders(),
 	]);
@@ -135,7 +138,7 @@ export default async function ModelPage({ params }: PageProps) {
 		const globalDiscount = getEffectiveProviderDiscount(
 			allDiscounts,
 			provider.providerId,
-			decodedName,
+			canonicalName,
 		);
 		const baseInfo = providerInfo ?? apiProvider;
 		return {
@@ -176,7 +179,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 	const currentModelDiscount = getBestDiscount(
 		allDiscounts,
-		decodedName,
+		canonicalName,
 		Array.from(new Set(activeProviders.map((p) => p.providerId))),
 	);
 	const currentModelDiscountProvider = currentModelDiscount?.provider
@@ -277,6 +280,11 @@ export default async function ModelPage({ params }: PageProps) {
 							Back to all models
 						</Link>
 					</div>
+					<VirtualModelBanner
+						target={modelDef.virtualModelTarget}
+						providers={modelDef.providers}
+						discounts={allDiscounts}
+					/>
 					<div className="mb-8">
 						<div className="flex items-center gap-3 mb-2 flex-wrap">
 							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
@@ -350,7 +358,7 @@ export default async function ModelPage({ params }: PageProps) {
 								Live uptime &amp; insights
 							</Link>
 
-							<ModelUsageStats modelId={decodedName} />
+							<ModelUsageStats modelId={canonicalName} />
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
@@ -749,7 +757,7 @@ export default async function ModelPage({ params }: PageProps) {
 						</div>
 
 						<ModelRating
-							modelId={decodedName}
+							modelId={canonicalName}
 							initialData={ratingsData ?? undefined}
 						/>
 					</div>
@@ -796,7 +804,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 					<div className="mb-8">
 						<ModelBenchmarks
-							modelId={decodedName}
+							modelId={canonicalName}
 							uploadedIcons={uploadedProviderIcons}
 						/>
 					</div>

@@ -1039,6 +1039,8 @@ export interface ModelDefinition {
 	 * Date when the model was released by the provider
 	 */
 	releasedAt?: Date;
+	/** Aliases whose served model version may change. */
+	aliasesAreVirtual?: boolean;
 }
 
 export const models = [

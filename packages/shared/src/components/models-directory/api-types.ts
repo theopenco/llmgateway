@@ -4,6 +4,8 @@ import {
 	discountLookupFromMappings,
 } from "@/model-categories.js";
 
+import { expandVirtualModels } from "@llmgateway/models";
+
 export interface TimeBasedTokenPrices {
 	inputPrice: string;
 	outputPrice: string;
@@ -204,6 +206,8 @@ export interface ApiModel {
 	 * (treated as "catalog").
 	 */
 	source?: "catalog" | "custom";
+	/** Current canonical cut of a moving alias. */
+	virtualModelTarget?: string;
 }
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
@@ -238,14 +242,16 @@ export async function fetchModelsFromApi(
 		const data = await response.json();
 		const models: Omit<ApiModel, "premium" | "loungePlan">[] =
 			data.models ?? [];
-		const withPremium = models.map((model) => ({
-			...model,
-			premium: isPremiumModel(
-				model.id,
-				discountLookupFromMappings(model.mappings),
-			),
-			loungePlan: getChatPlanMinimumTier(model.id),
-		}));
+		const withPremium = expandVirtualModels(
+			models.map((model) => ({
+				...model,
+				premium: isPremiumModel(
+					model.id,
+					discountLookupFromMappings(model.mappings),
+				),
+				loungePlan: getChatPlanMinimumTier(model.id),
+			})),
+		);
 		modelsMemo.set(apiBackendUrl, {
 			data: withPremium,
 			fetchedAt: Date.now(),
