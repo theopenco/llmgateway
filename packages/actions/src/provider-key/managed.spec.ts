@@ -34,8 +34,10 @@ describe("getMissingManagedCredentialKeys", () => {
 		expect(getMissingManagedCredentialKeys("google-vertex", {})).toEqual([]);
 	});
 
-	it("requires the base URL for providers whose endpoint comes from env", () => {
-		expect(getMissingManagedCredentialKeys("glacier", {})).toEqual(["baseUrl"]);
+	it("requires the settings a provider's endpoint cannot default", () => {
+		expect(getMissingManagedCredentialKeys("vertex-openai", {})).toEqual([
+			"project",
+		]);
 	});
 
 	it("requires nothing for providers with a static endpoint", () => {

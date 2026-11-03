@@ -3,8 +3,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
-import posthog from "posthog-js";
-import { PostHogProvider } from "posthog-js/react";
 import { Suspense, useState, useEffect } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
@@ -15,6 +13,7 @@ import { classifyChannel } from "@/lib/attribution";
 import { Toaster } from "@/lib/components/toaster";
 import { toast } from "@/lib/components/use-toast";
 import { AppConfigProvider } from "@/lib/config";
+import { disablePostHog, initPostHog } from "@/lib/posthog";
 import { SystemBannerProvider } from "@/lib/system-banner-context";
 
 import { TimeZoneProvider } from "@llmgateway/shared";
@@ -80,41 +79,44 @@ export function Providers({
 			}),
 	);
 
-	const [posthogReady, setPosthogReady] = useState(false);
-
-	// Defer PostHog initialization to reduce TBT
 	useEffect(() => {
-		if (!config.posthogKey) {
+		const apiKey = config.posthogKey;
+		if (!apiKey) {
+			disablePostHog();
 			return;
 		}
-		const key = config.posthogKey;
-		const host = config.posthogHost;
 		const init = () => {
-			posthog.init(key, {
-				// Ingest through our own origin (see the /ingest rewrites in
-				// next.config.ts) so ad blockers that block *.posthog.com don't
-				// silently drop client events.
-				api_host: "/ingest",
-				ui_host: host,
-				capture_pageview: "history_change",
-				autocapture: true,
-			});
-			const channel = classifyChannel(
-				document.referrer,
-				window.location.search,
-				window.location.hostname,
-			);
-			// On every event so it can segment behaviour, and set-once on the
-			// person so the first touch survives later visits.
-			posthog.register({ acquisition_channel: channel });
-			posthog.setPersonProperties(undefined, {
-				initial_acquisition_channel: channel,
-			});
-			setPosthogReady(true);
+			initPostHog(
+				apiKey,
+				{
+					// Ingest through our own origin (see the /ingest rewrites in
+					// next.config.ts) so ad blockers that block *.posthog.com don't
+					// silently drop client events.
+					api_host: "/ingest",
+					ui_host: config.posthogHost,
+					capture_pageview: "history_change",
+					autocapture: true,
+					// The project runs no surveys, but posthog-js still downloads
+					// surveys.js unless they are disabled here.
+					disable_surveys: true,
+				},
+				(posthog) => {
+					const channel = classifyChannel(
+						document.referrer,
+						window.location.search,
+						window.location.hostname,
+					);
+					// On every event so it can segment behaviour, and set-once on the
+					// person so the first touch survives later visits.
+					posthog.register({ acquisition_channel: channel });
+					posthog.setPersonProperties(undefined, {
+						initial_acquisition_channel: channel,
+					});
+				},
+			).catch(disablePostHog);
 		};
-		// Captures fired before init() are dropped by posthog-js, so the idle
-		// deferral must be bounded — a busy main thread can starve
-		// requestIdleCallback long enough for a user to act.
+		// Calls made before init() wait in a queue, so the idle deferral is
+		// bounded: a busy main thread must not hold analytics back for long.
 		if (typeof requestIdleCallback !== "undefined") {
 			const id = requestIdleCallback(init, { timeout: 800 });
 			return () => cancelIdleCallback(id);
@@ -134,19 +136,12 @@ export function Providers({
 						storageKey="theme"
 					>
 						<QueryClientProvider client={queryClient}>
-							<PostHogProvider client={posthog}>
-								<ProviderMarksProvider apiUrl={config.apiUrl}>
-									{children}
-								</ProviderMarksProvider>
-								{/* Gated on init: posthog-js drops captures fired before
-						    init(), and the OAuth signup event has exactly one
-						    chance to fire. */}
-								{posthogReady && (
-									<Suspense>
-										<SignupMethodTracker />
-									</Suspense>
-								)}
-							</PostHogProvider>
+							<ProviderMarksProvider apiUrl={config.apiUrl}>
+								{children}
+							</ProviderMarksProvider>
+							<Suspense>
+								<SignupMethodTracker />
+							</Suspense>
 							{process.env.NODE_ENV === "development" && (
 								<ReactQueryDevtools buttonPosition="bottom-left" />
 							)}

@@ -979,6 +979,7 @@ export const notificationTypes = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"model_price_change",
 ] as const;
 
 const emailCategories = [
@@ -1237,12 +1238,55 @@ export const crmActivity = snakeCase.table(
 		// Tasks only: when it is due and when it was ticked off.
 		dueAt: timestamp(),
 		completedAt: timestamp(),
+		// Idempotency key for activities mirrored from an integration:
+		// `gmail:<messageId>` for mail sent from the CRM, `calendly:<eventUri>`
+		// for scheduled meetings, so repeated syncs and webhooks never duplicate.
+		externalRef: text(),
 	},
 	(table) => [
 		index("crm_activity_account_id_idx").on(table.accountId, table.createdAt),
 		index("crm_activity_due_at_idx")
 			.on(table.dueAt)
 			.where(sql`completed_at IS NULL`),
+		uniqueIndex("crm_activity_external_ref_idx")
+			.on(table.externalRef)
+			.where(sql`external_ref IS NOT NULL`),
+	],
+);
+
+export const CRM_INTEGRATION_PROVIDERS = ["gmail", "calendly"] as const;
+export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
+
+// A mailbox or Calendly user connected to the CRM by an admin. Credentials
+// are sealed with the connector cipher; `shared` lets other admins send mail
+// or offer booking links from it (contact@ is shared, personal inboxes are
+// not). Threads with CRM contacts are readable from every connection.
+export const crmIntegration = snakeCase.table(
+	"crm_integration",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		provider: text({ enum: CRM_INTEGRATION_PROVIDERS }).notNull(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Mailbox address or Calendly account email.
+		accountEmail: text().notNull(),
+		displayName: text(),
+		// Calendly user URI; Gmail leaves it null.
+		externalId: text(),
+		credentials: text().notNull(),
+		shared: boolean().notNull().default(false),
+	},
+	(table) => [
+		uniqueIndex("crm_integration_provider_email_idx").on(
+			table.provider,
+			table.accountEmail,
+		),
 	],
 );
 
@@ -2198,6 +2242,9 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), caller-supplied Anthropic-style
 		// `cache_control` markers are forwarded upstream instead of stripped.
 		forwardCacheControl: boolean().notNull().default(false),
+		// Managed only: when false, the API key's safety identifier is not sent
+		// upstream on requests this credential serves. Ignored for BYOK keys.
+		forwardSafetyIdentifier: boolean().notNull().default(true),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		// "pending_deletion" is a deleted key inside its teardown grace period:
@@ -2281,6 +2328,9 @@ export const providerKey = snakeCase.table(
 		// default: `default(0)` would tie a new key with position 0 and slot it
 		// second.
 		sortOrder: integer(),
+		selectionStrategy: text({ enum: ["ordered", "round_robin"] })
+			.notNull()
+			.default("ordered"),
 		organizationId: text().references(() => organization.id, {
 			onDelete: "cascade",
 		}),
@@ -2947,16 +2997,13 @@ export const videoJob = snakeCase.table(
 		// later — often from the worker — and some providers scope job
 		// visibility to the creating credential, so the exact row is pinned here
 		// rather than re-selected. NULL means the job was created from an
-		// organization's BYOK key or from the provider's LLM_* env vars, both of
-		// which are re-resolved the way they always were.
+		// organization's BYOK key or from the provider's LLM_* env vars.
 		managedProviderKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
-		// BYOK provider key that created the job, for spend attribution on the
-		// final log row. Unlike managedProviderKeyId this does not pin polling:
-		// BYOK polls re-resolve the org's active key as they always did, so a
-		// job's spend may attribute to the creating key even if the org rotated
-		// keys mid-job — acceptable for the approximate spend-limit feature.
+		// BYOK credential used at submission, for spend attribution. Account-scoped
+		// queues (fal) also pin polling to this key; other providers re-resolve
+		// an active organization key.
 		providerKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
@@ -4005,6 +4052,30 @@ export const modelProviderMappingHistory = snakeCase.table(
 		serviceTierImplicitCount: integer().notNull().default(0),
 		serviceTierServedCount: integer().notNull().default(0),
 		serviceTierUnconfirmedCount: integer().notNull().default(0),
+		// Routing metrics for requests sent at the flex and priority service
+		// tiers (by requestedServiceTier); the standard tier is the remainder.
+		// Routing scores each tier on its own traffic, so flex load-shedding
+		// does not count against a provider's uptime for standard requests.
+		flexLogsCount: integer().notNull().default(0),
+		flexClientErrorsCount: integer().notNull().default(0),
+		flexGatewayErrorsCount: integer().notNull().default(0),
+		flexUpstreamErrorsCount: integer().notNull().default(0),
+		flexTotalOutputTokens: integer().notNull().default(0),
+		flexTotalDuration: integer().notNull().default(0),
+		flexTotalTimeToFirstToken: integer().notNull().default(0),
+		flexTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		flexTimeToFirstTokenCount: integer().notNull().default(0),
+		flexTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+		priorityLogsCount: integer().notNull().default(0),
+		priorityClientErrorsCount: integer().notNull().default(0),
+		priorityGatewayErrorsCount: integer().notNull().default(0),
+		priorityUpstreamErrorsCount: integer().notNull().default(0),
+		priorityTotalOutputTokens: integer().notNull().default(0),
+		priorityTotalDuration: integer().notNull().default(0),
+		priorityTotalTimeToFirstToken: integer().notNull().default(0),
+		priorityTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		priorityTimeToFirstTokenCount: integer().notNull().default(0),
+		priorityTimeToFirstReasoningTokenCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -7730,6 +7801,9 @@ export interface ComplianceAlertSettings {
 	recipientAudience: AlertAudience;
 }
 
+export const notificationModelScopes = ["all", "selected", "used"] as const;
+export type NotificationModelScope = (typeof notificationModelScopes)[number];
+
 export const notificationPreference = snakeCase.table(
 	"notification_preference",
 	{
@@ -7741,6 +7815,11 @@ export const notificationPreference = snakeCase.table(
 		inApp: boolean().notNull().default(false),
 		email: boolean().notNull().default(false),
 		budgetThreshold: integer().notNull().default(80),
+		// Which models `model_price_change` alerts cover; unused by other types.
+		modelScope: text({ enum: notificationModelScopes })
+			.notNull()
+			.default("used"),
+		modelIds: json().$type<string[]>().notNull().default([]),
 	},
 	(table) => [unique().on(table.userId, table.type)],
 );
@@ -7879,6 +7958,18 @@ export const complianceProviderState = snakeCase.table(
 	},
 	(table) => [unique().on(table.organizationId, table.providerId)],
 );
+
+// Last prices seen per mapping, so the worker can detect price changes.
+export const modelPriceState = snakeCase.table("model_price_state", {
+	mappingId: text()
+		.primaryKey()
+		.references(() => modelProviderMapping.id, { onDelete: "cascade" }),
+	prices: json().$type<Record<string, string | null>>().notNull(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+});
 
 export const loungeConnection = snakeCase.table(
 	"lounge_connection",

@@ -440,7 +440,6 @@ export function transformResponseToOpenai(
 
 	switch (responseShape) {
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			// Multi-candidate responses (n > 1 via candidateCount) map each Google
@@ -648,7 +647,7 @@ export function transformResponseToOpenai(
 						},
 						finish_reason: mapFinishReasonToOpenai(
 							finishReason,
-							usedProvider,
+							responseProvider,
 							!!toolResults,
 						),
 					},

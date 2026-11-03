@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { selectNextProvider } from "@/chat/tools/retry-with-fallback.js";
 
+import { models } from "@llmgateway/models";
+
 import {
 	validateModelAccess,
 	validateRequestModelAccess,
@@ -2291,5 +2293,120 @@ describe("validateRequestModelAccess — provider access restriction", () => {
 		);
 
 		expect(result.allowed).toBe(false);
+	});
+});
+
+describe("validateRequestModelAccess — virtual model aliases", () => {
+	const VIRTUAL = "deepseek-v4.1-flash-latest";
+	const CUT = "deepseek-v4.1-flash-1017";
+	const cut = models.find((model) => model.id === CUT) as ModelDefinition;
+
+	function keyRules(rules: ReturnType<typeof makeRule>[]) {
+		vi.mocked(mockCachedQueries.findActiveTeamIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue(rules);
+	}
+
+	function check(requestedModelAlias?: string) {
+		return validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			providerAccessRestriction: null,
+			requestedModel: CUT,
+			requestedModelAlias,
+			activeModelInfo: cut,
+		});
+	}
+
+	it.each([
+		["the alias", VIRTUAL],
+		["the pinned cut", undefined],
+	])(
+		"deny_models naming the alias blocks requests via %s",
+		async (_, alias) => {
+			keyRules([
+				makeRule({ ruleType: "deny_models", ruleValue: { models: [VIRTUAL] } }),
+			]);
+			const result = await check(alias);
+			expect(result.allowed).toBe(false);
+			expect(result.reason).toContain("denied models list");
+		},
+	);
+
+	it("deny_models naming the cut blocks requests via the alias", async () => {
+		keyRules([
+			makeRule({ ruleType: "deny_models", ruleValue: { models: [CUT] } }),
+		]);
+		expect((await check(VIRTUAL)).allowed).toBe(false);
+	});
+
+	it("allow_models naming the alias admits requests via the alias only", async () => {
+		keyRules([
+			makeRule({ ruleType: "allow_models", ruleValue: { models: [VIRTUAL] } }),
+		]);
+		expect((await check(VIRTUAL)).allowed).toBe(true);
+		expect((await check()).allowed).toBe(false);
+	});
+
+	it("allow_models naming the cut admits requests via the alias", async () => {
+		keyRules([
+			makeRule({ ruleType: "allow_models", ruleValue: { models: [CUT] } }),
+		]);
+		expect((await check(VIRTUAL)).allowed).toBe(true);
+	});
+
+	it("ignores a requested alias that belongs to another model", async () => {
+		keyRules([
+			makeRule({
+				ruleType: "allow_models",
+				ruleValue: { models: ["jev-latest"] },
+			}),
+		]);
+		expect((await check("jev-latest")).allowed).toBe(false);
+	});
+
+	it("applies team and member deny rules naming the alias", async () => {
+		vi.mocked(mockCachedQueries.findActiveTeamIamRules).mockResolvedValue([
+			makeTeamRule({
+				ruleType: "deny_models",
+				ruleValue: { models: [VIRTUAL] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+		const team = await check();
+		expect(team.allowed).toBe(false);
+		expect(team.reason).toContain("organization team IAM rule");
+
+		vi.mocked(mockCachedQueries.findActiveTeamIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "deny_models",
+				ruleValue: { models: [VIRTUAL] },
+			}),
+		]);
+		expect((await check(VIRTUAL)).allowed).toBe(false);
+	});
+
+	it("deny_models naming the cut blocks a listing named after its alias", async () => {
+		keyRules([
+			makeRule({ ruleType: "deny_models", ruleValue: { models: [CUT] } }),
+		]);
+		const listing = { ...cut, id: VIRTUAL };
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			providerAccessRestriction: null,
+			requestedModel: VIRTUAL,
+			activeModelInfo: listing,
+		});
+		expect(result.allowed).toBe(false);
+	});
+
+	it("validateModelAccess denies the cut for a key rule naming the alias", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({ ruleType: "deny_models", ruleValue: { models: [VIRTUAL] } }),
+		]);
+		expect((await validateModelAccess("key-1", CUT)).allowed).toBe(false);
 	});
 });

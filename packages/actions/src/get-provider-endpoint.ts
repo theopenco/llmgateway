@@ -5,8 +5,8 @@ import {
 	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
-	type ProviderApiFormat,
 	type ProviderId,
+	type RequestApiFormat,
 	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderDefinition,
@@ -238,7 +238,6 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
-	nanogpt: "https://nano-gpt.com/api",
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
@@ -252,6 +251,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 	typesafe: "https://api.typesafe.ai",
+	"fal-ai": "https://queue.fal.run",
 };
 
 /**
@@ -335,7 +335,7 @@ export function getProviderEndpoint(
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
 	variant?: EnvVarVariant,
-	apiFormat?: ProviderApiFormat,
+	apiFormat?: RequestApiFormat,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -410,30 +410,13 @@ export function getProviderEndpoint(
 			case "google-vertex":
 			case "xiaomi":
 			case "runpod":
+			case "fal-ai":
 				url =
 					envValueOrDefault(
 						provider,
 						"baseUrl",
 						getProviderDefaultBaseUrl(provider),
 					) ?? getProviderDefaultBaseUrl(provider);
-				break;
-			case "glacier":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"glacier",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
-					);
-				}
 				break;
 			case "vertex-openai": {
 				const vertexOpenaiDefaultHost =
@@ -737,6 +720,13 @@ export function getProviderEndpoint(
 	if (apiFormat === "openai-responses") {
 		return appendPath(url, "/v1/responses");
 	}
+	if (apiFormat === "anthropic-messages") {
+		// DeepSeek serves its Anthropic-compatible API under `/anthropic`.
+		return appendPath(
+			url,
+			provider === "deepseek" ? "/anthropic/v1/messages" : "/v1/messages",
+		);
+	}
 	if (apiFormat === "google-vertex") {
 		return buildVertexCompatibleEndpoint(
 			"google-vertex",
@@ -753,25 +743,11 @@ export function getProviderEndpoint(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return url;
 		case "anthropic":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
-			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = externalId
-				? `${url}/v1beta/models/${externalId}:${endpoint}`
-				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
-			const queryParams = [];
-			if (token) {
-				queryParams.push(`key=${token}`);
-			}
-			if (stream) {
-				queryParams.push("alt=sse");
-			}
-			return queryParams.length > 0
-				? `${baseEndpoint}?${queryParams.join("&")}`
-				: baseEndpoint;
-		}
-		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`
@@ -918,8 +894,15 @@ export function getProviderEndpoint(
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":
-			if (externalId === "kimi-k3") {
+			if (
+				externalId === "kimi-k3" ||
+				externalId === "kimi-k3.1-pro" ||
+				externalId === "kimi-k3.1-pro-highspeed"
+			) {
 				return appendPath(url, "/v2/moonshot-kimi/openai/v1/chat/completions");
+			}
+			if (externalId === "glm-5.3") {
+				return appendPath(url, "/v2/b1dd8hy2hqo1nb/openai/v1/chat/completions");
 			}
 			throw new Error(`Unsupported Runpod model: ${model}`);
 		case "zai":
@@ -1135,7 +1118,6 @@ export function getProviderEndpoint(
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
-		case "nanogpt":
 		case "canopywave":
 		case "minimax":
 		case "xiaomi":

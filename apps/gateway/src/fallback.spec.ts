@@ -1746,6 +1746,79 @@ describe("fallback and error status code handling", () => {
 			).toBe(false);
 		});
 
+		test("flex load-shedding does not reroute standard requests", async () => {
+			await ensureProviders(["zai", "alibaba"]);
+			await db.insert(tables.providerKey).values(
+				["zai", "alibaba"].map((provider) => ({
+					id: `provider-key-${provider}`,
+					...encryptProviderKeyForStorage(
+						`sk-${provider}-key`,
+						`provider-key-${provider}`,
+						"org-id",
+					),
+					provider,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				})),
+			);
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-5",
+					name: "GLM-5",
+					family: "zai",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+			await db
+				.insert(tables.modelProviderMapping)
+				.values(
+					["zai", "alibaba"].map((providerId) => ({
+						id: `glm-5::${providerId}`,
+						modelId: "glm-5",
+						providerId,
+						externalId: "glm-5",
+						streaming: true,
+					})),
+				)
+				.onConflictDoNothing();
+			await setRoutingMetrics("glm-5", "zai", 100);
+			// 55% overall uptime, but every failure was a shed flex request.
+			await db.insert(tables.modelProviderMappingHistory).values({
+				modelId: "glm-5",
+				providerId: "alibaba",
+				modelProviderMappingId: "glm-5::alibaba",
+				usedMode: "credits",
+				minuteTimestamp: new Date(Math.floor(Date.now() / 60000) * 60000),
+				logsCount: 100,
+				errorsCount: 45,
+				upstreamErrorsCount: 45,
+				totalOutputTokens: 100,
+				totalDuration: 1000,
+				flexLogsCount: 50,
+				flexUpstreamErrorsCount: 45,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/glm-5",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("alibaba");
+			expect(logs[0].routingMetadata?.selectionReason).not.toBe(
+				"low-uptime-fallback",
+			);
+		});
+
 		test("auto routing ignores synthetic root region mappings", async () => {
 			await ensureProviders(["zai", "alibaba", "novita"]);
 

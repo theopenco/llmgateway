@@ -27,6 +27,7 @@ import {
 	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { readJsonBody } from "@/lib/read-json-body";
 import { createServerApiClient, fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
@@ -291,6 +292,7 @@ interface ProjectRetrievalResponse {
 const KEEPALIVE_INTERVAL_MS = 15_000;
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody<ChatRequestBody>(req);
 	const user = await getUser();
 
 	if (!user) {
@@ -299,7 +301,11 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const body = await req.json();
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
+		throw bodyResult.error;
+	}
+	const body = bodyResult.body;
 	const {
 		messages,
 		model,

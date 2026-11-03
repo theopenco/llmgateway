@@ -426,8 +426,17 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = feature.title;
-	const description = feature.description;
+	const withSubtitle = `${feature.title} — ${feature.subtitle}`;
+	const title =
+		withSubtitle.length + " | LLM Gateway".length <= 60
+			? withSubtitle
+			: feature.title;
+	const leadSentence = feature.longDescription.split(/(?<=[.!?])\s+/)[0];
+	const extended = `${feature.description} ${leadSentence}`;
+	const description =
+		feature.description.length < 110 && extended.length <= 160
+			? extended
+			: feature.description;
 
 	return {
 		title,
