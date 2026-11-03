@@ -52,6 +52,7 @@ import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { fetchProvider, fetchProviderIssuedUrl } from "@/lib/fetch-provider.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
@@ -1049,6 +1050,10 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 			message:
 				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
+	}
+
+	if (!apiKey.endUserSession) {
+		await getAuthenticatedReadAccess(c);
 	}
 
 	const baseProject = await findProjectById(apiKey.projectId);

@@ -200,6 +200,20 @@ Learn](/learn/api-keys).
 
 IAM (Identity Access Management) rules provide fine-grained access control over what models, providers, and pricing tiers an API key can access.
 
+### Endpoint coverage
+
+Applicable IAM and compliance checks cover every inference path: chat completions, Responses and compaction, Messages, all AI SDK protocol versions, image generation and edits, embeddings, moderation, OCR, rerank, search, typed decisions, speech, transcription, video creation, and realtime. Internal adapters preserve credentials and the configured trusted client IP; retries and fallback cannot widen access. Realtime also checks transcription models before receiving audio and revalidates access when a session enables transcription.
+
+Moderation intentionally ignores model and pricing IAM rules for compatibility. It still enforces provider/IP ceilings and organization compliance policies.
+
+Authenticated model discovery and AI SDK config omit models blocked by organization compliance or IAM. The unauthenticated model catalogue and public MCP discovery remain public metadata.
+
+Behind an edge that overwrites the trusted IP header, configure `GATEWAY_BACKEND_URL` and `API_BACKEND_URL` with trusted private service URLs for MCP hops. Going back through the public edge can replace the caller’s IP with the gateway’s address; do not work around that by trusting alternate headers.
+
+Private key/credit metadata and MCP account/usage reads validate the credential, expiry, current membership, project, organization, and applicable IP restrictions. They remain readable after quota exhaustion. Historical outputs keep their ownership and signed-download checks; model/provider rules do not retroactively turn a public catalogue or an already-authorized historical read into new inference.
+
+`GET /v1/credits` retains the AI SDK account-credit contract: any authorized regular project key can read organization-wide credit figures. This is separate from role-scoped MCP analytics; end-user wallet sessions cannot use the account-credit endpoint.
+
 ### Rule Types
 
 #### Model Access Rules

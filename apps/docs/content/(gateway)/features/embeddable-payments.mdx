@@ -125,6 +125,10 @@ Refunds send a credit note the same way.
 	onboarding/payouts (both return `403` — use a live secret key).
 </Callout>
 
+Session tokens can use speech generation, but charges come only from the bound end-user wallet; project BYOK settings, organization credits, and chat-plan allowances do not subsidize that wallet. Session expiry, customer/wallet state, allowed origin, model scope, and sandbox restrictions are checked before provider dispatch.
+
+For the Responses API, end-user sessions support direct, stateless input with `store: false`. They cannot retrieve stored responses or use `previous_response_id` or `item_reference` inputs: stored Responses state is project-scoped, not wallet-scoped. Keep conversation history in your app and resend it as direct input.
+
 <Callout type="warn">
 	The platform secret key is shown only once. Do not put it in frontend code,
 	browser bundles, mobile apps, or public repos. Only a keyed HMAC-SHA-256
