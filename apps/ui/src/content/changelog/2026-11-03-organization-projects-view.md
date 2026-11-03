@@ -18,11 +18,11 @@ An organization with twenty projects had no single place to see which of them st
 
 Each project is a card with a daily request sparkline for the last 7, 30 or 90 days, plus requests, spend, error rate, last activity, routing strategy and API key count. Summary tiles at the top add up projects, active projects, requests and spend across the organization.
 
-| Filter         | Shows projects that                                     |
-| -------------- | ------------------------------------------------------- |
-| **Active**     | Served at least one request in the selected period      |
-| **Idle**       | Have older traffic but nothing in the selected period   |
-| **Never used** | Have never served a request                             |
+| Filter         | Shows projects that                                   |
+| -------------- | ----------------------------------------------------- |
+| **Active**     | Served at least one request in the selected period    |
+| **Idle**       | Have older traffic but nothing in the selected period |
+| **Never used** | Have never served a request                           |
 
 Search by name or ID, and sort by requests, spend, most recent activity, name or creation date.
 
@@ -33,7 +33,7 @@ Select cards, or **Select all** for the current filter, then:
 - **Edit settings** changes billing mode, response caching or routing strategy on every selected project. Only the fields you change are applied, and projects that already match are skipped.
 - **Archive** removes the selected projects from the project selector and stops their API keys. Usage history and logs are kept. Archiving is limited to organization owners.
 
-Both actions report the outcome per project and add an audit log entry for each one. Developers with project-scoped access see only the projects they were granted, with usage from their own API keys.
+Both actions report how many projects changed, were skipped or could not be changed, grouped by reason, and add an audit log entry for each project that changed. Developers with project-scoped access see only the projects they were granted, with usage from their own API keys, so their activity filters reflect only that traffic.
 
 ---
 
