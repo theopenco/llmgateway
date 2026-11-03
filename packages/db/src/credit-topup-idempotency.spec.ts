@@ -110,3 +110,9 @@ describe("completed credit top-up migration", () => {
 		await expect(client.query(migration)).rejects.toThrow("wrong definition");
 	});
 });
+test("rejects a prebuilt index that constrains null payment intents", async () => {
+	await client.query(
+		`CREATE UNIQUE INDEX ${indexName} ON "transaction" (stripe_payment_intent_id) NULLS NOT DISTINCT WHERE type = 'credit_topup' AND status = 'completed'`,
+	);
+	await expect(client.query(migration)).rejects.toThrow("wrong definition");
+});

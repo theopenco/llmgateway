@@ -191,6 +191,10 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 	describe("findApiKeyByToken", () => {
 		async function insertEndUserSession(tokenValues: { tokenHash: string }) {
+			await db
+				.update(project)
+				.set({ endUserEnabled: true })
+				.where(eq(project.id, testProjectId));
 			await db.insert(endCustomer).values({
 				id: "test-end-customer-cached-queries",
 				organizationId: testOrgId,
@@ -287,6 +291,17 @@ describe("Cached Queries - Gateway Database Access", () => {
 			expect(result?.endUserSession?.id).toBe(
 				"test-end-user-session-cached-queries",
 			);
+		});
+
+		it("rejects session tokens once end-user sessions are disabled", async () => {
+			const token = "es_disabled-cached-queries";
+			await insertEndUserSession(hashTokenForStorage(token));
+			await db
+				.update(project)
+				.set({ endUserEnabled: false })
+				.where(eq(project.id, testProjectId));
+
+			expect(await findApiKeyByToken(token)).toBeUndefined();
 		});
 	});
 

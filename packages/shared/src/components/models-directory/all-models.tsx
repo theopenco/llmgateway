@@ -90,6 +90,8 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
+import { expandVirtualModels } from "@llmgateway/models";
+
 import {
 	matchesCapability,
 	matchesOutputCapabilities,
@@ -684,6 +686,25 @@ const ModelTableRow = React.memo(
 									{row.model.id}
 								</Link>
 							)}
+							{row.model.virtualModelTarget && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Badge
+											variant="outline"
+											className="shrink-0 text-[10px]"
+											tabIndex={0}
+										>
+											Virtual
+										</Badge>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Currently {row.model.virtualModelTarget}. The served
+											version and pricing may change.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							{row.model.premium && (
 								<Tooltip>
 									<TooltipTrigger asChild>
@@ -1025,7 +1046,7 @@ const GRID_MODELS_PER_PAGE = 12;
 
 export function AllModels({
 	children,
-	models,
+	models: catalogue,
 	providers,
 	title,
 	description,
@@ -1040,6 +1061,7 @@ export function AllModels({
 	hideUseCaseFilter = false,
 	hideHeader = false,
 }: AllModelsProps) {
+	const models = useMemo(() => expandVirtualModels(catalogue), [catalogue]);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();

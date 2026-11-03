@@ -11,7 +11,7 @@ BEGIN
 		SELECT 1 FROM pg_index
 		WHERE indexrelid = 'transaction_credit_topup_payment_intent_unique'::regclass
 			AND indrelid = 'transaction'::regclass
-			AND indisvalid AND indisunique AND indnatts = 1
+			AND indisvalid AND indisunique AND NOT indnullsnotdistinct AND indnatts = 1
 			AND pg_get_indexdef(indexrelid, 1, true) = 'stripe_payment_intent_id'
 			AND pg_get_expr(indpred, indrelid) = '((type = ''credit_topup''::text) AND (status = ''completed''::text))'
 	) THEN

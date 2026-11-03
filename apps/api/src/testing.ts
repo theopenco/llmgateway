@@ -47,6 +47,7 @@ export async function deleteAll() {
 			await db.delete(tables.crmActivity);
 			await db.delete(tables.crmContact);
 			await db.delete(tables.crmAccount);
+			await db.delete(tables.crmIntegration);
 			await db.delete(tables.enterpriseContactSubmission);
 			await db.delete(tables.auditLog);
 			await db.delete(tables.platformAuditLog);

@@ -396,6 +396,10 @@ Use the tool for current model IDs, capabilities, and pricing, or browse the [li
   </Tab>
 </Tabs>
 
+## OAuth registration errors
+
+`POST /oauth/register` expects a JSON object. Malformed JSON, empty bodies, and invalid `client_name` or `api_key` types return HTTP `400` with `error: "invalid_request"` and `error_description: "Invalid request body"`.
+
 ## Verify with MCP Inspector
 
 For a standalone connection check, start the official&nbsp;[MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector):

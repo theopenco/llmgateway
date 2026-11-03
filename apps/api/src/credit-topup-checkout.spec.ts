@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, tables, sql } from "@llmgateway/db";
+import { db, eq, sql, tables } from "@llmgateway/db";
 
 import { stripeRoutes } from "./stripe.js";
 import { deleteAll } from "./testing.js";
@@ -241,6 +241,109 @@ describe("credit top-up via Stripe Checkout", () => {
 		});
 		expect(transactions).toHaveLength(1);
 		expect(discordNotification()).toBeNull();
+	});
+
+	test.each([
+		[
+			"payment_intent.succeeded",
+			() => paymentIntentEvent("payment_intent.succeeded", checkoutMetadata),
+		],
+		["checkout.session.completed", () => checkoutSessionCompletedEvent()],
+	])(
+		"credits once when %s is delivered concurrently",
+		async (_type, makeEvent) => {
+			const event = makeEvent();
+			await Promise.all([deliver(event), deliver(event)]);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+			const topups = await db.query.transaction.findMany({
+				where: {
+					organizationId: { eq: ORG_ID },
+					type: { eq: "credit_topup" },
+				},
+			});
+			expect(topups).toHaveLength(1);
+		},
+	);
+
+	test("credits an auto top-up once when delivered concurrently", async () => {
+		const [pending] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: TOTAL_AMOUNT.toString(),
+				creditAmount: BASE_AMOUNT.toString(),
+				status: "pending",
+			})
+			.returning();
+		const event = paymentIntentEvent("payment_intent.succeeded", {
+			...checkoutMetadata,
+			transactionId: pending.id,
+		});
+		await Promise.all([deliver(event), deliver(event)]);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(Number(org?.credits)).toBe(BASE_AMOUNT);
+	});
+
+	test("a redelivered chat plan checkout keeps recorded usage", async () => {
+		await db.insert(tables.organization).values({
+			id: "org-chat-redelivery",
+			name: "Chat Org",
+			kind: "chat",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_chat_redelivery",
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: "sub_chat_redelivery",
+			status: "active",
+			default_payment_method: {
+				id: "pm_chat_redelivery",
+				type: "card",
+				card: { fingerprint: "fp_chat_redelivery" },
+			},
+			latest_invoice: null,
+			metadata: {},
+		});
+		const event = {
+			id: "evt_chat_redelivery",
+			type: "checkout.session.completed",
+			data: {
+				object: {
+					id: "cs_chat_redelivery",
+					mode: "subscription",
+					customer: "cus_chat_redelivery",
+					subscription: "sub_chat_redelivery",
+					invoice: "in_chat_redelivery",
+					payment_status: "paid",
+					amount_total: 900,
+					currency: "usd",
+					metadata: {
+						organizationId: "org-chat-redelivery",
+						subscriptionType: "chat_plan",
+						chatPlan: "starter",
+					},
+				},
+			},
+		} as unknown as Stripe.Event;
+
+		await deliver(event);
+		await db
+			.update(tables.organization)
+			.set({ chatPlanCreditsUsed: "12.25" })
+			.where(eq(tables.organization.id, "org-chat-redelivery"));
+		await deliver(event);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: "org-chat-redelivery" } },
+		});
+		expect(Number(org?.chatPlanCreditsUsed)).toBe(12.25);
 	});
 
 	test("does not record a failed transaction for a declined checkout attempt", async () => {
@@ -585,6 +688,54 @@ function creditTopUpOwnershipTests() {
 			});
 			expect(completed).toHaveLength(1);
 			expect(completed[0].id).not.toBe(referenced.id);
+		},
+	);
+	test.each(["checkout", "manual", "auto"] as const)(
+		"serializes duplicate deliveries before the unique index is deployed (%s)",
+		async (source) => {
+			try {
+				await db.execute(
+					sql`DROP INDEX transaction_credit_topup_payment_intent_unique`,
+				);
+				const [pending] =
+					source === "auto"
+						? await db
+								.insert(tables.transaction)
+								.values({
+									organizationId: ORG_ID,
+									type: "credit_topup",
+									status: "pending",
+									creditAmount: "10",
+								})
+								.returning()
+						: [];
+				const event =
+					source === "checkout"
+						? checkoutSessionCompletedEvent()
+						: paymentIntentEvent("payment_intent.succeeded", {
+								...checkoutMetadata,
+								...(pending ? { transactionId: pending.id } : {}),
+							});
+				await Promise.all([deliver(event), deliver(event)]);
+				const org = await db.query.organization.findFirst({
+					where: { id: ORG_ID },
+				});
+				expect(org?.credits).toBe("10");
+				const completed = await db.query.transaction.findMany({
+					where: {
+						organizationId: ORG_ID,
+						type: "credit_topup",
+						status: "completed",
+						stripePaymentIntentId: PAYMENT_INTENT_ID,
+					},
+				});
+				expect(completed).toHaveLength(1);
+			} finally {
+				await db.delete(tables.transaction);
+				await db.execute(
+					sql`CREATE UNIQUE INDEX transaction_credit_topup_payment_intent_unique ON "transaction" (stripe_payment_intent_id) WHERE type = 'credit_topup' AND status = 'completed'`,
+				);
+			}
 		},
 	);
 }

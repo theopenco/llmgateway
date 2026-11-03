@@ -35,11 +35,11 @@ The `X-Source` header accepts domain names in various formats. All of the follow
 - `https://www.example.com`
 - `www.example.com`
 
-All variations will be stripped down to the base domain (`example.com`) for aggregation purposes.
+Normalization strips only the protocol and a leading `www.`, so all of the above become `example.com` — but paths and subdomains are preserved (`app.example.com/tool` stays `app.example.com/tool`).
 
 After stripping the protocol and `www.` prefix, a nonempty `X-Source` value must contain only alphanumeric characters, hyphens, dots, and slashes. Other characters (such as underscores, spaces, ports, or query strings) fail the request with a `400`.
 
-When `X-Source` is absent or empty, the gateway falls back to `HTTP-Referer`. A referer that fails the same character check is ignored rather than rejecting the request. Coding-agent detection from `User-Agent`, `X-Title`, and the raw referer can still apply.
+When `X-Source` is absent or empty, the gateway falls back to `HTTP-Referer`. A referer that fails the same character check is ignored rather than rejecting the request. Coding-agent detection from `User-Agent`, `X-Title`, and the raw referer can still apply — and it also applies when an `X-Source` was sent but is not a recognized coding agent, in which case the detected agent id replaces the supplied value.
 
 ## Public Statistics
 

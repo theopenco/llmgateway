@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import { describeImageGenerationError } from "@/lib/image-gen";
+import { readJsonBody } from "@/lib/read-json-body";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
@@ -44,6 +45,7 @@ interface ImageRequestBody {
 }
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody<ImageRequestBody>(req);
 	const user = await getUser();
 
 	if (!user) {
@@ -52,7 +54,11 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const body = await req.json();
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
+		throw bodyResult.error;
+	}
+	const body = bodyResult.body;
 	const {
 		prompt,
 		model,

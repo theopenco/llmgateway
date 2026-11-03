@@ -6,8 +6,9 @@ Fresh databases apply the migration normally.
 
 1. Pause credit-top-up webhook fulfillment and automatic top-up jobs; drain
    in-flight fulfillment. Keep deliveries retryable until the fixed API is live.
-   The old code increments credits before inserting its transaction, so adding
-   uniqueness while it is still fulfilling payments can leave unrecorded credits.
+   Verify the deployed fulfillment version first. Current code is atomic; older
+   deployments may increment credits before inserting the ledger row, so adding
+   uniqueness while those versions fulfill payments can leave unrecorded credits.
 2. Run this read-only preflight (no payment identifiers in the output):
 
    ```sql
@@ -36,8 +37,8 @@ Fresh databases apply the migration normally.
      WHERE "type" = 'credit_topup' AND "status" = 'completed';
    ```
 
-   Confirm `pg_index.indisvalid` and `indisunique`, the indexed column and exact
-   predicate before deployment. A failed concurrent build may leave an invalid
+   Confirm `pg_index.indisvalid` and `indisunique`, distinct nulls, the indexed
+   column and exact predicate before deployment. A failed concurrent build may leave an invalid
    index: investigate, then drop it concurrently and retry with authorization.
    The migration adopts a valid prebuilt index and rejects a mismatched one.
 4. Apply migrations, deploy all API replicas with the fixed atomic fulfillment,

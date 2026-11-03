@@ -178,6 +178,36 @@ describe("validateEndUserSessionModelAccess", () => {
 	});
 });
 
+describe("validateEndUserSessionModelAccess — virtual aliases", () => {
+	const cut = {
+		...sessionModel,
+		id: "deepseek-v4.1-flash-1017",
+	};
+
+	it("admits a scope naming the alias only for requests via that alias", () => {
+		const apiKey = makeSessionApiKey(["deepseek-v4.1-flash-latest"]);
+		expect(
+			validateEndUserSessionModelAccess(apiKey, cut.id, cut, {
+				requestedModelAlias: "deepseek-v4.1-flash-latest",
+			})?.allowed,
+		).toBe(true);
+		expect(
+			validateEndUserSessionModelAccess(apiKey, cut.id, cut)?.allowed,
+		).toBe(false);
+	});
+
+	it("ignores an alias of another model", () => {
+		expect(
+			validateEndUserSessionModelAccess(
+				makeSessionApiKey(["jev-latest"]),
+				cut.id,
+				cut,
+				{ requestedModelAlias: "jev-latest" },
+			)?.allowed,
+		).toBe(false);
+	});
+});
+
 describe("assertTestWalletModelAllowed", () => {
 	it("is a no-op for live wallets, even with paid models", () => {
 		expect(() =>

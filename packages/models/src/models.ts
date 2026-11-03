@@ -82,6 +82,12 @@ export const PROVIDER_API_FORMATS = [
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
 
 /**
+ * API surfaces a single request can be sent on: the mapping formats plus
+ * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ */
+export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
+
+/**
  * Pricing tier for models with context-length based pricing
  */
 export interface PricingTier {
@@ -570,6 +576,13 @@ export interface ProviderModelMapping {
 	 */
 	apiFormat?: ProviderApiFormat;
 	/**
+	 * API surface for requests carrying a `web_search` tool, when the
+	 * provider serves hosted search on a different surface than `apiFormat`
+	 * (e.g. DeepSeek: Responses API on V4 Pro, Anthropic Messages API on
+	 * Flash). Other requests keep `apiFormat`.
+	 */
+	webSearchApiFormat?: RequestApiFormat;
+	/**
 	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
 	 * (`global`, `us`, …) are real inference profiles, served by
 	 * bedrock-runtime under the region-prefixed model id. Without it every
@@ -629,6 +642,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Overrides the provider default for credential-bound reasoning payloads. */
+	encryptedReasoning?: boolean;
 	/** Responses API reasoning summary mode. Defaults to detailed. */
 	reasoningSummary?: "auto" | "detailed";
 	/**
@@ -649,8 +664,8 @@ export interface ProviderModelMapping {
 	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
 	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
 	 * its own list. The gateway forwards effort values to the provider as-is
-	 * (unsupported values fail upstream); this metadata is exposed via the
-	 * models APIs so clients can present valid options. When unset, the
+	 * and excludes mappings that declare an incompatible effort during automatic
+	 * provider selection. The models APIs expose the list for clients. When unset, the
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
@@ -1024,6 +1039,8 @@ export interface ModelDefinition {
 	 * Date when the model was released by the provider
 	 */
 	releasedAt?: Date;
+	/** Aliases whose served model version may change. */
+	aliasesAreVirtual?: boolean;
 }
 
 export const models = [
