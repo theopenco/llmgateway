@@ -7,6 +7,7 @@ import {
 	ArrowUpRight,
 	Download,
 	KanbanSquare,
+	Plug,
 	Plus,
 	Search,
 	Table2,
@@ -607,6 +608,16 @@ export function CrmOverview() {
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					<Button
+						variant="outline"
+						size="icon"
+						asChild
+						aria-label="Integrations"
+					>
+						<Link href="/crm/settings">
+							<Plug className="h-4 w-4" />
+						</Link>
+					</Button>
 					<Button variant="outline" size="sm" asChild>
 						<Link href="/crm/tasks">
 							<AlarmClock className="h-4 w-4" />

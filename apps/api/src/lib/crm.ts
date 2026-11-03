@@ -566,7 +566,7 @@ export async function loadActivityStats(
 		.select({
 			accountId: a.accountId,
 			lastActivityAt:
-				sql<Date | null>`max(coalesce(${a.completedAt}, ${a.createdAt}))`.mapWith(
+				sql<Date | null>`max(coalesce(${a.completedAt}, ${a.createdAt})) filter (where ${a.createdAt} <= ${nowIso}::timestamp)`.mapWith(
 					a.createdAt,
 				),
 			openTasks: sql<number>`count(*) filter (where ${a.kind} = 'task' and ${a.completedAt} is null)`,
@@ -746,4 +746,77 @@ export function summarizeAccount(
 		score,
 		scoreKind: segment === "lead" || segment === "prospect" ? "lead" : "health",
 	};
+}
+
+export interface CrmAccountPerson {
+	email: string;
+	name: string | null;
+}
+
+/**
+ * Every address tied to an account: platform members, contact-form senders,
+ * billing addresses and contacts sales added by hand, deduplicated case-insensitively with the
+ * best-known name. This is the audience integrations search mail and
+ * meetings for.
+ */
+export async function loadAccountPeople(
+	entry: CrmBookEntry,
+): Promise<CrmAccountPerson[]> {
+	const crmContacts = await db
+		.select({ email: tables.crmContact.email, name: tables.crmContact.name })
+		.from(tables.crmContact)
+		.where(eq(tables.crmContact.accountId, entry.id));
+	const people = new Map<string, CrmAccountPerson>();
+	const add = (email: string, name: string | null) => {
+		const key = email.trim().toLowerCase();
+		if (!key.includes("@")) {
+			return;
+		}
+		const existing = people.get(key);
+		people.set(key, { email: key, name: existing?.name ?? name ?? null });
+	};
+	for (const ct of crmContacts) {
+		add(ct.email, ct.name);
+	}
+	for (const m of entry.members) {
+		add(m.email, m.name);
+	}
+	for (const l of entry.leads) {
+		add(l.email, l.name);
+	}
+	for (const o of entry.orgs) {
+		add(o.billingEmail, o.billingCompany);
+	}
+	return [...people.values()];
+}
+
+/**
+ * The account an outside address belongs to: its corporate domain when the
+ * book has it, else a hand-added contact, else a free-mail lead key.
+ */
+export async function resolveAccountIdForEmail(
+	email: string,
+	book: Map<string, CrmBookEntry>,
+): Promise<string | null> {
+	const normalized = email.trim().toLowerCase();
+	const domain = corporateDomain(normalized);
+	if (domain && book.has(domain)) {
+		return domain;
+	}
+	const contact = await db.query.crmContact.findFirst({
+		where: { email: normalized },
+		columns: { accountId: true },
+	});
+	if (contact && book.has(contact.accountId)) {
+		return contact.accountId;
+	}
+	for (const entry of book.values()) {
+		if (
+			entry.members.some((m) => m.email.toLowerCase() === normalized) ||
+			entry.leads.some((l) => l.email.toLowerCase() === normalized)
+		) {
+			return entry.id;
+		}
+	}
+	return null;
 }

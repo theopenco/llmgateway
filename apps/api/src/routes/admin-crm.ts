@@ -273,6 +273,7 @@ const activitySchema = z.object({
 	dueAt: z.string().nullable(),
 	completedAt: z.string().nullable(),
 	createdAt: z.string(),
+	externalRef: z.string().nullable(),
 });
 
 const personSchema = z.object({
@@ -447,6 +448,7 @@ function serializeActivity(a: typeof tables.crmActivity.$inferSelect) {
 		dueAt: iso(a.dueAt),
 		completedAt: iso(a.completedAt),
 		createdAt: a.createdAt.toISOString(),
+		externalRef: a.externalRef,
 	};
 }
 
