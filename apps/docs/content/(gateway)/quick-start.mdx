@@ -129,6 +129,8 @@ function ChatComponent() {
 export default ChatComponent;
 ```
 
+The gateway sends no CORS headers by default, so direct browser calls like this only work when the deployment's `GATEWAY_CORS_ORIGINS` allowlist (an environment variable on self-hosted deployments) includes your web app's origin. Prefer calling the gateway from a server route (see the Next.js tab), which also keeps your API key out of the browser bundle.
+
   </Tab>
   <Tab value="Next.js">
 
