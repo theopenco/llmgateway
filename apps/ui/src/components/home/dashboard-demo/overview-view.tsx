@@ -22,6 +22,7 @@ import { useState } from "react";
 
 import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
+import { UsageOverviewChart } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import {
 	resolveUsageComparisonRange,
@@ -53,7 +54,6 @@ import {
 	defaultDateRange,
 } from "./controls";
 import { CostBreakdownCard } from "./cost-breakdown";
-import { UsageOverviewChart } from "./usage-overview-chart";
 
 import type { ComponentType } from "react";
 
@@ -179,7 +179,7 @@ function toKey(date: Date) {
 }
 
 export function OverviewView() {
-	const { anchorDay, history, project, notify, track } = useDemo();
+	const { anchorDay, history, project, notify, track, started } = useDemo();
 	const [pickedRange, setPickedRange] = useState<UsageDateRange | null>(null);
 	const [usageMode, setUsageMode] = useState<UsageMode>("total");
 	const [metric, setMetric] = useState<"costs" | "requests">("costs");
@@ -240,6 +240,10 @@ export function OverviewView() {
 	const totalOutputTokens = sum(activityData, (day) => day.outputTokens);
 	const totalCachedTokens = sum(activityData, (day) => day.cachedTokens);
 	const totalCachedInputCost = sum(activityData, (day) => day.cachedInputCost);
+	const totalCacheWriteInputCost = sum(
+		activityData,
+		(day) => day.cacheWriteInputCost,
+	);
 	const totalErrors = sum(activityData, (day) => day.errorCount);
 	const totalCached = sum(activityData, (day) => day.cacheCount);
 	const prevRequests = sum(prevActivityData, (day) => day.requestCount);
@@ -422,7 +426,7 @@ export function OverviewView() {
 								icon={ArrowDownToLine}
 								label="Input tokens"
 								value={formatTokens(totalInputTokens)}
-								sub={`$${totalInputCost.toFixed(2)} spend`}
+								sub={`$${(totalInputCost + totalCachedInputCost + totalCacheWriteInputCost).toFixed(2)} spend, incl. cache`}
 							/>
 							<StatCell
 								icon={ArrowUpFromLine}
@@ -434,7 +438,7 @@ export function OverviewView() {
 								icon={Server}
 								label="Cached tokens"
 								value={formatTokens(totalCachedTokens)}
-								sub={`$${totalCachedInputCost.toFixed(2)} • included in input`}
+								sub={`$${totalCachedInputCost.toFixed(2)} reads${totalCacheWriteInputCost > 0 ? ` • $${totalCacheWriteInputCost.toFixed(2)} writes` : ""}`}
 							/>
 							<StatCell
 								icon={Crown}
@@ -456,8 +460,8 @@ export function OverviewView() {
 										<CardDescription>
 											{metric === "costs"
 												? costView === "total"
-													? "Daily total inference spend (provider list price)"
-													: "Daily inference spend by token type"
+													? "Daily total spend, including storage"
+													: "Daily spend by cost type"
 												: "Daily request volume"}
 										</CardDescription>
 									</div>
@@ -512,25 +516,29 @@ export function OverviewView() {
 						<QuickActionsCard className="min-w-0 @6xl/demo:col-span-3" />
 					</div>
 
-					<div className="grid gap-4 @6xl/demo:grid-cols-7">
-						<div className="min-w-0 space-y-4 @6xl/demo:col-span-4">
-							<CostBreakdownCard
-								activity={rawActivityData}
-								usageMode={usageMode}
-								projectName={project.name}
-							/>
-							<RecentActivityCard
-								activityData={activityData}
-								isLoading={false}
-							/>
+					{/* The locked frame never shows these cards, so they mount once the
+					    demo starts. */}
+					{started && (
+						<div className="grid gap-4 @6xl/demo:grid-cols-7">
+							<div className="min-w-0 space-y-4 @6xl/demo:col-span-4">
+								<CostBreakdownCard
+									activity={rawActivityData}
+									usageMode={usageMode}
+									projectName={project.name}
+								/>
+								<RecentActivityCard
+									activityData={activityData}
+									isLoading={false}
+								/>
+							</div>
+							<div className="min-w-0 @6xl/demo:col-span-3">
+								<ErrorsReliabilityCard
+									activityData={activityData}
+									isLoading={false}
+								/>
+							</div>
 						</div>
-						<div className="min-w-0 @6xl/demo:col-span-3">
-							<ErrorsReliabilityCard
-								activityData={activityData}
-								isLoading={false}
-							/>
-						</div>
-					</div>
+					)}
 				</div>
 			</div>
 		</div>

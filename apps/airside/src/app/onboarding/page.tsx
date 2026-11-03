@@ -502,7 +502,7 @@ function OnboardingContent() {
 	const hasClaim = companies.some((c) => c.claims.length > 0);
 	const paymentDue =
 		!!company && company.paymentRequired && company.paymentStatus === "unpaid";
-	const emailDomain = user?.email.split("@")[1] ?? "";
+	const emailDomain = claimableQuery.data?.emailDomain ?? "";
 	// Every domain this account may claim on: the verified email's, plus the
 	// company domains proved over DNS.
 	const claimDomains = Array.from(
@@ -526,7 +526,14 @@ function OnboardingContent() {
 						? "Pay the listing fee first."
 						: null;
 
-	if (isLoading || !user) {
+	// Without these, an empty email domain and company list would briefly
+	// render the personal-email and no-company blocked states.
+	if (
+		isLoading ||
+		!user ||
+		companiesQuery.isPending ||
+		claimableQuery.isPending
+	) {
 		return (
 			<div className="flex min-h-screen items-center justify-center">
 				<Loader2 className="text-muted-foreground size-5 animate-spin" />

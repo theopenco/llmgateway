@@ -1,3 +1,5 @@
+import { getStopSignal } from "@/shutdown.js";
+
 import {
 	buildBenchmarkTargets,
 	catalogueMappingDescriptors,
@@ -13,8 +15,6 @@ import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 type BenchmarkRunRow = typeof tables.benchmarkRun.$inferSelect;
 
-// A run is bounded by its own per-target budget, so anything still "running"
-// well past the worst case is a worker that died mid-run.
 const STALE_RUNNING_MS = 60 * 60 * 1000;
 const MAX_RUN_ATTEMPTS = 2;
 const STALE_FEEDBACK = "The benchmark worker stopped before the run finished.";
@@ -194,6 +194,43 @@ export async function processNextBenchmarkRun(
 		return true;
 	}
 
+	let heartbeat: Promise<void> | undefined;
+	const timer = setInterval(() => {
+		if (heartbeat) {
+			return;
+		}
+		heartbeat = (async () => {
+			try {
+				await db
+					.update(tables.benchmarkRun)
+					.set({ updatedAt: new Date() })
+					.where(
+						and(
+							eq(tables.benchmarkRun.id, run.id),
+							eq(tables.benchmarkRun.status, "running"),
+							eq(tables.benchmarkRun.attempts, run.attempts),
+						),
+					);
+			} catch (error) {
+				logger.error(
+					"Benchmark heartbeat failed",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			} finally {
+				heartbeat = undefined;
+			}
+		})();
+	}, 60_000);
+	timer.unref();
+	const stopHeartbeat = () => {
+		clearInterval(timer);
+	};
+	const stopSignal = getStopSignal();
+	stopSignal.addEventListener("abort", stopHeartbeat, { once: true });
+	if (stopSignal.aborted) {
+		stopHeartbeat();
+	}
+
 	try {
 		const targets = await resolveRunTargets(run);
 		const profile = getBuiltInProfile(run.profile);
@@ -249,6 +286,10 @@ export async function processNextBenchmarkRun(
 					eq(tables.benchmarkRun.attempts, run.attempts),
 				),
 			);
+	} finally {
+		stopHeartbeat();
+		stopSignal.removeEventListener("abort", stopHeartbeat);
+		await heartbeat;
 	}
 	return true;
 }

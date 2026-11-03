@@ -113,7 +113,7 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
-	// Aggregator providers (e.g. embercloud) report transient failures of THEIR
+	// Aggregator providers report transient failures of THEIR
 	// upstreams as a 400 "Temporary routing error (400)." — a provider-side
 	// failure, not a client error, so classify as upstream_error so the request
 	// can be retried with another provider instead of passing the 400 through.

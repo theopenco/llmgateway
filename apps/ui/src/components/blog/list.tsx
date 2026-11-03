@@ -4,6 +4,8 @@ import Link from "next/link";
 import Footer from "@/components/landing/footer";
 import { slugify } from "@/lib/slugify";
 
+import { allBlogs } from "content-collections";
+
 interface BlogItemImage {
 	src: string;
 	alt: string;
@@ -36,7 +38,14 @@ export function BlogList({
 	subheading = "Latest news and updates from LLM Gateway",
 }: BlogListProps = {}) {
 	const blogEntries = entries ?? [];
-	const categoryList = ["Announcements", "Guides", "Engineering", "Changelog"];
+	const categoryList = [
+		...allBlogs
+			.filter((entry) => !entry.draft)
+			.flatMap((entry) => entry.categories ?? []),
+		"Changelog",
+	].filter(
+		(category, index, categories) => categories.indexOf(category) === index,
+	);
 
 	return (
 		<div className="bg-background text-foreground min-h-screen font-sans pt-30">

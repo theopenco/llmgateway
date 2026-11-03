@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { findApiKeyByToken } from "@/lib/cached-queries.js";
+
 import { RealtimeConnectError } from "./errors.js";
 import { runRealtimePreflight } from "./preflight.js";
 
@@ -10,7 +12,13 @@ vi.mock("@/lib/api-key-usage-limits.js", () => ({
 }));
 
 vi.mock("@/lib/cached-queries.js", () => ({
-	findApiKeyByToken: vi.fn(async () => null),
+	findApiKeyByToken: vi.fn(async () => ({
+		id: "key-id",
+		status: "active",
+		keyType: "user",
+		endUserSession: null,
+		projectId: "project-id",
+	})),
 	findOrganizationById: vi.fn(async () => null),
 	findProjectById: vi.fn(async () => null),
 	findProviderKey: vi.fn(async () => undefined),
@@ -59,33 +67,33 @@ describe("runRealtimePreflight Gemini kill switch", () => {
 	it("leaves other providers unaffected when Gemini is disabled", async () => {
 		process.env.REALTIME_GEMINI_DISABLED = "true";
 		// The OpenAI path proceeds past the kill switch and fails later, on the
-		// unknown API key.
+		// missing project.
 		const error = await expectConnectError("gpt-realtime-2.1-mini");
-		expect(error.code).toBe("invalid_api_key");
+		expect(error.code).toBe("project_not_found");
 	});
 
 	it("admits Gemini models when the switch is unset", async () => {
 		const error = await expectConnectError(
 			"gemini-2.5-flash-native-audio-preview-12-2025",
 		);
-		expect(error.code).toBe("invalid_api_key");
+		expect(error.code).toBe("project_not_found");
 	});
 });
 
 describe("runRealtimePreflight transcription sessions", () => {
-	// Model resolution runs before the API key lookup, so a resolved model
-	// fails on the unknown key while an unresolved one fails on the model.
+	// A resolved model fails later, on the missing project, while an
+	// unresolved one fails on the model.
 	it("resolves a transcription model with intent=transcription", async () => {
 		const error = await expectConnectError(
 			"gpt-live-transcribe",
 			"transcription",
 		);
-		expect(error.code).toBe("invalid_api_key");
+		expect(error.code).toBe("project_not_found");
 	});
 
 	it("resolves a transcription model without the intent parameter", async () => {
 		const error = await expectConnectError("gpt-live-transcribe");
-		expect(error.code).toBe("invalid_api_key");
+		expect(error.code).toBe("project_not_found");
 	});
 
 	it("rejects a speech model under intent=transcription", async () => {
@@ -104,5 +112,14 @@ describe("runRealtimePreflight transcription sessions", () => {
 		const error = await expectConnectError("gpt-realtime", "chat");
 		expect(error.status).toBe(400);
 		expect(error.code).toBe("invalid_intent");
+	});
+});
+
+describe("runRealtimePreflight authentication", () => {
+	it("rejects an unknown API key before resolving the model", async () => {
+		vi.mocked(findApiKeyByToken).mockResolvedValueOnce(undefined);
+		const error = await expectConnectError("not-a-realtime-model");
+		expect(error.status).toBe(401);
+		expect(error.code).toBe("invalid_api_key");
 	});
 });

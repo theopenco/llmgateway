@@ -21,9 +21,9 @@ describe("applyGoogleServiceTier", () => {
 		expect(body.service_tier).toBe("flex");
 	});
 
-	it("injects priority into the body for glacier", () => {
+	it("injects priority into the body for google-ai-studio", () => {
 		const body = googleBody();
-		applyGoogleServiceTier(body, "glacier", "priority");
+		applyGoogleServiceTier(body, "google-ai-studio", "priority");
 		expect(body.service_tier).toBe("priority");
 	});
 

@@ -22,7 +22,7 @@ export function createRequestLifecycleMiddleware(
 		const startTime = Date.now();
 
 		// Health probes arrive in-cluster without the header and are not a signal.
-		if (path !== "/" && !getClientIpFromContext(c)) {
+		if (path !== "/" && path !== "/livez" && !getClientIpFromContext(c)) {
 			clientIpMissingTotal.inc({ service: options.serviceName });
 		}
 

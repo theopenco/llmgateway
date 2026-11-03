@@ -25,7 +25,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
 	title: { absolute: "AI Coding Subscription — DevPass by LLM Gateway" },
-	description: `One flat-rate AI coding subscription for every model and every agent. Claude, GPT, Gemini and ${MARKETING_STATS.models} more models in the coding agent you already use — from $${DEV_PLAN_PRICES.lite}/month.`,
+	description: `One flat-rate AI coding subscription for every model and every agent. Claude, GPT, Gemini and 100+ more models in the coding agent you already use — from $${DEV_PLAN_PRICES.lite}/month.`,
 	robots: { index: false, follow: false },
 };
 
@@ -44,7 +44,8 @@ const steps = [
 	{
 		step: "03",
 		title: "Code with any model",
-		description: `Claude, GPT-5, Gemini, GLM, Qwen and ${MARKETING_STATS.models} more — switch models freely with the same key.`,
+		description:
+			"Claude, GPT-5, Gemini, GLM, Qwen and 100+ more — switch models freely with the same key.",
 	},
 ] as const;
 
@@ -58,7 +59,7 @@ const directItems = [
 const devpassItems = [
 	{
 		label: "All models",
-		value: `${MARKETING_STATS.models} models, ${MARKETING_STATS.providers} providers`,
+		value: `100+ models, ${MARKETING_STATS.providers} providers`,
 	},
 	{ label: "One flat price", value: `from $${DEV_PLAN_PRICES.lite}/mo` },
 	{ label: "Metering", value: "transparent, provider rates" },
@@ -103,8 +104,8 @@ export default function StartPage() {
 								</span>
 							</h1>
 							<p className="mx-auto mb-8 max-w-xl text-lg leading-relaxed text-muted-foreground">
-								Claude, GPT, Gemini and {MARKETING_STATS.models} more models in
-								the coding agent you already use — from ${DEV_PLAN_PRICES.lite}
+								Claude, GPT, Gemini and 100+ more models in the coding agent you
+								already use — from ${DEV_PLAN_PRICES.lite}
 								/month.
 							</p>
 							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
@@ -286,9 +287,9 @@ export default function StartPage() {
 								Three flat plans. Every model on all of them.
 							</h2>
 							<p className="text-muted-foreground">
-								Every plan includes the full {MARKETING_STATS.models} model
-								catalog. The only things that change are your monthly usage
-								allowance and the weekly fair-use cap on premium models.
+								Every plan includes the full 100+ model catalog. The only things
+								that change are your monthly usage allowance, its daily pacing,
+								and the weekly fair-use cap on premium models.
 							</p>
 						</div>
 						<PricingPlans credits={credits} />

@@ -2,7 +2,13 @@ import { describe, expect, test } from "vitest";
 
 import { discountFraction } from "@/lib/discount";
 
-import { matchesCapability, type CapabilityFilter } from "./capability-filters";
+import {
+	matchesCapability,
+	matchesOutputCapabilities,
+	OUTPUT_KIND_BY_CAPABILITY_FILTER,
+	type CapabilityFilter,
+	type OutputCapabilityFilter,
+} from "./capability-filters";
 import {
 	applyCategoryFilter,
 	type ModelCategoryFilter,
@@ -418,4 +424,65 @@ describe("row-leak: model-level filter vs table flatten", () => {
 			}
 		});
 	}
+});
+
+describe("model-level output capability filters", () => {
+	const filters = Object.keys(
+		OUTPUT_KIND_BY_CAPABILITY_FILTER,
+	) as OutputCapabilityFilter[];
+
+	test("no output filter enabled lets every model through", () => {
+		expect(matchesOutputCapabilities({}, null)).toBe(true);
+		expect(matchesOutputCapabilities({}, ["text"])).toBe(true);
+	});
+
+	test("searchApi matches the search output kind, not web search", () => {
+		expect(matchesOutputCapabilities({ searchApi: true }, ["search"])).toBe(
+			true,
+		);
+		expect(matchesOutputCapabilities({ searchApi: true }, ["text"])).toBe(
+			false,
+		);
+	});
+
+	test("transcription matches the transcription output kind", () => {
+		expect(
+			matchesOutputCapabilities({ transcription: true }, ["transcription"]),
+		).toBe(true);
+		expect(matchesOutputCapabilities({ transcription: true }, ["audio"])).toBe(
+			false,
+		);
+	});
+
+	test("decisions matches the singular decision output kind", () => {
+		expect(matchesOutputCapabilities({ decisions: true }, ["decision"])).toBe(
+			true,
+		);
+		expect(matchesOutputCapabilities({ decisions: true }, ["decisions"])).toBe(
+			false,
+		);
+	});
+
+	for (const filter of filters) {
+		const kind = OUTPUT_KIND_BY_CAPABILITY_FILTER[filter];
+		test(`${filter}: passes a model whose output includes ${kind}`, () => {
+			expect(
+				matchesOutputCapabilities({ [filter]: true }, ["text", kind]),
+			).toBe(true);
+		});
+		test(`${filter}: rejects a model without ${kind} output`, () => {
+			expect(matchesOutputCapabilities({ [filter]: true }, ["text"])).toBe(
+				false,
+			);
+			expect(matchesOutputCapabilities({ [filter]: true }, null)).toBe(false);
+		});
+	}
+
+	test("multiple enabled filters require every output kind", () => {
+		const enabled = { transcription: true, searchApi: true };
+		expect(matchesOutputCapabilities(enabled, ["transcription"])).toBe(false);
+		expect(
+			matchesOutputCapabilities(enabled, ["transcription", "search"]),
+		).toBe(true);
+	});
 });

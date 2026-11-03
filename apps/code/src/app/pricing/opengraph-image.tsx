@@ -10,7 +10,7 @@ export default function PricingOgImage() {
 	return devpassOgImage({
 		eyebrow: "Pricing",
 		title: "Flat rate. Every model. No token math.",
-		subtitle: `Lite, Pro, and Max from $${DEV_PLAN_PRICES.lite}/month — 200+ coding models metered at provider rates, in any coding agent.`,
+		subtitle: `Lite, Pro, and Max from $${DEV_PLAN_PRICES.lite}/month — 100+ coding models metered at provider rates, in any coding agent.`,
 		path: "/pricing",
 	});
 }

@@ -38,7 +38,7 @@ describe("notifications API", () => {
 		expect(response.status).toBe(200);
 		const { email, preferences } = await response.json();
 		expect(email).toBe("admin@example.com");
-		expect(preferences).toHaveLength(9);
+		expect(preferences).toHaveLength(10);
 		expect(
 			preferences
 				.filter((p: { inApp: boolean | null }) => p.inApp)
@@ -81,6 +81,18 @@ describe("notifications API", () => {
 		});
 		expect(saved.status).toBe(200);
 		expect(await saved.json()).toEqual(value);
+		expect(
+			preferences.find(
+				(p: { category: string }) => p.category === "model_price_change",
+			),
+		).toEqual({
+			category: "model_price_change",
+			inApp: false,
+			email: false,
+			budgetThreshold: null,
+			modelScope: "used",
+			modelIds: [],
+		});
 		const invalid = await app.request("/notifications/preferences", {
 			method: "PUT",
 			headers: headers(),
@@ -272,6 +284,104 @@ describe("notifications API", () => {
 			.where(eq(tables.userOrganization.userId, "test-user-id"));
 		const hidden = await app.request("/notifications", { headers: headers() });
 		expect((await hidden.json()).notifications).toHaveLength(0);
+	});
+	it("saves the model scope of price change alerts and drops unknown models", async () => {
+		await db
+			.insert(tables.model)
+			.values({ id: "notification-model", family: "test" })
+			.onConflictDoNothing();
+		const value = {
+			category: "model_price_change",
+			inApp: true,
+			email: true,
+			budgetThreshold: null,
+			modelScope: "selected",
+			modelIds: ["notification-model", "notification-model"],
+		};
+		const saved = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify(value),
+		});
+		expect(saved.status).toBe(200);
+		expect(await saved.json()).toEqual({
+			...value,
+			modelIds: ["notification-model"],
+		});
+		const { preferences } = await (
+			await app.request("/notifications/preferences", { headers: headers() })
+		).json();
+		expect(
+			preferences.find(
+				(p: { category: string }) => p.category === "model_price_change",
+			),
+		).toMatchObject({
+			inApp: true,
+			email: true,
+			modelScope: "selected",
+			modelIds: ["notification-model"],
+		});
+
+		// Toggling a channel from an older client keeps the saved scope.
+		await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				category: "model_price_change",
+				inApp: false,
+				email: true,
+				budgetThreshold: null,
+			}),
+		});
+		expect(
+			await db.query.notificationPreference.findFirst({
+				where: { userId: "test-user-id", type: "model_price_change" },
+			}),
+		).toMatchObject({
+			inApp: false,
+			modelScope: "selected",
+			modelIds: ["notification-model"],
+		});
+
+		// A model removed from the catalogue never blocks saving the row.
+		const unknown = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				...value,
+				modelIds: ["missing-model", "notification-model"],
+			}),
+		});
+		expect(unknown.status).toBe(200);
+		expect((await unknown.json()).modelIds).toEqual(["notification-model"]);
+		await db
+			.delete(tables.model)
+			.where(eq(tables.model.id, "notification-model"));
+	});
+	it("shows price change alerts without project access, but only to their recipient", async () => {
+		await db.delete(tables.userOrganization);
+		await db
+			.insert(tables.user)
+			.values({ id: "another-user", email: "another@example.com" });
+		await db.insert(tables.notification).values(
+			["test-user-id", "another-user"].map((userId) => ({
+				userId,
+				eventKey: "price:model:abc",
+				type: "model_price_change" as const,
+				title: "Price change for Model",
+				message: "New prices are in effect.",
+				href: "/models/model",
+				inApp: true,
+				email: false,
+			})),
+		);
+		const response = await app.request("/notifications", {
+			headers: headers(),
+		});
+		const data = await response.json();
+		expect(data.unreadCount).toBe(1);
+		expect(data.notifications).toHaveLength(1);
+		expect(data.notifications[0].type).toBe("model_price_change");
 	});
 	it("marks older alerts read without changing another recipient's inbox", async () => {
 		await db

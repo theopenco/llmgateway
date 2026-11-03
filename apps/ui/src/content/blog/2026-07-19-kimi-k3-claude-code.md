@@ -79,13 +79,13 @@ Also worth knowing: [OpenCode ships LLM Gateway as a built-in provider](/blog/op
 
 Agent loops are token-hungry, which is exactly the case [DevPass](https://devpass.llmgateway.io) was built for — a flat monthly rate instead of a per-token bill:
 
-| Plan    | Price      | Model usage included   |
-| ------- | ---------- | ---------------------- |
-| Lite    | $29/mo     | ~$87 at provider rates |
-| **Pro** | **$79/mo** | **~$237**              |
-| Max     | $179/mo    | ~$537                  |
+| Plan    | Price      | Model usage included  |
+| ------- | ---------- | --------------------- |
+| Lite    | $29/mo     | $58 at provider rates |
+| **Pro** | **$79/mo** | **$158**              |
+| Max     | $179/mo    | $358                  |
 
-Kimi K3 is a **premium-tier model** on DevPass (it crosses the $15-per-million-output threshold), so it draws from a weekly premium allowance — roughly $10 per week on Lite, $36 on Pro, $97 on Max. The practical pattern: K3 for planning and the gnarly bugs, a standard-tier model like GLM-5.2 or DeepSeek V4 Pro for the bulk of the loop — both uncapped within your monthly allowance. Pro and Max include one and two Reset Passes per cycle if you burn the premium allowance early.
+Kimi K3 is a **premium-tier model** on DevPass (it crosses the $15-per-million-output threshold), so it draws from a weekly premium allowance — roughly $6 per week on Lite, $19 on Pro, $54 on Max. The practical pattern: K3 for planning and the gnarly bugs, a standard-tier model like GLM-5.2 or DeepSeek V4 Pro for the bulk of the loop — both drawing only on your monthly allowance and its daily pacing. Max includes two Reset Passes per cycle if you burn the premium allowance early; every tier can buy one from the dashboard.
 
 Prefer straight metering? Pay-as-you-go credits work with the identical setup: top up from $10, pay Moonshot's published rates ($3.00/M input, $0.30/M cached, $15.00/M output) plus a 5% platform fee at top-up. K3's cached-input pricing matters here — agent loops re-send the same context every step, and cache hits bill at a tenth of the fresh rate.
 

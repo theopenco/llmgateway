@@ -121,7 +121,7 @@ export type OrganizationCostGroupBy = Extract<
 >;
 export type ProjectCostTimeseriesGroupBy = Extract<
 	CostTimeseriesGroupBy,
-	"model" | "source"
+	"model" | "source" | "api-key" | "user"
 >;
 
 // Global stats

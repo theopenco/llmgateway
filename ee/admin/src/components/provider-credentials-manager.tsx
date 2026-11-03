@@ -86,6 +86,10 @@ import {
 	errorWindowOption,
 	parseErrorWindow,
 } from "@/lib/provider-key-error-window";
+import {
+	providerKeySelectionPositions,
+	providerKeySelectionOrder,
+} from "@/lib/provider-key-selection";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
@@ -96,10 +100,15 @@ import {
 	PROVIDER_MODEL_KINDS,
 } from "@llmgateway/shared";
 import {
+	formatProviderKeyRateLimits,
 	MultiModelIdSelector,
+	parseProviderKeyRateLimitInputs,
+	ProviderKeyRateLimitFields,
 	ReorderableItem,
 	ReorderableList,
 	SearchableSelect,
+	toProviderKeyRateLimitInputs,
+	type ProviderKeyRateLimits,
 } from "@llmgateway/shared/components";
 
 import type {
@@ -399,7 +408,16 @@ function usageMetric(
 }
 
 function isDeletedCredential(credential: ProviderCredential): boolean {
-	return credential.status === "deleted";
+	return (
+		credential.status === "deleted" || credential.status === "pending_deletion"
+	);
+}
+
+/** Why a deleted credential is still listed, including its grace period. */
+function deletedCredentialDescription(credential: ProviderCredential): string {
+	return credential.status === "pending_deletion"
+		? "Pending deletion: only serves conversations whose replayed reasoning it produced, until its teardown grace period ends."
+		: "Deleted: kept for its spend and request history only.";
 }
 
 /** Rotation position, or a dash for a credential the gateway skips. */
@@ -414,9 +432,10 @@ function RotationPosition({
 		return (
 			<span
 				className="text-xs tabular-nums text-muted-foreground"
-				title={`Position ${position} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
+				title={`Step ${position} within this provider, audience and region. Round-robin members share one pool; ordered keys keep individual positions before or after it.`}
 			>
 				{position}
+				{credential.selectionStrategy === "round_robin" ? " · Pool" : ""}
 			</span>
 		);
 	}
@@ -425,7 +444,7 @@ function RotationPosition({
 			className="text-xs text-muted-foreground"
 			title={
 				isDeletedCredential(credential)
-					? "Deleted: kept for its spend and request history only."
+					? deletedCredentialDescription(credential)
 					: "Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
 			}
 		>
@@ -458,6 +477,11 @@ function ManagedCredentialCells({
 			<TableCell className="font-mono text-xs">
 				<div className="flex items-center gap-1.5">
 					{credential.maskedToken}
+					<Badge variant="outline" className="font-sans text-[11px]">
+						{credential.selectionStrategy === "round_robin"
+							? "Round robin"
+							: "Ordered"}
+					</Badge>
 					{credential.carrierKey ? (
 						<Badge
 							variant="secondary"
@@ -467,6 +491,15 @@ function ManagedCredentialCells({
 							Carrier key
 						</Badge>
 					) : null}
+					{credential.forwardSafetyIdentifier ? null : (
+						<Badge
+							variant="outline"
+							className="font-sans text-[11px]"
+							title="Requests served by this credential send no safety identifier upstream."
+						>
+							No safety ID
+						</Badge>
+					)}
 				</div>
 				{credential.tokenHash ? (
 					<div
@@ -479,6 +512,14 @@ function ManagedCredentialCells({
 			</TableCell>
 			<TableCell className="max-w-[260px] text-sm text-muted-foreground">
 				{credential.comment || "—"}
+				{formatProviderKeyRateLimits(credential) ? (
+					<div
+						className="text-xs tabular-nums"
+						title="Rate limits. While at any cap the credential is skipped."
+					>
+						{formatProviderKeyRateLimits(credential)}
+					</div>
+				) : null}
 			</TableCell>
 			<TableCell className="text-sm">
 				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
@@ -565,26 +606,26 @@ function ManagedCredentialCells({
 							</Link>
 						</Button>
 					)}
-					{/* Update and delete both reject a deleted credential. */}
+					{isAdmin ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
+							onClick={() => onEdit(credential)}
+						>
+							<Pencil className="h-4 w-4" />
+						</Button>
+					) : null}
+					{/* Delete rejects an already-deleted credential. */}
 					{isDeleted || !isAdmin ? null : (
-						<>
-							<Button
-								variant="ghost"
-								size="sm"
-								aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
-								onClick={() => onEdit(credential)}
-							>
-								<Pencil className="h-4 w-4" />
-							</Button>
-							<Button
-								variant="ghost"
-								size="sm"
-								aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
-								onClick={() => onDelete(credential)}
-							>
-								<Trash2 className="h-4 w-4" />
-							</Button>
-						</>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
+							onClick={() => onDelete(credential)}
+						>
+							<Trash2 className="h-4 w-4" />
+						</Button>
 					)}
 				</div>
 			</TableCell>
@@ -762,17 +803,21 @@ export function ProviderCredentialsManager({
 		[liveCredentials],
 	);
 
-	// Rows arrive grouped by provider (the API orders by provider, then position),
-	// so each run becomes its own reorderable tbody.
+	// Keep each pool together at its first member in the provider's reorderable list.
 	const serverOrder = useMemo(() => {
-		const groups = new Map<string, string[]>();
+		const groups = new Map<string, ProviderCredential[]>();
 		for (const credential of liveCredentials) {
 			groups.set(credential.provider, [
 				...(groups.get(credential.provider) ?? []),
-				credential.id,
+				credential,
 			]);
 		}
-		return groups;
+		return new Map(
+			Array.from(groups, ([provider, keys]) => [
+				provider,
+				providerKeySelectionOrder(keys, isInRotation).map(({ id }) => id),
+			]),
+		);
 	}, [liveCredentials]);
 
 	const credentialById = useMemo(
@@ -860,18 +905,13 @@ export function ProviderCredentialsManager({
 	 * rotation.
 	 */
 	const rotationPositions = useMemo(() => {
-		const positions = new Map<string, number>();
-		order.forEach((ids) => {
-			let position = 0;
-			for (const id of ids) {
+		const eligible = Array.from(order.values()).flatMap((ids) =>
+			ids.flatMap((id) => {
 				const credential = credentialById.get(id);
-				if (credential && isInRotation(credential)) {
-					position++;
-					positions.set(id, position);
-				}
-			}
-		});
-		return positions;
+				return credential && isInRotation(credential) ? [credential] : [];
+			}),
+		);
+		return providerKeySelectionPositions(eligible);
 	}, [order, credentialById]);
 
 	const envByProvider = useMemo(() => {
@@ -989,9 +1029,17 @@ export function ProviderCredentialsManager({
 			return;
 		}
 
+		const keys = ids.flatMap((id) => {
+			const credential = credentialById.get(id);
+			return credential ? [credential] : [];
+		});
+		const groupedIds = providerKeySelectionOrder(keys, isInRotation).map(
+			({ id }) => id,
+		);
+		setOrder((current) => new Map(current).set(provider, groupedIds));
 		setSavingProvider(provider);
 		reorderMutation.mutate(
-			{ body: { provider, credentialIds: ids } },
+			{ body: { provider, credentialIds: groupedIds } },
 			{
 				onSuccess: () => router.refresh(),
 				onError: () => setOrder(snapshot),
@@ -1055,6 +1103,12 @@ export function ProviderCredentialsManager({
 			)}
 
 			<TabsContent value="credentials" className="flex flex-col gap-2">
+				<p className="text-xs text-muted-foreground">
+					Positions are per provider, audience and region. Eligible round-robin
+					keys share one pool at their earliest member’s position. Ordered keys
+					keep individual positions before or after the pool. Model access,
+					health and limits can change eligibility.
+				</p>
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<EnvSourceNote
 						source={envSource}
@@ -1318,12 +1372,15 @@ export function ProviderCredentialsManager({
 								token: values.token,
 								comment: values.comment || undefined,
 								variant: values.variant,
+								selectionStrategy: values.selectionStrategy,
 								region: values.region || undefined,
 								config: values.config,
 								usageLimit: values.usageLimit || undefined,
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								modelSyncEnabled: values.modelSyncEnabled,
+								forwardSafetyIdentifier: values.forwardSafetyIdentifier,
+								...values.rateLimits,
 								skipValidation: values.skipValidation,
 								carrierKey: values.carrierKey,
 							},
@@ -1356,14 +1413,20 @@ export function ProviderCredentialsManager({
 								...(values.token ? { token: values.token } : {}),
 								comment: values.comment || null,
 								variant: values.variant,
+								selectionStrategy: values.selectionStrategy,
 								region: values.region || null,
-								status: values.status,
+								// A deleted credential keeps its status; the API rejects any.
+								...(isDeletedCredential(editing)
+									? {}
+									: { status: values.status }),
 								config: values.config,
 								usageLimit: values.usageLimit || null,
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								allowedModelsBase: editing.allowedModels,
 								modelSyncEnabled: values.modelSyncEnabled,
+								forwardSafetyIdentifier: values.forwardSafetyIdentifier,
+								...values.rateLimits,
 								skipValidation: values.skipValidation,
 							},
 						})
@@ -1422,6 +1485,7 @@ interface CredentialFormValues {
 	token: string;
 	comment: string;
 	variant: Variant;
+	selectionStrategy: "ordered" | "round_robin";
 	region: string;
 	status: "active" | "inactive";
 	config: Record<string, string>;
@@ -1431,6 +1495,9 @@ interface CredentialFormValues {
 	allowedModels: string[];
 	/** Let the daily model sync append models the account starts serving. */
 	modelSyncEnabled: boolean;
+	/** Send the API key's safety identifier upstream on requests this key serves. */
+	forwardSafetyIdentifier: boolean;
+	rateLimits: ProviderKeyRateLimits;
 	skipValidation: boolean;
 	/** Custom carriers, on create: serve the carrier with this key. */
 	carrierKey: boolean;
@@ -1640,6 +1707,9 @@ function CredentialDialog({
 	const [variant, setVariant] = useState<Variant>(
 		(credential?.variant as Variant) ?? "default",
 	);
+	const [selectionStrategy, setSelectionStrategy] = useState<
+		"ordered" | "round_robin"
+	>(credential?.selectionStrategy ?? "ordered");
 	const [region, setRegion] = useState(credential?.region ?? "");
 	const [status, setStatus] = useState<"active" | "inactive">(
 		credential?.status === "inactive" ? "inactive" : "active",
@@ -1653,6 +1723,12 @@ function CredentialDialog({
 	);
 	const [modelSyncEnabled, setModelSyncEnabled] = useState(
 		credential?.modelSyncEnabled ?? true,
+	);
+	const [forwardSafetyIdentifier, setForwardSafetyIdentifier] = useState(
+		credential?.forwardSafetyIdentifier ?? true,
+	);
+	const [rateLimits, setRateLimits] = useState(() =>
+		toProviderKeyRateLimitInputs(credential),
 	);
 	// An edit defaults to skipping the live check: the credential already passed
 	// one when it was stored, so re-probing on every metadata tweak spends an
@@ -1942,18 +2018,26 @@ function CredentialDialog({
 			setError("Max spend must be a non-negative number.");
 			return;
 		}
+		const parsedRateLimits = parseProviderKeyRateLimitInputs(rateLimits);
+		if ("error" in parsedRateLimits) {
+			setError(parsedRateLimits.error);
+			return;
+		}
 		setError(null);
 		onSubmit({
 			provider,
 			token,
 			comment,
 			variant,
+			selectionStrategy,
 			region,
 			status,
 			config,
 			usageLimit: trimmedLimit,
 			allowedModels,
 			modelSyncEnabled,
+			forwardSafetyIdentifier,
+			rateLimits: parsedRateLimits.limits,
 			skipValidation,
 			carrierKey,
 		});
@@ -2168,6 +2252,21 @@ function CredentialDialog({
 
 					<div className="grid grid-cols-2 gap-3">
 						<div className="flex flex-col gap-2">
+							<Label htmlFor="selection-strategy">Selection strategy</Label>
+							<Select
+								value={selectionStrategy}
+								onValueChange={(value) =>
+									setSelectionStrategy(value as "ordered" | "round_robin")
+								}
+							>
+								<SelectTrigger id="selection-strategy">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="ordered">Ordered</SelectItem>
+									<SelectItem value="round_robin">Round robin</SelectItem>
+								</SelectContent>
+							</Select>
 							<Label htmlFor="variant">Applies to</Label>
 							<Select
 								value={variant}
@@ -2464,7 +2563,42 @@ function CredentialDialog({
 						</p>
 					</div>
 
-					{isEdit ? (
+					<ProviderKeyRateLimitFields
+						idPrefix="credential-rate-limits"
+						values={rateLimits}
+						onChange={setRateLimits}
+					/>
+
+					<div className="flex items-start gap-2">
+						<Switch
+							id="forward-safety-identifier"
+							checked={forwardSafetyIdentifier}
+							onCheckedChange={setForwardSafetyIdentifier}
+						/>
+						<div className="flex flex-col gap-1">
+							<Label
+								htmlFor="forward-safety-identifier"
+								className="font-normal"
+							>
+								Forward safety identifier
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Sends the calling API key's stable safety identifier upstream
+								(e.g. OpenAI <code>safety_identifier</code>, Anthropic{" "}
+								<code>metadata.user_id</code>) on requests this credential
+								serves. Turn off to send none.
+							</p>
+						</div>
+					</div>
+
+					{credential && isDeletedCredential(credential) ? (
+						<div className="flex flex-col gap-2">
+							<Label>Status</Label>
+							<p className="text-sm text-muted-foreground">
+								{deletedCredentialDescription(credential)}
+							</p>
+						</div>
+					) : isEdit ? (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="status">Status</Label>
 							<Select

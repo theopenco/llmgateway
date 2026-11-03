@@ -128,7 +128,7 @@ const moderationResultSchema = z
 			example: true,
 		}),
 		categories: z
-			.record(z.boolean())
+			.record(z.string(), z.boolean())
 			.optional()
 			.openapi({
 				description: "Category flags returned by the moderation model.",
@@ -138,7 +138,7 @@ const moderationResultSchema = z
 				},
 			}),
 		category_scores: z
-			.record(z.number())
+			.record(z.string(), z.number())
 			.optional()
 			.openapi({
 				description: "Model confidence scores for each category.",
@@ -148,7 +148,7 @@ const moderationResultSchema = z
 				},
 			}),
 		category_applied_input_types: z
-			.record(z.array(z.string()))
+			.record(z.string(), z.array(z.string()))
 			.optional()
 			.openapi({
 				description: "Input types that contributed to each category decision.",
@@ -728,6 +728,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				await insertLog(
 					{
 						...baseLogEntry,
+						id: willRetry ? shortid() : finalLogId,
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -860,6 +861,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				await insertLog(
 					{
 						...baseLogEntry,
+						id: willRetry ? shortid() : finalLogId,
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,

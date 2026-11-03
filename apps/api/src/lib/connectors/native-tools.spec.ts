@@ -81,6 +81,14 @@ describe("native connector tools", () => {
 					headers: [{ name: "Subject", value: "Fixture subject" }],
 					parts: [
 						{
+							mimeType: "text/html",
+							body: {
+								data: Buffer.from("<p>Readable email body</p>").toString(
+									"base64url",
+								),
+							},
+						},
+						{
 							mimeType: "text/plain",
 							body: {
 								data: Buffer.from("Readable email body").toString("base64url"),

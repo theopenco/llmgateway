@@ -37,7 +37,7 @@ The healthiest pricing model is **zero token markup** plus a transparent, predic
 
 | Gateway               | Token markup | Platform / subscription fee                    | Bring your own keys        | Self-host     |
 | --------------------- | ------------ | ---------------------------------------------- | -------------------------- | ------------- |
-| **LLM Gateway**       | None         | 5% on credits (0% with your own keys)          | Free                       | Free (AGPLv3) |
+| **LLM Gateway**       | None         | 5% on credits (+1.5% on international cards)   | Free                       | Free (AGPLv3) |
 | OpenRouter            | None         | 5.5% on card credits ($0.80 min; 5% crypto)    | Free to 1M req/mo, then 5% | No            |
 | Vercel AI Gateway     | None         | Pay-as-you-go credits + payment fees           | Free (paid tier)           | No            |
 | Cloudflare AI Gateway | None         | Free direct; +5% if you use Unified Billing    | Yes                        | No            |

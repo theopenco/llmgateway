@@ -7,7 +7,7 @@ summary: "Automatic model selection now reads the request before it routes it. C
 categories: ["Announcements", "Product"]
 faqs:
   - question: "How does automatic model selection decide which model to use?"
-    answer: "You choose up to 30 models that the auto model may resolve to. LLM Gateway sorts them by blended average price and splits them into Low, Medium and High bands. A classifier rates each request for difficulty, task type and output type, and the request is served from the matching band. Without a classifier, the cheapest model on your list that can serve the request wins."
+    answer: "You choose up to 30 models that the smart model may resolve to. LLM Gateway sorts them by blended average price and splits them into Low, Medium and High bands. A classifier rates each request for difficulty, task type and output type, and the request is served from the matching band. Without a classifier, the cheapest model on your list that can serve the request wins."
   - question: "What happens if the classifier is unavailable?"
     answer: "It fails open. A timeout, an upstream outage, a missing credential, or a compliance policy that blocks the classifier's provider all fall back to the cheapest eligible model on your list. The request still succeeds, and the log records that the classifier did not produce a verdict."
   - question: "Does the classifier run on every turn of a conversation?"

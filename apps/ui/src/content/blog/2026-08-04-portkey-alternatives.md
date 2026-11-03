@@ -7,7 +7,7 @@ summary: "The 8 best Portkey alternatives in 2026, compared honestly — open-so
 categories: ["Guides"]
 faqs:
   - question: "What is the best Portkey alternative in 2026?"
-    answer: "LLM Gateway is the strongest overall alternative: fully open source (AGPLv3), self-hostable, offered as a managed cloud, with governance — compliance policies, audit logs, guardrails — built in rather than metered per log. The right choice depends on what you used Portkey for: governance (LLM Gateway, TrueFoundry, Kong) or routing (Vercel AI Gateway, OpenRouter)."
+    answer: "LLM Gateway is the strongest overall alternative: open source (AGPLv3 core), self-hostable, offered as a managed cloud, with governance — compliance policies, audit logs, guardrails — built in rather than metered per log. The right choice depends on what you used Portkey for: governance (LLM Gateway, TrueFoundry, Kong) or routing (Vercel AI Gateway, OpenRouter)."
   - question: "Is Portkey still an independent company?"
     answer: "No. Palo Alto Networks' acquisition of Portkey closed in May 2026, and the product is being folded into Prisma AIRS. Existing deployments keep working; the roadmap and sales motion now run through Palo Alto Networks."
   - question: "Is there a fully open-source Portkey alternative?"
@@ -66,7 +66,7 @@ If none of that bothers you, Portkey remains a mature product. If it does, here 
 
 **What sets it apart:**
 
-- **The whole product is self-hostable** — routing, dashboard, analytics, and governance in the AGPLv3 core, not a gateway-shaped subset with the platform held back
+- **The whole product is self-hostable** — routing, dashboard, and analytics in the AGPLv3 core, with audit logs and guardrails under the Enterprise license, not a gateway-shaped subset with the platform held back
 - **No per-log pricing** — per-request cost and latency analytics are included; usage-based fees never scale against your request volume
 - **Zero markup on BYOK** — bring provider keys and pay nothing on top of provider prices
 - **Smart routing, not provider lists** — providers scored on live uptime, throughput, price, and latency, with transparent retries and failover
@@ -270,7 +270,7 @@ If a comparison article lists either as an active option, check its publish date
 
 ## How to Choose
 
-**You want Portkey's governance without the vendor risk or log fees:** [LLM Gateway](https://llmgateway.io) — open source end to end, self-hostable, compliance policies enforced at the gateway.
+**You want Portkey's governance without the vendor risk or log fees:** [LLM Gateway](https://llmgateway.io) — open-source core, self-hostable, compliance policies enforced at the gateway.
 
 **You already run Kong:** Kong AI Gateway adds LLM controls with the least new vendor surface.
 

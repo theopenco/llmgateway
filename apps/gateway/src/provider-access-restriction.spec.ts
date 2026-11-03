@@ -121,7 +121,8 @@ describe("staff-managed provider access restriction", () => {
 			);
 		};
 		const unrestricted = await list();
-		expect(unrestricted.length).toBeGreaterThan(50);
+		// Avoid a catalogue-size threshold: counts drop as models cross deactivatedAt.
+		expect(unrestricted).toContain("gpt-4o-mini");
 
 		await restrict({ models: ["gpt-4o-mini"] });
 		const restricted = await list();

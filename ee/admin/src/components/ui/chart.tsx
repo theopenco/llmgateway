@@ -5,6 +5,7 @@ import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
 
+import { sortTooltipPayload } from "@llmgateway/shared/chart-tooltip";
 import { formatChartValue } from "@llmgateway/shared/number-format";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -130,7 +131,6 @@ const ChartTooltipContent = ({
 	color,
 	nameKey,
 	labelKey,
-	sortByValue = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
 	React.ComponentProps<"div"> & {
 		/** Formats only the value; keeps the indicator and series label. */
@@ -140,7 +140,6 @@ const ChartTooltipContent = ({
 		indicator?: "line" | "dot" | "dashed";
 		nameKey?: string;
 		labelKey?: string;
-		sortByValue?: boolean;
 	} & { ref?: React.RefObject<HTMLDivElement | null> }) => {
 	const { config } = useChart();
 
@@ -196,10 +195,8 @@ const ChartTooltipContent = ({
 		>
 			{!nestLabel ? tooltipLabel : null}
 			<div className="grid gap-1.5">
-				{payload
-					.filter((item) => item.type !== "none")
-					.sort((a, b) => (sortByValue ? Number(b.value) - Number(a.value) : 0))
-					.map((item, index) => {
+				{sortTooltipPayload(payload.filter((item) => item.type !== "none")).map(
+					(item, index) => {
 						const key = `${nameKey ?? item.name ?? item.dataKey ?? "value"}`;
 						const itemConfig = getPayloadConfigFromPayload(config, item, key);
 						const indicatorColor = color ?? item.payload.fill ?? item.color;
@@ -267,7 +264,8 @@ const ChartTooltipContent = ({
 								)}
 							</div>
 						);
-					})}
+					},
+				)}
 			</div>
 		</div>
 	);

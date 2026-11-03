@@ -1,5 +1,4 @@
 import { createHmac } from "node:crypto";
-import { lookup } from "node:dns/promises";
 
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
@@ -34,6 +33,7 @@ import {
 	invalidateOrganizationsCache,
 	isNotNull,
 	isApiKeyPeriodLimitConfigured,
+	isPremiumModelAfterDiscounts,
 	log,
 	type LogInsertData,
 	lt,
@@ -48,21 +48,28 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingDailyAllowance,
 	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
+	isDailyWindowExpired,
 	isLoungeSource,
-	isPremiumUsedModel,
 	isPremiumWeekExpired,
-	isPrivateOrReservedIp,
+	usedModelBaseId,
 } from "@llmgateway/shared";
 import {
 	getLogRetentionCutoff,
 	LOG_RETENTION_DAYS,
 } from "@llmgateway/shared/log-retention";
+import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
+import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
+import {
+	scheduleDailyModelVerifications,
+	modelVerificationConcurrency,
+} from "./services/daily-model-verifications.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -76,8 +83,10 @@ import { startHistoryAfterRecovery } from "./services/history-startup.js";
 import {
 	runModelStatsByokErrorsBackfillStep,
 	runSourceModelStatsBackfillStep,
+	runTenantStatsByokSplitBackfillStep,
 } from "./services/hourly-stats-backfill.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
+import { deliverModelVerificationRegressions } from "./services/model-verification-regressions.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
 import {
@@ -85,6 +94,7 @@ import {
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
 import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
+import { tearDownPendingProviderKeys } from "./services/provider-key-teardown.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import {
 	backfillHistoryIfNeeded,
@@ -96,7 +106,10 @@ import {
 	getModelHistoryRetentionCutoff,
 	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
-import { syncProvidersAndModels } from "./services/sync-models.js";
+import {
+	MODEL_SYNC_LOCK_KEY,
+	syncProvidersAndModels,
+} from "./services/sync-models.js";
 import {
 	processPendingVideoJobs,
 	processPendingWebhookDeliveries,
@@ -133,6 +146,8 @@ function getStripe(): Stripe {
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
+// Provider-key statuses that can still spend, so the spend fuse covers them.
+const SPEND_FUSE_STATUSES = ["active", "pending_deletion"] as const;
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
@@ -146,7 +161,11 @@ const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
 	"model_stats_byok_errors_backfill";
+const TENANT_STATS_BYOK_SPLIT_BACKFILL_LOCK_KEY =
+	"tenant_stats_byok_split_backfill";
+const PROJECT_STATS_LOCK_KEY = "project_stats_refresh";
 const LOCK_DURATION_MINUTES = 5;
+const MODEL_SYNC_LOCK_WAIT_MS = LOCK_DURATION_MINUTES * 60 * 1000;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
 const WALLET_LOW_BALANCE_THRESHOLD = 1;
@@ -166,21 +185,17 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
 );
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
-// How many times a log must fail on its own — after the batch has been narrowed
-// all the way down to it — before it is quarantined and the queue moves on.
-// Keeps a transient fault (deadlock, dropped connection) from costing a healthy
-// row its billing, while bounding how long one poison row can stall billing.
-const POISON_LOG_MAX_ATTEMPTS =
-	Number(process.env.CREDIT_POISON_LOG_MAX_ATTEMPTS) || 3;
-// Quarantining assumes the fault is row-specific. A fault that is not — a
-// worker deployed ahead of its migration, a broken trigger on `organization` —
-// fails every batch down to size 1, so an uncapped loop would drop the whole
-// queue unbilled, one row per pass. Past this budget the pass stops
-// quarantining and lets the queue stall instead: that is the pre-isolation
-// behaviour, which loses no billing and recovers on its own once the fault is
-// fixed. Counted per fixed window across all replicas.
-const QUARANTINE_BUDGET_WINDOW_SECONDS =
-	Number(process.env.CREDIT_QUARANTINE_WINDOW_SECONDS) || 3600;
+// Bound retries per selected log; SQL failures never discard charges.
+const POISON_LOG_MAX_ATTEMPTS = Math.max(
+	1,
+	Math.min(
+		10,
+		Math.floor(Number(process.env.CREDIT_POISON_LOG_MAX_ATTEMPTS) || 3),
+	),
+);
+// Cap unreadable-row retirement across replicas and restarts. Schema drift
+// must stall billing rather than silently discard the entire backlog.
+const QUARANTINE_BUDGET_WINDOW_SECONDS = 3600;
 const DEFAULT_QUARANTINE_BUDGET = 5;
 // Pause after the budget is spent, so a pass that can only fail does not keep
 // narrowing against an unhealthy database once per caller interval.
@@ -282,6 +297,13 @@ const finiteCost = z.preprocess(
 	z.number().nullable(),
 );
 
+const finiteDecimalCost = z
+	.string()
+	.nullable()
+	.refine(
+		(value) => value === null || new Decimal(value).isFinite(),
+		"Cost must be finite",
+	);
 const schema = z.object({
 	id: z.string(),
 	created_at: z.date(),
@@ -289,7 +311,7 @@ const schema = z.object({
 	organization_id: z.string(),
 	project_id: z.string(),
 	cost: finiteCost,
-	billing_cost: z.string().nullable(),
+	billing_cost: finiteDecimalCost,
 	// Nullable in the database (the column only has a default), so never assume
 	// a boolean is present.
 	cached: z.boolean().nullable(),
@@ -309,7 +331,7 @@ const schema = z.object({
 	used_provider: z.string(),
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
-	data_storage_cost: z.string().nullable(),
+	data_storage_cost: finiteDecimalCost,
 	prompt_tokens: z.string().nullable(),
 	completion_tokens: z.string().nullable(),
 	total_tokens: z.string().nullable(),
@@ -929,6 +951,10 @@ export async function cleanupExpiredLogData(): Promise<void> {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
 				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
+				// ORDER BY created_at forces the partial index. Without it the planner
+				// assumes the two predicates are independent, expects many matches, and
+				// picks a seq scan that "stops early" — but pending rows are all recent,
+				// so it reads the whole heap and finds almost nothing.
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
@@ -938,6 +964,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
+					.orderBy(log.createdAt)
 					.limit(CLEANUP_BATCH_SIZE)
 					.for("update", { skipLocked: true });
 
@@ -1287,9 +1314,37 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 			// not an option.
 			const isChatSource = isLoungeSource;
 
+			// Classify each distinct model once per batch at public prices, the
+			// same classification the gateway's premium gate uses.
+			const batchModelIds = new Set(
+				rows.flatMap((r) =>
+					r.used_model ? [usedModelBaseId(r.used_model)] : [],
+				),
+			);
+			const premiumModelIds = new Set(
+				(
+					await Promise.all(
+						[...batchModelIds].map(async (modelId) =>
+							(await isPremiumModelAfterDiscounts(modelId)) ? modelId : null,
+						),
+					)
+				).filter((modelId) => modelId !== null),
+			);
+
 			for (const raw of unprocessedLogs.rows) {
 				const parsed = schema.safeParse(raw);
 				if (!parsed.success) {
+					if (!(await claimQuarantineBudget())) {
+						logger.error(
+							"Credit quarantine budget unavailable; leaving unreadable log queued",
+							{
+								kind: "log-quarantine-budget-spent",
+								logId: raw.id,
+								organizationId: raw.organization_id,
+							},
+						);
+						continue;
+					}
 					unreadableLogIds.push(raw.id);
 					logger.error(
 						`Quarantining unreadable log ${raw.id}: its cost will not be billed`,
@@ -1440,7 +1495,10 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
-							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
+							Boolean(
+								row.used_model &&
+								premiumModelIds.has(usedModelBaseId(row.used_model)),
+							),
 						);
 					}
 				}
@@ -1464,6 +1522,8 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 				remaining: Decimal;
 				premiumCreditsUsed?: Decimal;
 				premiumWeekStart?: Date | null;
+				dailyCreditsUsed?: Decimal;
+				dayStart?: Date | null;
 			}
 
 			const deductFromPlanPool = async (
@@ -1487,6 +1547,20 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 					const weekExpired = isPremiumWeekExpired(pool.premiumWeekStart);
 					const now = new Date();
 					const premiumAmountStr = premiumAmount.toString();
+					// Daily pacing window: every pool debit counts, all models. An
+					// expired window restarts from this debit.
+					const dayExpired = isDailyWindowExpired(pool.dayStart);
+					const dailySet = dayExpired
+						? { devPlanDailyCreditsUsed: amountStr, devPlanDayStart: now }
+						: {
+								devPlanDailyCreditsUsed: sql`${organization.devPlanDailyCreditsUsed} + ${amountStr}`,
+							};
+					pool.dailyCreditsUsed = dayExpired
+						? amount
+						: (pool.dailyCreditsUsed ?? new Decimal(0)).plus(amount);
+					if (dayExpired) {
+						pool.dayStart = now;
+					}
 
 					if (premiumAmount.greaterThan(0)) {
 						if (weekExpired) {
@@ -1494,6 +1568,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 								.update(organization)
 								.set({
 									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									...dailySet,
 									devPlanPremiumCreditsUsed: premiumAmountStr,
 									devPlanPremiumWeekStart: now,
 								})
@@ -1505,6 +1580,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 								.update(organization)
 								.set({
 									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									...dailySet,
 									devPlanPremiumCreditsUsed: sql`${organization.devPlanPremiumCreditsUsed} + ${premiumAmountStr}`,
 								})
 								.where(eq(organization.id, orgId));
@@ -1517,6 +1593,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 							.update(organization)
 							.set({
 								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								...dailySet,
 								devPlanPremiumCreditsUsed: "0",
 								devPlanPremiumWeekStart: now,
 							})
@@ -1528,6 +1605,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 							.update(organization)
 							.set({
 								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								...dailySet,
 							})
 							.where(eq(organization.id, orgId));
 					}
@@ -1571,6 +1649,10 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 									org.devPlanPremiumCreditsUsed || "0",
 								),
 								premiumWeekStart: org.devPlanPremiumWeekStart,
+								dailyCreditsUsed: new Decimal(
+									org.devPlanDailyCreditsUsed || "0",
+								),
+								dayStart: org.devPlanDayStart,
 							}
 						: null;
 
@@ -1602,6 +1684,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 						const allowanceLeft = new Decimal(
 							getRemainingPremiumWeeklyAllowance(
 								org.devPlan as DevPlanTier,
+								org.devPlanCreditsLimit,
 								devPool.premiumCreditsUsed?.toNumber() ?? 0,
 								devPool.premiumWeekStart,
 							),
@@ -1612,6 +1695,33 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 						);
 						remaining = remaining.minus(premiumOverflow);
 						remainingPremium = remainingPremium.minus(premiumOverflow);
+					}
+					// The daily pacing allowance limits the plan pool the same way:
+					// with overflow opted in, pool spend past today's allowance is
+					// held out of the drain and billed to the credits balance. It
+					// applies to whatever can reach the dev pool: the whole bucket
+					// when the dev pool is preferred, otherwise only what the
+					// preferred chat pool cannot cover.
+					let dailyOverflow = new Decimal(0);
+					if (org?.devPlanPaygEnabled && devPool) {
+						const devPoolBound =
+							preferred === devPool || !chatPool
+								? remaining
+								: Decimal.max(
+										0,
+										remaining.minus(Decimal.max(0, chatPool.remaining)),
+									);
+						const dailyLeft = new Decimal(
+							getRemainingDailyAllowance(
+								org.devPlan as DevPlanTier,
+								org.devPlanCreditsLimit,
+								devPool.dailyCreditsUsed?.toNumber() ?? 0,
+								devPool.dayStart,
+							),
+						);
+						dailyOverflow = Decimal.max(0, devPoolBound.minus(dailyLeft));
+						remaining = remaining.minus(dailyOverflow);
+						remainingPremium = Decimal.min(remainingPremium, remaining);
 					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
@@ -1630,7 +1740,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
 					return {
-						remaining: remaining.plus(premiumOverflow),
+						remaining: remaining.plus(premiumOverflow).plus(dailyOverflow),
 						remainingPremium,
 					};
 				};
@@ -1918,7 +2028,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 					.where(
 						and(
 							inArray(tables.providerKey.id, [...providerKeyCosts.keys()]),
-							eq(tables.providerKey.status, "active"),
+							inArray(tables.providerKey.status, [...SPEND_FUSE_STATUSES]),
 							isNotNull(tables.providerKey.usageLimit),
 							sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
 						),
@@ -1963,7 +2073,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 					.where(sql`${log.id} = ANY(${sql.param(unreadableLogIds)}::text[])`);
 			}
 
-			return unprocessedLogs.rows.length;
+			return logIds.length + unreadableLogIds.length;
 		});
 	} catch (error) {
 		return {
@@ -1994,11 +2104,15 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 		if (overLimitProviderKeyIds.length > 0) {
 			const deactivated = await cdb
 				.update(tables.providerKey)
-				.set({ status: "inactive" })
+				// A key pending deletion only serves pinned conversations; past its
+				// cap it is torn down at once rather than parked as inactive.
+				.set({
+					status: sql`CASE WHEN ${tables.providerKey.status} = 'pending_deletion' THEN 'deleted' ELSE 'inactive' END`,
+				})
 				.where(
 					and(
 						inArray(tables.providerKey.id, overLimitProviderKeyIds),
-						eq(tables.providerKey.status, "active"),
+						inArray(tables.providerKey.status, [...SPEND_FUSE_STATUSES]),
 						isNotNull(tables.providerKey.usageLimit),
 						sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
 					),
@@ -2088,20 +2202,30 @@ function describeError(error: Error): string {
  * stalled queue is recoverable and an unbilled row is not.
  */
 async function claimQuarantineBudget(): Promise<boolean> {
-	// Read per call so a test (and an operator editing the deployment) does not
-	// depend on module load order.
-	const budget =
-		Number(process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW) ||
-		DEFAULT_QUARANTINE_BUDGET;
+	const budget = Number(
+		process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW ?? DEFAULT_QUARANTINE_BUDGET,
+	);
+	if (!Number.isInteger(budget) || budget <= 0 || budget > 100) {
+		return false;
+	}
 	const windowMs = QUARANTINE_BUDGET_WINDOW_SECONDS * 1000;
 	const key = `credit-quarantine-budget:${Math.floor(Date.now() / windowMs)}`;
-
 	try {
-		const used = await redisClient.incr(key);
-		if (used === 1) {
-			await redisClient.expire(key, QUARANTINE_BUDGET_WINDOW_SECONDS);
-		}
-		return used <= budget;
+		return (
+			(await redisClient.eval(
+				`
+			local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+			if used >= tonumber(ARGV[1]) then return 0 end
+			redis.call('INCR', KEYS[1])
+			redis.call('EXPIRE', KEYS[1], ARGV[2])
+			return 1
+		`,
+				1,
+				key,
+				budget,
+				QUARANTINE_BUDGET_WINDOW_SECONDS,
+			)) === 1
+		);
 	} catch (error) {
 		logger.error(
 			"Failed to claim a credit quarantine budget slot; leaving the log queued",
@@ -2111,147 +2235,64 @@ async function claimQuarantineBudget(): Promise<boolean> {
 	}
 }
 
-/**
- * Retires a log the batch could not process, so it stops blocking the queue.
- * Marking it processed is the whole mechanism: every other consumer keys off
- * `processed_at IS NULL`, and leaving it null would just move the stall. Why it
- * was dropped lives in the infra logs — alert on `kind: "log-quarantine"`.
- */
-async function quarantineLog(
-	logId: string,
-	organizationId: string | undefined,
-	error?: Error,
-): Promise<void> {
-	try {
-		await db
-			.update(log)
-			.set({
-				processedAt: new Date(),
-			})
-			.where(and(eq(log.id, logId), sql`${log.processedAt} IS NULL`));
-
-		logger.error(
-			`Quarantined log ${logId} after ${POISON_LOG_MAX_ATTEMPTS} failed credit-processing attempts: its cost will not be billed`,
-			error,
-			{
-				kind: "log-quarantine",
-				logId,
-				organizationId,
-				cause: "processing-failure",
-				reason: error ? describeError(error) : "unknown error",
-			},
-		);
-	} catch (updateError) {
-		// The database itself is unhealthy — nothing was quarantined, so the row
-		// is retried on the next pass rather than silently dropped.
-		logger.error(
-			`Failed to quarantine log ${logId}`,
-			updateError instanceof Error
-				? updateError
-				: new Error(String(updateError)),
-		);
-	}
-}
-
-/**
- * Drains one pass of the credit-deduction queue.
- *
- * A batch that rolls back is retried at half the size, down to a single log, so
- * one deterministically failing row can never hold up the rest of the platform:
- * every good row ahead of it still commits, and the row itself is quarantined
- * once it has failed on its own {@link POISON_LOG_MAX_ATTEMPTS} times. Bounded
- * at ~log2(CREDIT_BATCH_SIZE) extra transactions per pass.
- *
- * Quarantines are capped per window ({@link claimQuarantineBudget}): a fault
- * that is not row-specific stalls the queue rather than retiring it unbilled.
- */
+/** Narrows failed batches; SQL failures remain queued for recovery. */
 export async function batchProcessLogs(): Promise<number> {
-	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
-	if (!lockAcquired) {
+	const leaseId = await acquireLease(CREDIT_PROCESSING_LOCK_KEY);
+	if (!leaseId) {
 		return 0;
 	}
-
 	try {
 		let batchSize = CREDIT_BATCH_SIZE;
 		let singleLogAttempts = 0;
 		let singleLogId: string | null = null;
-
 		while (!isStopRequested()) {
 			const result = await runCreditBatch(batchSize);
-
 			if (!result.failed) {
+				if (result.processed === 0 && result.selectedLogs.length > 0) {
+					await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
+				}
 				return result.processed;
 			}
-
 			logger.error(
 				`Error processing batch credit deductions (batch size ${batchSize}, ${result.selectedLogs.length} logs selected)`,
 				result.error,
 			);
-
 			if (result.selectedLogs.length === 0) {
-				// The select itself failed, so the fault is not row-specific (the
-				// database is unreachable, a lock timed out, …). Narrowing cannot
-				// help; let the caller back off and try again.
+				await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
 				return 0;
 			}
-
 			if (batchSize > 1) {
 				batchSize = Math.max(1, Math.floor(batchSize / 2));
-				logger.warn(
-					`Narrowing credit batch to ${batchSize} logs to isolate the failing row`,
-				);
 				continue;
 			}
-
-			// A single log now fails on its own. Retry it a few times first so a
-			// transient fault (deadlock, dropped connection) does not cost a row
-			// its billing, then give up on it and let the queue move on. Attempts
-			// are counted per log: a late-arriving older row can take the head
-			// between retries, and must not inherit another row's failures.
-			const poisonLog = result.selectedLogs[0];
-			if (poisonLog.id !== singleLogId) {
-				singleLogId = poisonLog.id;
+			const selectedLog = result.selectedLogs[0];
+			if (selectedLog.id !== singleLogId) {
+				singleLogId = selectedLog.id;
 				singleLogAttempts = 0;
 			}
 			singleLogAttempts++;
 			if (singleLogAttempts < POISON_LOG_MAX_ATTEMPTS) {
-				// Back off so a deadlock, lock timeout or failover has a chance to
-				// clear; retrying within milliseconds would quarantine — and never
-				// bill — a healthy row.
 				await interruptibleSleep(250 * singleLogAttempts);
 				continue;
 			}
-
-			if (!(await claimQuarantineBudget())) {
-				// Too many rows are failing for this to be one poison row. Stall
-				// instead of billing nobody: the rows stay queued and drain once the
-				// platform-wide fault is fixed. Page on this.
-				logger.error(
-					`Quarantine budget for the current ${QUARANTINE_BUDGET_WINDOW_SECONDS}s window is spent: leaving log ${poisonLog.id} queued and stalling credit processing`,
-					result.error,
-					{
-						kind: "log-quarantine-budget-spent",
-						logId: poisonLog.id,
-						organizationId: poisonLog.organizationId,
-						reason: result.error
-							? describeError(result.error)
-							: "unknown error",
-					},
-				);
-				// Narrowing a batch that cannot commit costs ~log2(batch) failing
-				// transactions per pass, so back off before the caller's next pass
-				// rather than hammering an already unhealthy database.
-				await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
-				return 0;
-			}
-
-			await quarantineLog(poisonLog.id, poisonLog.organizationId, result.error);
+			// SQL failures cannot prove row corruption. Preserve charges through
+			// permission errors, trigger failures, deadlocks and outages.
+			logger.error(
+				"Credit processing still failing; leaving log queued",
+				result.error,
+				{
+					kind: "credit-processing-stalled",
+					logId: selectedLog.id,
+					organizationId: selectedLog.organizationId,
+					reason: result.error ? describeError(result.error) : "unknown error",
+				},
+			);
+			await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
 			return 0;
 		}
-
 		return 0;
 	} finally {
-		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
+		await releaseLease(leaseId);
 	}
 }
 
@@ -2891,7 +2932,17 @@ async function runProjectStatsLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await refreshProjectHourlyStats();
+				// The live refresh accumulates onto shared buckets, so only one
+				// replica may run a pass at a time. A lease, so a pass that outlived
+				// the lock never releases another replica's lock.
+				const leaseId = await acquireLease(PROJECT_STATS_LOCK_KEY);
+				if (leaseId) {
+					try {
+						await refreshProjectHourlyStats();
+					} finally {
+						await releaseLease(leaseId);
+					}
+				}
 
 				await interruptibleSleep(interval);
 			} catch (error) {
@@ -3143,17 +3194,28 @@ async function runApiKeyExpirationLoop() {
 
 	try {
 		while (!isStopRequested()) {
+			// Separate so a failing API-key pass can never stall provider-key
+			// teardown: a pinned conversation keeps refreshing its pin.
+			let failed = false;
 			try {
 				await disableExpiredApiKeys();
-
-				await interruptibleSleep(interval);
 			} catch (error) {
+				failed = true;
 				logger.error(
 					"Error in API key expiration loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				await interruptibleSleep(5000);
 			}
+			try {
+				await tearDownPendingProviderKeys();
+			} catch (error) {
+				failed = true;
+				logger.error(
+					"Error tearing down pending-deletion provider keys",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+			await interruptibleSleep(failed ? 5000 : interval);
 		}
 	} finally {
 		activeLoops--;
@@ -3307,24 +3369,7 @@ const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
  * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
  * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
  */
-/**
- * SSRF guard for an outbound webhook delivery: validate the URL is https + not
- * an internal literal, then resolve the host and reject if any resolved address
- * is private/reserved (DNS rebinding protection). Throws on an unsafe target.
- */
-async function assertSafeWebhookTarget(rawUrl: string): Promise<void> {
-	const url = assertSafeWebhookUrl(rawUrl);
-	const resolved = await lookup(url.hostname, { all: true });
-	for (const { address } of resolved) {
-		if (isPrivateOrReservedIp(address)) {
-			throw new Error(
-				`Webhook host ${url.hostname} resolves to a disallowed address (${address})`,
-			);
-		}
-	}
-}
-
-async function processWebhookDeliveries(): Promise<void> {
+export async function processWebhookDeliveries(): Promise<void> {
 	const lockAcquired = await acquireLock(WEBHOOK_DELIVERY_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -3358,12 +3403,12 @@ async function processWebhookDeliveries(): Promise<void> {
 
 			const attempts = delivery.attempts + 1;
 			try {
-				// SSRF guard at delivery time: https + literal checks, plus resolve
-				// the host and reject if any address is private/reserved (defeats
-				// DNS rebinding between registration and delivery).
-				await assertSafeWebhookTarget(delivery.endpoint.url);
+				// SSRF guard at delivery time: https + literal checks here, then
+				// fetchSafeUserUrl rejects private/reserved addresses when the socket
+				// connects (no DNS rebinding window) and refuses redirects.
+				assertSafeWebhookUrl(delivery.endpoint.url);
 
-				const res = await fetch(delivery.endpoint.url, {
+				const res = await fetchSafeUserUrl(delivery.endpoint.url, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -3837,8 +3882,28 @@ export async function startWorker() {
 
 	// Initialize providers and models sync - must complete before other stats syncs
 	try {
-		await syncProvidersAndModels();
-		logger.info("Initial sync completed");
+		// Price alerts pause while this lock is held, so a sync that is only
+		// partly written is never reported as a price change.
+		// Wait for another worker's sync so two builds never write at once.
+		let syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		for (
+			let waited = 0;
+			!syncLocked && waited < MODEL_SYNC_LOCK_WAIT_MS && !isStopRequested();
+			waited += 5000
+		) {
+			await interruptibleSleep(5000);
+			syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		}
+		if (syncLocked) {
+			try {
+				await syncProvidersAndModels();
+			} finally {
+				await releaseLock(MODEL_SYNC_LOCK_KEY);
+			}
+			logger.info("Initial sync completed");
+		} else {
+			logger.warn("Skipping initial model sync because the lock is held");
+		}
 	} catch (error) {
 		logger.error(
 			"Error during initial sync",
@@ -3895,7 +3960,14 @@ export async function startWorker() {
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
-	void runModelVerificationLoop();
+	for (
+		let consumer = 0;
+		consumer < modelVerificationConcurrency();
+		consumer++
+	) {
+		void runModelVerificationLoop();
+	}
+	void runDailyModelVerificationLoop();
 	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
@@ -3914,6 +3986,11 @@ export async function startWorker() {
 		"model stats BYOK errors",
 		MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY,
 		runModelStatsByokErrorsBackfillStep,
+	);
+	void runBackfillLoop(
+		"tenant stats BYOK split",
+		TENANT_STATS_BYOK_SPLIT_BACKFILL_LOCK_KEY,
+		runTenantStatsByokSplitBackfillStep,
 	);
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);
@@ -4054,5 +4131,29 @@ export async function enforceRetentionPlanGating(
 		return 0;
 	} finally {
 		await releaseLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	}
+}
+async function runDailyModelVerificationLoop() {
+	activeLoops++;
+	try {
+		while (!isStopRequested()) {
+			for (const service of [
+				scheduleDailyModelVerifications,
+				deliverModelVerificationRegressions,
+				deliverAirsideVerificationEmails,
+			]) {
+				try {
+					await service();
+				} catch (error) {
+					logger.error(
+						"Error in daily model verification loop",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+			}
+			await interruptibleSleep(5 * 60 * 1000);
+		}
+	} finally {
+		activeLoops--;
 	}
 }

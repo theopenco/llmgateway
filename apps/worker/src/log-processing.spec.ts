@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -17,8 +17,13 @@ import {
 	apiKey,
 	user,
 } from "@llmgateway/db";
+import {
+	getDevPlanDailyLimit,
+	getDevPlanPremiumWeeklyLimit,
+	LOUNGE_SOURCE,
+} from "@llmgateway/shared";
 
-import { batchProcessLogs } from "./worker.js";
+import { acquireLease, batchProcessLogs, releaseLease } from "./worker.js";
 
 describe("Log Processing", () => {
 	interface TestIds {
@@ -288,6 +293,60 @@ describe("Log Processing", () => {
 			expect(updatedOrg!.devPlanPremiumWeekStart).toBeInstanceOf(Date);
 		});
 
+		test("should not accrue premium weekly usage for a model a global discount prices as standard", async () => {
+			await db
+				.update(organization)
+				.set({
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "0",
+					devPlanPremiumCreditsUsed: "0",
+					devPlanPremiumWeekStart: null,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const discountId = `log-processing-discount-${randomUUID()}`;
+			// Through cdb so its mutation hook drops cached discount lookups.
+			await cdb.insert(tables.discount).values({
+				id: discountId,
+				organizationId: null,
+				provider: null,
+				model: "claude-fable-5",
+				discountPercent: "0.9",
+			});
+
+			try {
+				await db.insert(log).values({
+					requestId: "test-request-premium-discounted",
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.5,
+					cached: false,
+					usedMode: "credits",
+					duration: 2000,
+					requestedModel: "anthropic/claude-fable-5",
+					requestedProvider: "anthropic",
+					usedModel: "anthropic/claude-fable-5",
+					usedProvider: "anthropic",
+					responseSize: 150,
+					mode: "credits",
+				});
+
+				await batchProcessLogs();
+
+				const updatedOrg = await db.query.organization.findFirst({
+					where: { id: { eq: testOrg.id } },
+				});
+
+				expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(0.5);
+				expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(0);
+			} finally {
+				await cdb
+					.delete(tables.discount)
+					.where(eq(tables.discount.id, discountId));
+			}
+		});
+
 		test("should bill overflow to organization credits once the dev plan pool is exhausted", async () => {
 			// PAYG overflow: with the monthly pool fully used, the cost cannot
 			// draw from the plan pool, so the worker drains the org's regular
@@ -334,19 +393,19 @@ describe("Log Processing", () => {
 		});
 
 		test("should route premium spend past the weekly allowance to regular credits when PAYG is enabled", async () => {
-			// The pro weekly premium allowance is 15% of the monthly pool
-			// (237 * 0.15 = 35.55). With the counter already at the cap, an
-			// over-cap premium request admitted via PAYG overflow must bill the
-			// org's balance — draining the monthly pool here would make the
-			// weekly cap meaningless.
+			// With the premium counter already at the weekly cap, an over-cap
+			// premium request admitted via PAYG overflow must bill the org's
+			// balance — draining the monthly pool here would make the weekly
+			// cap meaningless.
+			const weeklyLimit = getDevPlanPremiumWeeklyLimit("pro");
 			await db
 				.update(organization)
 				.set({
 					kind: "devpass",
 					devPlan: "pro",
-					devPlanCreditsLimit: "237",
+					devPlanCreditsLimit: "158",
 					devPlanCreditsUsed: "50",
-					devPlanPremiumCreditsUsed: "35.55",
+					devPlanPremiumCreditsUsed: weeklyLimit.toString(),
 					devPlanPremiumWeekStart: new Date(),
 					devPlanPaygEnabled: true,
 				})
@@ -378,22 +437,26 @@ describe("Log Processing", () => {
 
 			// Plan pool and premium counter untouched; the balance paid.
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(50);
-			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(35.55);
+			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
+				weeklyLimit,
+				6,
+			);
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.5);
 		});
 
 		test("should split premium spend across the weekly allowance boundary when PAYG is enabled", async () => {
-			// 0.30 of weekly premium allowance left (35.55 - 35.25): a 0.50
-			// premium charge takes 0.30 from the plan pool and overflows the
-			// remaining 0.20 to the balance.
+			// 0.30 of weekly premium allowance left: a 0.50 premium charge takes
+			// 0.30 from the plan pool and overflows the remaining 0.20 to the
+			// balance.
+			const weeklyLimit = getDevPlanPremiumWeeklyLimit("pro");
 			await db
 				.update(organization)
 				.set({
 					kind: "devpass",
 					devPlan: "pro",
-					devPlanCreditsLimit: "237",
+					devPlanCreditsLimit: "158",
 					devPlanCreditsUsed: "50",
-					devPlanPremiumCreditsUsed: "35.25",
+					devPlanPremiumCreditsUsed: (weeklyLimit - 0.3).toFixed(2),
 					devPlanPremiumWeekStart: new Date(),
 					devPlanPaygEnabled: true,
 				})
@@ -425,7 +488,7 @@ describe("Log Processing", () => {
 
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.3, 6);
 			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
-				35.55,
+				weeklyLimit,
 				6,
 			);
 			expect(Number(updatedOrg!.credits)).toBeCloseTo(initialCredits - 0.2, 6);
@@ -436,14 +499,15 @@ describe("Log Processing", () => {
 			// requests, but requests already in flight when the cap was crossed
 			// can land here. The balance is unspendable without the opt-in, so
 			// the spend stays on the plan pool exactly as before.
+			const weeklyLimit = getDevPlanPremiumWeeklyLimit("pro");
 			await db
 				.update(organization)
 				.set({
 					kind: "devpass",
 					devPlan: "pro",
-					devPlanCreditsLimit: "237",
+					devPlanCreditsLimit: "158",
 					devPlanCreditsUsed: "50",
-					devPlanPremiumCreditsUsed: "35.55",
+					devPlanPremiumCreditsUsed: weeklyLimit.toString(),
 					devPlanPremiumWeekStart: new Date(),
 					devPlanPaygEnabled: false,
 				})
@@ -475,7 +539,292 @@ describe("Log Processing", () => {
 
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.5, 6);
 			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
-				36.05,
+				weeklyLimit + 0.5,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
+		});
+
+		test("should accrue daily pacing usage on every dev plan pool debit", async () => {
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "0",
+					devPlanDailyCreditsUsed: "0",
+					devPlanDayStart: null,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-accrue",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(0.5);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBe(0.5);
+			expect(updatedOrg!.devPlanDayStart).toBeInstanceOf(Date);
+		});
+
+		test("should restart the daily pacing window once it has expired", async () => {
+			const staleOffsetMs = 25 * 60 * 60 * 1000;
+			const staleStart = new Date(Date.now() - staleOffsetMs);
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "10",
+					devPlanDailyCreditsUsed: "4",
+					devPlanDayStart: staleStart,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-rollover",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.25,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(10.25);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBe(0.25);
+			expect(updatedOrg!.devPlanDayStart!.getTime()).toBeGreaterThan(
+				staleStart.getTime(),
+			);
+		});
+
+		test("should route spend past the daily pacing allowance to regular credits when PAYG is enabled", async () => {
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: dailyLimit.toString(),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-overflow",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Plan pool and daily counter untouched; the balance paid.
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(50);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.5);
+		});
+
+		test("should split spend across the daily pacing boundary when PAYG is enabled", async () => {
+			// 0.20 of today's allowance left: a 0.50 charge takes 0.20 from the
+			// plan pool and overflows the remaining 0.30 to the balance.
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: (dailyLimit - 0.2).toFixed(2),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-split",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.2, 6);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(initialCredits - 0.3, 6);
+		});
+
+		test("should apply the daily pacing allowance when the dev plan backs an exhausted chat pool", async () => {
+			// Lounge traffic prefers the chat pool. With 0.20 of chat credits
+			// left and today's dev allowance spent, a 0.50 charge drains the
+			// chat pool first and the rest overflows to the balance instead of
+			// pushing the dev pool past its daily allowance.
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					chatPlan: "plus",
+					chatPlanCreditsLimit: "19",
+					chatPlanCreditsUsed: "18.8",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: dailyLimit.toString(),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-chat-fallback",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+				source: LOUNGE_SOURCE,
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.chatPlanCreditsUsed)).toBeCloseTo(19, 6);
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(50);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(initialCredits - 0.3, 6);
+		});
+
+		test("should keep spend past the daily pacing allowance on the plan pool when PAYG is disabled", async () => {
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: dailyLimit.toString(),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: false,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-payg-off",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.5, 6);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit + 0.5,
 				6,
 			);
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
@@ -1037,7 +1386,7 @@ describe("Log Processing", () => {
 		const insertByokKey = async (overrides?: {
 			usageLimit?: string | null;
 			usage?: string;
-			status?: "active" | "inactive";
+			status?: "active" | "inactive" | "pending_deletion";
 		}) => {
 			const tokenId = randomUUID();
 			const [key] = await db
@@ -1107,6 +1456,24 @@ describe("Log Processing", () => {
 			});
 			expect(Number(updated!.usage)).toBeCloseTo(0.06, 8);
 			expect(updated!.status).toBe("inactive");
+		});
+
+		test("tears down a key pending deletion that crosses its spend limit", async () => {
+			const key = await insertByokKey({
+				usageLimit: "0.05",
+				usage: "0.04",
+				status: "pending_deletion",
+			});
+
+			await insertProviderLog({ providerKeyId: key.id, cost: 0.02 });
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			// Inactive would bring it back into key lists; deleted ends it.
+			expect(updated!.status).toBe("deleted");
 		});
 
 		test("leaves a key active while under its spend limit", async () => {
@@ -1280,6 +1647,24 @@ describe("Log Processing", () => {
 			expect(Number(org!.credits)).toBeCloseTo(100, 8);
 		});
 
+		test("tolerates nullable cache flags and malformed error telemetry", async () => {
+			const entry = await insertLog({ cost: 0.02 });
+			await db.execute(
+				sql`update "log" set cached = NULL, error_details = '{"message":"unexpected"}'::json where id = ${entry.id}`,
+			);
+			expect(await batchProcessLogs()).toBe(1);
+			expect(
+				Number(
+					(await db.query.organization.findFirst({
+						where: { id: { eq: testOrg.id } },
+					}))!.credits,
+				),
+			).toBeCloseTo(99.98, 8);
+			expect(await redisClient.keys("credit-quarantine-budget:*")).toHaveLength(
+				0,
+			);
+		});
+
 		test("quarantines an unreadable row without blocking the rest", async () => {
 			const poison = await insertLog({});
 			// `used_mode` has no database-level constraint, so an out-of-enum value
@@ -1308,11 +1693,7 @@ describe("Log Processing", () => {
 			expect(Number(org!.credits)).toBeCloseTo(99.98, 8);
 		});
 
-		test("quarantines a row whose update keeps failing", async () => {
-			// The poison row bills its own organization, so a trigger on that one
-			// org row raises for every batch containing it — at any batch size —
-			// the way a genuine deterministic SQL fault would, while leaving the
-			// healthy rows' own updates alone.
+		test("preserves failed SQL charges and bills once after recovery", async () => {
 			const poisonOrgId = "poison-guard-org";
 			await db.delete(organization).where(eq(organization.id, poisonOrgId));
 			await db.insert(organization).values({
@@ -1321,7 +1702,6 @@ describe("Log Processing", () => {
 				billingEmail: "poison@example.com",
 				credits: "50.00",
 			});
-
 			const older = await insertLog({
 				cost: 0.01,
 				createdAt: new Date(Date.now() - 3000),
@@ -1335,42 +1715,59 @@ describe("Log Processing", () => {
 				cost: 0.02,
 				createdAt: new Date(Date.now() - 1000),
 			});
-
-			let poisonProcessedAt: Date | null = null;
-			let poisonOrgCredits: string | null = null;
-
 			try {
-				// Created inside the try so the finally always removes it, and any
-				// leftover from an aborted run is dropped first.
 				await db.execute(
 					sql`drop trigger if exists poison_org_guard on "organization"`,
 				);
-				await db.execute(sql`
-					create or replace function poison_org_guard() returns trigger as $$
-					begin
-						if new.id = 'poison-guard-org' then
-							raise exception 'poison row';
-						end if;
-						return new;
-					end;
-					$$ language plpgsql
-				`);
+				await db.execute(
+					sql`create or replace function poison_org_guard() returns trigger as $$ begin if new.id = 'poison-guard-org' then raise exception 'update fault'; end if; return new; end; $$ language plpgsql`,
+				);
 				await db.execute(
 					sql`create trigger poison_org_guard before update on "organization" for each row execute function poison_org_guard()`,
 				);
-
-				await drainQueue();
-
-				// Read before the cleanup below removes both rows.
-				poisonProcessedAt =
-					(await db.query.log.findFirst({ where: { id: { eq: poison.id } } }))
-						?.processedAt ?? null;
-				poisonOrgCredits =
-					(
-						await db.query.organization.findFirst({
+				expect(await batchProcessLogs()).toBe(1);
+				expect(await batchProcessLogs()).toBe(0);
+				expect(
+					(await db.query.log.findFirst({ where: { id: { eq: poison.id } } }))!
+						.processedAt,
+				).toBeNull();
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
 							where: { id: { eq: poisonOrgId } },
-						})
-					)?.credits ?? null;
+						}))!.credits,
+					),
+				).toBe(50);
+				await db.execute(sql`drop trigger poison_org_guard on "organization"`);
+				await drainQueue();
+				await batchProcessLogs();
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: poisonOrgId } },
+						}))!.credits,
+					),
+				).toBeCloseTo(49.95, 8);
+				for (const entry of [older, poison, newer]) {
+					expect(
+						(await db.query.log.findFirst({ where: { id: { eq: entry.id } } }))!
+							.processedAt,
+					).toBeTruthy();
+				}
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: testOrg.id } },
+						}))!.credits,
+					),
+				).toBeCloseTo(99.97, 8);
+				expect(
+					Number(
+						(await db.query.apiKey.findFirst({
+							where: { id: { eq: testApiKey.id } },
+						}))!.usage,
+					),
+				).toBeCloseTo(0.08, 8);
 			} finally {
 				await db.execute(
 					sql`drop trigger if exists poison_org_guard on "organization"`,
@@ -1379,26 +1776,189 @@ describe("Log Processing", () => {
 				await db.delete(log).where(eq(log.organizationId, poisonOrgId));
 				await db.delete(organization).where(eq(organization.id, poisonOrgId));
 			}
-
-			// Retired without ever being billed.
-			expect(poisonProcessedAt).toBeTruthy();
-			expect(Number(poisonOrgCredits)).toBeCloseTo(50, 8);
-
-			for (const entry of [older, newer]) {
-				const processed = await db.query.log.findFirst({
-					where: { id: { eq: entry.id } },
-				});
-				expect(processed!.processedAt).toBeTruthy();
-			}
-
-			// The healthy logs on both sides of the poison row were still billed.
-			const org = await db.query.organization.findFirst({
-				where: { id: { eq: testOrg.id } },
-			});
-			expect(Number(org!.credits)).toBeCloseTo(99.97, 8);
 		});
 
-		test("stops quarantining once the window budget is spent", async () => {
+		test.each(["0", "-1", "NaN", "Infinity", "101"])(
+			"fails closed for quarantine budget %s",
+			async (budget) => {
+				const previous = process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+				process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = budget;
+				try {
+					const bad = await insertLog({});
+					await db.execute(
+						sql`update "log" set used_mode = 'bogus' where id = ${bad.id}`,
+					);
+					await insertLog({ cost: 0.02 });
+					expect(await batchProcessLogs()).toBe(1);
+					expect(
+						(await db.query.log.findFirst({ where: { id: { eq: bad.id } } }))!
+							.processedAt,
+					).toBeNull();
+					expect(
+						Number(
+							(await db.query.organization.findFirst({
+								where: { id: { eq: testOrg.id } },
+							}))!.credits,
+						),
+					).toBeCloseTo(99.98, 8);
+				} finally {
+					if (previous === undefined) {
+						delete process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+					} else {
+						process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = previous;
+					}
+				}
+			},
+		);
+
+		test.each(["billing_cost", "data_storage_cost"])(
+			"contains nonfinite decimal %s without corrupting balances",
+			async (column) => {
+				const bad = await insertLog({});
+				await db.execute(
+					sql`update "log" set ${sql.identifier(column)} = 'Infinity'::numeric where id = ${bad.id}`,
+				);
+				await insertLog({ cost: 0.02 });
+				expect(await batchProcessLogs()).toBe(2);
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: testOrg.id } },
+						}))!.credits,
+					),
+				).toBeCloseTo(99.98, 8);
+				expect(
+					Number(
+						(await db.query.apiKey.findFirst({
+							where: { id: { eq: testApiKey.id } },
+						}))!.usage,
+					),
+				).toBeCloseTo(0.02, 8);
+			},
+		);
+
+		test("leaves unreadable rows billable when the budget store fails", async () => {
+			const bad = await insertLog({});
+			await db.execute(
+				sql`update "log" set used_mode = 'bogus' where id = ${bad.id}`,
+			);
+			await insertLog({ cost: 0.02 });
+			const fault = vi
+				.spyOn(redisClient, "eval")
+				.mockRejectedValueOnce(new Error("budget unavailable"));
+			try {
+				expect(await batchProcessLogs()).toBe(1);
+				expect(
+					(await db.query.log.findFirst({ where: { id: { eq: bad.id } } }))!
+						.processedAt,
+				).toBeNull();
+			} finally {
+				fault.mockRestore();
+			}
+			expect(await batchProcessLogs()).toBe(1);
+			expect(await batchProcessLogs()).toBe(0);
+			expect(
+				Number(
+					(await db.query.organization.findFirst({
+						where: { id: { eq: testOrg.id } },
+					}))!.credits,
+				),
+			).toBeCloseTo(99.98, 8);
+		});
+
+		test("does not release a successor's credit-processing lease", async () => {
+			const bad = await insertLog({});
+			await db.execute(
+				sql`update "log" set used_mode = 'bogus' where id = ${bad.id}`,
+			);
+			let enter!: () => void;
+			let resume!: () => void;
+			const entered = new Promise<void>((resolve) => {
+				enter = resolve;
+			});
+			const resumed = new Promise<void>((resolve) => {
+				resume = resolve;
+			});
+			const pause = vi
+				.spyOn(redisClient, "eval")
+				.mockImplementationOnce(async () => {
+					enter();
+					await resumed;
+					return 0;
+				});
+			let lease: string | null = null;
+			const running = batchProcessLogs();
+			try {
+				await entered;
+				expect(await batchProcessLogs()).toBe(0);
+				await db
+					.update(tables.lock)
+					.set({ updatedAt: new Date(Date.now() - 360_000) })
+					.where(eq(tables.lock.key, "credit_processing"));
+				lease = await acquireLease("credit_processing");
+				expect(lease).toBeTruthy();
+				resume();
+				expect(await running).toBe(0);
+				expect(
+					(await db.query.lock.findFirst({
+						where: { key: { eq: "credit_processing" } },
+					}))!.id,
+				).toBe(lease);
+			} finally {
+				resume();
+				await running;
+				pause.mockRestore();
+				if (lease) {
+					await releaseLease(lease);
+				}
+			}
+		});
+
+		test("bounds unreadable quarantines and counts committed rows", async () => {
+			const previous = process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+			process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = "1";
+			try {
+				const bad = await Promise.all([
+					insertLog({}),
+					insertLog({}),
+					insertLog({}),
+				]);
+				for (const entry of bad) {
+					await db.execute(
+						sql`update "log" set used_mode = 'bogus' where id = ${entry.id}`,
+					);
+				}
+				const good = await insertLog({ cost: 0.02 });
+				expect(await batchProcessLogs()).toBe(2);
+				expect(await batchProcessLogs()).toBe(0);
+				const states = await Promise.all(
+					bad.map(
+						async (entry) =>
+							await db.query.log.findFirst({ where: { id: { eq: entry.id } } }),
+					),
+				);
+				expect(states.filter((entry) => entry!.processedAt)).toHaveLength(1);
+				expect(
+					(await db.query.log.findFirst({ where: { id: { eq: good.id } } }))!
+						.processedAt,
+				).toBeTruthy();
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: testOrg.id } },
+						}))!.credits,
+					),
+				).toBeCloseTo(99.98, 8);
+			} finally {
+				if (previous === undefined) {
+					delete process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+				} else {
+					process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = previous;
+				}
+			}
+		});
+
+		test("never quarantines healthy rows for a systemic SQL outage", async () => {
 			// A fault that is not row-specific fails every batch down to size 1, so
 			// an uncapped loop would retire the whole queue unbilled. Past the
 			// budget the queue must stall instead, keeping the rows billable.
@@ -1449,13 +2009,15 @@ describe("Log Processing", () => {
 				),
 			);
 			const quarantined = states.filter((entry) => entry!.processedAt);
-			// One slot, so one row was dropped and the rest stayed billable.
-			expect(quarantined).toHaveLength(1);
+			// No SQL exception proves row corruption, regardless of the budget.
+			expect(quarantined).toHaveLength(0);
+			expect(await batchProcessLogs()).toBe(3);
+			expect(await batchProcessLogs()).toBe(0);
 
 			const org = await db.query.organization.findFirst({
 				where: { id: { eq: testOrg.id } },
 			});
-			expect(Number(org!.credits)).toBeCloseTo(100, 8);
+			expect(Number(org!.credits)).toBeCloseTo(99.97, 8);
 		});
 	});
 });

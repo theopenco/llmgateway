@@ -148,6 +148,12 @@ export function ModelUsageTable({
 				existing.outputTokens += model.outputTokens;
 				existing.totalTokens += model.totalTokens;
 				existing.cost += model.cost;
+				existing.cachedTokens += model.cachedTokens;
+				existing.cacheWriteTokens += model.cacheWriteTokens;
+				existing.inputCost += model.inputCost;
+				existing.outputCost += model.outputCost;
+				existing.cachedInputCost += model.cachedInputCost;
+				existing.cacheWriteInputCost += model.cacheWriteInputCost;
 			} else {
 				modelMap.set(key, { ...model });
 			}

@@ -643,6 +643,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/models/decisions"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Decisions
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/models/vision"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -729,6 +738,24 @@ export default function Footer() {
 										prefetch={true}
 									>
 										Best for Math
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/cyber-security"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Best for Cyber Security
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/reverse-engineering"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Best for Reverse Engineering
 									</Link>
 								</li>
 								<li>

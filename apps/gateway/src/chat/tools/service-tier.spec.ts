@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
 	assertServiceTierHonored,
 	getForwardedServiceTier,
+	isFlexUnavailableError,
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./service-tier.js";
@@ -205,5 +206,30 @@ describe("assertServiceTierHonored", () => {
 				forwardedServiceTier: undefined,
 			}),
 		).not.toThrow();
+	});
+});
+
+describe("isFlexUnavailableError", () => {
+	test("matches OpenAI's flex_unavailable error", () => {
+		expect(
+			isFlexUnavailableError(
+				JSON.stringify({
+					type: "error",
+					error: {
+						type: "resource_unavailable",
+						code: "flex_unavailable",
+						message:
+							"Flex processing is temporarily unavailable. Please try again later or use standard processing.",
+					},
+				}),
+			),
+		).toBe(true);
+	});
+
+	test("ignores other errors", () => {
+		expect(isFlexUnavailableError('{"error":{"code":"rate_limit"}}')).toBe(
+			false,
+		);
+		expect(isFlexUnavailableError(undefined)).toBe(false);
 	});
 });

@@ -47,6 +47,11 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return {
+				...requestIdHeader,
+				Authorization: `Key ${token}`,
+			};
 		case "anthropic":
 			return {
 				...requestIdHeader,
@@ -54,7 +59,6 @@ export function getProviderHeaders(
 				"anthropic-version": "2023-06-01",
 			};
 		case "google-ai-studio":
-		case "glacier":
 		case "quartz":
 			return requestIdHeader;
 		case "google-vertex": {
@@ -125,11 +129,10 @@ export function getProviderHeaders(
 				"xi-api-key": token,
 			};
 		case "ranoai":
-		case "runware":
 			return {
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
-				// These providers serve compressed responses that Node can receive as raw
+				// RanoAI serves compressed responses that Node can receive as raw
 				// bytes, so request an uncompressed body for reliable JSON/SSE parsing.
 				"Accept-Encoding": "identity",
 			};
@@ -148,9 +151,8 @@ export function getProviderHeaders(
 		case "fireworks":
 		case "zai":
 		case "canopywave":
-		case "embercloud":
-		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "deepinfra":
 		case "custom":
 		default:
