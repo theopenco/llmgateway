@@ -303,7 +303,8 @@ The corresponding authenticated endpoints are `POST /v1/wallet/top-up` (`{ amoun
 ## Managing wallets & customers (server-side)
 
 ```ts
-// grant credits directly (e.g. free trial)
+// grant credits directly (e.g. free trial); live grants are funded from your
+// organization's credit balance and fail with 402 when it is too low
 await lg.wallets.credit({ walletId, amount: 5, reason: "Signup bonus" });
 
 const wallet = await lg.wallets.retrieve(walletId);
@@ -334,12 +335,12 @@ const event = lg.webhooks.constructEvent(
 <Callout type="warn">
 	Webhook URLs must be **https** and public — requests to private/internal
 	addresses are rejected (SSRF protection), both at registration and at delivery
-	time.
+	time. Redirects are not followed, so register the final URL.
 </Callout>
 
 ## Margin payouts (Stripe Connect)
 
-Your accrued markup is held as a margin balance. Onboard a connected account and pay it out:
+Your accrued markup is held as a margin balance for the whole organization. Onboard a connected account and pay it out with a live secret key created by an organization owner or admin; keys created by project admins get `403`:
 
 ```ts
 const { url } = await lg.connect.createOnboardingLink({
@@ -353,7 +354,7 @@ const payout = await lg.connect.payout(); // transfer the accrued margin out
 
 ## Security model
 
-- **Ephemeral tokens** (`es_…`) are short-lived and revocable; mint them per-user from your backend. Platform secrets and ephemeral tokens are stored only as keyed fingerprints, never as retrievable plaintext.
+- **Ephemeral tokens** (`es_…`) are short-lived and revocable; mint them per-user from your backend. While end-user sessions are turned off for a project, its outstanding tokens are rejected. Platform secrets and ephemeral tokens are stored only as keyed fingerprints, never as retrievable plaintext.
 - **Model scopes** restrict each session to an allow-list of models.
 - **Origin allowlist** (configured on the project) blocks browser calls from unexpected origins.
 - **Per-session spend caps** (`scope.maxSpend`) bound how much a single session can spend.
