@@ -35,6 +35,7 @@ import {
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
 	AnimatedFileText,
+	AnimatedFolders,
 	AnimatedKey,
 	AnimatedKeyRound,
 	AnimatedKeySquare,
@@ -206,6 +207,11 @@ const ORGANIZATION_NAVIGATION: readonly {
 	icon: AnimatedIconComponent;
 	enterpriseGated?: boolean;
 }[] = [
+	{
+		href: "org/projects",
+		label: "Projects",
+		icon: AnimatedFolders,
+	},
 	{
 		href: "org/team",
 		label: "Team",

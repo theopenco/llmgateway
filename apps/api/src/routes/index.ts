@@ -48,6 +48,7 @@ import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
 import { modelSurvey } from "./model-survey.js";
 import { notifications } from "./notifications.js";
+import { organizationProjects } from "./organization-projects.js";
 import { organizationSkills } from "./organization-skills.js";
 import { organizationTeams } from "./organization-teams.js";
 import organization from "./organization.js";
@@ -126,6 +127,7 @@ routes.route("/projects", projects);
 routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
+routes.route("/orgs", organizationProjects);
 routes.route("/orgs", organizationSkills);
 routes.route("/orgs", complianceAlerts);
 routes.route("/team", team);
