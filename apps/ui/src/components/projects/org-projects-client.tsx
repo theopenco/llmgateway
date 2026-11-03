@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import {
 	Activity,
 	Archive,
@@ -129,7 +129,7 @@ type ActivityState = "active" | "idle" | "never";
 interface ProjectRow {
 	project: Project;
 	usage: ProjectUsage | undefined;
-	activity: ActivityState;
+	activity: ActivityState | null;
 }
 
 const usd = new Intl.NumberFormat("en-US", {
@@ -232,8 +232,9 @@ export function OrgProjectsClient() {
 				query: { days: range, timezone: timeZone },
 			},
 		},
-		{ staleTime: 60 * 1000 },
+		{ staleTime: 60 * 1000, placeholderData: keepPreviousData },
 	);
+	const usageReady = usageQuery.data !== undefined;
 
 	const usageById = useMemo(
 		() =>
@@ -250,9 +251,13 @@ export function OrgProjectsClient() {
 		() =>
 			(projectsQuery.data?.projects ?? []).map((project) => {
 				const usage = usageById.get(project.id);
-				return { project, usage, activity: activityOf(usage) };
+				return {
+					project,
+					usage,
+					activity: usageReady ? activityOf(usage) : null,
+				};
 			}),
-		[projectsQuery.data, usageById],
+		[projectsQuery.data, usageById, usageReady],
 	);
 
 	const counts = useMemo(() => {
@@ -263,7 +268,9 @@ export function OrgProjectsClient() {
 			never: 0,
 		};
 		for (const row of rows) {
-			result[row.activity] += 1;
+			if (row.activity) {
+				result[row.activity] += 1;
+			}
 		}
 		return result;
 	}, [rows]);
@@ -517,9 +524,11 @@ export function OrgProjectsClient() {
 										: filter === "idle"
 											? `Idle ${range}d+`
 											: "Never used"}
-								<span className="tabular-nums opacity-70">
-									{counts[filter]}
-								</span>
+								{filter === "all" || usageReady ? (
+									<span className="tabular-nums opacity-70">
+										{counts[filter]}
+									</span>
+								) : null}
 							</button>
 						))}
 					</div>
@@ -601,7 +610,40 @@ export function OrgProjectsClient() {
 					</div>
 				) : null}
 
-				{isLoading ? (
+				{usageQuery.isError ? (
+					<div
+						role="alert"
+						className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+					>
+						Usage could not be loaded. Activity and usage figures are
+						unavailable.{" "}
+						<button
+							type="button"
+							className="font-medium underline underline-offset-4"
+							onClick={() => void usageQuery.refetch()}
+						>
+							Retry
+						</button>
+					</div>
+				) : null}
+
+				{projectsQuery.isError ? (
+					<div
+						role="alert"
+						className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed p-8 text-center text-sm"
+					>
+						<p className="text-muted-foreground">
+							Projects could not be loaded.
+						</p>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => void projectsQuery.refetch()}
+						>
+							Retry
+						</Button>
+					</div>
+				) : isLoading ? (
 					<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
 						{Array.from({ length: 6 }, (_, index) => (
 							<Skeleton key={index} className="h-56 rounded-xl" />
@@ -792,14 +834,14 @@ function ProjectCard({
 			? (usage.errorCount / usage.requestCount) * 100
 			: null;
 	const projectUrl = `/dashboard/${orgId}/${project.id}` as Route;
-	const badge = ACTIVITY_BADGES[activity];
+	const badge = activity ? ACTIVITY_BADGES[activity] : null;
 
 	return (
 		<div
 			className={cn(
 				"bg-card group relative flex flex-col overflow-hidden rounded-xl border border-border/60 shadow-sm transition-colors",
 				selected && "border-primary ring-primary/30 ring-2",
-				activity !== "active" && !selected && "bg-card/60",
+				activity && activity !== "active" && !selected && "bg-card/60",
 			)}
 		>
 			<div className="flex items-start gap-3 p-4 pb-2">
@@ -820,9 +862,11 @@ function ProjectCard({
 						{project.name}
 					</Link>
 					<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-						<Badge variant="outline" className={badge.className}>
-							{badge.label}
-						</Badge>
+						{badge ? (
+							<Badge variant="outline" className={badge.className}>
+								{badge.label}
+							</Badge>
+						) : null}
 						<Badge variant="outline">{MODE_LABELS[project.mode]}</Badge>
 						{project.cachingEnabled ? (
 							<Badge variant="outline">Caching</Badge>
@@ -882,7 +926,7 @@ function ProjectCard({
 			</div>
 
 			<div className="h-14 px-1">
-				{usageLoading ? (
+				{usageLoading || !usage ? (
 					<Skeleton className="mx-3 h-12" />
 				) : hasTrend ? (
 					<Sparkline
@@ -973,6 +1017,16 @@ function BulkEditDialog({
 	const [mode, setMode] = useState<string>(NO_CHANGE);
 	const [caching, setCaching] = useState<string>(NO_CHANGE);
 	const [routing, setRouting] = useState<string>(NO_CHANGE);
+	const [wasOpen, setWasOpen] = useState(open);
+
+	if (open !== wasOpen) {
+		setWasOpen(open);
+		if (open) {
+			setMode(NO_CHANGE);
+			setCaching(NO_CHANGE);
+			setRouting(NO_CHANGE);
+		}
+	}
 
 	const settings = {
 		...(mode !== NO_CHANGE && { mode: mode as Project["mode"] }),
@@ -984,17 +1038,7 @@ function BulkEditDialog({
 	const hasChanges = Object.keys(settings).length > 0;
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={(next) => {
-				if (!next) {
-					setMode(NO_CHANGE);
-					setCaching(NO_CHANGE);
-					setRouting(NO_CHANGE);
-				}
-				onOpenChange(next);
-			}}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Edit {pluralProjects(projects.length)}</DialogTitle>
@@ -1101,13 +1145,17 @@ function RenameProjectDialog({
 
 	const trimmed = name.trim();
 
+	const close = () => {
+		setProjectId(null);
+		onClose();
+	};
+
 	return (
 		<Dialog
 			open={project !== null}
 			onOpenChange={(open) => {
 				if (!open) {
-					setProjectId(null);
-					onClose();
+					close();
 				}
 			}}
 		>
@@ -1118,10 +1166,14 @@ function RenameProjectDialog({
 						if (!project || !trimmed) {
 							return;
 						}
-						await rename.mutateAsync({
-							params: { path: { id: project.id } },
-							body: { name: trimmed },
-						});
+						try {
+							await rename.mutateAsync({
+								params: { path: { id: project.id } },
+								body: { name: trimmed },
+							});
+						} catch {
+							return;
+						}
 						toast({ title: "Project renamed" });
 						setProjectId(null);
 						await onRenamed();
@@ -1141,7 +1193,7 @@ function RenameProjectDialog({
 						/>
 					</div>
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={onClose}>
+						<Button type="button" variant="outline" onClick={close}>
 							Cancel
 						</Button>
 						<Button
