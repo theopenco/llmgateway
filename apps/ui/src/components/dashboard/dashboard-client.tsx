@@ -55,6 +55,7 @@ import {
 	useUsageMode,
 } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useHydrated } from "@/hooks/useHydrated";
 import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import {
@@ -81,15 +82,6 @@ import type {
 	UsageComparisonMode,
 	UsageDateRange,
 } from "@/components/dashboard/usage-comparison";
-import type { ActivitT } from "@/types/activity";
-
-interface DashboardClientProps {
-	initialActivityData?: ActivitT;
-	initialActivityRange?: { from: string; to: string };
-	/** Zone the server fetched `initialActivityData` in, so the client can tell
-	 *  whether it still matches the zone it now wants to render. */
-	initialActivityTimeZone?: string;
-}
 
 function formatCredits(credits: number) {
 	return credits.toLocaleString("en-US", {
@@ -222,11 +214,7 @@ function StatCell({
 	);
 }
 
-export function DashboardClient({
-	initialActivityData,
-	initialActivityRange,
-	initialActivityTimeZone,
-}: DashboardClientProps) {
+export function DashboardClient() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
@@ -284,11 +272,12 @@ export function DashboardClient({
 		shouldApplyDefaults,
 	]);
 
-	const { selectedOrganization, selectedProject } = useDashboardNavigation();
+	const { selectedOrganization, currentProject } = useDashboardNavigation();
 	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
 	const api = useApi();
 
-	const { data, isLoading } = api.useQuery(
+	const hydrated = useHydrated();
+	const { data: activity, isLoading: activityLoading } = api.useQuery(
 		"get",
 		"/activity",
 		{
@@ -297,24 +286,20 @@ export function DashboardClient({
 					from: fromStr,
 					to: toStr,
 					timezone: displayTimeZone,
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(currentProject?.id ? { projectId: currentProject.id } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
-			// Reuse the server payload for the matching range and time zone,
-			// including the default range before dates are added to the URL.
-			initialData:
-				initialActivityRange?.from === fromStr &&
-				initialActivityRange.to === toStr &&
-				initialActivityTimeZone === displayTimeZone
-					? initialActivityData
-					: undefined,
+			enabled: !!currentProject?.id,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
 	);
+	// The page streams this query from the server, and its data can land before
+	// hydration; keep the first client render on the server's loading state.
+	const data = hydrated ? activity : undefined;
+	const isLoading = !hydrated || activityLoading;
 
 	// Previous period of the same length, used for trend deltas on the KPI
 	// cards. Skipped for very long ranges (e.g. "All time") where a
@@ -328,12 +313,12 @@ export function DashboardClient({
 					from: format(prevFrom, "yyyy-MM-dd"),
 					to: format(prevTo, "yyyy-MM-dd"),
 					timezone: displayTimeZone,
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(currentProject?.id ? { projectId: currentProject.id } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id && rangeDays <= 366,
+			enabled: !!currentProject?.id && rangeDays <= 366,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -356,12 +341,12 @@ export function DashboardClient({
 						? format(comparisonRange.to, "yyyy-MM-dd")
 						: toStr,
 					timezone: displayTimeZone,
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(currentProject?.id ? { projectId: currentProject.id } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id && comparisonRange !== null,
+			enabled: !!currentProject?.id && comparisonRange !== null,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5,
 		},
@@ -373,11 +358,11 @@ export function DashboardClient({
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: selectedProject?.id ?? "" },
+				query: { projectId: currentProject?.id ?? "" },
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: !!currentProject?.id,
 			staleTime: 5 * 60 * 1000, // 5 minutes
 			refetchOnWindowFocus: false,
 		},
@@ -605,9 +590,9 @@ export function DashboardClient({
 				<div className="flex flex-col md:flex-row items-center justify-between space-y-2">
 					<div>
 						<h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-						{selectedProject && (
+						{currentProject && (
 							<p className="text-sm text-muted-foreground mt-1">
-								Project: {selectedProject.name}
+								Project: {currentProject.name}
 								{selectedOrganization && (
 									<span className="ml-2">
 										• Organization: {selectedOrganization.name}
@@ -617,10 +602,10 @@ export function DashboardClient({
 						)}
 					</div>
 					<div className="flex items-center space-x-2">
-						{selectedOrganization && selectedProject && (
+						{selectedOrganization && currentProject && (
 							<>
 								<CreateApiKeyDialog
-									selectedProject={selectedProject}
+									selectedProject={currentProject}
 									disabled={
 										planLimits
 											? planLimits.currentCount >= planLimits.maxKeys
@@ -635,7 +620,7 @@ export function DashboardClient({
 									<Button
 										variant="outline"
 										disabled={
-											!selectedProject ||
+											!currentProject ||
 											(planLimits
 												? planLimits.currentCount >= planLimits.maxKeys
 												: false)
@@ -649,7 +634,7 @@ export function DashboardClient({
 								{isOrgAdmin && <TopUpCreditsButton />}
 							</>
 						)}
-						{isOrgAdmin && !selectedProject && <TopUpCreditsButton />}
+						{isOrgAdmin && !currentProject && <TopUpCreditsButton />}
 					</div>
 				</div>
 
@@ -1059,7 +1044,7 @@ export function DashboardClient({
 
 					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
 						<div className="min-w-0 lg:col-span-4 space-y-4">
-							<CostBreakdownCard initialActivityData={initialActivityData} />
+							<CostBreakdownCard />
 							<RecentActivityCard
 								activityData={activityData}
 								isLoading={isLoading}

@@ -240,6 +240,11 @@
 			"import": "./dist/cost-breakdown.js",
 			"default": "./dist/cost-breakdown.js"
 		},
+		"./seo-title": {
+			"types": "./dist/seo-title.d.ts",
+			"import": "./dist/seo-title.js",
+			"default": "./dist/seo-title.js"
+		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
 			"import": "./dist/number-format.js",
@@ -318,8 +323,8 @@
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
-		"react": "19.3.0",
-		"react-dom": "19.3.0",
+		"react": "19.3.1",
+		"react-dom": "19.3.1",
 		"react-hook-form": "7.65.0",
 		"react-medium-image-zoom": "5.4.0",
 		"recharts": "^2.15.4",
@@ -328,7 +333,7 @@
 		"tailwind-merge": "3.4.0",
 		"three": "0.185.1",
 		"undici": "8.12.3",
-		"zod": "3.25.76"
+		"zod": "4.6.7"
 	},
 	"devDependencies": {
 		"@types/react": "^19.3.0",

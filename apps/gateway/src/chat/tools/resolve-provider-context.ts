@@ -8,11 +8,13 @@ import {
 } from "@/lib/cached-queries.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { posthog } from "@/posthog.js";
 
 import {
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getRequestApiFormat,
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
@@ -837,7 +839,10 @@ export async function resolveProviderContext(
 		usedProvider,
 		usedRegion,
 	);
-	const apiFormat = providerMappingForSelected?.apiFormat;
+	const apiFormat = getRequestApiFormat(
+		providerMappingForSelected,
+		!!options.webSearchTool,
+	);
 	const transportProvider = getProviderApiTransport(usedProvider, apiFormat);
 
 	// --- Region validation ---
@@ -964,7 +969,6 @@ export async function resolveProviderContext(
 			credentialBaseUrl ?? airsideCustomBaseUrl,
 			upstreamModelName,
 			usedProvider === "google-ai-studio" ||
-				usedProvider === "glacier" ||
 				usedProvider === "google-vertex" ||
 				usedProvider === "quartz" ||
 				usedProvider === "vertex-anthropic" ||
@@ -1143,7 +1147,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_options,
 		options.session_id,
 		undefined,
-		options.safetyIdentifier,
+		forwardedSafetyIdentifier(managedKey, options.safetyIdentifier),
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,

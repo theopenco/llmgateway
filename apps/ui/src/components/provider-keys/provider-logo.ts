@@ -10,7 +10,6 @@ export const providerLogoUrls: Partial<
 	anthropic: ProviderIcons.anthropic,
 	elevenlabs: ProviderIcons.elevenlabs,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
-	glacier: ProviderIcons.glacier,
 	"google-vertex": ProviderIcons["google-vertex"],
 	"vertex-anthropic": ProviderIcons["vertex-anthropic"],
 	"vertex-openai": ProviderIcons["vertex-openai"],
@@ -48,6 +47,7 @@ export const providerLogoUrls: Partial<
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
 	cloudflare: ProviderIcons.cloudflare,
+	"fal-ai": ProviderIcons["fal-ai"],
 };
 
 export const getProviderLogoDarkModeClasses = () => {

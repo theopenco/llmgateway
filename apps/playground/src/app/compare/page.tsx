@@ -3,14 +3,21 @@ import Link from "next/link";
 
 import { FaceOff, ThemTile, UsTile } from "@/components/compare/logo-faceoff";
 import { Button } from "@/components/ui/button";
-import { comparisons, US } from "@/lib/comparisons";
+import {
+	comparisons,
+	STUDIO_ORDER,
+	STUDIOS,
+	studioOf,
+	US,
+} from "@/lib/comparisons";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Compare Lounge vs ChatGPT, Claude & Gemini",
+	title: pageTitle("Compare Lounge vs ChatGPT, Higgsfield, ElevenLabs & more"),
 	description:
-		"Compare Lounge to ChatGPT, Claude, Gemini, Poe, Perplexity and OpenRouter — every frontier model on one $19/mo subscription.",
+		"Compare Lounge's chat, video, image, audio, voice and decision studios to ChatGPT, Claude, Higgsfield, fal, ElevenLabs, Midjourney and more, with model prices side by side.",
 	alternates: { canonical: "/compare" },
 	openGraph: {
 		title: "Compare Lounge — vs ChatGPT, Claude, Gemini & more",
@@ -42,13 +49,28 @@ const categoryOrder = [
 ] as const;
 
 export default function CompareIndexPage() {
-	const grouped = categoryOrder
-		.map((category) => ({
-			category,
-			label: categoryLabels[category],
-			entries: comparisons.filter((c) => c.category === category),
-		}))
-		.filter((group) => group.entries.length > 0);
+	const chatEntries = comparisons.filter(
+		(c) => (c.studio ?? "chat") === "chat",
+	);
+	const grouped = [
+		...categoryOrder.map((category) => ({
+			id: `chat-${category}`,
+			label: `Chat · ${categoryLabels[category]}`,
+			entries: chatEntries.filter((c) => c.category === category),
+		})),
+		...STUDIO_ORDER.filter((studio) => studio !== "chat").map((studio) => ({
+			id: studio,
+			label: STUDIOS[studio].label,
+			entries: comparisons.filter((c) => c.studio === studio),
+		})),
+	].filter((group) => group.entries.length > 0);
+	const studioLinks = STUDIO_ORDER.filter((studio) =>
+		comparisons.some((c) => (c.studio ?? "chat") === studio),
+	).map((studio) => ({
+		studio,
+		label: STUDIOS[studio].label,
+		href: studio === "chat" ? `#chat-${categoryOrder[0]}` : `#${studio}`,
+	}));
 
 	const itemListSchema = {
 		"@context": "https://schema.org",
@@ -57,7 +79,7 @@ export default function CompareIndexPage() {
 		itemListElement: comparisons.map((c, index) => ({
 			"@type": "ListItem",
 			position: index + 1,
-			name: `Lounge vs ${c.competitor}`,
+			name: `${studioOf(c).product} vs ${c.competitor}`,
 			url: `https://lounge.llmgateway.io/compare/${c.slug}`,
 		})),
 	};
@@ -99,10 +121,10 @@ export default function CompareIndexPage() {
 							Compare Lounge
 						</h1>
 						<p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground">
-							Most AI chat apps lock you into one model family — or one
-							confusing billing system. Lounge gives you {US.modelCount} models,
-							frontier and open, on one subscription. Here&apos;s how it stacks
-							up.
+							Most AI apps lock you into one model family, or one confusing
+							credit system. Lounge runs {US.modelCount} models across chat,
+							video, image, audio, voice calls and decisions, on one balance at
+							provider rates. Here&apos;s how each studio stacks up.
 						</p>
 
 						{/* Logo lineup */}
@@ -121,6 +143,21 @@ export default function CompareIndexPage() {
 								/>
 							))}
 						</div>
+
+						<nav
+							aria-label="Jump to a studio"
+							className="mt-8 flex flex-wrap justify-center gap-2"
+						>
+							{studioLinks.map((link) => (
+								<a
+									key={link.studio}
+									href={link.href}
+									className="rounded-full border bg-background px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+								>
+									{link.label}
+								</a>
+							))}
+						</nav>
 
 						<div className="mt-10 flex justify-center gap-3">
 							<Button asChild size="lg">
@@ -141,7 +178,7 @@ export default function CompareIndexPage() {
 			<section className="px-4 py-14">
 				<div className="mx-auto max-w-4xl space-y-12">
 					{grouped.map((group) => (
-						<div key={group.category}>
+						<div key={group.id} id={group.id} className="scroll-mt-20">
 							<h2 className="mb-5 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
 								{group.label}
 							</h2>
@@ -162,7 +199,7 @@ export default function CompareIndexPage() {
 										</div>
 
 										<h3 className="text-lg font-semibold tracking-tight text-foreground">
-											Lounge vs {entry.competitor}
+											{studioOf(entry).product} vs {entry.competitor}
 										</h3>
 										<p className="mt-1 text-xs font-medium text-muted-foreground">
 											{entry.competitorTagline}
@@ -197,12 +234,12 @@ export default function CompareIndexPage() {
 						<Layers className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
 						<p>
 							Every comparison weighs the same trade: a single-vendor plan or a
-							confusing points system versus{" "}
+							credit system versus{" "}
 							<span className="font-medium text-foreground">
 								one balance for {US.modelCount} models
 							</span>{" "}
-							at provider rates, with per-message cost shown plainly and image,
-							video, and audio generation built in.
+							at provider rates. Studio pages put each model&apos;s price next
+							to the competitor&apos;s, with the source and date.
 						</p>
 					</div>
 				</div>

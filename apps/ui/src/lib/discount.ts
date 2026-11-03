@@ -1,3 +1,4 @@
+import { getVirtualModelTarget } from "@llmgateway/models";
 import { discountFraction, isValidDiscount } from "@llmgateway/shared";
 
 export interface DiscountData {
@@ -18,6 +19,7 @@ export function findEffectiveProviderDiscount(
 	providerId: string,
 	modelId: string,
 ): DiscountData | null {
+	modelId = getVirtualModelTarget(modelId)?.id ?? modelId;
 	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
 	// Precedence: provider+model > provider > model > fully global
 	const providerModel = valid.find(
