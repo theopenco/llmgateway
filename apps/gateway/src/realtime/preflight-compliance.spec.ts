@@ -112,6 +112,16 @@ describe("realtime ASR compliance preflight", () => {
 		expect((await connect()).allowedTranscriptionModelIds).toEqual([]);
 	});
 
+	it("restricts ASR to the organization model allowlist", async () => {
+		policies.organization = {
+			enabled: true,
+			allowedModels: ["gpt-realtime", "gpt-4o-mini-transcribe"],
+		};
+		expect((await connect()).allowedTranscriptionModelIds).toEqual([
+			"gpt-4o-mini-transcribe",
+		]);
+	});
+
 	it("retains IAM exclusions and unrestricted historical ASR access", async () => {
 		expect((await connect()).allowedTranscriptionModelIds).toContain(
 			"gpt-4o-mini-transcribe",

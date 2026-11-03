@@ -132,6 +132,29 @@ describe("gateway authenticated reads", () => {
 	);
 
 	test.each(configPaths)(
+		"%s filters discovery through organization provider and model restrictions",
+		async (path) => {
+			await db
+				.update(tables.organization)
+				.set({
+					plan: "enterprise",
+					providerCompliancePolicy: {
+						enabled: true,
+						allowedProviders: ["openai"],
+						allowedModels: ["gpt-4o-mini"],
+					},
+				})
+				.where(eq(tables.organization.id, "org-id"));
+
+			const response = await app.request(path, { headers });
+			expect(response.status).toBe(200);
+			expect(
+				(await response.json()).models.map((model: { id: string }) => model.id),
+			).toEqual(["openai/gpt-4o-mini"]);
+		},
+	);
+
+	test.each(configPaths)(
 		"%s does not advertise models blocked by IAM",
 		async (path) => {
 			await db.insert(tables.apiKeyIamRule).values({
