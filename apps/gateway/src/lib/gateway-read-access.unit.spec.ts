@@ -126,7 +126,7 @@ describe("private metadata authentication", () => {
 		).toBe(403);
 	});
 
-	test("uses the same validation for legacy MCP query tokens", async () => {
+	test("uses the same validation for an explicitly supplied token", async () => {
 		expect((await readApp().request("/?token=legacy-fixture")).status).toBe(
 			200,
 		);
