@@ -64,6 +64,12 @@ function useMailMutations(accountId: string) {
 				params: { path: { id: accountId } },
 			}).queryKey,
 		});
+		void queryClient.invalidateQueries({
+			queryKey: [
+				"get",
+				"/admin/crm/integrations/{integrationId}/threads/{threadId}",
+			],
+		});
 	};
 	return {
 		$api,

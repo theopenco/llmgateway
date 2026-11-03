@@ -26,13 +26,12 @@ const CALENDLY_API = "https://api.calendly.com";
 
 export function googleClient() {
 	return {
-		clientId: (
-			process.env.CRM_GOOGLE_CLIENT_ID ?? process.env.LOUNGE_GOOGLE_CLIENT_ID
-		)?.trim(),
-		clientSecret: (
-			process.env.CRM_GOOGLE_CLIENT_SECRET ??
-			process.env.LOUNGE_GOOGLE_CLIENT_SECRET
-		)?.trim(),
+		clientId:
+			process.env.CRM_GOOGLE_CLIENT_ID?.trim() ||
+			process.env.LOUNGE_GOOGLE_CLIENT_ID?.trim(),
+		clientSecret:
+			process.env.CRM_GOOGLE_CLIENT_SECRET?.trim() ||
+			process.env.LOUNGE_GOOGLE_CLIENT_SECRET?.trim(),
 	};
 }
 
@@ -417,7 +416,9 @@ function partText(part: GmailPart | undefined, depth = 0): string | null {
 	}
 	const data = part.body?.data;
 	if (part.mimeType === "text/plain" && data) {
-		return Buffer.from(data, "base64url").toString("utf8");
+		return Buffer.from(data, "base64url")
+			.toString("utf8")
+			.replace(/\r\n/g, "\n");
 	}
 	if (part.mimeType === "text/html" && data) {
 		return htmlToText(Buffer.from(data, "base64url").toString("utf8"));

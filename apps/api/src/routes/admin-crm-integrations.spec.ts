@@ -177,6 +177,14 @@ describe("CRM integrations", () => {
 
 	beforeEach(async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+		for (const name of [
+			"CRM_GOOGLE_CLIENT_ID",
+			"CRM_GOOGLE_CLIENT_SECRET",
+			"LOUNGE_GOOGLE_CLIENT_ID",
+			"LOUNGE_GOOGLE_CLIENT_SECRET",
+		]) {
+			vi.stubEnv(name, "");
+		}
 		cookie = await createTestUser();
 		await seedAccount();
 	});
