@@ -10,6 +10,7 @@ import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 import {
 	customModelRef,
 	customProviderRef,
+	getModelAliases,
 	isProviderMappingAllowedByRestriction,
 	models,
 	type ModelDefinition,
@@ -162,6 +163,31 @@ function modelRuleRefs(
 		: [modelDef.id];
 }
 
+// Allow rules also match the alias the request named. Deny rules match every
+// alias of the model, so a rule naming an alias blocks the model that alias
+// resolves to under any spelling; unclear refs only ever narrow access.
+function allowModelRuleRefs(
+	modelDef: ModelDefinition,
+	customProviderName: string | undefined,
+	requestedModelAlias: string | undefined,
+): string[] {
+	const refs = modelRuleRefs(modelDef, customProviderName);
+	return requestedModelAlias &&
+		getModelAliases(modelDef.id).includes(requestedModelAlias)
+		? [...refs, requestedModelAlias]
+		: refs;
+}
+
+function denyModelRuleRefs(
+	modelDef: ModelDefinition,
+	customProviderName: string | undefined,
+): string[] {
+	return [
+		...modelRuleRefs(modelDef, customProviderName),
+		...getModelAliases(modelDef.id),
+	];
+}
+
 // Evaluate one scope's rule set (member-level or key-level). Allow rules of
 // the same type are unioned within the scope; deny rules always apply. The
 // caller chains scopes by seeding `initialAllowedProviders` with the previous
@@ -176,6 +202,7 @@ async function evaluateIamRuleSet(
 	clientIp: string | undefined,
 	scope: IamRuleScope,
 	customProviderName?: string,
+	requestedModelAlias?: string,
 ): Promise<IamValidationResult> {
 	if (iamRules.length === 0) {
 		return {
@@ -232,6 +259,7 @@ async function evaluateIamRuleSet(
 				allowedProviders,
 				clientIp,
 				customProviderName,
+				requestedModelAlias,
 			);
 			if (result.allowed) {
 				groupAllowed = true;
@@ -267,6 +295,7 @@ async function evaluateIamRuleSet(
 			allowedProviders,
 			clientIp,
 			customProviderName,
+			requestedModelAlias,
 		);
 		if (!result.allowed) {
 			return {
@@ -332,6 +361,9 @@ export async function validateRequestModelAccess(params: {
 	// requestedProvider is "custom". Lets rules match `custom:<name>` provider
 	// entries and `<name>/<model>` model entries for that one custom provider.
 	customProviderName?: string;
+	// The catalogue alias the request named (e.g. a virtual "…-latest" id),
+	// so allow lists naming that alias admit it. See getRequestedModelAlias.
+	requestedModelAlias?: string;
 	activeModelInfo?: ModelDefinition;
 	clientIp?: string;
 	smartRouting?: boolean;
@@ -349,6 +381,7 @@ export async function validateRequestModelAccess(params: {
 		requestedModel,
 		requestedProvider,
 		customProviderName,
+		requestedModelAlias,
 		clientIp,
 		smartRouting,
 		applicableRuleTypes,
@@ -388,7 +421,7 @@ export async function validateRequestModelAccess(params: {
 		apiKey,
 		requestedModel,
 		activeModelInfo,
-		{ smartRouting },
+		{ smartRouting, requestedModelAlias },
 	);
 	if (sessionValidation) {
 		if (
@@ -435,6 +468,7 @@ export async function validateRequestModelAccess(params: {
 		clientIp,
 		"team",
 		customProviderName,
+		requestedModelAlias,
 	);
 	if (!teamResult.allowed) {
 		return teamResult;
@@ -448,6 +482,7 @@ export async function validateRequestModelAccess(params: {
 		clientIp,
 		"member",
 		customProviderName,
+		requestedModelAlias,
 	);
 	if (!memberResult.allowed) {
 		return memberResult;
@@ -462,6 +497,7 @@ export async function validateRequestModelAccess(params: {
 		clientIp,
 		"key",
 		customProviderName,
+		requestedModelAlias,
 	);
 }
 
@@ -500,6 +536,7 @@ async function evaluateRule(
 	currentAllowedProviders: Set<ProviderId>,
 	clientIp: string | undefined,
 	customProviderName: string | undefined,
+	requestedModelAlias: string | undefined,
 ): Promise<RuleEvaluationResult> {
 	const { ruleType, ruleValue } = rule;
 
@@ -507,9 +544,11 @@ async function evaluateRule(
 		case "allow_models":
 			if (
 				ruleValue.models &&
-				!modelRuleRefs(modelDef, customProviderName).some((ref) =>
-					ruleValue.models!.includes(ref),
-				)
+				!allowModelRuleRefs(
+					modelDef,
+					customProviderName,
+					requestedModelAlias,
+				).some((ref) => ruleValue.models!.includes(ref))
 			) {
 				return {
 					allowed: false,
@@ -521,7 +560,7 @@ async function evaluateRule(
 		case "deny_models":
 			if (
 				ruleValue.models &&
-				modelRuleRefs(modelDef, customProviderName).some((ref) =>
+				denyModelRuleRefs(modelDef, customProviderName).some((ref) =>
 					ruleValue.models!.includes(ref),
 				)
 			) {

@@ -4,6 +4,8 @@ import { models, type ModelDefinition } from "./models.js";
 import { isModelAllowedByPolicy } from "./providers.js";
 import {
 	expandVirtualModels,
+	getModelAliases,
+	getRequestedModelAlias,
 	getVirtualModelTarget,
 } from "./virtual-models.js";
 
@@ -48,6 +50,36 @@ describe("virtual models", () => {
 				expect(models.some((m) => m.id === alias)).toBe(false);
 			}
 		}
+	});
+});
+describe("requested model aliases", () => {
+	it("lists a model's catalogue aliases", () => {
+		expect(getModelAliases("jev-1.14.0")).toEqual([
+			"jev",
+			"jev-latest",
+			"jev-preview",
+		]);
+		expect(getModelAliases("missing-model")).toEqual([]);
+	});
+	it.each([
+		["deepseek-v4.1-flash-latest", "deepseek-v4.1-flash-latest"],
+		["tencent/deepseek-v4.1-flash-latest", "deepseek-v4.1-flash-latest"],
+		[
+			"tencent/deepseek-v4.1-flash-latest:ap-guangzhou",
+			"deepseek-v4.1-flash-latest",
+		],
+		["deepseek-v4.1-flash-1017", undefined],
+		["tencent/deepseek-v4.1-flash-1017", undefined],
+		[undefined, undefined],
+	])("reads the alias named by %s", (input, alias) => {
+		expect(getRequestedModelAlias(input, "deepseek-v4.1-flash-1017")).toBe(
+			alias,
+		);
+	});
+	it("ignores an alias of another model", () => {
+		expect(
+			getRequestedModelAlias("jev-latest", "deepseek-v4.1-flash-1017"),
+		).toBeUndefined();
 	});
 });
 it("does not expand organization-defined custom models", () => {

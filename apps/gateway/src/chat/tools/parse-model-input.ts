@@ -1,7 +1,9 @@
 import { HTTPException } from "hono/http-exception";
 
 import {
+	getVirtualModelTarget,
 	type Model,
+	type ModelDefinition,
 	models,
 	type Provider,
 	providers,
@@ -36,6 +38,7 @@ export interface ParseModelInputResult {
  * - "customProvider/model" -> custom provider with any model name
  * - "custom/..." -> rejected (legacy spelling; use "customProvider/model")
  * - "model-id" -> model ID lookup
+ * - "virtual-alias" -> the catalogue model the alias currently names
  *
  * @throws HTTPException if the model or provider is not supported
  */
@@ -112,14 +115,16 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			requestedModel = modelName as Model;
 		} else {
 			// First try to find by base model name with matching provider
-			let modelDef = models.find(
+			let modelDef: ModelDefinition | undefined = models.find(
 				(m) =>
 					m.id === modelName &&
 					m.providers.some((p) => p.providerId === requestedProvider),
 			);
 
-			// Fall back to matching by catalog id only
-			modelDef ??= models.find((m) => m.id === modelName);
+			// Fall back to matching by catalog id only, then by virtual alias
+			modelDef ??=
+				models.find((m) => m.id === modelName) ??
+				getVirtualModelTarget(modelName);
 
 			if (!modelDef) {
 				throw new HTTPException(400, {
@@ -143,9 +148,14 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 	} else if (models.find((m) => m.id === modelInput)) {
 		requestedModel = modelInput as Model;
 	} else {
-		throw new HTTPException(400, {
-			message: `Requested model ${modelInput} not supported`,
-		});
+		// Virtual aliases ("…-latest") route to the cut they currently name.
+		const virtualTarget = getVirtualModelTarget(modelInput);
+		if (!virtualTarget) {
+			throw new HTTPException(400, {
+				message: `Requested model ${modelInput} not supported`,
+			});
+		}
+		requestedModel = virtualTarget.id as Model;
 	}
 
 	if (
