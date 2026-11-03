@@ -77,7 +77,11 @@ import {
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { models as modelDefinitions, type Provider } from "@llmgateway/models";
+import {
+	getRequestedModelAlias,
+	models as modelDefinitions,
+	type Provider,
+} from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -489,6 +493,7 @@ export async function handleDecisionRequest(
 		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelDefId,
 		requestedProvider: providerId,
+		requestedModelAlias: getRequestedModelAlias(requestedModel, modelDefId),
 		activeModelInfo: modelDef,
 		clientIp: getClientIpFromRequest(c),
 	});
