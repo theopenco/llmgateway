@@ -45,6 +45,7 @@ import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
 import { rejectionLogMiddleware } from "./middleware/rejection-log.js";
+import { requestDecompressionMiddleware } from "./middleware/request-decompression.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -136,6 +137,9 @@ app.use("*", rejectionLogMiddleware);
 // scale with the organization's lifetime spend tier. Only configured `/v1/*`
 // paths are throttled; everything else passes through.
 app.use("*", orgRateLimitMiddleware);
+
+// Decode gzip/deflate/br/zstd request bodies before any route reads them.
+app.use("*", requestDecompressionMiddleware);
 
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation
