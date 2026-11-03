@@ -1055,6 +1055,39 @@ export const moonshotModels = [
 				],
 				regions: [{ id: "global" }, { id: "us" }],
 			},
+			{
+				providerId: "baidu",
+				externalId: "qianfan-vl-v1",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				// Thinking cannot be disabled: reasoning_effort "none" and
+				// thinking.type "disabled" both still reason.
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+				// reasoning_content is usually empty when the model goes straight
+				// to a tool call, at every effort.
+				reasoningOutput: "omit",
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				// A named function is rejected while thinking is on.
+				supportedToolChoices: ["auto", "none", "required"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Only temperature 1 and top_p 0.95 are accepted.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
 		],
 	},
 	{
