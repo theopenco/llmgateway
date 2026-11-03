@@ -105,7 +105,10 @@ import {
 	getModelHistoryRetentionCutoff,
 	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
-import { syncProvidersAndModels } from "./services/sync-models.js";
+import {
+	MODEL_SYNC_LOCK_KEY,
+	syncProvidersAndModels,
+} from "./services/sync-models.js";
 import {
 	processPendingVideoJobs,
 	processPendingWebhookDeliveries,
@@ -161,6 +164,7 @@ const TENANT_STATS_BYOK_SPLIT_BACKFILL_LOCK_KEY =
 	"tenant_stats_byok_split_backfill";
 const PROJECT_STATS_LOCK_KEY = "project_stats_refresh";
 const LOCK_DURATION_MINUTES = 5;
+const MODEL_SYNC_LOCK_WAIT_MS = LOCK_DURATION_MINUTES * 60 * 1000;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
 const WALLET_LOW_BALANCE_THRESHOLD = 1;
@@ -3627,7 +3631,25 @@ export async function startWorker() {
 
 	// Initialize providers and models sync - must complete before other stats syncs
 	try {
-		await syncProvidersAndModels();
+		// Price alerts pause while this lock is held, so a sync that is only
+		// partly written is never reported as a price change.
+		// Wait for another worker's sync so two builds never write at once.
+		let syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		for (
+			let waited = 0;
+			!syncLocked && waited < MODEL_SYNC_LOCK_WAIT_MS && !isStopRequested();
+			waited += 5000
+		) {
+			await interruptibleSleep(5000);
+			syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		}
+		try {
+			await syncProvidersAndModels();
+		} finally {
+			if (syncLocked) {
+				await releaseLock(MODEL_SYNC_LOCK_KEY);
+			}
+		}
 		logger.info("Initial sync completed");
 	} catch (error) {
 		logger.error(
