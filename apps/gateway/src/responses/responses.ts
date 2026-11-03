@@ -19,6 +19,11 @@ import {
 } from "@/lib/cached-queries.js";
 import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
+import {
+	assertOriginAllowed,
+	loadEndUserWallet,
+} from "@/lib/end-user-session.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import {
@@ -65,6 +70,7 @@ import {
 import { extractAdditionalTools } from "./tools/tool-registry.js";
 
 import type { ResponsesError } from "./tools/convert-streaming-to-responses.js";
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -126,9 +132,7 @@ function forwardCacheStatusHeader(c: Context<ServerTypes>, response: Response) {
  * Returns the token, apiKey, project, and organization.
  */
 async function authenticateRequest(
-	c: {
-		req: { header: (name: string) => string | undefined };
-	},
+	c: Pick<Context<ServerTypes>, "req">,
 	// Only the billable POST handlers enforce spend limits; the GET retrieval
 	// reads a stored response and must stay accessible even when over budget.
 	enforceSpendLimits = false,
@@ -162,9 +166,34 @@ async function authenticateRequest(
 		return { error: "API key is not active", status: 401 as const };
 	}
 
+	if (apiKey.keyType === "platform_publishable") {
+		return {
+			error:
+				"Publishable keys cannot call the Responses API directly. Mint an end-user session token first.",
+			status: 401 as const,
+		};
+	}
+	if (
+		apiKey.keyType === "user" &&
+		apiKey.expiresAt &&
+		apiKey.expiresAt.getTime() <= Date.now()
+	) {
+		return {
+			error: "Unauthorized: LLMGateway API key has expired.",
+			status: 401 as const,
+		};
+	}
+
 	const project = await findProjectById(apiKey.projectId);
 	if (!project) {
 		return { error: "Could not find project", status: 500 as const };
+	}
+
+	if (project.status === "deleted") {
+		return {
+			error: "Project has been archived and is no longer accessible",
+			status: 410 as const,
+		};
 	}
 
 	const organization = await findOrganizationById(project.organizationId);
@@ -188,6 +217,13 @@ async function authenticateRequest(
 	// Project access gates every authenticated path, including retrieval of
 	// stored responses; spend limits only apply where new usage is generated.
 	try {
+		const wallet = await loadEndUserWallet(apiKey);
+		if (wallet) {
+			assertOriginAllowed(c, project);
+			if (!enforceSpendLimits) {
+				assertResponsesHistoryAccess(apiKey);
+			}
+		}
 		await assertMemberProjectAccess(apiKey, project.organizationId);
 		if (enforceSpendLimits) {
 			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
@@ -318,6 +354,20 @@ responses.post("/", async (c) => {
 		inputItems = [{ role: "user", content: req.input }];
 	} else {
 		inputItems = req.input ?? [];
+	}
+
+	if (
+		req.previous_response_id ||
+		inputItems.some(
+			(item) =>
+				item &&
+				typeof item === "object" &&
+				"type" in item &&
+				item.type === "item_reference",
+		)
+	) {
+		assertResponsesHistoryAccess(authResult.apiKey);
+		await getAuthenticatedReadAccess(c);
 	}
 
 	// Handle previous_response_id for conversation chaining
@@ -950,6 +1000,20 @@ responses.post("/compact", async (c) => {
 		inputItems = req.input;
 	}
 
+	if (
+		req.previous_response_id ||
+		inputItems.some(
+			(item) =>
+				item &&
+				typeof item === "object" &&
+				"type" in item &&
+				item.type === "item_reference",
+		)
+	) {
+		assertResponsesHistoryAccess(authResult.apiKey);
+		await getAuthenticatedReadAccess(c);
+	}
+
 	if (req.previous_response_id) {
 		const stored = await getStoredResponse(
 			req.previous_response_id,
@@ -1121,6 +1185,8 @@ responses.get("/:response_id", async (c) => {
 		);
 	}
 
+	await getAuthenticatedReadAccess(c);
+
 	const { project } = authResult;
 	const responseId = c.req.param("response_id");
 	const stored = await getStoredResponse(responseId, project.id);
@@ -1201,3 +1267,12 @@ responses.get("/:response_id", async (c) => {
 
 	return c.json(responsePayload);
 });
+function assertResponsesHistoryAccess(apiKey: GatewayApiKey): void {
+	// Stored responses and item references have project ownership, not wallet ownership.
+	if (apiKey.endUserSession) {
+		throw new HTTPException(403, {
+			message:
+				"Stored Responses history is not available to end-user sessions. Send conversation input directly instead.",
+		});
+	}
+}

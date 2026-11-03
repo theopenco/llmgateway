@@ -95,10 +95,13 @@ function buildPricing(mapping: ProviderModelMapping) {
  * Regional mapping variants are collapsed onto the base mapping: `regions` is
  * part of the request, not a separate addressable model.
  */
-export function buildConfigModels(now = new Date()): ConfigModelEntry[] {
+export function buildConfigModels(
+	now = new Date(),
+	sourceModels: readonly ModelDefinition[] = modelsList,
+): ConfigModelEntry[] {
 	const entries: ConfigModelEntry[] = [];
 
-	for (const model of modelsList as ModelDefinition[]) {
+	for (const model of sourceModels) {
 		const modelType = resolveModelType(model);
 		if (modelType === null) {
 			continue;

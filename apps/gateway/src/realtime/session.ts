@@ -389,6 +389,9 @@ export class RealtimeProxySession {
 		data: RawData,
 		isBinary: boolean,
 	): Promise<void> {
+		if (this.finalized || this.draining) {
+			return;
+		}
 		const size = Buffer.isBuffer(data)
 			? data.length
 			: Array.isArray(data)
@@ -428,7 +431,7 @@ export class RealtimeProxySession {
 		const type = typeof message.type === "string" ? message.type : "";
 		switch (type) {
 			case "session.update":
-				this.handleSessionUpdate(message);
+				await this.handleSessionUpdate(message);
 				return;
 			case "response.create":
 				if (this.transcriptionOnly) {
@@ -463,16 +466,31 @@ export class RealtimeProxySession {
 					);
 					return;
 				}
+				if (!(await this.authorizeInputContent())) {
+					return;
+				}
 				if (isUserTextItem(message.item)) {
 					this.pendingTextInputItems += 1;
 				}
 				this.forwardToUpstream(JSON.stringify(message));
 				return;
 			case "input_audio_buffer.append":
+				if (!(await this.authorizeInputAudio())) {
+					return;
+				}
 				if (this.durationMeter && typeof message.audio === "string") {
 					this.durationMeter.addInputAudio(message.audio, Date.now());
 				}
 				this.forwardToUpstream(text);
+				return;
+			case "input_audio_buffer.commit":
+				if (!(await this.authorizeInputAudio())) {
+					this.resetInputAudioTurn();
+					return;
+				}
+				this.forwardToUpstream(text);
+				this.pendingInputAudioCommits += 1;
+				this.resetInputAudioTurn();
 				return;
 			case "input_audio_buffer.clear":
 				// Clearing audio the provider has already transcribed live would
@@ -483,15 +501,39 @@ export class RealtimeProxySession {
 					this.forwardToUpstream(
 						JSON.stringify({ type: "input_audio_buffer.commit" }),
 					);
+					this.pendingInputAudioCommits += 1;
+				}
+				this.forwardToUpstream(text);
+				this.pendingInputAudioClears += 1;
+				this.resetInputAudioTurn();
+				return;
+			case "conversation.item.retrieve":
+				if (!(await this.authorizeInputContent())) {
+					return;
 				}
 				this.forwardToUpstream(text);
 				return;
-			default:
+			case "response.cancel":
+			case "output_audio_buffer.clear":
+			case "conversation.item.delete":
+			case "conversation.item.truncate":
 				this.forwardToUpstream(text);
+				return;
+			default:
+				this.sendToClientRaw(
+					buildErrorEvent(
+						"unsupported_client_event",
+						type === "transcription_session.update"
+							? "transcription_session.update is not supported; configure transcription with session.update."
+							: `Unsupported client event type: ${type}`,
+					),
+				);
 		}
 	}
 
-	private handleSessionUpdate(message: Record<string, unknown>): void {
+	private async handleSessionUpdate(
+		message: Record<string, unknown>,
+	): Promise<void> {
 		const session =
 			message.session && typeof message.session === "object"
 				? (message.session as Record<string, unknown>)
@@ -698,6 +740,19 @@ export class RealtimeProxySession {
 			return;
 		}
 
+		// Updates can carry instructions as well as ASR configuration: authorize
+		// both billable mappings before any user content leaves the gateway.
+		const transcriptionMatch =
+			nextTranscriptionEnabled === false
+				? null
+				: (nextTranscription?.match ??
+					(this.transcriptionEnabled
+						? (this.transcription?.match ?? null)
+						: null));
+		if (!(await this.authorizeInputContent(transcriptionMatch))) {
+			return;
+		}
+
 		// Every validation passed, so the update will be forwarded: commit the
 		// transcription state it asked for.
 		if (nextTranscription) {
@@ -705,6 +760,7 @@ export class RealtimeProxySession {
 		}
 		if (nextTranscriptionEnabled !== null) {
 			this.transcriptionEnabled = nextTranscriptionEnabled;
+			this.resetInputAudioTurn();
 		}
 
 		// Remember the caller's desired auto-response behavior, then force it off
@@ -1000,9 +1056,8 @@ export class RealtimeProxySession {
 	}
 
 	/**
-	 * Transcription is billed off the provider's own commit-driven events, so it
-	 * cannot be authorized up front the way response.create is. Re-run the same
-	 * authorization gates right after each transcription is billed instead — the
+	 * Audio is authorized before its first chunk; recheck after transcription
+	 * billing as a backstop for work already in flight. This enforces the
 	 * session spend cap, account state for the pinned ASR model, and the
 	 * organization's credits. A session that no longer clears them is closed, so
 	 * a revoked key or exhausted account can overrun by at most one turn rather
@@ -1271,7 +1326,16 @@ export class RealtimeProxySession {
 				this.sendToClientRaw(text);
 				return;
 			}
+			case "input_audio_buffer.speech_stopped":
+				this.resetInputAudioTurn();
+				this.sendToClientRaw(text);
+				return;
 			case "input_audio_buffer.cleared": {
+				if (this.pendingInputAudioClears > 0) {
+					this.pendingInputAudioClears -= 1;
+				} else {
+					this.resetInputAudioTurn();
+				}
 				if (this.liveTranscriptionItem !== null) {
 					// The gateway commits live audio ahead of every clear, so the
 					// provider dropped it on its own: nothing carries its duration.
@@ -1287,6 +1351,12 @@ export class RealtimeProxySession {
 				return;
 			}
 			case "input_audio_buffer.committed": {
+				// A delayed acknowledgement must not invalidate a newer buffer.
+				if (this.pendingInputAudioCommits > 0) {
+					this.pendingInputAudioCommits -= 1;
+				} else {
+					this.resetInputAudioTurn();
+				}
 				const itemId =
 					typeof event.item_id === "string" ? event.item_id : undefined;
 				if (itemId === this.liveTranscriptionItem) {
@@ -1312,6 +1382,10 @@ export class RealtimeProxySession {
 				await this.handleTranscriptionCompleted(event, text);
 				return;
 			case "conversation.item.input_audio_transcription.failed": {
+				if (event.item_id === this.liveTranscriptionItem) {
+					this.liveTranscriptionItem = null;
+					this.resetInputAudioTurn();
+				}
 				const itemId =
 					typeof event.item_id === "string" ? event.item_id : undefined;
 				if (itemId) {
@@ -1322,6 +1396,11 @@ export class RealtimeProxySession {
 				return;
 			}
 			case "error": {
+				// Rejected commits/clears have no acknowledgement; fail closed on
+				// the next input instead of carrying their boundary state forward.
+				this.pendingInputAudioCommits = 0;
+				this.pendingInputAudioClears = 0;
+				this.resetInputAudioTurn();
 				const errorPayload =
 					event.error && typeof event.error === "object"
 						? (event.error as Record<string, unknown>)
@@ -1525,6 +1604,10 @@ export class RealtimeProxySession {
 	): Promise<void> {
 		const itemId =
 			typeof event.item_id === "string" ? event.item_id : undefined;
+		if (itemId === this.liveTranscriptionItem) {
+			this.liveTranscriptionItem = null;
+			this.resetInputAudioTurn();
+		}
 		const contentIndex =
 			typeof event.content_index === "number" &&
 			Number.isInteger(event.content_index) &&
@@ -1919,6 +2002,62 @@ export class RealtimeProxySession {
 			source: this.source,
 			userAgent: this.userAgent,
 		});
+	}
+
+	private inputAudioAuthorized = false;
+	private inputAudioDenied = false;
+	private pendingInputAudioCommits = 0;
+	private pendingInputAudioClears = 0;
+
+	private async authorizeInputContent(
+		transcriptionMatch: RealtimeMappingMatch | null = this.transcriptionEnabled
+			? (this.transcription?.match ?? null)
+			: null,
+	): Promise<boolean> {
+		const matches =
+			transcriptionMatch &&
+			(transcriptionMatch.modelId !== this.preflight.match.modelId ||
+				transcriptionMatch.mapping.providerId !==
+					this.preflight.match.mapping.providerId)
+				? [transcriptionMatch, this.preflight.match]
+				: [this.preflight.match];
+		for (const match of matches) {
+			if (this.finalized || this.draining) {
+				return false;
+			}
+			const authorization = await this.authorizeAccount(match);
+			if (this.finalized || this.draining) {
+				return false;
+			}
+			if (!authorization.ok) {
+				this.refuseTurn(authorization.code, authorization.message);
+				if (authorization.severity === "close") {
+					this.drainOrShutdown(1008, authorization.code);
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private async authorizeInputAudio(): Promise<boolean> {
+		if (this.inputAudioDenied) {
+			return false;
+		}
+		if (this.inputAudioAuthorized) {
+			return true;
+		}
+		if (!(await this.authorizeInputContent())) {
+			this.inputAudioDenied = true;
+			return false;
+		}
+		this.inputAudioAuthorized = true;
+		return true;
+	}
+
+	private resetInputAudioTurn(): void {
+		this.inputAudioAuthorized = false;
+		this.inputAudioDenied = false;
 	}
 }
 

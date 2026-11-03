@@ -3,10 +3,14 @@ import { Hono } from "hono";
 import { app } from "@/app.js";
 import { forwardedCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
-import { findApiKeyByToken } from "@/lib/cached-queries.js";
 import { streamSSE } from "@/lib/pending-work.js";
+import {
+	filterAccessibleModels,
+	getModelsAccess,
+} from "@/models/model-access.js";
 
 import { logger } from "@llmgateway/logger";
+import { models } from "@llmgateway/models";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
@@ -27,6 +31,7 @@ import {
 
 import type { ChatCompletionResponse } from "./tools/convert-chat-to-generate.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ModelDefinition } from "@llmgateway/models";
 import type { Context } from "hono";
 
 /**
@@ -270,25 +275,28 @@ aisdk.post("/language-model", async (c) => {
 });
 
 aisdk.get("/config", async (c) => {
-	const token = bearerToken(c.req.header("Authorization"));
-
-	if (!token) {
+	const access = await getModelsAccess(
+		c,
+		bearerToken(c.req.header("Authorization")) ?? undefined,
+	);
+	if (!access) {
 		return c.json(
 			buildGatewayErrorBody({ status: 401, message: "No API key provided" }),
 			401,
 		);
 	}
+	const now = new Date();
+	const accessibleModels = await filterAccessibleModels(
+		models as ModelDefinition[],
+		access,
+		{
+			mapped: false,
+			noTraining: false,
+			includeDeactivated: false,
+			excludeDeprecated: false,
+			currentDate: now,
+		},
+	);
 
-	const apiKey = await findApiKeyByToken(token);
-	if (!apiKey || apiKey.status !== "active") {
-		return c.json(
-			buildGatewayErrorBody({
-				status: 401,
-				message: "API key not found or inactive",
-			}),
-			401,
-		);
-	}
-
-	return c.json({ models: buildConfigModels() });
+	return c.json({ models: buildConfigModels(now, accessibleModels) });
 });

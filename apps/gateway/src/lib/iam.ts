@@ -16,7 +16,7 @@ import {
 	type ProviderAccessRestriction,
 	type ProviderId,
 } from "@llmgateway/models";
-import { anyCidrMatches } from "@llmgateway/shared/client-ip";
+import { isIpAllowedByIamRule } from "@llmgateway/shared/client-ip";
 
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
 
@@ -708,7 +708,9 @@ async function evaluateRule(
 							"Client IP could not be determined but an IP allow-list rule is configured",
 					};
 				}
-				if (!anyCidrMatches(clientIp, ruleValue.ipCidrs)) {
+				if (
+					!isIpAllowedByIamRule("allow_ip_cidrs", ruleValue.ipCidrs, clientIp)
+				) {
 					return {
 						allowed: false,
 						reason: `Client IP ${clientIp} is not in the allowed CIDR ranges`,
@@ -718,12 +720,7 @@ async function evaluateRule(
 			break;
 
 		case "deny_ip_cidrs":
-			if (
-				ruleValue.ipCidrs &&
-				ruleValue.ipCidrs.length > 0 &&
-				clientIp &&
-				anyCidrMatches(clientIp, ruleValue.ipCidrs)
-			) {
+			if (!isIpAllowedByIamRule("deny_ip_cidrs", ruleValue.ipCidrs, clientIp)) {
 				return {
 					allowed: false,
 					reason: `Client IP ${clientIp} is in the denied CIDR ranges`,
