@@ -10480,6 +10480,42 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 	);
 });
 
+describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
+	test("drops empty text parts", async () => {
+		const requestBody = (await prepareRequestBody(
+			"baidu",
+			"kimi-k3",
+			null,
+			"qianfan-vl-v1",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "describe this" },
+						{ type: "text", text: "" },
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as { messages: { content: unknown }[] };
+
+		expect(requestBody.messages[0].content).toEqual([
+			{ type: "text", text: "describe this" },
+		]);
+	});
+});
+
 describe("prepareRequestBody - bytedance prompt caching", () => {
 	async function prepare(provider: "bytedance" | "deepinfra", model: string) {
 		return (await prepareRequestBody(
