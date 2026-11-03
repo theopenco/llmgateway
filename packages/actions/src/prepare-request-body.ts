@@ -2552,6 +2552,7 @@ export async function prepareRequestBody(
 
 	if (
 		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
+		(usedProvider === "baidu" && usedInternalModel === "kimi-k3") ||
 		usedProvider === "runpod" ||
 		(usedProvider === "tencent" &&
 			["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"].includes(
