@@ -164,4 +164,12 @@ describe("requestDecompressionMiddleware", () => {
 		const res = await post(bomb, "gzip");
 		expect(res.status).toBe(413);
 	});
+
+	it("rejects an encoded body past the size cap with 413", async () => {
+		const res = await post(
+			Buffer.alloc(MAX_DECOMPRESSED_BODY_BYTES + 1),
+			"gzip",
+		);
+		expect(res.status).toBe(413);
+	});
 });

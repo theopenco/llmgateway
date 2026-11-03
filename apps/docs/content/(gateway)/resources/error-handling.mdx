@@ -64,7 +64,7 @@ For **gateway-raised** errors (authentication failures, usage limits, validation
 
 ## Compressed Request Bodies
 
-Request bodies may be compressed with `Content-Encoding: gzip`, `deflate`, `br`, or `zstd`. Any other coding returns `415`, a body that does not decode with its declared coding returns `400`, and a body that decodes to more than 100 MiB returns `413`.
+Request bodies may be compressed with `Content-Encoding: gzip` (or `x-gzip`), `deflate`, `br`, or `zstd`, including stacked codings such as `gzip, br`; `identity` is passed through unchanged. An unsupported coding returns `415`, a body that does not decode with its declared coding returns `400`, and a body larger than 100 MiB, before or after decoding, returns `413`.
 
 ## Upstream Provider Errors
 

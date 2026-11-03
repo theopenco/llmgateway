@@ -13,8 +13,35 @@ import { HTTPException } from "hono/http-exception";
 import type { ServerTypes } from "@/vars.js";
 import type { MiddlewareHandler } from "hono";
 
-/** Decompression bomb guard: decoded bodies above this size are rejected. */
+/** Size cap for both the encoded body and its decoded output (bomb guard). */
 export const MAX_DECOMPRESSED_BODY_BYTES = 100 * 1024 * 1024;
+
+function bodyTooLarge(): HTTPException {
+	return new HTTPException(413, {
+		message: `Request body exceeds ${MAX_DECOMPRESSED_BODY_BYTES} bytes`,
+	});
+}
+
+async function readCappedBody(request: Request): Promise<Buffer> {
+	if (!request.body) {
+		return Buffer.alloc(0);
+	}
+	const reader = request.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) {
+			return Buffer.concat(chunks, total);
+		}
+		total += value.byteLength;
+		if (total > MAX_DECOMPRESSED_BODY_BYTES) {
+			await reader.cancel();
+			throw bodyTooLarge();
+		}
+		chunks.push(value);
+	}
+}
 
 type Decoder = (
 	input: Buffer,
@@ -93,7 +120,7 @@ export const requestDecompressionMiddleware: MiddlewareHandler<
 	}
 
 	const raw = c.req.raw;
-	let body: Buffer = Buffer.from(await raw.arrayBuffer());
+	let body = await readCappedBody(raw);
 	for (const coding of [...codings].reverse()) {
 		const decode = decoders.get(coding)!;
 		try {
@@ -102,9 +129,7 @@ export const requestDecompressionMiddleware: MiddlewareHandler<
 			});
 		} catch (error) {
 			if (isOutputTooLarge(error)) {
-				throw new HTTPException(413, {
-					message: `Decompressed request body exceeds ${MAX_DECOMPRESSED_BODY_BYTES} bytes`,
-				});
+				throw bodyTooLarge();
 			}
 			throw new HTTPException(400, {
 				message: `Request body is not valid ${coding} data`,
