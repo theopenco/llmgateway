@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import {
 	brotliCompressSync,
+	deflateRawSync,
 	deflateSync,
 	gzipSync,
 	zstdCompressSync,
@@ -133,13 +134,22 @@ describe("requestDecompressionMiddleware", () => {
 		}
 	});
 
-	it("rejects an unsupported coding with 415", async () => {
-		const res = await post(json, "compress");
-		expect(res.status).toBe(415);
-		expect((await res.json()).message).toContain(
-			"Unsupported Content-Encoding: compress",
-		);
+	it("decodes raw (RFC 1951) deflate bodies", async () => {
+		const res = await post(deflateRawSync(json), "deflate");
+		expect(res.status).toBe(200);
+		expect((await res.json()).body).toEqual(payload);
 	});
+
+	it.each(["compress", "constructor", "__proto__", "gzip, constructor"])(
+		"rejects unsupported coding %s with 415",
+		async (coding) => {
+			const res = await post(gzipSync(json), coding);
+			expect(res.status).toBe(415);
+			expect((await res.json()).message).toContain(
+				"Unsupported Content-Encoding:",
+			);
+		},
+	);
 
 	it("rejects a body that does not match its coding with 400", async () => {
 		const res = await post(json, "gzip");

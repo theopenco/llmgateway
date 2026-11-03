@@ -1,5 +1,12 @@
 import { promisify } from "node:util";
-import { brotliDecompress, gunzip, inflate, zstdDecompress } from "node:zlib";
+import {
+	brotliDecompress,
+	constants,
+	gunzip,
+	inflate,
+	inflateRaw,
+	zstdDecompress,
+} from "node:zlib";
 
 import { HTTPException } from "hono/http-exception";
 
@@ -15,14 +22,32 @@ type Decoder = (
 ) => Promise<Buffer>;
 
 const gunzipAsync: Decoder = promisify(gunzip);
+const inflateAsync: Decoder = promisify(inflate);
+const inflateRawAsync: Decoder = promisify(inflateRaw);
 
-const decoders: Record<string, Decoder> = {
-	gzip: gunzipAsync,
-	"x-gzip": gunzipAsync,
-	deflate: promisify(inflate),
-	br: promisify(brotliDecompress),
-	zstd: promisify(zstdDecompress),
+/** `deflate` should be zlib-wrapped (RFC 1950), but many clients send raw RFC 1951. */
+const inflateAny: Decoder = async (input, options) => {
+	try {
+		return await inflateAsync(input, options);
+	} catch (error) {
+		if (
+			error instanceof Error &&
+			"errno" in error &&
+			error.errno === constants.Z_DATA_ERROR
+		) {
+			return await inflateRawAsync(input, options);
+		}
+		throw error;
+	}
 };
+
+const decoders = new Map<string, Decoder>([
+	["gzip", gunzipAsync],
+	["x-gzip", gunzipAsync],
+	["deflate", inflateAny],
+	["br", promisify(brotliDecompress)],
+	["zstd", promisify(zstdDecompress)],
+]);
 
 /** Content codings in the order they were applied, `identity` dropped. */
 export function parseContentEncoding(header: string | undefined): string[] {
@@ -60,18 +85,19 @@ export const requestDecompressionMiddleware: MiddlewareHandler<
 		return await next();
 	}
 
-	const unsupported = codings.filter((coding) => !(coding in decoders));
+	const unsupported = codings.filter((coding) => !decoders.has(coding));
 	if (unsupported.length > 0) {
 		throw new HTTPException(415, {
-			message: `Unsupported Content-Encoding: ${unsupported.join(", ")}. Supported: ${Object.keys(decoders).join(", ")}`,
+			message: `Unsupported Content-Encoding: ${unsupported.join(", ")}. Supported: ${[...decoders.keys()].join(", ")}`,
 		});
 	}
 
 	const raw = c.req.raw;
 	let body: Buffer = Buffer.from(await raw.arrayBuffer());
 	for (const coding of [...codings].reverse()) {
+		const decode = decoders.get(coding)!;
 		try {
-			body = await decoders[coding](body, {
+			body = await decode(body, {
 				maxOutputLength: MAX_DECOMPRESSED_BODY_BYTES,
 			});
 		} catch (error) {
@@ -88,6 +114,7 @@ export const requestDecompressionMiddleware: MiddlewareHandler<
 
 	const headers = new Headers(raw.headers);
 	headers.delete("content-encoding");
+	headers.delete("transfer-encoding");
 	headers.set("content-length", String(body.byteLength));
 	c.req.raw = new Request(raw.url, {
 		method: raw.method,
