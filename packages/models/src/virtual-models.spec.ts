@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { models, type ModelDefinition } from "./models.js";
+import { isModelAllowedByPolicy } from "./providers.js";
 import {
 	expandVirtualModels,
 	getVirtualModelTarget,
@@ -52,4 +53,21 @@ describe("virtual models", () => {
 it("does not expand organization-defined custom models", () => {
 	const custom = { id: "jev-1.14.0", source: "custom" as const };
 	expect(expandVirtualModels([custom])).toEqual([custom]);
+});
+it("keeps virtual policy checks tied to the current canonical cut", () => {
+	for (const row of expandVirtualModels([{ id: "jev-1.14.0" }])) {
+		const refs = [row.virtualModelTarget ?? row.id];
+		expect(
+			isModelAllowedByPolicy(refs, {
+				enabled: true,
+				blockedModels: ["jev-1.14.0"],
+			}),
+		).toBe(false);
+		expect(
+			isModelAllowedByPolicy(refs, {
+				enabled: true,
+				allowedModels: ["jev-1.14.0"],
+			}),
+		).toBe(true);
+	}
 });
