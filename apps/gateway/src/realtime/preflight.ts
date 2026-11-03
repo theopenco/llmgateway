@@ -21,6 +21,7 @@ import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 
 import { readProviderKey } from "@llmgateway/actions";
+import { getRequestedModelAlias } from "@llmgateway/models";
 
 import {
 	findRealtimeMapping,
@@ -312,6 +313,10 @@ async function runRealtimePreflightInner(
 		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: match.modelId,
 		requestedProvider: providerId,
+		requestedModelAlias: getRequestedModelAlias(
+			input.requestedModel,
+			match.modelId,
+		),
 		activeModelInfo: match.modelDef,
 		clientIp: input.clientIp,
 	});
