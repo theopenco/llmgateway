@@ -115,7 +115,10 @@ export function buildConfigModels(
 			const pricing = buildPricing(mapping);
 
 			entries.push({
-				id: `${mapping.providerId}/${model.id}`,
+				id:
+					mapping.providerId === "custom"
+						? model.id
+						: `${mapping.providerId}/${model.id}`,
 				name: model.name ?? model.id,
 				description: `${model.id} served by ${mapping.providerId}`,
 				...(pricing && { pricing }),
