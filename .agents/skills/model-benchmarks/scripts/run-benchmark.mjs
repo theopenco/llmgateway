@@ -16,7 +16,7 @@ const HELP = `Usage:
 Defaults:
   --mapping '*'
   --profile smoke
-  --budget per profile: smoke 120000, standard 900000, load 1800000,
+  --budget per profile: smoke 120000, standard 900000, load 3600000,
            coding 900000, --suite/--external 600000
   --timeout 300000
 
@@ -35,7 +35,7 @@ function hasOption(arguments_, names) {
 const DEFAULT_BUDGET_MS = {
 	smoke: 120_000,
 	standard: 900_000,
-	load: 1_800_000,
+	load: 3_600_000,
 	coding: 900_000,
 };
 const DEFAULT_CUSTOM_BUDGET_MS = 600_000;

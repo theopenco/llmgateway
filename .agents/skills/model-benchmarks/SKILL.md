@@ -15,7 +15,7 @@ node .agents/skills/model-benchmarks/scripts/run-benchmark.mjs <model-id> [bench
 The wrapper builds `@llmgateway/benchmarks`, creates an absolute output path,
 and writes results under `.context/benchmarks`. It defaults to every active
 mapping and the `smoke` profile. The per-target budget defaults per profile —
-`smoke` 2 min, `load` 30 min, `standard` and `coding` 15 min, `--suite` or
+`smoke` 2 min, `load` 60 min, `standard` and `coding` 15 min, `--suite` or
 `--external` 10 min — so slow providers finish the profile, and the request
 timeout defaults to 5 min so long streams are not cut off as
 `stream_read_error`. `standard` runs its
