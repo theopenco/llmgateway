@@ -3,7 +3,7 @@ import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { createRoute } from "@/utils/create-route.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
-import { db, tables, eq, isNull, and, desc } from "@llmgateway/db";
+import { db, tables, eq, isNull, and, desc, sql } from "@llmgateway/db";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
@@ -28,6 +28,18 @@ const LIST_BURST_MAX = 5;
 const LIST_HOURLY_MAX = 60;
 
 const rateLimitedSchema = z.object({ message: z.string() });
+
+// Mirrors the Lounge share page's index threshold: a share is only indexable
+// with a user turn of at least 30 characters and an assistant turn of at least
+// 80. The listing feeds the sitemap, so thin shares (which the page serves
+// with noindex) must not be advertised there.
+function hasTurn(role: "user" | "assistant", minChars: number) {
+	return sql`exists (
+		select 1 from jsonb_array_elements(${tables.chatShare.messages}) as m
+		where m->>'role' = ${role}
+		and char_length(btrim(regexp_replace(coalesce(m->>'content', ''), '\\s+', ' ', 'g'))) >= ${minChars}
+	)`;
+}
 
 const rateLimitedResponse = {
 	content: { "application/json": { schema: rateLimitedSchema } },
@@ -68,7 +80,7 @@ const sharedMessageSchema = z.object({
 	reasoning: z.string().nullable(),
 	tools: z.string().nullable(),
 	sources: z.string().nullable().optional(),
-	metadata: z.record(z.unknown()).nullable().optional(),
+	metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
@@ -167,6 +179,8 @@ publicChatShares.openapi(listSharedChats, async (c) => {
 				isNull(tables.chatShare.deletedAt),
 				isNull(tables.chatShare.organizationId),
 				eq(tables.chat.status, "active"),
+				hasTurn("user", 30),
+				hasTurn("assistant", 80),
 			),
 		)
 		.orderBy(desc(tables.chatShare.updatedAt))

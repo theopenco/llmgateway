@@ -1,6 +1,8 @@
+import { Decimal } from "decimal.js";
+
 import { isUserHighRisk } from "@/lib/account-risk.js";
 
-import { db, tables, eq } from "@llmgateway/db";
+import { db, tables, eq, sql } from "@llmgateway/db";
 
 interface PersonalOrgUser {
 	id: string;
@@ -65,32 +67,54 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 // On first creation, any pay-as-you-go balance the user had on their personal
 // org is migrated to the chat org so the playground keeps access to it.
 export async function getOrCreateChatOrg(user: PersonalOrgUser) {
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const existingChatOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "chat",
-	);
-
-	if (existingChatOrg?.organization) {
-		return existingChatOrg.organization;
+	const existingChatOrg = await findChatOrgMembership(db, user.id);
+	if (existingChatOrg) {
+		return existingChatOrg;
 	}
 
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
-	const migratedCredits =
-		personalOrg && parseFloat(personalOrg.credits || "0") > 0
-			? personalOrg.credits
-			: null;
+	const riskFlagged = await isUserHighRisk(user.id);
 
 	return await db.transaction(async (tx) => {
+		// Serialize first-time creation per user so concurrent callers cannot
+		// each create a chat org seeded with the same migrated balance.
+		await tx.execute(
+			sql`SELECT pg_advisory_xact_lock(hashtext(${`chat-org:${user.id}`}))`,
+		);
+
+		const userOrgs = await tx.query.userOrganization.findMany({
+			where: {
+				userId: user.id,
+			},
+			with: {
+				organization: true,
+			},
+		});
+
+		const chatOrg = userOrgs.find(
+			(uo) => uo.organization?.kind === "chat",
+		)?.organization;
+		if (chatOrg) {
+			return chatOrg;
+		}
+
+		const personalOrgId = userOrgs.find(
+			(uo) => uo.organization?.kind === "devpass",
+		)?.organization?.id;
+		const [personalOrg] = personalOrgId
+			? await tx
+					.select({
+						id: tables.organization.id,
+						credits: tables.organization.credits,
+					})
+					.from(tables.organization)
+					.where(eq(tables.organization.id, personalOrgId))
+					.for("update")
+			: [];
+		const migratedCredits =
+			personalOrg && new Decimal(personalOrg.credits ?? 0).gt(0)
+				? personalOrg.credits
+				: null;
+
 		const [newOrg] = await tx
 			.insert(tables.organization)
 			.values({
@@ -98,7 +122,7 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 				kind: "chat",
 				billingEmail: user.email,
 				retentionLevel: "none",
-				riskFlagged: await isUserHighRisk(user.id),
+				riskFlagged,
 				...(migratedCredits ? { credits: migratedCredits } : {}),
 			})
 			.returning();
@@ -144,4 +168,16 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 
 		return newOrg;
 	});
+}
+
+async function findChatOrgMembership(database: typeof db, userId: string) {
+	const userOrgs = await database.query.userOrganization.findMany({
+		where: {
+			userId,
+		},
+		with: {
+			organization: true,
+		},
+	});
+	return userOrgs.find((uo) => uo.organization?.kind === "chat")?.organization;
 }

@@ -105,6 +105,8 @@ export interface ResolvePlatformCredentialOptions {
 	filter?: (key: ProviderKeyRow) => boolean;
 	/** Lets a soft/lax-capped managed credential serve this request. */
 	rateLimitExemption?: ProviderKeyRateLimitExemption;
+	/** False for credential availability checks without an upstream attempt. */
+	advanceRoundRobin?: boolean;
 }
 
 /**
@@ -146,6 +148,7 @@ export async function resolvePlatformCredential(
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter,
 		rateLimitExemption: options.rateLimitExemption,
+		advanceRoundRobin: options.advanceRoundRobin,
 	});
 
 	if (managedKey) {

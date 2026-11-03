@@ -39,7 +39,6 @@ describe("model metadata", () => {
 		expect(previewModel).toBeDefined();
 		const expectedMappings = [
 			["google-ai-studio", "gemini-3.1-flash-image"],
-			["glacier", "gemini-3.1-flash-image-preview"],
 			["google-vertex", "gemini-3.1-flash-image"],
 			["quartz", "gemini-3.1-flash-image"],
 		];
@@ -67,7 +66,6 @@ describe("model metadata", () => {
 		expect(previewModel).toBeDefined();
 		const expectedMappings = [
 			["google-ai-studio", "gemini-3-pro-image"],
-			["glacier", "gemini-3-pro-image-preview"],
 			["google-vertex", "gemini-3-pro-image"],
 			["quartz", "gemini-3-pro-image"],
 		];

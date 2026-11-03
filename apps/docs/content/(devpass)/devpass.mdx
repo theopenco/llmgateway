@@ -63,6 +63,10 @@ Requests appear in [Coding Agents](/learn/coding-agents), broken down by tool. A
 </Step>
 </Steps>
 
+## Provider fallback
+
+Retryable provider failures, including upstream `429` responses, can immediately fail over to another eligible provider of the same model before output reaches your tool. After a successful replacement, later session turns stay on that provider. DevPass eligibility rules and reasoning portability still apply. See [sticky-session fallback](/features/routing#falling-back-when-a-provider-is-down).
+
 ## Reasoning effort
 
 When your coding tool requests a reasoning effort, automatic provider selection

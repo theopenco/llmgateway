@@ -15,6 +15,8 @@ export interface DemoContextValue {
 	project: DemoProject;
 	selectProject: (project: DemoProject) => void;
 	history: DailyActivity[];
+	/** The visitor has started the demo at least once. */
+	started: boolean;
 }
 
 const DemoContext = createContext<DemoContextValue | null>(null);

@@ -27,6 +27,7 @@ import {
 	enterpriseFeatures,
 	getEnterpriseFeatureBySlug,
 } from "@/lib/enterprise-features";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
@@ -523,7 +524,7 @@ export async function generateMetadata({
 	const url = `https://llmgateway.io/enterprise/${slug}`;
 
 	return {
-		title,
+		title: pageTitle(title),
 		description,
 		keywords: feature.keywords.join(", "),
 		alternates: {

@@ -485,7 +485,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://ai.google.com",
 		statusPageUrl: "https://aistudio.google.com/status",
 		announcement: null,
-		priority: 0.8,
 		serviceTiers: [
 			{
 				id: "flex",
@@ -522,30 +521,6 @@ export const providers: ProviderDefinition[] = [
 				link: "https://business.safety.google/processorterms/",
 			},
 		],
-	},
-	{
-		id: "glacier",
-		name: "Glacier",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Glacier is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
-		env: {
-			required: {
-				apiKey: "LLM_GLACIER_API_KEY",
-				baseUrl: "LLM_GLACIER_BASE_URL",
-			},
-		},
-		cancellation: true,
-		color: "#4285f4",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		legalEntity: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.2,
 	},
 	{
 		id: "google-vertex",

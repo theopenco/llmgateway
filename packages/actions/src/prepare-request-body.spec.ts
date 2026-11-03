@@ -16,6 +16,7 @@ import type {
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
+	WebSearchTool,
 } from "@llmgateway/models";
 
 /**
@@ -10083,6 +10084,91 @@ describe("prepareRequestBody - DashScope web search", () => {
 			expect(requestBody.search_options).toBeUndefined();
 		},
 	);
+});
+
+describe("prepareRequestBody - cache-only web search", () => {
+	const cachedOnly = {
+		type: "web_search",
+		external_web_access: false,
+	} as const;
+	const prepare = (
+		provider: string,
+		model: string,
+		useResponsesApi?: boolean,
+		webSearchTool: WebSearchTool = cachedOnly,
+	) =>
+		prepareRequestBody(
+			provider as any,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+			undefined,
+			useResponsesApi,
+		) as Promise<any>;
+
+	test("openai forwards external_web_access on the Responses API", async () => {
+		const requestBody = await prepare("openai", "gpt-5");
+
+		expect(requestBody.tools).toEqual([
+			{ type: "web_search", external_web_access: false },
+		]);
+	});
+
+	test("openai drops it on Chat Completions, which has no cache-only mode", async () => {
+		const requestBody = await prepare("openai", "gpt-5", false);
+
+		expect(requestBody.tools).toBeUndefined();
+		expect(requestBody.web_search_options).toBeUndefined();
+	});
+
+	test.each([
+		["azure", "gpt-5"],
+		["anthropic", "claude-sonnet-4-6"],
+		["google-ai-studio", "gemini-2.5-flash"],
+	])(
+		"%s drops it instead of running a live search",
+		async (provider, model) => {
+			const requestBody = await prepare(provider, model);
+
+			expect(JSON.stringify(requestBody)).not.toMatch(
+				/web_search|googleSearch|google_search/,
+			);
+		},
+	);
+
+	test("live search is unchanged on a provider without cache-only mode", async () => {
+		const requestBody = await prepare(
+			"anthropic",
+			"claude-sonnet-4-6",
+			undefined,
+			{
+				type: "web_search",
+				external_web_access: true,
+			},
+		);
+
+		expect(JSON.stringify(requestBody.tools)).toContain("web_search");
+	});
 });
 
 describe("prepareRequestBody - declared web search format", () => {
