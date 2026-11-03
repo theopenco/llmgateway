@@ -29,6 +29,7 @@ import {
 	verifyCalendlySignature,
 } from "@/lib/crm-integrations.js";
 import {
+	isFreeMailDomain,
 	loadAccountPeople,
 	loadCrmBook,
 	resolveAccountIdForEmail,
@@ -309,12 +310,21 @@ adminCrmIntegrations.openapi(connectCalendly, async (c) => {
 		where: { provider: "calendly", accountEmail: email },
 	});
 	const id = existing?.id ?? shortid();
-	let webhookUri = existing
-		? openCalendlyCredentials(existing).webhookUri
-		: undefined;
-	let signingKey = existing
-		? openCalendlyCredentials(existing).signingKey
-		: undefined;
+	let previous: ReturnType<typeof openCalendlyCredentials> | undefined;
+	if (existing) {
+		try {
+			previous = openCalendlyCredentials(existing);
+		} catch (error) {
+			// Keyring rotated past the sealing key or a corrupt row: reconnecting
+			// is the repair path, so start a fresh subscription.
+			logger.warn("CRM Calendly credentials unreadable; resubscribing", {
+				id: existing.id,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+	let webhookUri = previous?.webhookUri;
+	let signingKey = previous?.signingKey;
 	if (!webhookUri) {
 		signingKey = randomBytes(32).toString("hex");
 		webhookUri = await createCalendlyWebhook({
@@ -484,7 +494,10 @@ async function accountContext(id: string) {
 		entry,
 		people,
 		emails: people.map((p) => p.email),
-		domain: entry.domain,
+		// Only a corporate domain widens the search; "gmail.com" would match
+		// every thread in the mailbox.
+		domain:
+			entry.domain && !isFreeMailDomain(entry.domain) ? entry.domain : null,
 	};
 }
 
@@ -618,9 +631,17 @@ const sendMail = createRoute({
 						cc: z.array(z.string().email()).max(20).optional(),
 						subject: z.string().min(1).max(500),
 						text: z.string().min(1).max(50_000),
-						threadId: z.string().optional(),
-						inReplyTo: z.string().optional(),
-						references: z.string().optional(),
+						threadId: z.string().max(64).optional(),
+						inReplyTo: z
+							.string()
+							.max(2000)
+							.regex(/^[^\r\n]*$/)
+							.optional(),
+						references: z
+							.string()
+							.max(8000)
+							.regex(/^[^\r\n]*$/)
+							.optional(),
 					}),
 				},
 			},
@@ -719,6 +740,12 @@ const meetingSchema = z.object({
 	inviteeEmail: z.string(),
 });
 
+const calendlyConnectionSchema = z.object({
+	id: z.string(),
+	host: z.string(),
+	canBook: z.boolean(),
+});
+
 const bookingLinkSchema = z.object({
 	integrationId: z.string(),
 	owner: z.string(),
@@ -739,6 +766,7 @@ const listAccountMeetings = createRoute({
 						.object({
 							meetings: z.array(meetingSchema),
 							bookingLinks: z.array(bookingLinkSchema),
+							connections: z.array(calendlyConnectionSchema),
 							errors: z.array(
 								z.object({ host: z.string(), message: z.string() }),
 							),
@@ -803,7 +831,16 @@ adminCrmIntegrations.openapi(listAccountMeetings, async (c) => {
 			);
 		}
 	}
-	return c.json({ meetings, bookingLinks: linkLists.flat(), errors });
+	return c.json({
+		meetings,
+		bookingLinks: linkLists.flat(),
+		connections: integrations.map((row) => ({
+			id: row.id,
+			host: row.displayName ?? row.accountEmail,
+			canBook: canUse(row, userId),
+		})),
+		errors,
+	});
 });
 
 // --- Calendly webhook (unauthenticated, signature-verified) ----------------

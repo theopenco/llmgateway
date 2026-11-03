@@ -157,6 +157,13 @@ function ComposeForm({
 		);
 	}
 
+	// Thread participants outside the CRM stay visible (and removable) too.
+	const recipients = [
+		...people.map((p) => ({ email: p.email, label: p.name ?? p.email })),
+		...to
+			.filter((e) => !people.some((p) => p.email === e))
+			.map((e) => ({ email: e, label: e })),
+	];
 	const toggle = (email: string) =>
 		setTo((prev) =>
 			prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email],
@@ -211,7 +218,7 @@ function ComposeForm({
 				/>
 				<span className="text-xs text-muted-foreground">to</span>
 				<div className="flex flex-wrap gap-1">
-					{people.map((p) => (
+					{recipients.map((p) => (
 						<button
 							key={p.email}
 							type="button"
@@ -224,7 +231,7 @@ function ComposeForm({
 							)}
 							title={p.email}
 						>
-							{p.name ?? p.email}
+							{p.label}
 						</button>
 					))}
 				</div>

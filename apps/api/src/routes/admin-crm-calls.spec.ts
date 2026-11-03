@@ -301,12 +301,12 @@ describe("CRM calls and research", () => {
 		expect(request?.messages[1]?.content).toContain("Did they raise recently?");
 		expect(body).toMatchObject({
 			subject: "AI research: Jane Doe",
-			sources: ["https://acme-corp.com/about"],
+			sources: ["https://acme-corp.com/about", "https://acme-corp.com/blog"],
 			model: "openai/gpt-5-mini",
 		});
 		expect(body.text).toContain("Sources:\n- https://acme-corp.com/about");
 		expect(body.text).toContain(
-			"- Acme ships routing software.\n- See the blog for more.",
+			"- Acme ships routing software. (acme)\n- See the blog for more.",
 		);
 
 		const [note] = await db

@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	CalendarDays,
 	CalendarPlus,
@@ -9,7 +10,7 @@ import {
 	Video,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -197,12 +198,24 @@ export function MeetingsPanel({
 	people: Person[];
 }) {
 	const $api = useApi();
+	const queryClient = useQueryClient();
 	const { data, isLoading, error, refetch, isFetching } = $api.useQuery(
 		"get",
 		"/admin/crm/accounts/{id}/meetings",
 		{ params: { path: { id: accountId } } },
 		{ staleTime: 60_000 },
 	);
+	// A successful fetch mirrors meetings into the activity feed, so the
+	// account detail behind the Activity tab is stale until refetched.
+	useEffect(() => {
+		if (data?.meetings.length) {
+			void queryClient.invalidateQueries({
+				queryKey: $api.queryOptions("get", "/admin/crm/accounts/{id}", {
+					params: { path: { id: accountId } },
+				}).queryKey,
+			});
+		}
+	}, [$api, accountId, data, queryClient]);
 	if (isLoading) {
 		return <Skeleton className="h-64 w-full rounded-xl" />;
 	}
@@ -213,11 +226,7 @@ export function MeetingsPanel({
 			</p>
 		);
 	}
-	if (
-		!data.bookingLinks.length &&
-		!data.meetings.length &&
-		!data.errors.length
-	) {
+	if (!data.connections.length) {
 		return (
 			<div className="rounded-xl border border-dashed border-border p-10 text-center">
 				<CalendarDays className="mx-auto h-8 w-8 text-muted-foreground" />

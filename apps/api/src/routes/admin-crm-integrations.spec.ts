@@ -211,6 +211,9 @@ describe("CRM integrations", () => {
 			expect(
 				htmlToText("<div>Hi&nbsp;there<br>bye</div><p>&amp; more</p>"),
 			).toBe("Hi there\nbye\n& more");
+			expect(htmlToText("a &amp;lt;b&gt; <scr<script>ipt>x</script> c")).toBe(
+				"a &lt;b> <scr c",
+			);
 			expect(gmailQueryFor(["a@x.io"])).toBe(
 				"{from:a@x.io to:a@x.io cc:a@x.io} -in:spam -in:trash",
 			);
@@ -237,6 +240,18 @@ describe("CRM integrations", () => {
 			expect(raw).toContain("Subject: =?UTF-8?B?");
 			expect(raw).toContain("In-Reply-To: <m1@mail.example>");
 			expect(raw).toContain("Content-Type: text/plain; charset=UTF-8");
+			const injected = Buffer.from(
+				buildRawMessage({
+					from: { email: "contact@llmgateway.io", name: null },
+					to: [{ email: "jane@acme-corp.com", name: null }],
+					cc: [],
+					subject: "Hi",
+					text: "x",
+					inReplyTo: "<m1@mail.example>\r\nBcc: evil@example.com",
+				}),
+				"base64url",
+			).toString("utf8");
+			expect(injected).not.toMatch(/\r\nBcc:/);
 		});
 
 		it("verifies Calendly signatures with a replay window", () => {
@@ -443,6 +458,21 @@ describe("CRM integrations", () => {
 				canSend: true,
 			},
 		]);
+		const injected = await call(
+			cookie,
+			"/admin/crm/accounts/acme-corp.com/mail",
+			{
+				method: "POST",
+				body: {
+					integrationId: "gmail-contact@llmgateway.io",
+					to: ["jane@acme-corp.com"],
+					subject: "Hi",
+					text: "x",
+					inReplyTo: "<m1@mail.example>\nBcc: evil@example.com",
+				},
+			},
+		);
+		expect(injected.status).toBe(400);
 		expect(body.threads).toHaveLength(1);
 		expect(body.threads[0]).toMatchObject({
 			threadId: "t1",
@@ -591,6 +621,9 @@ describe("CRM integrations", () => {
 		]);
 		expect(body.bookingLinks).toEqual([
 			expect.objectContaining({ name: "30 min call", duration: 30 }),
+		]);
+		expect(body.connections).toEqual([
+			{ id: "calendly-luca", host: "Luca", canBook: true },
 		]);
 		await call(cookie, "/admin/crm/accounts/acme-corp.com/meetings");
 		const activities = await db

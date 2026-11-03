@@ -268,11 +268,13 @@ function PersonCard({
 	person,
 	onResearch,
 	researching,
+	disabled,
 }: {
 	attendee: CrmCall["attendees"][number];
 	person: Person | undefined;
 	onResearch: () => void;
 	researching: boolean;
+	disabled: boolean;
 }) {
 	const name = person?.name ?? attendee.name ?? attendee.email;
 	const linkedin = safeExternalUrl(person?.linkedinUrl);
@@ -285,7 +287,7 @@ function PersonCard({
 					size="sm"
 					variant="outline"
 					onClick={onResearch}
-					disabled={researching}
+					disabled={disabled}
 				>
 					<Sparkles className="h-3.5 w-3.5" />
 					{researching ? "Researching…" : "Research with AI"}
@@ -666,6 +668,7 @@ export function CrmCallBrief({
 								person={detail?.people.find((p) => p.email === a.email)}
 								onResearch={() => runResearch("person", a.email)}
 								researching={running === a.email}
+								disabled={!aiAvailable || running !== null}
 							/>
 						))}
 						<Card title="Recent email with them" icon={Mail}>

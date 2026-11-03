@@ -25,7 +25,7 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 
-import { db, desc, eq, tables } from "@llmgateway/db";
+import { and, db, desc, eq, like, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -471,20 +471,23 @@ adminCrmCalls.openapi(listResearch, async (c) => {
 	const rows = await db
 		.select()
 		.from(tables.crmActivity)
-		.where(eq(tables.crmActivity.accountId, id))
+		.where(
+			and(
+				eq(tables.crmActivity.accountId, id),
+				eq(tables.crmActivity.kind, "note"),
+				like(tables.crmActivity.subject, "AI research: %"),
+			),
+		)
 		.orderBy(desc(tables.crmActivity.createdAt))
-		.limit(50);
+		.limit(10);
 	return c.json({
-		notes: rows
-			.filter((r) => r.kind === "note" && r.subject.startsWith("AI research: "))
-			.slice(0, 10)
-			.map((r) => ({
-				id: r.id,
-				subject: r.subject,
-				body: r.body ?? "",
-				contactEmail: r.contactEmail,
-				authorEmail: r.authorEmail,
-				createdAt: r.createdAt.toISOString(),
-			})),
+		notes: rows.map((r) => ({
+			id: r.id,
+			subject: r.subject,
+			body: r.body ?? "",
+			contactEmail: r.contactEmail,
+			authorEmail: r.authorEmail,
+			createdAt: r.createdAt.toISOString(),
+		})),
 	});
 });

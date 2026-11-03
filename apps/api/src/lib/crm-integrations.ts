@@ -402,26 +402,54 @@ export function parseAddresses(value: string): MailAddress[] {
 	return out;
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+	nbsp: " ",
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	apos: "'",
+};
+
+// One pass, so an entity produced by decoding is never decoded again.
 function decodeEntities(text: string): string {
-	return text
-		.replace(/&nbsp;/g, " ")
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;|&apos;/g, "'")
-		.replace(/&#(\d+);/g, (_, code: string) =>
-			String.fromCodePoint(Number(code)),
-		);
+	return text.replace(
+		/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi,
+		(match, entity: string) => {
+			if (entity[0] === "#") {
+				const code =
+					entity[1]?.toLowerCase() === "x"
+						? Number.parseInt(entity.slice(2), 16)
+						: Number.parseInt(entity.slice(1), 10);
+				return Number.isFinite(code) && code > 0 && code <= 0x10ffff
+					? String.fromCodePoint(code)
+					: match;
+			}
+			return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+		},
+	);
+}
+
+// Repeats until nothing changes, so nested or split tags cannot survive.
+function stripTags(html: string): string {
+	let previous: string;
+	let current = html;
+	do {
+		previous = current;
+		current = current
+			.replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+			.replace(/<[^>]*>/g, "");
+	} while (current !== previous);
+	return current;
 }
 
 export function htmlToText(html: string): string {
 	return decodeEntities(
-		html
-			.replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
-			.replace(/<br\s*\/?>/gi, "\n")
-			.replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, "\n")
-			.replace(/<[^>]+>/g, ""),
+		stripTags(
+			html
+				.replace(/<br\s*\/?>/gi, "\n")
+				.replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, "\n"),
+		),
 	)
 		.replace(/\r/g, "")
 		.replace(/[ \t]+\n/g, "\n")
@@ -610,6 +638,8 @@ function encodeHeaderValue(value: string): string {
 		: `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
+const singleLine = (value: string) => value.replace(/[\r\n]+/g, " ").trim();
+
 function formatAddress(a: MailAddress): string {
 	return a.name
 		? `${encodeHeaderValue(`"${a.name.replace(/"/g, "")}"`)} <${a.email}>`
@@ -633,8 +663,8 @@ export function buildRawMessage(mail: OutgoingMail): string {
 		`To: ${mail.to.map(formatAddress).join(", ")}`,
 		...(mail.cc.length ? [`Cc: ${mail.cc.map(formatAddress).join(", ")}`] : []),
 		`Subject: ${encodeHeaderValue(mail.subject)}`,
-		...(mail.inReplyTo ? [`In-Reply-To: ${mail.inReplyTo}`] : []),
-		...(mail.references ? [`References: ${mail.references}`] : []),
+		...(mail.inReplyTo ? [`In-Reply-To: ${singleLine(mail.inReplyTo)}`] : []),
+		...(mail.references ? [`References: ${singleLine(mail.references)}`] : []),
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=UTF-8",
 		"Content-Transfer-Encoding: base64",
@@ -937,15 +967,20 @@ export async function runWebResearch(input: {
 		});
 	}
 	const message = parsed.data.choices[0].message;
+	const content = message.content!;
+	const inlineUrls = [
+		...content.matchAll(/\]\(((?:https?:)?\/\/[^)\s]+)\)/g),
+	].map((m) => m[1]!);
 	const sources = [
-		...new Set(
-			(message.annotations ?? [])
+		...new Set([
+			...(message.annotations ?? [])
 				.map((a) => a.url_citation?.url)
 				.filter((u): u is string => !!u),
-		),
+			...inlineUrls,
+		]),
 	];
 	return {
-		text: stripInlineCitations(message.content!),
+		text: stripInlineCitations(content),
 		model: parsed.data.model ?? model,
 		sources,
 	};
@@ -958,7 +993,7 @@ export async function runWebResearch(input: {
  */
 export function stripInlineCitations(text: string): string {
 	return text
-		.replace(/\s*\(\s*\[[^\]]*\]\((?:https?:)?\/\/[^)]+\)\s*\)/g, "")
+		.replace(/\s*\(\s*\[([^\]]*)\]\((?:https?:)?\/\/[^)]+\)\s*\)/g, " ($1)")
 		.replace(/\[([^\]]+)\]\((?:https?:)?\/\/[^)]+\)/g, "$1")
 		.replace(/[ \t]+\n/g, "\n")
 		.trim();
