@@ -11,6 +11,8 @@ import { adminAirside } from "./admin-airside.js";
 import { adminBenchmarks } from "./admin-benchmarks.js";
 import { adminContentFilterErrors } from "./admin-content-filter-errors.js";
 import { adminContentFilter } from "./admin-content-filter.js";
+import { adminCrmCalls } from "./admin-crm-calls.js";
+import { adminCrmIntegrations } from "./admin-crm-integrations.js";
 import { adminCrm } from "./admin-crm.js";
 import { adminInternalClassifierChecks } from "./admin-internal-classifier-checks.js";
 import { adminLicense } from "./admin-license.js";
@@ -115,6 +117,8 @@ routes.route("/admin", adminAirsideCertification);
 routes.route("/admin", adminModelVerifications);
 routes.route("/admin", adminSdk);
 routes.route("/admin", adminCrm);
+routes.route("/admin", adminCrmIntegrations);
+routes.route("/admin", adminCrmCalls);
 
 routes.route("/airside", airside);
 
