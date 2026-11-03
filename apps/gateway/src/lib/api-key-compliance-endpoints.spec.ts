@@ -325,4 +325,46 @@ describe("API key compliance endpoint enforcement", () => {
 			expect(response.status, await response.text()).toBe(400);
 		},
 	);
+	test.each([
+		["", true, 200],
+		["/content", true, 409],
+		["", false, 403],
+		["/content", false, 403],
+	] as const)(
+		"video retrieval%s checks catalogue model ID (allowed=%s)",
+		async (suffix, allowed, expectedStatus) => {
+			const canonicalModel = "veo-3.1-generate-preview";
+			await db
+				.update(tables.apiKey)
+				.set({
+					providerCompliancePolicy: {
+						enabled: true,
+						...(allowed
+							? { allowedModels: [canonicalModel] }
+							: { blockedModels: [canonicalModel] }),
+					},
+				})
+				.where(eq(tables.apiKey.id, "compliance-key"));
+			await db.insert(tables.videoJob).values({
+				id: "canonical-policy-video",
+				requestId: "canonical-policy-request",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "compliance-key",
+				mode: "credits",
+				usedMode: "credits",
+				model: canonicalModel,
+				usedModel: "veo-3.1-generate-001",
+				usedProvider: "google-vertex",
+				upstreamId: "policy-upstream",
+				prompt: "Policy regression",
+				status: "queued",
+			});
+			const response = await app.request(
+				`/v1/videos/canonical-policy-video${suffix}`,
+				{ headers },
+			);
+			expect(response.status, await response.text()).toBe(expectedStatus);
+		},
+	);
 });

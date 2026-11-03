@@ -2888,7 +2888,7 @@ async function requireVideoJobForProject(
 		job.usedProvider,
 		{
 			organizationId: organization.id,
-			modelId: job.usedModel,
+			modelId: job.model,
 			apiKeyId: apiKey.id,
 			model: getFormattedUsedVideoModel(job.usedProvider, job.usedModel),
 		},

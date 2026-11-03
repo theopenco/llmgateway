@@ -17,7 +17,10 @@ import {
 } from "@/lib/iam-rules.js";
 import { getOrgProjectIds } from "@/lib/org-projects.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
-import { providerCompliancePolicySchema } from "@/lib/provider-compliance-policy.js";
+import {
+	providerCompliancePolicySchema,
+	assertCanManageCompliancePolicy,
+} from "@/lib/provider-compliance-policy.js";
 import {
 	getUsageReport,
 	USAGE_DIMENSIONS,
@@ -768,6 +771,17 @@ v1Master.openapi(updateApiKey, async (c) => {
 
 	const setPayload: Record<string, unknown> = {};
 	if (updates.providerCompliancePolicy !== undefined) {
+		const issuer = await db.query.userOrganization.findFirst({
+			where: {
+				userId: masterKey.createdBy,
+				organizationId: masterKey.organizationId,
+			},
+			columns: { role: true },
+		});
+		assertCanManageCompliancePolicy(
+			updates.providerCompliancePolicy,
+			issuer?.role,
+		);
 		setPayload.providerCompliancePolicy = updates.providerCompliancePolicy;
 	}
 	if (updates.description !== undefined) {

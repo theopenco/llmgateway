@@ -1,4 +1,5 @@
 "use client";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 import { CompliancePolicyEditor } from "@/components/compliance/compliance-policy-editor";
@@ -53,12 +54,14 @@ export function ApiKeyComplianceClient({
 		return (
 			<div className="space-y-3 p-8">
 				<p>API key not found.</p>
-				<Link
-					className="underline"
-					href={`/dashboard/${selectedOrganization?.id}/${projectId}/api-keys`}
-				>
-					Back to API keys
-				</Link>
+				<Button asChild variant="outline" size="sm">
+					<Link
+						href={`/dashboard/${selectedOrganization?.id}/${projectId}/api-keys`}
+					>
+						<ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
+						Back to API keys
+					</Link>
+				</Button>
 			</div>
 		);
 	}

@@ -75,3 +75,14 @@ export function assertEnterpriseForCompliancePolicy(
 		});
 	}
 }
+export function assertCanManageCompliancePolicy(
+	policy: ProviderCompliancePolicy | null | undefined,
+	role: string | null | undefined,
+): void {
+	if (policy !== undefined && role !== "owner" && role !== "admin") {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can manage compliance policies",
+		});
+	}
+}
