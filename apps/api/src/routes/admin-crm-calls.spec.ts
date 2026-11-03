@@ -253,7 +253,8 @@ describe("CRM calls and research", () => {
 					choices: [
 						{
 							message: {
-								content: "Overview\n- Acme ships routing software.",
+								content:
+									"Overview\n- Acme ships routing software. ([acme](https://acme-corp.com/about))\n- See [the blog](https://acme-corp.com/blog) for more.",
 								annotations: [
 									{
 										type: "url_citation",
@@ -304,6 +305,9 @@ describe("CRM calls and research", () => {
 			model: "openai/gpt-5-mini",
 		});
 		expect(body.text).toContain("Sources:\n- https://acme-corp.com/about");
+		expect(body.text).toContain(
+			"- Acme ships routing software.\n- See the blog for more.",
+		);
 
 		const [note] = await db
 			.select()

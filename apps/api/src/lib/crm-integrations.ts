@@ -945,10 +945,23 @@ export async function runWebResearch(input: {
 		),
 	];
 	return {
-		text: message.content!.trim(),
+		text: stripInlineCitations(message.content!),
 		model: parsed.data.model ?? model,
 		sources,
 	};
+}
+
+/**
+ * Models still wrap citations as markdown links; the admin UI shows plain
+ * text and lists sources separately, so drop the parenthesised link and keep
+ * any link label.
+ */
+export function stripInlineCitations(text: string): string {
+	return text
+		.replace(/\s*\(\s*\[[^\]]*\]\((?:https?:)?\/\/[^)]+\)\s*\)/g, "")
+		.replace(/\[([^\]]+)\]\((?:https?:)?\/\/[^)]+\)/g, "$1")
+		.replace(/[ \t]+\n/g, "\n")
+		.trim();
 }
 
 // --- Calendly -------------------------------------------------------------
