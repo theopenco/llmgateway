@@ -6,6 +6,7 @@ import type { ProviderModelMapping } from "@llmgateway/models";
 
 const mapping: ProviderModelMapping = {
 	providerId: "typesafe",
+	streaming: true,
 	externalId: "jev",
 	inputPrice: "0.042e-6",
 	outputPrice: "0.3e-6",
