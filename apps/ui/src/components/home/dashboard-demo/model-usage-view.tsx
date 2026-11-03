@@ -29,6 +29,7 @@ import {
 } from "@/lib/components/select";
 import { applyUsageModeToDaily, type UsageMode } from "@/lib/usage-mode";
 
+import { sortTooltipPayload } from "@llmgateway/shared/chart-tooltip";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -141,9 +142,9 @@ function ChartTooltip({
 			: breakdownField === "tokens"
 				? data.totalTokens
 				: data.requestCount;
-	const sortedPayload = payload
-		.filter((entry) => entry.value > 0)
-		.sort((a, b) => b.value - a.value);
+	const sortedPayload = sortTooltipPayload(
+		payload.filter((entry) => entry.value > 0),
+	);
 	return (
 		<div className="rounded-lg border bg-popover p-2 text-popover-foreground shadow-sm">
 			<p className="font-medium">

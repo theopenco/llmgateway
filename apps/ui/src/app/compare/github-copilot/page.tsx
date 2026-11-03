@@ -3,6 +3,7 @@ import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonGitHubCopilot } from "@/components/landing/comparison-github-copilot";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -81,7 +82,7 @@ export default function CompareGitHubCopilotPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
+		title: pageTitle("LLM Gateway vs GitHub Copilot — Costs Compared (2026)"),
 		description:
 			"Copilot now bills chat and agents by usage-based AI Credits. Compare it with LLM Gateway: zero token markup, hard budget caps, prompt caching, and 200+ models for compatible coding tools.",
 		alternates: { canonical: "/compare/github-copilot" },

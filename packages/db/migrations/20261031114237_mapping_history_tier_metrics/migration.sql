@@ -1,0 +1,20 @@
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_logs_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_client_errors_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_gateway_errors_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_upstream_errors_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_total_output_tokens" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_total_duration" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_total_time_to_first_token" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_total_time_to_first_reasoning_token" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_time_to_first_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "flex_time_to_first_reasoning_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_logs_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_client_errors_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_gateway_errors_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_upstream_errors_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_total_output_tokens" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_total_duration" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_total_time_to_first_token" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_total_time_to_first_reasoning_token" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_time_to_first_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "priority_time_to_first_reasoning_token_count" integer DEFAULT 0 NOT NULL;

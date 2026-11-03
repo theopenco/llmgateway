@@ -97,10 +97,7 @@ const read = z
 	})
 	.strict();
 
-function toolInput<T>(
-	schema: z.ZodType<T, z.ZodTypeDef, unknown>,
-	input: unknown,
-): T {
+function toolInput<T>(schema: z.ZodType<T>, input: unknown): T {
 	const result = schema.safeParse(input);
 	if (!result.success) {
 		throw new HTTPException(400, {
@@ -125,6 +122,13 @@ function gmailText(value: unknown, depth = 0): string[] {
 		) {
 			return [Buffer.from(body.data, "base64url").toString("utf8")];
 		}
+	}
+	if (part.mimeType === "multipart/alternative" && Array.isArray(part.parts)) {
+		const alternatives = part.parts as Record<string, unknown>[];
+		const preferred =
+			alternatives.find((child) => child.mimeType === "text/plain") ??
+			alternatives.at(-1);
+		return gmailText(preferred, depth + 1);
 	}
 	return Array.isArray(part.parts)
 		? part.parts.flatMap((child: unknown) => gmailText(child, depth + 1))
@@ -234,7 +238,7 @@ export async function executeNativeTool(
 		"payload" in result
 	) {
 		const message = result as Record<string, unknown>;
-		const payload = z.record(z.unknown()).parse(message.payload);
+		const payload = z.record(z.string(), z.unknown()).parse(message.payload);
 		return {
 			id: message.id,
 			threadId: message.threadId,

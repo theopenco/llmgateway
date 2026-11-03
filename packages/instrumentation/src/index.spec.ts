@@ -1,7 +1,9 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Import after mocking (Vitest hoists vi.mock)
-import { initializeInstrumentation } from "./index.js";
+import { initializeInstrumentation, shutdownInstrumentation } from "./index.js";
+
+import type { NodeSDK } from "@opentelemetry/sdk-node";
 
 // Mock the logger and OpenTelemetry modules
 vi.mock("@llmgateway/logger", () => ({
@@ -141,5 +143,38 @@ describe("HeaderBasedForceSampler", () => {
 		});
 
 		expect(sdk).toBeDefined();
+	});
+});
+
+describe("shutdownInstrumentation", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("resolves when the SDK shuts down", async () => {
+		const sdk = { shutdown: vi.fn().mockResolvedValue(undefined) };
+
+		await expect(
+			shutdownInstrumentation(sdk as unknown as NodeSDK),
+		).resolves.toBeUndefined();
+		expect(sdk.shutdown).toHaveBeenCalledOnce();
+	});
+
+	it("resolves after the timeout when the SDK shutdown hangs", async () => {
+		vi.useFakeTimers();
+		const sdk = { shutdown: () => new Promise<void>(() => {}) };
+
+		const done = shutdownInstrumentation(sdk as unknown as NodeSDK, 5000);
+		await vi.advanceTimersByTimeAsync(5000);
+
+		await expect(done).resolves.toBeUndefined();
+	});
+
+	it("rethrows a failed shutdown", async () => {
+		const sdk = { shutdown: vi.fn().mockRejectedValue(new Error("boom")) };
+
+		await expect(
+			shutdownInstrumentation(sdk as unknown as NodeSDK),
+		).rejects.toThrow("boom");
 	});
 });

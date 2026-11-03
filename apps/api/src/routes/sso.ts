@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { APIError } from "better-auth/api";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
 import { recomputeTeamForGroupName } from "@/lib/sso-teams.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";

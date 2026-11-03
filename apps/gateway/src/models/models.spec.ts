@@ -253,6 +253,7 @@ describe("Models API", () => {
 			(p: { providerId: string }) => p.providerId === "anthropic",
 		);
 		expect(anthropicMapping.reasoning_efforts).toEqual([
+			"none",
 			"low",
 			"medium",
 			"high",
@@ -747,30 +748,6 @@ describe("Models API", () => {
 				),
 			).toBe(false);
 		}
-	});
-
-	test("GET /v1/models should only expose glacier for supported models", async () => {
-		const res = await app.request("/v1/models?include_deactivated=true");
-		expect(res.status).toBe(200);
-
-		const json = await res.json();
-
-		const glacierModelIds = json.data
-			.filter((model: any) =>
-				model.providers.some(
-					(provider: any) => provider.providerId === "glacier",
-				),
-			)
-			.map((model: any) => model.id)
-			.sort();
-
-		expect(glacierModelIds).toEqual([
-			"gemini-2.5-flash-image",
-			"gemini-3-pro-image",
-			"gemini-3-pro-image-preview",
-			"gemini-3.1-flash-image",
-			"gemini-3.1-flash-image-preview",
-		]);
 	});
 
 	test("GET /v1/models should include stability information for models", async () => {

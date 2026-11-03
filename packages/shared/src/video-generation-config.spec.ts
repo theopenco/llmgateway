@@ -4,12 +4,18 @@ import {
 	estimateVideoCostUsd,
 	estimateVideoSelectionCostUsd,
 	findVideoSize,
+	getGoogleAiStudioVideoFileName,
 	getSupportedVideoRequestOptions,
 	getVideoOrientations,
 	getVideoResolutions,
 	mergeVideoModelResults,
+	parseGoogleAiStudioFileName,
 	supportsVideoFrameInput,
 	supportsVideoEndFrameInput,
+	supportsVideoReferenceInput,
+	supportsVideoReferenceVideoInput,
+	supportsVideoReferenceAudioInput,
+	supportsVideoReasoningEffort,
 } from "./video-generation-config.js";
 
 import type {
@@ -113,6 +119,72 @@ describe("video provider selection", () => {
 	});
 });
 
+describe("FLUX 3 Max", () => {
+	const sizes: VideoSize[] = ["1280x720", "720x1280", "1920x1080", "1080x1920"];
+	const durations = Array.from({ length: 16 }, (_, i) => i + 5);
+	const flux: VideoCatalogModel = {
+		id: "flux-3-max",
+		mappings: [
+			{
+				...mapping,
+				modelId: "flux-3-max",
+				providerId: "fal-ai",
+				supportedVideoSizes: sizes,
+				supportedVideoDurationsSeconds: durations,
+				supportedVideoDurationsSecondsImageToVideo: null,
+			},
+		],
+	};
+
+	test.each(["flux-3-max", "fal-ai/flux-3-max", "fal-ai/flux-3-max:us"])(
+		"offers text and frame menus for %s",
+		(modelId) => {
+			for (const mode of ["none", "frames"] as const) {
+				expect(
+					getSupportedVideoRequestOptions([flux], [modelId], mode),
+				).toEqual({ sizes, durations });
+			}
+			expect(getVideoResolutions(sizes)).toEqual(["720p", "1080p"]);
+			for (const resolution of ["720p", "1080p"] as const) {
+				expect(getVideoOrientations(sizes, resolution)).toEqual([
+					"landscape",
+					"portrait",
+				]);
+			}
+			expect(supportsVideoFrameInput(modelId)).toBe(true);
+			expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+			expect(supportsVideoReasoningEffort(modelId)).toBe(true);
+			expect(supportsVideoReferenceInput(modelId)).toBe(false);
+			expect(supportsVideoReferenceVideoInput(modelId)).toBe(false);
+			expect(supportsVideoReferenceAudioInput(modelId)).toBe(false);
+			expect(
+				getSupportedVideoRequestOptions([flux], [modelId], "reference"),
+			).toEqual({ sizes: [], durations: [] });
+		},
+	);
+
+	test("matches canonical root and provider, never upstream ids", () => {
+		for (const modelId of [
+			"openai/flux-3-max",
+			"fal-ai/blackforestlabs/flux-3-max",
+			"fal-ai/other",
+		]) {
+			expect(supportsVideoFrameInput(modelId)).toBe(false);
+			expect(supportsVideoEndFrameInput(modelId)).toBe(false);
+			expect(supportsVideoReasoningEffort(modelId)).toBe(false);
+		}
+		for (const overrides of [{ providerId: "openai" }, { modelId: "other" }]) {
+			const model = {
+				...flux,
+				mappings: [{ ...flux.mappings[0], ...overrides }],
+			};
+			expect(
+				getSupportedVideoRequestOptions([model], [flux.id], "frames"),
+			).toEqual({ sizes: [], durations: [] });
+		}
+	});
+});
+
 describe("video size options", () => {
 	const sizes: VideoSize[] = ["854x480", "848x480", "1280x720", "1080x1920"];
 
@@ -127,6 +199,73 @@ describe("video size options", () => {
 		expect(findVideoSize(sizes, "480p", "landscape")).toBe("848x480");
 		expect(findVideoSize(["854x480"], "480p", "landscape")).toBe("854x480");
 		expect(findVideoSize(sizes, "720p", "portrait")).toBeUndefined();
+	});
+});
+
+describe("Gemini Omni 1.1 Flash", () => {
+	const omni: VideoCatalogModel = {
+		id: "gemini-omni-1.1-flash",
+		mappings: [
+			{
+				modelId: "gemini-omni-1.1-flash",
+				providerId: "google-ai-studio",
+				status: "active",
+				deactivatedAt: null,
+				perSecondPrice: { "360p": "0.0337925", "720p": "0.10136" },
+				supportedVideoSizes: ["640x360", "360x640", "1280x720", "720x1280"],
+				supportedVideoDurationsSeconds: [3, 4, 5, 6, 7, 8, 9, 10],
+				supportedVideoDurationsSecondsImageToVideo: null,
+			},
+		],
+	};
+
+	test("offers 360p, 3s, frame and reference inputs", () => {
+		expect(getSupportedVideoRequestOptions([omni], [omni.id], "none")).toEqual({
+			sizes: ["640x360", "360x640", "1280x720", "720x1280"],
+			durations: [3, 4, 5, 6, 7, 8, 9, 10],
+		});
+		expect(getVideoResolutions(["640x360", "1280x720"])).toEqual([
+			"360p",
+			"720p",
+		]);
+		const modelId = "google-ai-studio/gemini-omni-1.1-flash";
+		expect(supportsVideoFrameInput(modelId)).toBe(true);
+		expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceVideoInput(modelId)).toBe(true);
+		expect(
+			supportsVideoReferenceInput("google-vertex/gemini-omni-1.1-flash"),
+		).toBe(false);
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "reference").durations,
+		).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "frames").sizes,
+		).toEqual(["640x360", "360x640", "1280x720", "720x1280"]);
+	});
+
+	test("estimates the per-second rate for the resolution", () => {
+		expect(estimateVideoCostUsd(omni.mappings[0], "360p", 10, 0)).toBe(
+			0.337925,
+		);
+	});
+
+	test("parses Files API names from output URIs", () => {
+		expect(
+			parseGoogleAiStudioFileName(
+				"https://generativelanguage.googleapis.com/v1beta/files/gr2lbpezqjqc:download?alt=media",
+			),
+		).toBe("files/gr2lbpezqjqc");
+		expect(parseGoogleAiStudioFileName("https://example.com/video.mp4")).toBe(
+			null,
+		);
+		expect(
+			getGoogleAiStudioVideoFileName([
+				null,
+				{ google_ai_studio_file_name: "files/../x" },
+				{ google_ai_studio_file_name: "files/abc123" },
+			]),
+		).toBe("files/abc123");
 	});
 });
 

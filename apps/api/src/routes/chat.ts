@@ -1,7 +1,8 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 
+import { createRoute } from "@/utils/create-route.js";
 import { getGatewayUrl } from "@/utils/playground-key.js";
 
 import { redisClient } from "@llmgateway/cache";

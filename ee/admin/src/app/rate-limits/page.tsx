@@ -76,7 +76,8 @@ export default async function GlobalRateLimitsPage() {
 								Global Rate Limits
 							</h1>
 							<p className="text-sm text-muted-foreground">
-								RPM and RPD caps that apply to all organizations
+								Request (RPM/RPD) and token (TPM/TPD) caps that apply to all
+								organizations
 							</p>
 						</div>
 					</div>
@@ -210,7 +211,9 @@ export default async function GlobalRateLimitsPage() {
 						across all orgs combined (e.g. 10 RPM total platform-wide)
 					</li>
 					<li>
-						Caps can be defined as requests per minute (RPM) or per day (RPD)
+						Caps can be defined as requests per minute (RPM) or per day (RPD),
+						or as prompt + completion tokens per minute (TPM) or per day (TPD).
+						Tokens are counted when a request completes
 					</li>
 					<li>
 						<strong>Soft</strong> limits let a session already pinned to the

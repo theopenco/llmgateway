@@ -1,5 +1,6 @@
 import { Code, Wrench, Zap, Braces } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { Footer } from "@/components/Footer";
@@ -24,8 +25,19 @@ export const metadata: Metadata = {
 	},
 };
 
-export default async function CodingModelsPage() {
-	const codingModelCards = await getCodingModelCards();
+// Fetched inside Suspense: the model catalogue comes from a network call and
+// only feeds a below-the-fold section, so it must not block the hero.
+async function CodingModels() {
+	return (
+		<CodingModelsShowcase
+			models={await getCodingModelCards()}
+			showCTA
+			showTabs
+		/>
+	);
+}
+
+export default function CodingModelsPage() {
 	return (
 		<div className="min-h-screen bg-background">
 			<Header />
@@ -104,7 +116,9 @@ export default async function CodingModelsPage() {
 							We recommend the latest models from open-weight-first labs — the
 							full standard and premium catalogue is one tab away.
 						</p>
-						<CodingModelsShowcase models={codingModelCards} showCTA showTabs />
+						<Suspense fallback={<div className="min-h-[480px]" />}>
+							<CodingModels />
+						</Suspense>
 					</div>
 				</section>
 

@@ -440,7 +440,6 @@ export function transformResponseToOpenai(
 
 	switch (responseShape) {
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			// Multi-candidate responses (n > 1 via candidateCount) map each Google
@@ -648,7 +647,7 @@ export function transformResponseToOpenai(
 						},
 						finish_reason: mapFinishReasonToOpenai(
 							finishReason,
-							usedProvider,
+							responseProvider,
 							!!toolResults,
 						),
 					},
@@ -742,8 +741,6 @@ export function transformResponseToOpenai(
 		}
 		case "inference.net":
 		case "together-ai":
-		case "scx-ai":
-		case "scx-ai-gp":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {
@@ -1396,7 +1393,6 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
-		case "embercloud":
 		case "zai": {
 			// Check if this is a CogView image generation response
 			// Format: { created: number, data: [{ url: "..." }] }

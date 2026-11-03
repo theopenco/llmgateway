@@ -540,8 +540,10 @@ function BrandEditor({
 								className="text-muted-foreground -mt-2 text-xs sm:col-span-2"
 								data-testid="policy-locked-note"
 							>
-								Catalogue providers show the data policy LLM Gateway reviewed,
-								which also drives compliance routing. Contact us to change it.
+								Training, prompt logging and retention show the policy LLM
+								Gateway reviewed; contact us to change them. The certifications
+								you set below replace the reviewed ones on your provider page
+								and in compliance routing.
 							</p>
 						) : null}
 						<Segmented
@@ -572,7 +574,6 @@ function BrandEditor({
 						/>
 						<Segmented
 							name="profile-gdpr"
-							disabled={policyLocked}
 							label="GDPR compliant"
 							value={profile.gdpr}
 							options={TRI_OPTIONS}
@@ -580,7 +581,6 @@ function BrandEditor({
 						/>
 						<Segmented
 							name="profile-iso27001"
-							disabled={policyLocked}
 							label="ISO 27001 certified"
 							value={profile.iso27001}
 							options={TRI_OPTIONS}
@@ -588,7 +588,6 @@ function BrandEditor({
 						/>
 						<Segmented
 							name="profile-soc2"
-							disabled={policyLocked}
 							label="SOC 2"
 							value={profile.soc2}
 							options={SOC2_OPTIONS}

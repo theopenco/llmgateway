@@ -1,4 +1,3 @@
-"use client";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { PlusIcon } from "lucide-react";
 import Link from "next/link";

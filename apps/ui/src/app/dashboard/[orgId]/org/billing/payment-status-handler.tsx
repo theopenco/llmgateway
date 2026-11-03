@@ -1,7 +1,6 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -9,6 +8,7 @@ import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 interface PaymentStatusHandlerProps {
 	paymentStatus?: string;

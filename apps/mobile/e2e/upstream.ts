@@ -109,6 +109,7 @@ void startMockServer(
 			(await skillUpstream(request)) ??
 			(await projectUpstream(request)) ??
 			mockOpenAIServer.fetch(request)),
+	"127.0.0.1",
 )
 	.then((url) => {
 		startMockRealtimeServer(

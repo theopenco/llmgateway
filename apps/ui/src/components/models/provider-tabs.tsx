@@ -22,7 +22,7 @@ export function ProviderTabs({
 	activeProviderId,
 	branding,
 }: ProviderTabsProps) {
-	// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+	// Providers with a marketing badge first
 	const uniqueProviderIds = Array.from(new Set(providerIds)).sort(
 		(a, b) =>
 			Number(

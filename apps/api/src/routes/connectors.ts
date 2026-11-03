@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
@@ -17,10 +17,13 @@ import {
 	beginAuthorization,
 	credentialsSchema,
 } from "@/lib/connectors/oauth.js";
+import { executePersistedToolApproval } from "@/lib/connectors/tool-approval.js";
 import {
+	assertConnectionReady,
 	callConnectorTool,
 	listConnectorTools,
 } from "@/lib/connectors/tools.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { and, db, eq, lt, tables } from "@llmgateway/db";
 import {
@@ -374,7 +377,7 @@ connectors.openapi(
 									connectorId,
 									name: z.string(),
 									description: z.string(),
-									inputSchema: z.record(z.unknown()),
+									inputSchema: z.record(z.string(), z.unknown()),
 								}),
 							),
 						}),
@@ -407,7 +410,9 @@ connectors.openapi(
 				required: true,
 				content: {
 					"application/json": {
-						schema: z.object({ input: z.record(z.unknown()) }).strict(),
+						schema: z
+							.object({ input: z.record(z.string(), z.unknown()) })
+							.strict(),
 					},
 				},
 			},
@@ -417,13 +422,52 @@ connectors.openapi(
 			200: {
 				description: "Connector tool result",
 				content: {
-					"application/json": { schema: z.object({ result: z.string() }) },
+					"application/json": {
+						schema: z.object({
+							result: z.string(),
+							tools: z.string().optional(),
+						}),
+					},
 				},
 			},
 		},
 	}),
 	async (c) => {
 		const { connectorId: id, toolName } = c.req.valid("param");
+		const messageId = c.req.header("x-tool-message-id");
+		const toolCallId = c.req.header("x-tool-call-id");
+		const approved = c.req.header("x-tool-approved");
+		if (messageId || toolCallId || approved !== undefined) {
+			if (
+				!messageId ||
+				!toolCallId ||
+				!["true", "false"].includes(approved ?? "")
+			) {
+				throw new HTTPException(400, {
+					message:
+						"A saved message, tool call, and approval decision are required",
+				});
+			}
+			const result = await executePersistedToolApproval({
+				userId: c.get("user")!.id,
+				messageId,
+				toolCallId,
+				connectorId: id,
+				toolName,
+				input: c.req.valid("json").input,
+				approved: approved === "true",
+				ready: () => assertConnectionReady(c.get("user")!.id, id),
+				execute: () =>
+					callConnectorTool(
+						c.get("user")!.id,
+						id,
+						toolName,
+						c.req.valid("json").input,
+					),
+			});
+			return c.json(result, 200);
+		}
+
 		return c.json(
 			{
 				result: JSON.stringify(

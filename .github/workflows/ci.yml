@@ -22,8 +22,13 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # pull_request.base.sha stays at the base the PR was opened against, so
+      # compare with the base branch as it is now.
       - name: Ensure at most one new migration
-        run: bash scripts/check-new-migrations.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-new-migrations.sh "origin/$BASE_REF" "$HEAD_SHA"
 
   lint:
     uses: ./.github/workflows/run.yml
@@ -37,14 +42,15 @@ jobs:
   migrations:
     # Fails when this PR's migrations and ones merged since it branched touch
     # the same objects. The migrator applies them out of order, and git no
-    # longer conflicts, so this is the only guard.
+    # longer conflicts, so this is the only guard. The lint flags statements
+    # that hold long ACCESS EXCLUSIVE locks on live tables.
     uses: ./.github/workflows/run.yml
     secrets: inherit
     permissions:
       contents: read
       id-token: write
     with:
-      cmd: pnpm migrations:check
+      cmd: pnpm migrations:check && pnpm migrations:lint
 
   generate:
     uses: ./.github/workflows/run.yml

@@ -2,11 +2,13 @@
 import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { APICallError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+
+import { createRoute } from "@/utils/create-route.js";
 
 import { db } from "@llmgateway/db";
 import {
@@ -23,6 +25,7 @@ import {
 import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
+import { crmWebhooks } from "./routes/admin-crm-integrations.js";
 import { beacon } from "./routes/beacon.js";
 import { cliSkills } from "./routes/cli-skills.js";
 import { emailChange } from "./routes/email-change.js";
@@ -40,6 +43,7 @@ import { publicApps } from "./routes/public-apps.js";
 import { publicBanner } from "./routes/public-banner.js";
 import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
+import { publicCliAuth } from "./routes/public-cli-auth.js";
 import { publicConfig } from "./routes/public-config.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
@@ -241,6 +245,10 @@ app.onError((error, c) => {
 	);
 });
 
+// Liveness: the process serves HTTP. Never touches the database, so a slow or
+// locked database cannot get healthy pods restarted (use `/` for readiness).
+app.get("/livez", (c) => c.json({ status: "ok" }));
+
 const root = createRoute({
 	method: "get",
 	path: "/",
@@ -341,8 +349,10 @@ app.route("/public/discounts", publicDiscounts);
 app.route("/public/contact", publicContact);
 app.route("/public/newsletter", publicNewsletter);
 app.route("/public/unsubscribe", publicUnsubscribe);
+app.route("/public/crm-webhooks", crmWebhooks);
 app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
+app.route("/public/cli-auth", publicCliAuth);
 app.route("/public/apps", publicApps);
 app.route("/public/profile", publicProfile);
 app.route("/public/leaderboard", publicLeaderboard);

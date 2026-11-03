@@ -35,6 +35,20 @@ const templates = [
 		tags: ["Next.js", "AI SDK", "Streaming"],
 	},
 	{
+		name: "Model Arena",
+		description:
+			"Compare up to four models side by side on speed, cost, and answer quality.",
+		command: "npx @llmgateway/cli init --template model-arena",
+		tags: ["Next.js", "AI SDK 7", "Benchmarking"],
+	},
+	{
+		name: "AI Slides",
+		description:
+			"Generate a presentation with web research, AI images, and charts, then export to PowerPoint.",
+		command: "npx @llmgateway/cli init --template ai-slides",
+		tags: ["Next.js", "AI SDK 7", "Web Search"],
+	},
+	{
 		name: "Image Generation",
 		description:
 			"Generate images with DALL-E, Stable Diffusion, and more through a unified API.",
@@ -65,9 +79,9 @@ const templates = [
 	{
 		name: "QA Agent",
 		description:
-			"AI-powered QA testing agent with browser automation and real-time action timeline.",
+			"AI QA testing agent that drives a headless browser with Playwright, with a real-time action timeline.",
 		command: "npx @llmgateway/cli init --template qa-agent",
-		tags: ["Next.js", "AI SDK", "Browser Automation"],
+		tags: ["Next.js", "Playwright", "Browser Automation"],
 	},
 	{
 		name: "Showcase",

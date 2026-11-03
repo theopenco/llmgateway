@@ -13,13 +13,15 @@ faqs:
   - question: "What does a decision model cost?"
     answer: "Jev 1.13 is $0.042 per million input tokens with output free, because the response is a set of values rather than generated text. The state and every question count as input on each call."
   - question: "Can I use a decision model on /v1/chat/completions?"
-    answer: "No. Decision models only work on /v1/systemone. Requesting one on chat completions returns a 400 pointing at the right endpoint. They cannot generate text or call tools, and they are not available in the Playground."
+    answer: "No. Decision models only work on the decision endpoints (/v1/decisions, and the legacy /v1/systemone for TypeSafe models). Requesting one on chat completions returns a 400 pointing at the right endpoint. They cannot generate text or call tools, and they are not available in the Playground."
 image:
   src: "/blog/llm-decision-api.png"
   alt: "A glowing decision switch on a central chip with light traces branching into three weighted paths, surrounded by probability dials and a routing signpost"
   width: 1536
   height: 1024
 ---
+
+**Update (October 12, 2026):** decision models now also have an OpenAI-compatible endpoint, `/v1/decisions`, which serves Jev alongside GPT-6 Luna Decisions and Microsoft-Decision-1. `/v1/systemone` keeps working for TypeSafe models but will be deprecated soon. See [OpenAI Decisions API on LLM Gateway](/blog/openai-decisions-api).
 
 A lot of production LLM traffic is not generation at all. It is a model being
 asked a question with a small, known answer set: which team owns this ticket,

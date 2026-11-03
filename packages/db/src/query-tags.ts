@@ -15,6 +15,7 @@ export interface QueryTags {
 }
 
 let comment = "";
+let currentTags: QueryTags = {};
 
 /**
  * URL-encode per the sqlcommenter spec, including the characters that
@@ -49,7 +50,13 @@ function serialize(tags: QueryTags): string {
  * spam Query Insights with unique statements.
  */
 export function setQueryTags(tags: QueryTags): void {
+	currentTags = { ...tags };
 	comment = serialize(tags);
+}
+
+/** One of the tags set by `setQueryTags`, e.g. `application`. */
+export function getQueryTag(key: string): string | undefined {
+	return currentTags[key];
 }
 
 /** The current sqlcommenter comment, or "" when no tags are set. */

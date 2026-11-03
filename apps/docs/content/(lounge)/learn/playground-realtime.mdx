@@ -38,9 +38,10 @@ Use **Copy transcript** before leaving the screen. Transcription sessions are no
 
 1. Pick a model from the selector — only models with an active realtime mapping appear, newest first
 2. Pick a **Voice** — the voice list comes from the selected model, so it changes when you switch models
-3. Click **Start call** and allow microphone access when the browser asks
+3. If the model needs a separate transcription model, pick one under **Transcription**. It turns your speech into the transcript and is billed separately, at the price shown next to each option. Models that transcribe speech themselves show no picker
+4. Click **Start call** and allow microphone access when the browser asks
 
-The status label on the right walks through the handshake — preparing audio, requesting the microphone, authorizing, connecting, configuring — and settles on **Live** with a call timer next to it. The model and voice are locked for the duration of the call; end it to change either.
+The status label on the right walks through the handshake — preparing audio, requesting the microphone, authorizing, connecting, configuring — and settles on **Live** with a call timer next to it. The model, voice, and transcription model are locked for the duration of the call; end it to change any of them.
 
 Your browser never sees an API key. The page mints a short-lived client secret server-side for the call, and the audio itself is streamed as 24 kHz PCM with echo cancellation and noise suppression on.
 

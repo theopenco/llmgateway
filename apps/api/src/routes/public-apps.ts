@@ -1,5 +1,7 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
+
+import { createRoute } from "@/utils/create-route.js";
 
 import { db, globalSourceStats, ne, sql } from "@llmgateway/db";
 

@@ -2,11 +2,12 @@
 
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 import { StatCard } from "@/components/detail-stat-cards";
 import { SegmentedUrlSelector } from "@/components/segmented-url-selector";
+import { TOKEN_COLORS } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -17,6 +18,8 @@ import {
 } from "@/components/ui/card";
 import {
 	ChartContainer,
+	ChartLegend,
+	ChartLegendContent,
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
@@ -34,6 +37,11 @@ import {
 } from "@/components/usage-mode-selector";
 import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
+import {
+	formatProviderCacheRate,
+	providerCacheRate,
+} from "@/lib/provider-cache-rate";
+import { LOAD_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import {
 	formatCompactNumber,
@@ -42,7 +50,20 @@ import {
 
 const PAGE_SIZE = 10;
 const STALE_TIME = 5 * 60 * 1000;
+const TOKEN_TYPE_LABELS = {
+	total: "Total tokens",
+	input: "Input tokens",
+	cached: "Cached input",
+	output: "Output tokens",
+};
+const TOKEN_TYPES = ["total", "input", "cached", "output"] as const;
 const chartConfig = { tokens: { label: "Tokens", color: "var(--chart-1)" } };
+const splitChartConfig = {
+	uncachedInput: { label: "Uncached input", color: TOKEN_COLORS.input },
+	cachedInput: { label: "Cached input", color: TOKEN_COLORS.cached },
+	output: { label: "Output", color: TOKEN_COLORS.output },
+	other: { label: "Other", color: "var(--muted-foreground)" },
+};
 const utcDate = new Intl.DateTimeFormat("en-US", {
 	timeZone: "UTC",
 	month: "short",
@@ -59,26 +80,37 @@ function peakLabel(
 	return `${utcDate.format(new Date(timestamp))}${minute ? ` ${timestamp.slice(11, 16)}` : ""} UTC`;
 }
 
-function count(value: number | undefined) {
-	return value === undefined
-		? "—"
+function count(value: number | undefined, compact: boolean) {
+	if (value === undefined) {
+		return "—";
+	}
+	return compact
+		? formatCompactNumber(value)
 		: formatNumber(Math.round(value * 100) / 100);
+}
+
+function cacheShare(cachedTokens = 0, inputTokens = 0) {
+	const rate = providerCacheRate({ inputTokens, cachedTokens });
+	return rate === null
+		? "No input tokens"
+		: `${formatProviderCacheRate(rate)} of input`;
 }
 
 export function TokenCapacity() {
 	const params = useSearchParams();
-	const window = params.get("tokenWindow") === "30d" ? "30d" : "7d";
+	const windowParam = params.get("tokenWindow");
+	const window =
+		windowParam === "7d" || windowParam === "30d" ? windowParam : "24h";
+	const hourly = window === "24h";
 	const tokenType =
-		params.get("tokenType") === "input"
-			? "input"
-			: params.get("tokenType") === "output"
-				? "output"
-				: "total";
+		TOKEN_TYPES.find((type) => type === params.get("tokenType")) ?? "total";
 	const groupBy =
 		params.get("tokenGroupBy") === "provider" ? "provider" : "model";
 	const modelView =
 		params.get("tokenModelView") === "mapping" ? "mapping" : "canonical";
-	const mode = useUsageMode();
+	const compact = params.get("tokenNumbers") !== "full";
+	const show = (value: number | undefined) => count(value, compact);
+	const mode = useUsageMode(LOAD_USAGE_MODE_DEFAULT);
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
@@ -93,11 +125,85 @@ export function TokenCapacity() {
 		},
 	);
 	const summary = data?.summary;
+	type BreakdownRow = NonNullable<typeof data>["breakdown"][number];
 	const filters = `${window}:${tokenType}:${groupBy}:${modelView}:${mode}`;
 	const [pagination, setPagination] = useState({ filters, page: 1 });
 	if (pagination.filters !== filters) {
 		setPagination({ filters, page: 1 });
 	}
+	const split = tokenType === "total";
+	const chartData = ((hourly ? data?.hours : data?.days) ?? []).map(
+		(bucket) => ({
+			...bucket,
+			uncachedInput: Math.max(0, bucket.inputTokens - bucket.cachedTokens),
+			cachedInput: bucket.cachedTokens,
+			output: bucket.outputTokens,
+			// Totals some providers report beyond input + output.
+			other: Math.max(
+				0,
+				bucket.tokens - bucket.inputTokens - bucket.outputTokens,
+			),
+		}),
+	);
+	const bars = split
+		? (["uncachedInput", "cachedInput", "output", "other"] as const)
+		: (["tokens"] as const);
+	const peakHour = data?.hours
+		.filter((hour) => !hour.partial)
+		.reduce<(typeof data.hours)[number] | null>(
+			(best, hour) => (!best || hour.tokens > best.tokens ? hour : best),
+			null,
+		);
+	const bucketLabel = (timestamp: string) =>
+		hourly ? timestamp.slice(11, 16) : utcDate.format(new Date(timestamp));
+	const metricColumns: [string, (row: BreakdownRow) => ReactNode][] = [
+		[TOKEN_TYPE_LABELS[tokenType], (row) => show(row.totalTokens)],
+		...(split
+			? ([
+					["Input", (row) => show(row.inputTokens)],
+					[
+						"Cached input",
+						(row) => (
+							<>
+								{show(row.cachedTokens)}
+								<span className="block whitespace-nowrap text-xs text-muted-foreground">
+									{cacheShare(row.cachedTokens, row.inputTokens)}
+								</span>
+							</>
+						),
+					],
+					["Output", (row) => show(row.outputTokens)],
+				] satisfies [string, (row: BreakdownRow) => ReactNode][])
+			: []),
+		["Avg TPM", (row) => show(row.avgTpm)],
+		[
+			"Peak TPM",
+			(row) => (
+				<>
+					{show(row.peakTpm)}
+					<span className="block whitespace-nowrap text-xs text-muted-foreground">
+						{peakLabel(row.peakMinuteAt, true)}
+					</span>
+				</>
+			),
+		],
+		...(hourly
+			? []
+			: ([
+					["Avg tokens/day", (row) => show(row.avgTokensPerDay)],
+					[
+						"Peak tokens/day",
+						(row) => (
+							<>
+								{show(row.peakTokensPerDay)}
+								<span className="block whitespace-nowrap text-xs text-muted-foreground">
+									{peakLabel(row.peakDayAt)}
+								</span>
+							</>
+						),
+					],
+				] satisfies [string, (row: BreakdownRow) => ReactNode][])),
+	];
 	const totalRows = data?.breakdown.length ?? 0;
 	const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
 	const page = Math.min(pagination.page, totalPages);
@@ -118,6 +224,9 @@ export function TokenCapacity() {
 				"start_utc",
 				"end_utc",
 				"total_tokens",
+				"input_tokens",
+				"cached_input_tokens",
+				"output_tokens",
 				"avg_tpm",
 				"peak_tpm",
 				"peak_minute_utc",
@@ -133,6 +242,9 @@ export function TokenCapacity() {
 				data.start,
 				data.end,
 				row.totalTokens,
+				row.inputTokens,
+				row.cachedTokens,
+				row.outputTokens,
 				row.avgTpm,
 				row.peakTpm,
 				row.peakMinuteAt ?? "",
@@ -161,8 +273,9 @@ export function TokenCapacity() {
 				<SegmentedUrlSelector
 					param="tokenWindow"
 					value={window}
-					defaultValue="7d"
+					defaultValue="24h"
 					options={[
+						{ value: "24h", label: "24 hours" },
 						{ value: "7d", label: "7 days" },
 						{ value: "30d", label: "30 days" },
 					]}
@@ -172,11 +285,10 @@ export function TokenCapacity() {
 					param="tokenType"
 					value={tokenType}
 					defaultValue="total"
-					options={[
-						{ value: "total", label: "Total tokens" },
-						{ value: "input", label: "Input tokens" },
-						{ value: "output", label: "Output tokens" },
-					]}
+					options={TOKEN_TYPES.map((value) => ({
+						value,
+						label: TOKEN_TYPE_LABELS[value],
+					}))}
 					compact
 				/>
 				<SegmentedUrlSelector
@@ -201,7 +313,17 @@ export function TokenCapacity() {
 						compact
 					/>
 				) : null}
-				<UsageModeSelector compact />
+				<UsageModeSelector compact defaultMode={LOAD_USAGE_MODE_DEFAULT} />
+				<SegmentedUrlSelector
+					param="tokenNumbers"
+					value={compact ? "compact" : "full"}
+					defaultValue="compact"
+					options={[
+						{ value: "compact", label: "1.2M" },
+						{ value: "full", label: "1,234,567" },
+					]}
+					compact
+				/>
 				<Button
 					variant="outline"
 					size="sm"
@@ -223,35 +345,81 @@ export function TokenCapacity() {
 			>
 				<StatCard
 					label="Average TPM"
-					value={count(summary?.avgTpm)}
+					value={show(summary?.avgTpm)}
 					hint={`Tokens/min across ${window}, including quiet minutes`}
 					loading={isLoading}
 				/>
 				<StatCard
 					label="Peak TPM"
-					value={count(summary?.peakTpm)}
+					value={show(summary?.peakTpm)}
 					hint={peakLabel(summary?.peakMinuteAt, true)}
 					loading={isLoading}
 				/>
+				{hourly ? (
+					<>
+						<StatCard
+							label="Total tokens"
+							value={show(summary?.totalTokens)}
+							hint="Last 24 hours"
+							loading={isLoading}
+						/>
+						<StatCard
+							label="Peak tokens/hour"
+							value={show(data ? (peakHour?.tokens ?? 0) : undefined)}
+							hint={peakLabel(
+								peakHour && peakHour.tokens > 0 ? peakHour.timestamp : null,
+								true,
+							)}
+							loading={isLoading}
+						/>
+					</>
+				) : (
+					<>
+						<StatCard
+							label="Average tokens/day"
+							value={show(summary?.avgTokensPerDay)}
+							hint="Window average normalized to 24 hours"
+							loading={isLoading}
+						/>
+						<StatCard
+							label="Peak tokens/day"
+							value={show(summary?.peakTokensPerDay)}
+							hint={peakLabel(summary?.peakDayAt)}
+							loading={isLoading}
+						/>
+					</>
+				)}
+			</section>
+			<section className="grid gap-4 sm:grid-cols-3" aria-label="Token split">
 				<StatCard
-					label="Average tokens/day"
-					value={count(summary?.avgTokensPerDay)}
-					hint="Window average normalized to 24 hours"
+					label="Input tokens"
+					value={show(summary?.inputTokens)}
+					hint="Includes cached input"
 					loading={isLoading}
 				/>
 				<StatCard
-					label="Peak tokens/day"
-					value={count(summary?.peakTokensPerDay)}
-					hint={peakLabel(summary?.peakDayAt)}
+					label="Cached input tokens"
+					value={show(summary?.cachedTokens)}
+					hint={cacheShare(summary?.cachedTokens, summary?.inputTokens)}
+					loading={isLoading}
+				/>
+				<StatCard
+					label="Output tokens"
+					value={show(summary?.outputTokens)}
+					hint="Includes reasoning tokens"
 					loading={isLoading}
 				/>
 			</section>
 			<Card>
 				<CardHeader>
-					<CardTitle>Daily tokens</CardTitle>
+					<CardTitle>{hourly ? "Hourly tokens" : "Daily tokens"}</CardTitle>
 					<CardDescription>
-						UTC calendar days. Faded bars are partial days and excluded from
-						daily peaks.
+						{hourly
+							? "UTC hours. Faded bars are partial hours and excluded from the hourly peak."
+							: "UTC calendar days. Faded bars are partial days and excluded from daily peaks."}
+						{split
+							? " Stacked by uncached input, cached input, output, and other tokens counted only in totals."
+							: ""}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -261,11 +429,11 @@ export function TokenCapacity() {
 						</p>
 					) : data ? (
 						<ChartContainer
-							config={chartConfig}
+							config={split ? splitChartConfig : chartConfig}
 							className="aspect-auto h-[280px] w-full"
 						>
 							<BarChart
-								data={data.days}
+								data={chartData}
 								accessibilityLayer
 								margin={{ left: 12, right: 12 }}
 							>
@@ -275,9 +443,7 @@ export function TokenCapacity() {
 									tickLine={false}
 									axisLine={false}
 									minTickGap={32}
-									tickFormatter={(value: string) =>
-										utcDate.format(new Date(value))
-									}
+									tickFormatter={bucketLabel}
 								/>
 								<YAxis
 									tickLine={false}
@@ -293,25 +459,36 @@ export function TokenCapacity() {
 													? formatNumber(value)
 													: String(value)
 											}
-											labelFormatter={(value) =>
-												`${utcDate.format(new Date(String(value)))} UTC${data.days.find((day) => day.timestamp === value)?.partial ? " · partial day" : ""}`
-											}
+											labelFormatter={(value) => {
+												const bucket = chartData.find(
+													(item) => item.timestamp === value,
+												);
+												return `${peakLabel(String(value), hourly)}${split && bucket ? ` · ${formatNumber(bucket.tokens)} total` : ""}${bucket?.partial ? ` · partial ${hourly ? "hour" : "day"}` : ""}`;
+											}}
 										/>
 									}
 								/>
-								<Bar
-									dataKey="tokens"
-									isAnimationActive={false}
-									fill="var(--color-tokens)"
-									radius={[3, 3, 0, 0]}
-								>
-									{data.days.map((day) => (
-										<Cell
-											key={day.timestamp}
-											fillOpacity={day.partial ? 0.4 : 1}
-										/>
-									))}
-								</Bar>
+								{split ? (
+									<ChartLegend content={<ChartLegendContent />} />
+								) : null}
+								{bars.map((key) => (
+									<Bar
+										key={key}
+										dataKey={key}
+										stackId="tokens"
+										isAnimationActive={false}
+										fill={`var(--color-${key})`}
+										// The top segment varies per stack, so stacks stay square.
+										radius={split ? 0 : [3, 3, 0, 0]}
+									>
+										{chartData.map((bucket) => (
+											<Cell
+												key={bucket.timestamp}
+												fillOpacity={bucket.partial ? 0.4 : 1}
+											/>
+										))}
+									</Bar>
+								))}
 							</BarChart>
 						</ChartContainer>
 					) : null}
@@ -323,8 +500,11 @@ export function TokenCapacity() {
 						Top {groupBy === "provider" ? "providers" : "models"} by tokens
 					</CardTitle>
 					<CardDescription>
-						Ranked by total {tokenType === "total" ? "" : `${tokenType} `}
-						tokens. Each row has its own observed peaks.
+						Ranked by{" "}
+						{tokenType === "total"
+							? "total tokens"
+							: TOKEN_TYPE_LABELS[tokenType].toLowerCase()}
+						. Each row has its own observed peaks.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -343,13 +523,7 @@ export function TokenCapacity() {
 									<TableHead>
 										{groupBy === "provider" ? "Provider" : "Model"}
 									</TableHead>
-									{[
-										"Total tokens",
-										"Avg TPM",
-										"Peak TPM",
-										"Avg tokens/day",
-										"Peak tokens/day",
-									].map((label) => (
+									{metricColumns.map(([label]) => (
 										<TableHead key={label} className="text-right">
 											{label}
 										</TableHead>
@@ -365,27 +539,14 @@ export function TokenCapacity() {
 										>
 											{row.label}
 										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.totalTokens)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.avgTpm)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.peakTpm)}
-											<span className="block whitespace-nowrap text-xs text-muted-foreground">
-												{peakLabel(row.peakMinuteAt, true)}
-											</span>
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.avgTokensPerDay)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.peakTokensPerDay)}
-											<span className="block whitespace-nowrap text-xs text-muted-foreground">
-												{peakLabel(row.peakDayAt)}
-											</span>
-										</TableCell>
+										{metricColumns.map(([label, render]) => (
+											<TableCell
+												key={label}
+												className="text-right tabular-nums"
+											>
+												{render(row)}
+											</TableCell>
+										))}
 									</TableRow>
 								))}
 							</TableBody>
@@ -429,9 +590,9 @@ export function TokenCapacity() {
 				{data
 					? `Recorded usage from ${data.start.slice(0, 16).replace("T", " ")} to ${data.end.slice(0, 16).replace("T", " ")} UTC. `
 					: ""}
-				Peaks use completed UTC minutes and days, not rolling intervals. Gateway
-				response-cache hits are excluded. Usage follows worker refreshes and
-				does not reproduce provider quota accounting. Reload the page for
+				Peaks use completed UTC minutes, hours, and days, not rolling intervals.
+				Gateway response-cache hits are excluded. Usage follows worker refreshes
+				and does not reproduce provider quota accounting. Reload the page for
 				updated measurements.
 			</p>
 		</div>

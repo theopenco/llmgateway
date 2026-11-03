@@ -107,10 +107,10 @@ export function extractTokenUsage(
 	let cacheCreation1hTokens: number | null = null;
 	let audioInputTokens: number | null = null;
 	let cachedAudioInputTokens: number | null = null;
+	let imageInputTokens: number | null = null;
 
 	switch (provider) {
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz":
 			if (data.usageMetadata) {
@@ -123,6 +123,8 @@ export function extractTokenUsage(
 					for (const detail of data.usageMetadata.promptTokensDetails) {
 						if (detail?.modality === "AUDIO" && detail.tokenCount) {
 							audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+						} else if (detail?.modality === "IMAGE" && detail.tokenCount) {
+							imageInputTokens = (imageInputTokens ?? 0) + detail.tokenCount;
 						}
 					}
 				}
@@ -353,5 +355,6 @@ export function extractTokenUsage(
 		cacheCreation1hTokens,
 		audioInputTokens,
 		cachedAudioInputTokens,
+		imageInputTokens,
 	};
 }

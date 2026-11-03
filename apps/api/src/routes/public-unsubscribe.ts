@@ -1,6 +1,7 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { redisClient } from "@/auth/config.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	and,

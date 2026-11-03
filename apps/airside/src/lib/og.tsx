@@ -17,7 +17,7 @@ export interface BoardRow {
 }
 
 const DEFAULT_BOARD: BoardRow[] = [
-	{ flight: "GLM-5.2", carrier: "EMBERCLOUD", status: "BOARDING" },
+	{ flight: "GLM-5.2", carrier: "Z.AI", status: "BOARDING" },
 	{ flight: "LARGE-4", carrier: "MISTRAL", status: "FARE FILED" },
 	{ flight: "K3-TURBO", carrier: "MOONSHOT", status: "ON TIME" },
 ];

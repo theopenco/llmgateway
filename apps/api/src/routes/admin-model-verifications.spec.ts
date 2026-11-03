@@ -194,6 +194,9 @@ describe("admin model verifications", () => {
 		});
 		expect(row?.credentialCiphertext).toMatch(/^llmgw:v2:/);
 		expect(row?.credentialCiphertext).not.toContain("carrier-owned-key");
+		// The worker finds the claim (and a custom carrier's base URL) through
+		// the run's company.
+		expect(row?.providerCompanyId).toBe(company.id);
 	});
 
 	test("lists the latest run per mapping for a provider", async () => {

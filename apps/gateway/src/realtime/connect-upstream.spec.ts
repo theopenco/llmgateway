@@ -27,6 +27,16 @@ afterEach(() => {
 });
 
 describe("resolveUpstreamTarget", () => {
+	it("builds the xAI realtime URL with bearer auth only", () => {
+		const target = resolveUpstreamTarget(
+			buildPreflight("xai", "grok-voice-3.0"),
+		);
+		expect(target.url).toBe("wss://api.x.ai/v1/realtime?model=grok-voice-3.0");
+		expect(target.headers).toEqual({
+			Authorization: "Bearer upstream-secret",
+		});
+	});
+
 	it("builds the Gemini Live BidiGenerateContent URL", () => {
 		const target = resolveUpstreamTarget(
 			buildPreflight(
@@ -121,6 +131,16 @@ describe("resolveUpstreamTarget", () => {
 		expect(target.headers).toEqual({
 			Authorization: "Bearer upstream-secret",
 			"OpenAI-Safety-Identifier": "safety-hash",
+		});
+	});
+
+	it("omits the safety identifier header when forwarding is off", () => {
+		const target = resolveUpstreamTarget({
+			...buildPreflight("openai", "gpt-realtime-2.1-mini"),
+			safetyIdentifier: undefined,
+		} as unknown as RealtimePreflightResult);
+		expect(target.headers).toEqual({
+			Authorization: "Bearer upstream-secret",
 		});
 	});
 });

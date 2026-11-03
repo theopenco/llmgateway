@@ -34,6 +34,43 @@ export function sealAnthropicThinkingBlock(
 		: { ...block, data: seal(provider, block.data) };
 }
 
+// Messages API clients get the Anthropic API's own signatures unsealed, so a
+// turn answered here can be continued on Anthropic directly; an unsealed one
+// coming back is attributed to it. Signatures are base64, so a provider id
+// prefix is unambiguous.
+const NATIVE_THINKING_PROVIDER = "anthropic";
+const SEALED = /^[a-z][a-z0-9-]*:/;
+
+function opaqueOf(block: AnthropicThinkingBlock): string {
+	return block.type === "thinking" ? block.signature : block.data;
+}
+
+function withOpaque(
+	block: AnthropicThinkingBlock,
+	opaque: string,
+): AnthropicThinkingBlock {
+	return block.type === "thinking"
+		? { ...block, signature: opaque }
+		: { ...block, data: opaque };
+}
+
+/** The block as a Messages API client sees it. */
+export function exposeAnthropicThinkingBlock(
+	block: AnthropicThinkingBlock,
+): AnthropicThinkingBlock {
+	const opaque = unseal(NATIVE_THINKING_PROVIDER, opaqueOf(block));
+	return opaque === null ? block : withOpaque(block, opaque);
+}
+
+/** Reverses exposeAnthropicThinkingBlock for a block a client replays. */
+export function adoptAnthropicThinkingBlock(
+	block: AnthropicThinkingBlock,
+): AnthropicThinkingBlock {
+	return SEALED.test(opaqueOf(block))
+		? block
+		: sealAnthropicThinkingBlock(NATIVE_THINKING_PROVIDER, block);
+}
+
 /** `blockIndex` is the block's position in the assistant turn's content. */
 export function toAnthropicReasoningDetail(
 	block: AnthropicThinkingBlock,

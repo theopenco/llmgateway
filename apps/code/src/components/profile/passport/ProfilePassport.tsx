@@ -2,7 +2,7 @@
 
 import { BookOpen, ChevronLeft, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	buildPassportModel,
@@ -37,6 +37,28 @@ const SPREAD_LABELS = [
 
 export function ProfilePassport({ profile }: { profile: ProfileData }) {
 	const [turned, setTurned] = useState(0);
+	// three.js and the WebGL scene are only worth downloading once the section
+	// is near the viewport — on the dashboard profile page it sits below the
+	// whole settings form.
+	const canvasBoxRef = useRef<HTMLDivElement | null>(null);
+	const [nearViewport, setNearViewport] = useState(false);
+
+	useEffect(() => {
+		const node = canvasBoxRef.current;
+		if (!node || nearViewport) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					setNearViewport(true);
+				}
+			},
+			{ rootMargin: "300px" },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, [nearViewport]);
 
 	const advance = useCallback((direction: 1 | -1) => {
 		setTurned((current) =>
@@ -89,12 +111,18 @@ export function ProfilePassport({ profile }: { profile: ProfileData }) {
 				<p className="sr-only" aria-live="polite">
 					{summary}
 				</p>
-				<div className="h-[420px] sm:h-[480px]">
-					<PassportCanvas
-						profile={profile}
-						turned={turned}
-						onAdvance={advance}
-					/>
+				<div ref={canvasBoxRef} className="h-[420px] sm:h-[480px]">
+					{nearViewport ? (
+						<PassportCanvas
+							profile={profile}
+							turned={turned}
+							onAdvance={advance}
+						/>
+					) : (
+						<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+							Fetching passport from the consulate…
+						</div>
+					)}
 				</div>
 				<div className="pointer-events-none absolute inset-x-0 bottom-3 flex items-center justify-center gap-2">
 					<Button
