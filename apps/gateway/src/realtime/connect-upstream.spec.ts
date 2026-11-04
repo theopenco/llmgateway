@@ -174,6 +174,23 @@ describe("resolveUpstreamTarget", () => {
 		);
 	});
 
+	it("addresses an Azure deployment by the key's azure_deployment_name", () => {
+		const target = resolveUpstreamTarget({
+			...buildPreflight("azure", "gpt-realtime-2.1"),
+			providerKey: {
+				id: "byok-key",
+				baseUrl: null,
+				options: {
+					azure_resource: "org-resource",
+					azure_deployment_name: "my-realtime",
+				},
+			},
+		} as unknown as RealtimePreflightResult);
+		expect(target.url).toBe(
+			"wss://org-resource.openai.azure.com/openai/v1/realtime?model=my-realtime",
+		);
+	});
+
 	it("rejects an Azure session without a resource or base URL", () => {
 		expect(() =>
 			resolveUpstreamTarget(buildPreflight("azure", "gpt-realtime-2.1")),

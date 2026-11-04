@@ -6,6 +6,7 @@ import {
 } from "@/chat/tools/resolve-platform-credential.js";
 
 import { RealtimeConnectError } from "./errors.js";
+import { getRealtimeUpstreamModel } from "./upstream-model.js";
 
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { Provider } from "@llmgateway/models";
@@ -76,7 +77,7 @@ export function resolveUpstreamTarget(
 	const query =
 		preflight.sessionType === "transcription"
 			? "intent=transcription"
-			: `model=${encodeURIComponent(preflight.match.mapping.externalId)}`;
+			: `model=${encodeURIComponent(getRealtimeUpstreamModel(preflight))}`;
 
 	if (providerId === "azure") {
 		// Azure serves the OpenAI realtime protocol on the resource's v1 API,

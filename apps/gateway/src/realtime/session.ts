@@ -43,6 +43,7 @@ import {
 	priceTranscriptionUsage,
 } from "./transcription.js";
 import { logRealtimeTurnDenial } from "./turn-denial-log.js";
+import { getRealtimeUpstreamModel } from "./upstream-model.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
@@ -783,7 +784,7 @@ export class RealtimeProxySession {
 		};
 		if (requestedSessionModel !== undefined) {
 			const fwdSession = cloneForwarded().session as Record<string, unknown>;
-			fwdSession.model = this.preflight.match.mapping.externalId;
+			fwdSession.model = getRealtimeUpstreamModel(this.preflight);
 		}
 		// A transcription session never generates, so its VAD config is forwarded
 		// untouched: there is no auto-response to take over.
@@ -1238,7 +1239,7 @@ export class RealtimeProxySession {
 								audio: {
 									input: {
 										transcription: {
-											model: this.preflight.match.mapping.externalId,
+											model: getRealtimeUpstreamModel(this.preflight),
 										},
 									},
 								},

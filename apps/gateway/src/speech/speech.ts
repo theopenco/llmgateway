@@ -9,6 +9,7 @@ import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import {
 	getAzureCredentialBaseUrl,
+	getAzureUpstreamModel,
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
@@ -810,6 +811,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		upstreamUrl: string;
 		tenantBaseUrl: string | null;
 		vertexTokenType?: VertexTokenType;
+		/** Request body sent upstream; Azure keys may rename the model. */
+		requestBody: Record<string, unknown>;
 	}
 
 	async function resolveAttempt(): Promise<SpeechAttempt> {
@@ -997,6 +1000,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			upstreamUrl,
 			tenantBaseUrl: providerKey?.baseUrl ?? null,
 			vertexTokenType,
+			requestBody:
+				providerId === "azure"
+					? {
+							...upstreamRequestBody,
+							model: getAzureUpstreamModel(credential, upstreamModel),
+						}
+					: upstreamRequestBody,
 		};
 	}
 
@@ -1063,7 +1073,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				debugMode,
 				userAgent,
 				rawRequest: rawBody,
-				upstreamRequest: upstreamRequestBody,
+				upstreamRequest: current.requestBody,
 			}),
 		};
 	};
@@ -1255,7 +1265,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 								tokenType: attempt.vertexTokenType,
 							}),
 						},
-						body: JSON.stringify(upstreamRequestBody),
+						body: JSON.stringify(attempt.requestBody),
 						signal: fetchSignal,
 					},
 					attempt.tenantBaseUrl,

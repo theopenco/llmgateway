@@ -7,6 +7,7 @@ import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import {
 	getAzureCredentialBaseUrl,
+	getAzureUpstreamModel,
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
@@ -914,7 +915,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			upstreamUrl = `${resolvedBaseUrl}${getOpenAiV1Prefix(providerId)}/embeddings`;
 			requestBody = {
 				input,
-				model: upstreamModel,
+				model:
+					providerId === "azure"
+						? getAzureUpstreamModel(credential, upstreamModel)
+						: upstreamModel,
 			};
 			if (encoding_format !== undefined) {
 				requestBody.encoding_format = encoding_format;

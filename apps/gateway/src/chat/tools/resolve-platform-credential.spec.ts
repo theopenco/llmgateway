@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getCredentialSetting } from "./resolve-platform-credential.js";
+import {
+	getAzureCredentialBaseUrl,
+	getAzureUpstreamModel,
+	getCredentialSetting,
+} from "./resolve-platform-credential.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -13,6 +17,7 @@ function row(config?: Record<string, string>): ProviderKeyRow {
 afterEach(() => {
 	delete process.env.LLM_OPENAI_BASE_URL;
 	delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+	delete process.env.LLM_AZURE_RESOURCE;
 });
 
 describe("getCredentialSetting", () => {
@@ -54,5 +59,51 @@ describe("getCredentialSetting", () => {
 		expect(
 			getCredentialSetting("openai", "baseUrl", { managedKey: row() }),
 		).toBeUndefined();
+	});
+});
+
+function azureKey(options: Record<string, string>): ProviderKeyRow {
+	return {
+		id: "azure-key",
+		baseUrl: null,
+		config: null,
+		options,
+	} as unknown as ProviderKeyRow;
+}
+
+describe("getAzureCredentialBaseUrl", () => {
+	it("prefers a BYOK key's resource over the env resource", () => {
+		process.env.LLM_AZURE_RESOURCE = "platform-resource";
+		expect(
+			getAzureCredentialBaseUrl({
+				providerKey: azureKey({ azure_resource: "org-resource" }),
+			}),
+		).toBe("https://org-resource.openai.azure.com");
+		expect(getAzureCredentialBaseUrl({})).toBe(
+			"https://platform-resource.openai.azure.com",
+		);
+	});
+});
+
+describe("getAzureUpstreamModel", () => {
+	it("uses azure_deployment_name when set", () => {
+		expect(
+			getAzureUpstreamModel(
+				{ providerKey: azureKey({ azure_deployment_name: "my-embed" }) },
+				"text-embedding-3-small",
+			),
+		).toBe("my-embed");
+	});
+
+	it("falls back to the mapping's external id", () => {
+		expect(
+			getAzureUpstreamModel(
+				{ providerKey: azureKey({}) },
+				"text-embedding-3-small",
+			),
+		).toBe("text-embedding-3-small");
+		expect(getAzureUpstreamModel({}, "gpt-4o-mini-tts")).toBe(
+			"gpt-4o-mini-tts",
+		);
 	});
 });

@@ -12,7 +12,11 @@ import {
 	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 
-import { getAzureOpenAiBaseUrl, readProviderKey } from "@llmgateway/actions";
+import {
+	getAzureOpenAiBaseUrl,
+	managedCredentialOptions,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue, providers } from "@llmgateway/models";
 
@@ -297,4 +301,21 @@ export function getAzureCredentialBaseUrl(
 		credential.providerKey?.options?.azure_resource ??
 		getCredentialSetting("azure", "resource", credential, options);
 	return resource ? getAzureOpenAiBaseUrl(resource) : undefined;
+}
+
+/**
+ * Upstream model for an Azure request: the credential's
+ * `azure_deployment_name` override when set, else the mapping's external id.
+ */
+export function getAzureUpstreamModel(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	externalId: string,
+): string {
+	const options = credential.providerKey
+		? credential.providerKey.options
+		: managedCredentialOptions(credential.managedKey);
+	return options?.azure_deployment_name || externalId;
 }

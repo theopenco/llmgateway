@@ -105,6 +105,7 @@ vi.mock("@/chat/tools/retry-with-fallback.js", () => ({
 vi.mock("@llmgateway/actions", () => ({
 	RedirectError: class extends Error {},
 	getGoogleVertexPublisherModelPath: vi.fn(),
+	getOpenAiV1Prefix: vi.fn(() => "/v1"),
 	getProviderHeaders: vi.fn(() => ({})),
 	managedCredentialOptions: vi.fn(),
 	providerKeyLabel: vi.fn(),
