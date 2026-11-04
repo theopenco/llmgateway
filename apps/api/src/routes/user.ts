@@ -26,6 +26,7 @@ import { requestEmailChange } from "@/lib/email-change.js";
 import { getAdminRole } from "@/middleware/admin.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -680,7 +681,14 @@ const exportUserData = createRoute({
 	},
 });
 
-// Only the 200 is declared: the 401/404 paths throw `HTTPException` and are
+// One export fans out into ~20 queries and serializes a whole chat history,
+// including base64 attachments, so a loop on it is a cheap way for a single
+// account to exhaust the database pool. The window is far above what exercising
+// Art. 15 needs, and bounds that.
+const EXPORT_RATE_LIMIT_MAX = 5;
+const EXPORT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+
+// Only the 200 is declared: the 401/404/429 paths throw `HTTPException` and are
 // rendered by the global error handler, matching the other download routes here.
 user.openapi(exportUserData, async (c) => {
 	const authUser = c.get("user");
@@ -688,6 +696,21 @@ user.openapi(exportUserData, async (c) => {
 	if (!authUser) {
 		throw new HTTPException(401, {
 			message: "Unauthorized",
+		});
+	}
+
+	// Keyed by user, not IP: the cost is per account's data, and the session is
+	// the only identity that can reach this route.
+	const withinRateLimit = await consumeRateLimit(
+		`user_data_export:${authUser.id}`,
+		EXPORT_RATE_LIMIT_MAX,
+		EXPORT_RATE_LIMIT_WINDOW_SECONDS,
+	);
+
+	if (!withinRateLimit) {
+		throw new HTTPException(429, {
+			message:
+				"Too many data export requests. Please try again in an hour, or email contact@llmgateway.io.",
 		});
 	}
 

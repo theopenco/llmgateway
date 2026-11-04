@@ -167,6 +167,10 @@ Self-hosted deployments have full control over data retention:
 - Data is stored in your own PostgreSQL database
 - No additional storage costs (you manage your own infrastructure)
 
+## Personal data export
+
+**Settings → Account → Download Your Data** returns a JSON copy of the account-scoped records LLM Gateway holds about you — profile, organization memberships, API key metadata, chats, playground history and preferences — under GDPR Art. 15 and Art. 20. It never contains credentials, and gateway request logs are excluded because they belong to the organization that submitted them; the file lists every exclusion and why. Exports are limited to a few per hour per account.
+
 ## Privacy and Security
 
 - All stored data is encrypted at rest

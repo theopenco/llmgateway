@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
@@ -186,12 +187,20 @@ describe("buildUserDataExport", () => {
 describe("GET /user/me/export", () => {
 	let token: string;
 
+	// The limiter is keyed by user id and the key outlives the test database, so
+	// clear it or a later run in the same hour starts already throttled.
+	const rateLimitKey = `user_data_export:${USER_ID}`;
+	// Mirrors EXPORT_RATE_LIMIT_MAX in apps/api/src/routes/user.ts.
+	const EXPORT_RATE_LIMIT_MAX = 5;
+
 	beforeEach(async () => {
+		await redisClient.del(rateLimitKey);
 		token = await createTestUser();
 		await seedUserData();
 	});
 
 	afterEach(async () => {
+		await redisClient.del(rateLimitKey);
 		await deleteAll();
 	});
 
@@ -215,5 +224,22 @@ describe("GET /user/me/export", () => {
 	test("rejects an unauthenticated request", async () => {
 		const res = await app.request("/user/me/export");
 		expect(res.status).toBe(401);
+	});
+
+	test("throttles an account that exhausts its export quota", async () => {
+		// One export fans out into ~20 queries and serializes every chat, so the
+		// route has to stay rate limited even for an authenticated caller.
+		await redisClient.set(
+			rateLimitKey,
+			String(EXPORT_RATE_LIMIT_MAX),
+			"EX",
+			60,
+		);
+
+		const res = await app.request("/user/me/export", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(429);
 	});
 });

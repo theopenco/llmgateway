@@ -81,8 +81,7 @@ const exclusionSchema = z.object({
  * block; the record collections stay `unknown` on purpose. Pinning those would
  * mean re-declaring every exported column of a dozen tables, and a schema that
  * drifted from the queries would silently drop rows from an export the law
- * requires to be complete. `passthrough()` keeps a new section visible in the
- * payload even before this schema names it.
+ * requires to be complete.
  */
 export const userDataExportSchema = z.object({
 	exportedAt: z.string(),
@@ -100,34 +99,34 @@ export const userDataExportSchema = z.object({
 		),
 		contact: z.string(),
 	}),
-	profile: z.any(),
+	profile: z.unknown(),
 	authentication: z.object({
-		accounts: z.array(z.any()),
-		passkeys: z.array(z.any()),
-		sessions: z.array(z.any()),
+		accounts: z.array(z.unknown()),
+		passkeys: z.array(z.unknown()),
+		sessions: z.array(z.unknown()),
 	}),
-	organizations: z.array(z.any()),
-	apiKeys: z.array(z.any()),
-	chats: z.array(z.any()),
-	chatProjects: z.array(z.any()),
+	organizations: z.array(z.unknown()),
+	apiKeys: z.array(z.unknown()),
+	chats: z.array(z.unknown()),
+	chatProjects: z.array(z.unknown()),
 	playgroundHistory: z.object({
-		images: z.array(z.any()),
-		audio: z.array(z.any()),
-		video: z.array(z.any()),
-		realtime: z.array(z.any()),
+		images: z.array(z.unknown()),
+		audio: z.array(z.unknown()),
+		video: z.array(z.unknown()),
+		realtime: z.array(z.unknown()),
 	}),
 	preferences: z.object({
-		favoriteModels: z.array(z.any()),
-		modelRatings: z.array(z.any()),
+		favoriteModels: z.array(z.unknown()),
+		modelRatings: z.array(z.unknown()),
 	}),
 	feedback: z.object({
-		modelSurveyResponses: z.array(z.any()),
-		devPlanCancellations: z.array(z.any()),
-		chatPlanCancellations: z.array(z.any()),
-		refunds: z.array(z.any()),
+		modelSurveyResponses: z.array(z.unknown()),
+		devPlanCancellations: z.array(z.unknown()),
+		chatPlanCancellations: z.array(z.unknown()),
+		refunds: z.array(z.unknown()),
 	}),
-	loungePoints: z.array(z.any()),
-	skills: z.array(z.any()),
+	loungePoints: z.array(z.unknown()),
+	skills: z.array(z.unknown()),
 });
 
 /**

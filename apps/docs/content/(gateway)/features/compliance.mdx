@@ -9,9 +9,11 @@ import { Callout } from "fumadocs-ui/components/callout";
 Provider compliance policies let you guarantee that requests are only ever routed to providers that meet your organization's regulatory requirements. When a request would be routed to a provider that doesn't meet the policy, the gateway blocks it **before any data leaves the gateway**.
 
 <Callout type="info">
-	The complete provider compliance policy is available on
-	[**Enterprise**](https://llmgateway.io/enterprise). DevPass offers only **No
-	AI training**.
+	The data-protection controls — **GDPR compliant**, **No training on prompts**,
+	**No stealth providers** and the allowed-countries list — are available on
+	every plan. The certification requirements and the fine-grained provider/model
+	lists are available on [**Enterprise**](https://llmgateway.io/enterprise).
+	DevPass offers only **No AI training**.
 </Callout>
 
 For providers managed entirely through Airside, policy checks use the active
@@ -24,6 +26,8 @@ requirement; provider allowlists and blocklists keep using the same provider ID.
 Enable a policy under **Settings → Compliance** in the dashboard and toggle the requirements you need:
 
 In DevPass, enable **No AI training** directly under **Settings**. It uses the same fail-closed provider policy described below, but the other requirements are not available on DevPass.
+
+On plans below Enterprise, saving a policy that sets anything outside the data-protection controls is rejected with a `403` naming the settings that need Enterprise — a policy is never saved with requirements the gateway would not enforce.
 
 | Requirement                   | A provider is allowed when…                                      |
 | ----------------------------- | ---------------------------------------------------------------- |
@@ -106,6 +110,10 @@ This applies to both routing modes:
 
 Each block is recorded as a **security event** so administrators can review what was rejected and why.
 
+### Signed data-processing agreements
+
+A deployment can require that **GDPR compliant** also means LLM Gateway holds a signed data-processing agreement with the provider, by setting `REQUIRE_PROVIDER_DPA_FOR_GDPR=true`. With it on, a provider that is GDPR compliant in the catalogue but has no agreement on record is blocked under **GDPR compliant**, including providers listed through Airside; your own custom providers are unaffected, because their posture is the attestation below. The flag changes nothing for policies that do not require GDPR compliance, and the dashboard's impact preview does not reflect it, so a provider it shows as allowed can still be blocked.
+
 ## Custom providers
 
 [Custom providers](/features/custom-providers) point at infrastructure your organization operates itself (for example, models hosted in your own cloud account), so they have no entry in the provider catalogue and no published data policy. Under any enabled compliance policy they are therefore **blocked by default** — the same fail-closed rule that applies to catalogue providers with unknown attributes.
@@ -158,4 +166,4 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 
 ## Get Started
 
-DevPass subscribers can configure **No AI training** under **Settings**. [Contact us](https://llmgateway.io/enterprise) for the complete provider compliance policy.
+DevPass subscribers can configure **No AI training** under **Settings**. The data-protection controls are available on every plan under **Settings → Compliance**; [contact us](https://llmgateway.io/enterprise) for the certification requirements and the fine-grained provider and model lists.

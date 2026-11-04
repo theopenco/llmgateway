@@ -546,6 +546,14 @@ describe("signed-DPA requirement (REQUIRE_PROVIDER_DPA_FOR_GDPR)", () => {
 		expect(isProviderIdCompliant("acme-carrier", signed, context)).toBe(true);
 	});
 
+	it("leaves the internal router exempt", () => {
+		// `llmgateway` has no upstream operator to contract with, so blocking it
+		// would break routing the DPA requirement is not about.
+		const enforced = applyDpaRequirement(GDPR_POLICY, new Set());
+		expect(enforced.blockedProviders).not.toContain("llmgateway");
+		expect(enforced.blockedProviders).not.toContain("custom");
+	});
+
 	it("preserves an existing blockedProviders list", () => {
 		const enforced = applyDpaRequirement(
 			{ ...GDPR_POLICY, blockedProviders: ["groq"] },
