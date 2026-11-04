@@ -162,8 +162,10 @@ export const bytedanceModels = [
 					default_video: "0.2311",
 					"480p_audio": "0.1028",
 					"480p_video": "0.1028",
-					"1080p_audio": "0.52",
-					"1080p_video": "0.52",
+					// BytePlus bills 1080p at $11.70/M tokens (480p and 720p at $10.70/M);
+					// a 16:9 1080p second at 24 fps is 48,600 tokens.
+					"1080p_audio": "0.5686",
+					"1080p_video": "0.5686",
 				},
 				contextSize: 2000,
 				maxOutput: 1,
@@ -211,8 +213,10 @@ export const bytedanceModels = [
 				perSecondPrice: {
 					default_audio: "0.1512",
 					default_video: "0.1512",
-					"1080p_audio": "0.3402",
-					"1080p_video": "0.3402",
+					// BytePlus bills 1080p at $7.70/M tokens (720p at $7.00/M); a 16:9
+					// 1080p second at 24 fps is 48,600 tokens.
+					"1080p_audio": "0.3742",
+					"1080p_video": "0.3742",
 				},
 				contextSize: 2000,
 				maxOutput: 1,
@@ -345,6 +349,9 @@ export const bytedanceModels = [
 				supportedVideoDurationsSeconds: [5, 10],
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: true,
+				// BytePlus's ModelArk pricing page marks seedance-1-5-pro-251215 as
+				// retiring on this date.
+				deactivatedAt: new Date("2026-11-11"),
 			},
 		],
 	},
