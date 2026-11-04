@@ -145,15 +145,34 @@ export async function loadDiscountResolver(
 		logger.error("Error loading discount resolver:", error as Error);
 		return () => ({ discount: "0", source: "none" });
 	}
+	// Index by provider so each lookup scans only that provider's rows plus the
+	// provider-agnostic ones, in their original precedence order.
 	const { rows, airsideSettings } = loaded;
-	return (provider, model) =>
-		resolveEffectiveDiscount(
-			rows,
-			airsideSettings,
+	const byProvider = new Map<
+		string,
+		{ rows: DiscountRow[]; airsideSettings: AirsideDiscountRow[] }
+	>();
+	return (provider, model) => {
+		let scoped = byProvider.get(provider);
+		if (!scoped) {
+			scoped = {
+				rows: rows.filter(
+					(d) => d.provider === null || d.provider === provider,
+				),
+				airsideSettings: airsideSettings.filter(
+					(row) => row.providerId === provider,
+				),
+			};
+			byProvider.set(provider, scoped);
+		}
+		return resolveEffectiveDiscount(
+			scoped.rows,
+			scoped.airsideSettings,
 			organizationId,
 			provider,
 			model,
 		);
+	};
 }
 
 async function queryEffectiveDiscount(
