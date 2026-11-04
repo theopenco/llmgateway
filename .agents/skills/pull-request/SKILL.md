@@ -40,10 +40,13 @@ Most review happens before the PR exists. Before `gh pr create`:
 - `pr-risk` labels the PR `risk: low|medium|high` and requests a maintainer
   review on `risk: high`.
 - CodeRabbit posts a pre-merge checks table and findings as threads. Wait
-  for both (`gh pr checks <n>` shows `CodeRabbit` as completed), fix every
-  failed check (title length, description, rollback) and every finding, or
-  resolve it with a one-line reason; unresolved threads block the merge.
+  for both (`gh pr checks <n>` shows `CodeRabbit` as completed) and fix every
+  failed check (title length, description, rollback).
   Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- Open review feedback blocks the merge, from CodeRabbit or a human:
+  auto-merge never lands while a thread is unresolved or a change request
+  stands. Address every item: implement the fix and push, or dismiss it with
+  a one-line reason, then resolve the thread.
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
 

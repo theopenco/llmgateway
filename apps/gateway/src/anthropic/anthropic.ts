@@ -24,7 +24,9 @@ import {
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { streamSSE } from "@/lib/pending-work.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
@@ -39,7 +41,6 @@ import {
 	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	anthropicContentBlockInputSchema,
@@ -81,7 +82,7 @@ async function shouldRetainPayloadLogs(c: Context): Promise<boolean> {
 		? await findOrganizationById(project.organizationId)
 		: null;
 
-	return getEffectiveRetentionLevel(organization) === "retain";
+	return getEffectiveRetentionLevel(organization, apiKey) === "retain";
 }
 
 function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
@@ -1261,6 +1262,9 @@ anthropic.openapi(messages, async (c) => {
 	// Build OpenAI request
 	const openaiRequest: Record<string, unknown> = {
 		model: anthropicRequest.model,
+		...getClientSafetyIdentifierParams({
+			user: anthropicRequest.metadata?.user_id,
+		}),
 		messages: openaiMessages,
 		max_tokens: anthropicRequest.max_tokens,
 		temperature: anthropicRequest.temperature,
@@ -1330,7 +1334,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...internalApiOriginHeaders("messages", { hasClientCacheMarkers }),
-			...forwardedIpHeaders(c.req.raw.headers),
+			...internalPrincipalHeaders(c.req.raw.headers),
 			...forwardedCustomHeaders(c.req.raw.headers),
 			...(sessionId ? { "x-session-id": sessionId } : {}),
 			// Forward the fallback opt-out (presence-sensitive: the inner handler

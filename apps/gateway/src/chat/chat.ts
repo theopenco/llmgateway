@@ -135,7 +135,10 @@ import {
 	getNoFallbackRoutingMetadata,
 	withRoutingAttempts,
 } from "@/lib/routing-metadata.js";
-import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
+import {
+	forwardedSafetyIdentifier,
+	getClientSafetyIdentifierParams,
+} from "@/lib/safety-identifier.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -2346,6 +2349,8 @@ chat.openapi(completions, async (c) => {
 	// Extract custom X-LLMGateway-* headers
 	const customHeaders = extractCustomHeaders(c);
 
+	const clientSafetyParams = getClientSafetyIdentifierParams(rawBody);
+
 	// Read Responses API context from in-memory Map (set by /v1/responses proxy).
 	// Uses a lookup key passed via header; actual data is never in headers.
 	// External callers cannot exploit this: the key is a resp_ + shortid(24) that
@@ -2437,6 +2442,9 @@ chat.openapi(completions, async (c) => {
 			usedServiceTier: servedServiceTier,
 			...(await getRoutingBaselineFields(logData)),
 			...logData,
+			...(clientSafetyParams.safety_identifier !== undefined && {
+				params: { ...logData.params, ...clientSafetyParams },
+			}),
 			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
 		});
 	};
@@ -2806,11 +2814,14 @@ chat.openapi(completions, async (c) => {
 	// would push the zero-credit org we just waived the charge for into negative
 	// credits. Forcing it here rather than zeroing at each cost site keeps the
 	// two in step: no stored payloads, therefore no storage to charge for.
-	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+		organization,
+		apiKey,
+	);
 	const retentionLevel =
 		sponsoredOnboarding || zeroDataRetentionEnabled
 			? "none"
-			: getEffectiveRetentionLevel(organization);
+			: getEffectiveRetentionLevel(organization, apiKey);
 
 	// Surface gateway-side rejections (guardrails, unsupported parameters,
 	// rate limits) in the activity feed as a client_error so users can see why
@@ -3908,7 +3919,7 @@ chat.openapi(completions, async (c) => {
 			message: `Provider '${customProviderName}' not found.`,
 		});
 	}
-	const effectiveProviders = getActiveCompliancePolicy(organization)
+	const effectiveProviders = getActiveCompliancePolicy(organization, apiKey)
 		? await getEffectiveProviders()
 		: undefined;
 	let complianceContext: ComplianceCheckContext = {
@@ -3920,7 +3931,7 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
-	const compliancePolicy = getActiveCompliancePolicy(organization);
+	const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
 
 	const complianceContextFor = (
 		provider: ProviderModelMapping,
@@ -8758,7 +8769,9 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			forwardedSafetyIdentifier(managedKey, apiKey.safetyIdentifier),
+			providerKey
+				? undefined
+				: forwardedSafetyIdentifier(managedKey, apiKey.safetyIdentifier),
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,

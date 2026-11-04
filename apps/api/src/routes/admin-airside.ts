@@ -1147,7 +1147,8 @@ adminAirside.openapi(approveClaim, async (c) => {
 					sql`${tables.providerRoutingSettings.modelId} IS NULL`,
 				),
 			)
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (!settings) {
 			await tx.insert(tables.providerRoutingSettings).values({
 				providerCompanyId: claim.providerCompanyId,
@@ -1756,7 +1757,8 @@ adminAirside.openapi(revokeClaim, async (c) => {
 					eq(tables.providerDraftModel.providerId, claim.providerId),
 					ne(tables.providerDraftModel.status, "delisted"),
 				),
-			);
+			)
+			.$withCache(false);
 		if (companyModels.length > 0) {
 			const modelIds = companyModels.map((m) => m.id);
 			await tx
@@ -1807,7 +1809,8 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				.select({ id: tables.modelProviderMapping.id })
 				.from(tables.modelProviderMapping)
 				.where(eq(tables.modelProviderMapping.providerId, claim.providerId))
-				.limit(1);
+				.limit(1)
+				.$withCache(false);
 			if (remaining.length === 0) {
 				await tx
 					.delete(tables.provider)
@@ -2455,7 +2458,8 @@ adminAirside.openapi(approveRoutingFiling, async (c) => {
 						: sql`${tables.providerRoutingSettings.modelId} IS NULL`,
 				),
 			)
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (current) {
 			await tx
 				.update(tables.providerRoutingSettings)
@@ -3017,7 +3021,8 @@ adminAirside.openapi(deleteRoutingOverride, async (c) => {
 			.select()
 			.from(tables.providerRoutingSettings)
 			.where(routingScope(providerId, null))
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		// Record the default fare the model now inherits.
 		await tx.insert(tables.providerRoutingFiling).values({
 			...adminFilingFields(userId),

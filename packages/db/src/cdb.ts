@@ -26,20 +26,22 @@ const _cdb = drizzle({
 /**
  * Cached database client type that excludes the `.query` property.
  *
- * IMPORTANT: The relational query API (db.query.table.findFirst/findMany)
- * does NOT go through Drizzle's cache layer. Only the select builder pattern
- * (db.select().from()) is cached.
+ * With the "all" cache strategy, Drizzle caches every select builder query
+ * (db.select().from()) and every relational query (db.query.table.find*)
+ * unless the query opts out (`.$withCache(false)` / `withCache: false`).
+ * Omitting `.query` keeps reads on this client to the select builder, whose
+ * cache config (tag, TTL) is set explicitly at each call site.
  *
- * This type prevents accidental use of non-cacheable queries at compile time.
+ * Transactions on this client inherit the cache: reads inside
+ * `cdb.transaction` must opt out to see the transaction's own writes and to
+ * take row locks.
  */
 export type CacheableDb = Omit<typeof _cdb, "query">;
 
 /**
  * Cached database client with Redis caching.
  *
- * IMPORTANT: Only use db.select().from() queries with this client.
- * The .query property is intentionally omitted because relational queries
- * (db.query.table.findFirst/findMany) bypass Drizzle's cache layer.
+ * Only use db.select().from() queries with this client; see CacheableDb.
  *
  * See: packages/db/src/cdb-resilience.spec.ts for documentation.
  */
@@ -47,7 +49,7 @@ export const cdb: CacheableDb = _cdb;
 
 /**
  * Internal cached database client with full access (including .query).
- * Only use this for tests or when you explicitly need uncached relational queries.
+ * Only use this for tests. Its relational queries are cached too.
  *
  * @internal
  */
