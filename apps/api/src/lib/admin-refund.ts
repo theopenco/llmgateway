@@ -5,7 +5,14 @@ import { getStripe } from "@/routes/payments.js";
 import { getPaymentIntentFromInvoicePayments } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, db, eq, inArray, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	inArray,
+	tables,
+	REFUND_TRANSACTION_TYPES,
+} from "@llmgateway/db";
 
 type OrganizationRow = typeof tables.organization.$inferSelect;
 type TransactionRow = typeof tables.transaction.$inferSelect;
@@ -115,10 +122,7 @@ export async function sumRefundsByTransaction(
 		.where(
 			and(
 				eq(tables.transaction.organizationId, organizationId),
-				inArray(tables.transaction.type, [
-					"credit_refund",
-					"subscription_refund",
-				]),
+				inArray(tables.transaction.type, [...REFUND_TRANSACTION_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.relatedTransactionId, transactionIds),
 			),

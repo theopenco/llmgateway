@@ -32,6 +32,8 @@
 import Stripe from "stripe";
 
 import { and, db, eq, inArray, isNull, or, tables } from "@llmgateway/db";
+import { Decimal } from "decimal.js";
+import { pathToFileURL } from "node:url";
 
 const STRIPE_API_VERSION = "2025-04-30.basil" as const;
 const DEV_PLAN_TX_TYPES = [
@@ -53,16 +55,15 @@ const LEGACY_DEV_PLAN_TX_TYPES = [
 function subscriptionRefundRow(args: {
 	createdAt: Date;
 	organizationId: string;
-	refundDollars: number;
-	originalAmount: number;
+	refundDollars: Decimal;
+	originalAmount: Decimal;
 	currency: string | null;
 	paymentIntentId: string;
 	refundId: string;
 	relatedTransactionId: string | null;
 	reason: string | null;
 }): typeof tables.transaction.$inferInsert {
-	const ratio =
-		args.originalAmount > 0 ? args.refundDollars / args.originalAmount : 0;
+	const ratio = args.originalAmount.gt(0) ? args.refundDollars.div(args.originalAmount) : new Decimal(0);
 	return {
 		createdAt: args.createdAt,
 		updatedAt: args.createdAt,
@@ -76,7 +77,7 @@ function subscriptionRefundRow(args: {
 		stripeRefundId: args.refundId,
 		relatedTransactionId: args.relatedTransactionId,
 		refundReason: args.reason,
-		description: `Subscription refund: $${args.refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
+		description: `Subscription refund: $${args.refundDollars.toFixed(2)} (${ratio.mul(100).toFixed(1)}% of original purchase) [backfilled]`,
 	};
 }
 
@@ -104,6 +105,9 @@ async function main(): Promise<void> {
 	const stripe = getStripe();
 	const commit = hasFlag("commit");
 	const scopePI = parseFlag("payment-intent");
+	if (scopePI === "") {
+		throw new Error("--payment-intent must not be empty");
+	}
 
 	console.log(
 		`Mode: ${commit ? "COMMIT (writes enabled)" : "DRY RUN (no writes)"}`,
@@ -122,7 +126,7 @@ async function main(): Promise<void> {
 	process.exit(0);
 }
 
-async function legacyPass(
+export async function legacyPass(
 	stripe: Stripe,
 	commit: boolean,
 	scopePI: string | undefined,
@@ -156,7 +160,7 @@ async function legacyPass(
 	}
 
 	const devpassRows: typeof legacyRows = [];
-	const originalAmountByRefundId = new Map<string, number>();
+	const originalAmountByRefundId = new Map<string, Decimal>();
 	let nonDevpassRows = 0;
 	for (const row of legacyRows) {
 		if (!row.relatedTransactionId) {
@@ -167,7 +171,7 @@ async function legacyPass(
 		const original = await db.query.transaction.findFirst({
 			where: { id: { eq: row.relatedTransactionId } },
 		});
-		if (!original) {
+		if (!original || (original.stripePaymentIntentId !== null && original.stripePaymentIntentId !== row.stripePaymentIntentId) || original.organizationId !== row.organizationId || original.status !== "completed" || row.status !== "completed" || !new Decimal(original.amount ?? 0).gt(0) || !new Decimal(row.creditAmount ?? 0).isZero()) {
 			nonDevpassRows += 1;
 			continue;
 		}
@@ -196,7 +200,7 @@ async function legacyPass(
 		devpassRows.push(row);
 		originalAmountByRefundId.set(
 			row.id,
-			Number.parseFloat(original.amount ?? "0"),
+			new Decimal(original.amount ?? "0"),
 		);
 	}
 
@@ -239,15 +243,20 @@ async function legacyPass(
 
 	for (const [pi, rows] of byPI) {
 		console.log(`=== ${pi} (${rows.length} legacy row(s)) ===`);
+		if (rows.some((row) => row.organizationId !== rows[0].organizationId || row.relatedTransactionId !== rows[0].relatedTransactionId)) {
+			totalSkippedPI += 1;
+			console.warn("  Conflicting original payments for this payment intent — review manually");
+			continue;
+		}
 
 		const legacyTotal = rows.reduce(
-			(s, r) => s + Number.parseFloat(r.amount ?? "0"),
-			0,
+			(s, r) => s.plus(r.amount ?? 0),
+			new Decimal(0),
 		);
 		console.log(`  Legacy rows sum: $${legacyTotal.toFixed(2)}`);
 		for (const r of rows) {
 			console.log(
-				`    - id=${r.id} amount=$${Number.parseFloat(r.amount ?? "0").toFixed(2)} created=${r.createdAt.toISOString()}`,
+				`    - id=${r.id} amount=$${new Decimal(r.amount ?? "0").toFixed(2)} created=${r.createdAt.toISOString()}`,
 			);
 		}
 
@@ -299,7 +308,7 @@ async function legacyPass(
 			continue;
 		}
 
-		const stripeTotal = refunds.reduce((s, r) => s + r.amount, 0) / 100;
+		const stripeTotal = refunds.reduce((s, r) => s.plus(r.amount), new Decimal(0)).div(100);
 		console.log(
 			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
 		);
@@ -340,10 +349,10 @@ async function legacyPass(
 		}
 
 		const sample = rows[0];
-		const originalAmount = originalAmountByRefundId.get(sample.id) ?? 0;
+		const originalAmount = originalAmountByRefundId.get(sample.id) ?? new Decimal(0);
 
 		console.log(
-			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${(stripeTotal - legacyTotal).toFixed(2)}`,
+			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${stripeTotal.minus(legacyTotal).toFixed(2)}`,
 		);
 
 		if (commit) {
@@ -360,7 +369,7 @@ async function legacyPass(
 						subscriptionRefundRow({
 							createdAt: new Date(r.created * 1000),
 							organizationId: sample.organizationId,
-							refundDollars: r.amount / 100,
+							refundDollars: new Decimal(r.amount).div(100),
 							originalAmount,
 							currency: sample.currency,
 							paymentIntentId: pi,
@@ -368,7 +377,7 @@ async function legacyPass(
 							relatedTransactionId: sample.relatedTransactionId,
 							reason: r.reason ?? null,
 						}),
-					);
+					).onConflictDoNothing();
 				}
 			});
 			console.log(`  Applied`);
@@ -409,7 +418,7 @@ async function resolveRefundInvoiceId(
 	return typeof invoice === "string" ? invoice : (invoice.id ?? undefined);
 }
 
-async function sweepPass(
+export async function sweepPass(
 	stripe: Stripe,
 	commit: boolean,
 	scopePI: string | undefined,
@@ -495,7 +504,7 @@ async function sweepPass(
 			}
 		}
 
-		const refundDollars = refund.amount / 100;
+		const refundDollars = new Decimal(refund.amount).div(100);
 		const created = new Date(refund.created * 1000);
 
 		if (!original) {
@@ -503,6 +512,12 @@ async function sweepPass(
 			console.warn(
 				`  UNMATCHED: refund ${refund.id} $${refundDollars.toFixed(2)} pi=${pi}${invoiceId ? ` invoice=${invoiceId}` : ""} created=${created.toISOString()} — no original transaction found`,
 			);
+			continue;
+		}
+
+		if (original.status !== "completed" || !new Decimal(original.amount ?? 0).gt(0)) {
+			manualReviewMisses += 1;
+			console.warn(`  SKIP ${refund.id}: original payment is not completed with a positive amount`);
 			continue;
 		}
 
@@ -564,14 +579,14 @@ async function sweepPass(
 					createdAt: created,
 					organizationId: original.organizationId,
 					refundDollars,
-					originalAmount: Number.parseFloat(original.amount ?? "0"),
+					originalAmount: new Decimal(original.amount ?? "0"),
 					currency: original.currency,
 					paymentIntentId: pi,
 					refundId: refund.id,
 					relatedTransactionId: original.id,
 					reason: refund.reason ?? null,
 				}),
-			);
+			).onConflictDoNothing();
 		}
 		inserted += 1;
 	}
@@ -590,7 +605,9 @@ async function sweepPass(
 	console.log(`  ${unmatched} refund(s) unmatched`);
 }
 
-main().catch((err) => {
-	console.error("Error:", err);
-	process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	main().catch((err) => {
+		console.error("Error:", err);
+		process.exit(1);
+	});
+}

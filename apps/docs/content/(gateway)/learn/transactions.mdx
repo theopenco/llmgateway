@@ -31,13 +31,14 @@ Each transaction entry includes:
 
 ## Transaction Types
 
-| Type                    | Description                         |
-| ----------------------- | ----------------------------------- |
-| **Credit Top-up**       | Manual or automatic credit purchase |
-| **Credit Refund**       | Credits refunded to your account    |
-| **Subscription Start**  | New plan subscription started       |
-| **Subscription Cancel** | Plan subscription canceled          |
-| **Subscription End**    | Plan subscription period ended      |
+| Type                    | Description                                                       |
+| ----------------------- | ----------------------------------------------------------------- |
+| **Credit Top-up**       | Manual or automatic credit purchase                               |
+| **Credit Refund**       | Credit top-up payment returned; its credits are deducted          |
+| **Subscription Refund** | Plan or Reset Pass payment returned; no PAYG credits are deducted |
+| **Subscription Start**  | New plan subscription started                                     |
+| **Subscription Cancel** | Plan subscription canceled                                        |
+| **Subscription End**    | Plan subscription period ended                                    |
 
 ## Status Badges
 
@@ -46,5 +47,7 @@ Each transaction entry includes:
 - **Failed** — Transaction could not be completed
 
 ## Refunds
+
+Refunds appear as negative paid amounts and produce credit notes, not new charges. Older plan refunds may still be labeled **Credit Refund**.
 
 Recent top-ups and plan payments can be refunded from this page with **Request refund**. See [Self-Service Refunds](/learn/refunds) for the window and conditions.

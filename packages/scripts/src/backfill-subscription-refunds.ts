@@ -26,11 +26,11 @@ import {
 	db,
 	eq,
 	isNull,
-	ne,
 	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { Decimal } from "decimal.js";
 
 function hasFlag(name: string): boolean {
 	return process.argv.includes(`--${name}`);
@@ -38,6 +38,11 @@ function hasFlag(name: string): boolean {
 
 async function main(): Promise<void> {
 	const commit = hasFlag("commit");
+	const organizationId = process.argv.find((arg) => arg.startsWith("--organization-id="))?.slice("--organization-id=".length);
+	if (organizationId === "") {
+		throw new Error("--organization-id must not be empty");
+	}
+	const scope = organizationId ? [eq(tables.transaction.organizationId, organizationId)] : [];
 
 	console.log(
 		`Mode: ${commit ? "COMMIT (writes enabled)" : "DRY RUN (no writes)"}`,
@@ -56,6 +61,7 @@ async function main(): Promise<void> {
 		.where(
 			and(
 				eq(tables.transaction.type, "credit_refund"),
+				...scope,
 				or(
 					isNull(tables.transaction.relatedTransactionId),
 					sql`NOT EXISTS (SELECT 1 FROM ${tables.transaction} AS original_tx WHERE original_tx.id = ${tables.transaction.relatedTransactionId})`,
@@ -77,6 +83,10 @@ async function main(): Promise<void> {
 			creditAmount: tables.transaction.creditAmount,
 			description: tables.transaction.description,
 			originalType: originalTx.type,
+			originalOrganizationId: originalTx.organizationId,
+			originalAmount: originalTx.amount,
+			originalStatus: originalTx.status,
+			status: tables.transaction.status,
 		})
 		.from(tables.transaction)
 		.innerJoin(
@@ -86,22 +96,31 @@ async function main(): Promise<void> {
 		.where(
 			and(
 				eq(tables.transaction.type, "credit_refund"),
-				ne(originalTx.type, "credit_topup"),
+				...scope,
 			),
 		);
 
 	console.log(
-		`\nFound ${rows.length} credit_refund row(s) whose original transaction is not a credit_topup`,
+		`\nFound ${rows.length} linked credit_refund row(s) to classify`,
 	);
 
 	let retyped = 0;
 	let skipped = 0;
 	for (const row of rows) {
+		if (row.originalType === "credit_topup") {
+			continue;
+		}
+		const planTypes: readonly string[] = ["dev_plan_start", "dev_plan_upgrade", "dev_plan_renewal", "dev_plan_reset_pass", "chat_plan_start", "chat_plan_upgrade", "chat_plan_renewal", "subscription_start", "subscription_upgrade", "subscription_renewal"];
+		if (!planTypes.includes(row.originalType) || row.originalOrganizationId !== row.organizationId || row.originalStatus !== "completed" || row.status !== "completed" || !new Decimal(row.originalAmount ?? 0).gt(0) || !new Decimal(row.amount ?? 0).gt(0)) {
+			skipped += 1;
+			console.warn(`  SKIP ${row.id}: original is not a completed plan payment in the same organization — review manually`);
+			continue;
+		}
 		// Plan refunds have always been recorded with creditAmount 0 (the
 		// credits-deduction gate landed in the same commit as plan-refund
 		// support, #2362), so a non-zero value means the row deducted org
 		// credits and its ledger semantics must be reviewed manually.
-		if (Number(row.creditAmount ?? 0) !== 0) {
+		if (!new Decimal(row.creditAmount ?? 0).isZero()) {
 			skipped += 1;
 			console.warn(
 				`  SKIP ${row.id} org=${row.organizationId}: creditAmount=${row.creditAmount} is non-zero — review manually`,
@@ -126,7 +145,7 @@ async function main(): Promise<void> {
 					type: "subscription_refund",
 					description: newDescription,
 				})
-				.where(eq(tables.transaction.id, row.id));
+				.where(and(eq(tables.transaction.id, row.id), eq(tables.transaction.type, "credit_refund"), eq(tables.transaction.organizationId, row.organizationId), eq(tables.transaction.status, "completed"), sql`COALESCE(${tables.transaction.creditAmount}, 0) = 0`));
 		}
 	}
 
