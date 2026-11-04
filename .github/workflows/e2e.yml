@@ -6,6 +6,10 @@ on:
         description: Comma-separated provider/model mappings (empty runs all models)
         type: string
         default: ""
+      test_files:
+        description: Comma-separated e2e file paths (empty runs all files)
+        type: string
+        default: ""
       full_mode:
         description: Include all declared reasoning efforts and free models
         type: boolean
@@ -19,6 +23,7 @@ permissions:
 env:
   TEST_MODELS: ${{ inputs.test_models || '' }}
   FULL_MODE: ${{ inputs.full_mode && 'true' || '' }}
+  TEST_FILES: ${{ inputs.test_files || '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.issue.number || github.ref }}
@@ -128,9 +133,20 @@ jobs:
           # comma-separated list, or a service-account `private_key`, would
           # otherwise reach the log in plaintext.
           node scripts/mask-ci-credentials.mjs
+          filter_args=()
+          if [ -n "$TEST_FILES" ]; then
+            IFS=',' read -r -a test_files <<< "$TEST_FILES"
+            for file in "${test_files[@]}"; do
+              if [[ ! "$file" =~ ^(apps|packages)/[a-zA-Z0-9_./-]+\.e2e\.ts$ || "$file" == *..* || "$file" == *//* || "$file" == */./* || ! -f "$file" ]]; then
+                echo "Invalid e2e file path" >&2
+                exit 1
+              fi
+            done
+            filter_args=("${test_files[@]}" --passWithNoTests)
+          fi
           # Never fail here: the merge job reports the combined result, and a
           # failing shard must still upload its blob so that report is complete.
-          E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism \
+          E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism "${filter_args[@]}" \
             --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
             --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob || true
         env:

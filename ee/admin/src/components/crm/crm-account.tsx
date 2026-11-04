@@ -52,6 +52,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { MailPanel } from "./crm-mail";
+import { MeetingsPanel } from "./crm-meetings";
 import {
 	type CrmAccountDetail,
 	initials,
@@ -1298,6 +1300,8 @@ export function CrmAccountView({ id }: { id: string }) {
 						<TabsTrigger value="people">
 							People · {data.people.length}
 						</TabsTrigger>
+						<TabsTrigger value="mail">Email</TabsTrigger>
+						<TabsTrigger value="meetings">Meetings</TabsTrigger>
 						<TabsTrigger value="usage">Usage</TabsTrigger>
 						<TabsTrigger value="inbound">
 							Inbound · {data.leads.length}
@@ -1334,6 +1338,12 @@ export function CrmAccountView({ id }: { id: string }) {
 								/>
 							))}
 						</div>
+					</TabsContent>
+					<TabsContent value="mail" className="mt-4">
+						<MailPanel accountId={a.id} people={data.people} />
+					</TabsContent>
+					<TabsContent value="meetings" className="mt-4">
+						<MeetingsPanel accountId={a.id} people={data.people} />
 					</TabsContent>
 					<TabsContent value="usage" className="mt-4">
 						<UsagePanel detail={data} />

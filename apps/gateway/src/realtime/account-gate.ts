@@ -152,12 +152,17 @@ export async function authorizeAccount(
 		};
 	}
 	try {
-		await assertProviderCompliant(freshOrg, match.mapping.providerId, {
-			organizationId: preflight.project.organizationId,
-			modelId: match.modelId,
-			apiKeyId: freshKey.id,
-			model: input.requestedModel,
-		});
+		await assertProviderCompliant(
+			freshOrg,
+			match.mapping.providerId,
+			{
+				organizationId: preflight.project.organizationId,
+				modelId: match.modelId,
+				apiKeyId: freshKey.id,
+				model: input.requestedModel,
+			},
+			freshKey,
+		);
 	} catch (error) {
 		return {
 			ok: false,

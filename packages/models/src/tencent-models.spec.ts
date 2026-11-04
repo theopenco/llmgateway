@@ -20,7 +20,7 @@ describe("Tencent Singapore catalogue", () => {
 		["kimi-k2.8-preview", "1e-6", "4e-6", "0.25e-6"],
 		["mimo-v2.6-pro", "0.435e-6", "0.87e-6", "0.0036e-6"],
 		["mimo-v2.6-flash", "0.14e-6", "0.28e-6", "0.0028e-6"],
-		["step-5-preview", "1e-6", "2.7e-6", "0.05e-6"],
+		["step-5-preview", "1e-6", "2.7e-6", "0.1e-6"],
 	])(
 		"uses Singapore token rates for %s",
 		(id, inputPrice, outputPrice, cachedInputPrice) => {

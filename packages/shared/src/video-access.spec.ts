@@ -91,4 +91,65 @@ describe("video access tokens", () => {
 			/LLM_VIDEO_CONTENT_JWT_SECRET/,
 		);
 	});
+	test("binds a signed download to its original log", () => {
+		process.env[VIDEO_CONTENT_TOKEN_SECRET_ENV] = "configured-secret";
+		const token = createVideoContentAccessToken("original-log");
+		expect(verifyVideoContentAccessToken(token, "other-log")).toBe(false);
+	});
+
+	test("rejects tampered signatures and payloads", () => {
+		process.env[VIDEO_CONTENT_TOKEN_SECRET_ENV] = "configured-secret";
+		const [header, payload, signature] =
+			createVideoContentAccessToken("original-log").split(".");
+		const changedPayload = Buffer.from(
+			JSON.stringify({ l: "other-log", exp: 4102444800 }),
+		).toString("base64url");
+		expect(
+			verifyVideoContentAccessToken(
+				`${header}.${changedPayload}.${signature}`,
+				"other-log",
+			),
+		).toBe(false);
+		expect(
+			verifyVideoContentAccessToken(
+				`${header}.${payload}.invalid`,
+				"original-log",
+			),
+		).toBe(false);
+	});
+
+	test("expires at the exact signed expiry boundary", () => {
+		process.env[VIDEO_CONTENT_TOKEN_SECRET_ENV] = "configured-secret";
+		const expires = new Date("2030-01-01T00:00:00Z");
+		const token = createVideoContentAccessToken("original-log", expires);
+		expect(
+			verifyVideoContentAccessToken(
+				token,
+				"original-log",
+				new Date(expires.getTime() - 1000),
+			),
+		).toBe(true);
+		expect(verifyVideoContentAccessToken(token, "original-log", expires)).toBe(
+			false,
+		);
+		expect(
+			verifyVideoContentAccessToken(
+				token,
+				"original-log",
+				new Date(expires.getTime() + 1000),
+			),
+		).toBe(false);
+	});
+
+	test.each(["false", "FALSE", "1", "TRUE"])(
+		"does not enable the development secret for %s",
+		(value) => {
+			process.env.NODE_ENV = "production";
+			setOptionalEnv(VIDEO_CONTENT_TOKEN_SECRET_ENV, undefined);
+			process.env[VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV] = value;
+			expect(() => createVideoContentAccessToken("log-4")).toThrow(
+				/LLM_VIDEO_CONTENT_JWT_SECRET/,
+			);
+		},
+	);
 });

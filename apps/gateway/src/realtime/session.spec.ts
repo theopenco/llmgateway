@@ -3,11 +3,15 @@ import { EventEmitter } from "node:events";
 import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { assertMemberProjectAccess } from "@/lib/api-key-usage-limits.js";
+import {
+	assertMemberProjectAccess,
+	assertApiKeyWithinUsageLimits,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
@@ -1697,6 +1701,519 @@ describe("RealtimeProxySession duration-billed sessions", () => {
 			"idle_timeout_not_supported",
 		]);
 
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("realtime ASR session update authorization", () => {
+	it.each(["flat", "nested"])(
+		"rechecks compliance before forwarding a %s ASR enable and queued audio",
+		async (shape) => {
+			const { client, upstream, session, clientSends } =
+				await openSession(createSession());
+			vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+				new Error("ASR compliance denied"),
+			);
+			const transcription = { model: "gpt-4o-mini-transcribe" };
+			clientSends({
+				type: "session.update",
+				session:
+					shape === "flat"
+						? { input_audio_transcription: transcription }
+						: { audio: { input: { transcription } } },
+			});
+			clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+			await flush();
+			expect(
+				upstream.sent.some((text) => text.includes("gpt-4o-mini-transcribe")),
+			).toBe(false);
+			expect(
+				upstream.sent.some((text) =>
+					text.includes("input_audio_buffer.append"),
+				),
+			).toBe(false);
+			expect(
+				client.sent.some((text) => text.includes("compliance_blocked")),
+			).toBe(true);
+			expect(validateRequestModelAccess).toHaveBeenCalledWith(
+				expect.objectContaining({
+					requestedModel: "gpt-4o-mini-transcribe",
+					clientIp: "198.51.100.4",
+				}),
+			);
+			session.shutdown(1000, "test_done");
+		},
+	);
+});
+
+describe("realtime ASR transition ordering", () => {
+	it("holds audio until fresh ASR authorization completes", async () => {
+		const { upstream, session, clientSends } =
+			await openSession(createSession());
+		let authorize: () => void = () => {
+			throw new Error("authorization not started");
+		};
+		const pending = new Promise<void>((resolve) => {
+			authorize = resolve;
+		});
+		vi.mocked(assertProviderCompliant).mockReturnValueOnce(pending);
+		clientSends({
+			type: "session.update",
+			session: {
+				input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
+			},
+		});
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		authorize();
+		await flush();
+		expect(
+			upstream.sent.map((text) => (JSON.parse(text) as { type: string }).type),
+		).toEqual(["session.update", "input_audio_buffer.append"]);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rechecks compliance when a pinned ASR model is re-enabled", async () => {
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
+		const enable = {
+			type: "session.update",
+			session: {
+				input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
+			},
+		};
+		clientSends(enable);
+		await flush();
+		clientSends({
+			type: "session.update",
+			session: { input_audio_transcription: null },
+		});
+		await flush();
+		upstream.sent.length = 0;
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("ASR compliance revoked"),
+		);
+		clientSends(enable);
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(
+			client.sent.some((text) => text.includes("compliance_blocked")),
+		).toBe(true);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rechecks IAM before enabling ASR rather than after transcription", async () => {
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
+		vi.mocked(validateRequestModelAccess).mockResolvedValueOnce({
+			allowed: false,
+			reason: "provider/IP access revoked",
+		});
+		clientSends({
+			type: "session.update",
+			session: {
+				input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
+			},
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(
+			client.sent.some((text) => text.includes("model_access_denied")),
+		).toBe(true);
+		session.shutdown(1000, "test_done");
+	});
+});
+
+vi.mock("./turn-denial-log.js", () => ({ logRealtimeTurnDenial: vi.fn() }));
+
+async function openAsrInputSession() {
+	const harness = await openSession(createSession());
+	harness.clientSends({
+		type: "session.update",
+		session: {
+			turn_detection: null,
+			input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
+		},
+	});
+	await flush();
+	harness.upstream.sent.length = 0;
+	vi.clearAllMocks();
+	return harness;
+}
+
+describe("realtime new-input authorization", () => {
+	beforeEach(() => {
+		vi.mocked(assertProviderCompliant).mockReset().mockResolvedValue(undefined);
+		vi.mocked(validateRequestModelAccess)
+			.mockReset()
+			.mockResolvedValue({ allowed: true });
+	});
+	it.each(["gpt-4o-mini-transcribe", "gpt-realtime-2.1-mini"])(
+		"blocks first audio and queued commit after %s is revoked",
+		async (modelId) => {
+			const { upstream, client, session, clientSends } =
+				await openAsrInputSession();
+			vi.mocked(validateRequestModelAccess).mockImplementation(
+				async ({ requestedModel }) => ({ allowed: requestedModel !== modelId }),
+			);
+			clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+			clientSends({ type: "input_audio_buffer.commit" });
+			await flush();
+			expect(upstream.sent).toHaveLength(0);
+			expect(recordRealtimeTranscription).not.toHaveBeenCalled();
+			expect(
+				client.sent.some((text) => text.includes("model_access_denied")),
+			).toBe(true);
+			session.shutdown(1000, "test_done");
+		},
+	);
+	it("blocks newly compliance-revoked ASR before any buffered audio leaves", async () => {
+		const { upstream, client, session, clientSends } =
+			await openAsrInputSession();
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("ASR provider policy revoked"),
+		);
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		clientSends({ type: "input_audio_buffer.commit" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(recordRealtimeTranscription).not.toHaveBeenCalled();
+		expect(
+			client.sent.some((text) => text.includes("compliance_blocked")),
+		).toBe(true);
+		session.shutdown(1000, "test_done");
+	});
+	it.each([
+		{
+			type: "conversation.item.create",
+			item: {
+				type: "message",
+				role: "user",
+				content: [{ type: "input_text", text: "private input" }],
+			},
+		},
+		{
+			type: "session.update",
+			session: { instructions: "private instructions" },
+		},
+	])("blocks revoked content before data egress: %j", async (message) => {
+		const { upstream, session, clientSends } =
+			await openSession(createSession());
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("provider policy revoked"),
+		);
+		clientSends(message);
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("realtime audio authorization boundaries", () => {
+	beforeEach(() => {
+		vi.mocked(assertProviderCompliant).mockReset().mockResolvedValue(undefined);
+		vi.mocked(validateRequestModelAccess)
+			.mockReset()
+			.mockResolvedValue({ allowed: true });
+	});
+	it("holds queued PCM and commit, checks both mappings once per turn, and ignores stale acknowledgements", async () => {
+		const { upstream, session, clientSends, upstreamSends } =
+			await openAsrInputSession();
+		let authorize: () => void = () => {
+			throw new Error("authorization not started");
+		};
+		vi.mocked(assertProviderCompliant).mockReturnValueOnce(
+			new Promise<void>((resolve) => {
+				authorize = resolve;
+			}),
+		);
+		const firstTurn = [
+			{ type: "input_audio_buffer.append", audio: "AAAA" },
+			{ type: "input_audio_buffer.append", audio: "BBBB" },
+			{ type: "input_audio_buffer.commit" },
+		];
+		firstTurn.forEach(clientSends);
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		authorize();
+		await flush();
+		expect(upstream.sent.map((text) => JSON.parse(text) as unknown)).toEqual(
+			firstTurn,
+		);
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(2);
+		clientSends({ type: "input_audio_buffer.append", audio: "CCCC" });
+		await flush();
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(4);
+		upstreamSends({
+			type: "input_audio_buffer.committed",
+			item_id: "old-item",
+		});
+		await flush();
+		clientSends({ type: "input_audio_buffer.append", audio: "DDDD" });
+		await flush();
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(4);
+		clientSends({ type: "input_audio_buffer.clear" });
+		clientSends({ type: "input_audio_buffer.append", audio: "EEEE" });
+		await flush();
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(6);
+		upstreamSends({ type: "input_audio_buffer.cleared" });
+		await flush();
+		clientSends({ type: "input_audio_buffer.append", audio: "FFFF" });
+		await flush();
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(6);
+		session.shutdown(1000, "test_done");
+	});
+
+	it.each([
+		"input_audio_buffer.speech_stopped",
+		"input_audio_buffer.committed",
+		"input_audio_buffer.cleared",
+		"error",
+	])("rechecks audio after provider boundary %s", async (type) => {
+		const { upstream, session, clientSends, upstreamSends } =
+			await openAsrInputSession();
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		await flush();
+		upstreamSends({ type, item_id: "previous-item" });
+		await flush();
+		upstream.sent.length = 0;
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("ASR policy revoked"),
+		);
+		clientSends({ type: "input_audio_buffer.append", audio: "BBBB" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(recordRealtimeTranscription).not.toHaveBeenCalled();
+		session.shutdown(1000, "test_done");
+	});
+
+	it("suppresses queued commit after a transient first-chunk failure and permits a later retry", async () => {
+		const { upstream, session, clientSends } = await openAsrInputSession();
+		vi.mocked(findApiKeyByToken).mockRejectedValueOnce(
+			new Error("account lookup unavailable"),
+		);
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		clientSends({ type: "input_audio_buffer.commit" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		clientSends({ type: "input_audio_buffer.append", audio: "BBBB" });
+		await flush();
+		expect(upstream.sent).toEqual([
+			JSON.stringify({ type: "input_audio_buffer.append", audio: "BBBB" }),
+		]);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("authorizes a transcription-only session once before first audio", async () => {
+		const match = buildPreflight().match;
+		const { upstream, session, clientSends } = await openSession(
+			createSession({
+				sessionType: "transcription",
+				match: {
+					...match,
+					modelId: "gpt-live-transcribe",
+					modelDef: { ...match.modelDef, id: "gpt-live-transcribe" },
+					mapping: { ...match.mapping, externalId: "gpt-live-transcribe" },
+				},
+			}),
+		);
+		vi.clearAllMocks();
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("transcription policy revoked"),
+		);
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		clientSends({ type: "input_audio_buffer.commit" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(1);
+		expect(validateRequestModelAccess).toHaveBeenCalledWith(
+			expect.objectContaining({ requestedModel: "gpt-live-transcribe" }),
+		);
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("realtime unsupported client events", () => {
+	it.each([
+		{
+			type: "transcription_session.update",
+			session: { input_audio_transcription: { model: "gpt-4o-transcribe" } },
+		},
+		{ type: "input_image_buffer.append", image: "private image" },
+		{
+			type: "unknown_session.update",
+			session: { instructions: "private instructions" },
+		},
+	])(
+		"rejects unvalidated protocol events before upstream dispatch: %j",
+		async (message) => {
+			const { upstream, client, session, clientSends } =
+				await openAsrInputSession();
+			clientSends(message);
+			await flush();
+			expect(upstream.sent).toHaveLength(0);
+			expect(
+				client.sent.some((text) => text.includes("unsupported_client_event")),
+			).toBe(true);
+			session.shutdown(1000, "test_done");
+		},
+	);
+	it.each([
+		"response.cancel",
+		"input_audio_buffer.clear",
+		"output_audio_buffer.clear",
+		"conversation.item.delete",
+		"conversation.item.truncate",
+	])("preserves the supported control event %s", async (type) => {
+		const { upstream, session, clientSends } =
+			await openSession(createSession());
+		clientSends({ type, item_id: "item-1" });
+		await flush();
+		expect(upstream.sent).toEqual([
+			JSON.stringify({ type, item_id: "item-1" }),
+		]);
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("realtime private item reads", () => {
+	it("rejects retrieval after key revocation before requesting private upstream data", async () => {
+		const { upstream, client, session, clientSends } =
+			await openSession(createSession());
+		vi.mocked(findApiKeyByToken).mockResolvedValueOnce({
+			id: "key_1",
+			status: "revoked",
+			createdBy: "user_1",
+		} as unknown as Awaited<ReturnType<typeof findApiKeyByToken>>);
+		clientSends({
+			type: "conversation.item.retrieve",
+			item_id: "private-item",
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(client.sent.some((text) => text.includes("api_key_revoked"))).toBe(
+			true,
+		);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects retrieval after key expiry even before the worker updates its status", async () => {
+		const { upstream, client, session, clientSends } =
+			await openSession(createSession());
+		const { assertApiKeyWithinUsageLimits: checkExpiry } =
+			await vi.importActual<{
+				assertApiKeyWithinUsageLimits: typeof assertApiKeyWithinUsageLimits;
+			}>("@/lib/api-key-usage-limits.js");
+		vi.mocked(findApiKeyByToken).mockResolvedValueOnce({
+			id: "key_1",
+			status: "active",
+			keyType: "user",
+			createdBy: "user_1",
+			expiresAt: new Date(0),
+		} as unknown as Awaited<ReturnType<typeof findApiKeyByToken>>);
+		vi.mocked(assertApiKeyWithinUsageLimits).mockImplementationOnce(
+			checkExpiry,
+		);
+		clientSends({
+			type: "conversation.item.retrieve",
+			item_id: "private-item",
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(client.sent.some((text) => text.includes("has expired"))).toBe(true);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects retrieval after the key creator loses project access", async () => {
+		const { upstream, client, session, clientSends } =
+			await openSession(createSession());
+		vi.mocked(assertMemberProjectAccess).mockRejectedValueOnce(
+			new Error("Project access revoked"),
+		);
+		clientSends({
+			type: "conversation.item.retrieve",
+			item_id: "private-item",
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(
+			client.sent.some((text) => text.includes("project_access_revoked")),
+		).toBe(true);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("allows authorized retrieval without starting generation or authorizing the next audio turn", async () => {
+		const { upstream, session, clientSends } =
+			await openSession(createSession());
+		clientSends({
+			type: "conversation.item.retrieve",
+			item_id: "private-item",
+		});
+		await flush();
+		expect(upstream.sent).toEqual([
+			JSON.stringify({
+				type: "conversation.item.retrieve",
+				item_id: "private-item",
+			}),
+		]);
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(1);
+		expect(recordRealtimeResponse).not.toHaveBeenCalled();
+		expect(recordRealtimeTranscription).not.toHaveBeenCalled();
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		await flush();
+		expect(validateRequestModelAccess).toHaveBeenCalledTimes(2);
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("realtime audio recovery after transient authorization failure", () => {
+	it.each([false, true])(
+		"retries the next PCM chunk without a boundary event (ASR enabled: %s)",
+		async (asrEnabled) => {
+			const { upstream, client, session, clientSends } = asrEnabled
+				? await openAsrInputSession()
+				: await openSession(createSession());
+			vi.clearAllMocks();
+			vi.mocked(findApiKeyByToken).mockRejectedValueOnce(
+				new Error("account lookup temporarily unavailable"),
+			);
+			clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+			await flush();
+			expect(upstream.sent).toHaveLength(0);
+			expect(
+				client.sent.some((text) => text.includes("gate_unavailable")),
+			).toBe(true);
+			clientSends({ type: "input_audio_buffer.append", audio: "BBBB" });
+			clientSends({ type: "input_audio_buffer.append", audio: "CCCC" });
+			await flush();
+			expect(upstream.sent.map((text) => JSON.parse(text) as unknown)).toEqual([
+				{ type: "input_audio_buffer.append", audio: "BBBB" },
+				{ type: "input_audio_buffer.append", audio: "CCCC" },
+			]);
+			expect(findApiKeyByToken).toHaveBeenCalledTimes(asrEnabled ? 3 : 2);
+			expect(validateRequestModelAccess).toHaveBeenCalledTimes(
+				asrEnabled ? 2 : 1,
+			);
+			clientSends({ type: "input_audio_buffer.commit" });
+			await flush();
+			expect(upstream.sent).toHaveLength(3);
+			expect(findApiKeyByToken).toHaveBeenCalledTimes(asrEnabled ? 3 : 2);
+			session.shutdown(1000, "test_done");
+		},
+	);
+
+	it("still latches a nontransient usage denial for subsequent PCM chunks", async () => {
+		const { upstream, session, clientSends } = await openAsrInputSession();
+		vi.mocked(assertApiKeyWithinUsageLimits).mockImplementationOnce(() => {
+			throw new Error("key usage limit denied");
+		});
+		clientSends({ type: "input_audio_buffer.append", audio: "AAAA" });
+		await flush();
+		clientSends({ type: "input_audio_buffer.append", audio: "BBBB" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(findApiKeyByToken).toHaveBeenCalledTimes(1);
 		session.shutdown(1000, "test_done");
 	});
 });

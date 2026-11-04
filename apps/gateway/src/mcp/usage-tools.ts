@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { getMcpApiUrl } from "@/mcp/request-url.js";
 
 import { logger, toError } from "@llmgateway/logger";
@@ -10,7 +11,6 @@ import {
 	mcpUsageSchema,
 	mcpUsageBreakdownSchema,
 } from "@llmgateway/shared";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -28,7 +28,7 @@ async function requestUsage<T extends Record<string, unknown>>(
 			method: input === undefined ? "GET" : "POST",
 			redirect: "error",
 			headers: {
-				...forwardedIpHeaders(new Headers(clientHeaders)),
+				...internalPrincipalHeaders(new Headers(clientHeaders)),
 				Authorization: `Bearer ${apiKey}`,
 				"Content-Type": "application/json",
 			},
