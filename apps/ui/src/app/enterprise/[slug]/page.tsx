@@ -314,7 +314,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 											{step.title}
 										</h3>
 										<p className="text-sm text-muted-foreground leading-relaxed">
-											{step.description}
+											{renderTextWithLinks(step.description)}
 										</p>
 									</li>
 								))}
@@ -378,7 +378,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 											{useCase.title}
 										</h3>
 										<p className="text-sm text-muted-foreground leading-relaxed">
-											{useCase.description}
+											{renderTextWithLinks(useCase.description)}
 										</p>
 									</div>
 								))}
@@ -449,7 +449,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 												{other.title}
 											</h3>
 											<p className="text-sm text-muted-foreground line-clamp-2">
-												{other.description}
+												{toPlainText(other.description)}
 											</p>
 										</Link>
 									);
