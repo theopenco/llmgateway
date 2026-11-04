@@ -47,6 +47,7 @@ export async function deleteAll() {
 			await db.delete(tables.crmActivity);
 			await db.delete(tables.crmContact);
 			await db.delete(tables.crmAccount);
+			await db.delete(tables.crmIntegration);
 			await db.delete(tables.enterpriseContactSubmission);
 			await db.delete(tables.auditLog);
 			await db.delete(tables.platformAuditLog);
@@ -74,6 +75,7 @@ export async function deleteAll() {
 			await db.delete(tables.providerListingPayment);
 			await db.delete(tables.providerCompany);
 			await db.delete(tables.routingScoreMultiplier);
+			await db.delete(tables.discount);
 			await db.delete(tables.organizationInvite);
 			await db.delete(tables.userOrganization);
 			await db.delete(tables.project);

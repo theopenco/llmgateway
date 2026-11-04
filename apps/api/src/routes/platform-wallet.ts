@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -49,7 +50,10 @@ const createTopUp = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({ amount: topUpAmountSchema }),
+					schema: z.object({
+						amount: topUpAmountSchema,
+						paymentMethodId: z.string().startsWith("pm_"),
+					}),
 				},
 			},
 		},
@@ -60,6 +64,9 @@ const createTopUp = createRoute({
 				"application/json": {
 					schema: z.object({
 						clientSecret: z.string(),
+						paymentIntentId: z.string(),
+						platformFee: z.number(),
+						internationalFee: z.number(),
 						totalAmount: z.number(),
 						netCredited: z.number(),
 						bonusCredited: z.number(),
@@ -68,7 +75,7 @@ const createTopUp = createRoute({
 				},
 			},
 			description:
-				"Stripe PaymentIntent created for an end-user wallet top-up. Confirm it client-side with the publishable key.",
+				"Card-priced wallet top-up quote. Review the fees, then call confirm-top-up.",
 		},
 	},
 });
@@ -78,49 +85,61 @@ platformWallet.openapi(createTopUp, async (c) => {
 	if (!session) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
-
-	const { amount } = c.req.valid("json");
-
-	// International-card surcharge can only be detected from a saved payment
-	// method; the Elements PaymentElement collects the card in-widget, so v1
-	// prices without it (matching the hosted checkout-session flow).
-	const isInternational = false;
-	const feeBreakdown = calculateFees({ amount, isInternational });
-
-	// Markup is baked in by discounting credited spend power: the wallet receives
-	// `amount / (1 + markup)` of real USD, and the difference is developer margin.
-	const markupFraction = session.markupPercent / 100;
-	const netCredited = Math.round((amount / (1 + markupFraction)) * 1e6) / 1e6;
-	const developerMargin = Math.round((amount - netCredited) * 1e6) / 1e6;
-	const platformFee = feeBreakdown.platformFee + feeBreakdown.internationalFee;
-
-	// Developer-funded bonus: the wallet is credited extra spend power on top of
-	// `netCredited`, paid for out of the developer org's credit balance. Only live
-	// wallets earn it — test-mode top-ups are Stripe-sandbox and must never spend
-	// real org credits. This is an uncapped quote; fulfillment re-caps it against
-	// the org's actual credits at the time the payment succeeds.
-	const bonusFraction =
-		session.mode === "test" ? 0 : session.bonusPercent / 100;
-	const bonusCredited = Math.round(netCredited * bonusFraction * 1e6) / 1e6;
-
+	const { amount, paymentMethodId } = c.req.valid("json");
+	const stripe = getStripe(session.mode);
+	const method = await stripe.paymentMethods.retrieve(paymentMethodId);
+	if (method.type !== "card" || !method.card?.country) {
+		throw new HTTPException(400, {
+			message: "A card with a known issuing country is required",
+		});
+	}
 	const stripeCustomerId = await ensureEndCustomerStripeCustomer(
 		session.endCustomerId,
 		session.mode,
 	);
-
-	const paymentIntent = await getStripe(session.mode).paymentIntents.create({
-		amount: Math.round(feeBreakdown.totalAmount * 100),
+	const methodCustomerId =
+		typeof method.customer === "string" ? method.customer : method.customer?.id;
+	if (methodCustomerId && methodCustomerId !== stripeCustomerId) {
+		throw new HTTPException(400, {
+			message: "Payment method belongs to another customer",
+		});
+	}
+	const isInternational = method.card.country !== "US";
+	const feeBreakdown = calculateFees({ amount, isInternational });
+	const netCredited = new Decimal(amount)
+		.div(new Decimal(session.markupPercent).div(100).plus(1))
+		.toDecimalPlaces(6)
+		.toNumber();
+	const developerMargin = new Decimal(amount)
+		.minus(netCredited)
+		.toDecimalPlaces(6)
+		.toNumber();
+	const platformFee = new Decimal(feeBreakdown.platformFee)
+		.plus(feeBreakdown.internationalFee)
+		.toString();
+	const bonusCredited =
+		session.mode === "test"
+			? 0
+			: new Decimal(netCredited)
+					.mul(session.bonusPercent)
+					.div(100)
+					.toDecimalPlaces(6)
+					.toNumber();
+	const paymentIntent = await stripe.paymentIntents.create({
+		amount: new Decimal(feeBreakdown.totalAmount).mul(100).toNumber(),
 		currency: "usd",
 		description: `${session.brandName} — credit top-up (wallet ${session.walletId})`,
 		customer: stripeCustomerId,
-		automatic_payment_methods: { enabled: true },
-		// Cardholders recognise the developer's product, not ours. The value is
-		// normalized to a Stripe-safe suffix on write (see projects.ts).
+		payment_method: paymentMethodId,
+		payment_method_types: ["card"],
+		// Only the server may confirm: clients must not swap in a differently priced card.
+		confirmation_method: "manual",
 		...(session.statementDescriptorSuffix
 			? { statement_descriptor_suffix: session.statementDescriptorSuffix }
 			: {}),
 		metadata: {
 			kind: "end_user_topup",
+			paymentMethodId,
 			walletId: session.walletId,
 			endCustomerId: session.endCustomerId,
 			projectId: session.projectId,
@@ -128,14 +147,16 @@ platformWallet.openapi(createTopUp, async (c) => {
 			organizationId: session.organizationId,
 			baseAmount: amount.toString(),
 			markupPercent: session.markupPercent.toString(),
-			platformFee: platformFee.toString(),
+			// The ledger's platformFee includes both fees; retain the surcharge separately too.
+			platformFee,
+			internationalFee: feeBreakdown.internationalFee.toString(),
+			isInternational: String(isInternational),
 			developerMargin: developerMargin.toString(),
 			netCredited: netCredited.toString(),
 			bonusPercent: session.bonusPercent.toString(),
 			bonusCredited: bonusCredited.toString(),
 		},
 	});
-
 	logger.info("Created end-user top-up intent", {
 		walletId: session.walletId,
 		amount,
@@ -143,13 +164,68 @@ platformWallet.openapi(createTopUp, async (c) => {
 		developerMargin,
 		bonusCredited,
 	});
-
 	return c.json({
 		clientSecret: paymentIntent.client_secret ?? "",
+		paymentIntentId: paymentIntent.id,
 		totalAmount: feeBreakdown.totalAmount,
+		platformFee: feeBreakdown.platformFee,
+		internationalFee: feeBreakdown.internationalFee,
 		netCredited,
 		bonusCredited,
 		isInternational,
+	});
+});
+
+const confirmTopUp = createRoute({
+	method: "post",
+	path: "/confirm-top-up",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ paymentIntentId: z.string().startsWith("pi_") }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ clientSecret: z.string(), status: z.string() }),
+				},
+			},
+			description:
+				"Confirm the quoted card payment; handle requires_action with Stripe.js, then confirm again.",
+		},
+	},
+});
+
+platformWallet.openapi(confirmTopUp, async (c) => {
+	const session = c.get("endUserSession");
+	if (!session) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const { paymentIntentId } = c.req.valid("json");
+	const stripe = getStripe(session.mode);
+	let intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+	if (
+		intent.metadata.kind !== "end_user_topup" ||
+		intent.metadata.walletId !== session.walletId ||
+		intent.confirmation_method !== "manual" ||
+		!intent.metadata.paymentMethodId
+	) {
+		throw new HTTPException(404, { message: "Top-up not found" });
+	}
+	if (intent.status === "requires_confirmation") {
+		intent = await stripe.paymentIntents.confirm(paymentIntentId, {
+			use_stripe_sdk: true,
+			payment_method: intent.metadata.paymentMethodId,
+		});
+	}
+	return c.json({
+		clientSecret: intent.client_secret ?? "",
+		status: intent.status,
 	});
 });
 

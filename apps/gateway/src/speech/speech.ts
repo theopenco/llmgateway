@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
@@ -46,6 +47,10 @@ import {
 	getActiveCompliancePolicy,
 	getEffectiveRetentionLevel,
 } from "@/lib/compliance.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import {
 	rateLimitHeaders,
@@ -366,7 +371,17 @@ async function assertCreditsAvailable(
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	walletFunded: boolean = false,
 ) {
+	if (walletFunded) {
+		// The mirrored wallet balance must never borrow parent plan credits.
+		if (new Decimal(organization.credits ?? "0").gt(0) || modelDef.free) {
+			return;
+		}
+		throw new HTTPException(402, {
+			message: "End-user wallet has insufficient credits",
+		});
+	}
 	await assertSpendLimit(c, organization, modelDef.free === true);
 
 	const {
@@ -501,6 +516,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
+	if (apiKey.keyType === "platform_publishable") {
+		throw new HTTPException(401, {
+			message:
+				"Publishable keys cannot call speech directly. Mint an end-user session token first.",
+		});
+	}
+
 	const match = findSpeechMapping(requestedModel);
 	if (!match) {
 		return c.json(
@@ -613,11 +635,11 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		{ role: "user" as const, content: request.input },
 	];
 
-	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
+	const baseProject = await findProjectById(apiKey.projectId);
+	if (!baseProject) {
 		throw new HTTPException(500, { message: "Could not find project" });
 	}
-	if (project.status === "deleted") {
+	if (baseProject.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
@@ -626,15 +648,26 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
-	await assertMemberProjectAccess(apiKey, project.organizationId);
-	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
+	await assertMemberProjectAccess(apiKey, baseProject.organizationId);
+	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
-	const organization = await findOrganizationById(project.organizationId);
-	if (!organization) {
+	const baseOrganization = await findOrganizationById(
+		baseProject.organizationId,
+	);
+	if (!baseOrganization) {
 		throw new HTTPException(500, { message: "Could not find organization" });
 	}
-	assertOrganizationUsable(organization);
+	assertOrganizationUsable(baseOrganization);
+
+	// SDK sessions use platform credentials and bill only their bound wallet.
+	const { project, organization, wallet } = await applyEndUserSession(
+		c,
+		apiKey,
+		baseProject,
+		baseOrganization,
+	);
+	assertTestWalletModelAllowed(wallet, modelDef);
 
 	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
@@ -812,6 +845,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				`Organization ${retryOrganization.id} has insufficient credits`,
 				(renewalDate) =>
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				wallet !== null,
 			);
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
@@ -843,6 +877,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					"No API key set for provider and organization has insufficient credits",
 					(renewalDate) =>
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					wallet !== null,
 				);
 
 				const platformCredential = await resolvePlatformCredential(providerId, {

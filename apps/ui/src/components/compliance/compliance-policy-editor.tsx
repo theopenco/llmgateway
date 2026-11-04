@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, Save } from "lucide-react";
+import { Ban, Check, Save, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -589,12 +589,14 @@ export function CompliancePolicyEditor({
 			>
 				{apiKey ? (
 					<>
-						<Link
-							href={`/dashboard/${organizationId}/${apiKey.projectId}/api-keys/${apiKey.id}`}
-							className="text-sm underline underline-offset-4"
-						>
-							Back to API key
-						</Link>
+						<Button asChild variant="outline" size="sm" className="w-fit">
+							<Link
+								href={`/dashboard/${organizationId}/${apiKey.projectId}/api-keys/${apiKey.id}`}
+							>
+								<ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
+								Back to API key
+							</Link>
+						</Button>
 						<Card>
 							<CardHeader>
 								<CardTitle>{apiKey.name}</CardTitle>

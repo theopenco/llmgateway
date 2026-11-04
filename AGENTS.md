@@ -6,27 +6,28 @@ This file provides guidance to AI agents when working with code in this reposito
 
 Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area, and read the whole `SKILL.md` — never truncate it with `head`, `grep`, or a partial read:
 
-| Skill              | Use for                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| `local-stack`      | Isolated per-worktree Postgres, Redis, and app ports; `.envrc`; starting and tearing down stacks |
-| `testing`          | Unit and e2e tests, seeded accounts and tokens, provider pinning, test fixtures                  |
-| `verify`           | Launching and driving the stack to verify a change, screenshots                                  |
-| `database`         | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
-| `migrations`       | Generating, editing, and resolving conflicts in migrations                                       |
-| `gateway`          | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
-| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
-| `billing`          | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
-| `frontend`         | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
-| `infrastructure`   | Production hosting and hostnames, deploy ordering, client IP and country                         |
-| `legal-pages`      | Terms, privacy policy, and product supplemental terms                                            |
-| `pull-request`     | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
-| `model-benchmarks` | Model and mapping benchmarks                                                                     |
-| `changelog`        | Changelog entries                                                                                |
-| `blog`             | Marketing blog posts                                                                             |
-| `knowledge-base`   | Docs knowledge base pages                                                                        |
-| `core-web-vitals`  | Frontend performance                                                                             |
-| `skill-authoring`  | Creating or editing skills                                                                       |
-| `security-audit`   | Secure-by-default code, security reviews, full audits, the monthly audit routine                 |
+| Skill                 | Use for                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| `local-stack`         | Isolated per-worktree Postgres, Redis, and app ports; `.envrc`; starting and tearing down stacks |
+| `testing`             | Unit and e2e tests, seeded accounts and tokens, provider pinning, test fixtures                  |
+| `verify`              | Launching and driving the stack to verify a change, screenshots                                  |
+| `database`            | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
+| `migrations`          | Generating, editing, and resolving conflicts in migrations                                       |
+| `gateway`             | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
+| `internal-classifier` | Exporting internal content-filter classifier verdicts and fingerprints, vendor samples           |
+| `add-model`           | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
+| `billing`             | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
+| `frontend`            | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
+| `infrastructure`      | Production hosting and hostnames, deploy ordering, client IP and country                         |
+| `legal-pages`         | Terms, privacy policy, and product supplemental terms                                            |
+| `pull-request`        | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
+| `model-benchmarks`    | Model and mapping benchmarks                                                                     |
+| `changelog`           | Changelog entries                                                                                |
+| `blog`                | Marketing blog posts                                                                             |
+| `knowledge-base`      | Docs knowledge base pages                                                                        |
+| `core-web-vitals`     | Frontend performance                                                                             |
+| `skill-authoring`     | Creating or editing skills                                                                       |
+| `security-audit`      | Secure-by-default code, security reviews, full audits, the monthly audit routine                 |
 
 ## Development Commands
 
@@ -101,7 +102,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Always use top-level `import`, never `require`. Dynamic imports are allowed only in frontend code (`next/dynamic` code splitting, lazy-loaded heavy client libraries, `content-collections`) and in tests; backend code uses static imports.
 - Apply DRY principles; when a helper exists in one app, extract it into a shared package instead of copying it.
 - Do not add caching or memoization around `process.env` reads unless there is a measured hot-path need.
-- Always use pnpm for package management.
+- Always use pnpm for package management. When bumping pnpm, update both `.tool-versions` and `packageManager` in the root `package.json`; Dependabot reads only `packageManager` and otherwise regenerates the lockfile with a newer pnpm that CI rejects.
 - Security gating is enforced server-side; UI gates are UX only.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
@@ -125,6 +126,7 @@ NEVER put internal or private information into anything published to this public
 - Load the `pull-request` skill before every `gh pr create` or `gh pr edit`; do not write a PR from memory. The body follows `.github/pull_request_template.md`: Summary, Verification and a filled-in Rollback, with Database migration deleted when there is none.
 - After opening or pushing to a PR, wait for CodeRabbit, then fix every failed pre-merge check before handing off.
 - Open review feedback (CodeRabbit or human) blocks the merge. Address every item: implement the fix and push, or dismiss it with a one-line reason, then resolve the thread. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- Write pull request links in full (`https://github.com/theopenco/llmgateway/pull/<n>`) in every PR status, summary and handoff, never as a bare `#<n>`; a commit hash does not replace the PR link.
 - PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
 - Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR, a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
 

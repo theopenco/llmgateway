@@ -207,3 +207,42 @@ describe("API key compliance composition", () => {
 		).toBe("none");
 	});
 });
+
+describe("virtual aliases under organization and key policies", () => {
+	const model = "deepseek-v4.1-flash-1017";
+	const alias = "deepseek-v4.1-flash-latest";
+
+	it.each([true, false])(
+		"alias block at organization=%s cannot be widened by the other policy",
+		(orgBlocks) => {
+			const blocked = { enabled: true, blockedModels: [alias] };
+			const allowed = { enabled: true, allowedModels: [model] };
+			const policy = resolve(
+				orgBlocks ? blocked : allowed,
+				orgBlocks ? allowed : blocked,
+			)!;
+			expect(isModelIdCompliant(model, policy)).toBe(false);
+			expect(getComplianceFailureReasons("tencent", model, policy)).toContain(
+				"blockedModels",
+			);
+		},
+	);
+
+	it("an alias-only key allowlist cannot widen the organization model allowlist", () => {
+		const policy = resolve(
+			{ enabled: true, allowedModels: [model] },
+			{ enabled: true, allowedModels: [alias] },
+		)!;
+		expect(isModelIdCompliant(model, policy)).toBe(false);
+	});
+
+	it("a disabled key alias restriction leaves the organization policy unchanged", () => {
+		const orgPolicy = { enabled: true, allowedModels: [model] };
+		const policy = resolve(orgPolicy, {
+			enabled: false,
+			blockedModels: [alias],
+		})!;
+		expect(policy).toBe(orgPolicy);
+		expect(isModelIdCompliant(model, policy)).toBe(true);
+	});
+});

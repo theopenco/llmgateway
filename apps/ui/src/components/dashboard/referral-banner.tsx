@@ -1,7 +1,6 @@
 "use client";
 
 import { Linkedin, Mail, MessageCircle, Rocket } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { useUser } from "@/hooks/useUser";
@@ -15,6 +14,7 @@ import {
 	DialogTitle,
 } from "@/lib/components/dialog";
 import { XIcon } from "@/lib/icons/XIcon";
+import { usePostHog } from "@/lib/posthog";
 
 function RedditIcon({ className }: { className?: string }) {
 	return (

@@ -1,15 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { HTTPException } from "hono/http-exception";
 
 import {
-	findApiKeyByToken,
-	findOrganizationById,
-	findProjectById,
-} from "@/lib/cached-queries.js";
-import { rateLimitHeaders } from "@/lib/error-schemas.js";
-import { standardErrorResponses } from "@/lib/error-schemas.js";
-import { extractApiToken } from "@/lib/extract-api-token.js";
-import { assertOrganizationUsable } from "@/lib/organization-access.js";
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 
 import {
 	DEV_PLAN_DAY_LENGTH_MS,
@@ -98,53 +93,7 @@ const getKey = createRoute({
 });
 
 key.openapi(getKey, async (c): Promise<any> => {
-	const token = extractApiToken(c);
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	// Plan status is developer-key territory: embeddable-SDK principals
-	// (publishable keys, end-user sessions) must not read org-level plan state
-	// or the aggregate key's metadata.
-	if (apiKey.keyType !== "user" || apiKey.endUserSession) {
-		throw new HTTPException(403, {
-			message: "This endpoint is only available for regular API keys.",
-		});
-	}
-
-	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
-		throw new HTTPException(500, {
-			message: "Could not find project",
-		});
-	}
-
-	if (project.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Project has been archived and is no longer accessible",
-		});
-	}
-
-	const organization = await findOrganizationById(project.organizationId);
-	if (!organization) {
-		throw new HTTPException(500, {
-			message: "Could not find organization",
-		});
-	}
-
-	assertOrganizationUsable(organization);
+	const { apiKey, organization } = await getAuthenticatedReadAccess(c);
 
 	// Per-key and per-member usage limits are deliberately NOT enforced here:
 	// a client most needs to read remaining quota exactly when the key is

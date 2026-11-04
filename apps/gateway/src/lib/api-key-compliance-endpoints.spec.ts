@@ -219,7 +219,7 @@ describe("API key compliance endpoint enforcement", () => {
 						],
 					}),
 				});
-			const response = await request("glm-4.7");
+			const response = await request("gpt-oss-120b");
 			expect([500, 502], await response.text()).toContain(response.status);
 			expect(upstreamUrls.some((url) => url.includes("/together-ai/"))).toBe(
 				true,
@@ -227,7 +227,7 @@ describe("API key compliance endpoint enforcement", () => {
 			expect(upstreamUrls.some((url) => url.includes("/cerebras/"))).toBe(
 				false,
 			);
-			const pinnedResponse = await request("cerebras/glm-4.7", true);
+			const pinnedResponse = await request("cerebras/gpt-oss-120b", true);
 			expect(pinnedResponse.status, await pinnedResponse.text()).toBe(403);
 			expect(upstreamUrls.some((url) => url.includes("/cerebras/"))).toBe(
 				false,
@@ -323,6 +323,109 @@ describe("API key compliance endpoint enforcement", () => {
 				body: JSON.stringify(body),
 			});
 			expect(response.status, await response.text()).toBe(400);
+		},
+	);
+	test.each([
+		["", true, 200],
+		["/content", true, 409],
+		["", false, 403],
+		["/content", false, 403],
+	] as const)(
+		"video retrieval%s checks catalogue model ID (allowed=%s)",
+		async (suffix, allowed, expectedStatus) => {
+			const canonicalModel = "veo-3.1-generate-preview";
+			await db
+				.update(tables.apiKey)
+				.set({
+					providerCompliancePolicy: {
+						enabled: true,
+						...(allowed
+							? { allowedModels: [canonicalModel] }
+							: { blockedModels: [canonicalModel] }),
+					},
+				})
+				.where(eq(tables.apiKey.id, "compliance-key"));
+			await db.insert(tables.videoJob).values({
+				id: "canonical-policy-video",
+				requestId: "canonical-policy-request",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "compliance-key",
+				mode: "credits",
+				usedMode: "credits",
+				model: canonicalModel,
+				usedModel: "veo-3.1-generate-001",
+				usedProvider: "google-vertex",
+				upstreamId: "policy-upstream",
+				prompt: "Policy regression",
+				status: "queued",
+			});
+			const response = await app.request(
+				`/v1/videos/canonical-policy-video${suffix}`,
+				{ headers },
+			);
+			expect(response.status, await response.text()).toBe(expectedStatus);
+		},
+	);
+	test.each([
+		null,
+		{ enabled: false },
+		{ enabled: false, allowedProviders: ["openai"] },
+	])(
+		"existing organization policy preserves historical video access with key settings %j",
+		async (policy) => {
+			const model = "veo-3.1-generate-preview";
+			await db
+				.update(tables.organization)
+				.set({
+					providerCompliancePolicy: {
+						enabled: true,
+						blockedProviders: ["google-vertex"],
+						blockedModels: [model],
+					},
+				})
+				.where(eq(tables.organization.id, "org-id"));
+			await db
+				.update(tables.apiKey)
+				.set({ providerCompliancePolicy: policy })
+				.where(eq(tables.apiKey.id, "compliance-key"));
+			await db.insert(tables.videoJob).values({
+				id: "historical-policy-video",
+				requestId: "historical-policy-request",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "compliance-key",
+				mode: "credits",
+				usedMode: "credits",
+				model,
+				usedModel: "veo-3.1-generate-001",
+				usedProvider: "google-vertex",
+				upstreamId: "historical-upstream",
+				prompt: "Historical policy fixture",
+				status: "completed",
+				upstreamStatusResponse: {
+					response: {
+						videos: [
+							{
+								bytesBase64Encoded: Buffer.from(
+									"historical-video-fixture",
+								).toString("base64"),
+								mimeType: "video/mp4",
+							},
+						],
+					},
+				},
+			});
+			const status = await app.request("/v1/videos/historical-policy-video", {
+				headers,
+			});
+			expect(status.status, await status.text()).toBe(200);
+			const content = await app.request(
+				"/v1/videos/historical-policy-video/content",
+				{ headers },
+			);
+			expect(content.status).toBe(200);
+			expect(await content.text()).toBe("historical-video-fixture");
 		},
 	);
 });

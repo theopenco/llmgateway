@@ -24,7 +24,9 @@ import {
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { streamSSE } from "@/lib/pending-work.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
@@ -39,7 +41,6 @@ import {
 	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	anthropicContentBlockInputSchema,
@@ -88,10 +89,19 @@ function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
 	const flattened: string[] = [];
 	for (const issue of issues) {
 		if (issue.code === "invalid_union" && depth < 3) {
-			for (const unionError of issue.unionErrors) {
-				flattened.push(...flattenZodIssues(unionError.issues, depth + 1));
+			const nested = issue.errors.flatMap((unionIssues) =>
+				flattenZodIssues(
+					unionIssues.map((nestedIssue) => ({
+						...nestedIssue,
+						path: [...issue.path, ...nestedIssue.path],
+					})),
+					depth + 1,
+				),
+			);
+			if (nested.length > 0) {
+				flattened.push(...nested);
+				continue;
 			}
-			continue;
 		}
 		flattened.push(`${issue.path.join(".")}: ${issue.message}`);
 	}
@@ -186,7 +196,7 @@ const anthropicMessageSchema = z.object({
 		.object({
 			id: z.string().optional(),
 			name: z.string(),
-			arguments: z.union([z.string(), z.record(z.unknown())]),
+			arguments: z.union([z.string(), z.record(z.string(), z.unknown())]),
 		})
 		.optional(),
 });
@@ -364,16 +374,18 @@ const anthropicContentBlockSchema = z.object({
 		"tool_search_tool_result",
 	]),
 	text: z.string().optional(),
-	citations: z.array(z.record(z.unknown())).nullish(),
+	citations: z.array(z.record(z.string(), z.unknown())).nullish(),
 	thinking: z.string().optional(),
 	signature: z.string().optional(),
 	data: z.string().optional(),
 	id: z.string().optional(),
 	name: z.string().optional(),
-	input: z.record(z.unknown()).optional(),
+	input: z.record(z.string(), z.unknown()).optional(),
 	tool_use_id: z.string().optional(),
 	// An array for web search results, an object for tool search results.
-	content: z.union([z.array(z.unknown()), z.record(z.unknown())]).optional(),
+	content: z
+		.union([z.array(z.unknown()), z.record(z.string(), z.unknown())])
+		.optional(),
 });
 
 const anthropicResponseSchema = z.object({
@@ -1181,6 +1193,9 @@ anthropic.openapi(messages, async (c) => {
 						...(tool.allowed_callers && {
 							allowed_callers: tool.allowed_callers,
 						}),
+						...(tool.eager_input_streaming !== undefined && {
+							eager_input_streaming: tool.eager_input_streaming,
+						}),
 					};
 				}
 
@@ -1247,6 +1262,9 @@ anthropic.openapi(messages, async (c) => {
 	// Build OpenAI request
 	const openaiRequest: Record<string, unknown> = {
 		model: anthropicRequest.model,
+		...getClientSafetyIdentifierParams({
+			user: anthropicRequest.metadata?.user_id,
+		}),
 		messages: openaiMessages,
 		max_tokens: anthropicRequest.max_tokens,
 		temperature: anthropicRequest.temperature,
@@ -1316,7 +1334,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...internalApiOriginHeaders("messages", { hasClientCacheMarkers }),
-			...forwardedIpHeaders(c.req.raw.headers),
+			...internalPrincipalHeaders(c.req.raw.headers),
 			...forwardedCustomHeaders(c.req.raw.headers),
 			...(sessionId ? { "x-session-id": sessionId } : {}),
 			// Forward the fallback opt-out (presence-sensitive: the inner handler

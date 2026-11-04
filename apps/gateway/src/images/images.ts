@@ -18,6 +18,7 @@ import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { ExpectedHTTPException } from "@/lib/expected-http-exception.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
@@ -25,7 +26,6 @@ import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { parseDynamicRouteModel } from "@llmgateway/shared/dynamic-route";
 
 import { isValidBase64ImageDataUrl } from "./data-url.js";
@@ -450,7 +450,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("images"),
-		...forwardedIpHeaders(c.req.raw.headers),
+		...internalPrincipalHeaders(c.req.raw.headers),
 		...forwardedCustomHeaders(c.req.raw.headers),
 	};
 }

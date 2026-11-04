@@ -6,7 +6,6 @@ import type { Provider } from "@llmgateway/models";
 export function extractContent(data: any, provider: Provider): string {
 	switch (provider) {
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			const parts = data.candidates?.[0]?.content?.parts ?? [];

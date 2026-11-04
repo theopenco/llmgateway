@@ -10,6 +10,7 @@ import {
 	mcpUsageBreakdownSchema,
 } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { getClientIpHeaderName } from "@llmgateway/shared/client-ip";
 
 const period = { from: "2026-03-01", to: "2026-03-02" };
 const hour = new Date("2026-03-01T10:00:00Z");
@@ -445,5 +446,93 @@ describe("MCP account analytics", () => {
 			.set({ keyType: "end_user_customer" })
 			.where(eq(tables.apiKey.id, "mcp-owner-key"));
 		expect((await request("account")).status).toBe(401);
+	});
+	test.each(["key", "member", "team"] as const)(
+		"MCP analytics preserves the %s IP ceiling on every route",
+		async (scope) => {
+			const rule = {
+				id: "mcp-ip-rule",
+				ruleType: "allow_ip_cidrs" as const,
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			};
+			if (scope === "key") {
+				await db
+					.insert(tables.apiKeyIamRule)
+					.values({ ...rule, apiKeyId: "mcp-member-key" });
+			}
+			if (scope === "member") {
+				await db
+					.insert(tables.userIamRule)
+					.values({ ...rule, userOrganizationId: "mcp-member-membership" });
+			}
+			if (scope === "team") {
+				await db.insert(tables.organizationTeam).values({
+					id: "mcp-ip-team",
+					organizationId: "mcp-org",
+					name: "IP policy team",
+				});
+				await db
+					.update(tables.userOrganization)
+					.set({ teamId: "mcp-ip-team" })
+					.where(eq(tables.userOrganization.id, "mcp-member-membership"));
+				await db
+					.insert(tables.organizationTeamProject)
+					.values({ teamId: "mcp-ip-team", projectId: "mcp-project" });
+				await db
+					.insert(tables.organizationTeamIamRule)
+					.values({ ...rule, teamId: "mcp-ip-team" });
+			}
+			for (const [path, input] of [
+				["account", undefined],
+				["usage", period],
+				["usage/breakdown", { ...period, group_by: "model" }],
+			] as const) {
+				const response = await app.request(`/mcp/${path}`, {
+					method: input ? "POST" : "GET",
+					headers: {
+						Authorization: "Bearer mcp-member-token",
+						"Content-Type": "application/json",
+						[getClientIpHeaderName()]: "198.51.100.10",
+					},
+					body: input ? JSON.stringify(input) : undefined,
+				});
+				expect(response.status, await response.text()).toBe(403);
+				const permitted = await app.request(`/mcp/${path}`, {
+					method: input ? "POST" : "GET",
+					headers: {
+						Authorization: "Bearer mcp-member-token",
+						"Content-Type": "application/json",
+						Origin: "https://client.example",
+						[getClientIpHeaderName()]: "192.0.2.10",
+					},
+					body: input ? JSON.stringify(input) : undefined,
+				});
+				expect(permitted.status, await permitted.text()).toBe(200);
+			}
+		},
+	);
+
+	test("MCP metadata allowlists are unioned within each IAM scope", async () => {
+		await db.insert(tables.userIamRule).values([
+			{
+				id: "mcp-allow-one",
+				userOrganizationId: "mcp-member-membership",
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			},
+			{
+				id: "mcp-allow-two",
+				userOrganizationId: "mcp-member-membership",
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["198.51.100.0/24"] },
+			},
+		]);
+		const response = await app.request("/mcp/account", {
+			headers: {
+				Authorization: "Bearer mcp-member-token",
+				[getClientIpHeaderName()]: "198.51.100.10",
+			},
+		});
+		expect(response.status, await response.text()).toBe(200);
 	});
 });

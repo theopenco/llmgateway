@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9d934d30-96e9-42a7-b235-df50156a388d",
+  "prevIds": [
+    "6e71e918-aa0e-4f44-909a-f8f9b4b731e4"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "forward_safety_identifier"
+      ],
+      "writes": [
+        "s|col|public.provider_key.forward_safety_identifier",
+        "n|col|public.provider_key.forward_safety_identifier",
+        "e|col|public.provider_key.forward_safety_identifier"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "forward_safety_identifier",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "true",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

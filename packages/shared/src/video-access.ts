@@ -21,7 +21,7 @@ function getVideoContentTokenSecret(): string {
 
 	if (
 		process.env.NODE_ENV === "development" ||
-		process.env[VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV]?.trim()
+		process.env[VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV]?.trim() === "true"
 	) {
 		return DEV_VIDEO_CONTENT_TOKEN_SECRET;
 	}

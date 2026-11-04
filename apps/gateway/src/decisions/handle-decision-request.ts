@@ -59,6 +59,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -76,7 +77,11 @@ import {
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { models as modelDefinitions, type Provider } from "@llmgateway/models";
+import {
+	getRequestedModelAlias,
+	models as modelDefinitions,
+	type Provider,
+} from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -488,6 +493,7 @@ export async function handleDecisionRequest(
 		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelDefId,
 		requestedProvider: providerId,
+		requestedModelAlias: getRequestedModelAlias(requestedModel, modelDefId),
 		activeModelInfo: modelDef,
 		clientIp: getClientIpFromRequest(c),
 	});
@@ -585,6 +591,21 @@ export async function handleDecisionRequest(
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
+
+	// The body carries the API key's safety identifier; a managed credential
+	// with forwarding turned off gets it without one.
+	const keySafetyIdentifier = apiKey.safetyIdentifier;
+	function bodyForCredential(
+		managedKey: InferSelectModel<typeof tables.providerKey> | undefined,
+	): Record<string, unknown> {
+		if (
+			forwardedSafetyIdentifier(managedKey, keySafetyIdentifier) !== undefined
+		) {
+			return upstreamBody;
+		}
+		const { safety_identifier: _safetyIdentifier, ...body } = upstreamBody;
+		return body;
+	}
 
 	interface DecisionAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -728,7 +749,7 @@ export async function handleDecisionRequest(
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}${upstreamRequest.path}`,
 			tenantBaseUrl: providerKeyInner?.baseUrl ?? airsideBaseUrl ?? null,
-			requestBody: upstreamBody,
+			requestBody: bodyForCredential(managedKeyInner),
 		};
 	}
 
@@ -771,7 +792,10 @@ export async function handleDecisionRequest(
 			...upstreamBody,
 			...(await upstreamRequest.loadBody(loadSignal)),
 		};
-		attempt = { ...attempt, requestBody: upstreamBody };
+		attempt = {
+			...attempt,
+			requestBody: bodyForCredential(attempt.managedKey),
+		};
 	}
 
 	const controller = new AbortController();
@@ -782,6 +806,10 @@ export async function handleDecisionRequest(
 
 	try {
 		while (true) {
+			attempt.requestBody = { ...attempt.requestBody };
+			if (attempt.providerKey) {
+				delete attempt.requestBody.safety_identifier;
+			}
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
 			const credentialSource: RoutingCredentialSource = attempt.providerKey

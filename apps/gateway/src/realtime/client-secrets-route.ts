@@ -229,6 +229,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 			intent:
 				body.session.type === "transcription" ? "transcription" : undefined,
 			clientIp: getClientIpFromRequest(c),
+			advanceRoundRobin: false,
 		});
 	} catch (error) {
 		if (error instanceof RealtimeConnectError) {

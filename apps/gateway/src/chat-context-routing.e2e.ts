@@ -48,7 +48,7 @@ import {
  *    id is served by a full-window deployment.
  *
  * 3. Airside preflight fills ~90% of a declared 1M window and passes on a
- *    deployment that serves it, while a 200k deployment declaring 1M fails.
+ *    deployment that serves it.
  *
  * TEST_MODELS ("provider/model") narrows every group.
  */
@@ -89,71 +89,16 @@ interface AirsideListing {
  * local credentials. Listings of carriers without one (custom carriers) are
  * not reproducible here.
  */
-const AIRSIDE_LISTINGS: AirsideListing[] = [
-	{
-		modelId: "glm-5.3-flash",
-		providerId: "gonka24",
-		externalId: "glm-5.3-flash",
-		apiFormat: "provider-native",
-		inputPrice: "0.00000015",
-		outputPrice: "0.0000003",
-		cachedInputPrice: "0.000000035",
-		contextSize: 200_000,
-		maxOutput: 16384,
-		vision: false,
-		reasoning: true,
-		reasoningEfforts: null,
-		tools: true,
-		supportedToolChoices: null,
-		jsonOutput: true,
-		jsonOutputSchema: true,
-	},
-	{
-		modelId: "glm-5.3-flash",
-		providerId: "consensusprotocol",
-		externalId: "glm-5.3-flash",
-		apiFormat: null,
-		inputPrice: "0.0000001",
-		outputPrice: "0.00000025",
-		cachedInputPrice: "0.00000002",
-		contextSize: 1_048_576,
-		maxOutput: null,
-		vision: true,
-		reasoning: true,
-		reasoningEfforts: ["low", "high", "max"],
-		tools: true,
-		supportedToolChoices: null,
-		jsonOutput: false,
-		jsonOutputSchema: false,
-	},
-	{
-		modelId: "deepseek-v4.1-flash",
-		providerId: "consensusprotocol",
-		externalId: "dsv41",
-		apiFormat: "provider-native",
-		inputPrice: "0.00000015",
-		outputPrice: "0.00000055",
-		cachedInputPrice: "0.000000005",
-		contextSize: 1_048_576,
-		maxOutput: null,
-		vision: true,
-		reasoning: true,
-		reasoningEfforts: ["low", "high", "max", "xhigh"],
-		tools: true,
-		supportedToolChoices: null,
-		jsonOutput: false,
-		jsonOutputSchema: false,
-	},
-];
+const AIRSIDE_LISTINGS: AirsideListing[] = [];
 
 // Far below every real price, so the short deployment is the cheapest
 // candidate and only its window can keep it from being picked.
 const CHEAPEST_PRICE = "0.000000001";
 
 /**
- * The short-window deployment per model. glm-5.3-flash uses the real 200k
- * Gonka24 deployment; the others have none with local credentials, so a
- * keyed deployment is listed with Reka AI's 262k window instead.
+ * The short-window deployment per model. No model has a real short deployment
+ * with local credentials, so a keyed deployment is listed with Reka AI's 262k
+ * window instead.
  */
 const ROUTING_CASES: {
 	modelId: string;
@@ -162,8 +107,8 @@ const ROUTING_CASES: {
 }[] = [
 	{
 		modelId: "glm-5.3-flash",
-		shortProviderId: "gonka24",
-		shortContextSize: 200_000,
+		shortProviderId: "novita",
+		shortContextSize: SHORT_WINDOW,
 	},
 	{
 		modelId: "glm-5.3",
@@ -578,7 +523,6 @@ function contextSizeOf(modelId: string, providerId: string): number {
 /** Airside preflight cases: a declared window and whether it really fits. */
 const PREFLIGHT_CASES = [
 	{ providerId: "novita", modelId: "glm-5.3-flash", passes: true },
-	{ providerId: "gonka24", modelId: "glm-5.3-flash", passes: false },
 ].filter(
 	({ providerId, modelId }) =>
 		hasCredentials(providerId) && selected(providerId, modelId),

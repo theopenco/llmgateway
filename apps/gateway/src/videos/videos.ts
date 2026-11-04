@@ -53,6 +53,7 @@ import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { fetchProvider, fetchProviderIssuedUrl } from "@/lib/fetch-provider.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
@@ -440,6 +441,9 @@ const createVideoRequestSchema = z
 			description:
 				"Whether the generated video should include audio. Support depends on the selected model and provider mapping.",
 			example: true,
+		}),
+		reasoning_effort: z.enum(["low", "high"]).optional().openapi({
+			description: "FLUX 3 Max reasoning effort. Defaults to high.",
 		}),
 		n: z.number().int().optional(),
 		image: videoImageInputSchema.optional(),
@@ -1052,6 +1056,10 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
+	if (!apiKey.endUserSession) {
+		await getAuthenticatedReadAccess(c);
+	}
+
 	const baseProject = await findProjectById(apiKey.projectId);
 	if (!baseProject) {
 		throw new HTTPException(500, {
@@ -1293,6 +1301,22 @@ function getVideoProviderConstraintReasons(
 		) {
 			reasons.push(
 				"VEED Fabric requires exactly one input_reference image and one reference_audios clip, and no other image or video inputs",
+			);
+		}
+		return reasons;
+	}
+
+	if (provider.providerId === "fal-ai") {
+		if (provider.externalId !== "blackforestlabs/flux-3-max") {
+			reasons.push("unsupported fal video model");
+		}
+		if (
+			referenceVideoCount > 0 ||
+			referenceAudioCount > 0 ||
+			(inputMode === "reference" && inputImageCount !== 1)
+		) {
+			reasons.push(
+				"FLUX 3 Max supports only a single reference image or first/last frames",
 			);
 		}
 		return reasons;
@@ -1594,6 +1618,8 @@ function getVertexResolution(
 
 function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
+		case "fal-ai":
+			return "https://queue.fal.run";
 		case "openai":
 			return "https://api.openai.com";
 		case "xai":
@@ -1690,6 +1716,7 @@ async function hasManagedVideoCredential(
 	const managedKey = await findManagedProviderKey(providerId, {
 		variant,
 		filter: getManagedVideoCredentialFilter(providerId),
+		advanceRoundRobin: false,
 	});
 	if (!managedKey) {
 		return false;
@@ -2886,17 +2913,20 @@ async function requireVideoJobForProject(
 		});
 	}
 
-	await assertProviderCompliant(
-		organization,
-		job.usedProvider,
-		{
-			organizationId: organization.id,
-			modelId: job.usedModel,
-			apiKeyId: apiKey.id,
-			model: getFormattedUsedVideoModel(job.usedProvider, job.usedModel),
-		},
-		apiKey,
-	);
+	// Preserve historical org-only video access; the added read guard is opt-in.
+	if (apiKey.providerCompliancePolicy?.enabled) {
+		await assertProviderCompliant(
+			organization,
+			job.usedProvider,
+			{
+				organizationId: organization.id,
+				modelId: job.model,
+				apiKeyId: apiKey.id,
+				model: getFormattedUsedVideoModel(job.usedProvider, job.usedModel),
+			},
+			apiKey,
+		);
+	}
 
 	return job;
 }
@@ -4366,6 +4396,62 @@ async function createAlibabaVideoJob(
 	return { upstreamId: taskId, upstreamRequest, upstreamResponse };
 }
 
+async function createFalVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	firstFrame: ProcessedVideoImageInput | null,
+	lastFrame: ProcessedVideoImageInput | null,
+	reasoningEffort: "low" | "high" = "high",
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const imageUrl = (image: ProcessedVideoImageInput) =>
+		`data:${image.mimeType};base64,${image.bytesBase64Encoded}`;
+	const upstreamRequest = {
+		prompt,
+		duration: durationSeconds,
+		resolution: videoSize.resolution,
+		aspect_ratio: getVertexAspectRatio(videoSize),
+		generate_audio: includeAudio,
+		reasoning_level: reasoningEffort,
+		...(firstFrame ? { image_url: imageUrl(firstFrame) } : {}),
+		...(lastFrame ? { end_image_url: imageUrl(lastFrame) } : {}),
+	};
+	const rawResponse = await fetchUpstreamJson(
+		joinUrl(
+			providerContext.baseUrl,
+			`/${providerMapping.externalId}/${firstFrame ? "image-to-video" : "text-to-video"}`,
+		),
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Key ${providerContext.token}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(upstreamRequest),
+		},
+		providerContext,
+	);
+	const upstreamId = extractUpstreamVideoId(rawResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "fal video response did not include a request_id",
+		});
+	}
+	// Queue completion is not generation success: the worker retrieves the result.
+	const upstreamResponse = addRequestedVideoMetadata(
+		{ ...rawResponse, status: "queued", seconds: durationSeconds },
+		videoSize,
+	);
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -4386,12 +4472,25 @@ async function createUpstreamVideoJob(
 	organizationId: string,
 	projectId: string,
 	sourceVideo: VideoSourceInput | null,
+	reasoningEffort?: "low" | "high",
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
 	switch (providerContext.providerId) {
+		case "fal-ai":
+			return await createFalVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				processedFirstFrame ?? processedReferenceImages[0] ?? null,
+				processedLastFrame,
+				reasoningEffort,
+			);
 		case "atlascloud":
 			return await createAtlasCloudVideoJob(
 				providerContext,
@@ -5009,6 +5108,22 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		complianceModelInfo = { ...accessModelInfo, providers: compliantProviders };
 	}
 
+	if (request.reasoning_effort !== undefined) {
+		const providers = complianceModelInfo.providers.filter(
+			(provider) =>
+				provider.providerId === "fal-ai" &&
+				provider.externalId === "blackforestlabs/flux-3-max" &&
+				(!requestedProvider || requestedProvider === provider.providerId),
+		);
+		if (providers.length === 0) {
+			throw new HTTPException(400, {
+				message:
+					"reasoning_effort is only supported for fal-ai/flux-3-max video generation",
+			});
+		}
+		complianceModelInfo = { ...complianceModelInfo, providers };
+	}
+
 	const {
 		providerMapping,
 		providerContext,
@@ -5346,6 +5461,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					organization.id,
 					project.id,
 					sourceVideoInput,
+					request.reasoning_effort,
 				);
 				upstreamId = upstreamJob.upstreamId;
 				upstreamRequest = upstreamJob.upstreamRequest;
@@ -5400,6 +5516,8 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					.map((score) => score.providerId)
 					.filter((providerId) => !failedProviders.has(providerId)).length;
 				if (
+					// A failed/ambiguous submission may already have been charged.
+					selectedProviderContext.providerId === "fal-ai" ||
 					!shouldRetryRequest({
 						requestedProvider,
 						noFallback,
