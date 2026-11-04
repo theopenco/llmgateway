@@ -167,24 +167,14 @@ export function SsoClient() {
 	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const { apiUrl } = useAppConfig();
+	const { apiUrl, hosted } = useAppConfig();
 
 	// SSO management is available to enterprise orgs and Pro orgs that
 	// purchased the SSO add-on; SCIM is a separate add-on on top (mirrors the
 	// API's hasSsoAccess / hasScimAccess gates).
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
-	const hasSsoAccess =
-		isEnterprise ||
-		(selectedOrganization?.plan === "pro" &&
-			!!selectedOrganization?.proSsoEnabled &&
-			selectedOrganization?.proSeats !== null &&
-			selectedOrganization?.proSeats !== undefined &&
-			selectedOrganization.proSeats <= PRO_PLAN_SSO_MAX_SEATS);
-	const hasScimAccess =
-		isEnterprise ||
-		(hasSsoAccess &&
-			selectedOrganization?.plan === "pro" &&
-			!!selectedOrganization?.proScimEnabled);
+	const hasSsoAccess = selectedOrganization?.ssoAccess === true;
+	const hasScimAccess = selectedOrganization?.scimAccess === true;
 
 	const [providerType, setProviderType] = useState<
 		"" | "okta" | "entra" | "generic" | "google"
@@ -604,6 +594,23 @@ export function SsoClient() {
 			<div className="flex items-center justify-center p-8">
 				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
 			</div>
+		);
+	}
+
+	if (!hasSsoAccess && !hosted) {
+		return (
+			<Card>
+				<CardHeader>
+					<CardTitle>SSO license required</CardTitle>
+					<CardDescription>
+						Self-hosted SSO requires a valid organization or white-label
+						deployment license. Contact your deployment administrator.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<ContactSalesLink>Contact sales about Enterprise</ContactSalesLink>
+				</CardContent>
+			</Card>
 		);
 	}
 

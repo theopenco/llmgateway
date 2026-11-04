@@ -21,6 +21,7 @@ import { Progress } from "@/lib/components/progress";
 import { Separator } from "@/lib/components/separator";
 import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import { usePostHog } from "@/lib/posthog";
@@ -387,6 +388,7 @@ export function PlanManagement() {
 	const { selectedOrganization, selectedProject, projects } =
 		useDashboardState();
 	const isOwner = selectedOrganization?.role === "owner";
+	const { hosted } = useAppConfig();
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -742,6 +744,14 @@ export function PlanManagement() {
 					</div>
 				</div>
 			</div>
+		);
+	}
+
+	if (!hosted) {
+		return (
+			<p className="text-sm text-muted-foreground">
+				Subscription billing is managed by your deployment administrator.
+			</p>
 		);
 	}
 

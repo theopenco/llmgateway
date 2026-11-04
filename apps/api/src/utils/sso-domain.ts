@@ -10,7 +10,6 @@ import { recomputeUserTeam } from "@/lib/sso-teams.js";
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import { generateAutoJoinEmailHtml, sendTransactionalEmail } from "./email.js";
 
@@ -171,14 +170,10 @@ export async function autoJoinByEmailDomain(
 		where: {
 			ssoAutoJoinDomain: { eq: domain },
 			status: { ne: "deleted" },
-			plan: { eq: "enterprise" },
 		},
 	});
 
-	if (
-		!organization ||
-		!hasOrganizationEnterpriseAccess(organization.id, organization.plan)
-	) {
+	if (!organization || !hasSsoAccess(organization)) {
 		return null;
 	}
 

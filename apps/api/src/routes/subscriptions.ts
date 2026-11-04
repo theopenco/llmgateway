@@ -578,7 +578,7 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 
 			try {
 				// Cancel the subscription at the end of the current period
-				await getStripe().subscriptions.update(
+				const updatedSubscription = await getStripe().subscriptions.update(
 					organization.stripeSubscriptionId,
 					{
 						cancel_at_period_end: true,
@@ -593,10 +593,12 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 					resourceId: organization.stripeSubscriptionId,
 				});
 
-				// let the webhook handler the rest to unify the logic
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5000);
-				});
+				await tx
+					.update(tables.organization)
+					.set({
+						subscriptionCancelled: updatedSubscription.cancel_at_period_end,
+					})
+					.where(eq(tables.organization.id, organization.id));
 
 				return c.json({
 					success: true,
@@ -670,7 +672,7 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 				}
 
 				// Resume the subscription by setting cancel_at_period_end to false
-				await getStripe().subscriptions.update(
+				const updatedSubscription = await getStripe().subscriptions.update(
 					organization.stripeSubscriptionId,
 					{
 						cancel_at_period_end: false,
@@ -685,10 +687,12 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 					resourceId: organization.stripeSubscriptionId,
 				});
 
-				// let the webhook handler the rest to unify the logic
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5000);
-				});
+				await tx
+					.update(tables.organization)
+					.set({
+						subscriptionCancelled: updatedSubscription.cancel_at_period_end,
+					})
+					.where(eq(tables.organization.id, organization.id));
 
 				return c.json({
 					success: true,

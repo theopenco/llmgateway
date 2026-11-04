@@ -1,11 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { validateSsoSessionOrganization } from "@/lib/sso-access.js";
 import { createApiKeyForProject } from "@/routes/keys-api.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { createTestUser, deleteAll } from "@/testing.js";
-import { autoJoinSsoProviderOrganization } from "@/utils/sso-domain.js";
+import {
+	autoJoinSsoProviderOrganization,
+	autoJoinByEmailDomain,
+} from "@/utils/sso-domain.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
@@ -77,6 +80,42 @@ describe("paid Pro membership capacity", () => {
 		expect(await memberships()).toHaveLength(2);
 	});
 
+	it("honors configured Google domain auto-join for a paid Pro SSO add-on", async () => {
+		await db
+			.update(tables.organization)
+			.set({ ssoAutoJoinDomain: "pro-join.example.com" })
+			.where(eq(tables.organization.id, orgId));
+		await db.insert(tables.user).values({
+			id: "pro-google-user",
+			email: "user@pro-join.example.com",
+			name: "Test User",
+			emailVerified: true,
+		});
+		expect(
+			await autoJoinByEmailDomain({
+				userId: "pro-google-user",
+				email: "user@pro-join.example.com",
+			}),
+		).toBe(orgId);
+	});
+	it("does not auto-join Pro domains after the SSO add-on is removed", async () => {
+		await db
+			.update(tables.organization)
+			.set({ ssoAutoJoinDomain: "pro-join.example.com", proSsoEnabled: false })
+			.where(eq(tables.organization.id, orgId));
+		await db.insert(tables.user).values({
+			id: "pro-google-user",
+			email: "user@pro-join.example.com",
+			name: "Test User",
+			emailVerified: true,
+		});
+		expect(
+			await autoJoinByEmailDomain({
+				userId: "pro-google-user",
+				email: "user@pro-join.example.com",
+			}),
+		).toBeNull();
+	});
 	it("keeps an authenticated callback session for the paid SSO add-on", async () => {
 		const session = await db.query.session.findFirst({
 			where: { userId: { eq: "test-user-id" } },
@@ -306,5 +345,33 @@ describe("paid Pro resource races", () => {
 			},
 		});
 		expect(active).toHaveLength(3);
+	});
+	it("returns effective deployment-aware SSO capabilities to the dashboard", async () => {
+		await db
+			.update(tables.organization)
+			.set({ proSsoEnabled: true, proScimEnabled: true })
+			.where(eq(tables.organization.id, orgId));
+		try {
+			vi.stubEnv("NODE_ENV", "production");
+			for (const hosted of [false, true]) {
+				vi.stubEnv("HOSTED", String(hosted));
+				const response = await app.request("/orgs", {
+					headers: { Cookie: cookie },
+				});
+				expect(response.status).toBe(200);
+				const body = (await response.json()) as {
+					organizations: {
+						id: string;
+						ssoAccess: boolean;
+						scimAccess: boolean;
+					}[];
+				};
+				expect(
+					body.organizations.find((org) => org.id === orgId),
+				).toMatchObject({ ssoAccess: hosted, scimAccess: hosted });
+			}
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 });

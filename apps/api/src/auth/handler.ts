@@ -49,6 +49,7 @@ authHandler.on(["POST", "GET"], "/auth/*", (c) => {
 	}
 	if (
 		(pathname === "/auth/sign-in/sso" || pathname.startsWith("/auth/sso/")) &&
+		process.env.HOSTED !== "true" &&
 		!hasDeploymentEnterpriseAccess()
 	) {
 		return c.json(

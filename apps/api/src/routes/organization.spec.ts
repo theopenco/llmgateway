@@ -71,6 +71,8 @@ async function expectPublicOrganization(
 		string,
 		unknown
 	>;
+	expected.ssoAccess = false;
+	expected.scimAccess = false;
 	if (listed) {
 		expected.role = "owner";
 		expected.enterpriseAccess = false;

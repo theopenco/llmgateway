@@ -72,15 +72,25 @@ async function assertCapacity(
 }
 
 async function withSeatLock<T>(
+	organizationId: string,
 	resolveCandidates: (tx: DbTransaction) => Promise<string[]>,
 	mutation: (tx: DbTransaction) => Promise<T>,
 	license: EnterpriseLicenseStatus,
 ): Promise<T> {
 	return await db.transaction(async (tx) => {
-		await tx.execute(
-			sql`SELECT pg_advisory_xact_lock(${ENTERPRISE_SEAT_LOCK_ID})`,
-		);
-		await assertCapacity(tx, await resolveCandidates(tx), license);
+		// Never queue the deployment-wide license lock behind one organization.
+		await tx
+			.select({ id: tables.organization.id })
+			.from(tables.organization)
+			.where(eq(tables.organization.id, organizationId))
+			.for("no key update");
+		const candidates = await resolveCandidates(tx);
+		if (license.maxSeats !== null && candidates.length > 0) {
+			await tx.execute(
+				sql`SELECT pg_advisory_xact_lock(${ENTERPRISE_SEAT_LOCK_ID})`,
+			);
+			await assertCapacity(tx, candidates, license);
+		}
 		return await mutation(tx);
 	});
 }
@@ -92,6 +102,7 @@ export async function withEnterpriseSeatForOrganization<T>(
 	license: EnterpriseLicenseStatus = getEnterpriseLicenseStatus(),
 ): Promise<T> {
 	return await withSeatLock(
+		organizationId,
 		async (tx) => {
 			const [organization] = await tx
 				.select()
@@ -192,6 +203,7 @@ export async function withEnterpriseSeatsForPromotion<T>(
 	license: EnterpriseLicenseStatus = getEnterpriseLicenseStatus(),
 ): Promise<T> {
 	return await withSeatLock(
+		organizationId,
 		async (tx) => {
 			const organization = await tx.query.organization.findFirst({
 				where: { id: { eq: organizationId } },
@@ -220,6 +232,7 @@ export async function withEnterpriseSeatsForActivation<T>(
 	license: EnterpriseLicenseStatus = getEnterpriseLicenseStatus(),
 ): Promise<T> {
 	return await withSeatLock(
+		organizationId,
 		async (tx) => {
 			const organization = await tx.query.organization.findFirst({
 				where: { id: { eq: organizationId } },

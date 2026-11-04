@@ -247,6 +247,8 @@ const organizationSchema = z
 		// "developer" members). Omitted by single-org endpoints.
 		role: z.enum(["owner", "admin", "project_admin", "developer"]).optional(),
 		enterpriseAccess: z.boolean().optional(),
+		ssoAccess: z.boolean().optional(),
+		scimAccess: z.boolean().optional(),
 	})
 	.partial(organizationBillingFields);
 

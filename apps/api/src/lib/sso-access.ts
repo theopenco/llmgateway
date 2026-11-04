@@ -2,11 +2,6 @@ import { db, eq, tables } from "@llmgateway/db";
 import { PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
-// SSO configuration is available to enterprise organizations and to Pro
-// organizations that purchased the SSO add-on. The add-on is capped at
-// PRO_PLAN_SSO_MAX_SEATS seats — checked here as well as at purchase time so
-// a seat quantity raised past the cap out-of-band (e.g. via the Stripe
-
 export async function validateSsoSessionOrganization(
 	organizationId: string,
 	sessionId: string,
@@ -31,7 +26,8 @@ export async function validateSsoSessionOrganization(
 	);
 }
 
-// portal) cuts SSO access off instead of silently exceeding the limit.
+// Hosted Pro add-ons do not replace the deployment license on self-hosted installs.
+// Check the seat cap here too, including changes made through the Stripe portal.
 export function hasSsoAccess(
 	org:
 		| {
@@ -51,6 +47,8 @@ export function hasSsoAccess(
 	}
 	return (
 		org.plan === "pro" &&
+		(process.env.HOSTED === "true" ||
+			hasOrganizationEnterpriseAccess(org.id, "enterprise")) &&
 		!!org.proSsoEnabled &&
 		org.proSeats !== null &&
 		org.proSeats !== undefined &&

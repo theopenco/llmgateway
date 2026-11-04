@@ -12,6 +12,8 @@ import type { ApiKeyLimitConstraints } from "@llmgateway/shared";
 export type Organization = SerializedOrganization & {
 	role?: "owner" | "admin" | "project_admin" | "developer";
 	enterpriseAccess?: boolean;
+	ssoAccess?: boolean;
+	scimAccess?: boolean;
 };
 export type Project = SerializedProject;
 export type User = SerializedUser | null;

@@ -26,6 +26,7 @@ let cookie: string;
 let quantity: number;
 let activeUpdates: number;
 let maxActiveUpdates: number;
+let cancelled: boolean;
 
 async function update(seats: number) {
 	return await app.request(
@@ -52,6 +53,7 @@ describe("Pro subscription changes", () => {
 			vi.stubEnv(`STRIPE_PRO_${component}_PRICE_ID`, `price_${component}`);
 		}
 		quantity = 5;
+		cancelled = false;
 		activeUpdates = 0;
 		maxActiveUpdates = 0;
 		await db.insert(tables.organization).values({
@@ -68,19 +70,21 @@ describe("Pro subscription changes", () => {
 		stripe.subscriptions.retrieve.mockImplementation(async () => ({
 			id: "sub_test_pro",
 			status: "active",
-			cancel_at_period_end: false,
+			cancel_at_period_end: cancelled,
 			items: {
 				data: [{ id: "si_test_seat", price: { id: "price_SEAT" }, quantity }],
 			},
 		}));
 		stripe.subscriptions.update.mockImplementation(
-			async (
-				_id: string,
-				params: { items: { id?: string; quantity?: number }[] },
-			) => {
+			async (_id: string, params: Stripe.SubscriptionUpdateParams) => {
 				activeUpdates++;
 				maxActiveUpdates = Math.max(maxActiveUpdates, activeUpdates);
-				quantity = params.items[0].quantity!;
+				if (params.items?.length) {
+					quantity = params.items[0].quantity!;
+				}
+				if (params.cancel_at_period_end !== undefined) {
+					cancelled = params.cancel_at_period_end;
+				}
 				await setTimeout(50);
 				activeUpdates--;
 				return await stripe.subscriptions.retrieve();
@@ -164,5 +168,26 @@ describe("Pro subscription changes", () => {
 		});
 		expect(org?.proSeats).toBe(7);
 		expect(org?.subscriptionCancelled).toBe(false);
+	});
+	it("persists confirmed cancellation and resumption without waiting for a webhook", async () => {
+		const call = async (action: string) =>
+			await app.request(
+				`/subscriptions/${action}-pro-subscription?organizationId=${orgId}`,
+				{
+					method: "POST",
+					headers: { Cookie: cookie, "Content-Type": "application/json" },
+					body: "{}",
+				},
+			);
+		expect((await call("cancel")).status).toBe(200);
+		expect(
+			(await db.query.organization.findFirst({ where: { id: { eq: orgId } } }))
+				?.subscriptionCancelled,
+		).toBe(true);
+		expect((await call("resume")).status).toBe(200);
+		expect(
+			(await db.query.organization.findFirst({ where: { id: { eq: orgId } } }))
+				?.subscriptionCancelled,
+		).toBe(false);
 	});
 });

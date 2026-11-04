@@ -19,6 +19,35 @@ const BLOCKED_PATHS = [
 	"/auth/sso/verify-domain",
 ];
 
+describe("hosted Pro SSO login entry", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+	test("reaches the SSO plugin on hosted production without a deployment license", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("HOSTED", "true");
+		const response = await app.request("/auth/sign-in/sso", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "user@example.com" }),
+		});
+		expect(response.status).not.toBe(403);
+	});
+	test("keeps unlicensed self-hosted SSO entry blocked", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("HOSTED", "false");
+		const response = await app.request("/auth/sign-in/sso", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: "{}",
+		});
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			error: "enterprise_license_required",
+		});
+	});
+});
+
 // Paths the login flow needs must NOT be blocked by us; they pass through to
 // Better Auth's handler.
 const ALLOWED_PATHS = [

@@ -1769,6 +1769,13 @@ keysApi.openapi(bulkAction, async (c) => {
 						for (const entry of inactive.slice(remaining)) {
 							fail(entry.apiKey.id, "limit_reached");
 						}
+						if (inactive.length > admitted.length) {
+							await notifyOrgLimit(organizationId, {
+								limit: "api_keys",
+								projectId: inactive[admitted.length].apiKey.projectId,
+								maxApiKeys,
+							});
+						}
 						if (admitted.length) {
 							await tx
 								.update(tables.apiKey)
