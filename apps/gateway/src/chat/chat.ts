@@ -255,6 +255,7 @@ import {
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
 	getRequestedModelAlias,
+	isProviderMappingAllowedByRestriction,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -3900,6 +3901,37 @@ chat.openapi(completions, async (c) => {
 			: routingExpandedModelProviders
 		: customRoutingMappings;
 
+	// The staff-managed provider access restriction narrows candidates inside
+	// IAM validation; record what it dropped so routing metadata explains why a
+	// provider was skipped.
+	const recordProviderAccessRestrictionDrops = (
+		modelId: string,
+		providers: readonly ProviderModelMapping[],
+		list: FilteredProvider[] = preRoutingFilteredProviders,
+	) => {
+		const restriction = organization.providerAccessRestriction;
+		if (!restriction) {
+			return;
+		}
+		for (const provider of providers) {
+			if (
+				!isCustomAutoRoutingMapping(provider) &&
+				!isProviderMappingAllowedByRestriction(
+					restriction,
+					provider.providerId,
+					modelId,
+				)
+			) {
+				recordFilteredProvider(list, provider.providerId, [
+					exclusionReason("provider_access_restriction"),
+				]);
+			}
+		}
+	};
+	if (requestedProvider === undefined && iamValidation.allowed) {
+		recordProviderAccessRestrictionDrops(modelInfo.id, modelInfo.providers);
+	}
+
 	// Resolved before the compliance gate: a custom provider key's self-attested
 	// posture is what the policy is evaluated against, and the auto-routing
 	// filter below is synchronous, so the attestation must already be in hand.
@@ -4777,6 +4809,13 @@ chat.openapi(completions, async (c) => {
 			}
 			// Filter by context size requirement, reasoning capability, and deprecation status
 			const filteredOutForModel: FilteredProvider[] = [];
+			recordProviderAccessRestrictionDrops(
+				modelDef.id,
+				candidateProviders.filter((provider) =>
+					availableProviders.includes(provider.providerId),
+				),
+				filteredOutForModel,
+			);
 			const compliantProviders = new Set(complianceFilteredProviders);
 			for (const provider of preComplianceProviders) {
 				if (!compliantProviders.has(provider)) {
@@ -6476,11 +6515,19 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		let routingMetadataProviders = anthropicSafeguards
-			? allModelProviders.filter((provider) =>
-					providerSupportsAnthropicSafeguards(provider.providerId),
-				)
-			: allModelProviders;
+		// A provider the access restriction denies was never a candidate, so it
+		// must not be listed as available or scored.
+		let routingMetadataProviders = allModelProviders.filter(
+			(provider) =>
+				(!anthropicSafeguards ||
+					providerSupportsAnthropicSafeguards(provider.providerId)) &&
+				(isCustomAutoRoutingMapping(provider) ||
+					isProviderMappingAllowedByRestriction(
+						organization.providerAccessRestriction,
+						provider.providerId,
+						modelInfo.id,
+					)),
+		);
 		let directProviderRegionWasExplicit = false;
 
 		if (
