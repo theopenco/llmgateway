@@ -5,7 +5,7 @@ import { app } from "@/app.js";
 import { cdb, eq, tables } from "@llmgateway/db";
 import { models as modelsList, providers } from "@llmgateway/models";
 
-import type { ProviderModelMapping } from "@llmgateway/models";
+import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 describe("Models API", () => {
 	test.each([
@@ -613,6 +613,135 @@ describe("Models API", () => {
 				);
 			}
 		}
+	});
+
+	test("GET /v1/models exposes context-length pricing tiers", async () => {
+		const definition = modelsList.find((m) =>
+			(m.providers as ProviderModelMapping[]).some((p) => p.pricingTiers),
+		)!;
+		const mapping = (definition.providers as ProviderModelMapping[]).find(
+			(p) => p.pricingTiers,
+		)!;
+		const res = await app.request("/v1/models?include_deactivated=true");
+		const json = await res.json();
+		const provider = json.data
+			.find((model: any) => model.id === definition.id)
+			.providers.find((p: any) => p.providerId === mapping.providerId);
+
+		const tiers = mapping.pricingTiers!;
+		expect(provider.pricing.tiers).toHaveLength(tiers.length);
+		expect(provider.pricing.tiers[0]).toMatchObject({
+			name: tiers[0].name,
+			up_to_tokens: tiers[0].upToTokens,
+			prompt: tiers[0].inputPrice.toString(),
+			completion: tiers[0].outputPrice.toString(),
+		});
+		const last = tiers[tiers.length - 1];
+		expect(provider.pricing.tiers.at(-1).up_to_tokens).toBe(
+			Number.isFinite(last.upToTokens) ? last.upToTokens : null,
+		);
+	});
+
+	test("GET /v1/models exposes image token counts per resolution", async () => {
+		const definition = modelsList.find((m) =>
+			(m.providers as ProviderModelMapping[]).some(
+				(p) => p.imageOutputTokensByResolution,
+			),
+		)!;
+		const mapping = (definition.providers as ProviderModelMapping[]).find(
+			(p) => p.imageOutputTokensByResolution,
+		)!;
+		const res = await app.request("/v1/models?include_deactivated=true");
+		const json = await res.json();
+		const provider = json.data
+			.find((model: any) => model.id === definition.id)
+			.providers.find((p: any) => p.providerId === mapping.providerId);
+
+		expect(provider.pricing.image_output_tokens_by_resolution).toEqual(
+			mapping.imageOutputTokensByResolution,
+		);
+		expect(provider.pricing.image_output).toBe(
+			mapping.imageOutputPrice?.toString(),
+		);
+	});
+
+	test("GET /v1/models exposes regional pricing and service tiers", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		const json = await res.json();
+		const byId = new Map(json.data.map((m: any) => [m.id, m]));
+
+		const regional = modelsList.find((m) =>
+			(m.providers as ProviderModelMapping[]).some(
+				(p) => (p.regions?.length ?? 0) > 1,
+			),
+		)!;
+		const regionalMapping = (regional.providers as ProviderModelMapping[]).find(
+			(p) => (p.regions?.length ?? 0) > 1,
+		)!;
+		const regionalProvider = (byId.get(regional.id) as any).providers.find(
+			(p: any) => p.providerId === regionalMapping.providerId,
+		);
+		expect(regionalProvider.regions.map((r: any) => r.id)).toEqual(
+			regionalMapping.regions!.map((r) => r.id),
+		);
+
+		const tiered = modelsList.find((m) =>
+			(m.providers as ProviderModelMapping[]).some(
+				(p) => p.serviceTiers?.length,
+			),
+		)!;
+		const tieredMapping = (tiered.providers as ProviderModelMapping[]).find(
+			(p) => p.serviceTiers?.length,
+		)!;
+		const tieredProvider = (byId.get(tiered.id) as any).providers.find(
+			(p: any) => p.providerId === tieredMapping.providerId,
+		);
+		expect(tieredProvider.service_tiers.map((t: any) => t.id)).toEqual(
+			expect.arrayContaining([...tieredMapping.serviceTiers!]),
+		);
+		for (const tier of tieredProvider.service_tiers) {
+			expect(typeof tier.multiplier).toBe("number");
+		}
+	});
+
+	test("GET /v1/models exposes active global discounts", async () => {
+		const definition = (modelsList as readonly ModelDefinition[]).find(
+			(m) =>
+				!m.free &&
+				m.providers.length === 1 &&
+				m.providers.every(
+					(p) => !p.deactivatedAt && Number(p.inputPrice ?? 0) > 0,
+				),
+		)!;
+		const providerId = definition.providers[0]!.providerId;
+		const discountId = "models-api-spec-discount";
+		await cdb.delete(tables.discount).where(eq(tables.discount.id, discountId));
+		await cdb.insert(tables.discount).values({
+			id: discountId,
+			organizationId: null,
+			provider: providerId,
+			model: definition.id,
+			discountPercent: "0.3",
+		});
+		try {
+			for (const query of ["", "?mapped=true"]) {
+				const res = await app.request(`/v1/models${query}`);
+				const json = await res.json();
+				const id = query ? `${providerId}/${definition.id}` : definition.id;
+				const model = json.data.find((m: any) => m.id === id);
+				expect(Number(model.pricing.discount)).toBe(0.3);
+				expect(Number(model.providers[0].pricing.discount)).toBe(0.3);
+			}
+		} finally {
+			await cdb
+				.delete(tables.discount)
+				.where(eq(tables.discount.id, discountId));
+		}
+
+		const res = await app.request("/v1/models");
+		const json = await res.json();
+		const model = json.data.find((m: any) => m.id === definition.id);
+		expect(model.pricing.discount).toBeUndefined();
 	});
 
 	test("GET /v1/models should expose per-page OCR pricing for mistral-ocr-latest", async () => {

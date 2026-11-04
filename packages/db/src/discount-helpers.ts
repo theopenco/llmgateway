@@ -92,6 +92,58 @@ export async function getEffectiveDiscount(
 	}
 }
 
+/**
+ * Load the global discount rows, `organizationId`'s own rows, and the Airside
+ * carrier discounts in one query each, and resolve provider/model pairs in
+ * memory with {@link resolveEffectiveDiscount}. For catalogue-wide listings;
+ * per-request lookups use {@link getEffectiveDiscount}.
+ */
+export async function loadDiscountResolver(
+	organizationId: string | null,
+): Promise<(provider: string, model: string) => EffectiveDiscount> {
+	const { rows, airsideSettings } = await swrWrap(
+		`discountResolver:${organizationId ?? "global"}`,
+		[getTableName(discountTable), getTableName(providerRoutingSettings)],
+		async () => ({
+			rows: await cdb
+				.select({
+					id: discountTable.id,
+					organizationId: discountTable.organizationId,
+					provider: discountTable.provider,
+					model: discountTable.model,
+					discountPercent: discountTable.discountPercent,
+					expiresAt: discountTable.expiresAt,
+				})
+				.from(discountTable)
+				.where(
+					organizationId
+						? or(
+								isNull(discountTable.organizationId),
+								eq(discountTable.organizationId, organizationId),
+							)
+						: isNull(discountTable.organizationId),
+				)
+				.orderBy(desc(discountTable.createdAt)),
+			airsideSettings: await cdb
+				.select({
+					id: providerRoutingSettings.id,
+					providerId: providerRoutingSettings.providerId,
+					modelId: providerRoutingSettings.modelId,
+					discountPercent: providerRoutingSettings.discountPercent,
+				})
+				.from(providerRoutingSettings),
+		}),
+	);
+	return (provider, model) =>
+		resolveEffectiveDiscount(
+			rows,
+			airsideSettings,
+			organizationId,
+			provider,
+			model,
+		);
+}
+
 async function queryEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
