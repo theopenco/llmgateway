@@ -2,6 +2,7 @@
 	"name": "llmgateway",
 	"private": true,
 	"license": "SEE LICENSE IN LICENSE",
+	"packageManager": "pnpm@10.28.1",
 	"workspaces": [
 		"apps/*",
 		"packages/*"
