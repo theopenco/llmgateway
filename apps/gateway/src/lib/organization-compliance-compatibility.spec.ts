@@ -37,7 +37,10 @@ describe("existing organization policy endpoint defaults", () => {
 			where: { id: "legacy-compat-key" },
 		});
 		expect(key?.providerCompliancePolicy).toBeNull();
-		const metadata = await db.execute(
+		const metadata = await db.execute<{
+			is_nullable: string;
+			column_default: string | null;
+		}>(
 			sql`SELECT is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'api_key' AND column_name = 'provider_compliance_policy'`,
 		);
 		expect(metadata.rows[0]).toEqual({
