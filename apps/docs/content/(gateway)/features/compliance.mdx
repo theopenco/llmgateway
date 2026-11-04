@@ -196,7 +196,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 Use a non-empty value of at most **128 characters**. Chat completions also accepts legacy `user` when `safety_identifier` is absent or `null`. Longer `safety_identifier` values are rejected; longer `user` or `metadata.user_id` values are not recorded as safety identifiers.
 
-In both credits and bring-your-own-key mode, the client value is saved in request log metadata as `params.safety_identifier`, even without debug logging. Reuse it for the same end user when correlating traffic or reporting requests to us. It remains metadata when prompt/completion retention is disabled and is subject to [metadata retention](/features/data-retention). Do not include personal data; it is not an authentication or authorization mechanism.
+In both credits and bring-your-own-key mode, the client value is saved in request log metadata as `params.safety_identifier`, even without debug logging. Rejections before the body is parsed, such as early rate limits, may not include it. Reuse it for the same end user when correlating traffic or reporting requests to us. It remains metadata when prompt/completion retention is disabled and is subject to [metadata retention](/features/data-retention). Do not include personal data; it is not an authentication or authorization mechanism.
 
 ### What providers receive
 
