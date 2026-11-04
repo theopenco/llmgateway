@@ -806,6 +806,10 @@ export async function handleDecisionRequest(
 
 	try {
 		while (true) {
+			attempt.requestBody = { ...attempt.requestBody };
+			if (attempt.providerKey) {
+				delete attempt.requestBody.safety_identifier;
+			}
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
 			const credentialSource: RoutingCredentialSource = attempt.providerKey

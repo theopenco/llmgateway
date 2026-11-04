@@ -2758,6 +2758,7 @@ export const log = snakeCase.table(
 		dataRetentionCleanedUp: boolean().default(false),
 		dataStorageCost: decimal().notNull().default("0"),
 		params: json().$type<{
+			safety_identifier?: string;
 			image_config?: {
 				aspect_ratio?: string;
 				image_size?: string;

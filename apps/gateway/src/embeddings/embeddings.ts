@@ -120,7 +120,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -915,7 +915,9 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			const forwarded = forwardedSafetyIdentifier(managedKey, safetyIdentifier);
+			const forwarded = providerKey
+				? undefined
+				: forwardedSafetyIdentifier(managedKey, safetyIdentifier);
 			if (
 				forwarded !== undefined &&
 				(providerId === "openai" || providerId === "azure")
