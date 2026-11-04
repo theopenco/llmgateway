@@ -6,10 +6,11 @@ import type { ProviderModelMapping } from "./models.js";
 
 function mapping(id: string): ProviderModelMapping {
 	const model = bytedanceModels.find((candidate) => candidate.id === id);
-	if (!model) {
-		throw new Error(`Missing Seedance model: ${id}`);
+	const provider = model?.providers[0];
+	if (!provider) {
+		throw new Error(`Missing Seedance mapping: ${id}`);
 	}
-	return model.providers[0];
+	return provider;
 }
 
 describe("Seedance pricing", () => {
