@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.json",
+	"include": [
+		"src/backfill-stripe-refunds.ts",
+		"src/backfill-stripe-refunds.spec.ts",
+		"src/lib/devpass-refund-backfill.ts",
+		"src/lib/devpass-refund-backfill.spec.ts",
+		"src/test-utils/stripe-refund-loopback.ts"
+	]
+}
