@@ -3629,7 +3629,10 @@ export async function startWorker() {
 	resetShutdown();
 	logger.info("Starting worker application...");
 
-	// Initialize providers and models sync - must complete before other stats syncs
+	// Initialize providers and models sync - must complete before other stats syncs.
+	// Counted as a loop so a shutdown during startup waits for it before
+	// closing the database pool.
+	activeLoops++;
 	try {
 		// Price alerts pause while this lock is held, so a sync that is only
 		// partly written is never reported as a price change.
@@ -3658,6 +3661,13 @@ export async function startWorker() {
 			"Error during initial sync",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+	} finally {
+		activeLoops--;
+	}
+
+	if (isStopRequested()) {
+		logger.info("Stop requested during startup, not starting worker loops");
+		return;
 	}
 
 	void runHistoryStartupLoop();
