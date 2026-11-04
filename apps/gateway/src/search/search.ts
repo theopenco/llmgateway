@@ -499,7 +499,7 @@ search.openapi(createSearch, async (c): Promise<any> => {
 		baseOrganization,
 	);
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	// 2. Resolve model → provider mapping
 	const result = AUTO_SEARCH_MODELS.has(requestedModel)
@@ -578,12 +578,17 @@ search.openapi(createSearch, async (c): Promise<any> => {
 	}
 
 	// 5. Enterprise provider compliance
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const failedKeys = createFailedKeyTracker();
 	const routingAttempts: RoutingAttempt[] = [];

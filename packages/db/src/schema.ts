@@ -1951,6 +1951,7 @@ export const apiKey = snakeCase.table(
 		// Platform keys may be long-lived; browser-session expiry now lives on
 		// end_user_session.expires_at.
 		expiresAt: timestamp(),
+		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
 		usageLimit: decimal(),
 		usage: decimal().notNull().default("0"),
 		periodUsageLimit: decimal(),

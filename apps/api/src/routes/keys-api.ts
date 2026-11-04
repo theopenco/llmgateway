@@ -24,6 +24,12 @@ import { notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import {
+	assertEnterpriseForCompliancePolicy,
+	providerCompliancePolicySchema,
+	assertCanManageCompliancePolicy,
+	assertApiKeyComplianceWritesEnabled,
+} from "@/lib/provider-compliance-policy.js";
+import {
 	getUserProjectIds,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
@@ -58,6 +64,7 @@ import {
 
 import type { CapacityTransaction } from "@/lib/organization-capacity.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
@@ -369,6 +376,7 @@ const apiKeySchema = z.object({
 	currentPeriodResetAt: z.date().nullable(),
 	expiresAt: z.date().nullable(),
 	projectId: z.string(),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	createdBy: z.string(),
 	creator: z
 		.object({
@@ -417,6 +425,13 @@ const createApiKeyFieldsSchema = z.object({
 		description:
 			"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
 	}),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional()
+		.openapi({
+			description:
+				"Additional key constraints, composed restrictively with the organization policy at runtime; cannot relax the organization floor. Null inherits the organization policy.",
+		}),
 	...createApiKeyPeriodConfigFieldsSchema,
 });
 
@@ -469,6 +484,13 @@ const listApiKeysQuerySchema = z.object({
 // Schema for updating an API key status and/or metadata
 const updateApiKeyStatusSchema = z.object({
 	status: z.enum(["active", "inactive"]).optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional()
+		.openapi({
+			description:
+				"Additional key constraints, composed restrictively with the organization policy at runtime. Null clears the key policy, including after an enterprise downgrade; omit to leave unchanged.",
+		}),
 	expiresAt: z.string().datetime().nullable().optional().openapi({
 		description:
 			"ISO 8601 timestamp when the key expires (TTL). Required to reactivate a key whose TTL has already passed; pass null to remove the TTL. Omit to leave the existing expiry unchanged.",
@@ -882,6 +904,7 @@ const create = createRoute({
 
 export interface CreateApiKeyInput {
 	description: string;
+	providerCompliancePolicy?: ProviderCompliancePolicy | null;
 	usageLimit?: string | null;
 	periodUsageLimit?: string | null;
 	periodUsageDurationValue?: number | null;
@@ -1132,6 +1155,10 @@ export async function createApiKeyForProject(
 		project.organization.id,
 		async (tx, organization) => {
 			assertOrgAllowsManualApiKeys(organization);
+			assertEnterpriseForCompliancePolicy(
+				input.providerCompliancePolicy,
+				organization,
+			);
 
 			const orgProjects = await tx.query.project.findMany({
 				where: { organizationId: { eq: organization.id } },
@@ -1183,6 +1210,11 @@ export async function createApiKeyForProject(
 					},
 				},
 			});
+			assertCanManageCompliancePolicy(
+				input.providerCompliancePolicy,
+				creatorMembership?.role,
+			);
+			assertApiKeyComplianceWritesEnabled(input.providerCompliancePolicy);
 			if (!options.skipAccessCheck) {
 				assertApiKeyLimitsWithinMemberBudget(creatorMembership, organization, {
 					usageLimit: usageLimit ?? null,
@@ -1228,6 +1260,7 @@ export async function createApiKeyForProject(
 					periodUsageDurationUnit,
 					expiresAt,
 					createdBy: userId,
+					providerCompliancePolicy: input.providerCompliancePolicy ?? null,
 				})
 				.returning();
 			return apiKey;
@@ -1248,6 +1281,7 @@ export async function createApiKeyForProject(
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
 			expiresAt: expiresAt?.toISOString() ?? null,
+			providerCompliancePolicy: input.providerCompliancePolicy ?? null,
 		},
 	});
 
@@ -1536,6 +1570,7 @@ interface MutableApiKeyAccess {
 	apiKey: ApiKeyRecord;
 	organizationId: string;
 	organization: InferSelectModel<typeof tables.organization> | null;
+	organizationRole: string | undefined;
 	/** Developers may only change keys they created; other roles any key. */
 	canMutate: boolean;
 }
@@ -1585,6 +1620,7 @@ async function loadMutableApiKeys(
 			apiKey,
 			organizationId: project.organizationId,
 			organization: userOrg?.organization ?? null,
+			organizationRole: userOrg?.role,
 			canMutate: !(
 				userOrg?.role === "developer" && apiKey.createdBy !== userId
 			),
@@ -1884,6 +1920,100 @@ const deleteKey = createRoute({
 	},
 });
 
+const listComplianceApiKeys = createRoute({
+	method: "get",
+	path: "/api/compliance",
+	request: { query: z.object({ organizationId: z.string().trim().min(1) }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeys: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								projectId: z.string(),
+								projectName: z.string(),
+								providerCompliancePolicy: providerCompliancePolicySchema,
+							}),
+						),
+					}),
+				},
+			},
+			description:
+				"Active API keys with explicit compliance policies across organization projects. Owners and admins only; contains no credentials.",
+		},
+	},
+});
+
+keysApi.openapi(listComplianceApiKeys, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const { organizationId } = c.req.valid("query");
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId: { eq: user.id }, organizationId: { eq: organizationId } },
+		with: { organization: { columns: { status: true } } },
+	});
+	if (
+		!membership?.organization ||
+		membership.organization.status === "deleted" ||
+		!isOrganizationAdmin(membership.role)
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can list organization compliance API keys",
+		});
+	}
+	const projects = await db.query.project.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { ne: "deleted" },
+		},
+		columns: { id: true, name: true },
+	});
+	if (!projects.length) {
+		return c.json({ apiKeys: [] });
+	}
+	const projectNames = new Map(
+		projects.map((project) => [project.id, project.name]),
+	);
+	const keys = await db.query.apiKey.findMany({
+		where: {
+			projectId: { in: projects.map((project) => project.id) },
+			status: { eq: "active" },
+			keyType: { eq: "user" },
+			kind: { ne: "playground" },
+			providerCompliancePolicy: { isNotNull: true },
+			OR: [{ expiresAt: { isNull: true } }, { expiresAt: { gt: new Date() } }],
+		},
+		columns: {
+			id: true,
+			description: true,
+			projectId: true,
+			providerCompliancePolicy: true,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	return c.json({
+		apiKeys: keys.flatMap((key) =>
+			key.providerCompliancePolicy === null
+				? []
+				: [
+						{
+							id: key.id,
+							name: key.description,
+							projectId: key.projectId,
+							projectName: projectNames.get(key.projectId)!,
+							providerCompliancePolicy: key.providerCompliancePolicy,
+						},
+					],
+		),
+	});
+});
+
 keysApi.openapi(deleteKey, async (c) => {
 	const user = c.get("user");
 	if (!user) {
@@ -2013,6 +2143,7 @@ keysApi.openapi(updateStatus, async (c) => {
 		status,
 		expiresAt: expiresAtInput,
 		description: descriptionInput,
+		providerCompliancePolicy,
 	} = c.req.valid("json");
 
 	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
@@ -2026,7 +2157,8 @@ keysApi.openapi(updateStatus, async (c) => {
 	if (
 		status === undefined &&
 		expiresAtInput === undefined &&
-		descriptionInput === undefined
+		descriptionInput === undefined &&
+		providerCompliancePolicy === undefined
 	) {
 		throw new HTTPException(400, {
 			message: "No changes provided",
@@ -2047,6 +2179,13 @@ keysApi.openapi(updateStatus, async (c) => {
 			message: "You don't have permission to modify this API key",
 		});
 	}
+
+	assertCanManageCompliancePolicy(
+		providerCompliancePolicy,
+		access.organizationRole,
+	);
+	assertEnterpriseForCompliancePolicy(providerCompliancePolicy, organization);
+	assertApiKeyComplianceWritesEnabled(providerCompliancePolicy);
 
 	// Resolve the effective TTL: an explicit value (or null) overrides, otherwise
 	// keep whatever expiry the key already had.
@@ -2105,6 +2244,9 @@ keysApi.openapi(updateStatus, async (c) => {
 					...(descriptionInput !== undefined
 						? { description: descriptionInput }
 						: {}),
+					...(providerCompliancePolicy !== undefined
+						? { providerCompliancePolicy }
+						: {}),
 				})
 				.where(eq(tables.apiKey.id, id))
 				.returning();
@@ -2121,7 +2263,17 @@ keysApi.openapi(updateStatus, async (c) => {
 	const descriptionChanged =
 		descriptionInput !== undefined && apiKey.description !== descriptionInput;
 
-	if (statusChanged || expiryChanged || descriptionChanged) {
+	const compliancePolicyChanged =
+		providerCompliancePolicy !== undefined &&
+		JSON.stringify(apiKey.providerCompliancePolicy) !==
+			JSON.stringify(providerCompliancePolicy);
+
+	if (
+		statusChanged ||
+		expiryChanged ||
+		descriptionChanged ||
+		compliancePolicyChanged
+	) {
 		const changes: Record<string, { old: unknown; new: unknown }> = {};
 		if (statusChanged) {
 			changes.status = { old: apiKey.status, new: status };
@@ -2130,6 +2282,12 @@ keysApi.openapi(updateStatus, async (c) => {
 			changes.expiresAt = {
 				old: apiKey.expiresAt?.toISOString() ?? null,
 				new: nextExpiresAt?.toISOString() ?? null,
+			};
+		}
+		if (compliancePolicyChanged) {
+			changes.providerCompliancePolicy = {
+				old: apiKey.providerCompliancePolicy,
+				new: providerCompliancePolicy,
 			};
 		}
 		if (descriptionChanged) {

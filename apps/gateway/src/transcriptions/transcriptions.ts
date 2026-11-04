@@ -510,7 +510,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -527,12 +527,17 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: transcription resolves to a single
 	// provider, so block the request before any data is sent if that provider
 	// doesn't meet the org's required certifications/data policies.
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();

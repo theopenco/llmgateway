@@ -14,7 +14,11 @@ import {
 	findProviderKey,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getActiveCompliancePolicy,
+	isModelIdCompliant,
+} from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
@@ -335,19 +339,21 @@ async function runRealtimePreflightInner(
 		);
 	}
 
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: match.modelId,
-		apiKeyId: apiKey.id,
-		model: input.requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: match.modelId,
+			apiKeyId: apiKey.id,
+			model: input.requestedModel,
+		},
+		apiKey,
+	);
 
-	// Input transcription bills a second model, so resolve up front which ASR
-	// mappings this key may actually use. Doing it here (rather than per
-	// session.update) keeps the protocol path synchronous and means a key
-	// restricted by model, price or IP cannot reach a pricier ASR model. A
-	// transcription session has exactly one ASR model, the one IAM just
-	// validated above.
+	// ASR is separately billable. Every candidate must pass IAM and both model
+	// policies; its provider already passed compliance above.
+	const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
 	const allowedTranscriptionModelIds: string[] =
 		sessionType === "transcription" ? [match.modelId] : [];
 	for (const candidate of sessionType === "transcription"
@@ -362,7 +368,11 @@ async function runRealtimePreflightInner(
 			activeModelInfo: candidate.modelDef,
 			clientIp: input.clientIp,
 		});
-		if (validation.allowed) {
+		if (
+			validation.allowed &&
+			(!compliancePolicy ||
+				isModelIdCompliant(candidate.modelId, compliancePolicy))
+		) {
 			allowedTranscriptionModelIds.push(candidate.modelId);
 		}
 	}
