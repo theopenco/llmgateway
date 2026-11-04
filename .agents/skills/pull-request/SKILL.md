@@ -200,3 +200,7 @@ When the user explicitly asks to set a PR to auto-merge, enable it
 Run both scripts as background jobs instead of polling in the conversation.
 Without `kubectl` access, confirm the deploy run succeeded and say the pods were
 not checked.
+
+Once the change is live (or the PR was already merged without a rollout watch),
+remove the local worktrees this session created for it (`git worktree remove`).
+Leave every other worktree alone.
