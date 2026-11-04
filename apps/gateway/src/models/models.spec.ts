@@ -589,6 +589,55 @@ describe("Models API", () => {
 		}
 	});
 
+	test("GET /v1/models exposes native web search per provider mapping and as a model rollup", async () => {
+		const frozenNow = new Date("2026-08-11T00:00:00Z");
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(frozenNow);
+		try {
+			const res = await app.request("/v1/models?include_deactivated=true");
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+			const isServable = (p: ProviderModelMapping) =>
+				!(p.deactivatedAt && frozenNow > p.deactivatedAt);
+
+			for (const model of json.data) {
+				const definition = definitionById.get(model.id);
+				expect(definition).toBeDefined();
+				const mappings = definition!.providers as ProviderModelMapping[];
+
+				// The rollup mirrors json_output: only mappings that can still
+				// serve requests advertise the capability.
+				expect(model.web_search, `web_search for ${model.id}`).toBe(
+					mappings.filter(isServable).some((p) => p.webSearch === true),
+				);
+
+				// Every provider entry carries its own mapping's flag, in order.
+				expect(model.providers.length, `providers for ${model.id}`).toBe(
+					mappings.length,
+				);
+				mappings.forEach((mapping, index) => {
+					expect(
+						model.providers[index].web_search,
+						`web_search for ${model.id} on ${mapping.providerId}`,
+					).toBe(mapping.webSearch === true);
+				});
+			}
+
+			// The flag has to discriminate, not be a constant: the catalogue
+			// carries models on both sides.
+			expect(
+				json.data.some((model: { web_search: boolean }) => model.web_search),
+			).toBe(true);
+			expect(
+				json.data.some((model: { web_search: boolean }) => !model.web_search),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	test("GET /v1/models exposes cache pricing detail per provider mapping", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
