@@ -8,6 +8,7 @@ export type ModelCategoryFilter =
 	| "image-to-image"
 	| "video"
 	| "embedding"
+	| "decisions"
 	| "web-search"
 	| "vision"
 	| "reasoning"
@@ -36,6 +37,7 @@ export const curatedCategoryModelIds: Record<
 		"deepseek-v4-pro",
 		"deepseek-v4-flash",
 		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
 		"grok-4-1-fast-non-reasoning",
 		"grok-4-3",
 		"kimi-k2",
@@ -93,6 +95,7 @@ export const curatedCategoryModelIds: Record<
 		"devstral-small-2507",
 		"deepseek-v4-pro",
 		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
 		"deepseek-v3.2",
 		"glm-5.2",
 		"glm-5.1",
@@ -141,6 +144,7 @@ export const curatedCategoryModelIds: Record<
 		"qwen3-235b-a22b-instruct-2507",
 		"deepseek-v4-flash",
 		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
 		"mistral-large-2512",
 		"seed-1-8-251228",
 		"gemma-4-31b-it",
@@ -216,6 +220,7 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 // Proprietary models whose family is otherwise open-source (e.g. Meta's
 // API-only Muse Spark models alongside the open Llama family)
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
+	"muse-wonder-1.0",
 	"muse-spark-1.1",
 	"muse-spark-1.2",
 	"muse-spark-1.2-contributor",
@@ -275,6 +280,8 @@ export function applyCategoryFilter(
 			return model.output?.includes("video") === true;
 		case "embedding":
 			return model.output?.includes("embedding") === true;
+		case "decisions":
+			return model.output?.includes("decision") === true;
 		case "web-search":
 			return mappings.some((m) => m.webSearch);
 		case "vision":

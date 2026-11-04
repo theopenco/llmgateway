@@ -387,6 +387,27 @@ describe("model verification", () => {
 	const toolChoiceOf = (call: Parameters<typeof fetch>[1] | undefined) =>
 		JSON.parse(String(call?.body)).tool_choice;
 
+	it.each([429, 500, 503])(
+		"does not narrow tool choices after HTTP %i",
+		async (status) => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockResolvedValueOnce(okResponse())
+				.mockResolvedValueOnce(
+					new Response("Temporarily unavailable", { status }),
+				)
+				.mockResolvedValue(toolCallResponse());
+			const result = await runProviderModelVerification({
+				target: toolOnly,
+				token: "provider-key",
+				baseUrl: "https://carrier.example",
+				fetchImplementation,
+			});
+			expect(result.passed).toBe(false);
+			expect(result.unsupportedToolChoices).toBeUndefined();
+			expect(fetchImplementation).toHaveBeenCalledTimes(2);
+		},
+	);
 	it("walks down the tool_choice ladder and reports what failed", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
@@ -1258,6 +1279,20 @@ describe("model verification", () => {
 					usage: { prompt_tokens: promptTokens, completion_tokens: 1 },
 				}),
 			);
+		const promptChars = (request?: RequestInit) =>
+			String(JSON.parse(String(request?.body)).messages?.[0]?.content ?? "")
+				.length;
+		// Reports the prompt at a fixed chars/token, like a real tokenizer.
+		const tokenize = (charsPerToken: number) =>
+			vi.fn<typeof fetch>().mockImplementation(async (_url, request) =>
+				Response.json({
+					...chatBody({ content: "OK" }),
+					usage: {
+						prompt_tokens: Math.ceil(promptChars(request) / charsPerToken),
+						completion_tokens: 1,
+					},
+				}),
+			);
 
 		it("queues a check per declared limit", () => {
 			expect(
@@ -1265,21 +1300,53 @@ describe("model verification", () => {
 			).toEqual(["basic", "context_size", "max_output"]);
 		});
 
-		it("fills the declared window and requests the declared output", async () => {
-			const fetchImplementation = respond(5_000);
+		it.each([3.5, 4.9])(
+			"fills 90%% of the declared window at %s chars per token",
+			async (charsPerToken) => {
+				const fetchImplementation = tokenize(charsPerToken);
+				const result = await runProviderModelVerification({
+					target: limitsTarget,
+					token: "provider-key",
+					fetchImplementation,
+				});
+
+				expect(result.passed).toBe(true);
+				const [, calibration, context, output] =
+					fetchImplementation.mock.calls.map(([, request]) => request);
+				expect(promptChars(calibration)).toBeLessThan(10_000);
+				const probeTokens = promptChars(context) / charsPerToken;
+				expect(probeTokens).toBeGreaterThan(8_900);
+				expect(probeTokens).toBeLessThanOrEqual(9_000);
+				expect(String(output?.body)).toContain("4096");
+			},
+		);
+
+		it("fails the context check when the upstream processes under 80% of the window", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(async (_url, request) =>
+					Response.json({
+						...chatBody({ content: "OK" }),
+						usage: {
+							prompt_tokens: Math.min(
+								Math.ceil(promptChars(request) / 4.9),
+								7_500,
+							),
+							completion_tokens: 1,
+						},
+					}),
+				);
 			const result = await runProviderModelVerification({
 				target: limitsTarget,
 				token: "provider-key",
 				fetchImplementation,
 			});
 
-			expect(result.passed).toBe(true);
-			const [, context, output] = fetchImplementation.mock.calls.map(
-				([, request]) => JSON.parse(String(request?.body)),
-			);
-			// 70% of the window at 3 chars per token.
-			expect(context.messages[0].content.length).toBeGreaterThan(21_000);
-			expect(JSON.stringify(output)).toContain("4096");
+			expect(result.checks[1]).toMatchObject({
+				id: "context_size",
+				status: "failed",
+				feedback: expect.stringContaining("7500 input tokens"),
+			});
 		});
 
 		it("fails the context check when the upstream refuses the prompt", async () => {
@@ -1306,7 +1373,7 @@ describe("model verification", () => {
 					id: "context_size",
 					status: "failed",
 					feedback:
-						'Your endpoint refused a test prompt filling about 70% of the declared 10,000-token context size. It answered: "maximum context length is 4096"',
+						'Your endpoint refused a test prompt filling about 90% of the declared 10,000-token context size. It answered: "maximum context length is 4096"',
 				},
 				{ id: "max_output", status: "passed" },
 			]);
@@ -1327,7 +1394,7 @@ describe("model verification", () => {
 		});
 
 		it("caps the prompt for an oversized declared window", async () => {
-			const fetchImplementation = respond(1_500_000);
+			const fetchImplementation = tokenize(4);
 			const result = await runProviderModelVerification({
 				target: { ...limitsTarget, contextSize: 100_000_000 },
 				token: "provider-key",
@@ -1335,8 +1402,8 @@ describe("model verification", () => {
 			});
 
 			expect(result.passed).toBe(true);
-			const context = String(fetchImplementation.mock.calls[1][1]?.body);
-			expect(context.length).toBeLessThan(6_100_000);
+			const context = promptChars(fetchImplementation.mock.calls[2][1]);
+			expect(context).toBeLessThanOrEqual(2_000_000 * 4);
 		});
 
 		it("fails the context check on a failed response envelope", async () => {
@@ -1369,12 +1436,14 @@ describe("model verification", () => {
 				token: "provider-key",
 				fetchImplementation: vi
 					.fn<typeof fetch>()
-					.mockImplementation(async () =>
+					.mockImplementation(async (_url, request) =>
 						Response.json({
 							...chatBody({ content: "OK" }),
 							usage: {
 								input_tokens: 10,
-								cache_creation_input_tokens: 5_000,
+								cache_creation_input_tokens: Math.ceil(
+									promptChars(request) / 4.9,
+								),
 								output_tokens: 1,
 							},
 						}),
@@ -1746,5 +1815,115 @@ describe("model verification", () => {
 				"company-1",
 			),
 		).toThrow();
+	});
+
+	describe("prompt caching", () => {
+		const cachingTarget: ProviderModelVerificationTarget = {
+			...target,
+			streaming: false,
+			vision: false,
+			audio: false,
+			tools: false,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+			promptCaching: true,
+		};
+		// Reports cache hits from the given (1-based) caching request onwards.
+		const cachingFrom = (hitFrom: number) => {
+			let cachingRequests = 0;
+			return vi.fn<typeof fetch>().mockImplementation(async (_url, request) => {
+				const body = String(request?.body);
+				const caching = body.includes("Verification run");
+				if (caching) {
+					cachingRequests++;
+				}
+				return Response.json(
+					chatBody({ content: "OK" }, "stop", {
+						prompt_tokens: 6_000,
+						completion_tokens: 1,
+						prompt_tokens_details: {
+							cached_tokens: caching && cachingRequests >= hitFrom ? 5_888 : 0,
+						},
+					}),
+				);
+			});
+		};
+		const run = async (fetchImplementation: typeof fetch) => {
+			vi.useFakeTimers({ toFake: ["setTimeout"] });
+			try {
+				const result = runProviderModelVerification({
+					target: cachingTarget,
+					token: "provider-key",
+					fetchImplementation,
+				});
+				await vi.runAllTimersAsync();
+				return await result;
+			} finally {
+				vi.useRealTimers();
+			}
+		};
+
+		it("only queues the check for a listing with a cached input price", () => {
+			expect(
+				createQueuedModelVerificationChecks(cachingTarget).map(({ id }) => id),
+			).toEqual(["basic", "prompt_caching"]);
+			expect(
+				createQueuedModelVerificationChecks({
+					...cachingTarget,
+					promptCaching: false,
+				}).map(({ id }) => id),
+			).toEqual(["basic"]);
+		});
+
+		it("passes once a repeat reports cached input tokens", async () => {
+			const fetchImplementation = cachingFrom(3);
+			const result = await run(fetchImplementation);
+
+			expect(result.passed).toBe(true);
+			expect(fetchImplementation).toHaveBeenCalledTimes(4);
+			const check = result.checks.find(({ id }) => id === "prompt_caching");
+			expect(check?.feedback).toBe(
+				"Request 3 reported 5888 cached input tokens.",
+			);
+			expect(check?.probes?.map(({ feedback }) => feedback)).toEqual([
+				"0 of 6000 input tokens cached.",
+				"0 of 6000 input tokens cached.",
+				"5888 of 6000 input tokens cached.",
+			]);
+			const prompts = fetchImplementation.mock.calls
+				.slice(1)
+				.map(([, request]) => String(request?.body));
+			expect(new Set(prompts).size).toBe(1);
+		});
+
+		it("fails when no repeat reports cached input tokens", async () => {
+			const fetchImplementation = cachingFrom(Number.POSITIVE_INFINITY);
+			const result = await run(fetchImplementation);
+
+			expect(result.passed).toBe(false);
+			expect(fetchImplementation).toHaveBeenCalledTimes(6);
+			expect(
+				result.checks.find(({ id }) => id === "prompt_caching"),
+			).toMatchObject({
+				status: "failed",
+				feedback: expect.stringContaining(
+					"5 identical requests reported no cached input tokens",
+				),
+			});
+			expect(disprovedCapabilities(result.checks)).toEqual([]);
+		});
+
+		it("starts every run cold", async () => {
+			const first = cachingFrom(1);
+			const second = cachingFrom(1);
+			await run(first);
+			await run(second);
+			expect(String(first.mock.calls[1][1]?.body)).not.toBe(
+				String(second.mock.calls[1][1]?.body),
+			);
+		});
 	});
 });

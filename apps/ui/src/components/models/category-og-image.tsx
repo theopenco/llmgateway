@@ -89,6 +89,16 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 			"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z M7 16.5l-4.74-2.85 M7 16.5l5-3 M7 16.5v5.17 M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z M17 16.5l-5-3 M17 16.5l4.74-2.85 M17 16.5v5.17 M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z M12 8L7.26 5.15 M12 8l4.74-2.85 M12 8v5.5",
 		countFilter: (m) => m.output?.includes("embedding") === true,
 	},
+	decisions: {
+		title: "Decisions",
+		subtitle: "Typed, probabilistic answers for routing and classification",
+		accentColor: "#14B8A6",
+		accentColorDim: "#134E4A",
+		// Lucide "SlidersHorizontal" icon path
+		iconSvgPath:
+			"M21 4h-7 M10 4H3 M21 12h-9 M8 12H3 M21 20h-5 M12 20H3 M14 2v4 M8 10v4 M16 18v4",
+		countFilter: (m) => m.output?.includes("decision") === true,
+	},
 	"web-search": {
 		title: "Web Search",
 		subtitle: "Real-time internet-grounded responses",

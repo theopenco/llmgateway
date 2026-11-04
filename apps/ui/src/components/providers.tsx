@@ -2,13 +2,13 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import dynamic from "next/dynamic";
 import { ThemeProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
 import { Suspense, useState, useEffect } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
+import { ChatSupportLauncher } from "@/components/chat-support-launcher";
 import { ReferralHandler } from "@/components/referral-handler";
 import { SignupMethodTracker } from "@/components/signup-method-tracker";
 import { classifyChannel } from "@/lib/attribution";
@@ -18,18 +18,11 @@ import { AppConfigProvider } from "@/lib/config";
 import { SystemBannerProvider } from "@/lib/system-banner-context";
 
 import { TimeZoneProvider } from "@llmgateway/shared";
+import { ProviderMarksProvider } from "@llmgateway/shared/components";
 
 import type { AppConfig } from "@/lib/config-server";
 import type { SystemBanner, TimeZonePreference } from "@llmgateway/shared";
 import type { ReactNode } from "react";
-
-// The support widget starts collapsed but statically pulls in the AI SDK and
-// streamdown/shiki, so defer it out of the initial bundle of every route. No
-// ssr: false — the collapsed trigger is a permanently visible button and must
-// stay in the server-rendered HTML instead of popping in after hydration.
-const ChatSupport = dynamic(() =>
-	import("@/components/chat-support").then((mod) => mod.ChatSupport),
-);
 
 interface ProvidersProps {
 	children: ReactNode;
@@ -142,7 +135,9 @@ export function Providers({
 					>
 						<QueryClientProvider client={queryClient}>
 							<PostHogProvider client={posthog}>
-								{children}
+								<ProviderMarksProvider apiUrl={config.apiUrl}>
+									{children}
+								</ProviderMarksProvider>
 								{/* Gated on init: posthog-js drops captures fired before
 						    init(), and the OAuth signup event has exactly one
 						    chance to fire. */}
@@ -155,7 +150,7 @@ export function Providers({
 							{process.env.NODE_ENV === "development" && (
 								<ReactQueryDevtools buttonPosition="bottom-left" />
 							)}
-							<ChatSupport />
+							<ChatSupportLauncher />
 						</QueryClientProvider>
 						<Toaster />
 						<SonnerToaster richColors position="bottom-right" />

@@ -23,6 +23,25 @@ export async function getContentFilterViolations(
 	return data ?? null;
 }
 
+export type ContentFilterErrorKind =
+	| "upstream_4xx"
+	| "upstream_5xx"
+	| "timeout"
+	| "network"
+	| "bad_response"
+	| "unexpected";
+
+export async function getContentFilterErrors(
+	window: ContentFilterViolationsWindow,
+	kind?: ContentFilterErrorKind,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/content-filter/errors", {
+		params: { query: { window, kind } },
+	});
+	return data ?? null;
+}
+
 export async function getContentFilterFocusOrganizations(
 	window: ContentFilterViolationsWindow,
 	usedProvider: string,

@@ -12,6 +12,16 @@ describe("getModelImageConfig", () => {
 			).toBe(true);
 		}
 	});
+	it("allows up to 10 reference images for Qwen Image 2.1", () => {
+		for (const model of [
+			"alibaba/qwen-image-2.1-pro",
+			"alibaba/qwen-image-2.1-turbo",
+		]) {
+			const config = getModelImageConfig(model);
+			expect(config.maxInputImages).toBe(10);
+			expect(config.defaultSize).toBe("1024x1024");
+		}
+	});
 	it("exposes the cheapest supported image options", () => {
 		const gptImage = getModelImageConfig("openai/gpt-image-2");
 		const grok = getModelImageConfig("xai/grok-imagine-image-2-0");

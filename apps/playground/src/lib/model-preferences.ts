@@ -7,6 +7,8 @@ export const CANVAS_MODEL_COOKIE = "llmgateway_model_canvas";
 export const REALTIME_MODEL_COOKIE = "llmgateway_model_realtime";
 export const REALTIME_TRANSCRIPTION_MODEL_COOKIE =
 	"llmgateway_model_realtime_transcription";
+export const REALTIME_CALL_TRANSCRIPTION_MODEL_COOKIE =
+	"llmgateway_model_realtime_call_transcription";
 export const ESCAPE_MODEL_COOKIE = "llmgateway_model_escape";
 export const IMAGE_SERVICE_TIER_COOKIE = "llmgateway_image_service_tier";
 

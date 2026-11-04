@@ -195,7 +195,7 @@ describe("embeddings", () => {
 		expect(embeddingLog?.reasoningContent).toBeNull();
 	});
 
-	test("/v1/embeddings replaces client user with the organization identifier", async () => {
+	test("/v1/embeddings replaces client user with the API key identifier", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-safety",
 			...hashApiKeyForStorage("real-token-embeddings-safety"),
@@ -216,10 +216,10 @@ describe("embeddings", () => {
 			baseUrl: harness.mockServerUrl,
 		});
 
-		const [organization] = await db
-			.select({ safetyIdentifier: tables.organization.safetyIdentifier })
-			.from(tables.organization)
-			.where(eq(tables.organization.id, "org-id"));
+		const [apiKey] = await db
+			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
+			.from(tables.apiKey)
+			.where(eq(tables.apiKey.id, "token-id-embeddings-safety"));
 
 		const res = await app.request("/v1/embeddings", {
 			method: "POST",
@@ -239,9 +239,9 @@ describe("embeddings", () => {
 		const embeddingLog = logs.find(
 			(log) => log.usedModel === "openai/text-embedding-3-small",
 		);
-		expect(organization?.safetyIdentifier).toBeTruthy();
+		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
 		expect(embeddingLog?.upstreamRequest).toMatchObject({
-			user: organization?.safetyIdentifier,
+			user: apiKey?.safetyIdentifier,
 		});
 	});
 

@@ -78,7 +78,7 @@ describe("chat sharing permissions", () => {
 		});
 		await db.insert(tables.account).values({
 			id: "other-account-id",
-			accountId: "other-account-id",
+			accountId: "other-user-id",
 			providerId: "credential",
 			userId: "other-user-id",
 			password: account!.password,

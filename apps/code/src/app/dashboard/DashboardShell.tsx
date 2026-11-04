@@ -23,7 +23,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import DevPassPaymentRecovery from "@/app/dashboard/components/DevPassPaymentRecovery";
-import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ProductSwitcher } from "@/components/ProductSwitcher";
@@ -49,7 +48,7 @@ import {
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
-import { plans } from "./plans";
+import { usePlans } from "./plans";
 import { useDevPlanStatus } from "./useDevPlanStatus";
 
 import type { PlanTier } from "./types";
@@ -59,6 +58,10 @@ import type { Route } from "next";
 
 const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
+);
+
+const SurveyReminderDialog = dynamic(
+	() => import("@/app/dashboard/components/SurveyReminderDialog"),
 );
 
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
@@ -177,6 +180,7 @@ export default function DashboardShell({
 	const config = useAppConfig();
 	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
 		config;
+	const plans = usePlans();
 	const api = useApi();
 	const queryClient = useQueryClient();
 
@@ -296,10 +300,13 @@ export default function DashboardShell({
 			initialResult: Awaited<ReturnType<typeof finalizeOnce>>,
 		) => {
 			let result = initialResult;
-			for (let attempt = 0; attempt < 60; attempt++) {
-				if (result?.status !== "payment_pending") {
-					return result;
-				}
+			// Bounded: a canceled PaymentIntent also reports payment_pending, so an
+			// unbounded loop would poll for as long as the tab stays open.
+			for (
+				let attempt = 0;
+				attempt < 60 && result?.status === "payment_pending";
+				attempt++
+			) {
 				setSetupActivationStatus("processing");
 				await wait(2000, signal);
 				result = await finalizeOnce();
@@ -426,11 +433,15 @@ export default function DashboardShell({
 		googleAdsPurchaseConversion,
 	]);
 
-	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
+	const handleSubscribe = async (
+		tier: PlanTier,
+		options?: { paygEnabled?: boolean },
+	): Promise<void> => {
+		const paygEnabled = options?.paygEnabled === true;
 		setSubscribingTier(tier);
 		try {
 			const result = await subscribeMutation.mutateAsync({
-				body: { tier },
+				body: { tier, paygEnabled },
 			});
 
 			if (!result?.checkoutUrl) {
@@ -439,7 +450,10 @@ export default function DashboardShell({
 			}
 
 			if (posthogKey) {
-				posthog.capture("dev_plan_subscribe_started", { tier });
+				posthog.capture("dev_plan_subscribe_started", { tier, paygEnabled });
+				if (paygEnabled) {
+					posthog.capture("devpass_payg_opted_in_at_signup", { tier });
+				}
 			}
 			window.location.href = result.checkoutUrl;
 		} catch (error: unknown) {
@@ -495,8 +509,8 @@ export default function DashboardShell({
 						: "Choose your Dev Plan"}
 				</h1>
 				<p className="text-sm text-muted-foreground leading-relaxed">
-					Pick a plan to get your API key and start coding with 200+ models.
-					Every dollar gives you 3x in usage.
+					Pick a plan to get your API key and start coding with 100+ models.
+					Every dollar gives you 2× in usage.
 				</p>
 			</div>
 
@@ -543,7 +557,9 @@ export default function DashboardShell({
 				</AlertDialogContent>
 			</AlertDialog>
 
-			<SurveyReminderDialog active={Boolean(hasActivePlan)} />
+			{/* Mounted only for active plans so the chunk is never fetched for
+			    visitors who cannot be surveyed */}
+			{hasActivePlan ? <SurveyReminderDialog /> : null}
 
 			{/* Header */}
 			<header className="border-b border-border/50">

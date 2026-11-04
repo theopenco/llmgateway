@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import { preserveAnsweredToolCalls } from "@/lib/connectors/tool-approval.js";
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
@@ -1818,26 +1819,37 @@ chats.openapi(addMessage, async (c) => {
 	// under the id the client already holds, so it replaces the stored row
 	// instead of appending a duplicate.
 	const resumeAssistantMessage = async (messageId: string) => {
-		const [updated] = await db
-			.update(tables.message)
-			.set({
-				content: body.content,
-				images: body.images,
-				audios: body.audios,
-				documents: body.documents,
-				reasoning: body.reasoning,
-				tools: body.tools,
-				sources: body.sources,
-				metadata: body.metadata,
-			})
-			.where(
-				and(
-					eq(tables.message.id, messageId),
-					eq(tables.message.chatId, id),
-					eq(tables.message.role, "assistant"),
-				),
-			)
-			.returning();
+		const updated = await db.transaction(async (tx) => {
+			const [existing] = await tx
+				.select()
+				.from(tables.message)
+				.where(
+					and(
+						eq(tables.message.id, messageId),
+						eq(tables.message.chatId, id),
+						eq(tables.message.role, "assistant"),
+					),
+				)
+				.for("update");
+			if (!existing) {
+				return undefined;
+			}
+			const [saved] = await tx
+				.update(tables.message)
+				.set({
+					content: body.content,
+					images: body.images,
+					audios: body.audios,
+					documents: body.documents,
+					reasoning: body.reasoning,
+					tools: preserveAnsweredToolCalls(existing.tools, body.tools),
+					sources: body.sources,
+					metadata: body.metadata,
+				})
+				.where(eq(tables.message.id, messageId))
+				.returning();
+			return saved;
+		});
 		if (!updated) {
 			throw new HTTPException(409, {
 				message: "Message id belongs to another chat",

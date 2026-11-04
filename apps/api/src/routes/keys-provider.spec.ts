@@ -639,6 +639,138 @@ describe("provider keys route", () => {
 		expect(providerKey).toBeUndefined();
 	});
 
+	describe("base URL overrides", () => {
+		beforeEach(() => {
+			vi.stubEnv("ALLOW_PROVIDER_BASE_URL_OVERRIDE", "");
+		});
+
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		test("rejects a base URL on a catalogue provider when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+			// Enterprise, so the rejection is the hosted restriction and not the plan
+			// gate on custom base URLs.
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					baseUrl: "https://my-own-endpoint.example.com",
+					options: { azure_resource: "my-resource" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain("custom base URL cannot be set");
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "azure" } },
+			});
+			expect(stored).toBeUndefined();
+		});
+
+		test("still accepts a catalogue provider without a base URL when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					options: { azure_resource: "my-resource" },
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("keeps the custom provider base URL when hosted", async () => {
+			vi.stubEnv("HOSTED", "true");
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "custom",
+					token: "custom-test-token",
+					name: "mycustomprovider",
+					baseUrl: "https://api.example.com",
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("allows the override on a self-hosted deployment", async () => {
+			vi.stubEnv("HOSTED", "");
+			await setPlan("enterprise");
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					baseUrl: "https://my-own-endpoint.example.com",
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test.each([
+			["azure_resource", "evil.example.com/x"],
+			["azure_deployment_name", "gpt-4o/../../foo"],
+			["azure_api_version", "2024-10-21&foo=bar"],
+			["google_vertex_project_id", "../../project"],
+		])(
+			"rejects an option that reshapes the endpoint URL (%s)",
+			async (option, value) => {
+				vi.stubEnv("HOSTED", "true");
+
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({
+						provider: "azure",
+						token: "azure-test-token",
+						options: { azure_resource: "my-resource", [option]: value },
+						organizationId: "test-org-id",
+					}),
+				});
+				expect(res.status).toBe(400);
+
+				const stored = await db.query.providerKey.findFirst({
+					where: { provider: { eq: "azure" } },
+				});
+				expect(stored).toBeUndefined();
+			},
+		);
+	});
+
 	test("POST /keys/provider with duplicate provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
@@ -824,6 +956,61 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("rate limits", () => {
+		async function patchKey(body: Record<string, unknown>) {
+			return await app.request("/keys/provider/test-provider-key-id", {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify(body),
+			});
+		}
+
+		test("PATCH sets, keeps and clears request and token caps", async () => {
+			const set = await patchKey({ maxRpm: 60, maxTpd: 1_000_000 });
+			expect(set.status).toBe(200);
+			expect((await set.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				maxRpd: null,
+				maxTpm: null,
+				maxTpd: 1_000_000,
+			});
+
+			const partial = await patchKey({ maxTpm: 50_000 });
+			expect(partial.status).toBe(200);
+			expect((await partial.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				maxTpm: 50_000,
+				maxTpd: 1_000_000,
+			});
+
+			const clear = await patchKey({ maxRpm: null });
+			expect(clear.status).toBe(200);
+			expect((await clear.json()).providerKey.maxRpm).toBeNull();
+		});
+
+		test("PATCH sets the cap mode, defaulting to strict", async () => {
+			const before = await patchKey({ maxRpm: 60 });
+			expect((await before.json()).providerKey.rateLimitMode).toBe("strict");
+
+			const soft = await patchKey({ rateLimitMode: "soft" });
+			expect(soft.status).toBe(200);
+			expect((await soft.json()).providerKey).toMatchObject({
+				maxRpm: 60,
+				rateLimitMode: "soft",
+			});
+
+			expect((await patchKey({ rateLimitMode: "loose" })).status).toBe(400);
+		});
+
+		test("PATCH rejects caps below 1", async () => {
+			const res = await patchKey({ maxRpm: 0 });
+			expect(res.status).toBe(400);
+		});
+	});
+
 	describe("allowed models", () => {
 		// Taken from the catalogue rather than hardcoded so the assertions do not
 		// rot when a model is retired.
@@ -972,6 +1159,42 @@ describe("provider keys route", () => {
 			},
 		});
 		expect(providerKey).not.toBeNull();
+		// Non-custom keys first enter their teardown grace period.
+		expect(providerKey?.status).toBe("pending_deletion");
+		expect(providerKey?.deletionRequestedAt).toBeInstanceOf(Date);
+
+		// Its owner sees it as deleted and can no longer edit it.
+		const list = await app.request("/keys/provider", {
+			headers: { Cookie: token },
+		});
+		const { providerKeys } = await list.json();
+		expect(
+			providerKeys.find(
+				(key: { id: string }) => key.id === "test-provider-key-id",
+			)?.status,
+		).toBe("deleted");
+		const patch = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ status: "active" }),
+		});
+		expect(patch.status).toBe(404);
+	});
+
+	test("DELETE /keys/provider/{id} skips the grace period for a disabled key", async () => {
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, "test-provider-key-id"));
+
+		const res = await app.request("/keys/provider/test-provider-key-id", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
 		expect(providerKey?.status).toBe("deleted");
 	});
 
@@ -1220,6 +1443,15 @@ describe("provider keys route", () => {
 			}
 		});
 
+		test("rejects reserved and built-in provider names", async () => {
+			await seedCustomKey();
+
+			for (const name of ["dynamic", "custom", "openai", "llmgateway"]) {
+				const res = await patchName("test-custom-key-id", name);
+				expect(res.status).toBe(400);
+			}
+		});
+
 		test("writes an audit log entry with old and new name", async () => {
 			await seedCustomKey();
 
@@ -1292,6 +1524,29 @@ describe("provider keys route", () => {
 				});
 				expect(res.status).toBe(403);
 				expect((await res.json()).message).toContain("enterprise plan");
+			},
+		);
+
+		test.each(["free", "pro"] as const)(
+			"rejects a base URL on a built-in provider on the %s plan",
+			async (plan) => {
+				await setPlan(plan);
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({
+						provider: "xai",
+						token: "new-xai-token",
+						baseUrl: "https://example-2.com",
+						organizationId: "test-org-id",
+					}),
+				});
+				expect(res.status).toBe(403);
+				expect((await res.json()).message).toContain("enterprise plan");
+				const stored = await db.query.providerKey.findFirst({
+					where: { provider: { eq: "xai" } },
+				});
+				expect(stored).toBeUndefined();
 			},
 		);
 

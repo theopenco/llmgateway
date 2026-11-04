@@ -6,7 +6,7 @@ export const typesafeModels = [
 		name: "Jev 1.13",
 		aliases: ["jev", "jev-latest", "jev-preview"],
 		description:
-			"TypeSafe's System One decision model. Takes a state plus named typed questions and returns calibrated yes/no, choice and score answers with probabilities instead of generated text. Served via the /v1/systemone endpoint.",
+			"TypeSafe's System One decision model. Takes a state plus named typed questions and returns calibrated yes/no, choice and score answers with probabilities instead of generated text. Served via the /v1/decisions endpoint and the TypeSafe-compatible /v1/systemone endpoint.",
 		family: "typesafe",
 		output: ["decision"],
 		releasedAt: new Date("2026-09-15"),

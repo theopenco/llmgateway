@@ -11,6 +11,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
 
 import { TimeZoneProvider } from "@llmgateway/shared";
+import { ProviderMarksProvider } from "@llmgateway/shared/components";
 
 import type { AppConfig } from "@/lib/config-server";
 import type { TimeZonePreference } from "@llmgateway/shared";
@@ -81,7 +82,11 @@ export function Providers({ children, config, timeZone }: ProvidersProps) {
 					storageKey="theme"
 				>
 					<QueryClientProvider client={queryClient}>
-						<PostHogProvider client={posthog}>{children}</PostHogProvider>
+						<PostHogProvider client={posthog}>
+							<ProviderMarksProvider apiUrl={config.apiUrl}>
+								{children}
+							</ProviderMarksProvider>
+						</PostHogProvider>
 						{process.env.NODE_ENV === "development" && (
 							<ReactQueryDevtools buttonPosition="top-right" />
 						)}

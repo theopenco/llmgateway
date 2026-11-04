@@ -182,6 +182,11 @@ export interface RoutingMetadata {
 	serviceTierSource?: "request" | "coding-plan-default";
 	// Parameters that were stripped from the request because the selected provider doesn't support them
 	strippedParameters?: string[];
+	/**
+	 * Set when a retry dropped the conversation's OpenAI-format encrypted
+	 * reasoning to move to a credential that could not verify it.
+	 */
+	encryptedReasoningDropped?: boolean;
 	// Set when the request was resolved through a named dynamic route
 	dynamicRoute?: {
 		name: string;

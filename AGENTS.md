@@ -81,7 +81,9 @@ Keep scratch files (PR bodies, logs) under the worktree's `.context/`; `/tmp` is
 - **Airside** (`apps/airside`) - Self-serve provider portal (Next.js App Router)
 - **Docs** (`apps/docs`) - Documentation site (Next.js + Fumadocs)
 - **Admin** (`ee/admin`) - Internal admin dashboard (Enterprise License)
-- **Packages**: `packages/db` (Drizzle schema and migrations), `packages/models` (model and provider catalogue), `packages/actions` (shared request/cost logic), `packages/shared` (shared utilities and components), `packages/cache` (Redis)
+- **Mobile** (`apps/mobile`) - React Native app
+- **Enterprise packages**: `ee/audit` (audit log), `ee/guardrails` (content guardrails)
+- **Packages**: `packages/db` (Drizzle schema and migrations), `packages/models` (model and provider catalogue), `packages/actions` (shared request/cost logic), `packages/shared` (shared utilities and components), `packages/cache` (Redis), `packages/logger`, `packages/instrumentation` (OpenTelemetry), `packages/canvas` (canvas chart specs), `packages/benchmarks` (model benchmarks), `packages/scripts` (one-off ops scripts)
 
 Production domain mapping (counterintuitive): `api.llmgateway.io` serves `apps/gateway`, and `internal.llmgateway.io` serves `apps/api`. Production runs entirely on GCP; see the `infrastructure` skill.
 
@@ -95,13 +97,14 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Always use the internal api (`apps/api/`) for backend operations, never Next.js API routes or server actions that wrap it. Mutate from the browser with the typed client (`$api.useMutation`); use a server API client only for SSR reads.
 - Never suppress errors with a silent `.catch(() => [])`, `.catch(() => ({}))`, or another empty/default fallback. Handle a deliberate recovery in the owning helper with explicit logging and last-known-good data when available; otherwise let the error propagate.
 - Do not use broad try/catch in API handlers unless to check for specific errors; let errors propagate to the global error handler.
-- Always use top-level `import`, never `require`. Dynamic imports are allowed only for the optional Jelly scene in `packages/shared/src/components/jelly/jelly-logo.tsx` and the DevPass card form in `apps/code/src/app/dashboard/components/DevPassPaymentMethod.tsx`.
+- Always use top-level `import`, never `require`. Dynamic imports are allowed only in frontend code (`next/dynamic` code splitting, lazy-loaded heavy client libraries, `content-collections`) and in tests; backend code uses static imports.
 - Apply DRY principles; when a helper exists in one app, extract it into a shared package instead of copying it.
 - Do not add caching or memoization around `process.env` reads unless there is a measured hot-path need.
 - Always use pnpm for package management.
 - Security gating is enforced server-side; UI gates are UX only.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
+- Chart tooltips list series by value, descending: use `ChartTooltipContent`, or `sortTooltipPayload`/`sortByValueDesc` from `@llmgateway/shared/chart-tooltip` in a custom tooltip.
 - NEVER query the `log` table from the gateway request path, and never fetch a user-supplied URL with a bare `fetch()` — see the `gateway` skill.
 - `log` can hold billions of rows of high-throughput, sensitive data (prompts and completions). Load the `database` skill before adding any `log` read.
 - Models and provider mappings on `origin/main` are never removed, only deactivated — see the `add-model` skill.

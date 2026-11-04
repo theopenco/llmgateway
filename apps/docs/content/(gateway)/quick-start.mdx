@@ -404,18 +404,19 @@ const { text } = await generateText({
 
 ```ts title="vercel-ai-sdk.ts"
 import { createOpenAI } from "@ai-sdk/openai";
+import { generateText } from "ai";
 
 const llmgateway = createOpenAI({
 	baseURL: "https://api.llmgateway.io/v1",
 	apiKey: process.env.LLM_GATEWAY_API_KEY!,
 });
 
-const completion = await llmgateway.chat({
-	model: "gpt-4o",
+const { text } = await generateText({
+	model: llmgateway.chat("gpt-4o"),
 	messages: [{ role: "user", content: "Hello, how are you?" }],
 });
 
-console.log(completion.choices[0].message.content);
+console.log(text);
 ```
 
 ```ts title="openai-sdk.ts"

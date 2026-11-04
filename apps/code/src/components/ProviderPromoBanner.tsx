@@ -2,8 +2,6 @@
 
 import { ArrowUpRight } from "lucide-react";
 
-import { cn } from "@/lib/utils";
-
 import {
 	ProviderPromoContent,
 	useProviderPromo,
@@ -18,15 +16,10 @@ export function ProviderPromoBanner() {
 
 	return (
 		<a
-			href={promo.id === "scx" ? promo.announcementUrl : promo.providerUrl}
+			href={promo.announcementUrl}
 			target="_blank"
 			rel="noopener noreferrer"
-			className={cn(
-				"group block focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current",
-				promo.id === "scx"
-					? "border-b border-neutral-200 bg-white text-neutral-950 dark:border-white/15 dark:bg-neutral-950 dark:text-white"
-					: "bg-[#a8f399] text-[#0c1a08]",
-			)}
+			className="group block border-b border-neutral-200 bg-white text-neutral-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current dark:border-white/15 dark:bg-neutral-950 dark:text-white"
 		>
 			<div className="container mx-auto flex flex-wrap items-center justify-center gap-x-2.5 gap-y-2 px-4 py-2.5 text-[13px] font-medium leading-tight">
 				<ProviderPromoContent

@@ -34,7 +34,7 @@ const OUTPUT_ENDPOINT: Record<
 		endpoint: "/v1/audio/transcriptions",
 	},
 	rerank: { label: "a rerank", endpoint: "/v1/rerank" },
-	decision: { label: "a typed-decision", endpoint: "/v1/systemone" },
+	decision: { label: "a typed-decision", endpoint: "/v1/decisions" },
 	search: { label: "a web search", endpoint: "/v1/search" },
 };
 

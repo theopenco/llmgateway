@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
+import { ChatSupportTrigger } from "@/components/chat-support-trigger";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useFetchClient } from "@/lib/fetch-client";
@@ -143,12 +144,16 @@ function getTextFromParts(message: UIMessage): string {
 		.join("");
 }
 
-export function ChatSupport() {
+export function ChatSupport({
+	defaultOpen = false,
+}: {
+	defaultOpen?: boolean;
+}) {
 	const fetchClient = useFetchClient();
 	const queryClient = useQueryClient();
 	const { isAuthenticated } = useSessionStatus();
 	const { user } = useUser({ enabled: isAuthenticated });
-	const [isOpen, setIsOpen] = useState(false);
+	const [isOpen, setIsOpen] = useState(defaultOpen);
 	const [hasUnread, setHasUnread] = useState(false);
 	const [text, setText] = useState("");
 	const [userName, setUserName] = useState("");
@@ -262,11 +267,9 @@ export function ChatSupport() {
 		}
 	}, [convData, status, messages, setMessages]);
 
-	useEffect(() => {
-		if (convData?.escalatedAt) {
-			setEscalated(true);
-		}
-	}, [convData?.escalatedAt]);
+	// Derived during render instead of mirrored into state with an effect;
+	// `escalated` still tracks escalations made from this session.
+	const isEscalated = escalated || Boolean(convData?.escalatedAt);
 
 	const reactionBySequence = useMemo(() => {
 		const map: Record<number, "like" | "dislike"> = {};
@@ -364,7 +367,7 @@ export function ChatSupport() {
 		(acc, m, i) => (m.role === "user" ? i : acc),
 		-1,
 	);
-	const showSuggestions = messages.length === 0 && !escalated && !isResolved;
+	const showSuggestions = messages.length === 0 && !isEscalated && !isResolved;
 	const requestedHuman = useMemo(
 		() =>
 			messages.some(
@@ -373,7 +376,8 @@ export function ChatSupport() {
 		[messages],
 	);
 	const showEscalation =
-		!escalated && (userMessageCount >= ESCALATION_THRESHOLD || requestedHuman);
+		!isEscalated &&
+		(userMessageCount >= ESCALATION_THRESHOLD || requestedHuman);
 	const canResolve = !isResolved && userMessageCount >= 1;
 
 	const escalateMutation = useMutation({
@@ -873,7 +877,7 @@ export function ChatSupport() {
 								</div>
 							)
 						)}
-						{escalated && !isResolved && (
+						{isEscalated && !isResolved && (
 							<div className="shrink-0 border-t border-border bg-green-50 px-4 py-2.5 dark:bg-green-950/30">
 								<p className="text-xs text-green-700 dark:text-green-400">
 									We&apos;ve notified our team. We&apos;ll reply here and via
@@ -925,7 +929,7 @@ export function ChatSupport() {
 									onChange={(e) => setText(e.target.value)}
 									onKeyDown={handleKeyDown}
 									placeholder={
-										escalated
+										isEscalated
 											? "Message the support team..."
 											: "Ask about LLM Gateway..."
 									}
@@ -947,35 +951,11 @@ export function ChatSupport() {
 				)}
 			</div>
 
-			<button
-				type="button"
+			<ChatSupportTrigger
+				isOpen={isOpen}
+				hasUnread={hasUnread}
 				onClick={isOpen ? () => setIsOpen(false) : handleOpen}
-				style={{
-					bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))",
-					right: "calc(1rem + env(safe-area-inset-right, 0px))",
-					touchAction: "manipulation",
-				}}
-				className={cn(
-					"fixed z-[70] flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-all duration-200 hover:bg-primary/90 hover:shadow-xl active:scale-95 sm:!right-6 sm:flex",
-					isOpen && "rotate-90",
-					isOpen && "hidden sm:flex",
-				)}
-				aria-label={isOpen ? "Close chat" : "Open chat support"}
-			>
-				{isOpen ? (
-					<X className="size-5" />
-				) : (
-					<>
-						<MessageCircle className="size-5" />
-						{hasUnread && (
-							<span className="absolute -right-0.5 -top-0.5 flex size-3">
-								<span className="absolute inline-flex size-full animate-ping rounded-full bg-destructive opacity-75" />
-								<span className="relative inline-flex size-3 rounded-full bg-destructive" />
-							</span>
-						)}
-					</>
-				)}
-			</button>
+			/>
 		</>
 	);
 }

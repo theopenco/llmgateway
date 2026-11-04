@@ -24,34 +24,10 @@ const nextConfig: NextConfig = {
 		// llms-full.txt contained relative links. Redirect them to their real
 		// home on docs.llmgateway.io.
 		const docsFeatureSlugs = [
-			"anthropic-endpoint",
 			"api-keys",
-			"caching",
 			"caching/gateway-caching",
 			"caching/provider-cache-control",
 			"coding-agents",
-			"compliance",
-			"cost-breakdown",
-			"custom-providers",
-			"data-retention",
-			"documents",
-			"embeddable-payments",
-			"embeddings",
-			"image-generation",
-			"master-keys",
-			"metadata",
-			"moderations",
-			"ocr",
-			"reasoning",
-			"response-healing",
-			"routing",
-			"service-tiers",
-			"sessions",
-			"source",
-			"speech-generation",
-			"video-generation",
-			"vision",
-			"web-search",
 		];
 		const apiReferenceSlugs = [
 			"v1_audio_speech",
@@ -309,7 +285,7 @@ const nextConfig: NextConfig = {
 			})),
 			{
 				source: "/features/auto-routing",
-				destination: "https://docs.llmgateway.io/features/routing",
+				destination: "/features/routing",
 				permanent: true,
 			},
 			// API reference pages (fumadocs OpenAPI slugs) indexed on the

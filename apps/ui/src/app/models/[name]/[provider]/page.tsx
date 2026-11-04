@@ -32,7 +32,7 @@ import { buildProviderTabBranding } from "@/components/models/provider-tab-brand
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
-import { findEffectiveProviderDiscount } from "@/lib/discount";
+import { findEffectiveProviderDiscount, applyDiscount } from "@/lib/discount";
 import { fetchProviders } from "@/lib/fetch-models";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
@@ -185,6 +185,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		],
 	};
 
+	// OCR bills per page; its zero token prices must not advertise a free offer.
+	const ocrPagePrice = Number(providerMapping.ocrPagePrice ?? 0);
+	const offerPrice =
+		ocrPagePrice > 0
+			? applyDiscount(ocrPagePrice, bannerDiscount?.discountPercent)
+			: (providerMapping.inputPrice ?? 0);
+	const offerUnit = ocrPagePrice > 0 ? "per page" : "per 1M input tokens";
+
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
@@ -204,14 +212,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		offers: {
 			"@type": "AggregateOffer",
 			priceCurrency: "USD",
-			lowPrice: providerMapping.inputPrice ?? 0,
-			highPrice: providerMapping.inputPrice ?? 0,
+			lowPrice: offerPrice,
+			highPrice: offerPrice,
 			offerCount: 1,
 			priceSpecification: {
 				"@type": "UnitPriceSpecification",
-				price: providerMapping.inputPrice ?? 0,
+				price: offerPrice,
 				priceCurrency: "USD",
-				unitText: "per 1M input tokens",
+				unitText: offerUnit,
 			},
 			availability: "https://schema.org/InStock",
 			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,

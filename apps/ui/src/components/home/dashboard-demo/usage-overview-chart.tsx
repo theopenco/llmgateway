@@ -17,6 +17,7 @@ import {
 } from "@/components/dashboard/overview-data";
 import { formatUsageDateRange } from "@/components/dashboard/usage-comparison";
 
+import { sortByValueDesc } from "@llmgateway/shared/chart-tooltip";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -114,15 +115,18 @@ function TooltipSection({
 				</p>
 			) : (
 				<div className="mt-1 space-y-1">
-					{[
-						{ label: "Input", value: inputCost ?? 0, color: COLORS.input },
-						{ label: "Output", value: outputCost ?? 0, color: COLORS.output },
-						{
-							label: "Cached input",
-							value: cachedInputCost ?? 0,
-							color: COLORS.cached,
-						},
-					].map((item) => (
+					{sortByValueDesc(
+						[
+							{ label: "Input", value: inputCost ?? 0, color: COLORS.input },
+							{ label: "Output", value: outputCost ?? 0, color: COLORS.output },
+							{
+								label: "Cached input",
+								value: cachedInputCost ?? 0,
+								color: COLORS.cached,
+							},
+						],
+						(item) => item.value,
+					).map((item) => (
 						<div
 							key={item.label}
 							className="flex items-center justify-between gap-6 text-sm"

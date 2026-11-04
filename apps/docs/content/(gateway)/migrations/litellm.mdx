@@ -38,7 +38,7 @@ Both services use OpenAI-compatible endpoints, so migration is a two-line change
 | Infrastructure to manage | Yes (you run it)      | No (we run it)       |
 | Managed cloud option     | No                    | Yes                  |
 | Analytics dashboard      | Basic                 | Per-request detail   |
-| Response caching         | Manual setup          | Built-in, automatic  |
+| Response caching         | Manual setup          | Built-in, opt-in     |
 | Cost tracking            | Via callbacks         | Native, real-time    |
 | Provider key management  | Config file           | Web UI with rotation |
 | Uptime & scaling         | You handle it         | 99.9% SLA (managed)  |
@@ -220,7 +220,7 @@ model_list:
 
 With LLM Gateway, you don't need a config file. Provider keys are managed in the web dashboard, or you can use the default LLM Gateway keys.
 
-If you want to use your own provider keys, configure them in the dashboard under Settings > Provider Keys.
+If you want to use your own provider keys, configure them in the dashboard under Organization > Provider Keys.
 
 </Step>
 </Steps>
@@ -307,7 +307,7 @@ After verifying LLM Gateway works for your use case, you can decommission your L
 
 - **No servers to babysit** — We handle scaling, uptime, and updates
 - **Real-time cost visibility** — See what every request costs, broken down by model
-- **Automatic caching** — Repeated requests hit cache, reducing your spend
+- **Response caching** — Enable it per project and repeated requests hit cache, reducing your spend
 - **Web-based management** — No more editing YAML files for config changes
 - **New models immediately** — Access new releases within 48 hours, no deployment needed
 

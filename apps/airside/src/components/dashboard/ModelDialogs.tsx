@@ -46,10 +46,14 @@ import { useApi } from "@/lib/fetch-client";
 import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
 import {
+	CONTEXT_TIER_TOLERANCE,
+	getContextSizeDeviation,
 	isValidModelId,
 	modelIdProblem,
 	suggestModelId,
 } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
+import { cachedInputPriceWarning } from "@llmgateway/shared/prompt-cache";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
@@ -163,6 +167,51 @@ function QuantizationField({
 					))}
 				</SelectContent>
 			</Select>
+		</div>
+	);
+}
+
+/**
+ * Blocks a listing whose context size is more than 10% away from the largest
+ * window the model is served with; the API rejects it as well.
+ */
+function ContextSizeWarning({
+	contextSize,
+	referenceContextSize,
+	modelName,
+}: {
+	contextSize: string;
+	referenceContextSize: number | null | undefined;
+	modelName: string;
+}) {
+	const value = Number(contextSize);
+	const deviation = getContextSizeDeviation(value, referenceContextSize);
+	if (!deviation || !referenceContextSize) {
+		return null;
+	}
+	const tolerance = `${CONTEXT_TIER_TOLERANCE * 100}%`;
+	return (
+		<div
+			role="alert"
+			data-testid="context-size-warning"
+			className="border-destructive bg-destructive/10 flex gap-3 rounded-md border-2 p-4"
+		>
+			<AlertTriangle className="text-destructive size-6 shrink-0" aria-hidden />
+			<div className="space-y-1 text-sm">
+				<p className="font-semibold">
+					{deviation === "below"
+						? `Context size too far below ${modelName}'s window`
+						: `Context size too far above ${modelName}'s window`}
+				</p>
+				<p>
+					{modelName} is served with up to {formatNumber(referenceContextSize)}{" "}
+					tokens of context. Listings must declare a window within {tolerance}{" "}
+					of it, so {formatNumber(value)} tokens can&apos;t be submitted.{" "}
+					{deviation === "below"
+						? "A deployment with a smaller window can't be listed for this model."
+						: "Declare the window your deployment really accepts: preflight sends a prompt filling about 90% of it."}
+				</p>
+			</div>
 		</div>
 	);
 }
@@ -493,6 +542,25 @@ function regionFaresToBody(rows: RegionFareRow[]) {
  * region with `provider/model:region`; every other request pays the default
  * fares.
  */
+function CachedPriceWarning({
+	inputPrice,
+	cachedInputPrice,
+}: {
+	inputPrice: string;
+	cachedInputPrice: string;
+}) {
+	const warning = cachedInputPriceWarning(inputPrice, cachedInputPrice);
+	return warning ? (
+		<p
+			className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400"
+			data-testid="cached-price-warning"
+		>
+			<AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+			{warning}
+		</p>
+	) : null;
+}
+
 function RegionFaresEditor({
 	idPrefix,
 	rows,
@@ -593,6 +661,10 @@ function RegionFaresEditor({
 									setRow(index, { cachedInputPrice: e.target.value })
 								}
 								placeholder="same as default"
+							/>
+							<CachedPriceWarning
+								inputPrice={row.inputPrice}
+								cachedInputPrice={row.cachedInputPrice}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -918,6 +990,9 @@ export function RegisterModelDialog({
 		apiFormat,
 		contextSize: Number(contextSize) || undefined,
 		maxOutput: Number(maxOutput) || undefined,
+		promptCaching:
+			Boolean(cachedInputPrice) ||
+			regionFares.some((fare) => Boolean(fare.cachedInputPrice)),
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -970,6 +1045,15 @@ export function RegisterModelDialog({
 						}
 						if (!catalogue.isSuccess) {
 							toast.error("Load the catalogue before saving.");
+							return;
+						}
+						if (
+							getContextSizeDeviation(
+								Number(contextSize),
+								canonicalModel?.referenceContextSize,
+							)
+						) {
+							toast.error("Fix the context size before saving.");
 							return;
 						}
 						if (verification?.status !== "passed") {
@@ -1222,6 +1306,11 @@ export function RegisterModelDialog({
 							/>
 						)}
 					</div>
+					<ContextSizeWarning
+						contextSize={contextSize}
+						referenceContextSize={canonicalModel?.referenceContextSize}
+						modelName={trimmedModelName}
+					/>
 
 					{catalogue.isSuccess && !canonicalModel && (
 						<div className="space-y-2">
@@ -1430,6 +1519,10 @@ export function RegisterModelDialog({
 									onChange={(e) => setCachedInputPrice(e.target.value)}
 									placeholder="0.5"
 								/>
+								<CachedPriceWarning
+									inputPrice={inputPrice}
+									cachedInputPrice={cachedInputPrice}
+								/>
 							</div>
 							<div className="space-y-2">
 								<Label htmlFor="model-request-price">Per-request $</Label>
@@ -1466,7 +1559,10 @@ export function RegisterModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -1644,7 +1740,10 @@ export function VerifyModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -1913,6 +2012,15 @@ export function EditModelDialog({
 							toast.error("Load the catalogue before saving.");
 							return;
 						}
+						if (
+							getContextSizeDeviation(
+								Number(contextSize),
+								canonicalModel?.referenceContextSize,
+							)
+						) {
+							toast.error("Fix the context size before saving.");
+							return;
+						}
 						updateModel.mutate({
 							params: { path: { id: model.id } },
 							body: {
@@ -2005,6 +2113,11 @@ export function EditModelDialog({
 							/>
 						)}
 					</div>
+					<ContextSizeWarning
+						contextSize={contextSize}
+						referenceContextSize={canonicalModel?.referenceContextSize}
+						modelName={model.modelName}
+					/>
 					{catalogue.isSuccess && !canonicalModel && (
 						<div className="space-y-2">
 							<Label htmlFor="edit-description">Description</Label>
@@ -2166,7 +2279,10 @@ export function EditModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -2371,6 +2487,10 @@ export function FileFareDialog({
 								value={cachedInputPrice}
 								onChange={(e) => setCachedInputPrice(e.target.value)}
 								placeholder="0.5"
+							/>
+							<CachedPriceWarning
+								inputPrice={inputPrice}
+								cachedInputPrice={cachedInputPrice}
 							/>
 						</div>
 						<div className="space-y-2">

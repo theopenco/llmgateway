@@ -622,6 +622,14 @@ mockOpenAIServer.post(
 	},
 );
 
+// Providers whose base URL already ends in the API version (Novita, among
+// others) call `/chat/completions` on it directly.
+mockOpenAIServer.post("/chat/completions", (c) => {
+	const url = new URL(c.req.url);
+	url.pathname = "/v1/chat/completions";
+	return mockOpenAIServer.fetch(new Request(url, c.req.raw));
+});
+
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
@@ -668,6 +676,35 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				},
 			});
 		}
+	}
+
+	// OpenAI sheds Flex capacity with `flex_unavailable`; streaming requests
+	// get it as an immediate `error` event. Standard-tier requests still pass.
+	if (
+		userMessage.includes("TRIGGER_FLEX_UNAVAILABLE") &&
+		body.service_tier === "flex"
+	) {
+		const flexError = {
+			type: "resource_unavailable",
+			code: "flex_unavailable",
+			message:
+				"Flex processing is temporarily unavailable. Please try again later or use standard processing.",
+			param: null,
+		};
+		if (body.stream === true) {
+			return streamSSE(c, async (stream) => {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "error",
+						error: flexError,
+						sequence_number: 0,
+					}),
+					id: "0",
+				});
+			});
+		}
+		c.status(429);
+		return c.json({ error: flexError });
 	}
 
 	// Azure (and OpenAI) silently serve a premium request at standard when the
@@ -1549,6 +1586,96 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
 		answers,
 		usage: { input_tokens: 441, output_tokens: 69 },
+	});
+});
+
+// Microsoft Foundry serves Microsoft-Decision-1 behind the same System One
+// shape on the resource host, so reuse the TypeSafe handler.
+mockOpenAIServer.post("/providers/microsoft/v1/systemone", async (c) => {
+	const forwarded = new Request(new URL("/v1/systemone", c.req.url), {
+		method: "POST",
+		headers: c.req.raw.headers,
+		body: await c.req.text(),
+	});
+	return await mockOpenAIServer.fetch(forwarded);
+});
+
+// OpenAI Decisions: POST /v1/decisions takes an ordered array of named
+// predicate/choice/score questions and answers in the same order. Rejects the
+// TypeSafe shape so specs prove the gateway translated the request.
+mockOpenAIServer.post("/v1/decisions", async (c) => {
+	const body = await c.req.json();
+	if (
+		!Array.isArray(body.questions) ||
+		(typeof body.input !== "string" && !Array.isArray(body.input))
+	) {
+		c.status(400);
+		return c.json({
+			error: {
+				message: "questions must be an array and input a string or messages",
+				type: "invalid_request_error",
+				param: null,
+				code: null,
+			},
+		});
+	}
+	if (JSON.stringify(body.input).includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const answers = body.questions.map(
+		(question: {
+			type: string;
+			name?: string;
+			choices?: { value: string }[];
+			levels?: { label: string }[];
+		}) => {
+			if (question.type === "predicate") {
+				return { type: "predicate", name: question.name, probability: 0.92 };
+			}
+			if (question.type === "choice") {
+				const choices = question.choices ?? [];
+				return {
+					type: "choice",
+					name: question.name,
+					choice: choices[0]?.value,
+					probabilities: choices.map((choice, index) => ({
+						value: choice.value,
+						probability: index === 0 ? 1 : 0,
+					})),
+					confidence: 0.93,
+				};
+			}
+			if (question.type === "score") {
+				const levels = question.levels ?? [];
+				const score = levels.length - 1;
+				return {
+					type: "score",
+					name: question.name,
+					score,
+					probabilities: levels.map((level, index) => ({
+						value: index,
+						label: level.label,
+						probability: index === score ? 1 : 0,
+					})),
+					confidence: 0.55,
+				};
+			}
+			return { type: "refusal", name: question.name ?? null };
+		},
+	);
+
+	return c.json({
+		model: body.model,
+		answers,
+		usage: {
+			input_tokens: 300,
+			input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+			output_tokens: 0,
+			output_tokens_details: { reasoning_tokens: 0 },
+			total_tokens: 300,
+		},
 	});
 });
 
@@ -3296,6 +3423,7 @@ export function startMockServer(
 	handleRequest: (request: Request) => Response | Promise<Response> = (
 		request,
 	) => mockOpenAIServer.fetch(request),
+	hostname?: string,
 ): Promise<string> {
 	return new Promise((resolve) => {
 		if (server) {
@@ -3307,9 +3435,13 @@ export function startMockServer(
 			{
 				fetch: handleRequest,
 				port,
+				hostname,
 			},
 			(info) => {
-				currentMockServerUrl = `http://localhost:${info.port}`;
+				const serverUrl = new URL("http://localhost");
+				serverUrl.hostname = hostname ?? "localhost";
+				serverUrl.port = String(info.port);
+				currentMockServerUrl = serverUrl.origin;
 				console.log(`Mock OpenAI server started on port ${info.port}`);
 				resolve(currentMockServerUrl);
 			},

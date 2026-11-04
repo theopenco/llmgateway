@@ -599,6 +599,8 @@ export function parseProviderResponse(
 				for (const detail of json.usageMetadata.promptTokensDetails) {
 					if (detail?.modality === "AUDIO" && detail.tokenCount) {
 						audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+					} else if (detail?.modality === "IMAGE" && detail.tokenCount) {
+						imageInputTokens = (imageInputTokens ?? 0) + detail.tokenCount;
 					}
 				}
 			}

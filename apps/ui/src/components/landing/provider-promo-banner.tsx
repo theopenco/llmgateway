@@ -35,16 +35,9 @@ export function ProviderPromoBanner({
 			<div className="min-h-0 overflow-hidden">
 				<div className="mx-auto max-w-[1400px] pt-2">
 					<Link
-						href={
-							promo.id === "scx" ? promo.announcementPath : promo.providerPath
-						}
+						href={promo.announcementPath}
 						prefetch={true}
-						className={cn(
-							"group/promo flex flex-wrap items-center justify-center gap-x-2.5 gap-y-2 rounded-2xl px-4 py-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current",
-							promo.id === "scx"
-								? "border border-neutral-200 bg-white text-neutral-950 dark:border-white/15 dark:bg-neutral-950 dark:text-white"
-								: "bg-[#a8f399] text-[#0c1a08]",
-						)}
+						className="group/promo flex flex-wrap items-center justify-center gap-x-2.5 gap-y-2 rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-neutral-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current dark:border-white/15 dark:bg-neutral-950 dark:text-white"
 					>
 						<ProviderPromoContent
 							key={promo.id}

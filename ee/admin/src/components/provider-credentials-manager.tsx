@@ -96,10 +96,15 @@ import {
 	PROVIDER_MODEL_KINDS,
 } from "@llmgateway/shared";
 import {
+	formatProviderKeyRateLimits,
 	MultiModelIdSelector,
+	parseProviderKeyRateLimitInputs,
+	ProviderKeyRateLimitFields,
 	ReorderableItem,
 	ReorderableList,
 	SearchableSelect,
+	toProviderKeyRateLimitInputs,
+	type ProviderKeyRateLimits,
 } from "@llmgateway/shared/components";
 
 import type {
@@ -399,7 +404,16 @@ function usageMetric(
 }
 
 function isDeletedCredential(credential: ProviderCredential): boolean {
-	return credential.status === "deleted";
+	return (
+		credential.status === "deleted" || credential.status === "pending_deletion"
+	);
+}
+
+/** Why a deleted credential is still listed, including its grace period. */
+function deletedCredentialDescription(credential: ProviderCredential): string {
+	return credential.status === "pending_deletion"
+		? "Pending deletion: only serves conversations whose replayed reasoning it produced, until its teardown grace period ends."
+		: "Deleted: kept for its spend and request history only.";
 }
 
 /** Rotation position, or a dash for a credential the gateway skips. */
@@ -425,7 +439,7 @@ function RotationPosition({
 			className="text-xs text-muted-foreground"
 			title={
 				isDeletedCredential(credential)
-					? "Deleted: kept for its spend and request history only."
+					? deletedCredentialDescription(credential)
 					: "Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
 			}
 		>
@@ -479,6 +493,14 @@ function ManagedCredentialCells({
 			</TableCell>
 			<TableCell className="max-w-[260px] text-sm text-muted-foreground">
 				{credential.comment || "—"}
+				{formatProviderKeyRateLimits(credential) ? (
+					<div
+						className="text-xs tabular-nums"
+						title="Rate limits. While at any cap the credential is skipped."
+					>
+						{formatProviderKeyRateLimits(credential)}
+					</div>
+				) : null}
 			</TableCell>
 			<TableCell className="text-sm">
 				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
@@ -565,26 +587,26 @@ function ManagedCredentialCells({
 							</Link>
 						</Button>
 					)}
-					{/* Update and delete both reject a deleted credential. */}
+					{isAdmin ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
+							onClick={() => onEdit(credential)}
+						>
+							<Pencil className="h-4 w-4" />
+						</Button>
+					) : null}
+					{/* Delete rejects an already-deleted credential. */}
 					{isDeleted || !isAdmin ? null : (
-						<>
-							<Button
-								variant="ghost"
-								size="sm"
-								aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
-								onClick={() => onEdit(credential)}
-							>
-								<Pencil className="h-4 w-4" />
-							</Button>
-							<Button
-								variant="ghost"
-								size="sm"
-								aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
-								onClick={() => onDelete(credential)}
-							>
-								<Trash2 className="h-4 w-4" />
-							</Button>
-						</>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
+							onClick={() => onDelete(credential)}
+						>
+							<Trash2 className="h-4 w-4" />
+						</Button>
 					)}
 				</div>
 			</TableCell>
@@ -1324,6 +1346,7 @@ export function ProviderCredentialsManager({
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								modelSyncEnabled: values.modelSyncEnabled,
+								...values.rateLimits,
 								skipValidation: values.skipValidation,
 								carrierKey: values.carrierKey,
 							},
@@ -1357,13 +1380,17 @@ export function ProviderCredentialsManager({
 								comment: values.comment || null,
 								variant: values.variant,
 								region: values.region || null,
-								status: values.status,
+								// A deleted credential keeps its status; the API rejects any.
+								...(isDeletedCredential(editing)
+									? {}
+									: { status: values.status }),
 								config: values.config,
 								usageLimit: values.usageLimit || null,
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								allowedModelsBase: editing.allowedModels,
 								modelSyncEnabled: values.modelSyncEnabled,
+								...values.rateLimits,
 								skipValidation: values.skipValidation,
 							},
 						})
@@ -1431,6 +1458,7 @@ interface CredentialFormValues {
 	allowedModels: string[];
 	/** Let the daily model sync append models the account starts serving. */
 	modelSyncEnabled: boolean;
+	rateLimits: ProviderKeyRateLimits;
 	skipValidation: boolean;
 	/** Custom carriers, on create: serve the carrier with this key. */
 	carrierKey: boolean;
@@ -1653,6 +1681,9 @@ function CredentialDialog({
 	);
 	const [modelSyncEnabled, setModelSyncEnabled] = useState(
 		credential?.modelSyncEnabled ?? true,
+	);
+	const [rateLimits, setRateLimits] = useState(() =>
+		toProviderKeyRateLimitInputs(credential),
 	);
 	// An edit defaults to skipping the live check: the credential already passed
 	// one when it was stored, so re-probing on every metadata tweak spends an
@@ -1942,6 +1973,11 @@ function CredentialDialog({
 			setError("Max spend must be a non-negative number.");
 			return;
 		}
+		const parsedRateLimits = parseProviderKeyRateLimitInputs(rateLimits);
+		if ("error" in parsedRateLimits) {
+			setError(parsedRateLimits.error);
+			return;
+		}
 		setError(null);
 		onSubmit({
 			provider,
@@ -1954,6 +1990,7 @@ function CredentialDialog({
 			usageLimit: trimmedLimit,
 			allowedModels,
 			modelSyncEnabled,
+			rateLimits: parsedRateLimits.limits,
 			skipValidation,
 			carrierKey,
 		});
@@ -2464,7 +2501,20 @@ function CredentialDialog({
 						</p>
 					</div>
 
-					{isEdit ? (
+					<ProviderKeyRateLimitFields
+						idPrefix="credential-rate-limits"
+						values={rateLimits}
+						onChange={setRateLimits}
+					/>
+
+					{credential && isDeletedCredential(credential) ? (
+						<div className="flex flex-col gap-2">
+							<Label>Status</Label>
+							<p className="text-sm text-muted-foreground">
+								{deletedCredentialDescription(credential)}
+							</p>
+						</div>
+					) : isEdit ? (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="status">Status</Label>
 							<Select

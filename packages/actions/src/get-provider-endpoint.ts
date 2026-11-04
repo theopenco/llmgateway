@@ -17,6 +17,7 @@ import {
 	resolveVertexTokenType,
 	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
+import { isProviderHostnameLabel } from "@llmgateway/shared";
 
 import { getBedrockProfilePrefix } from "./provider-api-format.js";
 
@@ -101,7 +102,7 @@ function resolveWorkspaceScopedEndpoint(
 			`Provider ${provider} region ${region} is only reachable through a workspace-dedicated endpoint - set the workspace id on the provider key or via the ${regionalEnvVar} env var`,
 		);
 	}
-	if (!/^[a-zA-Z0-9-]{1,64}$/.test(workspaceId)) {
+	if (!isProviderHostnameLabel(workspaceId)) {
 		throw new Error(
 			`Provider ${provider} workspace id is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${regionalEnvVar} env var)`,
 		);
@@ -220,7 +221,6 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	perplexity: "https://api.perplexity.ai",
 	novita: "https://api.novita.ai/v3/openai",
 	runpod: "https://api.runpod.ai",
-	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
 	"meta-contributor": "https://api.meta.ai",
@@ -244,6 +244,36 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 	typesafe: "https://api.typesafe.ai",
 };
+
+/**
+ * Path of a provider's typed-decision API, relative to its base URL. OpenAI
+ * serves its own Decisions API; Azure serves Microsoft-Decision-1 on the
+ * Foundry resource behind a TypeSafe-compatible System One route; TypeSafe
+ * serves System One at the root.
+ */
+export function getDecisionsUpstreamPath(provider: ProviderId): string {
+	switch (provider) {
+		case "openai":
+			return "/v1/decisions";
+		case "azure":
+			return "/providers/microsoft/v1/systemone";
+		default:
+			return "/v1/systemone";
+	}
+}
+
+/**
+ * Microsoft Foundry host for an Azure resource. Partner-model routes such as
+ * Microsoft-Decision-1 live here rather than on <resource>.openai.azure.com.
+ */
+export function getAzureFoundryBaseUrl(resource: string): string {
+	if (!isProviderHostnameLabel(resource)) {
+		throw new Error(
+			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
+		);
+	}
+	return `https://${resource}.services.ai.azure.com`;
+}
 
 export function getProviderDefaultBaseUrl(
 	provider: ProviderId,
@@ -544,6 +574,12 @@ export function getProviderEndpoint(
 						`Azure requires a resource or a base URL - set either via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} / ${azureEnv?.optional?.baseUrl ?? "LLM_AZURE_BASE_URL"} env vars`,
 					);
 				}
+				if (!isProviderHostnameLabel(resource)) {
+					const azureEnv = getProviderEnvConfig("azure");
+					throw new Error(
+						`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
+					);
+				}
 				url = `https://${resource}.openai.azure.com`;
 				break;
 			}
@@ -567,7 +603,7 @@ export function getProviderEndpoint(
 						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
 					);
 				}
-				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+				if (!isProviderHostnameLabel(resource)) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
 					throw new Error(
 						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
@@ -596,7 +632,7 @@ export function getProviderEndpoint(
 						`Azure Anthropic resource is required - set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var`,
 					);
 				}
-				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+				if (!isProviderHostnameLabel(resource)) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
 					throw new Error(
 						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
@@ -724,16 +760,28 @@ export function getProviderEndpoint(
 				variant,
 			);
 		case "vertex-openai": {
-			const projectId =
+			let projectId =
 				credentialConfig?.project ??
-				providerKeyOptions?.vertex_openai_project_id ??
-				getProviderEnvValue(
+				providerKeyOptions?.vertex_openai_project_id;
+			// Like vertex-anthropic: the credential is service-account JSON that
+			// names its project, so a BYOK key (or the env SA) needs no separate
+			// project setting.
+			if (!projectId && token) {
+				try {
+					projectId = (JSON.parse(token) as { project_id?: string }).project_id;
+				} catch {
+					// not service-account JSON; fall through to env resolution
+				}
+			}
+			if (!projectId && !skipEnvVars) {
+				projectId = getProviderEnvValue(
 					"vertex-openai",
 					"project",
 					configIndex,
 					undefined,
 					variant,
 				);
+			}
 			if (!projectId) {
 				const providerEnv = getProviderEnvConfig("vertex-openai");
 				throw new Error(
@@ -897,9 +945,9 @@ export function getProviderEndpoint(
 							variant,
 						) ??
 						"2025-04-01-preview";
-					return `${url}/openai/deployments/${externalId}/images/generations?api-version=${imageApiVersion}`;
+					return `${url}/openai/deployments/${externalId}/images/generations?api-version=${encodeURIComponent(imageApiVersion)}`;
 				}
-				return `${url}/openai/deployments/${externalId}/chat/completions?api-version=${apiVersion}`;
+				return `${url}/openai/deployments/${externalId}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
 				if (imageGenerations) {
@@ -945,7 +993,7 @@ export function getProviderEndpoint(
 					variant,
 				) ??
 				"2024-05-01-preview";
-			return `${url}/models/chat/completions?api-version=${apiVersion}`;
+			return `${url}/models/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
 		}
 		case "azure-anthropic":
 			// Claude models on Microsoft Foundry are only served through the

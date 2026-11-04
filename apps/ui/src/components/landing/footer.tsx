@@ -643,6 +643,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/models/decisions"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Decisions
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/models/vision"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}

@@ -23,7 +23,6 @@ import {
 import {
 	CarrierMark,
 	providerLogoUrls,
-	RunwareWordmarkIcon,
 	type ApiAirsideProfile,
 } from "@llmgateway/shared/components";
 
@@ -147,18 +146,6 @@ export function Hero({
 				/>
 			);
 		}
-		// Runware's brand asset is a wide wordmark, so give it the full slot
-		// width instead of the square icon treatment.
-		if (providerId === "runware") {
-			return (
-				<RunwareWordmarkIcon
-					className="h-auto w-full"
-					aria-label="Runware"
-					role="img"
-				/>
-			);
-		}
-
 		const LogoComponent = providerLogoUrls[providerId];
 		if (LogoComponent) {
 			return <LogoComponent className="h-24 w-24 object-contain" />;
@@ -361,9 +348,9 @@ export function Hero({
 					<div
 						className={cn(
 							"relative top-10",
-							// Wide wordmarks (Runware's asset, carrier uploads) get the
-							// full slot width instead of the square icon treatment.
-							providerId === "runware" || uploadedLogo
+							// Uploaded carrier wordmarks get the full slot width instead
+							// of the square icon treatment.
+							uploadedLogo
 								? "flex h-24 w-56 items-center sm:w-64"
 								: "h-24 w-24",
 						)}

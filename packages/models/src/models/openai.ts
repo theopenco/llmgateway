@@ -3063,6 +3063,46 @@ export const openaiModels = [
 		],
 	},
 	{
+		id: "gpt-6-luna-decisions",
+		name: "GPT-6 Luna Decisions",
+		description:
+			"GPT-6 Luna served through OpenAI's Decisions API. Reads text or images and returns typed predicate, choice and score answers with probabilities instead of generated text. Served via the /v1/decisions endpoint.",
+		family: "openai",
+		output: ["decision"],
+		stability: "beta",
+		releasedAt: new Date("2026-10-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-6-luna",
+				// Decisions bill input tokens only: no output, cache-read or
+				// cache-write charges. Prompts over 272K input tokens bill at 2x.
+				inputPrice: "0.1e-6",
+				outputPrice: "0",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.1e-6",
+						outputPrice: "0",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.2e-6",
+						outputPrice: "0",
+					},
+				],
+				contextSize: 1050000,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				decisions: true,
+			},
+		],
+	},
+	{
 		id: "gpt-5.2-codex",
 		name: "GPT-5.2 Codex",
 		description:

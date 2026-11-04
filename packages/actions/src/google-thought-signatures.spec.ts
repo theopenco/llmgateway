@@ -6,7 +6,10 @@ import {
 	restoreGoogleReasoningDetails,
 } from "./google-thought-signatures.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
-import { transformGoogleMessages } from "./transform-google-messages.js";
+import {
+	SKIP_THOUGHT_SIGNATURE_VALIDATOR,
+	transformGoogleMessages,
+} from "./transform-google-messages.js";
 
 import type { BaseMessage } from "@llmgateway/models";
 
@@ -237,7 +240,31 @@ describe("Gemini signed text parts", () => {
 		]);
 		expect(result[0]!.parts).toEqual([
 			thought,
-			{ functionCall: { name: "lookup", args: {} } },
+			{
+				functionCall: { name: "lookup", args: {} },
+				thoughtSignature: SKIP_THOUGHT_SIGNATURE_VALIDATOR,
+			},
+		]);
+	});
+
+	it("signs only the first unsigned function call of a step", async () => {
+		const result = await transformGoogleMessages([
+			{
+				role: "assistant",
+				content: "",
+				tool_calls: ["read", "write"].map((name) => ({
+					id: `call_${name}`,
+					type: "function" as const,
+					function: { name, arguments: "{}" },
+				})),
+			},
+		]);
+		expect(result[0]!.parts).toEqual([
+			{
+				functionCall: { name: "read", args: {} },
+				thoughtSignature: SKIP_THOUGHT_SIGNATURE_VALIDATOR,
+			},
+			{ functionCall: { name: "write", args: {} } },
 		]);
 	});
 

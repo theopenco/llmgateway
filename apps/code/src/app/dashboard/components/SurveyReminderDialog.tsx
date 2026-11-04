@@ -29,7 +29,7 @@ const SNOOZE_DAYS = 14;
 const snoozeCookie = (year: number, quarter: number) =>
 	`devpass_census_snooze_${year}_q${quarter}`;
 
-export default function SurveyReminderDialog({ active }: { active: boolean }) {
+export default function SurveyReminderDialog() {
 	const api = useApi();
 	const router = useRouter();
 	const posthog = usePostHog();
@@ -41,7 +41,7 @@ export default function SurveyReminderDialog({ active }: { active: boolean }) {
 		"get",
 		"/model-survey/eligibility",
 		{},
-		{ enabled: active, staleTime: 5 * 60 * 1000 },
+		{ staleTime: 5 * 60 * 1000 },
 	);
 
 	const topModel = data?.topModels.find((m) => !m.alreadySubmitted);

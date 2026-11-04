@@ -15,6 +15,11 @@ import { parseDataUrl } from "./parse-data-url.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 
+// Google's documented placeholder for function calls without a real signature.
+// https://ai.google.dev/gemini-api/docs/thought-signatures
+export const SKIP_THOUGHT_SIGNATURE_VALIDATOR =
+	"skip_thought_signature_validator";
+
 type GoogleAudioFormat =
 	| "wav"
 	| "mp3"
@@ -362,6 +367,14 @@ export async function transformGoogleMessages(
 					}
 					parts.push(functionCallPart);
 				}
+			}
+
+			// Gemini 3+ rejects a step whose first functionCall is unsigned. The
+			// signature is lost when clients drop extra_content and the cache
+			// misses (ZDR, expiry, rewritten ids, other-model history).
+			const firstFunctionCall = parts.find((part) => part.functionCall);
+			if (firstFunctionCall && !firstFunctionCall.thoughtSignature) {
+				firstFunctionCall.thoughtSignature = SKIP_THOUGHT_SIGNATURE_VALIDATOR;
 			}
 
 			result.push({

@@ -182,6 +182,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				regions: [{ id: "global" }],
 			},
 		],
 	},

@@ -62,6 +62,7 @@ const DELIST_REASON_LABEL: Record<
 > = {
 	removed: "Delisted by your crew",
 	claim_revoked: "Delisted · claim revoked",
+	admin: "Delisted by LLM Gateway",
 };
 
 type RegionPrice = NonNullable<
@@ -290,15 +291,48 @@ function RelistModelButton({ model }: { model: AirsideModel }) {
 				}).queryKey,
 			});
 			toast.success(
-				`${model.modelName} is back in service at its last approved fare.`,
+				`Relist request sent. ${model.modelName} returns to service at its last approved fare once LLM Gateway approves it.`,
 			);
 		},
 		onError: (error) => {
 			toast.error(
-				(error as { message?: string })?.message ?? "Failed to relist model",
+				(error as { message?: string })?.message ??
+					"Failed to request a relist",
 			);
 		},
 	});
+	const withdraw = api.useMutation("delete", "/airside/models/{id}/relist", {
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/models", {
+					params: {
+						query: { providerCompanyId: model.providerCompanyId },
+					},
+				}).queryKey,
+			});
+			toast.success("Relist request withdrawn.");
+		},
+		onError: (error) => {
+			toast.error(
+				(error as { message?: string })?.message ??
+					"Failed to withdraw the relist request",
+			);
+		},
+	});
+
+	if (model.relistRequestedAt) {
+		return (
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={withdraw.isPending}
+				data-testid={`withdraw-relist-${model.modelName}`}
+				onClick={() => withdraw.mutate({ params: { path: { id: model.id } } })}
+			>
+				<X className="size-3.5" /> Withdraw request
+			</Button>
+		);
+	}
 
 	return (
 		<Button
@@ -308,12 +342,13 @@ function RelistModelButton({ model }: { model: AirsideModel }) {
 			data-testid={`relist-${model.modelName}`}
 			onClick={() => relist.mutate({ params: { path: { id: model.id } } })}
 		>
-			<RotateCcw className="size-3.5" /> Relist
+			<RotateCcw className="size-3.5" /> Request relist
 		</Button>
 	);
 }
 
 export default function FleetPage() {
+	const queryClient = useQueryClient();
 	const api = useApi();
 	const { company, isLoading: companyLoading } = useCompany();
 
@@ -338,7 +373,14 @@ export default function FleetPage() {
 
 	const importModels = api.useMutation("post", "/airside/models/import", {
 		onSuccess: async (data) => {
-			await modelsQuery.refetch();
+			await Promise.all([
+				modelsQuery.refetch(),
+				queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/airside/filings", {
+						params: { query: { providerCompanyId: company?.id ?? "" } },
+					}).queryKey,
+				}),
+			]);
 			toast.success(
 				data.imported.length > 0
 					? `Imported ${data.imported.length} catalogue model${data.imported.length === 1 ? "" : "s"}.`
@@ -588,7 +630,9 @@ export default function FleetPage() {
 															? "This listing receives no traffic until you resume it. Imported catalogue models fall back to the built-in catalogue entry meanwhile."
 															: delisted
 																? relistable
-																	? "Out of service. Verify it, then relist it to route traffic again at its last approved fare."
+																	? model.relistRequestedAt
+																		? "Relist requested. LLM Gateway is reviewing it; once approved it routes traffic again at its last approved fare."
+																		: "Out of service. Verify it, then request a relist. Once LLM Gateway approves it, it routes traffic again at its last approved fare."
 																	: providerIds.includes(model.providerId)
 																		? "Out of service. Another listing now uses this model id."
 																		: "Out of service. It can be relisted once your claim on this provider is active again."
@@ -624,6 +668,30 @@ export default function FleetPage() {
 														date={model.pendingFiling.createdAt}
 														className="font-normal"
 													/>
+												</Badge>
+											) : null}
+											{delisted && model.relistRequestedAt ? (
+												<Badge
+													variant="pending"
+													data-testid={`relist-requested-${model.modelName}`}
+												>
+													<RotateCcw className="size-3" />
+													Relist requested ·{" "}
+													<RelativeDate
+														date={model.relistRequestedAt}
+														className="font-normal"
+													/>
+												</Badge>
+											) : delisted && model.relistReviewedAt ? (
+												<Badge
+													variant="destructive"
+													title={model.relistReviewNote ?? undefined}
+													data-testid={`relist-rejected-${model.modelName}`}
+												>
+													Relist declined
+													{model.relistReviewNote
+														? ` · ${model.relistReviewNote}`
+														: ""}
 												</Badge>
 											) : null}
 											{model.latestVerification && !delisted ? (
@@ -683,7 +751,7 @@ export default function FleetPage() {
 											</span>
 											{model.status === "active" ? (
 												<Link
-													href={`/dashboard/incidents?mapping=${encodeURIComponent(`${model.providerId}/${model.modelName}`)}`}
+													href={`/dashboard/incidents?model=${encodeURIComponent(`${model.providerId}/${model.modelName}`)}`}
 													className="text-primary hover:underline"
 												>
 													Incidents →
@@ -724,7 +792,9 @@ export default function FleetPage() {
 											) : null}
 										</div>
 										<div className="flex items-center gap-1">
-											{relistable ? (
+											{delisted && model.relistRequestedAt ? (
+												<RelistModelButton model={model} />
+											) : relistable ? (
 												<>
 													<VerifyModelDialog model={model}>
 														<Button

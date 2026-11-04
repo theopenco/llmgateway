@@ -28,6 +28,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
+import { calculateContentFilterErrorStatsForHour } from "./content-filter-error-stats-aggregator.js";
 import { calculateContentFilterStatsForHour } from "./content-filter-stats-aggregator.js";
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { formatUTCTimestamp } from "./project-stats-aggregator.js";
@@ -1741,6 +1742,7 @@ async function refreshHour(
 			await beginProgress("content-filter", targetHour);
 			contentFilterResult =
 				await calculateContentFilterStatsForHour(targetHour);
+			await calculateContentFilterErrorStatsForHour(targetHour);
 			await recordProgress("content-filter", targetHour, finalized);
 		}
 	} catch (error) {

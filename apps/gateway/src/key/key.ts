@@ -12,8 +12,11 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 
 import {
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	isDailyWindowExpired,
 	isPremiumWeekExpired,
 } from "@llmgateway/shared";
 
@@ -56,6 +59,17 @@ const keyResponseSchema = z.object({
 		devPlanPremiumWeekResetsAt: z.string().nullable().openapi({
 			description:
 				"When the current premium weekly window resets (ISO 8601), or null when no window is active.",
+		}),
+		devPlanDailyLimit: z.string().openapi({
+			description:
+				"Daily pacing allowance for the plan, in USD of plan credits per rolling 24-hour window.",
+		}),
+		devPlanDailyCreditsUsed: z.string().openapi({
+			description: "Plan credits used in the current 24-hour pacing window.",
+		}),
+		devPlanDayResetsAt: z.string().nullable().openapi({
+			description:
+				"When the current 24-hour pacing window resets (ISO 8601), or null when no window is active.",
 		}),
 	}),
 });
@@ -152,6 +166,9 @@ key.openapi(getKey, async (c): Promise<any> => {
 				devPlanPremiumWeeklyLimit: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekResetsAt: null,
+				devPlanDailyLimit: "0",
+				devPlanDailyCreditsUsed: "0",
+				devPlanDayResetsAt: null,
 			},
 		});
 	}
@@ -179,6 +196,19 @@ key.openapi(getKey, async (c): Promise<any> => {
 				).toISOString()
 			: null;
 
+	const dayStart = organization.devPlanDayStart
+		? new Date(organization.devPlanDayStart)
+		: null;
+	const dailyLimit = getDevPlanDailyLimit(devPlan);
+	const dayExpired = isDailyWindowExpired(dayStart);
+	const dailyCreditsUsed = dayExpired
+		? 0
+		: parseFloat(organization.devPlanDailyCreditsUsed ?? "0");
+	const dayResetsAt =
+		!dayExpired && dayStart
+			? new Date(dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS).toISOString()
+			: null;
+
 	return c.json({
 		data: {
 			label: apiKey.description,
@@ -191,6 +221,9 @@ key.openapi(getKey, async (c): Promise<any> => {
 			devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
 			devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
 			devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
+			devPlanDailyLimit: dailyLimit.toFixed(2),
+			devPlanDailyCreditsUsed: dailyCreditsUsed.toFixed(2),
+			devPlanDayResetsAt: dayResetsAt,
 		},
 	});
 });

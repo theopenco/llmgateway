@@ -7,10 +7,14 @@ import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	decodeModelPreference,
+	REALTIME_CALL_TRANSCRIPTION_MODEL_COOKIE,
 	REALTIME_MODEL_COOKIE,
 	REALTIME_TRANSCRIPTION_MODEL_COOKIE,
 } from "@/lib/model-preferences";
+import { catalogueTranscriptionDefaults } from "@/lib/realtime-transcription";
 import { fetchServerData } from "@/lib/server-api";
+
+import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
@@ -41,6 +45,13 @@ export default async function RealtimePage({
 	);
 	const initialTranscriptionModelPreference = decodeModelPreference(
 		cookieStore.get(REALTIME_TRANSCRIPTION_MODEL_COOKIE)?.value,
+	);
+	const initialCallTranscriptionPreference = decodeModelPreference(
+		cookieStore.get(REALTIME_CALL_TRANSCRIPTION_MODEL_COOKIE)?.value,
+	);
+	const callTranscriptionDefaults = catalogueTranscriptionDefaults(
+		modelDefinitions,
+		new Date(),
 	);
 
 	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
@@ -144,6 +155,8 @@ export default async function RealtimePage({
 				initialTranscriptionModelPreference={
 					initialTranscriptionModelPreference
 				}
+				initialCallTranscriptionPreference={initialCallTranscriptionPreference}
+				callTranscriptionDefaults={callTranscriptionDefaults}
 			/>
 		</>
 	);

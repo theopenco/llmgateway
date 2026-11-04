@@ -32,7 +32,11 @@ import {
 	regionEndpointUsesWorkspaceId,
 	type ProviderDefinition,
 } from "@llmgateway/models";
-import { getProviderModelIds } from "@llmgateway/shared";
+import {
+	getProviderModelIds,
+	isProviderHostnameLabel,
+	PROVIDER_HOSTNAME_LABEL_MESSAGE,
+} from "@llmgateway/shared";
 import { MultiModelIdSelector } from "@llmgateway/shared/components";
 
 import { CustomProviderEnterpriseNotice } from "./custom-provider-enterprise-notice";
@@ -280,14 +284,10 @@ export function CreateProviderKeyDialog({
 				});
 				return;
 			}
-			if (
-				alibabaWorkspaceId &&
-				!/^[a-zA-Z0-9-]{1,64}$/.test(alibabaWorkspaceId)
-			) {
+			if (alibabaWorkspaceId && !isProviderHostnameLabel(alibabaWorkspaceId)) {
 				toast({
 					title: "Error",
-					description:
-						"Workspace ID must be 1-64 characters of letters, numbers, and hyphens",
+					description: `Workspace ID: ${PROVIDER_HOSTNAME_LABEL_MESSAGE}`,
 					variant: "destructive",
 				});
 				return;
@@ -309,6 +309,14 @@ export function CreateProviderKeyDialog({
 				});
 				return;
 			}
+			if (!isProviderHostnameLabel(azureResource)) {
+				toast({
+					title: "Error",
+					description: `Resource name: ${PROVIDER_HOSTNAME_LABEL_MESSAGE}`,
+					variant: "destructive",
+				});
+				return;
+			}
 			payload.options = {
 				azure_resource: azureResource,
 				azure_api_version: azureApiVersion,
@@ -326,11 +334,10 @@ export function CreateProviderKeyDialog({
 				});
 				return;
 			}
-			if (!/^[a-zA-Z0-9-]{1,64}$/.test(azureAiFoundryResource)) {
+			if (!isProviderHostnameLabel(azureAiFoundryResource)) {
 				toast({
 					title: "Error",
-					description:
-						"Resource name must be 1-64 characters and contain only letters, numbers, and hyphens",
+					description: `Resource name: ${PROVIDER_HOSTNAME_LABEL_MESSAGE}`,
 					variant: "destructive",
 				});
 				return;
@@ -353,11 +360,10 @@ export function CreateProviderKeyDialog({
 				});
 				return;
 			}
-			if (!/^[a-zA-Z0-9-]{1,64}$/.test(azureAnthropicResource)) {
+			if (!isProviderHostnameLabel(azureAnthropicResource)) {
 				toast({
 					title: "Error",
-					description:
-						"Resource name must be 1-64 characters and contain only letters, numbers, and hyphens",
+					description: `Resource name: ${PROVIDER_HOSTNAME_LABEL_MESSAGE}`,
 					variant: "destructive",
 				});
 				return;
@@ -720,8 +726,9 @@ export function CreateProviderKeyDialog({
 										onChange={(e) => setGoogleVertexProjectId(e.target.value)}
 									/>
 									<p className="text-sm text-muted-foreground">
-										Optional for API-key chat, embedding, and speech requests.
-										Required for OAuth and video generation.
+										Required for OAuth and video generation. Optional for
+										API-key chat requests: the gateway detects the key&apos;s
+										project and uses the global location.
 									</p>
 								</div>
 							)}

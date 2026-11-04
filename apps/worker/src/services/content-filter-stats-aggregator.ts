@@ -1,5 +1,6 @@
 import {
 	CONTENT_FILTER_STATS_ALL_CATEGORY,
+	contentFilterHourlyApiKeyStats,
 	contentFilterHourlyLatencyStats,
 	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
@@ -19,18 +20,28 @@ const UPSERT_CHUNK_SIZE = 1000;
 interface ContentFilterStatsRow extends Record<string, unknown> {
 	organization_id: string;
 	project_id: string;
-	// Null on the per-(org, project) rows; log.usedModel itself is never null.
+	// Set only on the per-API-key rows; log.apiKeyId itself is never null.
+	api_key_id: string | null;
+	// Null on the per-(org, project) and per-API-key rows; log.usedModel itself
+	// is never null.
 	used_model: string | null;
 	used_provider: string | null;
 	category: string;
 	classifier: string;
 	role: NonNullable<ContentFilterStatsInsert["role"]>;
+	// The internal classifier's scope; empty for other classifiers, null on the
+	// per-API-key rows, which are not split by scope.
+	internal_scope: string | null;
 	sampled_count: number;
 	violation_count: number;
 	blocked_count: number;
 	duration_sum_ms: string | number;
 	duration_count: number;
 	duration_max_ms: number | null;
+	// Which grouping set produced the row; both false on the (org, project)
+	// and latency rows.
+	by_api_key: boolean;
+	by_model: boolean;
 	// Set only on the platform-wide latency rows.
 	latency: ContentFilterLatency | null;
 }
@@ -54,6 +65,8 @@ interface ContentFilterLatency {
 type ContentFilterStatsInsert = typeof contentFilterHourlyStats.$inferInsert;
 type ContentFilterModelStatsInsert =
 	typeof contentFilterHourlyModelStats.$inferInsert;
+type ContentFilterApiKeyStatsInsert =
+	typeof contentFilterHourlyApiKeyStats.$inferInsert;
 type ContentFilterLatencyStatsInsert =
 	typeof contentFilterHourlyLatencyStats.$inferInsert;
 
@@ -71,15 +84,18 @@ function hourWindow(targetHour: Date) {
  * Roll up one hour of tiered content filter evaluations from
  * log.gatewayContentFilterEvaluation into per-(org, project) totals plus one
  * row per violated moderation category, and the same broken out by the model
- * that served the request. Scans a single hour of `log`, like the routing
+ * that served the request and by the API key that sent it. Scans a single
+ * hour of `log`, like the routing
  * telemetry rollup; the admin dashboard only reads the hourly rows.
  * Provider retries write one row per attempt under the same request id with
  * the evaluation copied onto each, so counts are per request id. Evaluations
  * whose moderation call failed never scored anything, so they are left out of
  * sampledCount to keep the violation rate honest during an outage.
  *
- * Every row is keyed by classifier and role; role is always "deciding" since
- * the shadow classifier was removed, and a legacy shadow verdict is ignored.
+ * Every row is keyed by classifier, role and, for the internal classifier, the
+ * scope it read, so flag rates compare across scopes; role is always "deciding"
+ * since the shadow classifier was removed, and a legacy shadow verdict is
+ * ignored.
  * The "all" rows also carry classifier durations, failed checks included.
  *
  * The same scan feeds contentFilterHourlyLatencyStats: the classifier's own
@@ -88,20 +104,22 @@ function hourWindow(targetHour: Date) {
 export async function calculateContentFilterStatsForHour(targetHour: Date) {
 	const { start, startUtc } = hourWindow(targetHour);
 	if (start < getLogRetentionCutoff()) {
-		return { rows: 0, modelRows: 0 };
+		return { rows: 0, modelRows: 0, apiKeyRows: 0 };
 	}
 
 	// One scan of the hour: both branches read the CTE, so Postgres materializes
-	// it, and each branch groups by (org, project) and again by the model and
-	// provider that served the request via grouping sets. used_model is null on
-	// the (org, project) rows. A retried request is counted once per model it
-	// touched.
+	// it, and each branch groups by (org, project), by the model and provider
+	// that served the request, and by the API key that sent it, via grouping
+	// sets. used_model and api_key_id are null on the rows not grouped by them.
+	// A retried request is counted once per model it touched; its retries share
+	// one API key.
 	const result = await db.execute<ContentFilterStatsRow>(sql`
 		with evaluations as (
 			select
 				${log.requestId} as request_id,
 				${log.organizationId} as organization_id,
 				${log.projectId} as project_id,
+				${log.apiKeyId} as api_key_id,
 				${log.usedModel} as used_model,
 				${log.usedProvider} as used_provider,
 				evaluation.classifier,
@@ -136,6 +154,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				request_id,
 				organization_id,
 				project_id,
+				api_key_id,
 				used_model,
 				used_provider,
 				classifier_duration_ms,
@@ -170,11 +189,13 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 		select
 			organization_id,
 			project_id,
+			api_key_id,
 			used_model,
 			used_provider,
 			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
 			classifier,
 			role,
+			internal_scope,
 			count(distinct request_id) filter (where not moderation_failed)::int as sampled_count,
 			count(distinct request_id) filter (where violation)::int as violation_count,
 			count(distinct request_id) filter (where blocked)::int as blocked_count,
@@ -187,27 +208,34 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			)::bigint as duration_sum_ms,
 			count(distinct request_id) filter (where duration_ms is not null)::int as duration_count,
 			max(duration_ms)::int as duration_max_ms,
+			grouping(api_key_id) = 0 as by_api_key,
+			grouping(used_model) = 0 as by_model,
 			null::jsonb as latency
 		from verdicts
 		group by grouping sets (
-			(organization_id, project_id, classifier, role),
-			(organization_id, project_id, used_model, used_provider, classifier, role)
+			(organization_id, project_id, classifier, role, internal_scope),
+			(organization_id, project_id, used_model, used_provider, classifier, role, internal_scope),
+			(organization_id, project_id, api_key_id, classifier, role)
 		)
 		union all
 		select
 			organization_id,
 			project_id,
+			api_key_id,
 			used_model,
 			used_provider,
 			category,
 			classifier,
 			role,
+			internal_scope,
 			0 as sampled_count,
 			count(distinct request_id)::int as violation_count,
 			0 as blocked_count,
 			0::bigint as duration_sum_ms,
 			0 as duration_count,
 			null::int as duration_max_ms,
+			grouping(api_key_id) = 0 as by_api_key,
+			grouping(used_model) = 0 as by_model,
 			null::jsonb as latency
 		from verdicts
 		cross join lateral jsonb_array_elements_text(
@@ -215,24 +243,29 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 		) as category
 		where violation
 		group by grouping sets (
-			(organization_id, project_id, classifier, role, category),
-			(organization_id, project_id, used_model, used_provider, classifier, role, category)
+			(organization_id, project_id, classifier, role, internal_scope, category),
+			(organization_id, project_id, used_model, used_provider, classifier, role, internal_scope, category),
+			(organization_id, project_id, api_key_id, classifier, role, category)
 		)
 		union all
 		select
 			'' as organization_id,
 			'' as project_id,
+			null::text as api_key_id,
 			null::text as used_model,
 			null::text as used_provider,
 			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
 			classifier,
 			role,
+			internal_scope,
 			0 as sampled_count,
 			0 as violation_count,
 			0 as blocked_count,
 			0::bigint as duration_sum_ms,
 			0 as duration_count,
 			null::int as duration_max_ms,
+			false as by_api_key,
+			false as by_model,
 			jsonb_build_object(
 				'internalScope', internal_scope,
 				'checkCount', count(*),
@@ -255,6 +288,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 
 	const values: ContentFilterStatsInsert[] = [];
 	const modelValues: ContentFilterModelStatsInsert[] = [];
+	const apiKeyValues: ContentFilterApiKeyStatsInsert[] = [];
 	const latencyValues: ContentFilterLatencyStatsInsert[] = [];
 	for (const row of result.rows) {
 		if (row.latency) {
@@ -265,6 +299,24 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			});
 			continue;
 		}
+		if (row.by_api_key) {
+			if (row.api_key_id === null) {
+				throw new Error("content filter API key row without an api_key_id");
+			}
+			apiKeyValues.push({
+				hourTimestamp: start,
+				organizationId: row.organization_id,
+				projectId: row.project_id,
+				apiKeyId: row.api_key_id,
+				category: row.category,
+				classifier: row.classifier,
+				role: row.role,
+				sampledCount: Number(row.sampled_count),
+				violationCount: Number(row.violation_count),
+				blockedCount: Number(row.blocked_count),
+			});
+			continue;
+		}
 		const counts: ContentFilterStatsInsert = {
 			hourTimestamp: start,
 			organizationId: row.organization_id,
@@ -272,6 +324,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			category: row.category,
 			classifier: row.classifier,
 			role: row.role,
+			internalScope: row.internal_scope ?? "",
 			sampledCount: Number(row.sampled_count),
 			violationCount: Number(row.violation_count),
 			blockedCount: Number(row.blocked_count),
@@ -280,9 +333,12 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			durationMaxMs:
 				row.duration_max_ms === null ? null : Number(row.duration_max_ms),
 		};
-		if (row.used_model === null || row.used_provider === null) {
+		if (!row.by_model) {
 			values.push(counts);
 		} else {
+			if (row.used_model === null || row.used_provider === null) {
+				throw new Error("content filter model row without a used model");
+			}
 			modelValues.push({
 				...counts,
 				usedModel: row.used_model,
@@ -303,6 +359,9 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			.delete(contentFilterHourlyModelStats)
 			.where(eq(contentFilterHourlyModelStats.hourTimestamp, start));
 		await tx
+			.delete(contentFilterHourlyApiKeyStats)
+			.where(eq(contentFilterHourlyApiKeyStats.hourTimestamp, start));
+		await tx
 			.delete(contentFilterHourlyLatencyStats)
 			.where(eq(contentFilterHourlyLatencyStats.hourTimestamp, start));
 		if (latencyValues.length > 0) {
@@ -321,6 +380,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 						contentFilterHourlyStats.category,
 						contentFilterHourlyStats.classifier,
 						contentFilterHourlyStats.role,
+						contentFilterHourlyStats.internalScope,
 					],
 					set: {
 						sampledCount: sql`excluded.sampled_count`,
@@ -348,6 +408,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 						contentFilterHourlyModelStats.category,
 						contentFilterHourlyModelStats.classifier,
 						contentFilterHourlyModelStats.role,
+						contentFilterHourlyModelStats.internalScope,
 					],
 					set: {
 						sampledCount: sql`excluded.sampled_count`,
@@ -360,12 +421,40 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 					},
 				});
 		}
+
+		for (let i = 0; i < apiKeyValues.length; i += UPSERT_CHUNK_SIZE) {
+			await tx
+				.insert(contentFilterHourlyApiKeyStats)
+				.values(apiKeyValues.slice(i, i + UPSERT_CHUNK_SIZE))
+				.onConflictDoUpdate({
+					target: [
+						contentFilterHourlyApiKeyStats.hourTimestamp,
+						contentFilterHourlyApiKeyStats.organizationId,
+						contentFilterHourlyApiKeyStats.projectId,
+						contentFilterHourlyApiKeyStats.apiKeyId,
+						contentFilterHourlyApiKeyStats.category,
+						contentFilterHourlyApiKeyStats.classifier,
+						contentFilterHourlyApiKeyStats.role,
+					],
+					set: {
+						sampledCount: sql`excluded.sampled_count`,
+						violationCount: sql`excluded.violation_count`,
+						blockedCount: sql`excluded.blocked_count`,
+						updatedAt: new Date(),
+					},
+				});
+		}
 	});
 
 	logger.debug(`Recorded content filter stats for ${start.toISOString()}`, {
 		rows: values.length,
 		modelRows: modelValues.length,
+		apiKeyRows: apiKeyValues.length,
 	});
 
-	return { rows: values.length, modelRows: modelValues.length };
+	return {
+		rows: values.length,
+		modelRows: modelValues.length,
+		apiKeyRows: apiKeyValues.length,
+	};
 }

@@ -750,6 +750,42 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	});
 });
 
+const getProviderMarksRoute = createRoute({
+	operationId: "internal_get_provider_marks",
+	summary: "Get uploaded provider marks",
+	description:
+		"Returns the mark (icon, else logo) each active Airside carrier uploaded, keyed by provider id",
+	method: "get",
+	path: "/provider-marks",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ marks: z.record(z.string()) }),
+				},
+			},
+			description: "Uploaded provider marks",
+		},
+	},
+});
+
+internalModels.openapi(getProviderMarksRoute, async (c) => {
+	const claims = await db.query.providerClaim.findMany({
+		where: { status: { eq: "active" } },
+		columns: { providerId: true, logoUrl: true, iconUrl: true },
+	});
+	const marks: Record<string, string> = {};
+	for (const claim of claims) {
+		const mark = claim.iconUrl ?? claim.logoUrl;
+		if (mark) {
+			marks[claim.providerId] = mark;
+		}
+	}
+	c.header("Cache-Control", "public, max-age=300");
+	return c.json({ marks });
+});
+
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats
 const providerBenchmarkSchema = z.object({
 	providerId: z.string(),
@@ -774,7 +810,8 @@ const arenaBenchmarkSchema = z.object({
 	text: arenaScoreSchema.nullable(),
 	code: arenaScoreSchema.nullable(),
 	source: z.string(),
-	fetchedAt: z.string(),
+	// Null while Arena is unreachable and no earlier snapshot exists.
+	fetchedAt: z.string().nullable(),
 });
 
 const modelBenchmarksRoute = createRoute({
@@ -948,8 +985,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	// Fetch Arena benchmarks
 	const arenaBenchmarks = await getArenaBenchmarks();
 
-	const textMatch = findArenaMatch(modelId, arenaBenchmarks.text);
-	const codeMatch = findArenaMatch(modelId, arenaBenchmarks.code);
+	const textMatch = arenaBenchmarks
+		? findArenaMatch(modelId, arenaBenchmarks.text)
+		: null;
+	const codeMatch = arenaBenchmarks
+		? findArenaMatch(modelId, arenaBenchmarks.code)
+		: null;
 
 	const arena = {
 		text: textMatch
@@ -967,7 +1008,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				}
 			: null,
 		source: "https://arena.ai/leaderboard",
-		fetchedAt: arenaBenchmarks.fetchedAt,
+		fetchedAt: arenaBenchmarks?.fetchedAt ?? null,
 	};
 
 	return c.json({ modelId, providers, arena });

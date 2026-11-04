@@ -37,27 +37,50 @@ export default async function GroupPage({
 }) {
 	const { orgId, projectId } = await searchParams;
 
-	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
-		await Promise.all([
-			fetchModels(),
-			fetchProviders(),
-			// Ensure the dedicated Chat org exists, then list it so it can back the
-			// default billing context for the playground.
-			fetchServerData("GET", "/playground/chat-org").then(() =>
-				fetchServerData("GET", "/orgs", {
-					params: { query: { includeChat: "true" } },
-				}),
-			),
-			orgId
-				? fetchServerData("GET", "/orgs/{id}/projects", {
-						params: {
-							path: {
-								id: orgId,
-							},
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground. Its response already names
+	// the Chat org, so the default selection's projects fetch can start as
+	// soon as it resolves instead of after the org list.
+	const chatOrgPromise = fetchServerData<{
+		organizationId: string;
+		projectId: string;
+	}>("GET", "/playground/chat-org");
+
+	const [
+		models,
+		providers,
+		initialOrganizationsData,
+		orgIdProjectsData,
+		chatOrgData,
+		chatOrgProjectsData,
+	] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+		chatOrgPromise.then(() =>
+			fetchServerData("GET", "/orgs", {
+				params: { query: { includeChat: "true" } },
+			}),
+		),
+		orgId
+			? fetchServerData("GET", "/orgs/{id}/projects", {
+					params: {
+						path: {
+							id: orgId,
 						},
-					})
-				: null,
-		]);
+					},
+				})
+			: null,
+		chatOrgPromise,
+		orgId
+			? null
+			: chatOrgPromise.then((chatOrg) =>
+					chatOrg
+						? fetchServerData("GET", "/orgs/{id}/projects", {
+								params: { path: { id: chatOrg.organizationId } },
+							})
+						: null,
+				),
+	]);
 
 	let initialProjectsData = (orgIdProjectsData ?? null) as {
 		projects: Project[];
@@ -100,6 +123,14 @@ export default async function GroupPage({
 	// Ensure we have projects for the selected organization (when orgId not provided)
 	if (!selectedOrganization) {
 		return <PlaygroundSeoSection variant="group" />;
+	}
+
+	if (
+		!initialProjectsData &&
+		selectedOrganization &&
+		selectedOrganization.id === chatOrgData?.organizationId
+	) {
+		initialProjectsData = chatOrgProjectsData as { projects: Project[] } | null;
 	}
 
 	if (!initialProjectsData && selectedOrganization?.id) {

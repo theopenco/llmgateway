@@ -5,7 +5,9 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 
 import { db, tables } from "@llmgateway/db";
 import {
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
 } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
@@ -86,7 +88,47 @@ describe("/v1/key", () => {
 			devPlanPremiumWeeklyLimit: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekResetsAt: null,
+			devPlanDailyLimit: "0",
+			devPlanDailyCreditsUsed: "0",
+			devPlanDayResetsAt: null,
 		});
+	});
+
+	test("reports the daily pacing window alongside the premium week", async () => {
+		await insertApiKey();
+		const twoHoursMs = 2 * 60 * 60 * 1000;
+		const dayStart = new Date(Date.now() - twoHoursMs);
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsUsed: "25",
+			creditsLimit: "158",
+			dailyCreditsUsed: "3.5",
+			dayStart,
+		});
+
+		const res = await getKey("real-token");
+		expect(res.status).toBe(200);
+		const { data } = await res.json();
+		expect(data.devPlanDailyLimit).toBe(getDevPlanDailyLimit("pro").toFixed(2));
+		expect(data.devPlanDailyCreditsUsed).toBe("3.50");
+		expect(data.devPlanDayResetsAt).toBe(
+			new Date(dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS).toISOString(),
+		);
+	});
+
+	test("reports zero daily usage once the pacing window has rolled over", async () => {
+		await insertApiKey();
+		await harness.setDevPlan({
+			devPlan: "pro",
+			dailyCreditsUsed: "9",
+			dayStart: new Date(Date.now() - DEV_PLAN_DAY_LENGTH_MS - 1),
+		});
+
+		const res = await getKey("real-token");
+		expect(res.status).toBe(200);
+		const { data } = await res.json();
+		expect(data.devPlanDailyCreditsUsed).toBe("0.00");
+		expect(data.devPlanDayResetsAt).toBeNull();
 	});
 
 	test("returns plan status for a dev-plan org with an active premium week", async () => {

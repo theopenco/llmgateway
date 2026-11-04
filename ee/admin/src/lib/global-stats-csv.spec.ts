@@ -143,6 +143,7 @@ describe("buildGlobalStatsReportCsv", () => {
 				modelView: "Providers",
 				providerKeys: [{ id: "pk_1", label: "openai · prod" }],
 				provider: "openai",
+				family: null,
 				metric: "cost",
 			},
 			generatedAt: new Date("2026-09-07T00:00:00Z"),
@@ -205,6 +206,7 @@ describe("globalStatsExportFilename", () => {
 				allTime: false,
 				providerKeys: [],
 				provider: null,
+				family: null,
 			}),
 		).toBe("global-stats-timeseries-2026-09-01_2026-09-07.csv");
 		expect(
@@ -214,6 +216,7 @@ describe("globalStatsExportFilename", () => {
 				allTime: true,
 				providerKeys: [{ id: "pk_1", label: "openai" }],
 				provider: "openai",
+				family: null,
 			}),
 		).toBe("global-stats-report-all-time-provider-openai-key-pk_1.csv");
 		expect(
@@ -226,7 +229,21 @@ describe("globalStatsExportFilename", () => {
 					{ id: "pk_2", label: "anthropic" },
 				],
 				provider: null,
+				family: null,
 			}),
 		).toBe("global-stats-report-all-time-keys-2.csv");
+	});
+
+	test("names the selected model family", () => {
+		expect(
+			globalStatsExportFilename("by-family", {
+				start: "2026-09-01",
+				end: "2026-09-07",
+				allTime: false,
+				providerKeys: [],
+				provider: null,
+				family: "anthropic",
+			}),
+		).toBe("global-stats-by-family-2026-09-01_2026-09-07-family-anthropic.csv");
 	});
 });

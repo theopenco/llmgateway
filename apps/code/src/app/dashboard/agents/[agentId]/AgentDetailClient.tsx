@@ -342,6 +342,7 @@ function AgentDetailBody({
 		const to = new Date();
 		const windowMs = AGENT_TIME_RANGE_HOURS[timeRange] * 60 * 60 * 1000;
 		const from = new Date(to.getTime() - windowMs);
+		from.setUTCMinutes(0, 0, 0);
 		return { from: from.toISOString(), to: to.toISOString() };
 	}, [timeRange]);
 
@@ -419,15 +420,18 @@ function AgentDetailBody({
 		},
 	);
 
-	const logs = useMemo(
-		() =>
-			(data?.pages.flatMap((page) => page?.logs ?? []) ?? []).filter(
-				(log) => !log.retriedByLogId,
-			),
+	const attempts = useMemo(
+		() => data?.pages.flatMap((page) => page?.logs ?? []) ?? [],
 		[data],
 	);
-
-	const modelBreakdown = useMemo(() => computeModelBreakdown(logs), [logs]);
+	const logs = useMemo(
+		() => attempts.filter((log) => !log.retriedByLogId),
+		[attempts],
+	);
+	const modelBreakdown = useMemo(
+		() => computeModelBreakdown(attempts),
+		[attempts],
+	);
 
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -528,6 +532,9 @@ function AgentDetailBody({
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
 					<TimeRangePicker value={timeRange} onChange={updateTimeRange} />
+					<span className="text-xs text-muted-foreground">
+						Hourly totals, including the first and current hours
+					</span>
 					<button
 						type="button"
 						onClick={handleExportCsv}

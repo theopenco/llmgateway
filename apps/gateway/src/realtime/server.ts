@@ -1,12 +1,15 @@
 import { WebSocketServer } from "ws";
 
+import { customHeadersFrom } from "@/chat/tools/extract-custom-headers.js";
 import {
 	reportKeyError,
 	reportKeySuccess,
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
+import { logRealtimeClientError } from "@/lib/client-error-log.js";
 
+import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromNodeHeaders } from "@llmgateway/shared/client-ip";
 
@@ -83,6 +86,7 @@ function writeHttpError(
 	status: number,
 	code: string,
 	message: string,
+	requestId?: string,
 ): void {
 	const statusText: Record<number, string> = {
 		400: "Bad Request",
@@ -112,6 +116,7 @@ function writeHttpError(
 		socket.end(
 			`HTTP/1.1 ${status} ${statusText[status] ?? "Error"}\r\n` +
 				"Content-Type: application/json\r\n" +
+				(requestId ? `x-request-id: ${requestId}\r\n` : "") +
 				`Content-Length: ${Buffer.byteLength(body)}\r\n` +
 				"Connection: close\r\n" +
 				"\r\n" +
@@ -121,6 +126,18 @@ function writeHttpError(
 		// Socket already gone.
 		socket.destroy();
 	}
+}
+
+const REQUEST_ID_PATTERN = /^[\w.:-]{1,128}$/;
+
+/**
+ * Caller-supplied x-request-id when it is safe to echo into a raw response
+ * header, otherwise a fresh id.
+ */
+function extractRequestId(req: IncomingMessage): string {
+	const raw = req.headers["x-request-id"];
+	const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+	return value && REQUEST_ID_PATTERN.test(value) ? value : shortid(40);
 }
 
 function extractToken(req: IncomingMessage): string | undefined {
@@ -251,14 +268,42 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				writeHttpError(socket, 404, "not_found", "Unknown WebSocket path");
 				return;
 			}
+
+			const requestId = extractRequestId(req);
+			const headerToken = extractToken(req);
+			let token = headerToken;
+			let requestedModel = url.searchParams.get("model") ?? undefined;
+			let source = extractSource(req);
+			// Client errors are logged against the caller's key once it is known,
+			// like HTTP rejections; 5xx responses are gateway faults.
+			const reject = async (status: number, code: string, message: string) => {
+				if (status >= 400 && status < 500) {
+					await logRealtimeClientError({
+						apiOrigin: "realtime",
+						token,
+						requestId,
+						requestedModel,
+						source,
+						userAgent: req.headers["user-agent"],
+						customHeaders: customHeadersFrom(Object.entries(req.headers)),
+						message,
+						cause: code,
+						statusCode: status,
+						errorCategory:
+							code === "org_session_limit" || code === "key_session_limit"
+								? "concurrency_limit"
+								: undefined,
+					});
+				}
+				writeHttpError(socket, status, code, message, requestId);
+			};
 			// Kill switch: stop new sessions while existing sessions drain.
 			if (
 				!accepting ||
 				process.env.REALTIME_DISABLED === "true" ||
 				process.env.REALTIME_ENABLED === "false"
 			) {
-				writeHttpError(
-					socket,
+				await reject(
 					503,
 					"realtime_disabled",
 					"Realtime sessions are temporarily unavailable.",
@@ -273,8 +318,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				url.searchParams.has("client_secret") ||
 				url.searchParams.has("api_key")
 			) {
-				writeHttpError(
-					socket,
+				await reject(
 					400,
 					"credentials_in_query",
 					"Credentials must not be passed as query parameters. Use the Authorization header or the openai-insecure-api-key WebSocket subprotocol.",
@@ -282,13 +326,11 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				return;
 			}
 
-			const headerToken = extractToken(req);
 			const offeredProtocols = parseOfferedSubprotocols(req);
 			const subprotocolSecret = extractSubprotocolSecret(offeredProtocols);
 
 			if (headerToken && subprotocolSecret) {
-				writeHttpError(
-					socket,
+				await reject(
 					400,
 					"conflicting_credentials",
 					"Provide either an Authorization/x-api-key header or an openai-insecure-api-key subprotocol, not both.",
@@ -296,18 +338,14 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				return;
 			}
 
-			let token = headerToken;
-			let requestedModel = url.searchParams.get("model") ?? undefined;
 			let intent = url.searchParams.get("intent") ?? undefined;
-			let source = extractSource(req);
 			let secretTranscriptionModel: string | null = null;
 			let pinnedInstructions: string | null = null;
 			let pinnedVoice: string | null = null;
 
 			if (subprotocolSecret) {
 				if (!subprotocolSecret.startsWith(CLIENT_SECRET_PREFIX)) {
-					writeHttpError(
-						socket,
+					await reject(
 						401,
 						"invalid_client_secret",
 						"The provided realtime client secret is invalid.",
@@ -319,14 +357,13 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					record = await getClientSecretRecord(subprotocolSecret);
 				} catch (error) {
 					if (error instanceof RealtimeConnectError) {
-						writeHttpError(socket, error.status, error.code, error.message);
+						await reject(error.status, error.code, error.message);
 						return;
 					}
 					throw error;
 				}
 				if (!record) {
-					writeHttpError(
-						socket,
+					await reject(
 						401,
 						"invalid_client_secret",
 						"The provided realtime client secret is unknown or has expired.",
@@ -336,8 +373,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				const secretIntent =
 					record.sessionType === "transcription" ? "transcription" : undefined;
 				if (intent !== undefined && intent !== secretIntent) {
-					writeHttpError(
-						socket,
+					await reject(
 						400,
 						"intent_mismatch",
 						"The requested intent does not match the session type this client secret was minted for.",
@@ -352,8 +388,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						record.sessionType,
 					)
 				) {
-					writeHttpError(
-						socket,
+					await reject(
 						400,
 						"model_mismatch",
 						"The requested model does not match the model this client secret was minted for.",
@@ -382,11 +417,11 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				});
 			} catch (error) {
 				if (error instanceof RealtimeConnectError) {
-					writeHttpError(socket, error.status, error.code, error.message);
+					await reject(error.status, error.code, error.message);
 					return;
 				}
 				logger.error("Realtime preflight failed", error as Error);
-				writeHttpError(socket, 500, "internal_error", "Internal server error");
+				await reject(500, "internal_error", "Internal server error");
 				return;
 			}
 
@@ -402,8 +437,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					preflight.match.mapping.providerId,
 				);
 				if (!allowedTranscription) {
-					writeHttpError(
-						socket,
+					await reject(
 						400,
 						"transcription_model_not_supported",
 						"The transcription model pinned by this client secret is no longer available.",
@@ -417,8 +451,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						allowedTranscription.modelId,
 					)
 				) {
-					writeHttpError(
-						socket,
+					await reject(
 						403,
 						"transcription_model_not_allowed",
 						"This API key is not allowed to use the transcription model pinned by this client secret.",
@@ -440,8 +473,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			if (!sessionRecord) {
 				// Fail closed: without a durable session record there is no billing
 				// anchor for the events this session would produce.
-				writeHttpError(
-					socket,
+				await reject(
 					503,
 					"billing_unavailable",
 					"Realtime sessions are temporarily unavailable.",
@@ -479,7 +511,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			} catch (error) {
 				if (error instanceof RealtimeConnectError) {
 					await abortSession(error.code);
-					writeHttpError(socket, error.status, error.code, error.message);
+					await reject(error.status, error.code, error.message);
 					return;
 				}
 				await abortSession("lease_error");
@@ -511,10 +543,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				}
 				logger.error("Realtime upstream connect failed", error as Error);
 				if (error instanceof RealtimeConnectError) {
-					writeHttpError(socket, error.status, error.code, error.message);
+					await reject(error.status, error.code, error.message);
 				} else {
-					writeHttpError(
-						socket,
+					await reject(
 						502,
 						"upstream_connect_failed",
 						"Failed to connect to the upstream realtime provider.",
@@ -548,8 +579,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				discardUpstream(upstream);
 				await releaseRealtimeLease(lease);
 				await abortSession("server_shutdown");
-				writeHttpError(
-					socket,
+				await reject(
 					503,
 					"realtime_disabled",
 					"Realtime sessions are temporarily unavailable.",

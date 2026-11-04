@@ -54,11 +54,22 @@ export function TabAnchorHandler() {
 
 	useEffect(() => {
 		const onClick = (event: MouseEvent) => {
-			if (event.defaultPrevented || event.button !== 0) {
+			if (
+				event.defaultPrevented ||
+				event.button !== 0 ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.shiftKey ||
+				event.altKey
+			) {
 				return;
 			}
 			const link = (event.target as Element | null)?.closest("a");
-			if (!link) {
+			if (
+				!link ||
+				(link.target && link.target !== "_self") ||
+				link.hasAttribute("download")
+			) {
 				return;
 			}
 			const url = new URL(link.href, window.location.href);

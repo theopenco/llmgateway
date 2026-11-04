@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
-import { plans } from "@/app/dashboard/plans";
+import { usePlans } from "@/app/dashboard/plans";
 import { Button } from "@/components/ui/button";
 import { useAppConfig } from "@/lib/config";
 
@@ -25,6 +25,7 @@ export default function AllowanceExhaustedCard({
 }: AllowanceExhaustedCardProps) {
 	const { posthogKey } = useAppConfig();
 	const posthog = usePostHog();
+	const plans = usePlans();
 
 	const serial = (organizationId ?? "GATEWAY").slice(-6).toUpperCase();
 	const currentIndex = plans.findIndex((p) => p.tier === tier);
