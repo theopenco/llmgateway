@@ -28,6 +28,7 @@
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
+		"decimal.js": "10.5.0",
 		"nanoid": "5.1.16",
 		"openai": "4.104.0",
 		"resend": "4.5.1",

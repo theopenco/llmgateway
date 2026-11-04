@@ -17,6 +17,9 @@
  * Both phases key on `stripe_refund_id` so the run is idempotent, and regular
  * credit top-up refunds are intentionally skipped (DevPass only).
  *
+ * The run exits non-zero when any payment was skipped because Stripe could not
+ * be read, so a partial run is never mistaken for a complete one.
+ *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds                       # dry run
  *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds --commit              # apply
@@ -28,31 +31,23 @@
  *   DATABASE_URL      - defaults to local postgres if unset
  */
 
+import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 
 import { and, db, eq, inArray, isNull, tables } from "@llmgateway/db";
 
+import {
+    centsToDollars,
+    DEV_PLAN_TX_TYPES,
+    LEGACY_DEV_PLAN_TX_TYPES,
+    parseBackfillArgs,
+    planRefundAnchors,
+    REFUNDABLE_ORIGINAL_TYPES,
+    refundDescription,
+    type TransactionRow
+} from "./lib/devpass-refund-backfill.js";
+
 const STRIPE_API_VERSION = "2025-04-30.basil" as const;
-const DEV_PLAN_TX_TYPES = [
-	"dev_plan_start",
-	"dev_plan_upgrade",
-	"dev_plan_downgrade",
-	"dev_plan_renewal",
-] as const;
-const LEGACY_DEV_PLAN_TX_TYPES = [
-	"subscription_start",
-	"subscription_cancel",
-	"subscription_end",
-] as const;
-// The payment transaction types a DevPass refund can be attributed to. A refund
-// links back to the original charge (start/renewal/upgrade), never to a
-// cancel/end/downgrade marker row.
-const REFUNDABLE_ORIGINAL_TYPES = [
-	"dev_plan_start",
-	"dev_plan_renewal",
-	"dev_plan_upgrade",
-	"subscription_start",
-] as const;
 
 function getStripe(): Stripe {
 	const key = process.env.STRIPE_SECRET_KEY;
@@ -64,14 +59,12 @@ function getStripe(): Stripe {
 	return new Stripe(key, { apiVersion: STRIPE_API_VERSION });
 }
 
-function parseFlag(name: string): string | undefined {
-	const flag = `--${name}=`;
-	const arg = process.argv.find((a) => a.startsWith(flag));
-	return arg ? arg.slice(flag.length) : undefined;
+function parseFlag(name: "org" | "payment-intent"): string | undefined {
+    return parseBackfillArgs(process.argv.slice(2))[name];
 }
 
-function hasFlag(name: string): boolean {
-	return process.argv.includes(`--${name}`);
+function hasFlag(name: "commit"): boolean {
+    return parseBackfillArgs(process.argv.slice(2))[name] ?? false;
 }
 
 // All succeeded refunds for a payment intent, oldest first. Non-succeeded
@@ -116,16 +109,6 @@ async function resolveInvoicePaymentIntents(
 	return [...ids];
 }
 
-type TransactionRow = typeof tables.transaction.$inferSelect;
-
-function refundDescription(
-	refundDollars: number,
-	originalAmount: number,
-): string {
-	const ratio = originalAmount > 0 ? refundDollars / originalAmount : 0;
-	return `Credit refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`;
-}
-
 async function insertRefundRow(
 	tx: Pick<typeof db, "insert">,
 	params: {
@@ -135,14 +118,14 @@ async function insertRefundRow(
 	},
 ): Promise<void> {
 	const { paymentIntentId, refund, original } = params;
-	const refundDollars = refund.amount / 100;
-	const originalAmount = Number.parseFloat(original.amount ?? "0");
+	const refundDollars = centsToDollars(refund.amount);
+	const originalAmount = new Decimal(original.amount ?? 0);
 	await tx.insert(tables.transaction).values({
 		createdAt: new Date(refund.created * 1000),
 		updatedAt: new Date(refund.created * 1000),
 		organizationId: original.organizationId,
 		type: "credit_refund",
-		amount: refundDollars.toString(),
+		amount: refundDollars.toFixed(2),
 		// DevPass plan payments don't add to org.credits, so their refunds don't
 		// deduct credits — mirrors handleChargeRefunded for non-credit_topup rows.
 		creditAmount: "0",
@@ -160,7 +143,12 @@ async function insertRefundRow(
 async function reconcileLegacyRows(
 	stripe: Stripe,
 	opts: { commit: boolean; scopePI?: string; scopeOrg?: string },
-): Promise<{ inserted: number; deleted: number; skippedPIs: number }> {
+): Promise<{
+	inserted: number;
+	deleted: number;
+	skippedPIs: number;
+	stripeFailures: number;
+}> {
 	const { commit, scopePI, scopeOrg } = opts;
 	console.log(`\n=== Phase 1: reconcile legacy rows (no stripe_refund_id) ===`);
 
@@ -182,7 +170,7 @@ async function reconcileLegacyRows(
 		`Found ${legacyRows.length} legacy credit_refund row(s) without stripe_refund_id`,
 	);
 	if (legacyRows.length === 0) {
-		return { inserted: 0, deleted: 0, skippedPIs: 0 };
+		return { inserted: 0, deleted: 0, skippedPIs: 0, stripeFailures: 0 };
 	}
 
 	const devpassRows: TransactionRow[] = [];
@@ -228,7 +216,7 @@ async function reconcileLegacyRows(
 	}
 	if (devpassRows.length === 0) {
 		console.log("No DevPass legacy refund rows to reconcile.");
-		return { inserted: 0, deleted: 0, skippedPIs: 0 };
+		return { inserted: 0, deleted: 0, skippedPIs: 0, stripeFailures: 0 };
 	}
 
 	const byPI = new Map<string, TransactionRow[]>();
@@ -259,12 +247,13 @@ async function reconcileLegacyRows(
 	let inserted = 0;
 	let deleted = 0;
 	let skippedPIs = 0;
+	let stripeFailures = 0;
 
 	for (const [pi, rows] of byPI) {
 		console.log(`--- ${pi} (${rows.length} legacy row(s)) ---`);
 		const legacyTotal = rows.reduce(
-			(s, r) => s + Number.parseFloat(r.amount ?? "0"),
-			0,
+			(s, r) => s.plus(new Decimal(r.amount ?? 0)),
+			new Decimal(0),
 		);
 		console.log(`  Legacy rows sum: $${legacyTotal.toFixed(2)}`);
 
@@ -276,6 +265,7 @@ async function reconcileLegacyRows(
 				`  Failed to list Stripe refunds: ${(err as Error).message}`,
 			);
 			skippedPIs += 1;
+			stripeFailures += 1;
 			continue;
 		}
 		if (refunds.length === 0) {
@@ -287,7 +277,9 @@ async function reconcileLegacyRows(
 		}
 
 		// Sum integer cents, then convert once.
-		const stripeTotal = refunds.reduce((s, r) => s + r.amount, 0) / 100;
+		const stripeTotal = centsToDollars(
+			refunds.reduce((s, r) => s + r.amount, 0),
+		);
 		console.log(
 			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)})`,
 		);
@@ -310,7 +302,7 @@ async function reconcileLegacyRows(
 		const original = originalByRowId.get(rows[0].id)!;
 
 		console.log(
-			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${(stripeTotal - legacyTotal).toFixed(2)}`,
+			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${stripeTotal.minus(legacyTotal).toFixed(2)}`,
 		);
 
 		if (commit) {
@@ -335,7 +327,7 @@ async function reconcileLegacyRows(
 		inserted += toInsert.length;
 	}
 
-	return { inserted, deleted, skippedPIs };
+	return { inserted, deleted, skippedPIs, stripeFailures };
 }
 
 // Phase 2: discover DevPass refunds that exist in Stripe but have no
@@ -343,7 +335,13 @@ async function reconcileLegacyRows(
 async function backfillMissingRefunds(
 	stripe: Stripe,
 	opts: { commit: boolean; scopePI?: string; scopeOrg?: string },
-): Promise<{ inserted: number; scannedPIs: number; skippedNoPI: number }> {
+): Promise<{
+	inserted: number;
+	scannedPIs: number;
+	skippedNoPI: number;
+	stripeFailures: number;
+	resetPassOrgIds: Set<string>;
+}> {
 	const { commit, scopePI, scopeOrg } = opts;
 	console.log(`\n=== Phase 2: backfill missing refunds (no row at all) ===`);
 
@@ -398,55 +396,60 @@ async function backfillMissingRefunds(
 	const originalRows = originals.map((r) => r.transaction);
 	console.log(`Scanning ${originalRows.length} DevPass payment transaction(s)`);
 
-	// Map each unique payment intent to the earliest original it settled (the
-	// first invoice can back both a dev_plan_start and dev_plan_renewal — either
-	// is a valid refund anchor for revenue attribution, so pick deterministically).
-	const originalByPI = new Map<string, TransactionRow>();
-	const legacyBlockedPIs = new Set<string>();
+	// Resolve every original to its payment intent(s) before planning, cached by
+	// invoice: one invoice can back several transactions, and Stripe rate-limits.
+	const piCache = new Map<string, string[]>();
+	const paymentIntentsByOriginalId = new Map<string, string[]>();
 	let skippedNoPI = 0;
+	let resolveFailures = 0;
 	for (const original of originalRows) {
 		let paymentIntentIds: string[] = [];
 		if (original.stripePaymentIntentId) {
 			paymentIntentIds = [original.stripePaymentIntentId];
 		} else if (original.stripeInvoiceId) {
-			try {
-				paymentIntentIds = await resolveInvoicePaymentIntents(
-					stripe,
-					original.stripeInvoiceId,
-				);
-			} catch (err) {
-				console.warn(
-					`  Failed to resolve PI for invoice ${original.stripeInvoiceId}: ${(err as Error).message}`,
-				);
+			const cached = piCache.get(original.stripeInvoiceId);
+			if (cached) {
+				paymentIntentIds = cached;
+			} else {
+				try {
+					paymentIntentIds = await resolveInvoicePaymentIntents(
+						stripe,
+						original.stripeInvoiceId,
+					);
+					piCache.set(original.stripeInvoiceId, paymentIntentIds);
+				} catch (err) {
+					// Not cached: a transient Stripe failure must not poison the
+					// invoice for other transactions, and it is counted so the run
+					// cannot be read as complete.
+					resolveFailures += 1;
+					console.warn(
+						`  Failed to resolve PI for invoice ${original.stripeInvoiceId}: ${(err as Error).message}`,
+					);
+					continue;
+				}
 			}
 		}
 		if (paymentIntentIds.length === 0) {
 			skippedNoPI += 1;
 			continue;
 		}
-		for (const pi of paymentIntentIds) {
-			if (scopePI && pi !== scopePI) {
-				continue;
-			}
-			if (legacyOriginalIds.has(original.id) || legacyPIs.has(pi)) {
-				legacyBlockedPIs.add(pi);
-				continue;
-			}
-			const existing = originalByPI.get(pi);
-			if (!existing || original.createdAt < existing.createdAt) {
-				originalByPI.set(pi, original);
-			}
-		}
+		paymentIntentsByOriginalId.set(original.id, paymentIntentIds);
 	}
 
-	for (const pi of legacyBlockedPIs) {
-		originalByPI.delete(pi);
-	}
-	if (legacyBlockedPIs.size > 0) {
+	const { anchorByPaymentIntent: originalByPI, legacyBlockedPaymentIntentIds } =
+		planRefundAnchors({
+			originals: originalRows,
+			paymentIntentsByOriginalId,
+			legacyPaymentIntentIds: legacyPIs,
+			legacyOriginalIds,
+			scopePI,
+		});
+
+	if (legacyBlockedPaymentIntentIds.size > 0) {
 		console.warn(
-			`Skipping ${legacyBlockedPIs.size} payment intent(s) that still have legacy refund row(s) without stripe_refund_id (reconcile them in Phase 1 first):`,
+			`Skipping ${legacyBlockedPaymentIntentIds.size} payment intent(s) that still have legacy refund row(s) without stripe_refund_id (reconcile them in Phase 1 first):`,
 		);
-		for (const pi of legacyBlockedPIs) {
+		for (const pi of legacyBlockedPaymentIntentIds) {
 			console.warn(`  - ${pi}`);
 		}
 	}
@@ -459,12 +462,15 @@ async function backfillMissingRefunds(
 
 	let inserted = 0;
 	let scannedPIs = 0;
+	let listFailures = 0;
+	const resetPassOrgIds = new Set<string>();
 	for (const [pi, original] of originalByPI) {
 		scannedPIs += 1;
 		let refunds: Stripe.Refund[];
 		try {
 			refunds = await listSucceededRefunds(stripe, pi);
 		} catch (err) {
+			listFailures += 1;
 			console.warn(
 				`  Failed to list Stripe refunds for ${pi}: ${(err as Error).message}`,
 			);
@@ -496,8 +502,11 @@ async function backfillMissingRefunds(
 		);
 		for (const r of missing) {
 			console.log(
-				`  MISSING refund ${r.id} $${(r.amount / 100).toFixed(2)} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
+				`  MISSING refund ${r.id} $${centsToDollars(r.amount).toFixed(2)} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
 			);
+		}
+		if (original.type === "dev_plan_reset_pass") {
+			resetPassOrgIds.add(original.organizationId);
 		}
 
 		if (commit) {
@@ -515,7 +524,13 @@ async function backfillMissingRefunds(
 		inserted += missing.length;
 	}
 
-	return { inserted, scannedPIs, skippedNoPI };
+	return {
+		inserted,
+		scannedPIs,
+		skippedNoPI,
+		stripeFailures: resolveFailures + listFailures,
+		resetPassOrgIds,
+	};
 }
 
 async function main(): Promise<void> {
@@ -553,8 +568,31 @@ async function main(): Promise<void> {
 		`  Phase 2 (missing): ${phase2.inserted} row(s) ${commit ? "inserted" : "would be inserted"} across ${phase2.scannedPIs} PI(s) scanned`,
 	);
 
+	// A backfilled Reset Pass refund restores the revenue line but cannot undo
+	// the pass the purchase granted (handleChargeRefunded claws one back at
+	// refund time; replaying that now could take a pass the org bought later).
+	if (phase2.resetPassOrgIds.size > 0) {
+		console.log(
+			`\nReset Pass refunds touched ${phase2.resetPassOrgIds.size} organization(s) — review their pass inventory manually:`,
+		);
+		for (const orgId of phase2.resetPassOrgIds) {
+			console.log(`  - ${orgId}`);
+		}
+	}
+
 	if (!commit) {
 		console.log(`\n(Dry run — re-run with --commit to apply)`);
+	}
+
+	// Stripe read failures mean some payments were never checked, so the run is
+	// incomplete even though everything it did see was handled. Fail loudly
+	// rather than let a partial pass look like a clean one.
+	const failures = phase1.stripeFailures + phase2.stripeFailures;
+	if (failures > 0) {
+		console.error(
+			`\nINCOMPLETE: ${failures} payment(s) could not be checked against Stripe — re-run after resolving the errors above.`,
+		);
+		process.exit(1);
 	}
 
 	process.exit(0);
