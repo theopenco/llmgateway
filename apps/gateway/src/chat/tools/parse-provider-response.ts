@@ -11,6 +11,7 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
+import { isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
@@ -492,7 +493,7 @@ export function parseProviderResponse(
 			reasoningContent = thoughtContent.length > 0 ? thoughtContent : null;
 
 			// Extract images from Google response parts
-			const imageParts = parts.filter((part: any) => part.inlineData);
+			const imageParts = parts.filter(isGoogleOutputImagePart);
 			images = imageParts.map((part: any): ImageObject => ({
 				type: "image_url",
 				image_url: {
