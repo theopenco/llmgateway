@@ -75,6 +75,16 @@ Use `?mapped=true` for provider-prefixed entries. Existing query filters, includ
 permissions and project configuration; it does not check remaining credits,
 usage budgets, or current provider health.
 
+Deactivated mappings are omitted unless you set `?include_deactivated=true`.
+
+Each provider mapping's `pricing` carries the full rate card: token, cache, audio
+and image rates, `image_output_tokens_by_resolution`, per-second and per-image
+prices, context-length `tiers` (the prompt size selects the tier, and the open-ended
+top tier has `up_to_tokens: null`), and `peak` time-of-day rates. Mappings also list
+`regions` with their own pricing and limits, and `service_tiers` with their price
+multipliers. `discount` is the active discount as a fraction of the listed,
+pre-discount prices; with an API key it includes your organization's own discounts.
+
 ## Provider deployments and pricing
 
 Capabilities and prices belong to individual provider mappings, not just model

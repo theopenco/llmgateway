@@ -92,6 +92,89 @@ export async function getEffectiveDiscount(
 	}
 }
 
+/**
+ * Load the global discount rows, `organizationId`'s own rows, and the Airside
+ * carrier discounts in one query each, and resolve provider/model pairs in
+ * memory with {@link resolveEffectiveDiscount}. For catalogue-wide listings;
+ * per-request lookups use {@link getEffectiveDiscount}.
+ */
+export async function loadDiscountResolver(
+	organizationId: string | null,
+): Promise<(provider: string, model: string) => EffectiveDiscount> {
+	let loaded: {
+		rows: DiscountRow[];
+		airsideSettings: AirsideDiscountRow[];
+	};
+	try {
+		loaded = await swrWrap(
+			`discountResolver:${organizationId ?? "global"}`,
+			[getTableName(discountTable), getTableName(providerRoutingSettings)],
+			async () => ({
+				rows: await cdb
+					.select({
+						id: discountTable.id,
+						organizationId: discountTable.organizationId,
+						provider: discountTable.provider,
+						model: discountTable.model,
+						discountPercent: discountTable.discountPercent,
+						expiresAt: discountTable.expiresAt,
+					})
+					.from(discountTable)
+					.where(
+						organizationId
+							? or(
+									isNull(discountTable.organizationId),
+									eq(discountTable.organizationId, organizationId),
+								)
+							: isNull(discountTable.organizationId),
+					)
+					.orderBy(desc(discountTable.createdAt)),
+				airsideSettings: await cdb
+					.select({
+						id: providerRoutingSettings.id,
+						providerId: providerRoutingSettings.providerId,
+						modelId: providerRoutingSettings.modelId,
+						discountPercent: providerRoutingSettings.discountPercent,
+					})
+					.from(providerRoutingSettings),
+			}),
+		);
+	} catch (error) {
+		// Same fallback as getEffectiveDiscount: list undiscounted prices
+		// rather than failing the catalogue.
+		logger.error("Error loading discount resolver:", error as Error);
+		return () => ({ discount: "0", source: "none" });
+	}
+	// Index by provider so each lookup scans only that provider's rows plus the
+	// provider-agnostic ones, in their original precedence order.
+	const { rows, airsideSettings } = loaded;
+	const byProvider = new Map<
+		string,
+		{ rows: DiscountRow[]; airsideSettings: AirsideDiscountRow[] }
+	>();
+	return (provider, model) => {
+		let scoped = byProvider.get(provider);
+		if (!scoped) {
+			scoped = {
+				rows: rows.filter(
+					(d) => d.provider === null || d.provider === provider,
+				),
+				airsideSettings: airsideSettings.filter(
+					(row) => row.providerId === provider,
+				),
+			};
+			byProvider.set(provider, scoped);
+		}
+		return resolveEffectiveDiscount(
+			scoped.rows,
+			scoped.airsideSettings,
+			organizationId,
+			provider,
+			model,
+		);
+	};
+}
+
 async function queryEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
