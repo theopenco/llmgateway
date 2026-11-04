@@ -31,6 +31,9 @@ import { useApi } from "@/lib/fetch-client";
 import { usePostHog } from "@/lib/posthog";
 
 import { CalendlyInline } from "./calendly-inline";
+import { AirsideRedirect, ContactAudiencePicker } from "./contact-audience";
+
+import type { ContactAudience } from "./contact-audience";
 
 const CALENDLY_ENTERPRISE_URL =
 	"https://calendly.com/llmgateway/llmgateway-enterprise";
@@ -64,6 +67,7 @@ export function ContactFormEnterprise() {
 		email: "",
 	});
 	const [formLoadTime] = useState(() => Date.now());
+	const [audience, setAudience] = useState<ContactAudience>("company");
 
 	const form = useForm<ContactFormData>({
 		resolver: zodResolver(contactFormSchema),
@@ -138,7 +142,8 @@ export function ContactFormEnterprise() {
 						</h2>
 						<p className="text-lg text-muted-foreground text-balance leading-relaxed max-w-2xl mx-auto">
 							Tell us about your needs and our team will reach out to discuss
-							how LLMGateway can support your organization.
+							how LLM Gateway can support your organization. Inference providers
+							listing their models start on Airside instead.
 						</p>
 					</div>
 
@@ -177,265 +182,276 @@ export function ContactFormEnterprise() {
 								</div>
 							</div>
 						) : (
-							<Form {...form}>
-								<form
-									onSubmit={form.handleSubmit(onSubmit)}
-									className="space-y-6"
-								>
-									{/* Honeypot field - hidden from users but visible to bots */}
-									<FormField
-										control={form.control}
-										name="honeypot"
-										render={({ field }) => (
-											<div
-												className="absolute -left-[9999px] opacity-0 pointer-events-none"
-												aria-hidden="true"
-											>
-												<FormItem>
-													<FormLabel>Leave this field empty</FormLabel>
-													<FormControl>
-														<Input
-															{...field}
-															tabIndex={-1}
-															autoComplete="off"
-														/>
-													</FormControl>
-												</FormItem>
+							<div className="space-y-8">
+								<ContactAudiencePicker
+									value={audience}
+									onChange={setAudience}
+								/>
+								{audience === "provider" ? (
+									<AirsideRedirect />
+								) : (
+									<Form {...form}>
+										<form
+											onSubmit={form.handleSubmit(onSubmit)}
+											className="space-y-6"
+										>
+											{/* Honeypot field - hidden from users but visible to bots */}
+											<FormField
+												control={form.control}
+												name="honeypot"
+												render={({ field }) => (
+													<div
+														className="absolute -left-[9999px] opacity-0 pointer-events-none"
+														aria-hidden="true"
+													>
+														<FormItem>
+															<FormLabel>Leave this field empty</FormLabel>
+															<FormControl>
+																<Input
+																	{...field}
+																	tabIndex={-1}
+																	autoComplete="off"
+																/>
+															</FormControl>
+														</FormItem>
+													</div>
+												)}
+											/>
+
+											<div className="grid gap-6 sm:grid-cols-2">
+												<FormField
+													control={form.control}
+													name="name"
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>
+																Name <span className="text-destructive">*</span>
+															</FormLabel>
+															<FormControl>
+																<Input
+																	placeholder="John Doe"
+																	{...field}
+																	className="bg-background h-11"
+																/>
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+
+												<FormField
+													control={form.control}
+													name="email"
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>
+																Company Email{" "}
+																<span className="text-destructive">*</span>
+															</FormLabel>
+															<FormControl>
+																<Input
+																	type="email"
+																	placeholder="john@company.com"
+																	{...field}
+																	className="bg-background h-11"
+																/>
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
 											</div>
-										)}
-									/>
 
-									<div className="grid gap-6 sm:grid-cols-2">
-										<FormField
-											control={form.control}
-											name="name"
-											render={({ field }) => (
-												<FormItem>
-													<FormLabel>
-														Name <span className="text-destructive">*</span>
-													</FormLabel>
-													<FormControl>
-														<Input
-															placeholder="John Doe"
-															{...field}
-															className="bg-background h-11"
-														/>
-													</FormControl>
-													<FormMessage />
-												</FormItem>
+											<div className="grid gap-6 sm:grid-cols-2">
+												<FormField
+													control={form.control}
+													name="country"
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>
+																Country{" "}
+																<span className="text-destructive">*</span>
+															</FormLabel>
+															<Select
+																onValueChange={field.onChange}
+																defaultValue={field.value}
+															>
+																<FormControl>
+																	<SelectTrigger className="w-full bg-background h-11">
+																		<SelectValue placeholder="Select country" />
+																	</SelectTrigger>
+																</FormControl>
+																<SelectContent>
+																	{countries.map((country) => (
+																		<SelectItem key={country} value={country}>
+																			{country}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+
+												<FormField
+													control={form.control}
+													name="size"
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>
+																Company Size{" "}
+																<span className="text-destructive">*</span>
+															</FormLabel>
+															<Select
+																onValueChange={field.onChange}
+																defaultValue={field.value}
+															>
+																<FormControl>
+																	<SelectTrigger className="w-full bg-background h-11">
+																		<SelectValue placeholder="Select size" />
+																	</SelectTrigger>
+																</FormControl>
+																<SelectContent>
+																	<SelectItem value={NON_ENTERPRISE_SIZE}>
+																		1-5 seats
+																	</SelectItem>
+																	<SelectItem value="6-10">
+																		6-10 employees
+																	</SelectItem>
+																	<SelectItem value="11-25">
+																		11-25 employees
+																	</SelectItem>
+																	<SelectItem value="26-50">
+																		26-50 employees
+																	</SelectItem>
+																	<SelectItem value="51-200">
+																		51-200 employees
+																	</SelectItem>
+																	<SelectItem value="201-500">
+																		201-500 employees
+																	</SelectItem>
+																	<SelectItem value="501-1000">
+																		501-1000 employees
+																	</SelectItem>
+																	<SelectItem value="1000+">
+																		1000+ employees
+																	</SelectItem>
+																</SelectContent>
+															</Select>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+											</div>
+
+											{isNonEnterpriseSize && (
+												<div className="flex gap-3 rounded-xl border border-border bg-muted/40 p-4">
+													<Info className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+													<div className="space-y-2 text-sm">
+														<p className="font-medium">
+															Teams of 1-5 don't need Enterprise
+														</p>
+														<p className="text-muted-foreground">
+															You can use LLM Gateway for free — no need to go
+															through Enterprise. Enterprise is usually priced
+															from $3,000 a year for small teams, and from
+															$10,000 a year for bigger teams.
+														</p>
+														<Button asChild size="sm">
+															<AuthLink href="/signup">
+																Get started for free
+																<ArrowRight className="ml-2 h-4 w-4" />
+															</AuthLink>
+														</Button>
+													</div>
+												</div>
 											)}
-										/>
 
-										<FormField
-											control={form.control}
-											name="email"
-											render={({ field }) => (
-												<FormItem>
-													<FormLabel>
-														Company Email{" "}
-														<span className="text-destructive">*</span>
-													</FormLabel>
-													<FormControl>
-														<Input
-															type="email"
-															placeholder="john@company.com"
-															{...field}
-															className="bg-background h-11"
-														/>
-													</FormControl>
-													<FormMessage />
-												</FormItem>
-											)}
-										/>
-									</div>
-
-									<div className="grid gap-6 sm:grid-cols-2">
-										<FormField
-											control={form.control}
-											name="country"
-											render={({ field }) => (
-												<FormItem>
-													<FormLabel>
-														Country <span className="text-destructive">*</span>
-													</FormLabel>
-													<Select
-														onValueChange={field.onChange}
-														defaultValue={field.value}
-													>
-														<FormControl>
-															<SelectTrigger className="w-full bg-background h-11">
-																<SelectValue placeholder="Select country" />
-															</SelectTrigger>
-														</FormControl>
-														<SelectContent>
-															{countries.map((country) => (
-																<SelectItem key={country} value={country}>
-																	{country}
+											<FormField
+												control={form.control}
+												name="deployment"
+												render={({ field }) => (
+													<FormItem>
+														<FormLabel>
+															How do you plan to run LLMGateway?{" "}
+															<span className="text-destructive">*</span>
+														</FormLabel>
+														<Select
+															onValueChange={field.onChange}
+															defaultValue={field.value}
+														>
+															<FormControl>
+																<SelectTrigger className="w-full bg-background h-11">
+																	<SelectValue placeholder="Select deployment preference" />
+																</SelectTrigger>
+															</FormControl>
+															<SelectContent>
+																<SelectItem value="cloud">
+																	Cloud (managed)
 																</SelectItem>
-															))}
-														</SelectContent>
-													</Select>
-													<FormMessage />
-												</FormItem>
-											)}
-										/>
+																<SelectItem value="self_host">
+																	Self-hosted
+																</SelectItem>
+																<SelectItem value="not_sure">
+																	Not sure yet
+																</SelectItem>
+															</SelectContent>
+														</Select>
+														<FormMessage />
+													</FormItem>
+												)}
+											/>
 
-										<FormField
-											control={form.control}
-											name="size"
-											render={({ field }) => (
-												<FormItem>
-													<FormLabel>
-														Company Size{" "}
-														<span className="text-destructive">*</span>
-													</FormLabel>
-													<Select
-														onValueChange={field.onChange}
-														defaultValue={field.value}
-													>
+											<FormField
+												control={form.control}
+												name="message"
+												render={({ field }) => (
+													<FormItem>
+														<FormLabel>
+															How can we help?{" "}
+															<span className="text-destructive">*</span>
+														</FormLabel>
 														<FormControl>
-															<SelectTrigger className="w-full bg-background h-11">
-																<SelectValue placeholder="Select size" />
-															</SelectTrigger>
+															<Textarea
+																placeholder="Tell us about your use case, requirements, or any questions you have..."
+																{...field}
+																className="min-h-32 bg-background resize-none"
+															/>
 														</FormControl>
-														<SelectContent>
-															<SelectItem value={NON_ENTERPRISE_SIZE}>
-																1-5 seats
-															</SelectItem>
-															<SelectItem value="6-10">
-																6-10 employees
-															</SelectItem>
-															<SelectItem value="11-25">
-																11-25 employees
-															</SelectItem>
-															<SelectItem value="26-50">
-																26-50 employees
-															</SelectItem>
-															<SelectItem value="51-200">
-																51-200 employees
-															</SelectItem>
-															<SelectItem value="201-500">
-																201-500 employees
-															</SelectItem>
-															<SelectItem value="501-1000">
-																501-1000 employees
-															</SelectItem>
-															<SelectItem value="1000+">
-																1000+ employees
-															</SelectItem>
-														</SelectContent>
-													</Select>
-													<FormMessage />
-												</FormItem>
-											)}
-										/>
-									</div>
+														<FormMessage />
+													</FormItem>
+												)}
+											/>
 
-									{isNonEnterpriseSize && (
-										<div className="flex gap-3 rounded-xl border border-border bg-muted/40 p-4">
-											<Info className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-											<div className="space-y-2 text-sm">
-												<p className="font-medium">
-													Teams of 1-5 don't need Enterprise
+											<div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:justify-between pt-2">
+												<p className="text-sm text-muted-foreground">
+													<span className="text-destructive">*</span> Required
+													fields
 												</p>
-												<p className="text-muted-foreground">
-													You can use LLM Gateway for free — no need to go
-													through Enterprise. Enterprise is usually priced from
-													$3,000 a year for small teams, and from $10,000 a year
-													for bigger teams.
-												</p>
-												<Button asChild size="sm">
-													<AuthLink href="/signup">
-														Get started for free
-														<ArrowRight className="ml-2 h-4 w-4" />
-													</AuthLink>
+												<Button
+													type="submit"
+													size="lg"
+													disabled={isSubmitting || isNonEnterpriseSize}
+													className="w-full sm:w-auto min-w-[180px]"
+												>
+													{isSubmitting ? (
+														<>
+															<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+															Sending...
+														</>
+													) : (
+														<>
+															Submit Request
+															<ArrowRight className="ml-2 h-4 w-4" />
+														</>
+													)}
 												</Button>
 											</div>
-										</div>
-									)}
-
-									<FormField
-										control={form.control}
-										name="deployment"
-										render={({ field }) => (
-											<FormItem>
-												<FormLabel>
-													How do you plan to run LLMGateway?{" "}
-													<span className="text-destructive">*</span>
-												</FormLabel>
-												<Select
-													onValueChange={field.onChange}
-													defaultValue={field.value}
-												>
-													<FormControl>
-														<SelectTrigger className="w-full bg-background h-11">
-															<SelectValue placeholder="Select deployment preference" />
-														</SelectTrigger>
-													</FormControl>
-													<SelectContent>
-														<SelectItem value="cloud">
-															Cloud (managed)
-														</SelectItem>
-														<SelectItem value="self_host">
-															Self-hosted
-														</SelectItem>
-														<SelectItem value="not_sure">
-															Not sure yet
-														</SelectItem>
-													</SelectContent>
-												</Select>
-												<FormMessage />
-											</FormItem>
-										)}
-									/>
-
-									<FormField
-										control={form.control}
-										name="message"
-										render={({ field }) => (
-											<FormItem>
-												<FormLabel>
-													How can we help?{" "}
-													<span className="text-destructive">*</span>
-												</FormLabel>
-												<FormControl>
-													<Textarea
-														placeholder="Tell us about your use case, requirements, or any questions you have..."
-														{...field}
-														className="min-h-32 bg-background resize-none"
-													/>
-												</FormControl>
-												<FormMessage />
-											</FormItem>
-										)}
-									/>
-
-									<div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:justify-between pt-2">
-										<p className="text-sm text-muted-foreground">
-											<span className="text-destructive">*</span> Required
-											fields
-										</p>
-										<Button
-											type="submit"
-											size="lg"
-											disabled={isSubmitting || isNonEnterpriseSize}
-											className="w-full sm:w-auto min-w-[180px]"
-										>
-											{isSubmitting ? (
-												<>
-													<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-													Sending...
-												</>
-											) : (
-												<>
-													Submit Request
-													<ArrowRight className="ml-2 h-4 w-4" />
-												</>
-											)}
-										</Button>
-									</div>
-								</form>
-							</Form>
+										</form>
+									</Form>
+								)}
+							</div>
 						)}
 					</div>
 				</div>

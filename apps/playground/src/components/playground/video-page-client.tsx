@@ -552,10 +552,7 @@ export default function VideoPageClient({
 
 	// Sync URL → state for back/forward navigation
 	useEffect(() => {
-		if (videoIdFromUrl !== selectedItemId) {
-			setSelectedItemId(videoIdFromUrl);
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+		setSelectedItemId(videoIdFromUrl);
 	}, [videoIdFromUrl]);
 
 	const lastRestoredIdRef = useRef<string | null>(null);
@@ -704,10 +701,12 @@ export default function VideoPageClient({
 				videoSize,
 				videoDuration,
 				inputImageCount,
+				referenceVideos.length,
 			),
 		[
 			comparisonMode,
 			inputImageCount,
+			referenceVideos.length,
 			selectedModels,
 			videoDuration,
 			videoGenModels,

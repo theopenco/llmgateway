@@ -58,6 +58,7 @@ import { speechRoute } from "./speech/route.js";
 import { systemoneRoute } from "./systemone/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
+import { videoAssets } from "./videos/videos.js";
 
 import type { ServerTypes } from "./vars.js";
 
@@ -411,6 +412,8 @@ app.openapi(root, async (c) => {
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();
+
+v1.route("/video-assets", videoAssets);
 
 v1.route("/chat", chat);
 v1.route("/embeddings", embeddingsRoute);
