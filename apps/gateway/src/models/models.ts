@@ -279,6 +279,8 @@ const listModelsResponseSchema = z.object({
 	data: z.array(modelSchema),
 });
 
+export type ListModelsResponse = z.infer<typeof listModelsResponseSchema>;
+
 const modelsSecurity: RouteConfig["security"] = [{}, { bearerAuth: [] }];
 
 const listModels = createRoute({

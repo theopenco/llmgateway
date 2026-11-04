@@ -101,39 +101,51 @@ export async function getEffectiveDiscount(
 export async function loadDiscountResolver(
 	organizationId: string | null,
 ): Promise<(provider: string, model: string) => EffectiveDiscount> {
-	const { rows, airsideSettings } = await swrWrap(
-		`discountResolver:${organizationId ?? "global"}`,
-		[getTableName(discountTable), getTableName(providerRoutingSettings)],
-		async () => ({
-			rows: await cdb
-				.select({
-					id: discountTable.id,
-					organizationId: discountTable.organizationId,
-					provider: discountTable.provider,
-					model: discountTable.model,
-					discountPercent: discountTable.discountPercent,
-					expiresAt: discountTable.expiresAt,
-				})
-				.from(discountTable)
-				.where(
-					organizationId
-						? or(
-								isNull(discountTable.organizationId),
-								eq(discountTable.organizationId, organizationId),
-							)
-						: isNull(discountTable.organizationId),
-				)
-				.orderBy(desc(discountTable.createdAt)),
-			airsideSettings: await cdb
-				.select({
-					id: providerRoutingSettings.id,
-					providerId: providerRoutingSettings.providerId,
-					modelId: providerRoutingSettings.modelId,
-					discountPercent: providerRoutingSettings.discountPercent,
-				})
-				.from(providerRoutingSettings),
-		}),
-	);
+	let loaded: {
+		rows: DiscountRow[];
+		airsideSettings: AirsideDiscountRow[];
+	};
+	try {
+		loaded = await swrWrap(
+			`discountResolver:${organizationId ?? "global"}`,
+			[getTableName(discountTable), getTableName(providerRoutingSettings)],
+			async () => ({
+				rows: await cdb
+					.select({
+						id: discountTable.id,
+						organizationId: discountTable.organizationId,
+						provider: discountTable.provider,
+						model: discountTable.model,
+						discountPercent: discountTable.discountPercent,
+						expiresAt: discountTable.expiresAt,
+					})
+					.from(discountTable)
+					.where(
+						organizationId
+							? or(
+									isNull(discountTable.organizationId),
+									eq(discountTable.organizationId, organizationId),
+								)
+							: isNull(discountTable.organizationId),
+					)
+					.orderBy(desc(discountTable.createdAt)),
+				airsideSettings: await cdb
+					.select({
+						id: providerRoutingSettings.id,
+						providerId: providerRoutingSettings.providerId,
+						modelId: providerRoutingSettings.modelId,
+						discountPercent: providerRoutingSettings.discountPercent,
+					})
+					.from(providerRoutingSettings),
+			}),
+		);
+	} catch (error) {
+		// Same fallback as getEffectiveDiscount: list undiscounted prices
+		// rather than failing the catalogue.
+		logger.error("Error loading discount resolver:", error as Error);
+		return () => ({ discount: "0", source: "none" });
+	}
+	const { rows, airsideSettings } = loaded;
 	return (provider, model) =>
 		resolveEffectiveDiscount(
 			rows,
