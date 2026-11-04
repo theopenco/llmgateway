@@ -90,14 +90,13 @@ Covered by `apps/api/src/lib/account-deletion.spec.ts`.
 
 ## Access and portability
 
-`GET /user/me/export` (`apps/api/src/lib/data-export.ts`) lets a user download
-the account-scoped records we hold about them as JSON, so Art. 15/20 requests no
-longer depend on someone running a query by hand. It never includes credentials,
-it embeds a list of what was withheld and why, and it caps the chats section —
-stating any truncation in the payload so a partial export is not mistaken for a
-complete one. Covered by
-`apps/api/src/lib/data-export.spec.ts`, including a test that fails if any seeded
-secret appears anywhere in the payload.
+`GET /user/me/export` provides a bounded account-scoped JSON download. Row and
+record-size limits apply before content leaves the database, with explicit
+truncation notes and placeholders. Credentials and separately controlled records
+are excluded. The payload gives a contact for an authorized access review; a
+complete remainder workflow has not been verified, so the download alone is not a
+complete response to every Art. 15/20 request. Regression coverage lives in
+`apps/api/src/lib/data-export.spec.ts`.
 
 ## Operational duties
 

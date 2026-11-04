@@ -668,7 +668,7 @@ const exportUserData = createRoute({
 	path: "/me/export",
 	summary: "Export my personal data",
 	description:
-		"Returns everything LLM Gateway holds about the authenticated user as a JSON document, satisfying the GDPR right of access (Art. 15) and right to data portability (Art. 20). Credentials, organization-owned request logs and security audit records are excluded; the payload documents each exclusion and why.",
+		"Returns a bounded JSON download of account-scoped records. Notes identify truncation and a contact for authorized access review; this download alone is not a complete response to every access or portability request. Credentials, organization-owned request logs and security audit records are excluded; the payload documents each exclusion and why.",
 	request: {},
 	responses: {
 		200: {

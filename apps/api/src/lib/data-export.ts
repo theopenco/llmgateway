@@ -185,7 +185,7 @@ export const userDataExportSchema = z.object({
 export type UserDataExport = z.infer<typeof userDataExportSchema>;
 
 /**
- * Collects everything we hold about one user into a single JSON document.
+ * Builds a bounded account download; notes identify omissions requiring review.
  *
  * Scoped entirely by `userId` — every query filters on it, so the caller only
  * has to guarantee that the id belongs to the authenticated session.

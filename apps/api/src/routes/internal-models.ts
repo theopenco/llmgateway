@@ -713,6 +713,17 @@ const getProvidersRoute = createRoute({
 
 internalModels.openapi(getProvidersRoute, async (c) => {
 	const providers = await db.query.provider.findMany({
+		columns: {
+			id: true,
+			createdAt: true,
+			name: true,
+			description: true,
+			cancellation: true,
+			color: true,
+			website: true,
+			announcement: true,
+			status: true,
+		},
 		where: {
 			status: { eq: "active" },
 		},

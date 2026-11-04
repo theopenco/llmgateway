@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables, cdb } from "@llmgateway/db";
+import { db, tables, cdb, eq } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const originalEnforcementFlag = process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
@@ -201,5 +201,52 @@ describe("public Airside training posture", () => {
 				(row: { id: string }) => row.id === "training-test-carrier",
 			),
 		).toMatchObject({ apiTraining: true });
+	});
+});
+describe("public provider projection", () => {
+	beforeEach(async () => {
+		await deleteAll();
+	});
+	afterEach(async () => {
+		await db
+			.update(tables.provider)
+			.set({ dpaSignedAt: null, dpaSignedBy: null, dpaNote: null })
+			.where(eq(tables.provider.id, "openai"));
+		await deleteAll();
+	});
+	it("does not disclose agreement metadata on the anonymous catalogue endpoint", async () => {
+		await db
+			.insert(tables.provider)
+			.values({
+				id: "openai",
+				name: "OpenAI",
+				description: "Test provider",
+				dpaSignedAt: new Date(),
+				dpaSignedBy: "admin@example.com",
+				dpaNote: "synthetic-private-agreement-note",
+			})
+			.onConflictDoUpdate({
+				target: tables.provider.id,
+				set: {
+					dpaSignedAt: new Date(),
+					dpaSignedBy: "admin@example.com",
+					dpaNote: "synthetic-private-agreement-note",
+				},
+			});
+		const response = await app.request("/internal/providers");
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(
+			JSON.stringify(body).includes("synthetic-private-agreement-note"),
+		).toBe(false);
+		expect(
+			body.providers.find((row: { id: string }) => row.id === "openai"),
+		).not.toHaveProperty("dpaSignedBy");
+		expect(
+			body.providers.find((row: { id: string }) => row.id === "openai"),
+		).not.toHaveProperty("dpaNote");
+		expect(
+			body.providers.find((row: { id: string }) => row.id === "openai"),
+		).not.toHaveProperty("dpaSignedAt");
 	});
 });

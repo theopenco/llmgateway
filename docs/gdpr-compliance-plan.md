@@ -53,7 +53,7 @@ one exists it controls over the Privacy Policy for Customer Data.
 
 | Right | Article | Status | Where |
 | --- | --- | --- | --- |
-| Access / portability | 15, 20 | Self-serve JSON export | `apps/api/src/lib/data-export.ts`, `GET /user/me/export` |
+| Access / portability | 15, 20 | Bounded account download; remaining records need authorized review | `apps/api/src/lib/data-export.ts`, `GET /user/me/export` |
 | Rectification | 16 | Self-serve in the dashboard | Account settings |
 | Erasure | 17 | Self-serve, with documented retention carve-out | `apps/api/src/lib/account-deletion.ts`, `DELETE /user/me` |
 | Restriction | 18 | Manual | — |
@@ -143,7 +143,7 @@ rest are commercial/legal work that cannot be closed in this repository.
 | 5 | Warn at model-selection time when a provider trains on API inputs | engineering | **Done** — icon + explanatory warning in the playground model picker, and a "Trains on your prompts" badge on the Providers page |
 | 6 | Obtain data-processing terms for the undisclosed ("stealth") providers before routing EU personal data to them | legal | Open — mitigated by disclosure + provider pinning, not resolved |
 | 7 | Remediate the three known erasure gaps | engineering | **Done** — see §3 |
-| 8 | Build a self-serve data export (Art. 15/20) instead of handling requests by email | engineering | **Done** — see §3 |
+| 8 | Build a self-serve account download | engineering | **Implemented, incomplete access workflow** — bounded downloads require separately authorized review for omitted records; the remainder workflow is not verified. |
 
 ### Low
 
