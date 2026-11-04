@@ -17,6 +17,7 @@ import {
 } from "./gcp-access-token.js";
 import {
 	getAzureFoundryBaseUrl,
+	resolveAzureBaseUrl,
 	getDecisionsUpstreamPath,
 	getGoogleVertexPublisherModelPath,
 	getProviderDefaultBaseUrl,
@@ -299,8 +300,10 @@ function getValidationBaseUrl(
 ): string {
 	const resolved =
 		baseUrl ??
-		providerKeyOptions?.env_config?.baseUrl ??
-		getProviderDefaultBaseUrl(provider);
+		(provider === "azure"
+			? resolveAzureBaseUrl({ providerKeyOptions, skipEnvVars: true })
+			: (providerKeyOptions?.env_config?.baseUrl ??
+				getProviderDefaultBaseUrl(provider)));
 	if (!resolved) {
 		throw new Error(`Provider ${provider} requires a base URL`);
 	}
@@ -447,7 +450,10 @@ export async function validateProviderKey(
 				baseUrl,
 				providerKeyOptions,
 			);
-			if (provider === "google-ai-studio") {
+			if (provider === "azure") {
+				endpoint = appendPath(resolvedBaseUrl, "openai/v1/embeddings");
+				payload = { input: "Hello", model: validationModel.externalId };
+			} else if (provider === "google-ai-studio") {
 				endpoint = `${resolvedBaseUrl}/v1beta/models/${validationModel.externalId}:embedContent?key=${encodeURIComponent(token)}`;
 				payload = { content: { parts: [{ text: "Hello" }] } };
 			} else if (provider === "google-vertex") {

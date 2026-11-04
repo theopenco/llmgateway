@@ -85,6 +85,58 @@ describe("getAzureCredentialBaseUrl", () => {
 	});
 });
 
+describe("getAzureCredentialBaseUrl base URL precedence", () => {
+	afterEach(() => {
+		delete process.env.LLM_AZURE_BASE_URL;
+	});
+
+	it("uses a BYOK key's base URL over its resource", () => {
+		expect(
+			getAzureCredentialBaseUrl({
+				providerKey: {
+					...azureKey({ azure_resource: "org-resource" }),
+					baseUrl: "https://byok.example.com/",
+				} as ProviderKeyRow,
+			}),
+		).toBe("https://byok.example.com");
+	});
+
+	it("uses a managed credential's base URL over its resource and the env", () => {
+		process.env.LLM_AZURE_RESOURCE = "platform-resource";
+		expect(
+			getAzureCredentialBaseUrl({
+				managedKey: {
+					id: "managed",
+					config: {
+						baseUrl: "https://managed.example.com",
+						resource: "managed-resource",
+					},
+					options: null,
+				} as unknown as ProviderKeyRow,
+			}),
+		).toBe("https://managed.example.com");
+	});
+
+	it("does not fall back to env settings for a managed credential", () => {
+		process.env.LLM_AZURE_BASE_URL = "https://env.example.com";
+		expect(
+			getAzureCredentialBaseUrl({
+				managedKey: {
+					id: "managed",
+					config: { resource: "managed-resource" },
+					options: null,
+				} as unknown as ProviderKeyRow,
+			}),
+		).toBe("https://managed-resource.openai.azure.com");
+	});
+
+	it("uses LLM_AZURE_BASE_URL over LLM_AZURE_RESOURCE on the env path", () => {
+		process.env.LLM_AZURE_RESOURCE = "platform-resource";
+		process.env.LLM_AZURE_BASE_URL = "https://env.example.com";
+		expect(getAzureCredentialBaseUrl({})).toBe("https://env.example.com");
+	});
+});
+
 describe("getAzureUpstreamModel", () => {
 	it("uses azure_deployment_name when set", () => {
 		expect(

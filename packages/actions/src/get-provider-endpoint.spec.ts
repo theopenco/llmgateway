@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
+	resolveAzureBaseUrl,
 } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
@@ -510,6 +511,50 @@ describe("getProviderEndpoint", () => {
 			);
 
 			expect(endpoint).toContain("https://my-resource.openai.azure.com/");
+		});
+
+		it("prefers a credential's base URL over its resource and trims trailing slashes", () => {
+			expect(
+				resolveAzureBaseUrl({
+					providerKeyOptions: {
+						azure_resource: "byok-resource",
+						env_config: {
+							baseUrl: "https://proxy.example.com/azure/",
+							resource: "managed-resource",
+						},
+					},
+					skipEnvVars: true,
+				}),
+			).toBe("https://proxy.example.com/azure");
+		});
+
+		it("prefers LLM_AZURE_BASE_URL over LLM_AZURE_RESOURCE on the env path", () => {
+			vi.stubEnv("LLM_AZURE_BASE_URL", "https://proxy.example.com");
+			vi.stubEnv("LLM_AZURE_RESOURCE", "env-resource");
+			try {
+				expect(resolveAzureBaseUrl({})).toBe("https://proxy.example.com");
+				expect(resolveAzureBaseUrl({ skipEnvVars: true })).toBeUndefined();
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		});
+
+		it("builds the chat URL on a configured base URL", () => {
+			const chat = getProviderEndpoint(
+				"azure",
+				undefined,
+				"gpt-4o-mini",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://proxy.example.com/" } },
+				undefined,
+				undefined,
+				undefined,
+				true,
+			);
+			expect(chat.startsWith("https://proxy.example.com/openai/")).toBe(true);
 		});
 
 		it.each([

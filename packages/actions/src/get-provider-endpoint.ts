@@ -302,6 +302,51 @@ export function getOpenAiV1Prefix(provider: ProviderId): string {
 	return provider === "azure" ? "/openai/v1" : "/v1";
 }
 
+/**
+ * Host of the Azure credential serving a request, shared by every Azure route
+ * (chat, images, embeddings, speech, realtime, key validation) so they agree.
+ * An explicit base URL wins over the resource: it is the only way to reach a
+ * deployment serving the Azure surface from a host other than
+ * <resource>.openai.azure.com. Exactly one of the two belongs on a credential,
+ * but they can arrive from different layers — a managed credential's base URL
+ * must override a deployment-wide LLM_AZURE_RESOURCE. A caller holding a BYOK
+ * key's own base URL applies it before this. Returns undefined when neither is
+ * set.
+ */
+export function resolveAzureBaseUrl(options: {
+	providerKeyOptions?: ProviderKeyOptions;
+	skipEnvVars?: boolean;
+	configIndex?: number;
+	variant?: EnvVarVariant;
+}): string | undefined {
+	const { providerKeyOptions, skipEnvVars, configIndex, variant } = options;
+	const credentialConfig = providerKeyOptions?.env_config;
+	const envValue = (key: string) =>
+		skipEnvVars
+			? undefined
+			: getProviderEnvValue("azure", key, configIndex, undefined, variant);
+
+	const baseUrl = credentialConfig?.baseUrl ?? envValue("baseUrl");
+	if (baseUrl) {
+		return baseUrl.replace(/\/+$/, "");
+	}
+
+	const resource =
+		credentialConfig?.resource ??
+		providerKeyOptions?.azure_resource ??
+		envValue("resource");
+	if (!resource) {
+		return undefined;
+	}
+	if (!isProviderHostnameLabel(resource)) {
+		const azureEnv = getProviderEnvConfig("azure");
+		throw new ProviderConfigError(
+			`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
+		);
+	}
+	return getAzureOpenAiBaseUrl(resource);
+}
+
 /** Workers AI's OpenAI-compatible base URL is scoped to the account. */
 export function getCloudflareWorkersAiBaseUrl(
 	accountId: string | undefined,
@@ -556,58 +601,18 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "azure": {
-				// An explicit base URL wins over the resource: it is the only way to
-				// reach a deployment that serves the Azure surface from a host other
-				// than <resource>.openai.azure.com.
-				//
-				// Exactly one of the two belongs on any single credential, which is
-				// enforced where credentials are authored. Precedence still matters
-				// here because the two can arrive from different layers — a managed
-				// credential supplying a base URL must override a deployment-wide
-				// LLM_AZURE_RESOURCE rather than conflict with it.
-				const azureBaseUrl =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (azureBaseUrl) {
-					url = azureBaseUrl;
-					break;
-				}
-
-				const resource =
-					credentialConfig?.resource ??
-					providerKeyOptions?.azure_resource ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure",
-								"resource",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (!resource) {
+				url = resolveAzureBaseUrl({
+					providerKeyOptions,
+					skipEnvVars,
+					configIndex,
+					variant,
+				});
+				if (!url) {
 					const azureEnv = getProviderEnvConfig("azure");
 					throw new ProviderConfigError(
 						`Azure requires a resource or a base URL - set either via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} / ${azureEnv?.optional?.baseUrl ?? "LLM_AZURE_BASE_URL"} env vars`,
 					);
 				}
-				if (!isProviderHostnameLabel(resource)) {
-					const azureEnv = getProviderEnvConfig("azure");
-					throw new ProviderConfigError(
-						`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
-					);
-				}
-				url = `https://${resource}.openai.azure.com`;
 				break;
 			}
 			case "azure-ai-foundry": {

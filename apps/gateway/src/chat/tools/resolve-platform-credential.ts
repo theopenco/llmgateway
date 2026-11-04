@@ -13,9 +13,9 @@ import {
 } from "@/lib/provider-key-rate-limit.js";
 
 import {
-	getAzureOpenAiBaseUrl,
 	managedCredentialOptions,
 	readProviderKey,
+	resolveAzureBaseUrl,
 } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue, providers } from "@llmgateway/models";
@@ -281,6 +281,12 @@ export function getCredentialSetting(
  * build their own URL: its explicit base URL, else its resource's OpenAI host
  * (a BYOK key's `azure_resource` option, the managed config, or the env var).
  */
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL. Same precedence as chat: a BYOK key's own base URL,
+ * then the credential's base URL, then its resource's OpenAI host. Env vars
+ * apply only on the env path.
+ */
 export function getAzureCredentialBaseUrl(
 	credential: {
 		providerKey?: ProviderKeyRow;
@@ -291,16 +297,17 @@ export function getAzureCredentialBaseUrl(
 		variant?: EnvVarVariant;
 	} = {},
 ): string | undefined {
-	const baseUrl =
-		credential.providerKey?.baseUrl ??
-		getCredentialSetting("azure", "baseUrl", credential, options);
-	if (baseUrl) {
-		return baseUrl.replace(/\/+$/, "");
+	if (credential.providerKey?.baseUrl) {
+		return credential.providerKey.baseUrl.replace(/\/+$/, "");
 	}
-	const resource =
-		credential.providerKey?.options?.azure_resource ??
-		getCredentialSetting("azure", "resource", credential, options);
-	return resource ? getAzureOpenAiBaseUrl(resource) : undefined;
+	return resolveAzureBaseUrl({
+		providerKeyOptions: credential.providerKey
+			? (credential.providerKey.options ?? undefined)
+			: managedCredentialOptions(credential.managedKey),
+		skipEnvVars: Boolean(credential.providerKey ?? credential.managedKey),
+		configIndex: options.configIndex,
+		variant: options.variant,
+	});
 }
 
 /**

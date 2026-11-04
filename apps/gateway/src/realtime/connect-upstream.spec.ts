@@ -191,6 +191,31 @@ describe("resolveUpstreamTarget", () => {
 		);
 	});
 
+	it("uses an Azure base URL over the env resource for realtime", () => {
+		process.env.LLM_AZURE_RESOURCE = "env-resource";
+		process.env.LLM_AZURE_BASE_URL = "http://azure-proxy.example.com/";
+		const target = resolveUpstreamTarget(
+			buildPreflight("azure", "gpt-realtime-2.1"),
+		);
+		expect(target.url).toBe(
+			"ws://azure-proxy.example.com/openai/v1/realtime?model=gpt-realtime-2.1",
+		);
+	});
+
+	it("uses an Azure BYOK key's base URL for realtime", () => {
+		const target = resolveUpstreamTarget({
+			...buildPreflight("azure", "gpt-realtime-2.1"),
+			providerKey: {
+				id: "byok-key",
+				baseUrl: "https://byok.example.com",
+				options: { azure_resource: "org-resource" },
+			},
+		} as unknown as RealtimePreflightResult);
+		expect(target.url).toBe(
+			"wss://byok.example.com/openai/v1/realtime?model=gpt-realtime-2.1",
+		);
+	});
+
 	it("rejects an Azure session without a resource or base URL", () => {
 		expect(() =>
 			resolveUpstreamTarget(buildPreflight("azure", "gpt-realtime-2.1")),

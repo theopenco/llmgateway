@@ -312,6 +312,49 @@ describe("validateProviderKey model-specific probes", () => {
 		});
 	});
 
+	it.each([
+		{
+			name: "resource",
+			baseUrl: undefined,
+			options: { azure_resource: "my-resource" },
+			expected: "https://my-resource.openai.azure.com/openai/v1/embeddings",
+		},
+		{
+			name: "managed base URL over resource",
+			baseUrl: undefined,
+			options: {
+				env_config: {
+					baseUrl: "https://proxy.example.com/",
+					resource: "my-resource",
+				},
+			},
+			expected: "https://proxy.example.com/openai/v1/embeddings",
+		},
+		{
+			name: "key base URL over resource",
+			baseUrl: "https://byok.example.com",
+			options: { azure_resource: "my-resource" },
+			expected: "https://byok.example.com/openai/v1/embeddings",
+		},
+	])(
+		"probes Azure embeddings on the v1 API from the $name",
+		async ({ baseUrl, options, expected }) => {
+			const fetchMock = mockSuccess();
+
+			const result = await validateProviderKey(
+				"azure",
+				"azure-test",
+				baseUrl,
+				false,
+				options,
+				"text-embedding-3-small",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock.mock.calls[0][0]).toBe(expected);
+		},
+	);
+
 	it("probes an explicit OpenAI-compatible custom model", async () => {
 		const fetchMock = mockSuccess();
 		const abortController = new AbortController();
