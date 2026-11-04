@@ -394,7 +394,7 @@ export class GeminiRealtimeProxySession {
 		const kind = present[0];
 
 		if (kind === "setup") {
-			this.handleSetup(message.setup);
+			await this.handleSetup(message.setup);
 			return;
 		}
 		if (!this.setupComplete) {
@@ -419,7 +419,7 @@ export class GeminiRealtimeProxySession {
 		}
 	}
 
-	private handleSetup(rawSetup: unknown): void {
+	private async handleSetup(rawSetup: unknown): Promise<void> {
 		if (this.setupSent) {
 			this.sendToClientRaw(
 				buildGeminiError(
@@ -540,6 +540,10 @@ export class GeminiRealtimeProxySession {
 		}
 		if (this.pinnedVoice !== null) {
 			setup.generationConfig = this.withPinnedVoice(rawSetup.generationConfig);
+		}
+		// Setup can carry private instructions and tool descriptions.
+		if (!(await this.authorizeClientTurn())) {
+			return;
 		}
 		this.setupSent = true;
 		this.forwardToUpstream(JSON.stringify({ setup }));
@@ -665,8 +669,7 @@ export class GeminiRealtimeProxySession {
 			}
 		}
 
-		await this.postBillingGate;
-		if (this.clientGone()) {
+		if (!(await this.authorizeClientTurn())) {
 			return;
 		}
 		this.markStageStarted();
@@ -731,8 +734,11 @@ export class GeminiRealtimeProxySession {
 			}
 		}
 
-		await this.postBillingGate;
-		if (this.clientGone()) {
+		if (
+			!(await this.authorizeClientTurn(
+				rawInput.text === undefined && rawInput.activityStart === undefined,
+			))
+		) {
 			return;
 		}
 		if (rawInput.audio !== undefined) {
@@ -757,6 +763,18 @@ export class GeminiRealtimeProxySession {
 			rawInput.audio !== undefined,
 		);
 		this.forwardToUpstream(JSON.stringify({ realtimeInput: rawInput }));
+		// Input-stream boundaries precede the previous generation's terminal event.
+		if (
+			rawInput.audioStreamEnd === true ||
+			rawInput.activityEnd !== undefined
+		) {
+			this.inputStreamAuthorized = false;
+		} else if (
+			rawInput.audio !== undefined ||
+			rawInput.activityStart !== undefined
+		) {
+			this.inputStreamAuthorized = true;
+		}
 	}
 
 	private async handleToolResponse(rawResponse: unknown): Promise<void> {
@@ -800,8 +818,7 @@ export class GeminiRealtimeProxySession {
 			}
 		}
 
-		await this.postBillingGate;
-		if (this.clientGone()) {
+		if (!(await this.authorizeClientTurn())) {
 			return;
 		}
 		this.markStageStarted();
@@ -1115,6 +1132,7 @@ export class GeminiRealtimeProxySession {
 	private afterTerminalEvent(): void {
 		this.stageInterrupted = false;
 		this.stageStartedAt = null;
+		this.inputStreamAuthorized = false;
 		this.generationInProgress = false;
 		// The streamed audio that fed this turn has been consumed by it. Leaving
 		// this set would make every later disconnect drain for nothing.
@@ -1139,11 +1157,9 @@ export class GeminiRealtimeProxySession {
 	}
 
 	/**
-	 * Gemini generates reactively — there is no client event the gateway can
-	 * gate before the provider starts working — so authorization is re-run
-	 * immediately after each charge instead. A session that no longer clears
-	 * the gates is closed, so an exhausted or revoked account can overrun by at
-	 * most the one generation it already incurred.
+	 * Gemini can generate within an ongoing audio stream without a new client
+	 * turn. Recheck after each charge as a backstop to pre-dispatch authorization,
+	 * so revocation also closes streams already in flight.
 	 *
 	 * Every failure closes the session: unlike a gated response.create there is
 	 * no single unit of work left to refuse. Only an unreadable account state
@@ -1478,4 +1494,37 @@ export class GeminiRealtimeProxySession {
 			}
 		}, 100);
 	}
+
+	private async authorizeClientTurn(
+		continueInputStream = false,
+	): Promise<boolean> {
+		await this.postBillingGate;
+		if (this.clientGone()) {
+			return false;
+		}
+		// PCM chunks and their end markers belong to the authorized input stream.
+		if (continueInputStream && this.inputStreamAuthorized) {
+			return true;
+		}
+		const authorization = await authorizeAccount({
+			preflight: this.preflight,
+			gatewayToken: this.gatewayToken,
+			requestedModel: this.requestedModel,
+			match: this.preflight.match,
+		});
+		if (this.clientGone()) {
+			return false;
+		}
+		if (!authorization.ok) {
+			this.refuseTurn(authorization.code, authorization.message);
+			if (authorization.severity !== "transient") {
+				this.draining = true;
+				this.settleAndShutdown(1008, authorization.code);
+			}
+			return false;
+		}
+		return true;
+	}
+
+	private inputStreamAuthorized = false;
 }

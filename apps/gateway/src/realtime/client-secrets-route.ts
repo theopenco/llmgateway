@@ -327,7 +327,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 
 	const instructions = body.session.instructions ?? null;
 	if (instructions !== null) {
-		if (isZeroDataRetentionEnabled(preflight.organization)) {
+		if (isZeroDataRetentionEnabled(preflight.organization, preflight.apiKey)) {
 			return errorResponse(
 				c,
 				400,

@@ -75,7 +75,7 @@ async function resolveLogContext(
 	return {
 		apiKey,
 		project,
-		retentionLevel: getEffectiveRetentionLevel(organization),
+		retentionLevel: getEffectiveRetentionLevel(organization, apiKey),
 		organization,
 	};
 }

@@ -14,7 +14,7 @@ export const stepfunModels = [
 				externalId: "step-5-preview",
 				inputPrice: "1e-6",
 				outputPrice: "2.7e-6",
-				cachedInputPrice: "0.05e-6",
+				cachedInputPrice: "0.1e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 65536,

@@ -3826,7 +3826,10 @@ describe("fallback and error status code handling", () => {
 			expect(logs.length).toBeGreaterThanOrEqual(2);
 
 			// Verify routing metadata in log shows all attempts
-			const logWithRouting = logs.find((l: Log) => l.routingMetadata?.routing);
+			// Failed attempts carry partial histories; row order is not guaranteed.
+			const logWithRouting = logs.find(
+				(l: Log) => !l.hasError && l.routingMetadata?.routing,
+			);
 			expect(logWithRouting).toBeDefined();
 			expect(
 				logWithRouting!.routingMetadata!.routing!.length,

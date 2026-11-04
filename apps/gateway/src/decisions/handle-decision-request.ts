@@ -433,7 +433,7 @@ export async function handleDecisionRequest(
 		baseOrganization,
 	);
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	const { match, unsupported } = await resolveDecisionMapping(
 		requestedModel,
@@ -501,12 +501,17 @@ export async function handleDecisionRequest(
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
 
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	if (endpoint.hasImageInput && !decisionMapping.vision) {
 		throw new HTTPException(400, {

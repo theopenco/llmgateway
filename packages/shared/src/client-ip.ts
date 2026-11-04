@@ -173,3 +173,46 @@ export function ipMatchesCidr(clientIp: string, cidr: string): boolean {
 export function anyCidrMatches(clientIp: string, cidrs: string[]): boolean {
 	return cidrs.some((cidr) => ipMatchesCidr(clientIp, cidr));
 }
+export function isIpAllowedByIamRule(
+	ruleType: "allow_ip_cidrs" | "deny_ip_cidrs",
+	ipCidrs: string[] | undefined,
+	clientIp: string | undefined,
+): boolean {
+	if (!ipCidrs?.length) {
+		return true;
+	}
+	if (!clientIp) {
+		return ruleType === "deny_ip_cidrs";
+	}
+	const matches = anyCidrMatches(clientIp, ipCidrs);
+	return ruleType === "allow_ip_cidrs" ? matches : !matches;
+}
+export function isIpAllowedByIamRules(
+	rules: readonly {
+		ruleType: string;
+		ruleValue: { ipCidrs?: string[] };
+		status?: string;
+	}[],
+	clientIp: string | undefined,
+): boolean {
+	const active = rules.filter(
+		(rule) => rule.status === undefined || rule.status === "active",
+	);
+	const allow = active.filter(
+		(rule) =>
+			rule.ruleType === "allow_ip_cidrs" && rule.ruleValue.ipCidrs?.length,
+	);
+	if (
+		allow.length &&
+		!allow.some((rule) =>
+			isIpAllowedByIamRule("allow_ip_cidrs", rule.ruleValue.ipCidrs, clientIp),
+		)
+	) {
+		return false;
+	}
+	return active.every(
+		(rule) =>
+			rule.ruleType !== "deny_ip_cidrs" ||
+			isIpAllowedByIamRule("deny_ip_cidrs", rule.ruleValue.ipCidrs, clientIp),
+	);
+}
