@@ -102,8 +102,9 @@ function deferred() {
 async function waitForDatabaseLock() {
 	await vi.waitFor(
 		async () => {
-			const waiting =
-				await db.execute(sql`select count(*)::int as count from pg_stat_activity
+			const waiting = await db.execute<{
+				count: number;
+			}>(sql`select count(*)::int as count from pg_stat_activity
 			where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()
 			and query ilike 'select%from "user"%for update%'`);
 			expect(waiting.rows[0]?.count).toBeGreaterThan(0);
@@ -924,7 +925,7 @@ describe("email change confirmation", () => {
 		});
 		await db.insert(tables.account).values({
 			id: "other-account-id",
-			accountId: "other-account-id",
+			accountId: "other-user-id",
 			userId: "other-user-id",
 			providerId: "credential",
 			password: account!.password,

@@ -274,7 +274,7 @@ export function PassportBook() {
 										</div>
 										<div>
 											<dt className="text-stone-400">Access</dt>
-											<dd>200+ models · all tiers</dd>
+											<dd>100+ models · all tiers</dd>
 										</div>
 									</dl>
 								</div>
@@ -290,7 +290,7 @@ export function PassportBook() {
 										P&lt;GTWDEVPASS&lt;CODE&lt;&lt;FIRST&lt;PARTY&lt;AGENT&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
 									</p>
 									<p className="truncate">
-										LLMGTWY2026&lt;&lt;3X&lt;USAGE&lt;200&lt;MODELS&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;42
+										LLMGTWY2026&lt;&lt;2X&lt;USAGE&lt;100&lt;MODELS&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;42
 									</p>
 								</div>
 							</div>

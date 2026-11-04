@@ -115,7 +115,7 @@ describe("coding suite", () => {
 		expect(evaluation.metrics?.selfVerified).toBe(1);
 	});
 
-	it("passes the feature case once subtractCents clamps at zero", () => {
+	it("requires re-export and documentation as well as subtractCents", () => {
 		const session = openSession(feature!);
 		const original = call(session, "read_file", { path: "src/money.js" });
 		call(session, "write_file", {
@@ -128,7 +128,29 @@ describe("coding suite", () => {
 					"module.exports = { addCents, formatCents, subtractCents };",
 			),
 		});
-		expect(call(session, "run_tests")).toContain("4/4 passing");
+		expect(session.evaluate(response()).passed).toBe(false);
+		const cart = call(session, "read_file", { path: "src/cart.js" });
+		call(session, "write_file", {
+			path: "src/cart.js",
+			content: cart
+				.replace(
+					"addCents, formatCents",
+					"addCents, formatCents, subtractCents",
+				)
+				.replace(
+					"cartTotal, formatCents",
+					"cartTotal, formatCents, subtractCents",
+				),
+		});
+		expect(session.evaluate(response()).passed).toBe(false);
+		const readme = call(session, "read_file", { path: "README.md" });
+		call(session, "write_file", {
+			path: "README.md",
+			content:
+				readme +
+				"\nsubtractCents(left, right) subtracts cents, clamped at zero.\n",
+		});
+		expect(call(session, "run_tests")).toContain("6/6 passing");
 		expect(session.evaluate(response()).passed).toBe(true);
 	});
 

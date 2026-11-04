@@ -211,13 +211,13 @@ describe("fallback and error status code handling", () => {
 				baseUrl: mockServerUrl,
 			},
 			{
-				id: "provider-key-cerebras",
+				id: "provider-key-bytedance",
 				...encryptProviderKeyForStorage(
-					"sk-cerebras-key",
-					"provider-key-cerebras",
+					"sk-bytedance-key",
+					"provider-key-bytedance",
 					"org-id",
 				),
-				provider: "cerebras",
+				provider: "bytedance",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
@@ -527,6 +527,36 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].usedProvider).toBe("custom");
 			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
 			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("skips a cheaper mapping far below the model's context window, even for a short prompt", async () => {
+			await setupCustomAutoRouting();
+			await db
+				.update(tables.customModel)
+				.set({ contextSize: 1_000 })
+				.where(eq(tables.customModel.id, "auto-custom-model"));
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					routing: "price",
+					messages: [{ role: "user", content: "Hello" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("anthropic");
+			const filtered = logs[0].routingMetadata?.filteredProviders ?? [];
+			expect(filtered.find((f) => f.providerId === "custom")?.codes).toContain(
+				"context_size",
+			);
 		});
 
 		test("honors scoring weights with a matching custom model", async () => {
@@ -1275,7 +1305,7 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
-		test("deactivated provider falls back and sets metadata in response and DB log", async () => {
+		test("unpinned request skips the deactivated provider and logs the active one", async () => {
 			vi.useFakeTimers({ shouldAdvanceTime: true });
 			vi.setSystemTime(new Date("2026-01-20T12:00:00Z"));
 
@@ -1301,8 +1331,8 @@ describe("fallback and error status code handling", () => {
 					baseUrl: mockServerUrl,
 				});
 
-				// Request with google-ai-studio (deactivated at 2026-01-17)
-				// Should fall back to google-vertex (still active until 2026-01-27)
+				// google-ai-studio is deactivated (2026-01-17); google-vertex is
+				// still active (until 2026-01-27).
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -1310,7 +1340,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "google-ai-studio/gemini-2.5-flash-preview-09-2025",
+						model: "gemini-2.5-flash-preview-09-2025",
 						messages: [
 							{
 								role: "user",
@@ -1323,10 +1353,8 @@ describe("fallback and error status code handling", () => {
 				expect(res.status).toBe(200);
 				const json = await res.json();
 
-				// Verify response metadata shows correct fallback
 				expect(json).toHaveProperty("metadata");
 				expect(json.metadata.used_provider).toBe("google-vertex");
-				// The requested provider should be cleared since it was deactivated
 				expect(json.metadata.requested_provider).toBeNull();
 
 				// Verify DB log entry
@@ -1370,8 +1398,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("does not reroute away from a low-uptime provider", async () => {
-			await setRoutingMetrics("gemini-2.5-flash", "google-ai-studio", 0);
-			await setRoutingMetrics("gemini-2.5-flash", "google-vertex", 100);
+			await setRoutingMetrics("gemini-3.1-flash-lite", "google-ai-studio", 0);
+			await setRoutingMetrics("gemini-3.1-flash-lite", "google-vertex", 100);
 
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -1380,7 +1408,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "google-ai-studio/gemini-2.5-flash",
+					model: "google-ai-studio/gemini-3.1-flash-lite",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1412,7 +1440,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "gemini-2.5-flash",
+						model: "gemini-3.1-flash-lite",
 						messages: [
 							{
 								role: "assistant",
@@ -1468,7 +1496,7 @@ describe("fallback and error status code handling", () => {
 		beforeEach(async () => {
 			await setupMultiProviderKeys();
 			await setRoutingMetrics(modelId, "together-ai", 0);
-			await setRoutingMetrics(modelId, "cerebras", 100);
+			await setRoutingMetrics(modelId, "bytedance", 100);
 		});
 
 		test("does not reroute a 0% uptime provider when IAM only allows the requested provider", async () => {
@@ -1509,9 +1537,9 @@ describe("fallback and error status code handling", () => {
 		test("does not reroute a 0% uptime provider when IAM denies the fallback provider", async () => {
 			await insertIamRules([
 				{
-					id: "iam-deny-cerebras",
+					id: "iam-deny-bytedance",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -1548,9 +1576,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-deny-cerebras-combo",
+					id: "iam-deny-bytedance-combo",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -1714,6 +1742,79 @@ describe("fallback and error status code handling", () => {
 						score.providerId === "alibaba" && score.region === "singapore",
 				),
 			).toBe(false);
+		});
+
+		test("flex load-shedding does not reroute standard requests", async () => {
+			await ensureProviders(["zai", "alibaba"]);
+			await db.insert(tables.providerKey).values(
+				["zai", "alibaba"].map((provider) => ({
+					id: `provider-key-${provider}`,
+					...encryptProviderKeyForStorage(
+						`sk-${provider}-key`,
+						`provider-key-${provider}`,
+						"org-id",
+					),
+					provider,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				})),
+			);
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-5",
+					name: "GLM-5",
+					family: "zai",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+			await db
+				.insert(tables.modelProviderMapping)
+				.values(
+					["zai", "alibaba"].map((providerId) => ({
+						id: `glm-5::${providerId}`,
+						modelId: "glm-5",
+						providerId,
+						externalId: "glm-5",
+						streaming: true,
+					})),
+				)
+				.onConflictDoNothing();
+			await setRoutingMetrics("glm-5", "zai", 100);
+			// 55% overall uptime, but every failure was a shed flex request.
+			await db.insert(tables.modelProviderMappingHistory).values({
+				modelId: "glm-5",
+				providerId: "alibaba",
+				modelProviderMappingId: "glm-5::alibaba",
+				usedMode: "credits",
+				minuteTimestamp: new Date(Math.floor(Date.now() / 60000) * 60000),
+				logsCount: 100,
+				errorsCount: 45,
+				upstreamErrorsCount: 45,
+				totalOutputTokens: 100,
+				totalDuration: 1000,
+				flexLogsCount: 50,
+				flexUpstreamErrorsCount: 45,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/glm-5",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("alibaba");
+			expect(logs[0].routingMetadata?.selectionReason).not.toBe(
+				"low-uptime-fallback",
+			);
 		});
 
 		test("auto routing ignores synthetic root region mappings", async () => {
@@ -2347,10 +2448,10 @@ describe("fallback and error status code handling", () => {
 				expect(logs.length).toBe(1);
 
 				const log = logs[0];
-				expect(log.usedProvider).toBe("cerebras");
+				expect(log.usedProvider).toBe("bytedance");
 				expect(log.internalContentFilter).toBe(true);
 				expect(log.routingMetadata).toMatchObject({
-					selectedProvider: "cerebras",
+					selectedProvider: "bytedance",
 					contentFilterMatched: true,
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
@@ -3064,38 +3165,75 @@ describe("fallback and error status code handling", () => {
 			});
 		});
 
-		test("non-streaming: retries another key for auth failures on the same explicit provider", async () => {
-			await setupSingleProviderWithMultipleKeys("together-ai");
+		test.each([false, true])(
+			"retries another key for auth failures on the same explicit provider (stream=%s)",
+			async (stream) => {
+				await setupSingleProviderWithMultipleKeys("together-ai");
+				const primaryKeyHash = getApiKeyFingerprint(
+					"together-ai-primary-token",
+				);
+				const secondaryKeyHash = getApiKeyFingerprint(
+					"together-ai-secondary-token",
+				);
 
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "together-ai/glm-4.7",
-					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
-				}),
-			});
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "together-ai/glm-4.7",
+						messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
+						stream,
+					}),
+				});
 
-			expect(res.status).toBe(500);
-			const json = await res.json();
-			expect(json.error.type).toBe("gateway_error");
+				if (stream) {
+					expect(await res.text()).toContain("gateway_error");
+				} else {
+					expect(res.status).toBe(500);
+					const json = await res.json();
+					expect(json.error.type).toBe("gateway_error");
+				}
 
-			const logs = await waitForLogs(2);
-			const authLogs = logs.filter(
-				(log: Log) => log.errorDetails?.statusCode === 401,
-			);
-			expect(authLogs).toHaveLength(2);
-			expect(authLogs.some((log: Log) => log.retried)).toBe(true);
-			expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
-				false,
-			);
-			expect(isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7")).toBe(
-				false,
-			);
-		});
+				const logs = await waitForLogs(2);
+				const authLogs = logs.filter(
+					(log: Log) => log.errorDetails?.statusCode === 401,
+				);
+				expect(authLogs).toHaveLength(2);
+				const retriedLog = authLogs.find((log: Log) => log.retried);
+				const terminalLog = authLogs.find((log: Log) => !log.retried);
+				// The retry link must resolve to the terminal attempt's log.
+				expect(retriedLog?.retriedByLogId).toBe(terminalLog?.id);
+				// The terminal attempt's routing lists every key that was tried.
+				expect(terminalLog?.routingMetadata?.routing).toEqual([
+					expect.objectContaining({
+						succeeded: false,
+						status_code: 401,
+						logId: retriedLog?.id,
+					}),
+					expect.objectContaining({
+						succeeded: false,
+						status_code: 401,
+						logId: terminalLog?.id,
+					}),
+				]);
+				expect(
+					new Set(
+						terminalLog?.routingMetadata?.routing?.map(
+							(attempt) => attempt.apiKeyHash,
+						),
+					),
+				).toEqual(new Set([primaryKeyHash, secondaryKeyHash]));
+				expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
+					false,
+				);
+				expect(
+					isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7"),
+				).toBe(false);
+			},
+		);
 
 		test("non-streaming: retries another key for invalid API key payloads", async () => {
 			await setupSingleProviderWithMultipleKeys("together-ai");
@@ -3175,7 +3313,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "google-ai-studio/gemini-2.5-flash",
+						model: "google-ai-studio/gemini-3.1-flash-lite",
 						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 					}),
 				});
@@ -3621,7 +3759,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "google-ai-studio/gemini-2.5-flash",
+						model: "google-ai-studio/gemini-3.1-flash-lite",
 						messages: [{ role: "user", content: "TRIGGER_ERROR" }],
 					}),
 				});
@@ -3686,7 +3824,10 @@ describe("fallback and error status code handling", () => {
 			expect(logs.length).toBeGreaterThanOrEqual(2);
 
 			// Verify routing metadata in log shows all attempts
-			const logWithRouting = logs.find((l: Log) => l.routingMetadata?.routing);
+			// Failed attempts carry partial histories; row order is not guaranteed.
+			const logWithRouting = logs.find(
+				(l: Log) => !l.hasError && l.routingMetadata?.routing,
+			);
 			expect(logWithRouting).toBeDefined();
 			expect(
 				logWithRouting!.routingMetadata!.routing!.length,
@@ -3832,6 +3973,66 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
+		test.each([false, true])(
+			"records every key on the final log when all keys time out (stream=%s)",
+			async (stream) => {
+				await setupSingleProviderWithMultipleKeys("together-ai");
+				const primaryKeyHash = getApiKeyFingerprint(
+					"together-ai-primary-token",
+				);
+				const secondaryKeyHash = getApiKeyFingerprint(
+					"together-ai-secondary-token",
+				);
+				const timeoutVar = stream ? "AI_STREAMING_TIMEOUT_MS" : "AI_TIMEOUT_MS";
+				const originalTimeout = process.env[timeoutVar];
+				process.env[timeoutVar] = "75";
+
+				try {
+					const res = await app.request("/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer real-token",
+							"X-No-Fallback": "true",
+						},
+						body: JSON.stringify({
+							model: "together-ai/glm-4.7",
+							messages: [{ role: "user", content: "TRIGGER_TIMEOUT_300" }],
+							stream,
+						}),
+					});
+					await res.text();
+
+					const logs = await waitForLogs(2);
+					const terminalLog = logs.find((log: Log) => !log.retried);
+					const retriedLogs = logs.filter((log: Log) => log.retried);
+					expect(terminalLog?.hasError).toBe(true);
+					expect(retriedLogs.length).toBeGreaterThan(0);
+					for (const log of retriedLogs) {
+						expect(log.retriedByLogId).toBe(terminalLog?.id);
+					}
+					const routing = terminalLog?.routingMetadata?.routing ?? [];
+					expect(routing).toHaveLength(logs.length);
+					expect(routing.every((attempt) => !attempt.succeeded)).toBe(true);
+					expect(routing.at(-1)?.logId).toBe(terminalLog?.id);
+					expect(new Set(routing.map((attempt) => attempt.apiKeyHash))).toEqual(
+						new Set([primaryKeyHash, secondaryKeyHash]),
+					);
+					expect(
+						terminalLog?.routingMetadata?.providerScores?.find(
+							(score) => score.providerId === "together-ai",
+						)?.failed,
+					).toBe(true);
+				} finally {
+					if (originalTimeout === undefined) {
+						Reflect.deleteProperty(process.env, timeoutVar);
+					} else {
+						process.env[timeoutVar] = originalTimeout;
+					}
+				}
+			},
+		);
+
 		test("streaming: retries when immediate SSE error omits status fields", async () => {
 			await setupMultiProviderKeys();
 
@@ -3907,16 +4108,16 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 
 		test("non-streaming: IAM deny_providers prevents retry fallback to a denied provider", async () => {
 			await setupMultiProviderKeys();
 			await insertIamRules([
 				{
-					id: "iam-retry-deny-cerebras",
+					id: "iam-retry-deny-bytedance",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -3937,7 +4138,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 
 		test("non-streaming: combined IAM allow and deny rules prevent retry fallback to any disallowed provider", async () => {
@@ -3949,9 +4150,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-retry-deny-cerebras-combo",
+					id: "iam-retry-deny-bytedance-combo",
 					ruleType: "deny_providers",
-					providers: ["cerebras"],
+					providers: ["bytedance"],
 				},
 			]);
 
@@ -3972,7 +4173,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
 		});
 	});
 });

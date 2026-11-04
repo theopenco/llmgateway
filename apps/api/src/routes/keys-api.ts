@@ -1,8 +1,16 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
+import {
+	apiKeyUsagePeriods,
+	getApiKeyUsageStats,
+} from "@/lib/api-key-usage-stats.js";
+import {
+	CLI_CODE_CHALLENGE_PATTERN,
+	issueCliAuthCode,
+} from "@/lib/cli-auth-code.js";
 import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
@@ -14,9 +22,16 @@ import {
 import { notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import {
+	assertEnterpriseForCompliancePolicy,
+	providerCompliancePolicySchema,
+	assertCanManageCompliancePolicy,
+	assertApiKeyComplianceWritesEnabled,
+} from "@/lib/provider-compliance-policy.js";
+import {
 	getUserProjectIds,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -36,13 +51,18 @@ import {
 	type ApiKeyPeriodDurationUnit,
 	type InferSelectModel,
 	type MemberBudgetOwner,
+	inArray,
 } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
-import { canManageProject } from "@llmgateway/shared/organization-roles";
+import {
+	canManageProject,
+	isOrganizationAdmin,
+} from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
@@ -228,7 +248,12 @@ function validateApiKeyPeriodConfig(
 }
 
 function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
-	const { token: _token, tokenHash: _tokenHash, ...publicApiKey } = apiKey;
+	const {
+		token: _token,
+		tokenHash: _tokenHash,
+		safetyIdentifier: _safetyIdentifier,
+		...publicApiKey
+	} = apiKey;
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
@@ -349,6 +374,7 @@ const apiKeySchema = z.object({
 	currentPeriodResetAt: z.date().nullable(),
 	expiresAt: z.date().nullable(),
 	projectId: z.string(),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	createdBy: z.string(),
 	creator: z
 		.object({
@@ -389,26 +415,27 @@ const apiKeySchema = z.object({
 });
 
 // Schema for creating a new API key
-const createApiKeySchema = z
-	.object({
-		description: z.string().trim().min(1).max(255),
-		projectId: z.string().trim().min(1),
-		usageLimit: createNullableLimitSchema("Usage limit")
-			.optional()
-			.default(null),
-		expiresAt: z
-			.string()
-			.datetime()
-			.nullable()
-			.optional()
-			.default(null)
-			.openapi({
-				description:
-					"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
-			}),
-		...createApiKeyPeriodConfigFieldsSchema,
-	})
-	.superRefine(validateApiKeyPeriodConfig);
+const createApiKeyFieldsSchema = z.object({
+	description: z.string().trim().min(1).max(255),
+	projectId: z.string().trim().min(1),
+	usageLimit: createNullableLimitSchema("Usage limit").optional().default(null),
+	expiresAt: z.string().datetime().nullable().optional().default(null).openapi({
+		description:
+			"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
+	}),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional()
+		.openapi({
+			description:
+				"Additional key constraints, composed restrictively with the organization policy at runtime; cannot relax the organization floor. Null inherits the organization policy.",
+		}),
+	...createApiKeyPeriodConfigFieldsSchema,
+});
+
+const createApiKeySchema = createApiKeyFieldsSchema.superRefine(
+	validateApiKeyPeriodConfig,
+);
 
 const memberBudgetConstraintsSchema = z.object({
 	usageLimit: z.string().nullable(),
@@ -420,12 +447,31 @@ const memberBudgetConstraintsSchema = z.object({
 const listedApiKeySchema = apiKeySchema.omit({ token: true }).extend({
 	maskedToken: z.string(),
 	ownerBudget: memberBudgetConstraintsSchema.nullable(),
+	periodUsage: z.string().nullable().openapi({
+		description:
+			"Spend inside the requested period; null when the period is 'all' (use usage).",
+	}),
+	periodRequestCount: z.number().int().nullable().openapi({
+		description:
+			"Requests inside the requested period; null when the period is 'all'.",
+	}),
+	lastUsedAt: z.date().nullable().openapi({
+		description: "Start of the latest hour in which the key served a request.",
+	}),
 });
 
 // Schema for listing API keys
 const listApiKeysQuerySchema = z.object({
 	projectId: z.string().optional().openapi({
 		description: "Filter API keys by project ID",
+	}),
+	organizationId: z.string().optional().openapi({
+		description:
+			"List the API keys of every project in the organization (owners and admins only). Cannot be combined with projectId.",
+	}),
+	period: z.enum(apiKeyUsagePeriods).optional().openapi({
+		description:
+			"Usage window for periodUsage and periodRequestCount. Defaults to 'all'.",
 	}),
 	filter: z.enum(["mine", "all"]).optional().openapi({
 		description:
@@ -436,6 +482,13 @@ const listApiKeysQuerySchema = z.object({
 // Schema for updating an API key status and/or metadata
 const updateApiKeyStatusSchema = z.object({
 	status: z.enum(["active", "inactive"]).optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional()
+		.openapi({
+			description:
+				"Additional key constraints, composed restrictively with the organization policy at runtime. Null clears the key policy, including after an enterprise downgrade; omit to leave unchanged.",
+		}),
 	expiresAt: z.string().datetime().nullable().optional().openapi({
 		description:
 			"ISO 8601 timestamp when the key expires (TTL). Required to reactivate a key whose TTL has already passed; pass null to remove the TTL. Omit to leave the existing expiry unchanged.",
@@ -798,6 +851,47 @@ export function resolveApiKeyLimit(
 			: 5;
 }
 
+type ApiKeyPlanOrganization = Pick<
+	InferSelectModel<typeof tables.organization>,
+	"id" | "plan" | "apiKeyLimit"
+>;
+
+/** Active developer keys across all of an organization's projects. */
+async function countOrgActiveApiKeys(organizationId: string): Promise<number> {
+	const orgProjects = await db.query.project.findMany({
+		where: { organizationId: { eq: organizationId } },
+		columns: { id: true },
+	});
+	if (!orgProjects.length) {
+		return 0;
+	}
+	const orgActiveKeys = await db.query.apiKey.findMany({
+		where: {
+			projectId: { in: orgProjects.map((p) => p.id) },
+			status: { eq: "active" },
+			keyType: { eq: "user" },
+			kind: { ne: "playground" },
+		},
+		columns: { id: true },
+	});
+	return orgActiveKeys.length;
+}
+
+// The cap is org-wide, so currentCount counts active developer keys across ALL
+// of the org's projects, not just the selected one.
+async function getApiKeyPlanLimits(organization: ApiKeyPlanOrganization) {
+	const plan = organization.plan as "free" | "pro" | "enterprise";
+	return {
+		currentCount: await countOrgActiveApiKeys(organization.id),
+		maxKeys: resolveApiKeyLimit(
+			organization.id,
+			plan,
+			organization.apiKeyLimit,
+		),
+		plan,
+	};
+}
+
 // Create a new API key
 const create = createRoute({
 	method: "post",
@@ -832,6 +926,7 @@ const create = createRoute({
 
 export interface CreateApiKeyInput {
 	description: string;
+	providerCompliancePolicy?: ProviderCompliancePolicy | null;
 	usageLimit?: string | null;
 	periodUsageLimit?: string | null;
 	periodUsageDurationValue?: number | null;
@@ -1075,6 +1170,10 @@ export async function createApiKeyForProject(
 	}
 
 	assertOrgAllowsManualApiKeys(project.organization);
+	assertEnterpriseForCompliancePolicy(
+		input.providerCompliancePolicy,
+		project.organization,
+	);
 
 	const orgProjects = await db.query.project.findMany({
 		where: { organizationId: { eq: project.organization.id } },
@@ -1140,6 +1239,13 @@ export async function createApiKeyForProject(
 		},
 	});
 
+	assertCanManageCompliancePolicy(
+		input.providerCompliancePolicy,
+		creatorMembership?.role,
+	);
+
+	assertApiKeyComplianceWritesEnabled(input.providerCompliancePolicy);
+
 	// A key's limits must stay at or below the creator's effective member budget.
 	// Skipped for programmatic (master-key) creation, which has no interactive
 	// member context; the gateway still enforces the member budget at request time.
@@ -1200,6 +1306,7 @@ export async function createApiKeyForProject(
 			periodUsageDurationUnit,
 			expiresAt,
 			createdBy: userId,
+			providerCompliancePolicy: input.providerCompliancePolicy ?? null,
 		})
 		.returning();
 
@@ -1217,6 +1324,7 @@ export async function createApiKeyForProject(
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
 			expiresAt: expiresAt?.toISOString() ?? null,
+			providerCompliancePolicy: input.providerCompliancePolicy ?? null,
 		},
 	});
 
@@ -1247,6 +1355,63 @@ keysApi.openapi(create, async (c) => {
 	});
 });
 
+// Create an API key for a coding CLI's browser login. The response carries a
+// one-time code, not the key; the CLI redeems it at /public/cli-auth/token.
+const createCliCode = createRoute({
+	method: "post",
+	path: "/cli-code",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createApiKeyFieldsSchema
+						.extend({
+							codeChallenge: z.string().regex(CLI_CODE_CHALLENGE_PATTERN),
+						})
+						.superRefine(validateApiKeyPeriodConfig),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						code: z.string(),
+					}),
+				},
+			},
+			description: "API key created; redeem the code from the CLI.",
+		},
+	},
+});
+
+keysApi.openapi(createCliCode, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, codeChallenge, ...rest } = c.req.valid("json");
+
+	const { apiKey, token } = await createApiKeyForProject(
+		projectId,
+		user.id,
+		rest,
+	);
+	const code = await issueCliAuthCode({
+		token,
+		codeChallenge,
+		expiresAt: apiKey.expiresAt,
+	});
+
+	return c.json({ apiKeyId: apiKey.id, code });
+});
+
 // List all API keys
 const list = createRoute({
 	method: "get",
@@ -1267,6 +1432,7 @@ const list = createRoute({
 								plan: z.enum(["free", "pro", "enterprise"]),
 							})
 							.optional(),
+						period: z.enum(apiKeyUsagePeriods).optional(),
 						userRole: z.enum(["owner", "admin", "project_admin", "developer"]),
 					}),
 				},
@@ -1285,7 +1451,13 @@ keysApi.openapi(list, async (c) => {
 	}
 
 	const query = c.req.valid("query");
-	const { projectId, filter } = query;
+	const { projectId, organizationId, filter, period = "all" } = query;
+
+	if (projectId && organizationId) {
+		throw new HTTPException(400, {
+			message: "Pass either projectId or organizationId, not both",
+		});
+	}
 
 	// Get the user's projects and role
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1304,6 +1476,11 @@ keysApi.openapi(list, async (c) => {
 	});
 
 	if (!userOrgs.length) {
+		if (organizationId) {
+			throw new HTTPException(403, {
+				message: "You don't have access to this organization",
+			});
+		}
 		return c.json({ apiKeys: [], userRole: "developer" });
 	}
 
@@ -1330,122 +1507,382 @@ keysApi.openapi(list, async (c) => {
 			),
 	);
 
-	// Determine user's role for the relevant organization
+	// Determine user's role and the organization whose plan limits apply
 	let userRole: "owner" | "admin" | "project_admin" | "developer" = "developer";
-	if (projectId) {
-		const project = await db.query.project.findFirst({
-			where: {
-				id: {
-					eq: projectId,
-				},
-			},
-		});
+	let scopedProjectIds = projectIds;
+	let planOrganization: ApiKeyPlanOrganization | null = null;
 
-		if (project) {
-			const userOrg = userOrgs.find(
-				(org) => org.organizationId === project.organizationId,
-			);
-			if (userOrg) {
-				userRole = userOrg.role as
-					"owner" | "admin" | "project_admin" | "developer";
-			}
+	if (organizationId) {
+		// The organization-wide view spans every project, so only owners and
+		// admins (who can already reach all of them) may use it.
+		const membership = userOrgs.find(
+			(org) => org.organizationId === organizationId,
+		);
+		if (
+			!membership?.organization ||
+			membership.organization.status === "deleted" ||
+			!isOrganizationAdmin(membership.role)
+		) {
+			throw new HTTPException(403, {
+				message:
+					"Only organization owners and admins can list all organization API keys",
+			});
+		}
+		userRole = membership.role;
+		planOrganization = membership.organization;
+		scopedProjectIds = membership.organization.projects
+			.filter((project) => project.status !== "deleted")
+			.map((project) => project.id);
+	} else if (projectId) {
+		scopedProjectIds = [projectId];
+		const userOrg = userOrgs.find((org) =>
+			org.organization?.projects.some((project) => project.id === projectId),
+		);
+		if (userOrg?.organization) {
+			userRole = userOrg.role;
+			planOrganization = userOrg.organization;
 		}
 	}
 
 	const shouldFilterByCreator = filter === "mine";
 
-	const fetchedApiKeys = await db.query.apiKey.findMany({
-		where: {
-			projectId: {
-				in: projectId ? [projectId] : projectIds,
-			},
-			// Hide platform and LLM SDK aggregate keys from the dashboard.
-			keyType: { eq: "user" },
-			...(shouldFilterByCreator && {
-				createdBy: {
-					eq: user.id,
+	const fetchedApiKeys = scopedProjectIds.length
+		? await db.query.apiKey.findMany({
+				where: {
+					projectId: {
+						in: scopedProjectIds,
+					},
+					// Hide platform and LLM SDK aggregate keys from the dashboard.
+					keyType: { eq: "user" },
+					...(shouldFilterByCreator && {
+						createdBy: {
+							eq: user.id,
+						},
+					}),
 				},
-			}),
-		},
-		with: {
-			iamRules: true,
-			creator: {
-				columns: {
-					id: true,
-					name: true,
-					email: true,
+				with: {
+					iamRules: true,
+					creator: {
+						columns: {
+							id: true,
+							name: true,
+							email: true,
+						},
+					},
 				},
-			},
-		},
-	});
+				orderBy: { createdAt: "desc" },
+			})
+		: [];
 
 	const apiKeys = fetchedApiKeys.filter(
 		(key) =>
 			key.createdBy === user.id || !developerProjectIds.has(key.projectId),
 	);
 
-	// Get organization plan info if projectId is specified. The cap is org-wide,
-	// so currentCount counts active developer keys across ALL of the org's
-	// projects, not just the selected one.
-	let currentCount = 0;
-	let maxKeys = 0;
-	let plan: "free" | "pro" | "enterprise" = "free";
-
-	if (projectId) {
-		const project = await db.query.project.findFirst({
-			where: {
-				id: {
-					eq: projectId,
-				},
-			},
-			with: {
-				organization: true,
-			},
-		});
-
-		if (project?.organization) {
-			plan = project.organization.plan as "free" | "pro" | "enterprise";
-			maxKeys = resolveApiKeyLimit(
-				project.organization.id,
-				plan,
-				project.organization.apiKeyLimit,
-			);
-
-			const orgProjects = await db.query.project.findMany({
-				where: { organizationId: { eq: project.organization.id } },
-				columns: { id: true },
-			});
-			const orgActiveKeys = await db.query.apiKey.findMany({
-				where: {
-					projectId: { in: orgProjects.map((p) => p.id) },
-					status: { eq: "active" },
-					keyType: { eq: "user" },
-					kind: { ne: "playground" },
-				},
-				columns: { id: true },
-			});
-			currentCount = orgActiveKeys.length;
-		}
-	}
-
-	const ownerBudgets = await resolveApiKeyOwnerBudgets(apiKeys, userOrgs);
+	const [ownerBudgets, usageStats, planLimits] = await Promise.all([
+		resolveApiKeyOwnerBudgets(apiKeys, userOrgs),
+		getApiKeyUsageStats(
+			apiKeys.filter((key) => key.status !== "deleted").map((key) => key.id),
+			period,
+		),
+		planOrganization ? getApiKeyPlanLimits(planOrganization) : undefined,
+	]);
 
 	return c.json({
-		apiKeys: apiKeys.map((key) => ({
-			...serializeApiKey(key),
-			maskedToken: readApiKeyMask(key),
-			ownerBudget: isPlaygroundApiKey(key)
-				? null
-				: (ownerBudgets.get(key.id) ?? null),
-		})),
-		planLimits: projectId
-			? {
-					currentCount,
-					maxKeys,
-					plan,
-				}
-			: undefined,
+		apiKeys: apiKeys.map((key) => {
+			const stats = usageStats.get(key.id);
+			return {
+				...serializeApiKey(key),
+				maskedToken: readApiKeyMask(key),
+				ownerBudget: isPlaygroundApiKey(key)
+					? null
+					: (ownerBudgets.get(key.id) ?? null),
+				periodUsage: stats?.periodUsage ?? (period === "all" ? null : "0"),
+				periodRequestCount:
+					stats?.periodRequestCount ?? (period === "all" ? null : 0),
+				lastUsedAt: stats?.lastUsedAt ?? null,
+			};
+		}),
+		planLimits,
+		period,
 		userRole,
+	});
+});
+
+interface MutableApiKeyAccess {
+	apiKey: ApiKeyRecord;
+	organizationId: string;
+	organization: InferSelectModel<typeof tables.organization> | null;
+	organizationRole: string | undefined;
+	/** Developers may only change keys they created; other roles any key. */
+	canMutate: boolean;
+}
+
+/**
+ * Load the keys a user can reach (RBAC-aware project access) together with the
+ * permission to change them. Shared by the single and bulk mutation routes so
+ * both apply the same rules. Keys outside the user's projects are omitted.
+ */
+async function loadMutableApiKeys(
+	userId: string,
+	ids: string[],
+): Promise<Map<string, MutableApiKeyAccess>> {
+	const access = new Map<string, MutableApiKeyAccess>();
+	const uniqueIds = [...new Set(ids)];
+	if (!uniqueIds.length) {
+		return access;
+	}
+
+	const [userOrgs, projectIds] = await Promise.all([
+		db.query.userOrganization.findMany({
+			where: { userId: { eq: userId } },
+			with: { organization: true },
+		}),
+		getUserProjectIds(userId),
+	]);
+	if (!projectIds.length) {
+		return access;
+	}
+
+	const apiKeys = await db.query.apiKey.findMany({
+		where: {
+			id: { in: uniqueIds },
+			projectId: { in: projectIds },
+		},
+		with: { project: true },
+	});
+
+	for (const { project, ...apiKey } of apiKeys) {
+		if (!project) {
+			continue;
+		}
+		const userOrg = userOrgs.find(
+			(org) => org.organizationId === project.organizationId,
+		);
+		access.set(apiKey.id, {
+			apiKey,
+			organizationId: project.organizationId,
+			organization: userOrg?.organization ?? null,
+			organizationRole: userOrg?.role,
+			canMutate: !(
+				userOrg?.role === "developer" && apiKey.createdBy !== userId
+			),
+		});
+	}
+
+	return access;
+}
+
+const bulkApiKeyActions = ["deactivate", "reactivate", "delete"] as const;
+type BulkApiKeyAction = (typeof bulkApiKeyActions)[number];
+
+const bulkApiKeyFailureMessages = {
+	not_found: "API key not found",
+	playground: "The playground API key is managed automatically.",
+	forbidden: "You don't have permission to modify this API key",
+	expired:
+		"Its TTL has passed. Reactivate it individually with a new expiration date.",
+	devpass:
+		"DevPass includes a single API key. Roll it from the DevPass dashboard instead.",
+	limit_reached: "The organization's active API key limit is reached.",
+} as const;
+type BulkApiKeyFailureReason = keyof typeof bulkApiKeyFailureMessages;
+
+const bulkTargetStatus: Record<
+	BulkApiKeyAction,
+	"active" | "inactive" | "deleted"
+> = {
+	deactivate: "inactive",
+	reactivate: "active",
+	delete: "deleted",
+};
+
+const MAX_BULK_API_KEYS = 500;
+
+const bulkAction = createRoute({
+	method: "post",
+	path: "/api/bulk",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						action: z.enum(bulkApiKeyActions),
+						ids: z.array(z.string().min(1)).min(1).max(MAX_BULK_API_KEYS),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						action: z.enum(bulkApiKeyActions),
+						succeeded: z.array(z.string()),
+						skipped: z.array(z.string()).openapi({
+							description: "Keys already in the requested state.",
+						}),
+						failed: z.array(
+							z.object({
+								id: z.string(),
+								reason: z.enum(
+									Object.keys(bulkApiKeyFailureMessages) as [
+										BulkApiKeyFailureReason,
+										...BulkApiKeyFailureReason[],
+									],
+								),
+								message: z.string(),
+							}),
+						),
+					}),
+				},
+			},
+			description:
+				"Per-key outcome of a bulk deactivate, reactivate, or delete.",
+		},
+	},
+});
+
+keysApi.openapi(bulkAction, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { action, ids } = c.req.valid("json");
+	const uniqueIds = [...new Set(ids)];
+	const targetStatus = bulkTargetStatus[action];
+	const access = await loadMutableApiKeys(user.id, uniqueIds);
+	const now = Date.now();
+
+	const skipped: string[] = [];
+	const failed: {
+		id: string;
+		reason: BulkApiKeyFailureReason;
+		message: string;
+	}[] = [];
+	const fail = (id: string, reason: BulkApiKeyFailureReason) => {
+		failed.push({ id, reason, message: bulkApiKeyFailureMessages[reason] });
+	};
+
+	let eligible: MutableApiKeyAccess[] = [];
+	for (const id of uniqueIds) {
+		const entry = access.get(id);
+		if (
+			!entry ||
+			entry.apiKey.status === "deleted" ||
+			entry.apiKey.keyType !== "user"
+		) {
+			fail(id, "not_found");
+			continue;
+		}
+		if (isPlaygroundApiKey(entry.apiKey)) {
+			fail(id, "playground");
+			continue;
+		}
+		if (!entry.canMutate) {
+			fail(id, "forbidden");
+			continue;
+		}
+		if (entry.apiKey.status === targetStatus) {
+			skipped.push(id);
+			continue;
+		}
+		if (action === "reactivate") {
+			if (entry.apiKey.expiresAt && entry.apiKey.expiresAt.getTime() <= now) {
+				fail(id, "expired");
+				continue;
+			}
+			if (!entry.organization || entry.organization.kind === "devpass") {
+				fail(id, entry.organization ? "devpass" : "not_found");
+				continue;
+			}
+		}
+		eligible.push(entry);
+	}
+
+	// Reactivate only up to each organization's active-key cap.
+	if (action === "reactivate" && eligible.length) {
+		const byOrganization = new Map<string, MutableApiKeyAccess[]>();
+		for (const entry of eligible) {
+			const entries = byOrganization.get(entry.organizationId) ?? [];
+			entries.push(entry);
+			byOrganization.set(entry.organizationId, entries);
+		}
+
+		const allowed: MutableApiKeyAccess[] = [];
+		for (const [organizationId, entries] of byOrganization) {
+			const organization = entries[0].organization!;
+			const maxApiKeys = resolveApiKeyLimit(
+				organization.id,
+				organization.plan,
+				organization.apiKeyLimit,
+			);
+			const remaining = Math.max(
+				0,
+				maxApiKeys - (await countOrgActiveApiKeys(organizationId)),
+			);
+			allowed.push(...entries.slice(0, remaining));
+			const overflow = entries.slice(remaining);
+			for (const entry of overflow) {
+				fail(entry.apiKey.id, "limit_reached");
+			}
+			if (overflow.length) {
+				await notifyOrgLimit(organizationId, {
+					limit: "api_keys",
+					projectId: overflow[0].apiKey.projectId,
+					maxApiKeys,
+				});
+			}
+		}
+		eligible = allowed;
+	}
+
+	if (eligible.length) {
+		// Write through the cached client so onMutate busts the gateway's cached
+		// token lookups; otherwise the change only applies once the cache expires.
+		await cdb
+			.update(tables.apiKey)
+			.set({ status: targetStatus })
+			.where(
+				inArray(
+					tables.apiKey.id,
+					eligible.map((entry) => entry.apiKey.id),
+				),
+			);
+
+		await Promise.all(
+			eligible.map(({ apiKey, organizationId }) =>
+				logAuditEvent({
+					organizationId,
+					userId: user.id,
+					action:
+						action === "delete" ? "api_key.delete" : "api_key.update_status",
+					resourceType: "api_key",
+					resourceId: apiKey.id,
+					metadata: {
+						resourceName: apiKey.description,
+						bulk: true,
+						...(action !== "delete" && {
+							changes: {
+								status: { old: apiKey.status, new: targetStatus },
+							},
+						}),
+					},
+				}),
+			),
+		);
+	}
+
+	return c.json({
+		action,
+		succeeded: eligible.map((entry) => entry.apiKey.id),
+		skipped,
+		failed,
 	});
 });
 
@@ -1492,6 +1929,100 @@ const deleteKey = createRoute({
 	},
 });
 
+const listComplianceApiKeys = createRoute({
+	method: "get",
+	path: "/api/compliance",
+	request: { query: z.object({ organizationId: z.string().trim().min(1) }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeys: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								projectId: z.string(),
+								projectName: z.string(),
+								providerCompliancePolicy: providerCompliancePolicySchema,
+							}),
+						),
+					}),
+				},
+			},
+			description:
+				"Active API keys with explicit compliance policies across organization projects. Owners and admins only; contains no credentials.",
+		},
+	},
+});
+
+keysApi.openapi(listComplianceApiKeys, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const { organizationId } = c.req.valid("query");
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId: { eq: user.id }, organizationId: { eq: organizationId } },
+		with: { organization: { columns: { status: true } } },
+	});
+	if (
+		!membership?.organization ||
+		membership.organization.status === "deleted" ||
+		!isOrganizationAdmin(membership.role)
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can list organization compliance API keys",
+		});
+	}
+	const projects = await db.query.project.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { ne: "deleted" },
+		},
+		columns: { id: true, name: true },
+	});
+	if (!projects.length) {
+		return c.json({ apiKeys: [] });
+	}
+	const projectNames = new Map(
+		projects.map((project) => [project.id, project.name]),
+	);
+	const keys = await db.query.apiKey.findMany({
+		where: {
+			projectId: { in: projects.map((project) => project.id) },
+			status: { eq: "active" },
+			keyType: { eq: "user" },
+			kind: { ne: "playground" },
+			providerCompliancePolicy: { isNotNull: true },
+			OR: [{ expiresAt: { isNull: true } }, { expiresAt: { gt: new Date() } }],
+		},
+		columns: {
+			id: true,
+			description: true,
+			projectId: true,
+			providerCompliancePolicy: true,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	return c.json({
+		apiKeys: keys.flatMap((key) =>
+			key.providerCompliancePolicy === null
+				? []
+				: [
+						{
+							id: key.id,
+							name: key.description,
+							projectId: key.projectId,
+							projectName: projectNames.get(key.projectId)!,
+							providerCompliancePolicy: key.providerCompliancePolicy,
+						},
+					],
+		),
+	});
+});
+
 keysApi.openapi(deleteKey, async (c) => {
 	const user = c.get("user");
 	if (!user) {
@@ -1502,51 +2033,13 @@ keysApi.openapi(deleteKey, async (c) => {
 
 	const { id } = c.req.param();
 
-	// Get the user's projects
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	// Get all project IDs the user has access to
-	const projectIds = await getUserProjectIds(user.id);
-
-	// Find the API key
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			id: {
-				eq: id,
-			},
-			projectId: {
-				in: projectIds,
-			},
-		},
-		with: {
-			project: true,
-		},
-	});
-
-	if (!apiKey) {
+	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
+	if (!access) {
 		throw new HTTPException(404, {
 			message: "API key not found",
 		});
 	}
-
-	if (!apiKey.project) {
-		throw new HTTPException(404, {
-			message: "Project not found for API key",
-		});
-	}
+	const { apiKey, organizationId: projectOrgId } = access;
 
 	// Prevent deletion of the auto-generated playground key
 	if (isPlaygroundApiKey(apiKey)) {
@@ -1556,15 +2049,9 @@ keysApi.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	// Check user role and permissions
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as
-		"owner" | "admin" | "project_admin" | "developer" | undefined;
-
 	// Developers can only delete their own API keys
 	// Owners and admins can delete any API key
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+	if (!access.canMutate) {
 		throw new HTTPException(403, {
 			message: "You don't have permission to delete this API key",
 		});
@@ -1665,58 +2152,22 @@ keysApi.openapi(updateStatus, async (c) => {
 		status,
 		expiresAt: expiresAtInput,
 		description: descriptionInput,
+		providerCompliancePolicy,
 	} = c.req.valid("json");
 
-	// Get the user's projects
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	// Get all project IDs the user has access to
-	const projectIds = await getUserProjectIds(user.id);
-
-	// Find the API key
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			id: {
-				eq: id,
-			},
-			projectId: {
-				in: projectIds,
-			},
-		},
-		with: {
-			project: true,
-		},
-	});
-
-	if (!apiKey) {
+	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
+	if (!access) {
 		throw new HTTPException(404, {
 			message: "API key not found",
 		});
 	}
-
-	if (!apiKey.project) {
-		throw new HTTPException(404, {
-			message: "Project not found for API key",
-		});
-	}
+	const { apiKey, organization, organizationId: projectOrgId } = access;
 
 	if (
 		status === undefined &&
 		expiresAtInput === undefined &&
-		descriptionInput === undefined
+		descriptionInput === undefined &&
+		providerCompliancePolicy === undefined
 	) {
 		throw new HTTPException(400, {
 			message: "No changes provided",
@@ -1725,28 +2176,25 @@ keysApi.openapi(updateStatus, async (c) => {
 
 	assertApiKeyIsUserManaged(apiKey);
 
-	// Check user role and permissions
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-
 	// Reactivating a DevPass key would add a second active key.
-	if (
-		status === "active" &&
-		apiKey.status !== "active" &&
-		userOrg?.organization
-	) {
-		assertOrgAllowsManualApiKeys(userOrg.organization);
+	if (status === "active" && apiKey.status !== "active" && organization) {
+		assertOrgAllowsManualApiKeys(organization);
 	}
-	const userRole = userOrg?.role as
-		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only modify their own API keys
 	// Owners and admins can modify any API key
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+	if (!access.canMutate) {
 		throw new HTTPException(403, {
 			message: "You don't have permission to modify this API key",
 		});
 	}
+
+	assertCanManageCompliancePolicy(
+		providerCompliancePolicy,
+		access.organizationRole,
+	);
+	assertEnterpriseForCompliancePolicy(providerCompliancePolicy, organization);
+	assertApiKeyComplianceWritesEnabled(providerCompliancePolicy);
 
 	// Resolve the effective TTL: an explicit value (or null) overrides, otherwise
 	// keep whatever expiry the key already had.
@@ -1783,6 +2231,9 @@ keysApi.openapi(updateStatus, async (c) => {
 			...(descriptionInput !== undefined
 				? { description: descriptionInput }
 				: {}),
+			...(providerCompliancePolicy !== undefined
+				? { providerCompliancePolicy }
+				: {}),
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
@@ -1795,7 +2246,17 @@ keysApi.openapi(updateStatus, async (c) => {
 	const descriptionChanged =
 		descriptionInput !== undefined && apiKey.description !== descriptionInput;
 
-	if (statusChanged || expiryChanged || descriptionChanged) {
+	const compliancePolicyChanged =
+		providerCompliancePolicy !== undefined &&
+		JSON.stringify(apiKey.providerCompliancePolicy) !==
+			JSON.stringify(providerCompliancePolicy);
+
+	if (
+		statusChanged ||
+		expiryChanged ||
+		descriptionChanged ||
+		compliancePolicyChanged
+	) {
 		const changes: Record<string, { old: unknown; new: unknown }> = {};
 		if (statusChanged) {
 			changes.status = { old: apiKey.status, new: status };
@@ -1804,6 +2265,12 @@ keysApi.openapi(updateStatus, async (c) => {
 			changes.expiresAt = {
 				old: apiKey.expiresAt?.toISOString() ?? null,
 				new: nextExpiresAt?.toISOString() ?? null,
+			};
+		}
+		if (compliancePolicyChanged) {
+			changes.providerCompliancePolicy = {
+				old: apiKey.providerCompliancePolicy,
+				new: providerCompliancePolicy,
 			};
 		}
 		if (descriptionChanged) {

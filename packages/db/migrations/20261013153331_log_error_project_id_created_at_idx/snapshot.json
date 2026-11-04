@@ -1,0 +1,72 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "fb8f697b-c1bd-4177-a374-5e7e68fe0976",
+  "prevIds": [
+    "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "log",
+        "log_error_project_id_created_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.log_error_project_id_created_at_idx",
+        "n|idx|public.log_error_project_id_created_at_idx",
+        "e|idx|public.log_error_project_id_created_at_idx",
+        "n|rel|public.log_error_project_id_created_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.log",
+        "n|sch|public",
+        "n|col|public.log.project_id",
+        "n|col|public.log.created_at"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "log",
+        "name": "log_error_project_id_created_at_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "project_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "split_part(regexp_replace(\"used_model\", '^[^/]*/', ''), ':', 1)",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": "(\"has_error\" = true OR \"unified_finish_reason\" IN ('client_error', 'gateway_error', 'upstream_error'))",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

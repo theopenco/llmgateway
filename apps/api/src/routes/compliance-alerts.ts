@@ -1,5 +1,7 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	decryptNotificationChannelConfig,

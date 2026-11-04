@@ -1,0 +1,1169 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "be93bcab-7f08-4798-b28a-f1b5abe287cc",
+  "prevIds": [
+    "596e1974-616d-4a77-89aa-97a520d43ac6"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_client_error_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_client_error_count",
+        "n|col|public.api_key_hourly_model_stats.api_keys_client_error_count",
+        "e|col|public.api_key_hourly_model_stats.api_keys_client_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_gateway_error_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_gateway_error_count",
+        "n|col|public.api_key_hourly_model_stats.api_keys_gateway_error_count",
+        "e|col|public.api_key_hourly_model_stats.api_keys_gateway_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_upstream_error_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_upstream_error_count",
+        "n|col|public.api_key_hourly_model_stats.api_keys_upstream_error_count",
+        "e|col|public.api_key_hourly_model_stats.api_keys_upstream_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_total_duration"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_total_duration",
+        "n|col|public.api_key_hourly_model_stats.api_keys_total_duration",
+        "e|col|public.api_key_hourly_model_stats.api_keys_total_duration"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_duration_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_duration_count",
+        "n|col|public.api_key_hourly_model_stats.api_keys_duration_count",
+        "e|col|public.api_key_hourly_model_stats.api_keys_duration_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_total_time_to_first_token"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_total_time_to_first_token",
+        "n|col|public.api_key_hourly_model_stats.api_keys_total_time_to_first_token",
+        "e|col|public.api_key_hourly_model_stats.api_keys_total_time_to_first_token"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_time_to_first_token_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_time_to_first_token_count",
+        "n|col|public.api_key_hourly_model_stats.api_keys_time_to_first_token_count",
+        "e|col|public.api_key_hourly_model_stats.api_keys_time_to_first_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_total_time_to_first_reasoning_token"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_total_time_to_first_reasoning_token",
+        "n|col|public.api_key_hourly_model_stats.api_keys_total_time_to_first_reasoning_token",
+        "e|col|public.api_key_hourly_model_stats.api_keys_total_time_to_first_reasoning_token"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_model_stats",
+        "api_keys_time_to_first_reasoning_token_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_model_stats.api_keys_time_to_first_reasoning_token_count",
+        "n|col|public.api_key_hourly_model_stats.api_keys_time_to_first_reasoning_token_count",
+        "e|col|public.api_key_hourly_model_stats.api_keys_time_to_first_reasoning_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_client_error_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_client_error_count",
+        "n|col|public.api_key_hourly_stats.api_keys_client_error_count",
+        "e|col|public.api_key_hourly_stats.api_keys_client_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_gateway_error_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_gateway_error_count",
+        "n|col|public.api_key_hourly_stats.api_keys_gateway_error_count",
+        "e|col|public.api_key_hourly_stats.api_keys_gateway_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_upstream_error_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_upstream_error_count",
+        "n|col|public.api_key_hourly_stats.api_keys_upstream_error_count",
+        "e|col|public.api_key_hourly_stats.api_keys_upstream_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_total_duration"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_total_duration",
+        "n|col|public.api_key_hourly_stats.api_keys_total_duration",
+        "e|col|public.api_key_hourly_stats.api_keys_total_duration"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_duration_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_duration_count",
+        "n|col|public.api_key_hourly_stats.api_keys_duration_count",
+        "e|col|public.api_key_hourly_stats.api_keys_duration_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_total_time_to_first_token"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_total_time_to_first_token",
+        "n|col|public.api_key_hourly_stats.api_keys_total_time_to_first_token",
+        "e|col|public.api_key_hourly_stats.api_keys_total_time_to_first_token"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_time_to_first_token_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_time_to_first_token_count",
+        "n|col|public.api_key_hourly_stats.api_keys_time_to_first_token_count",
+        "e|col|public.api_key_hourly_stats.api_keys_time_to_first_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_total_time_to_first_reasoning_token"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_total_time_to_first_reasoning_token",
+        "n|col|public.api_key_hourly_stats.api_keys_total_time_to_first_reasoning_token",
+        "e|col|public.api_key_hourly_stats.api_keys_total_time_to_first_reasoning_token"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_stats",
+        "api_keys_time_to_first_reasoning_token_count"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_stats.api_keys_time_to_first_reasoning_token_count",
+        "n|col|public.api_key_hourly_stats.api_keys_time_to_first_reasoning_token_count",
+        "e|col|public.api_key_hourly_stats.api_keys_time_to_first_reasoning_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_model_stats",
+        "api_keys_client_error_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_model_stats.api_keys_client_error_count",
+        "n|col|public.project_hourly_model_stats.api_keys_client_error_count",
+        "e|col|public.project_hourly_model_stats.api_keys_client_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_model_stats",
+        "api_keys_total_duration"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_model_stats.api_keys_total_duration",
+        "n|col|public.project_hourly_model_stats.api_keys_total_duration",
+        "e|col|public.project_hourly_model_stats.api_keys_total_duration"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_model_stats",
+        "api_keys_duration_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_model_stats.api_keys_duration_count",
+        "n|col|public.project_hourly_model_stats.api_keys_duration_count",
+        "e|col|public.project_hourly_model_stats.api_keys_duration_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_model_stats",
+        "api_keys_total_time_to_first_token"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_model_stats.api_keys_total_time_to_first_token",
+        "n|col|public.project_hourly_model_stats.api_keys_total_time_to_first_token",
+        "e|col|public.project_hourly_model_stats.api_keys_total_time_to_first_token"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_model_stats",
+        "api_keys_time_to_first_token_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_model_stats.api_keys_time_to_first_token_count",
+        "n|col|public.project_hourly_model_stats.api_keys_time_to_first_token_count",
+        "e|col|public.project_hourly_model_stats.api_keys_time_to_first_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_model_stats",
+        "api_keys_total_time_to_first_reasoning_token"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_model_stats.api_keys_total_time_to_first_reasoning_token",
+        "n|col|public.project_hourly_model_stats.api_keys_total_time_to_first_reasoning_token",
+        "e|col|public.project_hourly_model_stats.api_keys_total_time_to_first_reasoning_token"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_model_stats",
+        "api_keys_time_to_first_reasoning_token_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_model_stats.api_keys_time_to_first_reasoning_token_count",
+        "n|col|public.project_hourly_model_stats.api_keys_time_to_first_reasoning_token_count",
+        "e|col|public.project_hourly_model_stats.api_keys_time_to_first_reasoning_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_client_error_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_client_error_count",
+        "n|col|public.project_hourly_stats.api_keys_client_error_count",
+        "e|col|public.project_hourly_stats.api_keys_client_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_gateway_error_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_gateway_error_count",
+        "n|col|public.project_hourly_stats.api_keys_gateway_error_count",
+        "e|col|public.project_hourly_stats.api_keys_gateway_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_upstream_error_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_upstream_error_count",
+        "n|col|public.project_hourly_stats.api_keys_upstream_error_count",
+        "e|col|public.project_hourly_stats.api_keys_upstream_error_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_total_duration"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_total_duration",
+        "n|col|public.project_hourly_stats.api_keys_total_duration",
+        "e|col|public.project_hourly_stats.api_keys_total_duration"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_duration_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_duration_count",
+        "n|col|public.project_hourly_stats.api_keys_duration_count",
+        "e|col|public.project_hourly_stats.api_keys_duration_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_total_time_to_first_token"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_total_time_to_first_token",
+        "n|col|public.project_hourly_stats.api_keys_total_time_to_first_token",
+        "e|col|public.project_hourly_stats.api_keys_total_time_to_first_token"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_time_to_first_token_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_time_to_first_token_count",
+        "n|col|public.project_hourly_stats.api_keys_time_to_first_token_count",
+        "e|col|public.project_hourly_stats.api_keys_time_to_first_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_total_time_to_first_reasoning_token"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_total_time_to_first_reasoning_token",
+        "n|col|public.project_hourly_stats.api_keys_total_time_to_first_reasoning_token",
+        "e|col|public.project_hourly_stats.api_keys_total_time_to_first_reasoning_token"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "project_hourly_stats",
+        "api_keys_time_to_first_reasoning_token_count"
+      ],
+      "writes": [
+        "s|col|public.project_hourly_stats.api_keys_time_to_first_reasoning_token_count",
+        "n|col|public.project_hourly_stats.api_keys_time_to_first_reasoning_token_count",
+        "e|col|public.project_hourly_stats.api_keys_time_to_first_reasoning_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.project_hourly_stats",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_client_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_gateway_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_upstream_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_total_duration",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_duration_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_total_time_to_first_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_time_to_first_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_total_time_to_first_reasoning_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_model_stats",
+        "name": "api_keys_time_to_first_reasoning_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_client_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_gateway_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_upstream_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_total_duration",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_duration_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_total_time_to_first_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_time_to_first_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_total_time_to_first_reasoning_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_stats",
+        "name": "api_keys_time_to_first_reasoning_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_model_stats",
+        "name": "api_keys_client_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_model_stats",
+        "name": "api_keys_total_duration",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_model_stats",
+        "name": "api_keys_duration_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_model_stats",
+        "name": "api_keys_total_time_to_first_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_model_stats",
+        "name": "api_keys_time_to_first_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_model_stats",
+        "name": "api_keys_total_time_to_first_reasoning_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_model_stats",
+        "name": "api_keys_time_to_first_reasoning_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_client_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_gateway_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_upstream_error_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_total_duration",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_duration_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_total_time_to_first_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_time_to_first_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_total_time_to_first_reasoning_token",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_hourly_stats",
+        "name": "api_keys_time_to_first_reasoning_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

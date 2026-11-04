@@ -1,0 +1,81 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c7c59c6e-dd61-4ccd-88f1-d1bd9e7100e3",
+  "prevIds": [
+    "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "organization",
+        "dev_plan_daily_credits_used"
+      ],
+      "writes": [
+        "s|col|public.organization.dev_plan_daily_credits_used",
+        "n|col|public.organization.dev_plan_daily_credits_used",
+        "e|col|public.organization.dev_plan_daily_credits_used"
+      ],
+      "reads": [
+        "n|tbl|public.organization",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "organization",
+        "dev_plan_day_start"
+      ],
+      "writes": [
+        "s|col|public.organization.dev_plan_day_start",
+        "n|col|public.organization.dev_plan_day_start",
+        "e|col|public.organization.dev_plan_day_start"
+      ],
+      "reads": [
+        "n|tbl|public.organization",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization",
+        "name": "dev_plan_daily_credits_used",
+        "type": "numeric",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'0'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization",
+        "name": "dev_plan_day_start",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

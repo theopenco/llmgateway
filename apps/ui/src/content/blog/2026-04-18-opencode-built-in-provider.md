@@ -61,7 +61,7 @@ opencode
 
 If you're new to OpenCode, [install it from opencode.ai](https://opencode.ai/download), then follow the same steps.
 
-Need an API key? [Sign up for LLM Gateway](https://llmgateway.io/signup) -- the free tier includes credits to get started.
+Need an API key? [Sign up for LLM Gateway](https://llmgateway.io/signup) -- signing up is free.
 
 ## Custom model configuration
 
@@ -72,8 +72,8 @@ The built-in provider covers the most popular models automatically. If you need 
   "provider": {
     "llmgateway": {
       "models": {
-        "deepseek/deepseek-chat": {
-          "name": "DeepSeek Chat"
+        "deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash"
         }
       }
     }

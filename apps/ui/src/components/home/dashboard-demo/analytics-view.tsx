@@ -113,17 +113,19 @@ export function AnalyticsView() {
 	const [range, setRange] = useState(() => defaultDateRange(anchorDay));
 	const [usageMode, setUsageMode] = useState<UsageMode>("total");
 
-	const activity = sliceHistory(history, range.from, range.to).map((day) =>
+	const rawActivity = sliceHistory(history, range.from, range.to);
+	const activity = rawActivity.map((day) =>
 		applyUsageModeToDaily(day, usageMode),
 	);
 	const rows = toDimensionRows(activity, groupBy);
 	const totals = activity.reduce(
 		(acc, day) => ({
 			cost: acc.cost + day.cost,
+			storageCost: acc.storageCost + day.dataStorageCost,
 			requestCount: acc.requestCount + day.requestCount,
 			totalTokens: acc.totalTokens + day.totalTokens,
 		}),
-		{ cost: 0, requestCount: 0, totalTokens: 0 },
+		{ cost: 0, storageCost: 0, requestCount: 0, totalTokens: 0 },
 	);
 	const copy = COPY[groupBy];
 	const dimensionNoun = groupBy === "apiKey" ? "API key" : groupBy;
@@ -177,10 +179,15 @@ export function AnalyticsView() {
 					<div className="grid gap-4 @xl/demo:grid-cols-2 @4xl/demo:grid-cols-3">
 						<MetricCard
 							label="Total cost"
-							value={currencyFormatter.format(totals.cost)}
+							value={currencyFormatter.format(totals.cost + totals.storageCost)}
+							subtitle={
+								totals.storageCost > 0
+									? `Includes ${currencyFormatter.format(totals.storageCost)} data storage`
+									: undefined
+							}
 							accent="green"
 							icon={<Coins className="h-4 w-4" />}
-							trend={activity.map((day) => day.cost)}
+							trend={activity.map((day) => day.cost + day.dataStorageCost)}
 						/>
 						<MetricCard
 							label="Requests"
@@ -207,7 +214,7 @@ export function AnalyticsView() {
 							description={`Compare ${dimensionNoun} usage across the selected range`}
 						/>
 					)}
-					<TokenUsageCard activity={activity} loading={false} />
+					<TokenUsageCard activity={rawActivity} loading={false} />
 					{groupBy === "model" ? (
 						<CostByModelCard activity={activity} />
 					) : (

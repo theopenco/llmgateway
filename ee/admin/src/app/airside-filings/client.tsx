@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	Check,
 	ChevronLeft,
 	ChevronRight,
@@ -9,13 +10,15 @@ import {
 	ShieldCheck,
 	X,
 } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 
+import { AirsideListingsTable } from "@/components/airside-listings-table";
 import {
 	ModelVerificationDialog,
 	VerificationStatusBadge,
 } from "@/components/model-verification-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,7 +50,30 @@ import { useAdminRole } from "@/lib/admin-role-context";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 
+import { CONTEXT_TIER_TOLERANCE } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { ModelVerification } from "@/components/model-verification-dialog";
+
+function FilingQueryError({
+	message,
+	onRetry,
+}: {
+	message: string;
+	onRetry: () => void;
+}) {
+	return (
+		<div
+			role="alert"
+			className="flex items-center justify-between gap-3 py-4 text-sm"
+		>
+			<p>{message}</p>
+			<Button variant="outline" size="sm" onClick={onRetry}>
+				Retry
+			</Button>
+		</div>
+	);
+}
 
 type FilingStatus = "pending" | "approved" | "rejected";
 
@@ -857,6 +883,20 @@ export function AirsideFilingsClient() {
 
 			<Card>
 				<CardHeader>
+					<CardTitle>Relist requests</CardTitle>
+					<CardDescription>
+						Carriers asking to put a delisted model back in service. Approving
+						relists it at its last approved fares; check its context window
+						first.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<AirsideListingsTable relistRequested />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
 					<CardTitle>Filings</CardTitle>
 					<CardDescription>
 						Approving an initial filing activates the model; approving an update
@@ -868,6 +908,11 @@ export function AirsideFilingsClient() {
 						<div className="flex h-32 items-center justify-center">
 							<Loader2 className="text-muted-foreground size-5 animate-spin" />
 						</div>
+					) : query.isError && !query.data ? (
+						<FilingQueryError
+							message="Could not load filings."
+							onRetry={() => void query.refetch()}
+						/>
 					) : filings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
 							No {status === "all" ? "" : status} filings.
@@ -889,203 +934,278 @@ export function AirsideFilingsClient() {
 							</TableHeader>
 							<TableBody>
 								{filings.map((filing) => (
-									<TableRow
-										key={filing.id}
-										data-testid={`filing-${filing.model.providerId}-${filing.model.modelName}`}
-									>
-										<TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-											{new Date(filing.createdAt).toLocaleString()}
-										</TableCell>
-										<TableCell>
-											<div className="font-medium">{filing.company.name}</div>
-											<div className="text-muted-foreground text-xs">
-												{filing.model.providerId}
-											</div>
-										</TableCell>
-										<TableCell className="font-mono text-sm">
-											{filing.model.modelName}
-											{filing.model.externalId !== filing.model.modelName ? (
-												<div
-													className="text-muted-foreground text-xs"
-													title="Upstream model ID the gateway sends to the provider"
-												>
-													↗ {filing.model.externalId}
+									<Fragment key={filing.id}>
+										<TableRow
+											className={
+												filing.contextSizeWarning ||
+												filing.cachedPriceWarnings.length > 0
+													? "border-b-0"
+													: undefined
+											}
+											data-testid={`filing-${filing.model.providerId}-${filing.model.modelName}`}
+										>
+											<TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+												{new Date(filing.createdAt).toLocaleString()}
+											</TableCell>
+											<TableCell>
+												<div className="font-medium">{filing.company.name}</div>
+												<div className="text-muted-foreground text-xs">
+													{filing.model.providerId}
 												</div>
-											) : null}
-											<div className="text-muted-foreground text-xs">
-												{filing.model.apiFormat}
-											</div>
-											{filing.kind === "initial" ? (
-												filing.model.sharesCatalogueModelName ? (
-													<Badge
-														variant="secondary"
-														className="ml-2 align-middle font-sans"
-														title="This name matches an existing catalogue model — approving attaches the carrier to that model's public entry."
+											</TableCell>
+											<TableCell className="font-mono text-sm">
+												{filing.model.modelName}
+												{filing.model.externalId !== filing.model.modelName ? (
+													<div
+														className="text-muted-foreground text-xs"
+														title="Upstream model ID the gateway sends to the provider"
 													>
-														existing model name
-													</Badge>
+														↗ {filing.model.externalId}
+													</div>
+												) : null}
+												<div className="text-muted-foreground text-xs">
+													{filing.model.decisions
+														? "decisions (/v1/decisions)"
+														: filing.model.apiFormat}
+												</div>
+												{filing.kind === "initial" ? (
+													filing.model.sharesCatalogueModelName ? (
+														<Badge
+															variant="secondary"
+															className="ml-2 align-middle font-sans"
+															title="This name matches an existing catalogue model — approving attaches the carrier to that model's public entry."
+														>
+															existing model name
+														</Badge>
+													) : (
+														<Badge
+															variant="secondary"
+															className="ml-2 align-middle font-sans"
+															title="No catalogue model claims this name — once approved, requests for the bare id (without a provider prefix) resolve to this carrier."
+														>
+															claims bare id
+														</Badge>
+													)
+												) : null}
+											</TableCell>
+											<TableCell>
+												<Badge variant="outline">
+													{filing.kind === "initial"
+														? "New listing"
+														: filing.kind === "metadata"
+															? "Metadata change"
+															: "Price change"}
+												</Badge>
+											</TableCell>
+											<TableCell className="font-mono text-xs">
+												{filing.kind === "metadata" && filing.metadata ? (
+													Object.entries(filing.metadata).map(([key, next]) => (
+														<div key={key}>
+															{key}:{" "}
+															{formatMetadataValue(
+																filing.currentMetadata?.[
+																	key as keyof typeof filing.currentMetadata
+																],
+															)}{" "}
+															→ {formatMetadataValue(next)}
+														</div>
+													))
 												) : (
-													<Badge
-														variant="secondary"
-														className="ml-2 align-middle font-sans"
-														title="No catalogue model claims this name — once approved, requests for the bare id (without a provider prefix) resolve to this carrier."
-													>
-														claims bare id
-													</Badge>
-												)
-											) : null}
-										</TableCell>
-										<TableCell>
-											<Badge variant="outline">
-												{filing.kind === "initial"
-													? "New listing"
-													: filing.kind === "metadata"
-														? "Metadata change"
-														: "Price change"}
-											</Badge>
-										</TableCell>
-										<TableCell className="font-mono text-xs">
-											{filing.kind === "metadata" && filing.metadata ? (
-												Object.entries(filing.metadata).map(([key, next]) => (
-													<div key={key}>
-														{key}:{" "}
-														{formatMetadataValue(
-															filing.currentMetadata?.[
-																key as keyof typeof filing.currentMetadata
-															],
-														)}{" "}
-														→ {formatMetadataValue(next)}
-													</div>
-												))
-											) : (
-												<>
-													<div>
-														in:{" "}
-														{filing.currentPricing
-															? `${formatPerMillion(filing.currentPricing.inputPrice)} → `
-															: ""}
-														{formatPerMillion(filing.inputPrice)}
-													</div>
-													<div>
-														out:{" "}
-														{filing.currentPricing
-															? `${formatPerMillion(filing.currentPricing.outputPrice)} → `
-															: ""}
-														{formatPerMillion(filing.outputPrice)}
-													</div>
-													{(() => {
-														const current = new Map(
-															(filing.currentPricing?.regionPrices ?? []).map(
-																(entry) => [entry.region, entry],
-															),
-														);
-														const filed = new Map(
-															(filing.regionPrices ?? []).map((entry) => [
-																entry.region,
-																entry,
-															]),
-														);
-														const fares = (
-															entry:
-																| { inputPrice: string; outputPrice: string }
-																| undefined,
-														) =>
-															entry
-																? `${formatPerMillion(entry.inputPrice)} in · ${formatPerMillion(entry.outputPrice)} out`
-																: null;
-														// Approving replaces the whole regional set, so a
-														// region absent from the filing is removed — show it.
-														return Array.from(
-															new Set([
-																...Array.from(current.keys()),
-																...Array.from(filed.keys()),
-															]),
-														).map((region) => {
-															const before = fares(current.get(region));
-															const after = fares(filed.get(region));
-															return (
-																<div key={region}>
-																	{region}:{" "}
-																	{before && before !== after
-																		? `${before} → `
-																		: ""}
-																	{after ?? "removed"}
-																</div>
+													<>
+														<div>
+															in:{" "}
+															{filing.currentPricing
+																? `${formatPerMillion(filing.currentPricing.inputPrice)} → `
+																: ""}
+															{formatPerMillion(filing.inputPrice)}
+														</div>
+														<div>
+															out:{" "}
+															{filing.currentPricing
+																? `${formatPerMillion(filing.currentPricing.outputPrice)} → `
+																: ""}
+															{formatPerMillion(filing.outputPrice)}
+														</div>
+														{filing.cachedInputPrice ||
+														filing.currentPricing?.cachedInputPrice ? (
+															<div>
+																cached:{" "}
+																{filing.currentPricing &&
+																filing.currentPricing.cachedInputPrice !==
+																	filing.cachedInputPrice
+																	? `${filing.currentPricing.cachedInputPrice ? formatPerMillion(filing.currentPricing.cachedInputPrice) : "none"} → `
+																	: ""}
+																{filing.cachedInputPrice
+																	? formatPerMillion(filing.cachedInputPrice)
+																	: "none"}
+															</div>
+														) : null}
+														{(() => {
+															const current = new Map(
+																(filing.currentPricing?.regionPrices ?? []).map(
+																	(entry) => [entry.region, entry],
+																),
 															);
-														});
-													})()}
-												</>
-											)}
-										</TableCell>
-										<TableCell className="text-muted-foreground max-w-48 truncate text-xs">
-											{filing.note ?? "—"}
-										</TableCell>
-										<TableCell>
-											<div className="flex items-center gap-2">
-												<VerificationStatusBadge
-													verification={verificationByModel.get(
-														filing.model.id,
-													)}
-												/>
-												<ModelVerificationDialog
-													title={`${filing.model.providerId}/${filing.model.modelName}`}
-													draftModelId={filing.model.id}
-													latest={verificationByModel.get(filing.model.id)}
-													onSettled={() => void verificationsQuery.refetch()}
-												>
-													<Button
-														size="sm"
-														variant="outline"
-														data-testid={`verify-filing-${filing.id}`}
+															const filed = new Map(
+																(filing.regionPrices ?? []).map((entry) => [
+																	entry.region,
+																	entry,
+																]),
+															);
+															const fares = (
+																entry:
+																	| { inputPrice: string; outputPrice: string }
+																	| undefined,
+															) =>
+																entry
+																	? `${formatPerMillion(entry.inputPrice)} in · ${formatPerMillion(entry.outputPrice)} out`
+																	: null;
+															// Approving replaces the whole regional set, so a
+															// region absent from the filing is removed — show it.
+															return Array.from(
+																new Set([
+																	...Array.from(current.keys()),
+																	...Array.from(filed.keys()),
+																]),
+															).map((region) => {
+																const before = fares(current.get(region));
+																const after = fares(filed.get(region));
+																return (
+																	<div key={region}>
+																		{region}:{" "}
+																		{before && before !== after
+																			? `${before} → `
+																			: ""}
+																		{after ?? "removed"}
+																	</div>
+																);
+															});
+														})()}
+													</>
+												)}
+											</TableCell>
+											<TableCell className="text-muted-foreground max-w-48 truncate text-xs">
+												{filing.note ?? "—"}
+											</TableCell>
+											<TableCell>
+												<div className="flex items-center gap-2">
+													<VerificationStatusBadge
+														verification={verificationByModel.get(
+															filing.model.id,
+														)}
+													/>
+													<ModelVerificationDialog
+														title={`${filing.model.providerId}/${filing.model.modelName}`}
+														draftModelId={filing.model.id}
+														latest={verificationByModel.get(filing.model.id)}
+														onSettled={() => void verificationsQuery.refetch()}
 													>
-														<ShieldCheck className="size-3.5" /> Verify
-													</Button>
-												</ModelVerificationDialog>
-											</div>
-										</TableCell>
-										<TableCell>
-											<Badge variant={STATUS_BADGE[filing.status]}>
-												{filing.status}
-											</Badge>
-										</TableCell>
-										<TableCell className="text-right">
-											{filing.status === "pending" ? (
-												isAdmin && (
-													<div className="flex justify-end gap-1">
 														<Button
 															size="sm"
-															disabled={approveMutation.isPending}
-															data-testid={`approve-${filing.id}`}
-															onClick={() =>
-																approveMutation.mutate({
-																	params: { path: { id: filing.id } },
-																})
-															}
+															variant="outline"
+															data-testid={`verify-filing-${filing.id}`}
 														>
-															<Check className="size-3.5" /> Approve
+															<ShieldCheck className="size-3.5" /> Verify
 														</Button>
-														<Button
-															size="sm"
-															variant="destructive"
-															disabled={rejectMutation.isPending}
-															data-testid={`reject-${filing.id}`}
-															onClick={() =>
-																setRejecting({ kind: "filing", id: filing.id })
-															}
-														>
-															<X className="size-3.5" /> Reject
-														</Button>
-													</div>
-												)
-											) : (
-												<span className="text-muted-foreground text-xs">
-													{filing.reviewedAt
-														? new Date(filing.reviewedAt).toLocaleDateString()
-														: ""}
-												</span>
-											)}
-										</TableCell>
-									</TableRow>
+													</ModelVerificationDialog>
+												</div>
+											</TableCell>
+											<TableCell>
+												<Badge variant={STATUS_BADGE[filing.status]}>
+													{filing.status}
+												</Badge>
+											</TableCell>
+											<TableCell className="text-right">
+												{filing.status === "pending" ? (
+													isAdmin && (
+														<div className="flex justify-end gap-1">
+															<Button
+																size="sm"
+																disabled={approveMutation.isPending}
+																data-testid={`approve-${filing.id}`}
+																onClick={() =>
+																	approveMutation.mutate({
+																		params: { path: { id: filing.id } },
+																	})
+																}
+															>
+																<Check className="size-3.5" /> Approve
+															</Button>
+															<Button
+																size="sm"
+																variant="destructive"
+																disabled={rejectMutation.isPending}
+																data-testid={`reject-${filing.id}`}
+																onClick={() =>
+																	setRejecting({
+																		kind: "filing",
+																		id: filing.id,
+																	})
+																}
+															>
+																<X className="size-3.5" /> Reject
+															</Button>
+														</div>
+													)
+												) : (
+													<span className="text-muted-foreground text-xs">
+														{filing.reviewedAt
+															? new Date(filing.reviewedAt).toLocaleDateString()
+															: ""}
+													</span>
+												)}
+											</TableCell>
+										</TableRow>
+										{filing.contextSizeWarning ? (
+											<TableRow className="hover:bg-transparent">
+												<TableCell colSpan={9} className="pt-0">
+													<Alert
+														variant={
+															filing.contextSizeWarning.deviation === "below"
+																? "destructive"
+																: "default"
+														}
+														className={
+															filing.contextSizeWarning.deviation === "below"
+																? "border-destructive bg-destructive/10 border-2"
+																: "border-2 border-amber-500 bg-amber-500/10"
+														}
+														data-testid={`context-size-warning-${filing.id}`}
+													>
+														<AlertTriangle />
+														<AlertTitle>
+															{filing.contextSizeWarning.deviation === "below"
+																? "Context size far below the model's window"
+																: "Context size above every other deployment"}
+														</AlertTitle>
+														<AlertDescription>
+															{filing.contextSizeWarning.deviation === "below"
+																? `Filed with ${formatNumber(filing.contextSizeWarning.contextSize)} tokens, while ${filing.model.modelName} is served with up to ${formatNumber(filing.contextSizeWarning.referenceContextSize)}. Deployments more than ${CONTEXT_TIER_TOLERANCE * 100}% below that only serve requests for ${filing.model.providerId}/${filing.model.modelName}, not the bare model id. Confirm the carrier's real window before approving.`
+																: `Filed with ${formatNumber(filing.contextSizeWarning.contextSize)} tokens, more than ${CONTEXT_TIER_TOLERANCE * 100}% above the ${formatNumber(filing.contextSizeWarning.referenceContextSize)} tokens of any other deployment of ${filing.model.modelName}. Long prompts will be routed to it, so verify the claim before approving.`}
+														</AlertDescription>
+													</Alert>
+												</TableCell>
+											</TableRow>
+										) : null}
+										{filing.cachedPriceWarnings.length > 0 ? (
+											<TableRow className="hover:bg-transparent">
+												<TableCell colSpan={9} className="pt-0">
+													<Alert
+														className="border-2 border-amber-500 bg-amber-500/10"
+														data-testid={`cached-price-warning-${filing.id}`}
+													>
+														<AlertTriangle />
+														<AlertTitle>Unusual cached input price</AlertTitle>
+														<AlertDescription>
+															{filing.cachedPriceWarnings.map((warning) => (
+																<div key={warning}>{warning}</div>
+															))}
+														</AlertDescription>
+													</Alert>
+												</TableCell>
+											</TableRow>
+										) : null}
+									</Fragment>
 								))}
 							</TableBody>
 						</Table>
@@ -1110,7 +1230,14 @@ export function AirsideFilingsClient() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					{routingFilings.length === 0 ? (
+					{query.isLoading ? (
+						<Loader2 className="mx-auto size-5 animate-spin" />
+					) : query.isError && !query.data ? (
+						<FilingQueryError
+							message="Could not load fare changes."
+							onRetry={() => void query.refetch()}
+						/>
+					) : routingFilings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
 							No {status === "all" ? "" : status} fare changes.
 						</p>

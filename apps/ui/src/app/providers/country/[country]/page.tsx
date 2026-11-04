@@ -9,6 +9,7 @@ import {
 	activeModelCounts,
 	countApiModelsByProvider,
 	customCarrierGridProviders,
+	declaredComplianceByProvider,
 	listedProviders,
 } from "@/lib/providers-catalog";
 
@@ -129,6 +130,7 @@ export default async function ProviderCountryPage({
 					modelCounts={modelCounts}
 					uploadedLogos={uploadedLogos}
 					extraProviders={extraProviders}
+					declaredCompliance={declaredComplianceByProvider(apiProviders)}
 					heading={`${country.flag} AI Providers in ${country.name}`}
 					subheading={`Access ${modelCount} models from ${countryProviders.length} AI ${
 						countryProviders.length === 1 ? "provider" : "providers"

@@ -47,6 +47,26 @@ async function activeConnection(userId: string, id: LoungeConnectorId) {
 	return connection;
 }
 
+function assertConnectorToken(
+	id: LoungeConnectorId,
+	credentials: ReturnType<typeof credentialsSchema.parse>,
+) {
+	if (id === "github" && !credentials.tokens?.access_token) {
+		throw new HTTPException(409, { message: "Reconnect this connector" });
+	}
+}
+
+export async function assertConnectionReady(
+	userId: string,
+	id: LoungeConnectorId,
+) {
+	const connection = await activeConnection(userId, id);
+	assertConnectorToken(
+		id,
+		credentialsSchema.parse(openConnector(connection.credentials, userId, id)),
+	);
+}
+
 async function refreshConnection(userId: string, id: LoungeConnectorId) {
 	// Serialize rotating refresh tokens across API instances without holding a DB connection.
 	const key = `lounge:refresh:${userId}:${id}`;
@@ -184,9 +204,7 @@ async function withConnection<T>(
 	if (!endpoint) {
 		return await run({ executeNative });
 	}
-	if (id === "github" && !credentials.tokens?.access_token) {
-		throw new HTTPException(409, { message: "Reconnect this connector" });
-	}
+	assertConnectorToken(id, credentials);
 	const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
 		fetch: connectorFetch,
 		...(id === "github"

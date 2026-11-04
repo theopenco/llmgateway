@@ -78,6 +78,7 @@ describe("admin organizations pagination before enrichment", () => {
 		"totalRequests",
 		"totalTokens",
 		"totalCreditsAllTime",
+		"totalSubscriptionValue",
 	])(
 		"keeps %s order, enrichment and full-set totals across pages",
 		async (sortBy) => {

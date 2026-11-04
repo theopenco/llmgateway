@@ -13,6 +13,32 @@ export type CapabilityFilter =
 	| "webSearch"
 	| "discounted";
 
+export const OUTPUT_KIND_BY_CAPABILITY_FILTER = {
+	imageGeneration: "image",
+	videoGeneration: "video",
+	audioGeneration: "audio",
+	transcription: "transcription",
+	embedding: "embedding",
+	rerank: "rerank",
+	decisions: "decision",
+	searchApi: "search",
+} as const;
+
+export type OutputCapabilityFilter =
+	keyof typeof OUTPUT_KIND_BY_CAPABILITY_FILTER;
+
+export function matchesOutputCapabilities(
+	enabled: Partial<Record<OutputCapabilityFilter, boolean>>,
+	output: readonly string[] | null | undefined,
+): boolean {
+	return (
+		Object.entries(OUTPUT_KIND_BY_CAPABILITY_FILTER) as [
+			OutputCapabilityFilter,
+			string,
+		][]
+	).every(([filter, kind]) => !enabled[filter] || !!output?.includes(kind));
+}
+
 export function matchesCapability(
 	capability: CapabilityFilter,
 	provider: ApiModelProviderMapping,

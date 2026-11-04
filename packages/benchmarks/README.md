@@ -48,11 +48,15 @@ pnpm benchmark -- --model <model-id> --format markdown --output benchmark.md
 pnpm benchmark -- --model <model-id> --format html --output benchmark.html
 ```
 
-JSON is written to stdout by default. Progress goes to stderr, so output can be piped into another program. Use `--quiet` for no progress and `--no-responses` to remove generated content, reasoning, tool calls, and chunk events from stored trials.
+JSON is written to stdout by default. Progress goes to stderr, so output can be piped into another program. Use `--quiet` for no progress and `--no-responses` to remove generated content, reasoning, tool calls, and chunk events from stored trials, including generated tool arguments and tool error details in agent traces.
+
+Invalid output formats are rejected before any benchmark requests run.
 
 Output paths resolve from the package working directory, and their parent directories must already exist. When invoking the package through `pnpm --filter`, use an absolute path for output outside `packages/benchmarks`.
 
 Run `pnpm benchmark -- --help` for all options. Mapping selectors accept a provider, exact `provider:region`, `provider:*` for every region, or `*` for every active mapping.
+
+The CLI reads mappings from the gateway's `/v1/models` (next to `--url`), which includes Airside listings that the static catalogue lacks. `--catalogue static` uses `resolveBenchmarkTargets()` instead; programmatically, pass `fetchGatewayMappingDescriptors()` output to `buildBenchmarkTargets()`.
 
 ## Metrics
 

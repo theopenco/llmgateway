@@ -1,0 +1,274 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "b726be47-6c50-4a26-832d-a48ad0ba4ea1",
+  "prevIds": [
+    "1ad0c059-56f6-4b96-b712-b91e9fb9da9f"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "max_rpm"
+      ],
+      "writes": [
+        "s|col|public.provider_key.max_rpm",
+        "n|col|public.provider_key.max_rpm",
+        "e|col|public.provider_key.max_rpm"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "max_rpd"
+      ],
+      "writes": [
+        "s|col|public.provider_key.max_rpd",
+        "n|col|public.provider_key.max_rpd",
+        "e|col|public.provider_key.max_rpd"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "max_tpm"
+      ],
+      "writes": [
+        "s|col|public.provider_key.max_tpm",
+        "n|col|public.provider_key.max_tpm",
+        "e|col|public.provider_key.max_tpm"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "max_tpd"
+      ],
+      "writes": [
+        "s|col|public.provider_key.max_tpd",
+        "n|col|public.provider_key.max_tpd",
+        "e|col|public.provider_key.max_tpd"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "rate_limit",
+        "max_tpm"
+      ],
+      "writes": [
+        "s|col|public.rate_limit.max_tpm",
+        "n|col|public.rate_limit.max_tpm",
+        "e|col|public.rate_limit.max_tpm"
+      ],
+      "reads": [
+        "n|tbl|public.rate_limit",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "rate_limit",
+        "max_tpd"
+      ],
+      "writes": [
+        "s|col|public.rate_limit.max_tpd",
+        "n|col|public.rate_limit.max_tpd",
+        "e|col|public.rate_limit.max_tpd"
+      ],
+      "reads": [
+        "n|tbl|public.rate_limit",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "recreate_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "rate_limit",
+        "rate_limit_org_provider_model_unique"
+      ],
+      "writes": [
+        "s|idx|public.rate_limit_org_provider_model_unique",
+        "n|idx|public.rate_limit_org_provider_model_unique",
+        "e|idx|public.rate_limit_org_provider_model_unique",
+        "n|rel|public.rate_limit_org_provider_model_unique"
+      ],
+      "reads": [
+        "n|tbl|public.rate_limit",
+        "n|sch|public"
+      ],
+      "sharedWrites": [],
+      "sqlHash": "9d678ee05c66d3d2"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "max_rpm",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "max_rpd",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "max_tpm",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "max_tpd",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "rate_limit",
+        "name": "max_tpm",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "rate_limit",
+        "name": "max_tpd",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "indexes\u0000[\"public\",\"rate_limit_org_provider_model_unique\"]",
+      "set": {
+        "columns": [
+          {
+            "value": "coalesce(\"organization_id\", '__global__')",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "coalesce(\"provider\", '__all_providers__')",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "coalesce(\"model\", '__all_models__')",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "(case when \"max_rpm\" is not null then 'rpm' when \"max_rpd\" is not null then 'rpd' when \"max_tpm\" is not null then 'tpm' when \"max_tpd\" is not null then 'tpd' end)",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ]
+      }
+    }
+  ]
+}

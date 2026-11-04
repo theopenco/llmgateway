@@ -34,7 +34,7 @@ Pin the provider and disable fallback, or a healthy provider masks the error:
 ```bash
 curl -N http://localhost:4001/v1/chat/completions \
   -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
-  -d '{"model":"embercloud/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"novita/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 The gateway caches responses, errors included, keyed on the request body; vary
@@ -54,6 +54,7 @@ Options:
 - `FULL_MODE` — include free models and per-effort cases.
 - `LOG_MODE` — log responses.
 - `TEST_WEB_SEARCH` — run `chat-websearch.e2e.ts`; each case bills a real search, so scope it with `TEST_MODELS`.
+- `CONTEXT_ROUTING_TEST` — run `chat-context-routing.e2e.ts`: ~350k-token prompts against every keyed deployment of its models, and bare-id routing past short-window deployments. Costs several dollars per run; run that file directly rather than the whole suite.
 
 For mapping-only changes, the only relevant result is a run scoped to those
 mappings (`TEST_MODELS="alibaba/glm-5.2" FULL_MODE=true pnpm test:e2e`). Run the
@@ -69,7 +70,9 @@ CI e2e (`.github/workflows/e2e.yml`) spends real money and runs on demand only:
 comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Push
 first: `/e2e` refuses a head pushed after the comment. Use it
 for complex gateway or backend changes affecting routing, stability, uptime, or
-provider integration.
+provider integration. Never `/e2e` for model-mapping PRs; run those locally with
+`TEST_MODELS`, or, only without local credentials, dispatch with
+`test_models` and `full_mode` set.
 
 ## Writing tests
 
@@ -77,4 +80,5 @@ provider integration.
 - Gateway unit tests load the root `.env`, which holds real provider keys. A test that needs a provider without credentials saves and deletes `LLM_<PROVIDER>_API_KEY` (and `_BASE_URL`), restoring them in `finally`.
 - Build credential-shaped fixtures at runtime (`["sk", "live", "..."].join("_")`) so push protection accepts the branch. Assert on booleans, never equality with a credential: CI test artifacts are public and unmasked.
 - Delete cascade-linked tables sequentially, children before parents. `deleteAll()` keeps the catalogue tables, so a spec that seeds `model`/`model_provider_mapping` rows removes them itself, with ids distinct from the real catalogue.
+- Source-loading Node subprocesses using `--import tsx` set `TSX_TSCONFIG_PATH` to the owning app's `tsconfig.json`; the root config does not resolve app `@/` aliases.
 - Keep logs and scratch files under `.context/`; `/tmp` is shared with other agents.

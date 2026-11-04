@@ -27,7 +27,7 @@ AWS Bedrock supports **Long-Term API Keys** for simplified authentication. These
 2. Navigate to **AWS Bedrock** service
 3. Go to **Model access** in the left sidebar
 4. Click **Manage model access**
-5. Enable the models you want to use (e.g., Claude 3.5, Llama 3)
+5. Enable the models you want to use (e.g., Claude Sonnet 4.6, Llama 4)
 6. Wait for access to be granted (usually instant for most models)
 
 </Step>
@@ -82,7 +82,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer YOUR_LLMGATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "aws-bedrock/claude-3-5-sonnet",
+    "model": "aws-bedrock/claude-sonnet-4-6",
     "messages": [
       {
         "role": "user",
@@ -101,9 +101,9 @@ Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
 
 Once configured, you can access all AWS Bedrock models through LLM Gateway:
 
-- **Anthropic Claude**: `aws-bedrock/claude-3-5-sonnet`, `aws-bedrock/claude-3-5-haiku`
-- **Meta Llama**: `aws-bedrock/llama-3-2-90b`, `aws-bedrock/llama-3-2-11b`
-- **Amazon Titan**: `aws-bedrock/amazon.titan-text-express-v1`
+- **Anthropic Claude**: `aws-bedrock/claude-sonnet-4-6`, `aws-bedrock/claude-haiku-4-5`
+- **Meta Llama**: `aws-bedrock/llama-4-maverick-17b-instruct`, `aws-bedrock/llama-4-scout-17b-instruct`
+- **xAI Grok**: `aws-bedrock/grok-4-3`
 - **And more...**
 
 Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=aws-bedrock)

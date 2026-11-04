@@ -54,6 +54,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -119,7 +120,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque organization identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -421,6 +422,25 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		dimensions,
 	} = validationResult.data;
 
+	// Authenticate before model resolution so unauthenticated callers get a
+	// 401 instead of catalogue-dependent errors.
+	const token = extractApiToken(c);
+	const apiKey = await findApiKeyByToken(token);
+
+	if (!apiKey) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
 	const match = findEmbeddingMapping(requestedModel);
 	if (!match) {
 		return c.json(
@@ -487,23 +507,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const customHeaders = extractCustomHeaders(c);
 	const normalizedMessages = normalizeEmbeddingInputToMessages(input);
 
-	const token = extractApiToken(c);
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
 	const baseProject = await findProjectById(apiKey.projectId);
 	if (!baseProject) {
 		throw new HTTPException(500, {
@@ -556,7 +559,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -574,12 +577,17 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: embeddings resolve to a single
 	// provider, so block the request before any data is sent if that provider
 	// doesn't meet the org's required certifications/data policies.
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -618,6 +626,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		organizationId: project.organizationId,
 	};
 	const retryOrganization = organization;
+	const safetyIdentifier = apiKey.safetyIdentifier;
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
@@ -906,8 +915,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			if (providerId === "openai" || providerId === "azure") {
-				requestBody.user = retryOrganization.safetyIdentifier;
+			const forwarded = providerKey
+				? undefined
+				: forwardedSafetyIdentifier(managedKey, safetyIdentifier);
+			if (
+				forwarded !== undefined &&
+				(providerId === "openai" || providerId === "azure")
+			) {
+				requestBody.user = forwarded;
 			}
 		}
 

@@ -12,8 +12,21 @@ export interface ResolveModelInfoResult {
 	modelInfo: ModelDefinition;
 	activeProviders: ProviderModelMapping[];
 	allModelProviders: ProviderModelMapping[];
-	/** Updated requestedProvider - may be cleared if original was deactivated */
 	requestedProvider: Provider | undefined;
+}
+
+/** 410 for a provider pin whose mapping for the model is deactivated. */
+export function deactivatedProviderPinError(
+	provider: string,
+	modelId: string,
+	hasActiveProvider: boolean,
+): HTTPException {
+	const advice = hasActiveProvider
+		? ` Request "${modelId}" without a provider prefix to route to an active provider.`
+		: "";
+	return new HTTPException(410, {
+		message: `Provider ${provider} no longer serves model ${modelId}: the mapping has been deactivated.${advice}`,
+	});
 }
 
 /**
@@ -22,7 +35,8 @@ export interface ResolveModelInfoResult {
  * For custom providers, creates a mock model info that treats it as an OpenAI-compatible model.
  * For regular providers, looks up model info from the models list and filters out deactivated providers.
  *
- * @throws HTTPException if the model is not supported or all providers are deactivated
+ * @throws HTTPException if the model is not supported, all providers are
+ * deactivated, or the requested provider's mapping is deactivated
  */
 export function resolveModelInfo(
 	requestedModel: Model,
@@ -111,23 +125,30 @@ export function resolveModelInfo(
 		providers: activeProviders,
 	};
 
-	// If a specific provider was requested but is now deactivated, clear it
-	// so routing logic will pick another active provider
-	let updatedRequestedProvider = requestedProvider;
+	// A pin is never rerouted: a pin to a deactivated or missing mapping is an
+	// error, like a deactivated model or region pin.
 	if (
 		requestedProvider &&
 		requestedProvider !== "llmgateway" &&
 		requestedProvider !== "custom" &&
 		!activeProviders.some((p) => p.providerId === requestedProvider)
 	) {
-		// The requested provider was deactivated, routing will select another
-		updatedRequestedProvider = undefined;
+		if (allModelProviders.some((p) => p.providerId === requestedProvider)) {
+			throw deactivatedProviderPinError(
+				requestedProvider,
+				modelInfo.id,
+				activeProviders.length > 0,
+			);
+		}
+		throw new HTTPException(400, {
+			message: `Provider ${requestedProvider} does not support model ${modelInfo.id}`,
+		});
 	}
 
 	return {
 		modelInfo,
 		activeProviders,
 		allModelProviders,
-		requestedProvider: updatedRequestedProvider,
+		requestedProvider,
 	};
 }

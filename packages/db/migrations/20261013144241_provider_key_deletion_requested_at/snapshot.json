@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "b19fcbe9-5f18-4062-9685-1a4d60229209",
+  "prevIds": [
+    "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "deletion_requested_at"
+      ],
+      "writes": [
+        "s|col|public.provider_key.deletion_requested_at",
+        "n|col|public.provider_key.deletion_requested_at",
+        "e|col|public.provider_key.deletion_requested_at"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "deletion_requested_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

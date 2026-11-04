@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -8,6 +8,7 @@ import {
 	listBenchmarkModelOptions,
 	resolveBenchmarkRunTargets,
 } from "@/utils/benchmark-targets.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { and, db, desc, eq, tables } from "@llmgateway/db";
 

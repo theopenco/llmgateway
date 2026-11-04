@@ -8,6 +8,7 @@ export type ModelCategoryFilter =
 	| "image-to-image"
 	| "video"
 	| "embedding"
+	| "decisions"
 	| "web-search"
 	| "vision"
 	| "reasoning"
@@ -18,6 +19,8 @@ export type ModelCategoryFilter =
 	| "creative-writing"
 	| "translation"
 	| "math"
+	| "cyber-security"
+	| "reverse-engineering"
 	| "long-context"
 	| "cheapest"
 	| "open-source"
@@ -28,7 +31,13 @@ export const CHEAPEST_MAX_INPUT_PRICE_PER_M = 0.2;
 export const CHEAPEST_MAX_OUTPUT_PRICE_PER_M = 1.5;
 
 export const curatedCategoryModelIds: Record<
-	"roleplay" | "coding" | "creative-writing" | "translation" | "math",
+	| "roleplay"
+	| "coding"
+	| "creative-writing"
+	| "translation"
+	| "math"
+	| "cyber-security"
+	| "reverse-engineering",
 	ReadonlySet<string>
 > = {
 	roleplay: new Set([
@@ -36,7 +45,7 @@ export const curatedCategoryModelIds: Record<
 		"deepseek-v4-pro",
 		"deepseek-v4-flash",
 		"deepseek-v4.1-flash",
-		"grok-4-1-fast-non-reasoning",
+		"deepseek-v4.1-flash-1017",
 		"grok-4-3",
 		"kimi-k2",
 		"kimi-k2.5",
@@ -50,7 +59,6 @@ export const curatedCategoryModelIds: Record<
 		"mistral-small-2506",
 		"llama-3.3-70b-instruct",
 		"llama-4-maverick-17b-instruct",
-		"qwen3-235b-a22b-instruct-2507",
 		"claude-sonnet-5-5",
 		"claude-sonnet-5",
 		"claude-opus-4-8",
@@ -79,20 +87,18 @@ export const curatedCategoryModelIds: Record<
 		"gemini-3.5-flash",
 		"grok-build-0-1",
 		"grok-4-3",
+		"kimi-k3.1-pro",
+		"kimi-k3.1-pro-highspeed",
 		"kimi-k3",
 		"kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed",
 		"kimi-k2.6",
-		"qwen3-coder-plus",
-		"qwen3-coder-next",
-		"qwen3-coder-480b-a35b-instruct",
-		"qwen3-coder-30b-a3b-instruct",
 		"qwen3-coder-flash",
 		"codestral-2508",
 		"devstral-2512",
-		"devstral-small-2507",
 		"deepseek-v4-pro",
 		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
 		"deepseek-v3.2",
 		"glm-5.2",
 		"glm-5.1",
@@ -112,7 +118,6 @@ export const curatedCategoryModelIds: Record<
 		"kimi-k2",
 		"gpt-5.6-sol",
 		"gpt-5.5",
-		"gpt-5-chat-latest",
 		"gemini-pro-latest",
 		"gemini-3.1-pro-preview",
 		"deepseek-v4-pro",
@@ -138,9 +143,9 @@ export const curatedCategoryModelIds: Record<
 		"claude-haiku-4-5",
 		"qwen3.7-max",
 		"qwen3.7-plus",
-		"qwen3-235b-a22b-instruct-2507",
 		"deepseek-v4-flash",
 		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
 		"mistral-large-2512",
 		"seed-1-8-251228",
 		"gemma-4-31b-it",
@@ -152,7 +157,6 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.5",
 		"gpt-5.4-pro",
 		"gpt-5.2-pro",
-		"o4-mini",
 		"claude-opus-4-8",
 		"claude-opus-5-5",
 		"claude-fable-5-1",
@@ -160,14 +164,66 @@ export const curatedCategoryModelIds: Record<
 		"gemini-3.1-pro-preview",
 		"gemini-pro-latest",
 		"deepseek-v4-pro",
-		"qwen3-235b-a22b-thinking-2507",
-		"qwen3.6-max-preview",
 		"glm-5.2",
-		"kimi-k2-thinking",
 		"minimax-m3",
 		"grok-4-20-reasoning",
 		"grok-4-3",
 		"mimo-v2.6-pro",
+	]),
+	// Every entry supports tool calling (security agents drive scanners,
+	// sandboxes and REA through MCP). Security work splits into two jobs: defensive review (code audit, log
+	// triage, threat modelling) where every frontier model performs, and
+	// offensive-adjacent analysis (malware in a sandbox, CTFs, exploit
+	// triage) where open-weight models are the ones that reliably finish.
+	"cyber-security": new Set([
+		"claude-opus-4-8",
+		"claude-sonnet-5-5",
+		"claude-haiku-5-5",
+		"gpt-5.5",
+		"gpt-6-sol",
+		"gpt-5.3-codex",
+		"gemini-3.1-pro-preview",
+		"gemini-3.5-flash",
+		"grok-4-3",
+		"grok-build-0-1",
+		"deepseek-v4-pro",
+		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
+		"kimi-k3.1-pro",
+		"kimi-k3",
+		"kimi-k2.7-code",
+		"glm-5.2",
+		"glm-5.1",
+		"qwen3.7-max",
+		"qwen3.7-plus",
+		"minimax-m3",
+		"mimo-v2.6-pro",
+	]),
+	// Every entry supports tool calling: reverse-engineering agents drive
+	// Ghidra, Hopper and IDA through MCP (REA), so a model without tools is
+	// useless here regardless of how well it reads assembly.
+	"reverse-engineering": new Set([
+		"deepseek-v4-pro",
+		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-1017",
+		"deepseek-v3.2",
+		"kimi-k3.1-pro",
+		"kimi-k3",
+		"kimi-k2.7-code",
+		"kimi-k2.6",
+		"glm-5.2",
+		"glm-5.1",
+		"qwen3.7-max",
+		"qwen3.7-plus",
+		"minimax-m3",
+		"minimax-m2.7",
+		"mimo-v2.6-pro",
+		"seed-1-8-251228",
+		"grok-4-3",
+		"grok-build-0-1",
+		"gemini-3.1-pro-preview",
+		"gpt-5.3-codex",
+		"claude-opus-4-8",
 	]),
 };
 
@@ -216,6 +272,7 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 // Proprietary models whose family is otherwise open-source (e.g. Meta's
 // API-only Muse Spark models alongside the open Llama family)
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
+	"muse-wonder-1.0",
 	"muse-spark-1.1",
 	"muse-spark-1.2",
 	"muse-spark-1.2-contributor",
@@ -223,6 +280,8 @@ export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.3-contributor",
 	// API-only at launch; no open weights published (unlike the K2 family)
 	"kimi-k3",
+	"kimi-k3.1-pro",
+	"kimi-k3.1-pro-highspeed",
 ]);
 
 // Labs whose model lines are open-weight-first. Broader than the strict
@@ -275,6 +334,8 @@ export function applyCategoryFilter(
 			return model.output?.includes("video") === true;
 		case "embedding":
 			return model.output?.includes("embedding") === true;
+		case "decisions":
+			return model.output?.includes("decision") === true;
 		case "web-search":
 			return mappings.some((m) => m.webSearch);
 		case "vision":
@@ -290,6 +351,8 @@ export function applyCategoryFilter(
 		case "creative-writing":
 		case "translation":
 		case "math":
+		case "cyber-security":
+		case "reverse-engineering":
 			return curatedCategoryModelIds[categoryFilter].has(model.id);
 		case "long-context":
 			return (

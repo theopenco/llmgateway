@@ -1,0 +1,555 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2b86638a-8ca3-43dd-b879-b4e92335899e",
+  "prevIds": [
+    "5b99a692-5d3d-43dc-9ee3-ac46e31c5023"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_certification"
+      ],
+      "writes": [
+        "s|tbl|public.provider_certification",
+        "n|tbl|public.provider_certification",
+        "e|tbl|public.provider_certification",
+        "n|rel|public.provider_certification",
+        "n|type|public.provider_certification",
+        "n|rel|public.provider_certification_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "provider_certification",
+        "provider_certification_number_uidx"
+      ],
+      "writes": [
+        "s|idx|public.provider_certification_number_uidx",
+        "n|idx|public.provider_certification_number_uidx",
+        "e|idx|public.provider_certification_number_uidx",
+        "n|rel|public.provider_certification_number_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.provider_certification",
+        "n|sch|public",
+        "n|col|public.provider_certification.certificate_number"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "provider_certification",
+        "provider_certification_active_provider_uidx"
+      ],
+      "writes": [
+        "s|idx|public.provider_certification_active_provider_uidx",
+        "n|idx|public.provider_certification_active_provider_uidx",
+        "e|idx|public.provider_certification_active_provider_uidx",
+        "n|rel|public.provider_certification_active_provider_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.provider_certification",
+        "n|sch|public",
+        "n|col|public.provider_certification.provider_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "provider_certification",
+        "provider_certification_claim_idx"
+      ],
+      "writes": [
+        "s|idx|public.provider_certification_claim_idx",
+        "n|idx|public.provider_certification_claim_idx",
+        "e|idx|public.provider_certification_claim_idx",
+        "n|rel|public.provider_certification_claim_idx"
+      ],
+      "reads": [
+        "n|tbl|public.provider_certification",
+        "n|sch|public",
+        "n|col|public.provider_certification.provider_claim_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_certification"
+      ],
+      "writes": [
+        "s|fk|public.provider_certification.provider_certification_provider_claim_id_provider_claim_id_fkey",
+        "n|fk|public.provider_certification.provider_certification_provider_claim_id_provider_claim_id_fkey",
+        "e|fk|public.provider_certification.provider_certification_provider_claim_id_provider_claim_id_fkey",
+        "n|con|public.provider_certification.provider_certification_provider_claim_id_provider_claim_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.provider_certification",
+        "n|sch|public",
+        "n|tbl|public.provider_claim",
+        "n|sch|public",
+        "n|col|public.provider_certification.provider_claim_id",
+        "n|col|public.provider_claim.id",
+        "e|uniqueness|public.provider_claim.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_certification"
+      ],
+      "writes": [
+        "s|fk|public.provider_certification.provider_certification_issued_by_user_id_fkey",
+        "n|fk|public.provider_certification.provider_certification_issued_by_user_id_fkey",
+        "e|fk|public.provider_certification.provider_certification_issued_by_user_id_fkey",
+        "n|con|public.provider_certification.provider_certification_issued_by_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.provider_certification",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.provider_certification.issued_by",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_certification"
+      ],
+      "writes": [
+        "s|fk|public.provider_certification.provider_certification_revoked_by_user_id_fkey",
+        "n|fk|public.provider_certification.provider_certification_revoked_by_user_id_fkey",
+        "e|fk|public.provider_certification.provider_certification_revoked_by_user_id_fkey",
+        "n|con|public.provider_certification.provider_certification_revoked_by_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.provider_certification",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.provider_certification.revoked_by",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "provider_certification",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "created_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "updated_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_claim_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "certificate_number",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "status",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'active'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "attested",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "review_note",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "issued_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "expires_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "issued_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "revoked_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "revoked_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "revoke_reason",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_certification_number_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "certificate_number",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_certification_active_provider_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": "status = 'active'",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_certification_claim_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_claim_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_certification_provider_claim_id_provider_claim_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "provider_claim_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "provider_claim",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_certification_issued_by_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "issued_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_certification_revoked_by_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "revoked_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_certification",
+        "name": "provider_certification_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

@@ -26,3 +26,11 @@ export function buildGatewayVideoLogContentUrl(logId: string): string {
 		`${getGatewayPublicBaseUrl()}/`,
 	).toString();
 }
+
+/** Server-to-server realtime origin; deployments may serve /v1/realtime separately. */
+export function getRealtimeApiBaseUrl(): string {
+	const configured = process.env.REALTIME_BACKEND_URL?.trim();
+	return configured
+		? `${configured.replace(/\/+$/, "")}/v1`
+		: getGatewayApiBaseUrl();
+}

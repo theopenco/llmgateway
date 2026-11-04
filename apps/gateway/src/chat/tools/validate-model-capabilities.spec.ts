@@ -21,7 +21,7 @@ function getModel(id: string): ModelDefinition {
 // fixture for "no provider supports vision".
 const noVisionModel = getModel("deepseek-v4-flash");
 
-// qwen3-max has alibaba (vision: true) alongside novita/embercloud
+// qwen3-max has alibaba (vision: true) alongside novita
 // (vision: false), giving us a mixed-capability fixture.
 const mixedVisionModel = getModel("qwen3-max");
 

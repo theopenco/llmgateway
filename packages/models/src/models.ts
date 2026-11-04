@@ -4,6 +4,7 @@ import { atlascloudModels } from "./models/atlascloud.js";
 import { atriaModels } from "./models/atria.js";
 import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
+import { blackForestLabsModels } from "./models/black-forest-labs.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -79,6 +80,12 @@ export const PROVIDER_API_FORMATS = [
 ] as const;
 
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
+
+/**
+ * API surfaces a single request can be sent on: the mapping formats plus
+ * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ */
+export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -288,6 +295,19 @@ export const TOOL_CHOICE_MODES = [
 
 export type ToolChoiceMode = (typeof TOOL_CHOICE_MODES)[number];
 
+/**
+ * How an OpenAI-compatible Chat Completions endpoint takes a web search
+ * request. "web_search_options" is the Chat Completions body field;
+ * "web_search_tool" is a `tools: [{type: "web_search"}]` entry (the Responses
+ * API's hosted tool), which some chat endpoints accept instead.
+ */
+export const WEB_SEARCH_FORMATS = [
+	"web_search_options",
+	"web_search_tool",
+] as const;
+
+export type WebSearchFormat = (typeof WEB_SEARCH_FORMATS)[number];
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
@@ -323,6 +343,12 @@ export interface ProviderModelMapping {
 	 * (seconds) reported by the upstream transcription response.
 	 */
 	inputAudioHourPrice?: Price;
+	/**
+	 * Price per user text input item in USD. Used by realtime speech-to-speech
+	 * models that bill session time plus a flat fee for each text
+	 * message the caller adds to the conversation (e.g. xAI Grok Voice).
+	 */
+	inputTextItemPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -412,6 +438,15 @@ export interface ProviderModelMapping {
 	 * "default_video", and "4k_video" to per-second pricing.
 	 */
 	perSecondPrice?: Record<string, Price>;
+	/**
+	 * Per-token price in USD for generated video tokens, for video models the
+	 * provider bills by output tokens (e.g. Gemini Omni). When the upstream
+	 * usage reports video output tokens, finalization bills them at this rate
+	 * instead of `perSecondPrice`, which still drives estimates and routing.
+	 * Records select `<resolution>_with_video` / `_without_video` or
+	 * `<resolution>_audio` / `_video`, with `default_` fallbacks.
+	 */
+	videoOutputPrice?: Price | Record<string, Price>;
 	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
@@ -543,6 +578,13 @@ export interface ProviderModelMapping {
 	 */
 	apiFormat?: ProviderApiFormat;
 	/**
+	 * API surface for requests carrying a `web_search` tool, when the
+	 * provider serves hosted search on a different surface than `apiFormat`
+	 * (e.g. DeepSeek: Responses API on V4 Pro, Anthropic Messages API on
+	 * Flash). Other requests keep `apiFormat`.
+	 */
+	webSearchApiFormat?: RequestApiFormat;
+	/**
 	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
 	 * (`global`, `us`, …) are real inference profiles, served by
 	 * bedrock-runtime under the region-prefixed model id. Without it every
@@ -602,6 +644,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Overrides the provider default for credential-bound reasoning payloads. */
+	encryptedReasoning?: boolean;
 	/** Responses API reasoning summary mode. Defaults to detailed. */
 	reasoningSummary?: "auto" | "detailed";
 	/**
@@ -622,8 +666,8 @@ export interface ProviderModelMapping {
 	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
 	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
 	 * its own list. The gateway forwards effort values to the provider as-is
-	 * (unsupported values fail upstream); this metadata is exposed via the
-	 * models APIs so clients can present valid options. When unset, the
+	 * and excludes mappings that declare an incompatible effort during automatic
+	 * provider selection. The models APIs expose the list for clients. When unset, the
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
@@ -697,6 +741,13 @@ export interface ProviderModelMapping {
 	 * with `tool_choice: "auto"` routes elsewhere instead.
 	 */
 	webSearchForcedOnly?: boolean;
+	/**
+	 * Wire format the upstream's Chat Completions endpoint takes for web search.
+	 * When set, searches are forwarded in this shape, `webSearchForcedOnly` is
+	 * ignored (the model elects its own searches), and a search is billed only
+	 * on evidence in the response.
+	 */
+	webSearchFormat?: WebSearchFormat;
 	/**
 	 * Price per content filter violation in USD (charged additionally when the
 	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
@@ -833,10 +884,11 @@ export interface ProviderModelMapping {
 	 */
 	rerank?: boolean;
 	/**
-	 * Whether this model uses a dedicated typed-decision API (TypeSafe System
-	 * One). When true, requests are routed to the gateway's /v1/systemone
-	 * endpoint, which answers named questions with probabilities instead of
-	 * generated text. Billed on input tokens only.
+	 * Whether this model uses a dedicated typed-decision API (OpenAI Decisions,
+	 * TypeSafe System One). When true, requests are routed to the gateway's
+	 * /v1/decisions endpoint (TypeSafe models also on the legacy /v1/systemone),
+	 * which answers typed questions with probabilities instead of generated
+	 * text. Billed on input tokens only.
 	 */
 	decisions?: boolean;
 	/**
@@ -897,6 +949,11 @@ export interface ProviderModelMapping {
 	 * Whether this provider mapping supports generating video without audio.
 	 */
 	supportsVideoWithoutAudio?: boolean;
+	/**
+	 * The output is as long as the input audio rather than the requested
+	 * `seconds`, so per-second billing uses the measured output duration.
+	 */
+	videoDurationFollowsAudio?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
@@ -929,6 +986,11 @@ export interface ModelDefinition {
 	 * Whether this model is free to use
 	 */
 	free?: boolean;
+	/**
+	 * Only organizations with enterprise access (KYC'd) may request this
+	 * model; everyone else gets a 403 and auto routing never selects it.
+	 */
+	enterpriseOnly?: boolean;
 	/**
 	 * Rate limit tier for free models (defaults to 'low' if not specified)
 	 * - low: Standard rate limits for free models
@@ -979,6 +1041,8 @@ export interface ModelDefinition {
 	 * Date when the model was released by the provider
 	 */
 	releasedAt?: Date;
+	/** Aliases whose served model version may change. */
+	aliasesAreVirtual?: boolean;
 }
 
 export const models = [
@@ -1001,6 +1065,7 @@ export const models = [
 	...atriaModels,
 	...baaiModels,
 	...baiduModels,
+	...blackForestLabsModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,

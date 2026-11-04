@@ -1,0 +1,192 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c7c953c4-9cb7-4337-994e-f7d11d076dc8",
+  "prevIds": [
+    "8affde90-117c-46b2-ac56-a5049fe756c0"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_draft_model",
+        "relist_requested_at"
+      ],
+      "writes": [
+        "s|col|public.provider_draft_model.relist_requested_at",
+        "n|col|public.provider_draft_model.relist_requested_at",
+        "e|col|public.provider_draft_model.relist_requested_at"
+      ],
+      "reads": [
+        "n|tbl|public.provider_draft_model",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_draft_model",
+        "relist_requested_by"
+      ],
+      "writes": [
+        "s|col|public.provider_draft_model.relist_requested_by",
+        "n|col|public.provider_draft_model.relist_requested_by",
+        "e|col|public.provider_draft_model.relist_requested_by"
+      ],
+      "reads": [
+        "n|tbl|public.provider_draft_model",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_draft_model",
+        "relist_reviewed_at"
+      ],
+      "writes": [
+        "s|col|public.provider_draft_model.relist_reviewed_at",
+        "n|col|public.provider_draft_model.relist_reviewed_at",
+        "e|col|public.provider_draft_model.relist_reviewed_at"
+      ],
+      "reads": [
+        "n|tbl|public.provider_draft_model",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_draft_model",
+        "relist_review_note"
+      ],
+      "writes": [
+        "s|col|public.provider_draft_model.relist_review_note",
+        "n|col|public.provider_draft_model.relist_review_note",
+        "e|col|public.provider_draft_model.relist_review_note"
+      ],
+      "reads": [
+        "n|tbl|public.provider_draft_model",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_draft_model"
+      ],
+      "writes": [
+        "s|fk|public.provider_draft_model.provider_draft_model_relist_requested_by_user_id_fkey",
+        "n|fk|public.provider_draft_model.provider_draft_model_relist_requested_by_user_id_fkey",
+        "e|fk|public.provider_draft_model.provider_draft_model_relist_requested_by_user_id_fkey",
+        "n|con|public.provider_draft_model.provider_draft_model_relist_requested_by_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.provider_draft_model",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.provider_draft_model.relist_requested_by",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_draft_model",
+        "name": "relist_requested_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_draft_model",
+        "name": "relist_requested_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_draft_model",
+        "name": "relist_reviewed_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_draft_model",
+        "name": "relist_review_note",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_draft_model",
+        "name": "provider_draft_model_relist_requested_by_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "relist_requested_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    }
+  ]
+}

@@ -1,8 +1,12 @@
 import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { logger } from "@llmgateway/logger";
+import { INTERNAL_CLASSIFIER_MODEL } from "@llmgateway/shared";
 
-import { extractErrorCause } from "./extract-error-cause.js";
+import {
+	classifyContentFilterError,
+	logContentFilterError,
+} from "./content-filter-error.js";
 import {
 	buildOpenAIContentFilterTextInput,
 	type GatewayContentFilterContext,
@@ -10,11 +14,13 @@ import {
 	type OpenAIModerationResult,
 } from "./openai-content-filter.js";
 
-import type { ModerationApiPayload } from "@llmgateway/db";
+import type {
+	ModerationApiPayload,
+	ContentFilterModerationError,
+} from "@llmgateway/db";
 import type { BaseMessage } from "@llmgateway/models";
 import type { ContentFilterInternalScope } from "@llmgateway/shared";
 
-export const INTERNAL_MODERATION_MODEL = "internal-classifier";
 const INTERNAL_CLASSIFY_PATH = "/v1/classify";
 // In-cluster and CPU-bound (a few ms per prompt), so a slow answer means the
 // service is unhealthy; fail open quickly instead of holding the request.
@@ -166,55 +172,45 @@ export function toInternalModerationResult(
 
 function logInternalError(
 	context: GatewayContentFilterContext,
+	error: ContentFilterModerationError,
 	payload: Record<string, unknown>,
-	error?: unknown,
-	level: "error" | "warn" = "error",
+	thrown?: unknown,
+	level?: "error" | "warn",
 ) {
-	const logPayload = {
-		provider: "internal",
-		mode: "internal",
-		requestId: context.requestId,
-		organizationId: context.organizationId,
-		projectId: context.projectId,
-		apiKeyId: context.apiKeyId,
-		...payload,
-		...(error instanceof Error
-			? {
-					error: error.message,
-					errorName: error.name,
-					...(extractErrorCause(error)
-						? { errorCause: extractErrorCause(error) }
-						: {}),
-				}
-			: error !== undefined
-				? { error: String(error) }
-				: {}),
-	};
-
-	if (error instanceof Error) {
-		logger.error("gateway_content_filter_error", logPayload, error);
-		return;
-	}
-
-	logger[level]("gateway_content_filter_error", logPayload);
+	logContentFilterError(
+		"internal",
+		"internal",
+		context,
+		error,
+		payload,
+		thrown,
+		level,
+	);
 }
 
+/**
+ * One classify call. Null when the shared time budget ran out: the caller
+ * logs that once for the whole check.
+ */
 async function classifyPrompt(
 	url: string,
 	prompt: string,
 	context: GatewayContentFilterContext,
 	signal: AbortSignal,
 	requestSignal: AbortSignal | undefined,
-): Promise<InternalClassifyResponse | null> {
+): Promise<
+	| { verdict: InternalClassifyResponse }
+	| { error: ContentFilterModerationError }
+	| null
+> {
 	const startTime = Date.now();
 	try {
 		const response = await fetch(url, {
 			method: "POST",
 			redirect: "error",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Request-Id": context.requestId,
-			},
+			// Prompt only: the classifier keeps no audit log, so it needs no
+			// request or organization ids.
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ prompt }),
 			signal,
 		});
@@ -229,53 +225,74 @@ async function classifyPrompt(
 		}
 
 		if (!response.ok || !json || typeof json !== "object") {
-			logInternalError(context, {
+			const error = classifyContentFilterError({
+				source: "internal",
+				inputType: "text",
+				status: response.status,
+				response: json,
+				badResponse: response.ok,
+			});
+			logInternalError(context, error, {
 				durationMs: Date.now() - startTime,
 				status: response.status,
 				statusText: response.statusText,
 				response: json,
 			});
-			return null;
+			return { error };
 		}
 
 		const verdict = json as InternalClassifyResponse;
 		// A truncated verdict describes a prefix only, so it cannot be trusted.
 		if (verdict.truncated === true) {
-			logInternalError(context, {
+			const error = classifyContentFilterError({
+				source: "internal",
+				inputType: "text",
+				status: response.status,
+				badResponse: true,
+				message: "classifier truncated the prompt",
+			});
+			logInternalError(context, error, {
 				durationMs: Date.now() - startTime,
 				status: response.status,
 				truncated: true,
 			});
-			return null;
+			return { error };
 		}
-		return verdict;
-	} catch (error) {
-		if (requestSignal?.aborted || isCancellationError(error)) {
-			throw error;
+		return { verdict };
+	} catch (thrown) {
+		if (requestSignal?.aborted || isCancellationError(thrown)) {
+			throw thrown;
 		}
 		// The budget is shared across chunks; the caller logs it once.
-		if (isTimeoutError(error)) {
+		if (isTimeoutError(thrown)) {
 			return null;
 		}
+		const error = classifyContentFilterError({
+			source: "internal",
+			inputType: "text",
+			error: thrown,
+		});
 		logInternalError(
 			context,
-			{
-				durationMs: Date.now() - startTime,
-				timeout: isTimeoutError(error),
-			},
 			error,
+			{ durationMs: Date.now() - startTime, timeout: false },
+			thrown,
 		);
-		return null;
+		return { error };
 	}
 }
 
-function emptyResult(requestCount = 0): InternalContentFilterCheckResult {
+function emptyResult(
+	requestCount = 0,
+	errors: ContentFilterModerationError[] = [],
+): InternalContentFilterCheckResult {
 	return {
 		flagged: false,
-		model: INTERNAL_MODERATION_MODEL,
+		model: INTERNAL_CLASSIFIER_MODEL,
 		upstreamRequestId: null,
 		results: [],
 		responses: [],
+		errors,
 		requestCount,
 	};
 }
@@ -313,13 +330,13 @@ export async function checkInternalContentFilter(
 		? AbortSignal.any([timeoutSignal, requestSignal])
 		: timeoutSignal;
 
-	const verdicts: Array<InternalClassifyResponse | null> = [];
+	const outcomes: Array<Awaited<ReturnType<typeof classifyPrompt>>> = [];
 	for (let i = 0; i < prompts.length; i += INTERNAL_MODERATION_CONCURRENCY) {
 		requestSignal?.throwIfAborted();
 		if (timeoutSignal.aborted) {
 			break;
 		}
-		verdicts.push(
+		outcomes.push(
 			...(await Promise.all(
 				prompts
 					.slice(i, i + INTERNAL_MODERATION_CONCURRENCY)
@@ -330,37 +347,48 @@ export async function checkInternalContentFilter(
 		);
 	}
 
-	const succeeded = verdicts.filter(
-		(verdict): verdict is InternalClassifyResponse => verdict !== null,
+	const succeeded = outcomes.flatMap((outcome) =>
+		outcome && "verdict" in outcome ? [outcome.verdict] : [],
+	);
+	const errors = outcomes.flatMap((outcome) =>
+		outcome && "error" in outcome ? [outcome.error] : [],
 	);
 	if (timeoutSignal.aborted && succeeded.length < prompts.length) {
 		// Newest chunks are screened first, so a partial result still covers
 		// the turn being sent; only a check with no verdict at all is an error.
+		const timeoutError = classifyContentFilterError({
+			source: "internal",
+			inputType: "text",
+			timeout: true,
+		});
+		errors.push(timeoutError);
 		logInternalError(
 			context,
+			timeoutError,
 			{
 				durationMs: Date.now() - startTime,
 				timeout: true,
 				scope,
 				requestCount: prompts.length,
 				failedCount: prompts.length - succeeded.length,
-				skippedCount: prompts.length - verdicts.length,
+				skippedCount: prompts.length - outcomes.length,
 			},
 			undefined,
 			succeeded.length > 0 ? "warn" : "error",
 		);
 	}
 	if (succeeded.length === 0) {
-		return emptyResult(verdicts.length);
+		return emptyResult(outcomes.length, errors);
 	}
 
 	const results = succeeded.map(toInternalModerationResult);
 	const flagged = results.some((result) => result.flagged === true);
-	// The raw verdicts (tags, score, reasons) ride along on the stored
-	// response so reviewers see what fired, not just the block decision.
+	// The raw verdicts (tags, score, reasons, fingerprint) ride along on the
+	// stored response so reviewers see what fired, not just the block
+	// decision; the admin classifier export reads them from there.
 	const responses: ModerationApiPayload[] = [
 		{
-			model: INTERNAL_MODERATION_MODEL,
+			model: INTERNAL_CLASSIFIER_MODEL,
 			results: results.map((result, index) => ({
 				...result,
 				...succeeded[index],
@@ -377,7 +405,7 @@ export async function checkInternalContentFilter(
 		apiKeyId: context.apiKeyId,
 		durationMs: Date.now() - startTime,
 		flagged,
-		model: INTERNAL_MODERATION_MODEL,
+		model: INTERNAL_CLASSIFIER_MODEL,
 		scope,
 		requestCount: prompts.length,
 		failedCount: prompts.length - succeeded.length,
@@ -386,11 +414,12 @@ export async function checkInternalContentFilter(
 
 	return {
 		flagged,
-		model: INTERNAL_MODERATION_MODEL,
+		model: INTERNAL_CLASSIFIER_MODEL,
 		upstreamRequestId: null,
 		results,
 		responses,
-		requestCount: verdicts.length,
+		errors,
+		requestCount: outcomes.length,
 		...(succeeded.length < prompts.length
 			? { partialModerationFailed: true }
 			: {}),

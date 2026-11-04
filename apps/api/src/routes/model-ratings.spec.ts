@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
+import { resetLocalPublicResponseCache } from "@/lib/public-response-cache.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { redisClient } from "@llmgateway/cache";
 import { db, tables } from "@llmgateway/db";
 
 const ORG_ID = "test-org-ratings";
@@ -42,6 +44,8 @@ describe("model-ratings", () => {
 	let token: string;
 
 	beforeEach(async () => {
+		await redisClient.flushdb();
+		resetLocalPublicResponseCache();
 		token = await createTestUser();
 		await seedOrgAndProject();
 	});
@@ -110,6 +114,37 @@ describe("model-ratings", () => {
 			where: { userId: { eq: "test-user-id" } },
 		});
 		expect(rows).toHaveLength(1);
+	});
+
+	test("public ratings reflect a write immediately and stay cached otherwise", async () => {
+		await seedModelUsage(100);
+		const read = async () =>
+			await (
+				await app.request(`/public/model-ratings?modelId=${MODEL_ID}`)
+			).json();
+
+		expect((await read()).ratingCount).toBe(0);
+
+		const post = await app.request("/model-ratings", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ modelId: MODEL_ID, rating: 5, comment: "Great." }),
+		});
+		expect(post.status).toBe(200);
+		expect((await read()).ratingCount).toBe(1);
+
+		// A write that bypasses the API is not visible until the entry refreshes.
+		await db.delete(tables.modelRating);
+		expect((await read()).ratingCount).toBe(1);
+
+		const unknown = await app.request(
+			"/public/model-ratings?modelId=not-a-catalogue-model",
+		);
+		expect(await unknown.json()).toEqual({
+			ratingCount: 0,
+			averageRating: null,
+			reviews: [],
+		});
 	});
 
 	test("POST / counts usage across the provider/model log format", async () => {

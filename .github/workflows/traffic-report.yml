@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   report:
@@ -37,7 +38,7 @@ jobs:
         with:
           version: ${{ env.pnpm_version }}
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ env.nodejs_version }}
           cache: pnpm
@@ -67,3 +68,11 @@ jobs:
           POSTHOG_QUERY_HOST: ${{ secrets.POSTHOG_QUERY_HOST }}
           DISCORD_TRAFFIC_NOTIFICATION_URL: ${{ secrets.DISCORD_TRAFFIC_NOTIFICATION_URL }}
         run: pnpm --filter @llmgateway/scripts traffic-report --period=${{ steps.period.outputs.period }}
+
+      # Independent of PostHog; still runs when the traffic report fails.
+      - name: Send review report (human review cost, revert rate)
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCORD_TRAFFIC_NOTIFICATION_URL: ${{ secrets.DISCORD_TRAFFIC_NOTIFICATION_URL }}
+        run: pnpm --filter @llmgateway/scripts review-report --period=${{ steps.period.outputs.period }}

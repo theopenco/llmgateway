@@ -14,7 +14,13 @@ export interface EnterpriseFeatureDefinition {
 		| "lock"
 		| "paintbrush"
 		| "chart"
-		| "users";
+		| "users"
+		| "workflow"
+		| "eye-off"
+		| "network"
+		| "radio"
+		| "key-round"
+		| "book-open";
 	accent: "indigo" | "amber" | "emerald" | "rose" | "sky" | "violet";
 	keywords: string[];
 	benefits: Array<{ title: string; description: string }>;
@@ -237,6 +243,107 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 		},
 	},
 	{
+		slug: "organization-teams",
+		title: "Teams & Directory Sync",
+		subtitle: "One policy per team, synced from your directory",
+		tagline:
+			"Configure the team once. Every developer in it inherits the policy.",
+		description:
+			"Group developers under a shared project ceiling, per-developer budgets, and IAM rules. Microsoft Entra groups map onto teams over SCIM.",
+		longDescription:
+			"Setting access developer by developer stops working past a handful of people, and it drifts the moment someone changes teams. Organization Teams put developers under one shared policy: a project ceiling, per-developer budget ceilings for active keys, lifetime spend, and recurring spend, and IAM rules for models, providers, pricing, and IP ranges. Effective project access is the intersection of the team's list and each developer's own grants, and member and API-key rules run after the team's, so personal settings can only narrow what the team allows. Mark one team as the default and developers who join by invite, direct add, SSO domain auto-join, or SCIM provisioning land in it automatically. With Microsoft Entra ID, map an Entra group to a team and membership follows the directory: add a user to the group and they join the team, remove them and the synced assignment goes too. Pairs with [[sso-saml]] and [[member-budgets]].",
+		iconName: "network",
+		accent: "sky",
+		keywords: [
+			"LLM team management",
+			"SCIM group provisioning",
+			"Microsoft Entra SCIM",
+			"AI developer access policy",
+			"LLM IAM policy",
+		],
+		benefits: [
+			{
+				title: "Shared policy, not per-person setup",
+				description:
+					"Set the project ceiling, per-developer budgets, and IAM rules once on the team. Every developer in it inherits them.",
+			},
+			{
+				title: "Membership from your directory",
+				description:
+					"Map a Microsoft Entra group to a team over SCIM. Joining or leaving the group moves the developer, with no dashboard work.",
+			},
+			{
+				title: "A default team for new joiners",
+				description:
+					"Developers who join by invite, direct add, SSO domain auto-join, or SCIM land in the default team unless a group mapping places them elsewhere.",
+			},
+			{
+				title: "Personal rules only narrow",
+				description:
+					"Member and API-key IAM rules run after the team's and can only restrict further, so a personal grant never widens the team's ceiling.",
+			},
+		],
+		useCases: [
+			{
+				title: "Engineering groups at scale",
+				description:
+					"Give each group its own projects, model allow-list, and per-developer spend ceiling.",
+			},
+			{
+				title: "Contractor access",
+				description:
+					"Put contractors in a team scoped to one project and a tight budget, managed from an Entra group your IT team already maintains.",
+			},
+			{
+				title: "Zero-touch onboarding",
+				description:
+					"New hires provisioned over SCIM arrive in the right team with the right limits on day one.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Create a team",
+				description:
+					"Under Teams, create a team and set its project ceiling, per-developer budget ceilings, and IAM policy.",
+			},
+			{
+				step: "02",
+				title: "Assign developers",
+				description:
+					"Assign developers by hand, or mark the team as the default so new joiners are placed automatically.",
+			},
+			{
+				step: "03",
+				title: "Sync from Entra",
+				description:
+					"In SSO settings, map an Entra group name to the team. SCIM membership updates assign and remove developers for you.",
+			},
+		],
+		faq: [
+			{
+				question: "Who can belong to a team?",
+				answer:
+					"Developers. Each developer belongs to at most one organization team, and promoting a developer to project admin clears their assignment.",
+			},
+			{
+				question: "What happens if I move a synced developer by hand?",
+				answer:
+					"An explicit assignment to another team is preserved. Unassigning a synced developer only lasts until the next SCIM update.",
+			},
+			{
+				question: "Which identity providers sync groups to teams?",
+				answer:
+					"Microsoft Entra ID group provisioning maps onto teams. For other identity providers, see [[sso-saml]].",
+			},
+			{
+				question: "What if Enterprise access ends?",
+				answer:
+					"Existing team policy stays enforced and can still be reviewed. Developers can be unassigned and empty teams deleted, but new teams and policy changes require Enterprise.",
+			},
+		],
+	},
+	{
 		slug: "audit-logs",
 		title: "Enterprise Audit Logs",
 		subtitle: "Every action, attributed and immutable",
@@ -328,6 +435,101 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 				question: "Do audit logs include LLM request bodies?",
 				answer:
 					"Audit logs capture privileged-action metadata, not user prompts. Prompt/response logging is a separate setting under Activity Logs, which you control independently.",
+			},
+		],
+	},
+	{
+		slug: "data-streams",
+		title: "Data Streams to Your SIEM",
+		subtitle: "Audit and request logs, delivered to your own endpoint",
+		tagline: "Your SIEM and warehouse get every event, signed and in order.",
+		description:
+			"Forward audit logs to your SIEM and export request log metadata to your own HTTPS endpoint in signed, ordered batches, with replay of up to 30 days.",
+		longDescription:
+			"Security teams want admin activity in the SIEM they already watch, and data teams want request costs in the warehouse they already query. Data Streams deliver both as signed HTTPS requests to an endpoint you run. SIEM forwarding sends every [[audit-logs]] event; log export sends one metadata event per gateway request with model, provider, tokens, cost, latency, and finish reason. Events never include prompts, completions, or tool payloads, and there is no option to add them. Batches of up to 500 events arrive in order, usually within 30 seconds, each signed with HMAC-SHA256. A stream advances its cursor only when your endpoint accepts a batch, so delivery is at least once, and replay re-sends any window of up to 30 days without moving the live cursor.",
+		iconName: "radio",
+		accent: "rose",
+		keywords: [
+			"LLM SIEM integration",
+			"AI audit log export",
+			"LLM log streaming",
+			"AI gateway log export",
+			"LLM cost data export",
+		],
+		benefits: [
+			{
+				title: "Two sources, one mechanism",
+				description:
+					"SIEM forwarding for audit logs and log export for request metadata, each a stream with its own endpoint.",
+			},
+			{
+				title: "Metadata only, always",
+				description:
+					"Events carry ids, timestamps, models, tokens, cost, and latency. Prompts, completions, and tool calls are never exported.",
+			},
+			{
+				title: "Signed and verifiable",
+				description:
+					"Every batch carries an X-LLMGateway-Signature HMAC-SHA256 header, plus an optional bearer token for your endpoint.",
+			},
+			{
+				title: "At-least-once, with replay",
+				description:
+					"Failed batches retry with backoff from 1 minute to 1 hour, and replay backfills up to 30 days. Deduplicate on the event id.",
+			},
+		],
+		useCases: [
+			{
+				title: "SIEM correlation",
+				description:
+					"Line up key rotations, permission changes, and policy edits with the rest of your security telemetry.",
+			},
+			{
+				title: "Chargeback and FinOps",
+				description:
+					"Land per-request cost and token data in your warehouse and bill usage back to teams.",
+			},
+			{
+				title: "Incident forensics",
+				description:
+					"Replay a 30-day window into a fresh endpoint when an investigation needs the full trail.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Turn streams on",
+				description:
+					"Data streams are enabled per organization on request. Request log export is a separate switch.",
+			},
+			{
+				step: "02",
+				title: "Add your endpoint",
+				description:
+					"On the Data Streams page, click New stream and enter your HTTPS endpoint and a signing secret, then send a test event to check the response.",
+			},
+			{
+				step: "03",
+				title: "Accept batches",
+				description:
+					"Respond with any 2xx to accept a batch. If your endpoint keeps failing, the stream pauses, owners and admins are notified, and it resumes from where it stopped.",
+			},
+		],
+		faq: [
+			{
+				question: "Do streams ever include prompts or completions?",
+				answer:
+					"No. Events only carry metadata, and there is no option to include payloads.",
+			},
+			{
+				question: "What happens when my endpoint is down?",
+				answer:
+					"Deliveries retry with backoff from 1 minute up to 1 hour. A stream pauses after 20 failed deliveries in a row, or after 3 deliveries rejected with a 4xx since the last accepted one. Resume it once the endpoint is fixed and delivery continues from where it stopped.",
+			},
+			{
+				question: "Are changes to streams audited?",
+				answer:
+					"Yes. Every stream change is recorded in [[audit-logs]] as a data_stream.* action.",
 			},
 		],
 	},
@@ -436,6 +638,112 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 		},
 	},
 	{
+		slug: "dynamic-routes",
+		title: "Dynamic Routes",
+		subtitle: "Routing logic that lives in the gateway, not your code",
+		tagline: "Change which model serves a request without shipping a deploy.",
+		description:
+			"Named, versioned routing flows with conditions, classifier branches, A/B splits, and model targets. Call one with dynamic/<name> and roll back instantly.",
+		longDescription:
+			"Hardcoding a model turns every routing decision into a code change: a different model for paid users, a cheaper one for simple tasks, a 10% canary for a new release. Dynamic Routes move that logic into the gateway. A route is a decision graph of conditions on request headers, body fields, or gateway metadata, classifier branches on difficulty, task, or output type, percentage splits, and model targets, and your application calls it by setting the model to dynamic/<name>. Build it in the visual drag-and-drop editor or as JSON. Edits go to a draft; publishing snapshots an immutable, numbered version, and rolling back re-points the route at any earlier version instantly. Once a route resolves a model, the request goes through the same smart routing as any other: provider scoring, sticky sessions, and cross-provider fallback all still apply. For project-wide defaults, see [[routing-overrides]].",
+		iconName: "workflow",
+		accent: "violet",
+		keywords: [
+			"LLM dynamic routing",
+			"AI model A/B testing",
+			"LLM routing rules",
+			"conditional LLM routing",
+			"model canary release",
+		],
+		benefits: [
+			{
+				title: "Re-route without a deploy",
+				description:
+					"Swap a model, add a branch, or shift a split in the dashboard. Your application keeps calling the same dynamic/<name>.",
+			},
+			{
+				title: "Conditions and classifiers",
+				description:
+					"Branch on a header like x-user-tier, a body field like max_tokens, org, project, or key metadata, or a classifier verdict on difficulty, task, or output type.",
+			},
+			{
+				title: "A/B splits and canaries",
+				description:
+					"Percentage nodes divide traffic between targets, so a new model can take 10% before it takes everything.",
+			},
+			{
+				title: "Versioned, with instant rollback",
+				description:
+					"Publishing creates an immutable version. Rolling back re-points the route, with no data migration and no redeploy.",
+			},
+		],
+		useCases: [
+			{
+				title: "Tiered quality",
+				description:
+					"Send paid users to a frontier model and free users to a fast, cheaper one, keyed on a request header.",
+			},
+			{
+				title: "Cost-aware routing by task",
+				description:
+					"Let the classifier send simple extraction to a small model and hard analysis to a large one.",
+			},
+			{
+				title: "Safe model migrations",
+				description:
+					"Canary a new model on a slice of traffic, check the route, version, and node path of each request in the activity log, then publish the full switch.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Build the graph",
+				description:
+					"Under Project Settings → Dynamic Routes, combine conditional, classifier, percentage, model, and end nodes in the visual editor or as JSON.",
+			},
+			{
+				step: "02",
+				title: "Publish a version",
+				description:
+					"Publishing snapshots the draft as an immutable, numbered version. A route serves traffic only when it is enabled and published.",
+			},
+			{
+				step: "03",
+				title: "Call it by name",
+				description:
+					"Set the model to dynamic/<name>. Each request records the route, version, and node path in its routing metadata.",
+			},
+		],
+		faq: [
+			{
+				question: "Which endpoints resolve dynamic routes?",
+				answer:
+					"/v1/chat/completions and the endpoints that proxy through it: /v1/responses, /v1/messages, and the AI SDK gateway endpoints. Embeddings, images, audio, video, rerank, OCR, and moderations do not.",
+			},
+			{
+				question: "How does a route finish?",
+				answer:
+					"Evaluation starts at the entry node and follows branches until it reaches a model node, which routes the request, or an end node, which rejects it with a 400.",
+			},
+			{
+				question: "Does provider fallback still apply?",
+				answer:
+					"Yes. Once a route resolves a model, provider scoring, sticky sessions, and automatic cross-provider fallback apply as usual. Published routes are also cached with a stale fallback, so recently used routes keep resolving if the database is briefly unreachable.",
+			},
+		],
+		codeExample: {
+			title: "Call a dynamic route",
+			language: "bash",
+			code: `curl https://api.llmgateway.io/v1/chat/completions \\
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \\
+  -H "x-user-tier: paid" \\
+  -d '{
+    "model": "dynamic/support",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'`,
+		},
+	},
+	{
 		slug: "guardrails",
 		title: "Enterprise Guardrails",
 		subtitle:
@@ -523,6 +831,212 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 				question: "Can guardrails be bypassed?",
 				answer:
 					"No — they run server-side at the gateway, not in your SDK. There's no client-side toggle. Even an org owner enabling pass-through mode creates an audit-log entry.",
+			},
+		],
+	},
+	{
+		slug: "compliance",
+		title: "Provider Compliance Policies",
+		subtitle: "Only route to providers you're allowed to use",
+		tagline:
+			"Block non-compliant providers before any data leaves the gateway.",
+		description:
+			"Require SOC 2, ISO 27001, GDPR, zero data retention, no prompt training, or approved headquarters countries, and the gateway refuses every provider that falls short.",
+		longDescription:
+			"Provider Compliance Policies turn a procurement requirement into an enforced guardrail. Pick the certifications and data policies you require, such as SOC 2, ISO 27001, GDPR, [[zero-data-retention]], or no training on prompts, and optionally restrict routing to providers headquartered in the countries you approve. The gateway evaluates every provider against the policy on each request. Non-compliant providers are removed from automatic routing, and a request pinned to one is rejected with a 403 before any prompt is sent upstream. Every requirement is fail-closed: a provider qualifies only if its published data policy explicitly satisfies it, so unknown attributes never slip through. The settings page previews which providers are allowed and blocked, API keys can add stricter policies of their own, and every block is recorded as a security event. Compliance alerts tell you when a provider that meets your policy starts serving a model you are waiting for, or when a provider stops meeting it.",
+		iconName: "badge-check",
+		accent: "indigo",
+		keywords: [
+			"SOC 2 LLM provider",
+			"ISO 27001 AI gateway",
+			"GDPR LLM compliance",
+			"no training on prompts",
+			"AI vendor compliance policy",
+		],
+		benefits: [
+			{
+				title: "Certification-based routing",
+				description:
+					"Require SOC 2 of any type or Type 2 only, ISO 27001, either of the two, and GDPR. Providers without the certifications you mandate are never used.",
+			},
+			{
+				title: "Data-handling guarantees",
+				description:
+					"Require providers that do not train on prompts, or enforce zero data retention end to end, on every request rather than in a contract appendix.",
+			},
+			{
+				title: "Headquarters filter",
+				description:
+					"Route only to providers based in the countries you select. A provider with an unknown headquarters is treated as non-compliant.",
+			},
+			{
+				title: "Fail-closed by default",
+				description:
+					"A provider qualifies only if its data policy explicitly meets each requirement. Unknown attributes are treated as non-compliant.",
+			},
+			{
+				title: "Compliance alerts",
+				description:
+					"Watch up to 100 blocked models and get notified in-app, by email, or in Slack when a compliant provider serves one, or when a provider stops meeting your policy.",
+			},
+			{
+				title: "Blocked, with a paper trail",
+				description:
+					"Non-compliant requests return a clear 403 and are recorded as security events so admins can see what was rejected and why.",
+			},
+		],
+		useCases: [
+			{
+				title: "Regulated industries",
+				description:
+					"Insurance, healthcare, and finance teams that may only use providers holding specific certifications.",
+			},
+			{
+				title: "Data-residency and privacy mandates",
+				description:
+					"Keep prompts away from providers that train on them, retain them, or operate outside your approved countries.",
+			},
+			{
+				title: "Vendor allow-lists without manual policing",
+				description:
+					"Encode your approved-vendor bar once; the gateway enforces it on every request across all projects.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Enable a policy",
+				description:
+					"Under Settings → Compliance, turn on the policy, toggle the requirements you need, and pick allowed headquarters countries.",
+			},
+			{
+				step: "02",
+				title: "Preview the impact",
+				description:
+					"The Provider Impact preview shows which providers are allowed and blocked, and why each blocked one fails.",
+			},
+			{
+				step: "03",
+				title: "Enforced on every request",
+				description:
+					"The gateway filters providers per request, blocks anything non-compliant with a 403, and logs a security event.",
+			},
+		],
+		faq: [
+			{
+				question: "What happens to a request that can't meet the policy?",
+				answer:
+					"It's blocked with a 403 explaining the policy before any data is sent upstream, and recorded as a security event. This applies to both automatic routing and pinned providers.",
+			},
+			{
+				question: "How is provider compliance determined?",
+				answer:
+					"Each provider carries published data-policy metadata: SOC 2, ISO 27001, GDPR, prompt training, prompt logging and retention, and headquarters country. A provider qualifies only if that metadata explicitly satisfies every requirement you enable; unknown attributes fail closed.",
+			},
+			{
+				question: "Can one API key be stricter than the organization?",
+				answer:
+					"Yes. An API key's Compliance action adds its own requirements, headquarters filter, and provider or model lists. The organization policy stays a mandatory baseline that a key can only tighten.",
+			},
+			{
+				question: "Who can manage the policy?",
+				answer:
+					"Organization owners and admins on the Enterprise plan. See also [[audit-logs]] and [[guardrails]].",
+			},
+		],
+	},
+	{
+		slug: "zero-data-retention",
+		title: "Zero Data Retention",
+		subtitle: "Prompts that are never stored, cached, or kept upstream",
+		tagline: "One policy closes every place a prompt could persist.",
+		description:
+			"Enforce zero data retention across provider routing, gateway storage, response caches, and the Responses API, for the whole organization or a single API key.",
+		longDescription:
+			"A no-retention promise is easy to make and hard to keep, because a prompt can persist in more places than the provider: request logs, response caches, provider prompt caches, and stored Responses API state. The Zero data retention (ZDR) policy closes all of them at once. Requests route only to providers that do not log prompts and declare a zero-day retention period, and every check fails closed. LLM Gateway keeps metadata only, bypasses its response cache, strips provider prompt-cache markers, and rejects Responses API requests unless they set store: false. Settings that would weaken the policy, such as Retain All Data or project response caching, stay locked until ZDR is turned off. Apply it to the whole organization, or to a single API key when only one workload needs it. ZDR is part of [[compliance]] and composes with every other requirement.",
+		iconName: "eye-off",
+		accent: "emerald",
+		keywords: [
+			"zero data retention LLM",
+			"ZDR AI gateway",
+			"LLM prompt privacy",
+			"no prompt logging LLM",
+			"enterprise LLM data privacy",
+		],
+		benefits: [
+			{
+				title: "Only qualifying providers",
+				description:
+					"Requests reach only providers that do not log prompts and declare a zero-day retention period. An unknown retention policy never qualifies.",
+			},
+			{
+				title: "Nothing stored at the gateway",
+				description:
+					"Logs keep metadata such as model, tokens, cost, and latency. Prompts, completions, and tool payloads are never written.",
+			},
+			{
+				title: "Caches closed too",
+				description:
+					"The gateway response cache is bypassed and provider prompt-cache markers are stripped, so no copy of the prompt is kept for reuse.",
+			},
+			{
+				title: "Hard to weaken by accident",
+				description:
+					"While ZDR is on, Retain All Data and project response caching cannot be enabled. Turning them back on means disabling ZDR first.",
+			},
+		],
+		useCases: [
+			{
+				title: "Regulated data",
+				description:
+					"Healthcare, legal, and financial workloads where a stored prompt would be another copy of customer data to account for.",
+			},
+			{
+				title: "Contractual no-retention clauses",
+				description:
+					"Back a customer's no-retention requirement with an enforced policy instead of a promise.",
+			},
+			{
+				title: "One sensitive workload",
+				description:
+					"Set ZDR on a single API key: its requests are metadata-only and uncached, while other keys and organization settings stay as they are.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Clear the prerequisites",
+				description:
+					"For organization-wide ZDR, set data retention to Metadata Only and turn off response caching in every project.",
+			},
+			{
+				step: "02",
+				title: "Enable the policy",
+				description:
+					"Turn on Zero data retention (ZDR) under Settings → Compliance, or on one API key from its Compliance action.",
+			},
+			{
+				step: "03",
+				title: "Enforced on every request",
+				description:
+					"Non-qualifying providers are skipped, payloads are not stored, caches are bypassed, and a request with no compliant provider is rejected with a 403 before it leaves the gateway.",
+			},
+		],
+		faq: [
+			{
+				question: "What changes for the Responses API?",
+				answer:
+					"While ZDR is active, Responses API requests must set store: false, and the gateway does not retain compaction state.",
+			},
+			{
+				question: "Does anything stop working under ZDR?",
+				answer:
+					"Asynchronous video generation is unavailable, because video jobs need temporary output storage. Response caching and Retain All Data stay unavailable until ZDR is disabled.",
+			},
+			{
+				question: "How is key-level ZDR different?",
+				answer:
+					"It forces metadata-only logging and bypasses caching only for requests through that key, without changing organization retention or other keys, and it does not require turning off caching in every project first.",
 			},
 		],
 	},
@@ -708,6 +1222,209 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 		],
 	},
 	{
+		slug: "master-keys",
+		title: "Master Keys & Provisioning API",
+		subtitle: "Provision projects and keys from your own backend",
+		tagline: "Onboard a tenant with an API call, not a dashboard session.",
+		description:
+			"Org-scoped bearer tokens that create projects, gateway API keys, IAM rules, and custom providers from your backend, and report cost per member and model.",
+		longDescription:
+			"Multi-tenant platforms and internal developer portals need to create projects and API keys as part of their own onboarding, not by asking someone to click through the dashboard. Master keys are organization-scoped bearer tokens built for that. From your backend, create and update projects, issue gateway API keys with lifetime and recurring spend limits, attach IAM rules to keys and organization members, and register custom providers and models. The same tokens expose usage and cost reporting, so per-member and per-model spend flows into your own dashboards, warehouse, or chargeback process. Master keys are stored as HMAC-SHA256 hashes, shown in plain text only once, scoped to a single organization, and every create, delete, and status change lands in [[audit-logs]].",
+		iconName: "key-round",
+		accent: "amber",
+		keywords: [
+			"LLM API key provisioning",
+			"multi-tenant LLM API keys",
+			"programmatic API key management",
+			"LLM gateway admin API",
+			"AI chargeback reporting",
+		],
+		benefits: [
+			{
+				title: "Provisioning as code",
+				description:
+					"Create projects, issue gateway API keys, and set IAM rules from the systems that already onboard your tenants.",
+			},
+			{
+				title: "Spend limits on every key",
+				description:
+					"Give keys a lifetime cap or a recurring hourly, daily, weekly, or monthly window, and read usage back against it.",
+			},
+			{
+				title: "Cost reporting built in",
+				description:
+					"Pull per-member and per-model usage and cost for chargeback without exporting from the dashboard.",
+			},
+			{
+				title: "Revocable and audited",
+				description:
+					"Hashed at rest, scoped to one organization, revoked the moment you deactivate them, and recorded in the audit log.",
+			},
+		],
+		useCases: [
+			{
+				title: "Multi-tenant SaaS",
+				description:
+					"Create a project and key for every customer at signup, with a spend cap that matches their plan.",
+			},
+			{
+				title: "Internal developer portals",
+				description:
+					"Let engineers request a key from your own portal, with IAM rules applied automatically.",
+			},
+			{
+				title: "Finance chargeback",
+				description:
+					"Pull monthly cost per member and model into the systems that bill teams.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Create a master key",
+				description:
+					"Under Organization → Master Keys, create a key and copy the token. It is shown once.",
+			},
+			{
+				step: "02",
+				title: "Call the API",
+				description:
+					"Send it as Authorization: Bearer llmgmk_... to the /v1/master/* endpoints.",
+			},
+			{
+				step: "03",
+				title: "Rotate or revoke",
+				description:
+					"Deactivate or delete a key to cut off programmatic access immediately.",
+			},
+		],
+		faq: [
+			{
+				question: "Does programmatic creation bypass limits?",
+				answer:
+					"No. Project and API-key creation enforces the same per-organization and per-project limits as the dashboard.",
+			},
+			{
+				question: "Can a master key reach another organization?",
+				answer:
+					"No. Each master key is scoped to a single organization and cannot access resources in any other.",
+			},
+			{
+				question: "How many master keys can an organization have?",
+				answer:
+					"Up to 10, counting active and inactive keys. Only deleting a key frees a slot.",
+			},
+		],
+		codeExample: {
+			title: "List projects with a master key",
+			language: "bash",
+			code: `curl https://internal.llmgateway.io/v1/master/projects \\
+  -H "Authorization: Bearer $MASTER_KEY"`,
+		},
+	},
+	{
+		slug: "organization-skills",
+		title: "Organization Skills",
+		subtitle: "Your team's standards, in every coding agent",
+		tagline: "Publish a skill once. Every developer's agent can install it.",
+		description:
+			"Publish shared agent skills once and let developers install them into Claude Code, Codex, Cursor, OpenCode, and other agents with one CLI command.",
+		longDescription:
+			"Every team has conventions an agent should follow, from how to review code to which internal libraries to use, and copying them between repositories drifts fast. Organization Skills give them one home. Owners and admins publish skills under Organization → Skills by importing a SKILL.md, importing a folder with references and scripts, or writing one in the dashboard. Developers discover and install them with the LLM Gateway CLI, which writes each skill where their agent looks: Claude Code, Codex, OpenCode, Cursor, and others. Disabling a skill removes it from discovery, and every publish and management action lands in [[audit-logs]] without storing the skill content. Developers can sign in to the CLI through the browser, including your organization's SSO.",
+		iconName: "book-open",
+		accent: "indigo",
+		keywords: [
+			"agent skills for teams",
+			"Claude Code skills",
+			"shared SKILL.md",
+			"coding agent instructions",
+			"enterprise AI coding standards",
+		],
+		benefits: [
+			{
+				title: "One library for every agent",
+				description:
+					"The CLI installs skills for Claude Code, Codex, OpenCode, Cursor, Qwen, Pi, or the shared .agents directory.",
+			},
+			{
+				title: "Folders, not just prompts",
+				description:
+					"A skill can bundle references, scripts, and assets: up to 100 supporting files and 1 MB per skill.",
+			},
+			{
+				title: "Access follows the organization",
+				description:
+					"Downloads use a project API key from an active member, so removed access stops new downloads with a 403.",
+			},
+			{
+				title: "Managed by admins, audited",
+				description:
+					"Owners and admins publish, edit, disable, and delete. Every action is in the audit log; the content itself is not.",
+			},
+		],
+		useCases: [
+			{
+				title: "Code review standards",
+				description:
+					"Publish your review checklist once and have every agent apply it.",
+			},
+			{
+				title: "Internal platform knowledge",
+				description:
+					"Ship instructions for your internal SDKs and deploy tooling together with the scripts they need.",
+			},
+			{
+				title: "Day-one onboarding",
+				description:
+					"New developers install the whole library with one command.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Publish",
+				description:
+					"Under Organization → Skills, import a SKILL.md, import a folder, or write a custom skill. New skills are enabled immediately.",
+			},
+			{
+				step: "02",
+				title: "Discover",
+				description:
+					"Developers run npx @llmgateway/cli skills list to see what the organization publishes.",
+			},
+			{
+				step: "03",
+				title: "Install",
+				description:
+					"skills add <name> --agent claude, or codex, cursor, and others, writes the skill where that agent reads it.",
+			},
+		],
+		faq: [
+			{
+				question: "What format do skills use?",
+				answer:
+					"A folder with SKILL.md at its root. Its YAML header needs a unique lowercase, hyphenated name of up to 64 characters and a description of up to 1,024 characters.",
+			},
+			{
+				question: "What happens when a skill is disabled?",
+				answer:
+					"It disappears from CLI discovery and can no longer be downloaded. Copies already on a developer's machine are not removed.",
+			},
+			{
+				question: "How are downloads authorized?",
+				answer:
+					"With a project API key issued to an active member who has access to that project. Expired or revoked keys return 401, and missing project or Enterprise access returns 403.",
+			},
+		],
+		codeExample: {
+			title: "Install organization skills",
+			language: "bash",
+			code: `npx @llmgateway/cli skills list
+npx @llmgateway/cli skills add code-review --agent claude
+npx @llmgateway/cli skills add --all --agent codex`,
+		},
+	},
+	{
 		slug: "white-label",
 		title: "White-Label Chat & Playground",
 		subtitle: "Ship the LLM Gateway playground as your own product",
@@ -793,102 +1510,6 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 				question: "Does white-label work with our SSO?",
 				answer:
 					"Yes. The white-labeled deployment uses your [[sso-saml]] configuration so users authenticate against your IdP, not a separate LLM Gateway account.",
-			},
-		],
-	},
-	{
-		slug: "compliance",
-		title: "Provider Compliance Policies",
-		subtitle: "Only route to providers you're allowed to use",
-		tagline:
-			"Block non-compliant providers before any data leaves the gateway.",
-		description:
-			"Define the certifications and data policies your providers must meet — SOC 2, ISO 27001, GDPR, no prompt training, no prompt logging — and the gateway refuses to route to anything that doesn't qualify.",
-		longDescription:
-			"Provider Compliance Policies turn a procurement requirement into an enforced guardrail. Pick the attributes you require and the gateway evaluates every provider against your policy on each request. Non-compliant providers are removed from automatic routing, and a request pinned to one (e.g. deepseek/deepseek-v3.2) is rejected with a 403 — before any prompt is sent upstream. Every requirement is fail-closed: a provider qualifies only if its published data policy explicitly satisfies it, so unknown attributes never slip through. The settings page previews exactly which providers are allowed and blocked under the current policy, and every block is recorded as a security event for review.",
-		iconName: "badge-check",
-		accent: "indigo",
-		keywords: [
-			"SOC 2 LLM provider",
-			"ISO 27001 AI gateway",
-			"GDPR LLM compliance",
-			"no training on prompts",
-			"AI vendor compliance policy",
-		],
-		benefits: [
-			{
-				title: "Certification-based routing",
-				description:
-					"Require SOC 2, ISO 27001 (or either), and GDPR. Providers without the certifications you mandate are never used.",
-			},
-			{
-				title: "Data-handling guarantees",
-				description:
-					"Require providers that don't train on prompts and don't log them — enforced on every request, not just documented.",
-			},
-			{
-				title: "Fail-closed by default",
-				description:
-					"A provider qualifies only if its data policy explicitly meets each requirement. Unknown attributes are treated as non-compliant.",
-			},
-			{
-				title: "Blocked, with a paper trail",
-				description:
-					"Non-compliant requests return a clear 403 and are recorded as security events so admins can see what was rejected and why.",
-			},
-		],
-		useCases: [
-			{
-				title: "Regulated industries",
-				description:
-					"Insurance, healthcare, and finance teams that may only use providers holding specific certifications.",
-			},
-			{
-				title: "Data-residency and privacy mandates",
-				description:
-					"Guarantee prompts never reach a provider that trains on or logs them.",
-			},
-			{
-				title: "Vendor allow-lists without manual policing",
-				description:
-					"Encode your approved-vendor bar once; the gateway enforces it on every request across all projects.",
-			},
-		],
-		howItWorks: [
-			{
-				step: "01",
-				title: "Enable a policy",
-				description:
-					"Under Settings → Compliance, turn on the policy and toggle the certifications and data policies you require.",
-			},
-			{
-				step: "02",
-				title: "Preview the impact",
-				description:
-					"The settings page shows exactly which providers would be allowed and which blocked under the current policy.",
-			},
-			{
-				step: "03",
-				title: "Enforced on every request",
-				description:
-					"The gateway filters providers per request and blocks anything non-compliant with a 403, logging a security event.",
-			},
-		],
-		faq: [
-			{
-				question: "What happens to a request that can't meet the policy?",
-				answer:
-					"It's blocked with a 403 explaining the policy before any data is sent upstream, and recorded as a security event. This applies to both automatic routing and pinned providers.",
-			},
-			{
-				question: "How is provider compliance determined?",
-				answer:
-					"Each provider carries published data-policy metadata (SOC 2, ISO 27001, GDPR, prompt training, prompt logging). A provider qualifies only if that metadata explicitly satisfies every requirement you enable — unknown attributes fail closed.",
-			},
-			{
-				question: "Who can manage the policy?",
-				answer:
-					"Organization owners and admins on the Enterprise plan. See also [[audit-logs]] and [[guardrails]].",
 			},
 		],
 	},

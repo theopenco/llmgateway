@@ -111,7 +111,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4.1-nano",
+    "model": "gpt-5-nano",
     "messages": [{"role": "user", "content": "Classify this ticket: My password reset email never arrived"}]
   }'
 ```

@@ -1,0 +1,68 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4645e6cc-a569-4250-aff2-7a9c260d2c8d",
+  "prevIds": [
+    "ce68f830-36b8-49c9-b373-efb1bd8c331c",
+    "c7c953c4-9cb7-4337-994e-f7d11d076dc8",
+    "b19fcbe9-5f18-4062-9685-1a4d60229209",
+    "c7c59c6e-dd61-4ccd-88f1-d1bd9e7100e3"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "log",
+        "log_used_model_created_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.log_used_model_created_at_idx",
+        "n|idx|public.log_used_model_created_at_idx",
+        "e|idx|public.log_used_model_created_at_idx",
+        "n|rel|public.log_used_model_created_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.log",
+        "n|sch|public",
+        "n|col|public.log.used_model",
+        "n|col|public.log.created_at"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "log",
+        "name": "log_used_model_created_at_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "used_model",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

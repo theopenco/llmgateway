@@ -1,7 +1,8 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 
 import { db, tables } from "@llmgateway/db";

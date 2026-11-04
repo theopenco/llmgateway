@@ -7,6 +7,7 @@ import {
 	customModelRef,
 	customProviderRef,
 	getAttestationComplianceFailures,
+	getModelDenyRefs,
 	getModelPolicyListFailures,
 	getProviderComplianceFailures,
 	getProviderDefinition,
@@ -22,6 +23,14 @@ import {
 
 import type { ProviderDefinition } from "@llmgateway/models";
 
+interface CompliancePolicySource {
+	providerCompliancePolicy?: ProviderCompliancePolicy | null;
+}
+
+interface ActiveCompliancePolicy extends ProviderCompliancePolicy {
+	allOf?: readonly ProviderCompliancePolicy[];
+}
+
 interface OrganizationLike {
 	id: string;
 	plan: string;
@@ -32,36 +41,44 @@ interface OrganizationLike {
 
 export function isZeroDataRetentionEnabled(
 	organization: OrganizationLike | null | undefined,
+	apiKey?: CompliancePolicySource | null,
 ): boolean {
 	return organization
-		? getActiveCompliancePolicy(organization)?.zeroDataRetention === true
+		? getActiveCompliancePolicy(organization, apiKey)?.zeroDataRetention ===
+				true
 		: false;
 }
 
 export function getEffectiveRetentionLevel(
 	organization: OrganizationLike | null | undefined,
+	apiKey?: CompliancePolicySource | null,
 ): "retain" | "none" {
-	return isZeroDataRetentionEnabled(organization)
+	return isZeroDataRetentionEnabled(organization, apiKey)
 		? "none"
 		: (organization?.retentionLevel ?? "none");
 }
 
-/**
- * The active provider compliance policy for an organization, or `undefined`
- * when none is enabled. Enforcement deliberately checks neither enterprise
- * access nor the organization kind: what a policy may contain is restricted at
- * configuration time in the API (full policies need enterprise access, DevPass
- * settings can only write the no-training requirement), but an enabled stored
- * policy must fail closed. Gating enforcement on plan/license silently dropped
- * all restrictions when the gate misfired, and narrowing by kind stripped the
- * full policy of a devpass-kind org that holds an enterprise plan down to the
- * no-training requirement — both are compliance breaches, not downgrades.
- */
+/** Both enabled policies apply. Stored restrictions survive subscription changes. */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
-): ProviderCompliancePolicy | undefined {
-	const policy = organization.providerCompliancePolicy;
-	return policy?.enabled ? policy : undefined;
+	apiKey?: CompliancePolicySource | null,
+): ActiveCompliancePolicy | undefined {
+	const orgPolicy = organization.providerCompliancePolicy;
+	const keyPolicy = apiKey?.providerCompliancePolicy;
+	if (!orgPolicy?.enabled) {
+		return keyPolicy?.enabled ? keyPolicy : undefined;
+	}
+	if (!keyPolicy?.enabled) {
+		return orgPolicy;
+	}
+	// Empty allowlist intersections must deny all, not become unrestricted.
+	// Custom model aliases must match each policy independently.
+	return {
+		enabled: true,
+		zeroDataRetention:
+			orgPolicy.zeroDataRetention || keyPolicy.zeroDataRetention,
+		allOf: [orgPolicy, keyPolicy],
+	};
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */
@@ -75,9 +92,14 @@ export interface ComplianceCheckContext {
 /** Whether a provider id satisfies the policy (unknown providers fail closed). */
 export function isProviderIdCompliant(
 	providerId: string,
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): boolean {
+	if (policy.allOf) {
+		return policy.allOf.every((constraint) =>
+			isProviderIdCompliant(providerId, constraint, context),
+		);
+	}
 	// "custom" has a catalogue entry with a null dataPolicy, so it must be
 	// short-circuited before the lookup below or it always fails closed. The
 	// policy's provider lists address custom providers as `custom:<name>`.
@@ -104,13 +126,38 @@ export function isProviderIdCompliant(
  */
 export function isModelIdCompliant(
 	modelId: string,
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): boolean {
+	if (policy.allOf) {
+		return policy.allOf.every((constraint) =>
+			isModelIdCompliant(modelId, constraint, context),
+		);
+	}
+	return modelListFailures(modelId, policy, context).length === 0;
+}
+
+// A blocked alias blocks the model it resolves to, and a blocked model blocks
+// listings named after its aliases; allowlists must name the model itself.
+function modelListFailures(
+	modelId: string,
+	policy: ProviderCompliancePolicy,
+	context?: ComplianceCheckContext,
+): ComplianceFailureReason[] {
 	const modelRefs = context?.customProviderName
 		? [modelId, customModelRef(context.customProviderName, modelId)]
 		: [modelId];
-	return isModelAllowedByPolicy(modelRefs, policy);
+	const failures = getModelPolicyListFailures(modelRefs, policy);
+	if (
+		!failures.includes("blockedModels") &&
+		!isModelAllowedByPolicy(getModelDenyRefs(modelId), {
+			...policy,
+			allowedModels: undefined,
+		})
+	) {
+		failures.push("blockedModels");
+	}
+	return failures;
 }
 
 /**
@@ -123,9 +170,18 @@ export function isModelIdCompliant(
 export function getComplianceFailureReasons(
 	providerId: string,
 	modelId: string,
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): ComplianceFailureReason[] {
+	if (policy.allOf) {
+		return Array.from(
+			new Set(
+				policy.allOf.flatMap((constraint) =>
+					getComplianceFailureReasons(providerId, modelId, constraint, context),
+				),
+			),
+		);
+	}
 	const failures: ComplianceFailureReason[] = [];
 	if (providerId === "custom") {
 		const providerRef = context?.customProviderName
@@ -146,17 +202,14 @@ export function getComplianceFailureReasons(
 				: ["unknownProvider" as const]),
 		);
 	}
-	const modelRefs = context?.customProviderName
-		? [modelId, customModelRef(context.customProviderName, modelId)]
-		: [modelId];
-	failures.push(...getModelPolicyListFailures(modelRefs, policy));
+	failures.push(...modelListFailures(modelId, policy, context));
 	return Array.from(new Set(failures));
 }
 
 /** Drop provider mappings that don't satisfy the policy. */
 export function filterCompliantProviders<T extends { providerId: string }>(
 	list: T[],
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): T[] {
 	return list.filter((provider) =>
@@ -165,7 +218,7 @@ export function filterCompliantProviders<T extends { providerId: string }>(
 }
 
 export function complianceBlockMessage(modelId: string): string {
-	return `This request was blocked by your organization's provider compliance policy. No available provider for ${modelId} meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy.`;
+	return `This request was blocked by your organization or API key provider compliance policy. No available provider for ${modelId} meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy.`;
 }
 
 /**
@@ -212,8 +265,9 @@ export async function assertProviderCompliant(
 		apiKeyId?: string;
 		model?: string;
 	},
+	apiKey?: CompliancePolicySource | null,
 ): Promise<void> {
-	const policy = getActiveCompliancePolicy(organization);
+	const policy = getActiveCompliancePolicy(organization, apiKey);
 	if (
 		!policy ||
 		(isProviderIdCompliant(providerId, policy, {

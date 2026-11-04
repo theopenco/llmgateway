@@ -37,7 +37,7 @@ export const CALCULATOR_FAQ: CalculatorFaqItem[] = [
 	{
 		question: "Does LLM Gateway add a markup or platform fee?",
 		answer:
-			"No. LLM Gateway passes through provider pricing with zero platform markup, so you pay exactly what the provider charges (and less when a cheaper provider or volume discount is available). You only add a payment method once you start sending real traffic.",
+			"There is no token markup: LLM Gateway passes through provider pricing, so you pay the provider's per-token rate (and less when a cheaper provider or volume discount is available). Credit purchases carry a flat 5% platform fee; with your own provider keys there is no platform fee. You only add a payment method once you start sending real traffic.",
 	},
 	{
 		question: "How accurate are these cost estimates?",

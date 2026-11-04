@@ -30,6 +30,7 @@ export default async function UnstableMappingsPage({
 }: {
 	searchParams?: Promise<{
 		includeRetried?: string;
+		groupSimilar?: string;
 		window?: string;
 		logLimit?: string;
 		ignoreExpected?: string;
@@ -45,6 +46,7 @@ export default async function UnstableMappingsPage({
 
 	const params = await searchParams;
 	const includeRetried = params?.includeRetried === "true";
+	const groupSimilar = params?.groupSimilar !== "false";
 	const ignoreExpected = params?.ignoreExpected !== "false";
 	const splitByKey = params?.splitByKey === "true";
 	const includeByok = params?.includeByok === "true";
@@ -186,6 +188,16 @@ export default async function UnstableMappingsPage({
 								Group
 							</span>
 							<SegmentedQueryToggle
+								param="groupSimilar"
+								label="Error details grouping"
+								value={groupSimilar ? "true" : "false"}
+								defaultValue="true"
+								options={[
+									{ value: "true", label: "Similar errors" },
+									{ value: "false", label: "Exact errors" },
+								]}
+							/>
+							<SegmentedQueryToggle
 								param="splitByKey"
 								label="Group rows by"
 								value={splitByKey ? "true" : "false"}
@@ -238,6 +250,7 @@ export default async function UnstableMappingsPage({
 						<UnstableMappingsTable
 							mappings={data.mappings}
 							includeRetried={data.includeRetried}
+							groupSimilar={groupSimilar}
 							window={window}
 							logLimit={logLimit}
 							ignoreExpected={data.ignoreExpected}

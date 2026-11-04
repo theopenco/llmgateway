@@ -1,0 +1,335 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8c860340-5853-47e2-b17a-ca166b2af373",
+  "prevIds": [
+    "e5f08979-fa46-4ed5-9b52-6b5d2f54f7ef"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "content_filter_hourly_api_key_stats"
+      ],
+      "writes": [
+        "s|tbl|public.content_filter_hourly_api_key_stats",
+        "n|tbl|public.content_filter_hourly_api_key_stats",
+        "e|tbl|public.content_filter_hourly_api_key_stats",
+        "n|rel|public.content_filter_hourly_api_key_stats",
+        "n|type|public.content_filter_hourly_api_key_stats",
+        "n|rel|public.content_filter_hourly_api_key_stats_pkey",
+        "n|rel|public.content_filter_hourly_api_key_stats_bucket_unique"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "content_filter_hourly_api_key_stats",
+        "content_filter_hourly_api_key_stats_org_ts_idx"
+      ],
+      "writes": [
+        "s|idx|public.content_filter_hourly_api_key_stats_org_ts_idx",
+        "n|idx|public.content_filter_hourly_api_key_stats_org_ts_idx",
+        "e|idx|public.content_filter_hourly_api_key_stats_org_ts_idx",
+        "n|rel|public.content_filter_hourly_api_key_stats_org_ts_idx"
+      ],
+      "reads": [
+        "n|tbl|public.content_filter_hourly_api_key_stats",
+        "n|sch|public",
+        "n|col|public.content_filter_hourly_api_key_stats.organization_id",
+        "n|col|public.content_filter_hourly_api_key_stats.hour_timestamp"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "content_filter_hourly_api_key_stats",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "created_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "updated_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "hour_timestamp",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "organization_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "project_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "api_key_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "category",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "classifier",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "role",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'deciding'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "sampled_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "violation_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "blocked_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "content_filter_hourly_api_key_stats_org_ts_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "organization_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "hour_timestamp",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "content_filter_hourly_api_key_stats_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_api_key_stats",
+        "name": "content_filter_hourly_api_key_stats_bucket_unique",
+        "nameExplicit": true,
+        "columns": [
+          "hour_timestamp",
+          "organization_id",
+          "project_id",
+          "api_key_id",
+          "category",
+          "classifier",
+          "role"
+        ],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    }
+  ]
+}

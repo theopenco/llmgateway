@@ -12,6 +12,16 @@ describe("getModelImageConfig", () => {
 			).toBe(true);
 		}
 	});
+	it("allows up to 10 reference images for Qwen Image 2.1", () => {
+		for (const model of [
+			"alibaba/qwen-image-2.1-pro",
+			"alibaba/qwen-image-2.1-turbo",
+		]) {
+			const config = getModelImageConfig(model);
+			expect(config.maxInputImages).toBe(10);
+			expect(config.defaultSize).toBe("1024x1024");
+		}
+	});
 	it("exposes the cheapest supported image options", () => {
 		const gptImage = getModelImageConfig("openai/gpt-image-2");
 		const grok = getModelImageConfig("xai/grok-imagine-image-2-0");
@@ -49,5 +59,12 @@ describe("getModelImageConfig", () => {
 		expect(config.availableSizes).toEqual(["1K", "2K", "4K"]);
 		expect(config.defaultSize).toBe("1K");
 		expect(config.maxInputImages).toBe(14);
+	});
+
+	it("offers only 1K for Gemini 2.5 Flash Image", () => {
+		const config = getModelImageConfig("google-vertex/gemini-2.5-flash-image");
+
+		expect(config.availableSizes).toEqual(["1K"]);
+		expect(config.defaultSize).toBe("1K");
 	});
 });

@@ -1,0 +1,181 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8affde90-117c-46b2-ac56-a5049fe756c0",
+  "prevIds": [
+    "1ad0c059-56f6-4b96-b712-b91e9fb9da9f"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "content_filter_hourly_model_stats",
+        "internal_scope"
+      ],
+      "writes": [
+        "s|col|public.content_filter_hourly_model_stats.internal_scope",
+        "n|col|public.content_filter_hourly_model_stats.internal_scope",
+        "e|col|public.content_filter_hourly_model_stats.internal_scope"
+      ],
+      "reads": [
+        "n|tbl|public.content_filter_hourly_model_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "content_filter_hourly_stats",
+        "internal_scope"
+      ],
+      "writes": [
+        "s|col|public.content_filter_hourly_stats.internal_scope",
+        "n|col|public.content_filter_hourly_stats.internal_scope",
+        "e|col|public.content_filter_hourly_stats.internal_scope"
+      ],
+      "reads": [
+        "n|tbl|public.content_filter_hourly_stats",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "alter_unique",
+      "statementTarget": [
+        "table",
+        "public",
+        "content_filter_hourly_model_stats"
+      ],
+      "writes": [
+        "s|uq|public.content_filter_hourly_model_stats.content_filter_hourly_model_stats_bucket_unique"
+      ],
+      "reads": [
+        "n|tbl|public.content_filter_hourly_model_stats",
+        "n|sch|public",
+        "n|col|public.content_filter_hourly_model_stats.hour_timestamp",
+        "n|col|public.content_filter_hourly_model_stats.organization_id",
+        "n|col|public.content_filter_hourly_model_stats.project_id",
+        "n|col|public.content_filter_hourly_model_stats.used_model",
+        "n|col|public.content_filter_hourly_model_stats.used_provider",
+        "n|col|public.content_filter_hourly_model_stats.category",
+        "n|col|public.content_filter_hourly_model_stats.classifier",
+        "n|col|public.content_filter_hourly_model_stats.role",
+        "n|col|public.content_filter_hourly_model_stats.internal_scope",
+        "e|col|public.content_filter_hourly_model_stats.hour_timestamp",
+        "e|col|public.content_filter_hourly_model_stats.organization_id",
+        "e|col|public.content_filter_hourly_model_stats.project_id",
+        "e|col|public.content_filter_hourly_model_stats.used_model",
+        "e|col|public.content_filter_hourly_model_stats.used_provider",
+        "e|col|public.content_filter_hourly_model_stats.category",
+        "e|col|public.content_filter_hourly_model_stats.classifier",
+        "e|col|public.content_filter_hourly_model_stats.role"
+      ],
+      "sharedWrites": [
+        "e|uniqueness|public.content_filter_hourly_model_stats.category.classifier.hour_timestamp.organization_id.project_id.role.used_model.used_provider"
+      ],
+      "sqlHash": "34c27e6ac67cae74"
+    },
+    {
+      "statementType": "alter_unique",
+      "statementTarget": [
+        "table",
+        "public",
+        "content_filter_hourly_stats"
+      ],
+      "writes": [
+        "s|uq|public.content_filter_hourly_stats.content_filter_hourly_stats_bucket_unique"
+      ],
+      "reads": [
+        "n|tbl|public.content_filter_hourly_stats",
+        "n|sch|public",
+        "n|col|public.content_filter_hourly_stats.hour_timestamp",
+        "n|col|public.content_filter_hourly_stats.organization_id",
+        "n|col|public.content_filter_hourly_stats.project_id",
+        "n|col|public.content_filter_hourly_stats.category",
+        "n|col|public.content_filter_hourly_stats.classifier",
+        "n|col|public.content_filter_hourly_stats.role",
+        "n|col|public.content_filter_hourly_stats.internal_scope",
+        "e|col|public.content_filter_hourly_stats.hour_timestamp",
+        "e|col|public.content_filter_hourly_stats.organization_id",
+        "e|col|public.content_filter_hourly_stats.project_id",
+        "e|col|public.content_filter_hourly_stats.category",
+        "e|col|public.content_filter_hourly_stats.classifier",
+        "e|col|public.content_filter_hourly_stats.role"
+      ],
+      "sharedWrites": [
+        "e|uniqueness|public.content_filter_hourly_stats.category.classifier.hour_timestamp.organization_id.project_id.role"
+      ],
+      "sqlHash": "d1d61ad9caca64ac"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_model_stats",
+        "name": "internal_scope",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "content_filter_hourly_stats",
+        "name": "internal_scope",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "uniques\u0000[\"public\",\"content_filter_hourly_model_stats\",\"content_filter_hourly_model_stats_bucket_unique\"]",
+      "set": {
+        "columns": [
+          "hour_timestamp",
+          "organization_id",
+          "project_id",
+          "used_model",
+          "used_provider",
+          "category",
+          "classifier",
+          "role",
+          "internal_scope"
+        ]
+      }
+    },
+    {
+      "op": "alter",
+      "key": "uniques\u0000[\"public\",\"content_filter_hourly_stats\",\"content_filter_hourly_stats_bucket_unique\"]",
+      "set": {
+        "columns": [
+          "hour_timestamp",
+          "organization_id",
+          "project_id",
+          "category",
+          "classifier",
+          "role",
+          "internal_scope"
+        ]
+      }
+    }
+  ]
+}

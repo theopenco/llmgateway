@@ -13,8 +13,8 @@ import { cdb, db, eq, shortid, tables } from "@llmgateway/db";
 import { hasProviderEnvironmentToken } from "@llmgateway/models";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
+import type { VerificationTargetInput } from "@llmgateway/actions";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
-import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
 
 export type ModelVerificationRow =
 	typeof tables.providerModelVerification.$inferSelect;
@@ -53,28 +53,6 @@ export const modelVerificationSchema = z.object({
 	startedAt: z.string().nullable(),
 	completedAt: z.string().nullable(),
 });
-
-export interface VerificationTargetInput {
-	providerId: string;
-	modelName: string;
-	externalId?: string | null;
-	apiFormat?: ProviderApiFormat | null;
-	region?: string | null;
-	streaming?: boolean | null;
-	vision?: boolean | null;
-	audio?: boolean | null;
-	tools?: boolean | null;
-	supportedToolChoices?: ToolChoiceMode[] | null;
-	jsonOutput?: boolean | null;
-	jsonOutputSchema?: boolean | null;
-	reasoning?: boolean | null;
-	reasoningMaxTokens?: boolean | null;
-	reasoningEfforts?: string[] | null;
-	webSearch?: boolean | null;
-	contextSize?: number | null;
-	maxOutput?: number | null;
-}
-
 const CAPABILITY_KEYS = [
 	"streaming",
 	"vision",
@@ -87,6 +65,7 @@ const CAPABILITY_KEYS = [
 	"reasoningMaxTokens",
 	"reasoningEfforts",
 	"webSearch",
+	"webSearchFormat",
 	"contextSize",
 	"maxOutput",
 ] as const;
@@ -127,29 +106,45 @@ export function pickCapabilities(metadata: object): CapabilityOverrides {
 	return overrides as CapabilityOverrides;
 }
 
-export function buildVerificationTarget(
-	input: VerificationTargetInput,
-): ProviderModelVerificationTarget {
-	return {
-		providerId: input.providerId,
-		modelName: input.modelName,
-		externalId: input.externalId ?? input.modelName,
-		apiFormat: input.apiFormat ?? "openai-chat-completions",
-		region: input.region ?? null,
-		streaming: input.streaming ?? true,
-		vision: input.vision ?? false,
-		audio: input.audio ?? false,
-		tools: input.tools ?? false,
-		supportedToolChoices: input.supportedToolChoices ?? null,
-		jsonOutput: input.jsonOutput ?? false,
-		jsonOutputSchema: input.jsonOutputSchema ?? false,
-		reasoning: input.reasoning ?? false,
-		reasoningMaxTokens: input.reasoningMaxTokens ?? false,
-		reasoningEfforts: input.reasoningEfforts ?? null,
-		webSearch: input.webSearch ?? false,
-		contextSize: input.contextSize ?? null,
-		maxOutput: input.maxOutput ?? null,
-	};
+interface DeclaredPrices {
+	cachedInputPrice?: string | null;
+	regionPrices?: Array<{ cachedInputPrice?: string | null }> | null;
+}
+
+/** A cached input price, default or regional, claims prompt caching. */
+export function declaresPromptCaching(prices: DeclaredPrices): boolean {
+	return (
+		(prices.cachedInputPrice !== null &&
+			prices.cachedInputPrice !== undefined) ||
+		(prices.regionPrices ?? []).some(
+			(region) =>
+				region.cachedInputPrice !== null &&
+				region.cachedInputPrice !== undefined,
+		)
+	);
+}
+
+/** Whether a listing's prices awaiting review, else its current ones, claim caching. */
+export async function listingDeclaresPromptCaching(
+	draftModelId: string,
+): Promise<boolean> {
+	const filings = await db.query.providerPriceFiling.findMany({
+		where: {
+			draftModelId: { eq: draftModelId },
+			status: { in: ["pending", "approved"] },
+		},
+		columns: {
+			status: true,
+			cachedInputPrice: true,
+			regionPrices: true,
+			createdAt: true,
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	const filing =
+		filings.find((entry) => entry.status === "pending") ??
+		filings.find((entry) => entry.status === "approved");
+	return filing ? declaresPromptCaching(filing) : false;
 }
 
 export function verificationTargetsMatch(
@@ -162,6 +157,7 @@ export function verificationTargetsMatch(
 		left.externalId === right.externalId &&
 		(left.apiFormat ?? "openai-chat-completions") ===
 			(right.apiFormat ?? "openai-chat-completions") &&
+		(left.decisions ?? false) === (right.decisions ?? false) &&
 		(left.region ?? null) === (right.region ?? null) &&
 		left.streaming === right.streaming &&
 		left.vision === right.vision &&
@@ -176,8 +172,10 @@ export function verificationTargetsMatch(
 		JSON.stringify(left.reasoningEfforts) ===
 			JSON.stringify(right.reasoningEfforts) &&
 		left.webSearch === right.webSearch &&
+		(left.webSearchFormat ?? null) === (right.webSearchFormat ?? null) &&
 		(left.contextSize ?? null) === (right.contextSize ?? null) &&
-		(left.maxOutput ?? null) === (right.maxOutput ?? null)
+		(left.maxOutput ?? null) === (right.maxOutput ?? null) &&
+		(left.promptCaching ?? false) === (right.promptCaching ?? false)
 	);
 }
 
@@ -191,6 +189,7 @@ const BOOLEAN_CAPABILITIES = [
 	"reasoning",
 	"reasoningMaxTokens",
 	"webSearch",
+	"promptCaching",
 ] as const;
 
 /** Tool choices: null or empty declares every mode. */
@@ -239,8 +238,13 @@ export function verificationTargetCovers(
 		proven.externalId === required.externalId &&
 		(proven.apiFormat ?? "openai-chat-completions") ===
 			(required.apiFormat ?? "openai-chat-completions") &&
+		(proven.decisions ?? false) === (required.decisions ?? false) &&
 		(proven.region ?? null) === (required.region ?? null) &&
 		BOOLEAN_CAPABILITIES.every((key) => proven[key] || !required[key]) &&
+		// Web search proven in one wire format says nothing about another.
+		(!required.webSearch ||
+			(proven.webSearchFormat ?? null) ===
+				(required.webSearchFormat ?? null)) &&
 		toolChoicesCovered(
 			proven.supportedToolChoices,
 			required.supportedToolChoices,
@@ -497,3 +501,4 @@ export function serializeVerificationHistoryEntry(
 		actorEmail: audience === "admin" ? (actor?.email ?? null) : null,
 	};
 }
+export { buildVerificationTarget } from "@llmgateway/actions";

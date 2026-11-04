@@ -1,12 +1,16 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
+import {
+	buildSignedGatewayVideoLogContentUrl,
+	buildSignedGatewayVideoJobContentUrl,
+} from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -16,6 +20,8 @@ const TERMINAL_VIDEO_STATUSES = new Set([
 	"canceled",
 	"expired",
 ]);
+
+const RESULT_LOG_GRACE_MS = 2 * 60 * 1000;
 
 function toUnixTimestamp(date: Date | null): number | null {
 	return date ? Math.floor(date.getTime() / 1000) : null;
@@ -103,19 +109,20 @@ video.openapi(getVideoStatus, async (c) => {
 		throw new HTTPException(404, { message: "Video not found" });
 	}
 
-	// Signing needs LLM_VIDEO_CONTENT_JWT_SECRET. If that is missing or invalid
-	// only playback is broken, so keep the failure scoped to `content` instead of
-	// failing the whole response: clients poll this endpoint to learn a job
-	// reached a terminal state, and a 500 here strands finished (already billed)
-	// generations on "in progress" forever.
+	// Signing failures affect playback, not the terminal generation status.
 	let content:
 		{ type: "video"; url: string; mime_type?: string | null }[] | undefined;
-	if (job.status === "completed" && job.logId) {
+	if (
+		job.status === "completed" &&
+		(job.logId || hasUnsettledVideoBilling(job))
+	) {
 		try {
 			content = [
 				{
 					type: "video" as const,
-					url: buildSignedGatewayVideoLogContentUrl(job.logId),
+					url: job.logId
+						? buildSignedGatewayVideoLogContentUrl(job.logId)
+						: buildSignedGatewayVideoJobContentUrl(job.id),
 					mime_type: job.contentType ?? null,
 				},
 			];
@@ -128,19 +135,35 @@ video.openapi(getVideoStatus, async (c) => {
 		}
 	}
 
+	// The worker commits `completed` before it writes the result log that
+	// playback is served from. Until that log exists the job is not playable,
+	// so report it as still finishing; otherwise a poller that lands in that
+	// gap treats the job as done and its player fails until the page reloads.
+	// The worker retries finalization every tick, so the gap is normally
+	// seconds; past the grace window the terminal status wins, so a job whose
+	// log keeps failing cannot hold pollers on "in progress".
+	const awaitingResultLog =
+		job.status === "completed" &&
+		!job.logId &&
+		!hasUnsettledVideoBilling(job) &&
+		Date.now() - (job.completedAt ?? job.createdAt).getTime() <
+			RESULT_LOG_GRACE_MS;
+
 	return c.json(
 		{
 			id: job.id,
 			object: "video" as const,
 			model: job.model,
-			status: job.status,
-			progress: TERMINAL_VIDEO_STATUSES.has(job.status)
-				? job.status === "completed"
-					? 100
-					: job.progress
-				: job.progress,
+			status: awaitingResultLog ? ("in_progress" as const) : job.status,
+			progress: awaitingResultLog
+				? 99
+				: TERMINAL_VIDEO_STATUSES.has(job.status)
+					? job.status === "completed"
+						? 100
+						: job.progress
+					: job.progress,
 			created_at: Math.floor(job.createdAt.getTime() / 1000),
-			completed_at: toUnixTimestamp(job.completedAt),
+			completed_at: awaitingResultLog ? null : toUnixTimestamp(job.completedAt),
 			expires_at: toUnixTimestamp(job.expiresAt),
 			error: job.error ?? null,
 			content,
@@ -148,3 +171,18 @@ video.openapi(getVideoStatus, async (c) => {
 		200,
 	);
 });
+function hasUnsettledVideoBilling(job: {
+	usedProvider: string;
+	upstreamStatusResponse: unknown;
+}): boolean {
+	const status = job.upstreamStatusResponse;
+	return (
+		job.usedProvider === "bytedance" &&
+		!!status &&
+		typeof status === "object" &&
+		(("llmgateway_billing_pending" in status &&
+			status.llmgateway_billing_pending === true) ||
+			("llmgateway_billing_quarantined" in status &&
+				status.llmgateway_billing_quarantined === true))
+	);
+}

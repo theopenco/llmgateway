@@ -325,7 +325,7 @@ export function ModelCard({
 			}
 			map.get(key)!.mappings.push(provider);
 		}
-		// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+		// Providers with a marketing badge first
 		return Array.from(map.values()).sort(
 			(a, b) =>
 				Number(Boolean(b.providerInfo?.modelCardBadge)) -
@@ -410,6 +410,25 @@ export function ModelCard({
 							>
 								{model.family}
 							</Badge>
+							{model.virtualModelTarget && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Badge
+											variant="outline"
+											className="text-[10px]"
+											tabIndex={0}
+										>
+											Virtual model
+										</Badge>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Currently {model.virtualModelTarget}. The served version
+											and pricing may change.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							{model.premium && (
 								<Badge className="text-[10px] px-2 py-0.5 font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
 									<Gem className="h-2.5 w-2.5" />
@@ -743,6 +762,12 @@ export function ProviderSection({
 	const hasImageCostEstimate = hasEstimatedImageCost(activeMapping);
 	const shouldShowTokenPricing =
 		!isImageGen || showTokenPricing || !hasImageCostEstimate;
+	const ocrPagePrice = parseFloat(activeMapping.ocrPagePrice ?? "0");
+	// OCR is billed per page; its zero token prices would read as "free".
+	const isOcrPagePriced =
+		ocrPagePrice > 0 &&
+		!(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
+		!(parseFloat(activeMapping.outputPrice ?? "0") > 0);
 	const timeBasedPrices = activeMapping.peakPricing?.[timeBasedPricingMode];
 	const displayedInputPrice =
 		timeBasedPrices?.inputPrice ?? activeMapping.inputPrice;
@@ -1187,6 +1212,40 @@ export function ProviderSection({
 							})()}
 						</div>
 					</div>
+				) : isOcrPagePriced ? (
+					(() => {
+						const discountNum = discountFraction(activeMapping.discount);
+						const perThousandPages =
+							ocrPagePrice * 1000 * serviceTierMultiplier;
+						const formatPages = (value: number) => `$${value.toFixed(2)}`;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+									Per Page Pricing
+								</div>
+								<div className="flex justify-between text-sm">
+									<span className="text-muted-foreground">OCR</span>
+									<span className="font-semibold tabular-nums">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													{formatPages(perThousandPages)}
+												</span>
+												<span className="text-green-600">
+													{formatPages(perThousandPages * (1 - discountNum))}
+												</span>
+											</>
+										) : (
+											formatPages(perThousandPages)
+										)}
+										<span className="text-muted-foreground text-xs ml-0.5">
+											/1K pages
+										</span>
+									</span>
+								</div>
+							</div>
+						);
+					})()
 				) : activeMapping.inputAudioHourPrice &&
 				  parseFloat(activeMapping.inputAudioHourPrice) > 0 &&
 				  !(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
@@ -1342,7 +1401,13 @@ export function ProviderSection({
 										OCR
 									</span>
 									<span className="font-mono tabular-nums text-sm">
-										${(Number(activeMapping.ocrPagePrice) * 1000).toFixed(2)}
+										$
+										{(
+											ocrPagePrice *
+											1000 *
+											serviceTierMultiplier *
+											(1 - discountFraction(activeMapping.discount))
+										).toFixed(2)}
 										<span className="text-muted-foreground text-xs">
 											{" "}
 											/1K pages

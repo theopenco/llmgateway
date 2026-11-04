@@ -1,0 +1,113 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e5f08979-fa46-4ed5-9b52-6b5d2f54f7ef",
+  "prevIds": [
+    "fb8f697b-c1bd-4177-a374-5e7e68fe0976"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "model_provider_mapping_history_hourly",
+        "mpm_history_hourly_provider_ts_active_idx"
+      ],
+      "writes": [
+        "s|idx|public.mpm_history_hourly_provider_ts_active_idx",
+        "n|idx|public.mpm_history_hourly_provider_ts_active_idx",
+        "e|idx|public.mpm_history_hourly_provider_ts_active_idx",
+        "n|rel|public.mpm_history_hourly_provider_ts_active_idx"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history_hourly",
+        "n|sch|public",
+        "n|col|public.model_provider_mapping_history_hourly.provider_id",
+        "n|col|public.model_provider_mapping_history_hourly.hour_timestamp",
+        "n|col|public.model_provider_mapping_history_hourly.model_provider_mapping_id",
+        "n|col|public.model_provider_mapping_history_hourly.logs_count",
+        "n|col|public.model_provider_mapping_history_hourly.total_cost",
+        "n|col|public.model_provider_mapping_history_hourly.client_errors_count",
+        "n|col|public.model_provider_mapping_history_hourly.gateway_errors_count",
+        "n|col|public.model_provider_mapping_history_hourly.upstream_errors_count"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history_hourly",
+        "name": "mpm_history_hourly_provider_ts_active_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "hour_timestamp",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "model_provider_mapping_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "logs_count",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "total_cost",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "client_errors_count",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "gateway_errors_count",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "upstream_errors_count",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": "logs_count > 0",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

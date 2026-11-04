@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -6,13 +6,12 @@ import {
 	type CrmAccountSummary,
 	type CrmBookEntry,
 	corporateDomain,
-	loadActivityStats,
 	loadCrmBook,
-	loadOrgUsage,
+	loadSummaries,
 	parseUserAgent,
-	summarizeAccount,
 } from "@/lib/crm.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	and,
@@ -114,23 +113,6 @@ const kpisSchema = z.object({
 	atRisk: z.number(),
 	spend30d: z.number(),
 });
-
-async function loadSummaries(now: Date) {
-	const book = await loadCrmBook(now);
-	const entries = [...book.values()];
-	const [usage, activity] = await Promise.all([
-		loadOrgUsage(
-			entries.flatMap((e) => e.orgs.map((o) => o.id)),
-			now,
-		),
-		loadActivityStats(now),
-	]);
-	return {
-		book,
-		usage,
-		summaries: entries.map((e) => summarizeAccount(e, usage, activity, now)),
-	};
-}
 
 function computeKpis(
 	summaries: CrmAccountSummary[],
@@ -272,6 +254,7 @@ const activitySchema = z.object({
 	dueAt: z.string().nullable(),
 	completedAt: z.string().nullable(),
 	createdAt: z.string(),
+	externalRef: z.string().nullable(),
 });
 
 const personSchema = z.object({
@@ -446,6 +429,7 @@ function serializeActivity(a: typeof tables.crmActivity.$inferSelect) {
 		dueAt: iso(a.dueAt),
 		completedAt: iso(a.completedAt),
 		createdAt: a.createdAt.toISOString(),
+		externalRef: a.externalRef,
 	};
 }
 

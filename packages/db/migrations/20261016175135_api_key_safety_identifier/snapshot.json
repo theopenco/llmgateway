@@ -1,0 +1,91 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "5b99a692-5d3d-43dc-9ee3-ac46e31c5023",
+  "prevIds": [
+    "596f52e9-14ae-421c-92a8-9dbbfc6fd940"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key",
+        "safety_identifier"
+      ],
+      "writes": [
+        "s|col|public.api_key.safety_identifier",
+        "n|col|public.api_key.safety_identifier",
+        "e|col|public.api_key.safety_identifier"
+      ],
+      "reads": [
+        "n|tbl|public.api_key",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "api_key",
+        "api_key_safety_identifier_uidx"
+      ],
+      "writes": [
+        "s|idx|public.api_key_safety_identifier_uidx",
+        "n|idx|public.api_key_safety_identifier_uidx",
+        "e|idx|public.api_key_safety_identifier_uidx",
+        "n|rel|public.api_key_safety_identifier_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.api_key",
+        "n|sch|public",
+        "n|col|public.api_key.safety_identifier"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key",
+        "name": "safety_identifier",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'key_' || replace(gen_random_uuid()::text, '-', '')",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key",
+        "name": "api_key_safety_identifier_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "safety_identifier",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

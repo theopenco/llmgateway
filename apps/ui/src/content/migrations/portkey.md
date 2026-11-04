@@ -10,7 +10,7 @@ fromProvider: Portkey
 
 Portkey was acquired by Palo Alto Networks in May 2026 and is now sold as the Prisma AIRS AI Gateway; the MIT-licensed gateway stays on GitHub, but the hosted product now sits inside a security vendor's platform and sales motion. If that changes your plans, the migration is small.
 
-Portkey wraps your provider calls in virtual keys, config IDs, and `x-portkey-*` headers. LLM Gateway keeps the OpenAI-compatible interface but drops the extra ceremony: standard Bearer auth, provider keys managed in a dashboard, and the option to self-host the entire platform under AGPLv3. Migration is mostly a base URL change.
+Portkey wraps your provider calls in virtual keys, config IDs, and `x-portkey-*` headers. LLM Gateway keeps the OpenAI-compatible interface but drops the extra ceremony: standard Bearer auth, provider keys managed in a dashboard, and the option to self-host the AGPLv3 core (enterprise features in `ee/` are commercially licensed). Migration is mostly a base URL change.
 
 ## Quick Migration
 
@@ -31,7 +31,7 @@ Both services are OpenAI-compatible, so the core change is the base URL and drop
 | ----------------------------- | ----------------------------- | ------------------------------------- |
 | OpenAI-compatible API         | Yes                           | Yes                                   |
 | Custom headers / virtual keys | Required for provider routing | Not needed                            |
-| Open-source self-hosting      | Gateway/router only (MIT)     | Full platform (AGPLv3)                |
+| Open-source self-hosting      | Gateway/router only (MIT)     | Full platform (AGPLv3 core)           |
 | Automatic provider routing    | Manual config                 | Live scoring, automatic               |
 | Response caching              | Simple + semantic             | Built-in, one toggle                  |
 | Image & video generation      | Limited                       | Same API as chat                      |
@@ -189,7 +189,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 Portkey routes through virtual keys (one per provider credential) and config objects. LLM Gateway replaces both:
 
-- **Virtual keys → Provider Keys.** Add your provider API keys once in the dashboard under **Settings > Provider Keys**. Bring your own keys and pay a 0% gateway markup, or use LLM Gateway's default keys.
+- **Virtual keys → Provider Keys.** Add your provider API keys once in the dashboard under **Organization > Provider Keys**. Bring your own keys and pay a 0% gateway markup, or use LLM Gateway's default keys.
 - **Configs → model IDs + routing.** Provider selection, fallbacks, and load balancing are handled by the model ID and built-in smart routing — there's no separate config object to maintain.
 
 ## Streaming Support
@@ -246,11 +246,11 @@ response = client.chat.completions.create(
 - **Automatic routing** — providers scored on live uptime, throughput, price, and latency instead of static configs
 - **Caching is one toggle** — no semantic-cache setup required to get repeat-request savings
 - **Generative media included** — image and video models through the same API and billing
-- **Fully open source** — self-host the entire platform, not just the router
+- **Open source** — self-host the platform's AGPLv3 core, not just the router
 
 ## Self-Hosting LLM Gateway
 
-Prefer to run it yourself? Unlike Portkey, where only the gateway is open source, the entire LLM Gateway platform is available under AGPLv3:
+Prefer to run it yourself? Unlike Portkey, where only the gateway is open source, the LLM Gateway platform — gateway, API, and dashboard — is available under AGPLv3, with enterprise features in `ee/` under a commercial license:
 
 ```bash
 git clone https://github.com/theopenco/llmgateway

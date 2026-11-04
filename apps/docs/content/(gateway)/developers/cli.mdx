@@ -289,8 +289,8 @@ npx @llmgateway/cli docs [topic]
 
 <Callout type="info">
 	The commands below require a dashboard session — sign in first with
-	`llmgateway auth login --email`. A gateway API key alone is not enough for
-	account management.
+	`llmgateway auth login` (browser) or `llmgateway auth login --email`. A
+	gateway API key alone is not enough for account management.
 </Callout>
 
 ### `auth`
@@ -300,8 +300,9 @@ Manage authentication (dashboard session and gateway API key).
 For browser-based device sign-in, the approval page is titled **Authorize your device**. Check that its code matches the one on your device before choosing **Authorize device**. Approval creates a separate account session; signing the device out leaves the browser signed in. Choose **Deny** for a request you did not start.
 
 ```bash
-# Sign in with email & password (full access), or paste an API key
+# Sign in in your browser (including SSO), with email & password, or paste an API key
 npx @llmgateway/cli auth login
+npx @llmgateway/cli auth login --sso
 npx @llmgateway/cli auth login --email you@example.com
 npx @llmgateway/cli auth login --key
 
@@ -483,13 +484,17 @@ npx @llmgateway/cli credits [--org <id>] [--json]
 
 ### Web Applications
 
+All templates use AI SDK 7 and need Node.js 22 or later.
+
 - **`embeddable-credits`** — Monetize your AI app in 5 minutes. End-user wallets and in-app credit purchases ("Stripe for AI") with the embeddable SDK.
+- **`model-arena`** — Compare up to four models side by side with live time to first token, tokens per second, and cost per response.
+- **`ai-slides`** — AI presentation builder with web research, images, charts, and PowerPoint export.
 - **`image-generation`** — Full-stack AI image generation app (Next.js 16, React 19). Multi-provider support with a unified API.
 - **`ai-chatbot`** — AI chatbot with streaming responses.
 - **`og-image-generator`** — AI-powered OG image generator.
 - **`feedback-dashboard`** — Customer feedback sentiment dashboard.
 - **`writing-assistant`** — AI writing assistant with text actions.
-- **`qa-agent`** — AI-powered QA testing agent with browser automation, real-time action timeline, and live browser preview.
+- **`qa-agent`** — AI QA testing agent that drives a headless browser with Playwright, with a real-time action timeline and live browser preview.
 - **`showcase`** — Public, filterable gallery of apps built with LLM Gateway templates. Static and deployable, with a "Submit your app" flow.
 
 ### Bots
@@ -498,7 +503,13 @@ npx @llmgateway/cli credits [--org <id>] [--json]
 
 ### CLI Agents
 
-- **`weather-agent`** — Answers weather queries using tool calling.
+- **`research-agent`** — Researches the live web and writes a cited markdown report.
+- **`code-review-agent`** — Reviews git diffs, reports findings by severity, and can gate CI with `--strict`.
+- **`model-router-agent`** — Routes each prompt to the cheapest capable model and prints its cost.
+- **`meeting-notes-agent`** — Turns transcripts into decisions and action items with owners.
+- **`sql-agent`** — Answers data questions by inspecting the schema and running read-only SQLite.
+- **`support-triage-agent`** — Prioritizes support tickets and drafts replies in the customer's language.
+- **`weather-agent`** — Answers weather queries with live Open-Meteo data using tool calling.
 - **`lead-agent`** — Researches people and posts results to Discord.
 - **`changelog-generator-agent`** — Generates changelogs from git history.
 - **`email-drafter-agent`** — Drafts polished emails from rough notes.
@@ -506,7 +517,8 @@ npx @llmgateway/cli credits [--org <id>] [--json]
 - **`data-extractor-agent`** — Extracts structured entities from text.
 
 ```bash
-npx @llmgateway/cli init --template qa-agent
+npx @llmgateway/cli init --template model-arena
+npx @llmgateway/cli init --template code-review-agent
 ```
 
 ## Configuration
@@ -523,7 +535,7 @@ The CLI stores configuration in `~/.llmgateway/config.json`:
 }
 ```
 
-Signing in with `auth login --email` also stores a dashboard session used by the account commands (`keys`, `budget`, `usage`, `orgs`, `projects`, `credits`).
+Signing in with `auth login` (browser, `--sso`, or `--email`) also stores a dashboard session used by the account commands (`keys`, `budget`, `usage`, `orgs`, `projects`, `credits`).
 
 ### Environment Variables
 

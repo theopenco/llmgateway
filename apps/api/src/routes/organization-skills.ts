@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 
@@ -12,6 +12,7 @@ import {
 	skillSummaryColumns,
 	summarizeOrganizationSkill,
 } from "@/lib/organization-skills.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, tables } from "@llmgateway/db";

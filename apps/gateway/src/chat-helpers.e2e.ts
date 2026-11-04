@@ -220,6 +220,22 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
+	// Filter out realtime models (they are served only by the /v1/realtime
+	// WebSocket and are covered by realtime.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some(
+				(p) => (p as ProviderModelMapping).realtime === true,
+			),
+	)
+	// Filter out typed-decision models (they use the dedicated /v1/decisions
+	// endpoint, not chat completions)
+	.filter(
+		(model) =>
+			!model.providers.some(
+				(p) => (p as ProviderModelMapping).decisions === true,
+			),
+	)
 	// Filter out search models (they use the dedicated /v1/search endpoint,
 	// not chat completions, and are covered by search.e2e.ts)
 	.filter(
@@ -315,6 +331,14 @@ export const filteredModels = models
 
 		return false; // Otherwise, exclude free models in non-full mode
 	})
+	// Enterprise-only models switch the shared test org to the enterprise plan
+	// (see e2eOrgPlan), so they only run when explicitly selected.
+	.filter(
+		(model) =>
+			!(model as ModelDefinition).enterpriseOnly ||
+			specifiedModels !== null ||
+			specifiedProviders !== null,
+	)
 	// Filter by TEST_MODELS or TEST_PROVIDERS if specified
 	.filter((model) => {
 		if (!specifiedModels && !specifiedProviders) {
@@ -330,6 +354,12 @@ export const filteredModels = models
 			return matchesTestModel(provider.providerId, model.id, provider.region);
 		});
 	});
+
+const e2eOrgPlan = filteredModels.some(
+	(model) => (model as ModelDefinition).enterpriseOnly,
+)
+	? "enterprise"
+	: "pro";
 
 export const testModels = filteredModels
 	// If any model has test: "only", only include those models
@@ -607,6 +637,91 @@ export const embeddingModels = models
 		return testCases;
 	});
 
+// Typed-decision models are excluded from filteredModels above (they use the
+// dedicated /v1/decisions endpoint). Build a separate list of decision
+// provider/model mappings for decisions.e2e.ts, applying the same filters as
+// embeddingModels.
+export const decisionModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.decisions === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.decisions) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
 // Speech generation (text-to-speech) models are excluded from filteredModels
 // above (audio-only output, served by the dedicated /v1/audio/speech endpoint).
 // Build a separate list of speech provider/model mappings for speech.e2e.ts,
@@ -784,79 +899,92 @@ export const transcriptionModels = models
 // (transcription sessions), so they get their own list for
 // realtime-transcription.e2e.ts, applying the same TEST_MODELS/TEST_PROVIDERS,
 // deactivation, env-var, and stability filters as transcriptionModels.
-export const realtimeTranscriptionModels = models
-	.filter((model) => !["custom", "auto"].includes(model.id))
-	.filter((model) =>
-		model.providers.some(
-			(provider: ProviderModelMapping) =>
-				provider.realtimeTranscription === true,
-		),
-	)
-	.filter((model) => {
-		if (hasOnlyModels) {
-			return model.providers.some(
-				(provider: ProviderModelMapping) => provider.test === "only",
+export const realtimeTranscriptionModels = realtimeTestCases(
+	(provider) => provider.realtimeTranscription === true,
+);
+
+// Speech-to-speech realtime mappings that speak the OpenAI realtime protocol
+// to the client, for realtime.e2e.ts. Gemini Live sessions use Google's own
+// protocol and are not covered there.
+export const realtimeModels = realtimeTestCases(
+	(provider) =>
+		provider.realtime === true && provider.providerId !== "google-ai-studio",
+);
+
+function realtimeTestCases(
+	selects: (provider: ProviderModelMapping) => boolean,
+) {
+	return models
+		.filter((model) => !["custom", "auto"].includes(model.id))
+		.filter((model) =>
+			(model.providers as ProviderModelMapping[]).some(selects),
+		)
+		.filter((model) => {
+			if (hasOnlyModels) {
+				return model.providers.some(
+					(provider: ProviderModelMapping) => provider.test === "only",
+				);
+			}
+			return true;
+		})
+		.flatMap((model) => {
+			const testCases = [];
+			const expandedProviders = expandAllProviderRegions(
+				model.providers as ProviderModelMapping[],
 			);
-		}
-		return true;
-	})
-	.flatMap((model) => {
-		const testCases = [];
-		const expandedProviders = expandAllProviderRegions(
-			model.providers as ProviderModelMapping[],
-		);
-		for (const provider of expandedProviders) {
-			if (!provider.realtimeTranscription) {
-				continue;
-			}
-			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
-				continue;
-			}
-			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
-				continue;
-			}
-			if (specifiedModels || specifiedProviders) {
-				if (specifiedProviders) {
-					if (!specifiedProviders.includes(provider.providerId)) {
-						continue;
+			for (const provider of expandedProviders) {
+				if (!selects(provider)) {
+					continue;
+				}
+				if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+					continue;
+				}
+				if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+					continue;
+				}
+				if (specifiedModels || specifiedProviders) {
+					if (specifiedProviders) {
+						if (!specifiedProviders.includes(provider.providerId)) {
+							continue;
+						}
+					} else {
+						if (
+							!matchesTestModel(provider.providerId, model.id, provider.region)
+						) {
+							continue;
+						}
 					}
 				} else {
+					if (provider.test === "skip") {
+						continue;
+					}
 					if (
-						!matchesTestModel(provider.providerId, model.id, provider.region)
+						provider.test !== "only" &&
+						!hasAllRequiredProviderEnvVars(provider.providerId)
+					) {
+						continue;
+					}
+					if (
+						(provider.stability === "unstable" ||
+							provider.stability === "experimental") &&
+						!fullMode &&
+						provider.test !== "only"
 					) {
 						continue;
 					}
 				}
-			} else {
-				if (provider.test === "skip") {
+				if (hasOnlyModels && provider.test !== "only") {
 					continue;
 				}
-				if (
-					provider.test !== "only" &&
-					!hasAllRequiredProviderEnvVars(provider.providerId)
-				) {
-					continue;
-				}
-				if (
-					(provider.stability === "unstable" ||
-						provider.stability === "experimental") &&
-					!fullMode &&
-					provider.test !== "only"
-				) {
-					continue;
-				}
+				testCases.push({
+					model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+					provider,
+					originalModel: model.id,
+				});
 			}
-			if (hasOnlyModels && provider.test !== "only") {
-				continue;
-			}
-			testCases.push({
-				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
-				provider,
-				originalModel: model.id,
-			});
-		}
-		return testCases;
-	});
+			return testCases;
+		});
+}
 
 // Rerank models are excluded from filteredModels above (they use the
 // dedicated /v1/rerank endpoint). Build a separate list of rerank
@@ -1322,7 +1450,7 @@ export async function beforeAllHook() {
 			id: "org-id",
 			name: "Test Organization",
 			billingEmail: "user@test.com",
-			plan: "pro",
+			plan: e2eOrgPlan,
 			retentionLevel: "retain",
 			credits: "100",
 		})
@@ -1330,7 +1458,7 @@ export async function beforeAllHook() {
 			target: tables.organization.id,
 			set: {
 				retentionLevel: "retain",
-				plan: "pro",
+				plan: e2eOrgPlan,
 				credits: "100",
 			},
 		});
@@ -1413,6 +1541,11 @@ function providerEnvOptionsForTests(
 		);
 		return workspaceId ? { alibaba_workspace_id: workspaceId } : undefined;
 	}
+	if (providerId === "google-vertex" && process.env.LLM_GOOGLE_CLOUD_PROJECT) {
+		// Without a project the API key falls back to the project-less express
+		// path, which Google pins to us-central1; global-only models 404 there.
+		return { google_vertex_project_id: process.env.LLM_GOOGLE_CLOUD_PROJECT };
+	}
 	if (providerId === "azure-ai-foundry") {
 		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
@@ -1432,6 +1565,9 @@ function providerEnvOptionsForTests(
 		return {
 			azure_anthropic_resource: process.env.LLM_AZURE_ANTHROPIC_RESOURCE,
 		};
+	}
+	if (providerId === "cloudflare" && process.env.LLM_CLOUDFLARE_ACCOUNT_ID) {
+		return { cloudflare_account_id: process.env.LLM_CLOUDFLARE_ACCOUNT_ID };
 	}
 	return undefined;
 }

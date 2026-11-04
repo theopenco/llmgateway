@@ -53,7 +53,7 @@ const claude = await client.chat.completions.create({
   messages,
 });
 const gemini = await client.chat.completions.create({
-  model: "gemini-2.5-pro",
+  model: "gemini-3.1-pro-preview",
   messages,
 });
 ```

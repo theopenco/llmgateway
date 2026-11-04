@@ -1,11 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { AudioControls } from "@/components/playground/audio-controls";
 import { AudioGallery } from "@/components/playground/audio-gallery";
 import { AudioHeader } from "@/components/playground/audio-header";
@@ -20,6 +20,7 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { getModelAudioConfig } from "@/lib/audio-gen";
+import { initialAudioModels } from "@/lib/audio-models";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
@@ -39,6 +40,17 @@ import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 import type { AudioFormat, AudioGalleryItem } from "@/lib/audio-gen";
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
+
+// Opened on demand only; lazy loading keeps the Stripe top-up dialog and
+// @stripe/react-stripe-js out of the page's initial bundle. It renders
+// nothing until opened, so there is no SSR output to lose.
+const TopUpCreditsDialog = dynamic(
+	() =>
+		import("@/components/credits/top-up-credits-dialog").then(
+			(m) => m.TopUpCreditsDialog,
+		),
+	{ ssr: false },
+);
 
 interface AudioPageClientProps {
 	models: ApiModel[];
@@ -66,28 +78,21 @@ export default function AudioPageClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to audio-gen (text-to-speech) only, sorted newest-first by
-	// releasedAt with createdAt as fallback. releasedAt comes from the static
-	// model definition so the order is stable regardless of when each row was
-	// inserted into the gateway DB.
 	const audioGenModels = useMemo(
 		() =>
-			models
-				.filter((m) => m.output?.includes("audio"))
-				.slice()
-				.sort((a, b) => {
-					const dateA = a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: a.createdAt
-							? new Date(a.createdAt).getTime()
-							: 0;
-					const dateB = b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: b.createdAt
-							? new Date(b.createdAt).getTime()
-							: 0;
-					return dateB - dateA;
-				}),
+			models.slice().sort((a, b) => {
+				const dateA = a.releasedAt
+					? new Date(a.releasedAt).getTime()
+					: a.createdAt
+						? new Date(a.createdAt).getTime()
+						: 0;
+				const dateB = b.releasedAt
+					? new Date(b.releasedAt).getTime()
+					: b.createdAt
+						? new Date(b.createdAt).getTime()
+						: 0;
+				return dateB - dateA;
+			}),
 		[models],
 	);
 
@@ -97,26 +102,15 @@ export default function AudioPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// State — initialize from URL params, then cookie, then default
-	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
-		const modelParam = searchParams.get("model");
-		if (modelParam) {
-			const models = modelParam.split(",").filter(Boolean);
-			if (models.length > 0) {
-				return models;
-			}
-		}
-		const stored =
-			getModelPreferenceCookie(AUDIO_MODEL_COOKIE) ?? initialModelPreference;
-		if (stored) {
-			const models = stored.split(",").filter(Boolean);
-			if (models.length > 0) {
-				return models;
-			}
-		}
-		const first = audioGenModels[0];
-		return first ? [first.id] : [];
-	});
+	const [selectedModels, setSelectedModels] = useState<string[]>(() =>
+		initialAudioModels(
+			[
+				searchParams.get("model"),
+				getModelPreferenceCookie(AUDIO_MODEL_COOKIE) ?? initialModelPreference,
+			],
+			availableModels,
+		),
+	);
 	const [comparisonMode, setComparisonMode] = useState(
 		() => searchParams.get("compare") === "1",
 	);

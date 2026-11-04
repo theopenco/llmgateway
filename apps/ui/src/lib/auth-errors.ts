@@ -30,6 +30,12 @@ const authErrorMessages: Record<string, string> = {
 	no_callback_url:
 		"Sign-in failed due to a misconfiguration. Please try again.",
 	invalid_callback_request: "Sign-in failed. Please try again.",
+	// Missing or unreadable OAuth state: an expired, replayed, or
+	// cross-browser callback.
+	state_not_found: "Your sign-in link expired. Please sign in again.",
+	state_mismatch: "Your sign-in link expired. Please sign in again.",
+	state_invalid: "Your sign-in link expired. Please sign in again.",
+	invalid_state: "Your sign-in link expired. Please sign in again.",
 };
 
 export function getAuthErrorMessage(code: string | null | undefined): string {

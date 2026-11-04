@@ -1,0 +1,48 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ce68f830-36b8-49c9-b373-efb1bd8c331c",
+  "prevIds": [
+    "b726be47-6c50-4a26-832d-a48ad0ba4ea1",
+    "8affde90-117c-46b2-ac56-a5049fe756c0"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "rate_limit_mode"
+      ],
+      "writes": [
+        "s|col|public.provider_key.rate_limit_mode",
+        "n|col|public.provider_key.rate_limit_mode",
+        "e|col|public.provider_key.rate_limit_mode"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "rate_limit_mode",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'strict'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

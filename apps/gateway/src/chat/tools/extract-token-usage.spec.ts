@@ -767,6 +767,28 @@ describe("extractTokenUsage", () => {
 			expect(result.cachedTokens).toBeNull();
 		});
 	});
+
+	describe("google", () => {
+		it("extracts IMAGE modality prompt tokens", () => {
+			const result = extractTokenUsage(
+				{
+					usageMetadata: {
+						promptTokenCount: 526,
+						candidatesTokenCount: 1,
+						totalTokenCount: 527,
+						promptTokensDetails: [
+							{ modality: "TEXT", tokenCount: 10 },
+							{ modality: "IMAGE", tokenCount: 516 },
+						],
+					},
+				},
+				"google-ai-studio",
+			);
+
+			expect(result.promptTokens).toBe(526);
+			expect(result.imageInputTokens).toBe(516);
+		});
+	});
 });
 
 describe("adjustGoogleCandidateTokens", () => {

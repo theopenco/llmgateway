@@ -73,6 +73,8 @@ describe("prepareRequestBody - safety identifier", () => {
 				"anthropic",
 				"azure",
 				"azure-anthropic",
+				"meta",
+				"meta-contributor",
 				"openai",
 				"vertex-anthropic",
 			].sort(),
@@ -123,6 +125,26 @@ describe("prepareRequestBody - safety identifier", () => {
 		expect(chatBody.user).toBe(SAFETY_IDENTIFIER);
 		expect(chatBody.safety_identifier).toBeUndefined();
 	});
+
+	test.each([
+		["meta", false],
+		["meta", true],
+		["meta-contributor", false],
+		["meta-contributor", true],
+	] as const)(
+		"forwards safety_identifier to %s (Responses API: %s)",
+		async (provider, useResponsesApi) => {
+			const body = await prepare({
+				provider,
+				model: "muse-spark-1.1",
+				useResponsesApi,
+				safetyIdentifier: SAFETY_IDENTIFIER,
+			});
+
+			expect(body.safety_identifier).toBe(SAFETY_IDENTIFIER);
+			expect(body.user).toBeUndefined();
+		},
+	);
 
 	test.each([
 		["anthropic"],

@@ -139,6 +139,83 @@ describe("admin organization content filter activity", () => {
 				blockedCount: 50,
 			},
 		]);
+		await db.insert(tables.project).values({
+			id: "proj-a",
+			name: "Project A",
+			organizationId: "cf-org-a",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "cf-key-a1",
+			description: "Key A1",
+			tokenHash: "cf-key-a1-hash",
+			tokenMasked: "masked",
+			projectId: "proj-a",
+			createdBy: "test-user-id",
+		});
+		const keyRow = {
+			organizationId: "cf-org-a",
+			projectId: "proj-a",
+			apiKeyId: "cf-key-a1",
+			classifier: "openai",
+		};
+		await db.insert(tables.contentFilterHourlyApiKeyStats).values([
+			{
+				...keyRow,
+				hourTimestamp: hoursAgo(1),
+				category: "all",
+				sampledCount: 10,
+				violationCount: 4,
+				blockedCount: 1,
+			},
+			{
+				...keyRow,
+				hourTimestamp: hoursAgo(1),
+				category: "violence",
+				violationCount: 3,
+			},
+			{
+				...keyRow,
+				hourTimestamp: hoursAgo(3),
+				category: "all",
+				sampledCount: 20,
+				violationCount: 1,
+			},
+			{
+				...keyRow,
+				hourTimestamp: hoursAgo(3),
+				category: "hate",
+				violationCount: 1,
+			},
+			// Another project's key, no longer in api_key.
+			{
+				...keyRow,
+				projectId: "proj-a2",
+				apiKeyId: "cf-key-gone",
+				hourTimestamp: hoursAgo(1),
+				category: "all",
+				sampledCount: 5,
+			},
+			// Another org: never mixed in.
+			{
+				...keyRow,
+				organizationId: "cf-org-b",
+				projectId: "proj-b",
+				apiKeyId: "cf-key-b",
+				hourTimestamp: hoursAgo(1),
+				category: "all",
+				sampledCount: 100,
+				violationCount: 50,
+				blockedCount: 50,
+			},
+			// Outside a 4h window.
+			{
+				...keyRow,
+				hourTimestamp: hoursAgo(30),
+				category: "all",
+				sampledCount: 100,
+				violationCount: 50,
+			},
+		]);
 	});
 
 	afterEach(async () => {
@@ -186,6 +263,35 @@ describe("admin organization content filter activity", () => {
 				violationCount: 0,
 				blockedCount: 0,
 				violationRate: 0,
+			},
+		]);
+		expect(body.topApiKeys).toEqual([
+			{
+				apiKeyId: "cf-key-a1",
+				description: "Key A1",
+				status: "active",
+				projectId: "proj-a",
+				projectName: "Project A",
+				sampledCount: 30,
+				violationCount: 5,
+				blockedCount: 1,
+				violationRate: 5 / 30,
+				topCategories: [
+					{ category: "violence", violationCount: 3 },
+					{ category: "hate", violationCount: 1 },
+				],
+			},
+			{
+				apiKeyId: "cf-key-gone",
+				description: null,
+				status: null,
+				projectId: "proj-a2",
+				projectName: null,
+				sampledCount: 5,
+				violationCount: 0,
+				blockedCount: 0,
+				violationRate: 0,
+				topCategories: [],
 			},
 		]);
 		// Five bucket boundaries fall inside a 4h window; quiet ones are zero.

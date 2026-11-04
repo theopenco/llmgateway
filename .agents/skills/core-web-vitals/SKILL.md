@@ -1,88 +1,228 @@
 ---
 name: core-web-vitals
-description: Diagnose and improve Largest Contentful Paint, Interaction to Next Paint, and Cumulative Layout Shift in this repository's Next.js App Router frontends. Use when auditing Core Web Vitals, investigating LCP, INP, or CLS regressions, or changing frontend loading, responsiveness, image, font, or layout behavior for performance.
+description: Optimize Core Web Vitals (LCP, INP, CLS) for better page experience using field and lab evidence. Use when asked to "improve Core Web Vitals", "fix LCP", "reduce CLS", "optimize INP", "page experience optimization", or "fix layout shifts".
+license: MIT
+metadata:
+  author: web-quality-skills
+  version: "2.0"
 ---
 
-# Core Web Vitals
+# Core Web Vitals optimization
 
-Measure the affected route before changing it. Do not apply generic performance
-advice without identifying the actual LCP element, slow interaction, or layout
-shift.
+Targeted optimization for the three Core Web Vitals using field data to identify user impact and browser traces to diagnose causes.
 
-## Targets and evidence
+## Measure before optimizing
 
-Use Google's current thresholds at the 75th percentile:
+When a runnable URL is available, read [the performance measurement workflow](../performance/references/MEASUREMENT.md). Prefer this sequence:
 
-| Metric | Good     | Poor     |
-| ------ | -------- | -------- |
-| LCP    | ≤ 2.5 s  | > 4 s    |
-| INP    | ≤ 200 ms | > 500 ms |
-| CLS    | ≤ 0.1    | > 0.25   |
+1. Check page-level CrUX p75 data, with a clearly labeled origin fallback when page data is unavailable.
+2. Record a browser performance trace under stated conditions. With Chrome DevTools MCP, trace summaries can include CrUX alongside the observed lab metrics.
+3. Analyze only the insights associated with the failing metric, then inspect the implicated code and resources.
+4. Re-run equivalent lab measurements after the fix. Do not claim an immediate field improvement; CrUX and first-party RUM need new user visits.
 
-Field data and lab data answer different questions. Check CrUX or PageSpeed
-Insights for user impact, then reproduce locally with Chrome DevTools or a
-repeatable browser trace. Lighthouse reports LCP and CLS, but cannot measure INP
-without real interaction; use its Total Blocking Time only as a lab proxy.
+If only source code is available, identify likely causes but do not claim that LCP, INP, or CLS is failing without runtime evidence.
 
-Official references:
+## The three metrics
 
-- [Web Vitals](https://web.dev/articles/vitals)
-- [Optimize LCP](https://web.dev/articles/optimize-lcp)
-- [Optimize INP](https://web.dev/articles/optimize-inp)
-- [Optimize CLS](https://web.dev/articles/optimize-cls)
+| Metric | Measures | Good | Needs work | Poor |
+|--------|----------|------|------------|------|
+| **LCP** | Loading | ≤ 2.5s | 2.5s – 4s | > 4s |
+| **INP** | Interactivity | ≤ 200ms | 200ms – 500ms | > 500ms |
+| **CLS** | Visual Stability | ≤ 0.1 | 0.1 – 0.25 | > 0.25 |
 
-## Diagnose
+Google measures at the **75th percentile** — 75% of page visits must meet "Good" thresholds.
 
-1. Identify the affected app and route. Read its page, layout, loading boundary,
-   client components, data queries, images, fonts, and third-party scripts.
-2. Record a baseline on a production build with the same viewport, throttling,
-   cache state, and interaction sequence used for the final comparison.
-3. Use the trace to identify the cause:
-   - LCP: server delay, resource discovery, resource load, or render delay.
-   - INP: input delay, event-handler work, or presentation delay.
-   - CLS: the shifting element and the element that changed its geometry.
-4. Change the smallest cause supported by the trace.
+---
 
-## Repository-specific fixes
+## LCP: Largest Contentful Paint
 
-These apps use Next.js 16 App Router. Prefer Server Components and existing
-TanStack Query patterns over client-side `useEffect` fetching.
+LCP measures when the largest visible content element renders. Usually this is:
+- Hero image or video
+- Large text block
+- Background image
+- `<svg>` element
 
-For LCP:
+### Common LCP issues
 
-- Keep above-the-fold content in the initial server-rendered response when
-  possible. Use a nearby loading boundary only when streaming improves the
-  observed route.
-- Use `next/image` with correct `width` and `height`, or `fill` with a sized
-  parent and an accurate `sizes` value.
-- Next.js 16 deprecates the Image `priority` prop; use `preload` only for the
-  measured LCP image. Do not preload multiple competing images.
-- Remove request waterfalls and late client-only discovery shown in the trace.
+**1. Slow server response (TTFB > 800ms)**
+```
+Fix: CDN, caching, optimized backend, edge rendering
+```
 
-For INP:
+**2. Render-blocking resources**
+```html
+<!-- ❌ Blocks rendering -->
+<link rel="stylesheet" href="/all-styles.css">
 
-- Trace the exact slow click, keypress, or tap. Reduce synchronous work in that
-  path and avoid rerendering unrelated subtrees.
-- Provide immediate visual feedback, then defer only work that is not required
-  for the next paint.
-- Virtualize or paginate large rendered collections when the trace shows DOM or
-  reconciliation cost. Do not add memoization without a measured benefit.
+<!-- ✅ Critical CSS inlined, rest deferred -->
+<style>/* Critical above-fold CSS */</style>
+<link rel="preload" href="/styles.css" as="style" 
+      onload="this.onload=null;this.rel='stylesheet'">
+```
 
-For CLS:
+**3. Slow resource load times**
+```html
+<!-- ❌ LCP image is discovered only after a stylesheet loads -->
+<div class="hero"></div>
 
-- Reserve dimensions for images, video, embeds, skeletons, banners, and async
-  content before they load.
-- Keep loading and loaded states geometrically compatible.
-- Animate `transform` and `opacity` when possible instead of layout dimensions.
-- Inspect font fallback metrics before changing `font-display`; a blanket value
-  is not a CLS fix.
+<!-- ✅ Discoverable in initial HTML and prioritized -->
+<link rel="preload" href="/hero.webp" as="image" fetchpriority="high">
+<img src="/hero.webp" alt="Hero" fetchpriority="high">
+```
 
-## Verify
+Prefer a discoverable `<img>` with `fetchpriority="high"`. Add the preload only when the trace shows that the resource would otherwise be discovered late; duplicate or speculative preloads can compete for bandwidth.
 
-Build the affected app through Turbo, run the same trace again, and compare the
-before/after measurements. Test relevant responsive breakpoints and both themes
-when layout or assets differ.
+**4. Client-side rendering delays**
+```javascript
+// ❌ Content loads after JavaScript
+useEffect(() => {
+  fetch('/api/hero-text').then(r => r.json()).then(setHeroText);
+}, []);
 
-Run `pnpm format` and the full `pnpm build` before handoff. Report the measured
-baseline, the measured result, the route and conditions, and any field-data gap
-that cannot be validated locally.
+// ✅ Server-side or static rendering
+// Use SSR, SSG, or streaming to send HTML with content
+export async function getServerSideProps() {
+  const heroText = await fetchHeroText();
+  return { props: { heroText } };
+}
+```
+
+**5. Make navigations instant with the Speculation Rules API**
+
+For sites with predictable same-origin journeys, prerendering a likely next page can make a successful subsequent navigation much faster. Treat this as a measured navigation optimization, not a substitute for fixing the current page's LCP.
+
+```html
+<script type="speculationrules">
+{
+  "prerender": [{
+    "where": { "href_matches": "/*" },
+    "eagerness": "moderate"
+  }]
+}
+</script>
+```
+
+Current Chrome behavior is specific enough to guide the choice:
+
+| `eagerness` | Trigger |
+|-------------|---------|
+| `conservative` | Pointer or touch down |
+| `moderate` | Desktop: 200ms hover, or earlier pointer down; mobile: viewport heuristics |
+| `eager` | Chrome 143+: desktop 10ms hover; mobile 50ms after the anchor enters the viewport |
+| `immediate` | As soon as the rules are observed |
+
+Start conservatively and measure prediction hit rate, transferred bytes, server load, and navigation improvement before expanding the rules. Recheck [Chrome's maintained eagerness documentation](https://developer.chrome.com/docs/web-platform/prerender-pages#eagerness) before hardcoding timing-sensitive behavior.
+
+Caveats:
+- **Bandwidth/CPU cost.** Each prerender is roughly a full page load. Scope `where` carefully (`href_matches` patterns, exclude logout/checkout) and avoid `immediate` outside small sites.
+- **Side effects fire early.** Analytics, ads, and any code that runs on load will fire when the prerender starts, not when the user navigates. Gate side effects on the [`prerenderingchange` event](https://developer.chrome.com/docs/web-platform/prerender-pages#detect_when_a_page_is_prerendered_or_used_for_a_full_navigation) or `document.prerendering`.
+- **Chromium-only.** Safari and Firefox ignore the script — it's a progressive enhancement, never a regression.
+
+### LCP optimization checklist
+
+```markdown
+- [ ] TTFB < 800ms (use CDN, edge caching)
+- [ ] LCP resource is discoverable in initial HTML and prioritized; preload only if the trace shows late discovery
+- [ ] LCP image optimized (WebP/AVIF, correct size)
+- [ ] Critical CSS inlined (< 14KB)
+- [ ] No render-blocking JavaScript in <head>
+- [ ] Fonts don't block text rendering (font-display: swap)
+- [ ] LCP element in initial HTML (not JS-rendered)
+- [ ] Speculation Rules added for likely-next navigations (moderate eagerness)
+```
+
+### LCP element identification
+
+This snippet diagnoses the current page session. It is not field data.
+
+```javascript
+// Find your LCP element
+new PerformanceObserver((list) => {
+  const entries = list.getEntries();
+  const lastEntry = entries[entries.length - 1];
+  console.log('LCP element:', lastEntry.element);
+  console.log('LCP time:', lastEntry.startTime);
+}).observe({ type: 'largest-contentful-paint', buffered: true });
+```
+
+---
+
+## INP: Interaction to Next Paint
+
+INP measures responsiveness across clicks, taps, and key presses during a visit. Diagnose its input delay, processing time, and presentation delay separately; a slow interaction may involve main-thread contention before the handler, expensive application work, or delayed rendering after it.
+
+When field INP is poor or a trace identifies a slow interaction, read [the INP reference](references/INP.md) for trace interpretation, yielding patterns, third-party and rendering causes, a single-session observer, and first-party attribution.
+
+---
+
+## CLS: Cumulative Layout Shift
+
+CLS measures unexpected layout shifts across a page visit. Use field attribution or a trace to identify the shifted node and the trigger; do not assume the visible victim caused the shift.
+
+When field CLS is poor or a trace reports shifts, read [the CLS reference](references/CLS.md) for reserved-space patterns, dynamic content, font and animation fixes, a debugging observer, and a verification checklist.
+
+---
+
+## Measurement sources
+
+| Source | Use |
+|--------|-----|
+| Browser performance trace (Chrome DevTools MCP: `performance_start_trace`) | Observe one load or interaction and diagnose focused insights; use included CrUX context when available |
+| CrUX or Search Console | Prioritize aggregated real-user outcomes at p75 |
+| Lighthouse CLI or PageSpeed Insights | Controlled lab fallback when DevTools tools are unavailable |
+| First-party RUM | Segment current production experience by route, device, release, and attribution |
+| Raw `PerformanceObserver` | Inspect one page session during debugging |
+
+Do not route performance through Chrome DevTools MCP's `lighthouse_audit`; that capability intentionally covers non-performance Lighthouse categories. Do not compare a single lab value directly with a field p75 as if they were equivalent samples.
+
+When adding or reviewing production collection, read [the first-party RUM reference](../performance/references/RUM.md). Prefer the `web-vitals` library because raw browser APIs do not by themselves implement every Core Web Vital's lifecycle and reporting rules.
+
+---
+
+## Framework quick fixes
+
+### Next.js
+```jsx
+// LCP: Use next/image with priority
+import Image from 'next/image';
+<Image src="/hero.jpg" priority fill alt="Hero" />
+
+// INP: Use dynamic imports
+const HeavyComponent = dynamic(() => import('./Heavy'), { ssr: false });
+
+// CLS: Image component handles dimensions automatically
+```
+
+### React
+```jsx
+// LCP: Preload in head
+<link rel="preload" href="/hero.jpg" as="image" fetchpriority="high" />
+
+// INP: Memoize and useTransition
+const [isPending, startTransition] = useTransition();
+startTransition(() => setExpensiveState(newValue));
+
+// CLS: Always specify dimensions in img tags
+```
+
+### Vue/Nuxt
+```vue
+<!-- LCP: Use nuxt/image with preload -->
+<NuxtImg src="/hero.jpg" preload loading="eager" />
+
+<!-- INP: Use async components -->
+<component :is="() => import('./Heavy.vue')" />
+
+<!-- CLS: Use aspect-ratio CSS -->
+<img :style="{ aspectRatio: '16/9' }" />
+```
+
+## References
+
+- [Detailed LCP optimization](references/LCP.md) — read when an LCP trace points to discovery, loading, or render delay
+- [Detailed INP optimization](references/INP.md) — read when a trace or field attribution identifies a slow interaction
+- [Detailed CLS optimization](references/CLS.md) — read when a trace or field attribution identifies unexpected shifts
+- [web.dev LCP](https://web.dev/articles/lcp)
+- [web.dev INP](https://web.dev/articles/inp)
+- [web.dev CLS](https://web.dev/articles/cls)
+- [Performance skill](../performance/SKILL.md)
