@@ -14,11 +14,13 @@
  *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-subscription-refunds           # dry run
- *   pnpm --filter @llmgateway/scripts backfill-subscription-refunds --commit  # apply
+ *   pnpm --filter @llmgateway/scripts backfill-subscription-refunds --commit --organization-id=org_x # apply one org
  *
  * Environment:
  *   DATABASE_URL - defaults to local postgres if unset
  */
+
+import { Decimal } from "decimal.js";
 
 import {
 	aliasedTable,
@@ -30,7 +32,6 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
-import { Decimal } from "decimal.js";
 
 function hasFlag(name: string): boolean {
 	return process.argv.includes(`--${name}`);
@@ -38,11 +39,20 @@ function hasFlag(name: string): boolean {
 
 async function main(): Promise<void> {
 	const commit = hasFlag("commit");
-	const organizationId = process.argv.find((arg) => arg.startsWith("--organization-id="))?.slice("--organization-id=".length);
+	const organizationId = process.argv
+		.find((arg) => arg.startsWith("--organization-id="))
+		?.slice("--organization-id=".length);
+	if (commit && !organizationId) {
+		throw new Error(
+			"Apply requires --organization-id=<id>; review the scoped dry-run first",
+		);
+	}
 	if (organizationId === "") {
 		throw new Error("--organization-id must not be empty");
 	}
-	const scope = organizationId ? [eq(tables.transaction.organizationId, organizationId)] : [];
+	const scope = organizationId
+		? [eq(tables.transaction.organizationId, organizationId)]
+		: [];
 
 	console.log(
 		`Mode: ${commit ? "COMMIT (writes enabled)" : "DRY RUN (no writes)"}`,
@@ -83,6 +93,7 @@ async function main(): Promise<void> {
 			creditAmount: tables.transaction.creditAmount,
 			description: tables.transaction.description,
 			originalType: originalTx.type,
+			originalId: originalTx.id,
 			originalOrganizationId: originalTx.organizationId,
 			originalAmount: originalTx.amount,
 			originalStatus: originalTx.status,
@@ -93,16 +104,9 @@ async function main(): Promise<void> {
 			originalTx,
 			eq(tables.transaction.relatedTransactionId, originalTx.id),
 		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				...scope,
-			),
-		);
+		.where(and(eq(tables.transaction.type, "credit_refund"), ...scope));
 
-	console.log(
-		`\nFound ${rows.length} linked credit_refund row(s) to classify`,
-	);
+	console.log(`\nFound ${rows.length} linked credit_refund row(s) to classify`);
 
 	let retyped = 0;
 	let skipped = 0;
@@ -110,10 +114,30 @@ async function main(): Promise<void> {
 		if (row.originalType === "credit_topup") {
 			continue;
 		}
-		const planTypes: readonly string[] = ["dev_plan_start", "dev_plan_upgrade", "dev_plan_renewal", "dev_plan_reset_pass", "chat_plan_start", "chat_plan_upgrade", "chat_plan_renewal", "subscription_start", "subscription_upgrade", "subscription_renewal"];
-		if (!planTypes.includes(row.originalType) || row.originalOrganizationId !== row.organizationId || row.originalStatus !== "completed" || row.status !== "completed" || !new Decimal(row.originalAmount ?? 0).gt(0) || !new Decimal(row.amount ?? 0).gt(0)) {
+		const planTypes: readonly string[] = [
+			"dev_plan_start",
+			"dev_plan_upgrade",
+			"dev_plan_renewal",
+			"dev_plan_reset_pass",
+			"chat_plan_start",
+			"chat_plan_upgrade",
+			"chat_plan_renewal",
+			"subscription_start",
+			"subscription_upgrade",
+			"subscription_renewal",
+		];
+		if (
+			!planTypes.includes(row.originalType) ||
+			row.originalOrganizationId !== row.organizationId ||
+			row.originalStatus !== "completed" ||
+			row.status !== "completed" ||
+			!new Decimal(row.originalAmount ?? 0).gt(0) ||
+			!new Decimal(row.amount ?? 0).gt(0)
+		) {
 			skipped += 1;
-			console.warn(`  SKIP ${row.id}: original is not a completed plan payment in the same organization — review manually`);
+			console.warn(
+				`  SKIP ${row.id}: original is not a completed plan payment in the same organization — review manually`,
+			);
 			continue;
 		}
 		// Plan refunds have always been recorded with creditAmount 0 (the
@@ -145,7 +169,17 @@ async function main(): Promise<void> {
 					type: "subscription_refund",
 					description: newDescription,
 				})
-				.where(and(eq(tables.transaction.id, row.id), eq(tables.transaction.type, "credit_refund"), eq(tables.transaction.organizationId, row.organizationId), eq(tables.transaction.status, "completed"), sql`COALESCE(${tables.transaction.creditAmount}, 0) = 0`));
+				.where(
+					and(
+						eq(tables.transaction.id, row.id),
+						eq(tables.transaction.type, "credit_refund"),
+						eq(tables.transaction.organizationId, row.organizationId),
+						eq(tables.transaction.status, "completed"),
+						eq(tables.transaction.relatedTransactionId, row.originalId),
+						eq(tables.transaction.amount, row.amount!),
+						sql`COALESCE(${tables.transaction.creditAmount}, 0) = 0`,
+					),
+				);
 		}
 	}
 

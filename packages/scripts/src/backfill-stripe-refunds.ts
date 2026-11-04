@@ -21,7 +21,7 @@
  *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds                       # dry run
- *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds --commit              # apply
+ *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds --commit --payment-intent=pi_x # apply one PI
  *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds --payment-intent=pi_x # scope to one PI
  *
  * Environment:
@@ -29,11 +29,12 @@
  *   DATABASE_URL      - defaults to local postgres if unset
  */
 
+import { pathToFileURL } from "node:url";
+
+import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 
-import { and, db, eq, inArray, isNull, or, tables } from "@llmgateway/db";
-import { Decimal } from "decimal.js";
-import { pathToFileURL } from "node:url";
+import { and, db, eq, inArray, isNull, or, tables, sql } from "@llmgateway/db";
 
 const STRIPE_API_VERSION = "2025-04-30.basil" as const;
 const DEV_PLAN_TX_TYPES = [
@@ -63,7 +64,9 @@ function subscriptionRefundRow(args: {
 	relatedTransactionId: string | null;
 	reason: string | null;
 }): typeof tables.transaction.$inferInsert {
-	const ratio = args.originalAmount.gt(0) ? args.refundDollars.div(args.originalAmount) : new Decimal(0);
+	const ratio = args.originalAmount.gt(0)
+		? args.refundDollars.div(args.originalAmount)
+		: new Decimal(0);
 	return {
 		createdAt: args.createdAt,
 		updatedAt: args.createdAt,
@@ -105,6 +108,11 @@ async function main(): Promise<void> {
 	const stripe = getStripe();
 	const commit = hasFlag("commit");
 	const scopePI = parseFlag("payment-intent");
+	if (commit && !scopePI) {
+		throw new Error(
+			"Apply requires --payment-intent=<id>; review each payment dry-run and preserve its original rows first",
+		);
+	}
 	if (scopePI === "") {
 		throw new Error("--payment-intent must not be empty");
 	}
@@ -171,8 +179,33 @@ export async function legacyPass(
 		const original = await db.query.transaction.findFirst({
 			where: { id: { eq: row.relatedTransactionId } },
 		});
-		if (!original || (original.stripePaymentIntentId !== null && original.stripePaymentIntentId !== row.stripePaymentIntentId) || original.organizationId !== row.organizationId || original.status !== "completed" || row.status !== "completed" || !new Decimal(original.amount ?? 0).gt(0) || !new Decimal(row.creditAmount ?? 0).isZero()) {
+		if (
+			!original ||
+			(original.stripePaymentIntentId !== null &&
+				original.stripePaymentIntentId !== row.stripePaymentIntentId) ||
+			original.organizationId !== row.organizationId ||
+			(original.currency ?? "USD").toLowerCase() !==
+				(row.currency ?? "USD").toLowerCase() ||
+			original.status !== "completed" ||
+			row.status !== "completed" ||
+			!new Decimal(original.amount ?? 0).gt(0) ||
+			!new Decimal(row.creditAmount ?? 0).isZero()
+		) {
 			nonDevpassRows += 1;
+			continue;
+		}
+
+		if (
+			original.stripePaymentIntentId === null &&
+			(!row.stripePaymentIntentId ||
+				!original.stripeInvoiceId ||
+				(await resolveRefundInvoiceId(stripe, row.stripePaymentIntentId)) !==
+					original.stripeInvoiceId)
+		) {
+			nonDevpassRows += 1;
+			console.warn(
+				`  SKIP ${row.id}: invoice/payment linkage could not be verified`,
+			);
 			continue;
 		}
 
@@ -198,10 +231,7 @@ export async function legacyPass(
 		}
 
 		devpassRows.push(row);
-		originalAmountByRefundId.set(
-			row.id,
-			new Decimal(original.amount ?? "0"),
-		);
+		originalAmountByRefundId.set(row.id, new Decimal(original.amount ?? "0"));
 	}
 
 	if (nonDevpassRows > 0) {
@@ -243,9 +273,17 @@ export async function legacyPass(
 
 	for (const [pi, rows] of byPI) {
 		console.log(`=== ${pi} (${rows.length} legacy row(s)) ===`);
-		if (rows.some((row) => row.organizationId !== rows[0].organizationId || row.relatedTransactionId !== rows[0].relatedTransactionId)) {
+		if (
+			rows.some(
+				(row) =>
+					row.organizationId !== rows[0].organizationId ||
+					row.relatedTransactionId !== rows[0].relatedTransactionId,
+			)
+		) {
 			totalSkippedPI += 1;
-			console.warn("  Conflicting original payments for this payment intent — review manually");
+			console.warn(
+				"  Conflicting original payments for this payment intent — review manually",
+			);
 			continue;
 		}
 
@@ -308,7 +346,18 @@ export async function legacyPass(
 			continue;
 		}
 
-		const stripeTotal = refunds.reduce((s, r) => s.plus(r.amount), new Decimal(0)).div(100);
+		const stripeTotal = refunds
+			.reduce((s, r) => s.plus(r.amount), new Decimal(0))
+			.div(100);
+		const purchaseAmount =
+			originalAmountByRefundId.get(rows[0].id) ?? new Decimal(0);
+		if (!refundsFitPurchase(refunds, purchaseAmount, rows[0].currency)) {
+			totalSkippedPI += 1;
+			console.warn(
+				"  Refund amounts or currency do not match the original payment — review manually",
+			);
+			continue;
+		}
 		console.log(
 			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
 		);
@@ -349,7 +398,8 @@ export async function legacyPass(
 		}
 
 		const sample = rows[0];
-		const originalAmount = originalAmountByRefundId.get(sample.id) ?? new Decimal(0);
+		const originalAmount =
+			originalAmountByRefundId.get(sample.id) ?? new Decimal(0);
 
 		console.log(
 			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${stripeTotal.minus(legacyTotal).toFixed(2)}`,
@@ -357,6 +407,55 @@ export async function legacyPass(
 
 		if (commit) {
 			await db.transaction(async (tx) => {
+				const locked = await tx
+					.select()
+					.from(tables.transaction)
+					.where(
+						inArray(
+							tables.transaction.id,
+							rows.map((row) => row.id),
+						),
+					)
+					.for("update");
+				if (locked.length === 0) {
+					return;
+				}
+				if (
+					locked.length !== rows.length ||
+					locked.some((row) => {
+						const before = rows.find((r) => r.id === row.id)!;
+						return (
+							row.type !== before.type ||
+							row.stripeRefundId !== null ||
+							row.organizationId !== before.organizationId ||
+							row.relatedTransactionId !== before.relatedTransactionId ||
+							row.amount !== before.amount ||
+							row.creditAmount !== before.creditAmount ||
+							row.stripePaymentIntentId !== pi
+						);
+					})
+				) {
+					throw new Error(
+						"Legacy refund changed after dry-run classification; no rows deleted",
+					);
+				}
+				for (const refund of refunds) {
+					const existing = await tx.query.transaction.findFirst({
+						where: { stripeRefundId: { eq: refund.id } },
+					});
+					if (
+						existing &&
+						(existing.organizationId !== sample.organizationId ||
+							existing.relatedTransactionId !== sample.relatedTransactionId ||
+							!new Decimal(existing.amount ?? 0).eq(
+								new Decimal(refund.amount).div(100),
+							) ||
+							existing.status !== "completed" ||
+							!new Decimal(existing.creditAmount ?? 0).isZero())
+					) {
+						throw new Error("Conflicting existing refund; no rows deleted");
+					}
+				}
 				await tx.delete(tables.transaction).where(
 					inArray(
 						tables.transaction.id,
@@ -365,19 +464,44 @@ export async function legacyPass(
 				);
 
 				for (const r of toInsert) {
-					await tx.insert(tables.transaction).values(
-						subscriptionRefundRow({
-							createdAt: new Date(r.created * 1000),
-							organizationId: sample.organizationId,
-							refundDollars: new Decimal(r.amount).div(100),
-							originalAmount,
-							currency: sample.currency,
-							paymentIntentId: pi,
-							refundId: r.id,
-							relatedTransactionId: sample.relatedTransactionId,
-							reason: r.reason ?? null,
-						}),
-					).onConflictDoNothing();
+					await tx
+						.insert(tables.transaction)
+						.values(
+							subscriptionRefundRow({
+								createdAt: new Date(r.created * 1000),
+								organizationId: sample.organizationId,
+								refundDollars: new Decimal(r.amount).div(100),
+								originalAmount,
+								currency: sample.currency,
+								paymentIntentId: pi,
+								refundId: r.id,
+								relatedTransactionId: sample.relatedTransactionId,
+								reason: r.reason ?? null,
+							}),
+						)
+						.onConflictDoNothing({
+							target: tables.transaction.stripeRefundId,
+							where: sql`${tables.transaction.stripeRefundId} IS NOT NULL`,
+						});
+				}
+				for (const refund of refunds) {
+					const recorded = await tx.query.transaction.findFirst({
+						where: { stripeRefundId: { eq: refund.id } },
+					});
+					if (
+						!recorded ||
+						recorded.organizationId !== sample.organizationId ||
+						recorded.relatedTransactionId !== sample.relatedTransactionId ||
+						!new Decimal(recorded.amount ?? 0).eq(
+							new Decimal(refund.amount).div(100),
+						) ||
+						recorded.status !== "completed" ||
+						!new Decimal(recorded.creditAmount ?? 0).isZero()
+					) {
+						throw new Error(
+							"Concurrent refund conflict; legacy replacement rolled back",
+						);
+					}
 				}
 			});
 			console.log(`  Applied`);
@@ -388,12 +512,8 @@ export async function legacyPass(
 	}
 
 	console.log(`\nPass 1 summary:`);
-	console.log(
-		`  ${totalDelete} legacy row(s) ${commit ? "deleted" : "would be deleted"}`,
-	);
-	console.log(
-		`  ${totalInsert} correct row(s) ${commit ? "inserted" : "would be inserted"}`,
-	);
+	console.log(`  ${totalDelete} legacy row(s) planned for deletion`);
+	console.log(`  ${totalInsert} correct row(s) planned for insertion`);
 	console.log(`  ${totalSkippedPI} payment intent(s) skipped`);
 }
 
@@ -447,6 +567,7 @@ export async function sweepPass(
 		"subscription_start",
 	];
 
+	const paymentRefunds = new Map<string, Stripe.Refund[]>();
 	let scanned = 0;
 	let inserted = 0;
 	let unmatched = 0;
@@ -515,9 +636,65 @@ export async function sweepPass(
 			continue;
 		}
 
-		if (original.status !== "completed" || !new Decimal(original.amount ?? 0).gt(0)) {
+		if (
+			original.status !== "completed" ||
+			!new Decimal(original.amount ?? 0).gt(0)
+		) {
 			manualReviewMisses += 1;
-			console.warn(`  SKIP ${refund.id}: original payment is not completed with a positive amount`);
+			console.warn(
+				`  SKIP ${refund.id}: original payment is not completed with a positive amount`,
+			);
+			continue;
+		}
+
+		let succeeded = paymentRefunds.get(pi);
+		if (!succeeded) {
+			succeeded = [];
+			for await (const candidate of stripe.refunds.list({
+				payment_intent: pi,
+				limit: 100,
+			})) {
+				if (candidate.status === "succeeded") {
+					succeeded.push(candidate);
+				}
+			}
+			paymentRefunds.set(pi, succeeded);
+		}
+		if (
+			!refundsFitPurchase(
+				succeeded,
+				new Decimal(original.amount ?? 0),
+				original.currency,
+			) ||
+			!succeeded.some(
+				(candidate) =>
+					candidate.id === refund.id &&
+					candidate.amount === refund.amount &&
+					candidate.currency === refund.currency,
+			)
+		) {
+			manualReviewMisses += 1;
+			console.warn(
+				`  SKIP ${refund.id}: aggregate refund amounts or currency do not match the purchase`,
+			);
+			continue;
+		}
+
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: original.organizationId } },
+		});
+		if (
+			!organization ||
+			organization.devPlanStripeSubscriptionId ||
+			organization.chatPlanStripeSubscriptionId ||
+			organization.stripeSubscriptionId ||
+			refundDollars.lte(0) ||
+			refundDollars.gt(original.amount ?? 0)
+		) {
+			manualReviewMisses += 1;
+			console.warn(
+				`  SKIP ${refund.id}: active subscription or invalid payment amount requires reconciliation before recording a refund`,
+			);
 			continue;
 		}
 
@@ -574,19 +751,42 @@ export async function sweepPass(
 		);
 
 		if (commit) {
-			await db.insert(tables.transaction).values(
-				subscriptionRefundRow({
-					createdAt: created,
-					organizationId: original.organizationId,
-					refundDollars,
-					originalAmount: new Decimal(original.amount ?? "0"),
-					currency: original.currency,
-					paymentIntentId: pi,
-					refundId: refund.id,
-					relatedTransactionId: original.id,
-					reason: refund.reason ?? null,
-				}),
-			).onConflictDoNothing();
+			await db
+				.insert(tables.transaction)
+				.values(
+					subscriptionRefundRow({
+						createdAt: created,
+						organizationId: original.organizationId,
+						refundDollars,
+						originalAmount: new Decimal(original.amount ?? "0"),
+						currency: original.currency,
+						paymentIntentId: pi,
+						refundId: refund.id,
+						relatedTransactionId: original.id,
+						reason: refund.reason ?? null,
+					}),
+				)
+				.onConflictDoNothing({
+					target: tables.transaction.stripeRefundId,
+					where: sql`${tables.transaction.stripeRefundId} IS NOT NULL`,
+				});
+			const recorded = await db.query.transaction.findFirst({
+				where: { stripeRefundId: { eq: refund.id } },
+			});
+			if (
+				!recorded ||
+				recorded.organizationId !== original.organizationId ||
+				recorded.relatedTransactionId !== original.id ||
+				!new Decimal(recorded.amount ?? 0).eq(refundDollars) ||
+				(recorded.currency ?? "USD").toLowerCase() !==
+					refund.currency.toLowerCase() ||
+				recorded.status !== "completed" ||
+				!new Decimal(recorded.creditAmount ?? 0).isZero()
+			) {
+				throw new Error(
+					"Conflicting concurrent refund; manual reconciliation required",
+				);
+			}
 		}
 		inserted += 1;
 	}
@@ -594,7 +794,7 @@ export async function sweepPass(
 	console.log(`\nPass 2 summary:`);
 	console.log(`  ${scanned} Stripe refund(s) scanned`);
 	console.log(
-		`  ${inserted} missing row(s) ${commit ? "inserted" : "would be inserted"}`,
+		`  ${inserted} missing row(s) ${commit ? "processed (including concurrent duplicates)" : "would be inserted"}`,
 	);
 	console.log(
 		`  ${manualReviewMisses} missing refund(s) skipped for manual review`,
@@ -605,9 +805,30 @@ export async function sweepPass(
 	console.log(`  ${unmatched} refund(s) unmatched`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+	process.argv[1] &&
+	import.meta.url === pathToFileURL(process.argv[1]).href
+) {
 	main().catch((err) => {
 		console.error("Error:", err);
 		process.exit(1);
 	});
+}
+function refundsFitPurchase(
+	refunds: Stripe.Refund[],
+	amount: Decimal,
+	currency: string | null,
+): boolean {
+	return (
+		refunds.every(
+			(refund) =>
+				Number.isSafeInteger(refund.amount) &&
+				refund.amount > 0 &&
+				refund.currency.toLowerCase() === (currency ?? "USD").toLowerCase(),
+		) &&
+		refunds
+			.reduce((total, refund) => total.plus(refund.amount), new Decimal(0))
+			.div(100)
+			.lte(amount)
+	);
 }

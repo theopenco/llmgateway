@@ -72,12 +72,17 @@ beforeEach(async () => {
 		{
 			id: ORG,
 			name: "Test Organization",
+			billingEmail: "test@example.com",
 			kind: "devpass",
 			credits: "12.34",
 			devPlan: "pro",
 			devPlanStripeSubscriptionId: "sub_fixture_plan",
 		},
-		{ id: OTHER, name: "Other Test Organization" },
+		{
+			id: OTHER,
+			name: "Other Test Organization",
+			billingEmail: "test@example.com",
+		},
 	]);
 	await db
 		.insert(tables.userOrganization)
