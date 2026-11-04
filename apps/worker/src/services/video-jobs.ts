@@ -28,6 +28,7 @@ import {
 	stripRetentionSensitiveLogFields,
 	tables,
 	UnifiedFinishReason,
+	isNotNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -65,8 +66,11 @@ import {
 	getGoogleAiStudioVideoFileName,
 	parseGoogleAiStudioFileName,
 } from "@llmgateway/shared/video-generation-config";
+import { getVideoOutputTokenPrice } from "@llmgateway/shared/video-token-pricing";
 
 import { readMp4DurationSeconds } from "./mp4-duration.js";
+
+class VideoBillingPendingError extends Error {}
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
@@ -1420,9 +1424,25 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 	// Token-billed video output (e.g. an edit, whose length follows the source
 	// rather than the requested duration) is billed exactly as reported.
 	const videoOutputPrice = getVideoMapping(job)?.videoOutputPrice;
+	if (isBytedanceVideoProvider(job.usedProvider)) {
+		const completionTokens = getByteDanceVideoCompletionTokens(job);
+		const tokenPrice = getVideoOutputTokenPrice(
+			videoOutputPrice,
+			getByteDanceVideoTokenPricingOptions(job),
+		);
+		if (tokenPrice === undefined) {
+			throw new VideoBillingPendingError(
+				"ByteDance video token price is unavailable",
+			);
+		}
+		return new Decimal(completionTokens)
+			.mul(tokenPrice)
+			.toDecimalPlaces(6)
+			.toNumber();
+	}
 	const usage = getUpstreamVideoUsage(job);
 	const videoOutputTokens = usage ? getVideoOutputTokens(usage) : 0;
-	if (videoOutputPrice && videoOutputTokens > 0) {
+	if (typeof videoOutputPrice === "string" && videoOutputTokens > 0) {
 		return new Decimal(videoOutputTokens)
 			.mul(videoOutputPrice)
 			.toDecimalPlaces(6)
@@ -1524,6 +1544,21 @@ function createWebhookSignature(
 
 async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 	let currentJob = job;
+	if (
+		!job.resultLoggedAt &&
+		job.status === "completed" &&
+		isBytedanceVideoProvider(job.usedProvider)
+	) {
+		try {
+			getVideoOutputCost(job);
+		} catch (error) {
+			if (!(error instanceof VideoBillingPendingError)) {
+				throw error;
+			}
+			await deferVideoJobBilling(job, getVideoStatusResponse(job), error);
+			return;
+		}
+	}
 
 	if (!currentJob.resultLoggedAt) {
 		const now = new Date();
@@ -1536,7 +1571,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				})
 				.where(
 					and(
-						eq(tables.videoJob.id, currentJob.id),
+						matchVideoJobSnapshot(currentJob),
+						inArray(tables.videoJob.status, TERMINAL_VIDEO_STATUS_VALUES),
 						isNull(tables.videoJob.resultLoggedAt),
 					),
 				)
@@ -1712,7 +1748,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			return { ...jobToLog, logId, ...costFields };
 		});
 
-		if (claimedJob?.contentUrl) {
+		if (!claimedJob) {
+			return;
+		}
+		if (claimedJob.contentUrl) {
 			await cacheVideoProxySourceUrl(logId, claimedJob.contentUrl);
 		}
 		if (claimedJob) {
@@ -1738,6 +1777,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 	}
 
 	if (
+		currentJob.resultLoggedAt &&
+		TERMINAL_VIDEO_STATUSES.has(currentJob.status) &&
 		currentJob.callbackUrl &&
 		currentJob.callbackSecret &&
 		currentJob.callbackStatus === "pending" &&
@@ -1757,6 +1798,9 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				.where(
 					and(
 						eq(tables.videoJob.id, currentJob.id),
+						eq(tables.videoJob.status, currentJob.status),
+						inArray(tables.videoJob.status, TERMINAL_VIDEO_STATUS_VALUES),
+						isNotNull(tables.videoJob.resultLoggedAt),
 						eq(tables.videoJob.callbackStatus, "pending"),
 						isNull(tables.videoJob.callbackEventId),
 					),
@@ -2181,6 +2225,7 @@ async function fetchBytedanceStatus(
 	return addRequestedVideoMetadata(job, {
 		...body,
 		status: rawStatus,
+		resolution: data.resolution,
 		progress:
 			rawStatus === "succeeded" || rawStatus === "completed"
 				? 100
@@ -2283,6 +2328,7 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "xai" ||
+		isBytedanceVideoProvider(job.usedProvider) ||
 		isGoogleVertexVideoProvider(job.usedProvider) ||
 		isGoogleAiStudioVideoProvider(job.usedProvider) ||
 		isMinimaxVideoProvider(job.usedProvider) ||
@@ -2380,6 +2426,7 @@ export async function processPendingVideoJobs(): Promise<void> {
 		}
 		// Upstream status failures are expected; they back off and fail the job.
 		let isUpstreamPollFailure = true;
+		let billingStatus = getVideoStatusResponse(job);
 		try {
 			const upstreamStatus = await fetchUpstreamStatus(job);
 			isUpstreamPollFailure = false;
@@ -2403,6 +2450,18 @@ export async function processPendingVideoJobs(): Promise<void> {
 				: enrichedUpstreamStatus;
 			status = normalizeVideoStatus(enrichedUpstreamStatus.status);
 			progress = extractProgress(enrichedUpstreamStatus);
+			if (hasPendingVideoBilling(job) && status !== "completed") {
+				throw new VideoBillingPendingError(
+					"Awaiting usage for an already completed ByteDance video",
+				);
+			}
+			if (
+				status === "completed" &&
+				isBytedanceVideoProvider(job.usedProvider)
+			) {
+				billingStatus = enrichedUpstreamStatus;
+				getVideoOutputCost({ ...job, upstreamStatusResponse: billingStatus });
+			}
 			const isTimedOut =
 				!TERMINAL_VIDEO_STATUSES.has(status) && hasVideoJobTimedOut(job, now);
 			if (isTimedOut) {
@@ -2488,6 +2547,17 @@ export async function processPendingVideoJobs(): Promise<void> {
 				break;
 			}
 
+			if (
+				error instanceof VideoBillingPendingError ||
+				hasPendingVideoBilling(job)
+			) {
+				await deferVideoJobBilling(
+					job,
+					billingStatus,
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				continue;
+			}
 			const message = error instanceof Error ? error.message : String(error);
 			const nextErrorCount = getVideoJobPollErrorCount(job) + 1;
 			if (isUpstreamPollFailure) {
@@ -2846,6 +2916,155 @@ export async function processPendingWebhookDeliveries(): Promise<void> {
 		await deliverWebhook(delivery, job);
 	}
 }
+function getByteDanceVideoTokenPricingOptions(job: VideoJobRecord) {
+	const createResponse = job.upstreamCreateResponse as Record<
+		string,
+		unknown
+	> | null;
+	const storedRequest = createResponse?.llmgateway_upstream_request;
+	const request =
+		storedRequest &&
+		typeof storedRequest === "object" &&
+		!Array.isArray(storedRequest)
+			? (storedRequest as Record<string, unknown>)
+			: null;
+	const storedPricing = createResponse?.llmgateway_video_token_pricing;
+	const pricing =
+		storedPricing &&
+		typeof storedPricing === "object" &&
+		!Array.isArray(storedPricing)
+			? (storedPricing as Record<string, unknown>)
+			: null;
+	if (
+		typeof pricing?.hasVideoInput !== "boolean" &&
+		!Array.isArray(request?.content)
+	) {
+		throw new VideoBillingPendingError(
+			"ByteDance video billing input metadata is missing",
+		);
+	}
+	const status = getVideoStatusResponse(job);
+	const rawStatus = status?.bytedance_raw_response;
+	const actualStatus =
+		rawStatus && typeof rawStatus === "object" && !Array.isArray(rawStatus)
+			? (rawStatus as Record<string, unknown>)
+			: status;
+	const returnedResolution = actualStatus
+		? readNestedValue(actualStatus, "resolution")
+		: undefined;
+	const persistedResolution = pricing?.resolution ?? request?.resolution;
+	return {
+		resolution:
+			typeof returnedResolution === "string" && returnedResolution.length > 0
+				? returnedResolution
+				: typeof persistedResolution === "string" &&
+					  persistedResolution.length > 0
+					? persistedResolution
+					: getRequestedVideoMetadata({ ...job, upstreamStatusResponse: null })
+							?.resolution,
+		includeAudio:
+			typeof pricing?.includeAudio === "boolean"
+				? pricing.includeAudio
+				: typeof request?.generate_audio === "boolean"
+					? request.generate_audio
+					: true,
+		hasVideoInput:
+			typeof pricing?.hasVideoInput === "boolean"
+				? pricing.hasVideoInput
+				: Array.isArray(request?.content) &&
+					request.content.some(
+						(entry: unknown) =>
+							entry !== null &&
+							typeof entry === "object" &&
+							"type" in entry &&
+							entry.type === "video_url",
+					),
+	};
+}
+
+function getByteDanceVideoCompletionTokens(job: VideoJobRecord): number {
+	const tokens = getUpstreamVideoUsage(job)?.completion_tokens;
+	if (
+		typeof tokens !== "number" ||
+		!Number.isSafeInteger(tokens) ||
+		tokens <= 0
+	) {
+		throw new VideoBillingPendingError(
+			"ByteDance video completion_tokens are missing or invalid",
+		);
+	}
+	return tokens;
+}
+
+function hasPendingVideoBilling(job: VideoJobRecord): boolean {
+	return (
+		isBytedanceVideoProvider(job.usedProvider) &&
+		getVideoStatusResponse(job)?.llmgateway_billing_pending === true
+	);
+}
+
+async function deferVideoJobBilling(
+	job: VideoJobRecord,
+	status: Record<string, unknown> | null,
+	error: Error,
+): Promise<void> {
+	const previousCount =
+		getVideoStatusResponse(job)?.llmgateway_billing_retry_count;
+	const retryCount =
+		typeof previousCount === "number" &&
+		Number.isSafeInteger(previousCount) &&
+		previousCount >= 0
+			? previousCount + 1
+			: 1;
+	const deferred = await db
+		.update(tables.videoJob)
+		.set({
+			status: "in_progress",
+			completedAt: null,
+			lastPolledAt: new Date(),
+			nextPollAt: new Date(
+				Date.now() + calculateNextVideoPollErrorDelayMs(retryCount),
+			),
+			pollAttemptCount: job.pollAttemptCount + 1,
+			upstreamStatusResponse: {
+				...status,
+				llmgateway_billing_pending: true,
+				llmgateway_billing_retry_count: retryCount,
+				llmgateway_last_billing_error: error.message,
+			},
+		})
+		.where(
+			and(matchVideoJobSnapshot(job), isNull(tables.videoJob.resultLoggedAt)),
+		)
+		.returning({ id: tables.videoJob.id });
+	if (deferred.length > 0) {
+		logger.warn("Deferring completed video billing; retrying upstream usage", {
+			videoJobId: job.id,
+			upstreamId: job.upstreamId,
+			retryCount,
+			error: error.message,
+		});
+	}
+}
+function getVideoStatusResponse(
+	job: VideoJobRecord,
+): Record<string, unknown> | null {
+	const status = job.upstreamStatusResponse;
+	return status && typeof status === "object" && !Array.isArray(status)
+		? (status as Record<string, unknown>)
+		: null;
+}
+function matchVideoJobSnapshot(job: VideoJobRecord) {
+	return and(
+		eq(tables.videoJob.id, job.id),
+		eq(tables.videoJob.status, job.status),
+		eq(tables.videoJob.pollAttemptCount, job.pollAttemptCount),
+		job.lastPolledAt
+			? eq(tables.videoJob.lastPolledAt, job.lastPolledAt)
+			: isNull(tables.videoJob.lastPolledAt),
+	);
+}
+
 function isGoogleAiStudioVideoProvider(providerId: string): boolean {
 	return providerId === "google-ai-studio";
 }
@@ -3024,6 +3243,15 @@ function readTokenCount(value: unknown): number {
  * at `outputPrice`. Video output itself is billed per second.
  */
 function getVideoTokenCosts(job: VideoJobRecord): VideoTokenCosts | null {
+	if (isBytedanceVideoProvider(job.usedProvider)) {
+		return {
+			promptTokens: 0,
+			completionTokens: getByteDanceVideoCompletionTokens(job),
+			reasoningTokens: 0,
+			inputCost: 0,
+			outputCost: 0,
+		};
+	}
 	const mapping = getVideoMapping(job);
 	if (!mapping?.inputPrice && !mapping?.outputPrice) {
 		return null;
@@ -3069,14 +3297,10 @@ function getVideoBilledCost(job: VideoJobRecord): number {
 function getUpstreamVideoUsage(
 	job: VideoJobRecord,
 ): Record<string, unknown> | null {
-	const status =
-		job.upstreamStatusResponse &&
-		typeof job.upstreamStatusResponse === "object" &&
-		!Array.isArray(job.upstreamStatusResponse)
-			? (job.upstreamStatusResponse as Record<string, unknown>)
-			: null;
-	return status?.usage && typeof status.usage === "object"
-		? (status.usage as Record<string, unknown>)
+	const status = getVideoStatusResponse(job);
+	const usage = status ? readNestedValue(status, "usage") : null;
+	return usage && typeof usage === "object" && !Array.isArray(usage)
+		? (usage as Record<string, unknown>)
 		: null;
 }
 function getVideoOutputTokens(usage: Record<string, unknown>): number {

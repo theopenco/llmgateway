@@ -1,6 +1,16 @@
 import { createServer } from "node:http";
 
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { Decimal } from "decimal.js";
+import {
+	afterAll,
+	beforeAll,
+	describe,
+	expect,
+	test,
+	vi,
+	beforeEach,
+	afterEach,
+} from "vitest";
 import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
@@ -17,12 +27,18 @@ import { clearCache } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { models } from "@llmgateway/models";
 import {
 	buildGatewayVideoLogContentUrl,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 } from "@llmgateway/shared";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	hashApiKeyForStorage,
+	getApiKeyHashSecret,
+} from "@llmgateway/shared/api-key-hash";
+import { getVideoOutputTokenPrice } from "@llmgateway/shared/video-token-pricing";
 
+import type { ProviderModelMapping } from "@llmgateway/models";
 import type { AddressInfo } from "node:net";
 
 describe("videos", () => {
@@ -3577,3 +3593,309 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("1280x720");
 	});
 });
+
+describe("Seedance pricing regressions", () => {
+	const harness = createGatewayApiTestHarness();
+
+	beforeAll(() => {
+		vi.stubEnv("LLM_BYTEDANCE_API_KEY", undefined);
+		vi.stubEnv("LLM_BYTEDANCE_BASE_URL", undefined);
+	});
+
+	afterAll(() => {
+		vi.unstubAllEnvs();
+	});
+
+	beforeEach(async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-seedance-video",
+			provider: "bytedance",
+			...encryptProviderKeyForStorage(
+				"bytedance-test-token",
+				"managed-seedance-video",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+		});
+	});
+
+	const submit = (body: Record<string, unknown>) =>
+		app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				prompt: "A lighthouse at dusk",
+				...body,
+			}),
+		});
+
+	test.each(
+		[
+			{ size: "1280x720", resolution: "720p", ratio: "16:9" },
+			{ size: "1920x1080", resolution: "1080p", ratio: "16:9" },
+			{ size: "1080x1920", resolution: "1080p", ratio: "9:16" },
+		].flatMap((size) =>
+			[true, false, undefined].map((audio) => ({ ...size, audio })),
+		),
+	)(
+		"forwards Seedance 1.5 Pro $resolution/$ratio audio=$audio",
+		async ({ size, resolution, ratio, audio }) => {
+			const res = await submit({
+				model: "bytedance/seedance-1-5-pro",
+				size,
+				seconds: 5,
+				audio,
+			});
+			expect(res.status).toBe(200);
+			const created = await res.json();
+			const job = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(
+				(job?.upstreamCreateResponse as Record<string, unknown>)
+					?.llmgateway_upstream_request,
+			).toMatchObject({
+				model: "seedance-1-5-pro-251215",
+				resolution,
+				ratio,
+				duration: 5,
+				generate_audio: audio ?? true,
+			});
+		},
+	);
+
+	test.each([
+		{
+			model: "seedance-2-0",
+			seconds: 4,
+			bound: 15,
+			size: "1280x720",
+			resolution: "720p",
+			references: 1,
+		},
+		{
+			model: "seedance-2-0-fast",
+			seconds: 15,
+			bound: 15,
+			size: "1280x720",
+			resolution: "720p",
+			references: 3,
+		},
+		{
+			model: "seedance-2-0-mini",
+			seconds: 4,
+			bound: 15,
+			size: "848x480",
+			resolution: "480p",
+			references: 1,
+		},
+		{
+			model: "seedance-2-5",
+			seconds: 4,
+			bound: 30,
+			size: "1920x1080",
+			resolution: "1080p",
+			references: 1,
+		},
+		{
+			model: "seedance-2-5",
+			seconds: 30,
+			bound: 30,
+			size: "1280x720",
+			resolution: "720p",
+			references: 3,
+		},
+	])(
+		"reserves output plus total reference cap for $model/$seconds seconds",
+		async ({ model, seconds, bound, size, resolution, references }) => {
+			const mapping = models
+				.find((entry) => entry.id === model)!
+				.providers.find(
+					(entry) => entry.providerId === "bytedance",
+				)! as ProviderModelMapping;
+			const rate = new Decimal(
+				mapping.perSecondPrice![`${resolution}_audio`] ??
+					mapping.perSecondPrice!.default_audio,
+			);
+			const expected = rate.mul(seconds + bound).toNumber();
+			const referenceVideos = Array.from(
+				{ length: references },
+				(_, index) => `https://example.com/reference-${index}.mp4`,
+			);
+			const body = {
+				model: `bytedance/${model}`,
+				seconds,
+				size,
+				audio: false,
+				reference_videos: referenceVideos,
+			};
+
+			// Output alone fits this balance; output plus reference input does not.
+			await harness.setOrganizationCredits(
+				new Decimal(expected).minus("0.01").toString(),
+			);
+			const blocked = await submit(body);
+			expect(blocked.status).toBe(402);
+			expect(await db.query.videoJob.findMany()).toHaveLength(0);
+			expect(getMockVideos()).toHaveLength(0);
+
+			await harness.setOrganizationCredits("100");
+			await clearCache();
+			const accepted = await submit(body);
+			expect(accepted.status).toBe(200);
+			const created = await accepted.json();
+			const job = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			const reserved = expectConservativeSeedanceReservation(
+				Number(
+					(job?.upstreamCreateResponse as Record<string, unknown> | null)
+						?.llmgateway_reserved_spend_usd,
+				),
+				mapping,
+				size,
+				resolution,
+				seconds,
+				bound,
+			);
+			expect(reserved).toBeCloseTo(expected);
+			expect(reserved).toBeGreaterThanOrEqual(rate.mul(seconds + 2).toNumber());
+			expect(
+				(job?.upstreamCreateResponse as Record<string, unknown>)
+					?.llmgateway_upstream_request,
+			).toMatchObject({
+				resolution,
+				generate_audio: false,
+			});
+			expect(getMockVideo(job!.upstreamId)?.referenceVideoUrls).toEqual(
+				referenceVideos,
+			);
+		},
+	);
+});
+function expectConservativeSeedanceReservation(
+	reserved: number,
+	mapping: ProviderModelMapping,
+	size: string,
+	resolution: string,
+	durationSeconds: number,
+	inputDurationCap: number,
+): number {
+	const [width, height] = size.split("x").map(Number);
+	const tokenPrice = getVideoOutputTokenPrice(mapping.videoOutputPrice, {
+		resolution,
+		includeAudio: false,
+		hasVideoInput: true,
+	});
+	expect(tokenPrice).toBeDefined();
+	const actualAtReferenceCap = new Decimal(width)
+		.mul(height)
+		.mul(24)
+		.div(1024)
+		.mul(durationSeconds + inputDurationCap)
+		.mul(tokenPrice!)
+		.toNumber();
+	expect(reserved).toBeGreaterThanOrEqual(actualAtReferenceCap);
+	return reserved;
+}
+
+describe("Seedance billing metadata", seedanceBillingMetadataTests);
+function seedanceBillingMetadataTests() {
+	const harness = createGatewayApiTestHarness();
+	beforeEach(async () => {
+		vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", getApiKeyHashSecret());
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("FORCE_DEBUG_MODE", "false");
+		vi.stubEnv("LLM_BYTEDANCE_API_KEY", undefined);
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "bytedance-metadata-test",
+			...encryptProviderKeyForStorage(
+				"bytedance-test-token",
+				"bytedance-metadata-test",
+				"org-id",
+			),
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+	});
+	afterEach(() => vi.unstubAllEnvs());
+
+	test.each(["retain", "none"] as const)(
+		"stores only billing settings without debug for retention=%s",
+		async (retentionLevel) => {
+			await db
+				.update(tables.organization)
+				.set({ retentionLevel })
+				.where(eq(tables.organization.id, "org-id"));
+			const response = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "bytedance/seedance-2-5",
+					prompt: "A paper boat on a quiet pond",
+					size: "1920x1080",
+					seconds: 4,
+					audio: false,
+					reference_videos: ["https://example.com/reference.mp4"],
+					llmgateway_video_token_pricing: {
+						resolution: "480p",
+						includeAudio: true,
+						hasVideoInput: false,
+					},
+				}),
+			});
+			expect(response.status).toBe(200);
+			const created = await response.json();
+			const job = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			const settings = {
+				resolution: "1080p",
+				includeAudio: false,
+				hasVideoInput: true,
+			};
+			expect(
+				(job?.upstreamCreateResponse as Record<string, unknown> | null)
+					?.llmgateway_video_token_pricing,
+			).toEqual(settings);
+			expect(
+				(job?.upstreamStatusResponse as Record<string, unknown> | null)
+					?.llmgateway_video_token_pricing,
+			).toEqual(settings);
+			expect(job?.upstreamCreateResponse).not.toHaveProperty(
+				"llmgateway_upstream_request",
+			);
+			expect(job?.upstreamCreateResponse).not.toHaveProperty(
+				"llmgateway_raw_request",
+			);
+			if (retentionLevel === "none") {
+				expect(job?.prompt).toBe("");
+			}
+		},
+	);
+}

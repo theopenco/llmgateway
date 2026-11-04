@@ -140,6 +140,7 @@ import {
 	estimateVideoCostUsd,
 	isMinimaxV2VideoModel,
 	getGoogleAiStudioVideoFileName,
+	estimateVideoInputDurationSeconds,
 } from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
@@ -925,12 +926,14 @@ function estimateVideoSpendUsd(
 	resolution: string,
 	durationSeconds: number,
 	inputImageCount: number,
+	inputVideoDurationSeconds = 0,
 ): number {
 	return estimateVideoCostUsd(
 		mapping,
 		resolution,
 		durationSeconds,
 		inputImageCount,
+		inputVideoDurationSeconds,
 	);
 }
 
@@ -3996,8 +3999,6 @@ async function createBytedanceVideoJob(
 		});
 	}
 
-	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
-
 	const videoRatio = getBytedanceVideoAspectRatio(videoSize);
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
@@ -4005,16 +4006,8 @@ async function createBytedanceVideoJob(
 		duration: durationSeconds,
 		ratio: videoRatio,
 		generate_audio: includeAudio,
+		resolution: videoSize.resolution,
 	};
-
-	if (isDreaminaModel) {
-		upstreamRequest.resolution =
-			videoSize.resolution === "1080p"
-				? "1080p"
-				: videoSize.resolution === "480p"
-					? "480p"
-					: "720p";
-	}
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -4041,6 +4034,11 @@ async function createBytedanceVideoJob(
 			status: rawResponse.status ?? "queued",
 			duration: durationSeconds,
 			aspect_ratio: videoRatio,
+			llmgateway_video_token_pricing: {
+				resolution: upstreamRequest.resolution,
+				includeAudio: upstreamRequest.generate_audio,
+				hasVideoInput: content.some((entry) => entry.type === "video_url"),
+			},
 		},
 		videoSize,
 	);
@@ -5166,6 +5164,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			videoSize.resolution,
 			estimatedDurationSeconds,
 			inputImageCount,
+			getVideoInputDurationUpperBound(
+				mapping,
+				modelInfo,
+				referenceVideoInputs.length,
+			),
 		);
 		await releaseInFlightVideoReservation();
 		const inFlightTotalUsd = await reserveVideoSubmission(
@@ -5496,6 +5499,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 						videoSize.resolution,
 						estimatedDurationSeconds,
 						inputImageCount,
+						getVideoInputDurationUpperBound(
+							selectedProviderMapping,
+							modelInfo,
+							referenceVideoInputs.length,
+						),
 					)
 				: 0;
 		const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
@@ -5956,4 +5964,15 @@ function getVideoSourceInput(
 }
 function isGoogleAiStudioVideoProvider(providerId: string): boolean {
 	return providerId === "google-ai-studio";
+}
+function getVideoInputDurationUpperBound(
+	mapping: ProviderModelMapping,
+	modelInfo: ModelDefinition,
+	referenceVideoCount: number,
+): number {
+	return estimateVideoInputDurationSeconds(
+		mapping,
+		referenceVideoCount > 0,
+		modelInfo.maxVideoDurationSeconds,
+	);
 }
