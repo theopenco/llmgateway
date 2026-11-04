@@ -464,6 +464,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+A pin is never rerouted: if the provider's mapping for the model has been deactivated, the request returns `410` instead of falling back. Drop the provider prefix to route to an active provider.
+
 <Callout type="info">
 	Provider-specific routing is not available on **DevPass coding plans** —
 	provider-prefixed model ids (and custom provider routing) return a `403`

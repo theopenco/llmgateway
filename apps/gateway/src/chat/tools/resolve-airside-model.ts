@@ -17,6 +17,7 @@ import {
 	type ParseModelInputResult,
 } from "./parse-model-input.js";
 import {
+	deactivatedProviderPinError,
 	resolveModelInfo,
 	type ResolveModelInfoResult,
 } from "./resolve-model-info.js";
@@ -237,6 +238,12 @@ function buildRoutingResolution(
 	};
 	const { modelInfo, allModelProviders, pricingMappings } =
 		mergeAirsideListingsIntoModel(base, listings, unlisted);
+	if (
+		requestedProvider &&
+		!modelInfo.providers.some((p) => p.providerId === requestedProvider)
+	) {
+		throw deactivatedProviderPinError(requestedProvider, modelInfo.id);
+	}
 	return {
 		parseResult: {
 			requestedModel: listed.model.id as Model,

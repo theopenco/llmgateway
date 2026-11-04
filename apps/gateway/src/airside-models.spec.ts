@@ -387,6 +387,30 @@ describe("airside-listed models", () => {
 		});
 	});
 
+	test("rejects a pin to a deactivated listing instead of rerouting", async () => {
+		await materializeTestMapping({
+			providerId: "quartz",
+			modelId: "nano banana pro",
+			externalId: "gemini-3-pro-image-carrier",
+			inputPrice: "2e-6",
+			outputPrice: "12e-6",
+		});
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ deactivatedAt: new Date(Date.now() - 60_000) })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, "nano banana pro"),
+					eq(tables.modelProviderMapping.providerId, "quartz"),
+				),
+			);
+		await clearCache();
+
+		await expect(resolveAirsideModel("quartz/nano banana pro")).rejects.toThrow(
+			"Provider quartz no longer serves model",
+		);
+	});
+
 	async function setup(
 		token: string,
 		options: {
