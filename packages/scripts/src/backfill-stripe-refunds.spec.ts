@@ -124,7 +124,8 @@ function registerRefundTests() {
 		return await db
 			.select()
 			.from(tables.transaction)
-			.where(eq(tables.transaction.organizationId, org));
+			.where(eq(tables.transaction.organizationId, org))
+			.orderBy(tables.transaction.id);
 	}
 
 	beforeAll(async () => {
@@ -796,6 +797,45 @@ function registerRefundTests() {
 		const result = await cli(["--commit", "--org=" + org]);
 		expect(result.code, result.output).not.toBe(0);
 		expect(await rows()).toEqual(before);
+	});
+	describe("legacy per-intent evidence coverage", () => {
+		it.each([false, true])(
+			"retains a legacy row above its own PI evidence; multiple PIs=%s",
+			async (multiple) => {
+				const payment = await original(
+					multiple
+						? { stripeInvoiceId: "in_legacy_coverage" }
+						: { stripePaymentIntentId: "pi_legacy_coverage" },
+				);
+				if (multiple) {
+					invoices.set("in_legacy_coverage", [
+						"pi_legacy_coverage",
+						"pi_other_coverage",
+					]);
+					refunds.set("pi_other_coverage", [
+						refund("pi_other_coverage", "re_other_coverage", 1500),
+					]);
+				}
+				await original({
+					type: "credit_refund",
+					amount: "15",
+					relatedTransactionId: payment.id,
+					stripePaymentIntentId: "pi_legacy_coverage",
+				});
+				refunds.set("pi_legacy_coverage", [
+					refund("pi_legacy_coverage", "re_legacy_coverage", 100),
+				]);
+				const before = await rows();
+				const dryRun = await cli(["--org=" + org]);
+				expect(await rows()).toEqual(before);
+				const applied = await cli(["--commit", "--org=" + org]);
+				expect({
+					dryRun: dryRun.code,
+					apply: applied.code,
+					rows: await rows(),
+				}).toEqual({ dryRun: 1, apply: 1, rows: before });
+			},
+		);
 	});
 }
 registerRefundTests();

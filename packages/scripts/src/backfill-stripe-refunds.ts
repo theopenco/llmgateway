@@ -232,14 +232,16 @@ async function reconcileOriginal(
 			(row) => !scopePI || row.stripePaymentIntentId === scopePI,
 		);
 		for (const row of selectedLegacy) {
-			if (
-				!selected.some(
-					(refund) =>
-						identity(refund.payment_intent) === row.stripePaymentIntentId,
-				)
-			) {
+			const covered = selected.reduce(
+				(sum, refund) =>
+					identity(refund.payment_intent) === row.stripePaymentIntentId
+						? sum.plus(centsToDollars(refund.amount))
+						: sum,
+				new Decimal(0),
+			);
+			if (new Decimal(row.amount ?? 0).gt(covered)) {
 				throw new Error(
-					"No succeeded Stripe evidence for a legacy refund; retaining it",
+					"Legacy refund exceeds succeeded Stripe evidence on its payment intent; retaining it",
 				);
 			}
 		}
