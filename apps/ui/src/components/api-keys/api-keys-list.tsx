@@ -350,6 +350,9 @@ export function ApiKeysList({
 	const getIamRulesUrl = (key: ApiKey) =>
 		`/dashboard/${orgId}/${key.projectId}/api-keys/${key.id}/iam` as Route;
 
+	const getComplianceUrl = (key: ApiKey) =>
+		`/dashboard/${orgId}/${key.projectId}/api-keys/${key.id}/compliance` as Route;
+
 	const getStatisticsUrl = (key: ApiKey) =>
 		`/dashboard/${orgId}/${key.projectId}/api-keys/${key.id}` as Route;
 
@@ -1025,6 +1028,17 @@ export function ApiKeysList({
 						Manage IAM Rules
 					</Link>
 				</DropdownMenuItem>
+				{(selectedOrganization?.role === "owner" ||
+					selectedOrganization?.role === "admin") &&
+				(selectedOrganization.enterpriseAccess ||
+					key.providerCompliancePolicy) ? (
+					<DropdownMenuItem asChild>
+						<Link href={getComplianceUrl(key)}>
+							<Shield className="mr-2 h-4 w-4" />
+							Manage Compliance
+						</Link>
+					</DropdownMenuItem>
+				) : null}
 				<DropdownMenuSeparator />
 				<DropdownMenuItem onClick={() => setRenameKey(key)}>
 					<PencilIcon className="mr-2 h-4 w-4" />

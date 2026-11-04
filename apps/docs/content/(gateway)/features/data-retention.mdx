@@ -94,7 +94,10 @@ Data is retained for 30 days for all users, regardless of plan. After the retent
 	compaction state, bypasses the gateway response cache, strips provider
 	prompt-cache markers, and prevents payload retention or project response
 	caching from being enabled until ZDR is disabled. ZDR cannot be enabled until
-	both settings are off.
+	both settings are off. These configuration prerequisites apply to
+	organization-wide ZDR. A key-level ZDR policy instead forces metadata-only
+	logging and disables caching only for requests through that key, without
+	changing other keys or organization settings.
 </Callout>
 
 ## Accessing Stored Data

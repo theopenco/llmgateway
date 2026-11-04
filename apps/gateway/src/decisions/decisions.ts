@@ -120,7 +120,7 @@ const decisionRequestSchema = z.object({
 	}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
 	}),
 });
 

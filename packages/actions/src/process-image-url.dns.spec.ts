@@ -2,8 +2,11 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import { processImageUrl } from "./process-image-url.js";
 
+import type * as UrlSafety from "@llmgateway/shared/url-safety-node";
+
 const validate = vi.hoisted(() => vi.fn());
-vi.mock("@llmgateway/shared/url-safety-node", () => ({
+vi.mock("@llmgateway/shared/url-safety-node", async (importOriginal) => ({
+	...(await importOriginal<typeof UrlSafety>()),
 	assertSafeUserContentUrl: validate,
 }));
 
@@ -107,7 +110,11 @@ it("preserves URL-safety rejections without fetching", async () => {
 	const clear = vi.spyOn(globalThis, "clearTimeout");
 	const result = processImageUrl("https://example.com/image.png");
 	const ownTimer = timer.mock.results[0].value;
-	await expect(result).rejects.toBe(reason);
+	await expect(result).rejects.toMatchObject({
+		name: "RequestError",
+		statusCode: 400,
+		message: "Image URL is invalid or points to a disallowed host",
+	});
 	expect(fetch).not.toHaveBeenCalled();
 	expect(clear).toHaveBeenCalledWith(ownTimer);
 });

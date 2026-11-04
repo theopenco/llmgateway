@@ -32,28 +32,35 @@ it("cancels a stalled body even when fetch stops propagating aborts", async () =
 	expect(cancel).toHaveBeenCalledOnce();
 }, 2000);
 
-it("preserves caller cancellation and cancels its body reader", async () => {
-	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
-	const controller = new AbortController();
-	const reason = new Error("caller cancelled");
-	const cancel = vi.fn();
-	vi.spyOn(globalThis, "fetch").mockResolvedValue(
-		new Response(
-			new ReadableStream<Uint8Array>({
-				pull() {
-					return new Promise<void>(() => {});
-				},
-				cancel,
-			}),
-			{ headers: { "content-type": "image/png" } },
-		),
-	);
-	setTimeout(() => controller.abort(reason), 10);
-	await expect(
-		processImageUrl(URL, false, 20, null, controller.signal),
-	).rejects.toBe(reason);
-	expect(cancel).toHaveBeenCalledOnce();
-});
+it.each([
+	new Error("caller cancelled"),
+	new DOMException("caller deadline", "TimeoutError"),
+	{ reason: "caller cancelled" },
+	"caller cancelled",
+])(
+	"preserves caller cancellation and cancels its body reader: %j",
+	async (reason) => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		const controller = new AbortController();
+		const cancel = vi.fn();
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				new ReadableStream<Uint8Array>({
+					pull() {
+						return new Promise<void>(() => {});
+					},
+					cancel,
+				}),
+				{ headers: { "content-type": "image/png" } },
+			),
+		);
+		setTimeout(() => controller.abort(reason), 10);
+		await expect(
+			processImageUrl(URL, false, 20, null, controller.signal),
+		).rejects.toBe(reason);
+		expect(cancel).toHaveBeenCalledOnce();
+	},
+);
 
 it("clears its deadline timer after a successful download", async () => {
 	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
