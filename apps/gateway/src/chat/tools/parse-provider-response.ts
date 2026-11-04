@@ -672,8 +672,12 @@ export function parseProviderResponse(
 			completionTokens = rawCandidates + (reasoningTokens ?? 0);
 
 			// Calculate totalTokens
+			// (tool-use prompt tokens, e.g. Google Search grounding, count on top)
 			if (promptTokens !== null) {
-				totalTokens = promptTokens + (completionTokens ?? 0);
+				totalTokens =
+					promptTokens +
+					(completionTokens ?? 0) +
+					(json.usageMetadata?.toolUsePromptTokenCount ?? 0);
 			}
 			break;
 		}

@@ -172,8 +172,12 @@ export function extractTokenUsage(
 				// completionTokens includes reasoning for correct totals
 				completionTokens = (rawCandidates ?? 0) + (reasoningTokens ?? 0);
 
-				// Calculate total
-				totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
+				// Calculate total; tokens the model read from tool results (e.g. Google
+				// Search grounding) are billed on top of the prompt and candidates
+				totalTokens =
+					(promptTokens ?? 0) +
+					(completionTokens ?? 0) +
+					(data.usageMetadata.toolUsePromptTokenCount ?? 0);
 			}
 			break;
 		case "aws-bedrock":
