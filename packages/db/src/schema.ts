@@ -28,10 +28,17 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	WebSearchFormat,
 	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type {
+	DecisionAnswer,
+	DecisionInputImage,
+	DecisionQuestion,
+	DecisionUsage,
+} from "@llmgateway/shared/decision-studio";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type {
 	EmailCategory,
@@ -410,9 +417,9 @@ export const organization = snakeCase.table(
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Rolling 24-hour pacing window on the monthly allowance, the same
-		// shape as the premium weekly pair above. The limit derives from the
-		// tier (DEV_PLAN_DAILY_PERCENT), so only usage and window start are
-		// stored.
+		// shape as the premium weekly pair above. The limit derives from
+		// devPlanCreditsLimit × DEV_PLAN_DAILY_PERCENT, so only usage and
+		// window start are stored.
 		devPlanDailyCreditsUsed: decimal().notNull().default("0"),
 		devPlanDayStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
@@ -972,6 +979,7 @@ export const notificationTypes = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"model_price_change",
 ] as const;
 
 const emailCategories = [
@@ -1230,12 +1238,55 @@ export const crmActivity = snakeCase.table(
 		// Tasks only: when it is due and when it was ticked off.
 		dueAt: timestamp(),
 		completedAt: timestamp(),
+		// Idempotency key for activities mirrored from an integration:
+		// `gmail:<messageId>` for mail sent from the CRM, `calendly:<eventUri>`
+		// for scheduled meetings, so repeated syncs and webhooks never duplicate.
+		externalRef: text(),
 	},
 	(table) => [
 		index("crm_activity_account_id_idx").on(table.accountId, table.createdAt),
 		index("crm_activity_due_at_idx")
 			.on(table.dueAt)
 			.where(sql`completed_at IS NULL`),
+		uniqueIndex("crm_activity_external_ref_idx")
+			.on(table.externalRef)
+			.where(sql`external_ref IS NOT NULL`),
+	],
+);
+
+export const CRM_INTEGRATION_PROVIDERS = ["gmail", "calendly"] as const;
+export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
+
+// A mailbox or Calendly user connected to the CRM by an admin. Credentials
+// are sealed with the connector cipher; `shared` lets other admins send mail
+// or offer booking links from it (contact@ is shared, personal inboxes are
+// not). Threads with CRM contacts are readable from every connection.
+export const crmIntegration = snakeCase.table(
+	"crm_integration",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		provider: text({ enum: CRM_INTEGRATION_PROVIDERS }).notNull(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Mailbox address or Calendly account email.
+		accountEmail: text().notNull(),
+		displayName: text(),
+		// Calendly user URI; Gmail leaves it null.
+		externalId: text(),
+		credentials: text().notNull(),
+		shared: boolean().notNull().default(false),
+	},
+	(table) => [
+		uniqueIndex("crm_integration_provider_email_idx").on(
+			table.provider,
+			table.accountEmail,
+		),
 	],
 );
 
@@ -1867,6 +1918,7 @@ export const apiKey = snakeCase.table(
 		// Platform keys may be long-lived; browser-session expiry now lives on
 		// end_user_session.expires_at.
 		expiresAt: timestamp(),
+		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
 		usageLimit: decimal(),
 		usage: decimal().notNull().default("0"),
 		periodUsageLimit: decimal(),
@@ -2125,6 +2177,7 @@ export interface ProviderKeyOptions {
 	vertex_openai_project_id?: string;
 	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
+	cloudflare_account_id?: string;
 	/**
 	 * Managed (platform-owned) credential settings, keyed by the logical env
 	 * keys a provider declares in its catalogue `env` block (`baseUrl`,
@@ -2187,6 +2240,12 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// When true (custom providers only), caller-supplied Anthropic-style
+		// `cache_control` markers are forwarded upstream instead of stripped.
+		forwardCacheControl: boolean().notNull().default(false),
+		// Managed only: when false, the API key's safety identifier is not sent
+		// upstream on requests this credential serves. Ignored for BYOK keys.
+		forwardSafetyIdentifier: boolean().notNull().default(true),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		// "pending_deletion" is a deleted key inside its teardown grace period:
@@ -2270,6 +2329,9 @@ export const providerKey = snakeCase.table(
 		// default: `default(0)` would tie a new key with position 0 and slot it
 		// second.
 		sortOrder: integer(),
+		selectionStrategy: text({ enum: ["ordered", "round_robin"] })
+			.notNull()
+			.default("ordered"),
 		organizationId: text().references(() => organization.id, {
 			onDelete: "cascade",
 		}),
@@ -2696,6 +2758,7 @@ export const log = snakeCase.table(
 		dataRetentionCleanedUp: boolean().default(false),
 		dataStorageCost: decimal().notNull().default("0"),
 		params: json().$type<{
+			safety_identifier?: string;
 			image_config?: {
 				aspect_ratio?: string;
 				image_size?: string;
@@ -2794,6 +2857,12 @@ export const log = snakeCase.table(
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
+		// Content-filtered requests by time, for the admin classifier export.
+		// Retention nulls the response after 30 days, which bounds the index.
+		// Build CONCURRENTLY out of band in prod before deploying.
+		index("log_content_filter_created_at_idx")
+			.on(table.createdAt)
+			.where(sql`gateway_content_filter_response IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -2930,16 +2999,13 @@ export const videoJob = snakeCase.table(
 		// later — often from the worker — and some providers scope job
 		// visibility to the creating credential, so the exact row is pinned here
 		// rather than re-selected. NULL means the job was created from an
-		// organization's BYOK key or from the provider's LLM_* env vars, both of
-		// which are re-resolved the way they always were.
+		// organization's BYOK key or from the provider's LLM_* env vars.
 		managedProviderKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
-		// BYOK provider key that created the job, for spend attribution on the
-		// final log row. Unlike managedProviderKeyId this does not pin polling:
-		// BYOK polls re-resolve the org's active key as they always did, so a
-		// job's spend may attribute to the creating key even if the org rotated
-		// keys mid-job — acceptable for the approximate spend-limit feature.
+		// BYOK credential used at submission, for spend attribution. Account-scoped
+		// queues (fal) also pin polling to this key; other providers re-resolve
+		// an active organization key.
 		providerKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
@@ -3818,6 +3884,9 @@ export const modelProviderMapping = snakeCase.table(
 			],
 		}).$type<ProviderApiFormat>(),
 		region: text(),
+		// Airside decision listings, served on `/v1/decisions`. Static rows
+		// keep their catalogue definition.
+		decisions: boolean().notNull().default(false),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
 			.default("catalogue"),
@@ -3855,6 +3924,9 @@ export const modelProviderMapping = snakeCase.table(
 		webSearch: boolean().default(false).notNull(),
 		webSearchPrice: decimal(),
 		webSearchForcedOnly: boolean(),
+		// Chat Completions web search wire format (see `WebSearchFormat`).
+		// Populated for Airside-materialized mappings only.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})
@@ -3982,6 +4054,30 @@ export const modelProviderMappingHistory = snakeCase.table(
 		serviceTierImplicitCount: integer().notNull().default(0),
 		serviceTierServedCount: integer().notNull().default(0),
 		serviceTierUnconfirmedCount: integer().notNull().default(0),
+		// Routing metrics for requests sent at the flex and priority service
+		// tiers (by requestedServiceTier); the standard tier is the remainder.
+		// Routing scores each tier on its own traffic, so flex load-shedding
+		// does not count against a provider's uptime for standard requests.
+		flexLogsCount: integer().notNull().default(0),
+		flexClientErrorsCount: integer().notNull().default(0),
+		flexGatewayErrorsCount: integer().notNull().default(0),
+		flexUpstreamErrorsCount: integer().notNull().default(0),
+		flexTotalOutputTokens: integer().notNull().default(0),
+		flexTotalDuration: integer().notNull().default(0),
+		flexTotalTimeToFirstToken: integer().notNull().default(0),
+		flexTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		flexTimeToFirstTokenCount: integer().notNull().default(0),
+		flexTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+		priorityLogsCount: integer().notNull().default(0),
+		priorityClientErrorsCount: integer().notNull().default(0),
+		priorityGatewayErrorsCount: integer().notNull().default(0),
+		priorityUpstreamErrorsCount: integer().notNull().default(0),
+		priorityTotalOutputTokens: integer().notNull().default(0),
+		priorityTotalDuration: integer().notNull().default(0),
+		priorityTotalTimeToFirstToken: integer().notNull().default(0),
+		priorityTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		priorityTimeToFirstTokenCount: integer().notNull().default(0),
+		priorityTimeToFirstReasoningTokenCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -4799,6 +4895,7 @@ export const auditLogActions = [
 	"referral_bonus.update",
 	// Organization-scoped pricing and limits set by an administrator.
 	"discount.create",
+	"discount.update",
 	"discount.delete",
 	"rate_limit.create",
 	"rate_limit.update",
@@ -5788,6 +5885,62 @@ export const providerClaim = snakeCase.table(
 	],
 );
 
+// The claims an Airworthy certificate attests, frozen at issue time. A live
+// claim whose public profile drifts from this snapshot stops showing the stamp
+// until it is re-certified.
+export interface AirworthyAttestedProfile {
+	legalEntity: string | null;
+	headquarters: string | null;
+	apiTraining: boolean | null;
+	promptLogging: boolean | null;
+	retentionPeriod: string | null;
+	gdpr: boolean | null;
+	soc2: 0 | 1 | 2 | null;
+	iso27001: boolean | null;
+}
+
+// Airworthy: LLM Gateway's certificate that an Airside carrier's declared
+// data handling, jurisdiction and audits were reviewed against evidence.
+// Issued and revoked by admins only; one active certificate per provider.
+export const providerCertification = snakeCase.table(
+	"provider_certification",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerClaimId: text()
+			.notNull()
+			.references(() => providerClaim.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// Public, printed on the stamp and the certificate.
+		certificateNumber: text().notNull(),
+		status: text({ enum: ["active", "revoked"] })
+			.notNull()
+			.default("active"),
+		attested: jsonb().$type<AirworthyAttestedProfile>().notNull(),
+		// Internal review notes: the evidence that was checked.
+		reviewNote: text(),
+		issuedAt: timestamp().notNull().defaultNow(),
+		expiresAt: timestamp().notNull(),
+		issuedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokedAt: timestamp(),
+		revokedBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokeReason: text(),
+	},
+	(table) => [
+		uniqueIndex("provider_certification_number_uidx").on(
+			table.certificateNumber,
+		),
+		uniqueIndex("provider_certification_active_provider_uidx")
+			.on(table.providerId)
+			.where(sql`status = 'active'`),
+		index("provider_certification_claim_idx").on(table.providerClaimId),
+	],
+);
+
 // A model listed by a provider company for one of its claimed providers.
 // Non-pricing fields are provider-editable in place; pricing lives in
 // `provider_price_filing` rows and only ever changes through an approved
@@ -5811,6 +5964,7 @@ export interface AirsideModelMetadataChanges {
 	reasoningMaxTokens?: boolean;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean;
+	webSearchFormat?: WebSearchFormat | null;
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
@@ -5852,6 +6006,9 @@ export const providerDraftModel = snakeCase.table(
 			.$type<ProviderApiFormat>()
 			.notNull()
 			.default("provider-native"),
+		// Serves typed decisions on the carrier's OpenAI-compatible
+		// `/v1/decisions` instead of chat; set once at registration.
+		decisions: boolean().notNull().default(false),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -5875,6 +6032,9 @@ export const providerDraftModel = snakeCase.table(
 		// (subset of ReasoningEffort); null = parameter unsupported.
 		reasoningEfforts: jsonb().$type<string[]>(),
 		webSearch: boolean().notNull().default(false),
+		// Which OpenAI-compatible shape the endpoint takes web search in; null
+		// leaves the provider's built-in translation, if any.
+		webSearchFormat: text({ enum: ["web_search_options", "web_search_tool"] }),
 		// Carrier-managed request caps. Admin `rate_limit` rows for the same
 		// provider/model always take precedence over these.
 		maxRpm: integer(),
@@ -5963,6 +6123,8 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** A decision listing, probed on `/v1/decisions` instead of chat. */
+	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */
 	region?: string | null;
 	streaming: boolean;
@@ -5977,6 +6139,8 @@ export interface ProviderModelVerificationTarget {
 	reasoningMaxTokens: boolean;
 	reasoningEfforts: string[] | null;
 	webSearch: boolean;
+	/** Web search wire format; unset on runs queued before it existed. */
+	webSearchFormat?: WebSearchFormat | null;
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;
@@ -6227,6 +6391,29 @@ export const providerRoutingFiling = snakeCase.table(
 );
 
 // Project hourly statistics aggregation - used for fast dashboard queries
+/**
+ * BYOK (`used_mode = 'api-keys'`) subset of the error and latency columns on
+ * the tenant hourly rollups. `log.used_mode` is only ever credits or api-keys,
+ * so the credits figure is the total minus this subset.
+ */
+function apiKeysModeColumns() {
+	return {
+		apiKeysClientErrorCount: integer().notNull().default(0),
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		apiKeysTotalDuration: bigint({ mode: "number" }).notNull().default(0),
+		apiKeysDurationCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstTokenCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+	};
+}
+
 export const projectHourlyStats = snakeCase.table(
 	"project_hourly_stats",
 	{
@@ -6303,6 +6490,7 @@ export const projectHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour (also creates implicit index)
@@ -6393,10 +6581,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
-		// BYOK subset of the gateway/upstream error counts, so incident views can
-		// show platform-only error rates.
-		apiKeysGatewayErrorCount: integer().notNull().default(0),
-		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -6662,6 +6847,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour
@@ -6823,6 +7009,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour-model-provider
@@ -7399,6 +7586,43 @@ export const playgroundAudioHistory = snakeCase.table(
 	(table) => [index("playground_audio_history_user_id_idx").on(table.userId)],
 );
 
+export const playgroundDecisionHistory = snakeCase.table(
+	"playground_decision_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the run was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		// The evaluated text. Renames change `title`, never the input.
+		prompt: text().notNull(),
+		title: text(),
+		inputImages: jsonb().$type<DecisionInputImage[]>(),
+		questions: jsonb().notNull().$type<DecisionQuestion[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				answers: DecisionAnswer[] | null;
+				usage?: DecisionUsage | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [
+		index("playground_decision_history_user_id_idx").on(table.userId),
+	],
+);
+
 export const playgroundVideoHistory = snakeCase.table(
 	"playground_video_history",
 	{
@@ -7458,6 +7682,7 @@ export const loungePointEvent = snakeCase.table(
 				| "image_generation"
 				| "video_generation"
 				| "audio_generation"
+				| "decision_run"
 				| "sandbox_escape"
 			>(),
 		points: integer().notNull(),
@@ -7578,6 +7803,9 @@ export interface ComplianceAlertSettings {
 	recipientAudience: AlertAudience;
 }
 
+export const notificationModelScopes = ["all", "selected", "used"] as const;
+export type NotificationModelScope = (typeof notificationModelScopes)[number];
+
 export const notificationPreference = snakeCase.table(
 	"notification_preference",
 	{
@@ -7589,6 +7817,11 @@ export const notificationPreference = snakeCase.table(
 		inApp: boolean().notNull().default(false),
 		email: boolean().notNull().default(false),
 		budgetThreshold: integer().notNull().default(80),
+		// Which models `model_price_change` alerts cover; unused by other types.
+		modelScope: text({ enum: notificationModelScopes })
+			.notNull()
+			.default("used"),
+		modelIds: json().$type<string[]>().notNull().default([]),
 	},
 	(table) => [unique().on(table.userId, table.type)],
 );
@@ -7727,6 +7960,18 @@ export const complianceProviderState = snakeCase.table(
 	},
 	(table) => [unique().on(table.organizationId, table.providerId)],
 );
+
+// Last prices seen per mapping, so the worker can detect price changes.
+export const modelPriceState = snakeCase.table("model_price_state", {
+	mappingId: text()
+		.primaryKey()
+		.references(() => modelProviderMapping.id, { onDelete: "cascade" }),
+	prices: json().$type<Record<string, string | null>>().notNull(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+});
 
 export const loungeConnection = snakeCase.table(
 	"lounge_connection",

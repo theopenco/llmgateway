@@ -27,8 +27,10 @@ export * from "./topup-velocity.js";
 export * from "./limit-hits.js";
 export * from "./org-spend.js";
 export * from "./org-activity.js";
+export * from "./decision-verification.js";
 export * from "./model-verification.js";
 export * from "./provider-api-format.js";
+export * from "./web-search-format.js";
 
 export { fetchNoRedirect, RedirectError } from "./fetch-no-redirect.js";
 
@@ -36,3 +38,5 @@ export * from "./notification-access.js";
 export * from "./compliance-alerts.js";
 export * from "./data-streams.js";
 export * from "./data-stream-runner.js";
+export * from "./model-verification-target.js";
+export * from "./provider-key/region.js";

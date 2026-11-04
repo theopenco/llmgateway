@@ -24,6 +24,7 @@ import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
 } from "@llmgateway/shared/client-ip";
+import { buildSecurityTxt } from "@llmgateway/shared/security-txt";
 
 import { aisdk } from "./aisdk/aisdk.js";
 import { creditsRoute } from "./aisdk/credits.js";
@@ -38,11 +39,13 @@ import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
+import { withManagedKeySelection } from "./lib/managed-key-selection.js";
 import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
 import { rejectionLogMiddleware } from "./middleware/rejection-log.js";
+import { requestDecompressionMiddleware } from "./middleware/request-decompression.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -55,6 +58,7 @@ import { speechRoute } from "./speech/route.js";
 import { systemoneRoute } from "./systemone/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
+import { videoAssets } from "./videos/videos.js";
 
 import type { ServerTypes } from "./vars.js";
 
@@ -102,6 +106,8 @@ This document: https://api.llmgateway.io/openapi.json (mirrored at https://llmga
 
 export const app = new OpenAPIHono<ServerTypes>();
 
+app.use("*", async (_c, next) => await withManagedKeySelection(next));
+
 const honoRequestLogger = createHonoRequestLogger({ service: "gateway" });
 
 const requestLifecycleMiddleware = createRequestLifecycleMiddleware({
@@ -132,6 +138,9 @@ app.use("*", rejectionLogMiddleware);
 // scale with the organization's lifetime spend tier. Only configured `/v1/*`
 // paths are throttled; everything else passes through.
 app.use("*", orgRateLimitMiddleware);
+
+// Decode gzip/deflate/br/zstd request bodies before any route reads them.
+app.use("*", requestDecompressionMiddleware);
 
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation
@@ -262,6 +271,37 @@ app.onError((error, c) => {
 	return renderGatewayError(c, 500, "Internal Server Error");
 });
 
+function createHealthChecker(): HealthChecker {
+	return new HealthChecker({
+		// Ping both the main and the storage Redis; either failing marks the
+		// gateway unhealthy (they may be the same instance via env fallback).
+		redisClient: {
+			ping: async () => {
+				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
+				return "PONG";
+			},
+		},
+		db,
+		logger,
+	});
+}
+
+// Liveness: the process serves HTTP. Touches neither Redis nor Postgres, so a
+// dependency outage cannot get healthy pods restarted.
+app.get("/livez", (c) => c.json({ status: "ok" }));
+
+// Deep health for external monitoring: always checks Postgres and both Redis
+// instances. `/` skips Postgres by default so cached traffic keeps the pod in
+// rotation; this endpoint is what pages when Postgres is unreachable.
+app.get("/health/deep", async (c) => {
+	const healthChecker = createHealthChecker();
+	const health = await healthChecker.performHealthChecks({
+		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
+	});
+	const { response, statusCode } = healthChecker.createHealthResponse(health);
+	return c.json(response, statusCode as 200 | 503);
+});
+
 const root = createRoute({
 	summary: "Health check",
 	description: "Health check endpoint.",
@@ -350,18 +390,7 @@ app.openapi(root, async (c) => {
 	// 15 seconds default to prevent false failures during traffic spikes
 	const TIMEOUT_MS = Number(process.env.HEALTH_CHECK_TIMEOUT_MS) || 15000;
 
-	const healthChecker = new HealthChecker({
-		// Ping both the main and the storage Redis; either failing marks the
-		// gateway unhealthy (they may be the same instance via env fallback).
-		redisClient: {
-			ping: async () => {
-				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
-				return "PONG";
-			},
-		},
-		db,
-		logger,
-	});
+	const healthChecker = createHealthChecker();
 
 	const health = await healthChecker.performHealthChecks({
 		skipChecks,
@@ -383,6 +412,8 @@ app.openapi(root, async (c) => {
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();
+
+v1.route("/video-assets", videoAssets);
 
 v1.route("/chat", chat);
 v1.route("/embeddings", embeddingsRoute);
@@ -442,4 +473,9 @@ app.get("/docs", swaggerUI({ url: "/json" }));
 // indexing its endpoints (GSC keeps reporting api.llmgateway.io URLs).
 app.get("/robots.txt", (c) => {
 	return c.text("User-agent: *\nDisallow: /\n");
+});
+
+app.get("/.well-known/security.txt", (c) => {
+	c.header("Cache-Control", "public, max-age=86400");
+	return c.text(buildSecurityTxt());
 });

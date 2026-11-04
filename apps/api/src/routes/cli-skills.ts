@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
@@ -10,6 +10,7 @@ import {
 	summarizeOrganizationSkill,
 } from "@/lib/organization-skills.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db } from "@llmgateway/db";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";

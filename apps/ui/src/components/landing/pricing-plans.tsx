@@ -2,7 +2,6 @@
 
 import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 
 import { useSessionStatus } from "@/hooks/useUser";
 import { Badge } from "@/lib/components/badge";
@@ -15,6 +14,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { usePostHog } from "@/lib/posthog";
 
 export function PricingPlans() {
 	const { isAuthenticated } = useSessionStatus();

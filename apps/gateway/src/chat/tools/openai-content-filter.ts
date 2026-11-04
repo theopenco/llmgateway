@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
@@ -70,9 +72,21 @@ interface OpenAIContentFilterRequestResult {
 	response: OpenAIContentFilterCheckResult;
 }
 
+type OpenAIModerationAttempt =
+	| { success: true; response: OpenAIContentFilterCheckResult }
+	| {
+			success: false;
+			error: ContentFilterModerationError;
+			payload: Record<string, unknown>;
+			thrown?: unknown;
+			upstreamRequestId: string | null;
+	  };
+
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_PATH = "/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
+const OPENAI_MODERATION_MAX_ATTEMPTS = 2;
+const OPENAI_MODERATION_RETRY_DELAY_MS = 100;
 const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.75;
 
 function getOpenAIModerationScoreThreshold(): number {
@@ -276,8 +290,27 @@ function logModerationError(
 	error: ContentFilterModerationError,
 	payload: Record<string, unknown>,
 	thrown?: unknown,
+	level?: "warn" | "error",
 ) {
-	logContentFilterError("openai", "openai", context, error, payload, thrown);
+	logContentFilterError(
+		"openai",
+		"openai",
+		context,
+		error,
+		payload,
+		thrown,
+		level,
+	);
+}
+
+/**
+ * A connection reset or 5xx is usually gone on the next try. A timeout has
+ * spent the budget, and a 4xx or malformed body would fail again.
+ */
+function isRetryableModerationError(
+	error: ContentFilterModerationError,
+): boolean {
+	return error.kind === "network" || error.kind === "upstream_5xx";
 }
 
 function createFailedOpenAIContentFilterResult(
@@ -302,12 +335,58 @@ export async function hasOpenAIContentFilterCredential(): Promise<boolean> {
 	return await hasContentFilterCredential("openai");
 }
 
+/**
+ * One moderation call, retried once on a transient failure. The retried
+ * attempt only warns; a failure that survives the retry logs at its kind's
+ * level.
+ */
 async function runOpenAIContentFilterRequest(
 	request: OpenAIModerationRequest,
 	context: GatewayContentFilterContext,
 	credential: ContentFilterCredential,
 	signal: AbortSignal,
 ): Promise<OpenAIContentFilterRequestResult> {
+	for (let attempt = 1; ; attempt++) {
+		const result = await attemptOpenAIContentFilterRequest(
+			request,
+			context,
+			credential,
+			signal,
+		);
+		if (result.success) {
+			return result;
+		}
+
+		const retrying =
+			attempt < OPENAI_MODERATION_MAX_ATTEMPTS &&
+			isRetryableModerationError(result.error);
+		logModerationError(
+			context,
+			result.error,
+			{ ...result.payload, attempt, retrying },
+			result.thrown,
+			retrying ? "warn" : undefined,
+		);
+		if (!retrying) {
+			return {
+				success: false,
+				response: createFailedOpenAIContentFilterResult(
+					result.upstreamRequestId,
+					[result.error],
+				),
+			};
+		}
+		// No abort signal: the next fetch rejects at once if the budget ran out.
+		await sleep(OPENAI_MODERATION_RETRY_DELAY_MS);
+	}
+}
+
+async function attemptOpenAIContentFilterRequest(
+	request: OpenAIModerationRequest,
+	context: GatewayContentFilterContext,
+	credential: ContentFilterCredential,
+	signal: AbortSignal,
+): Promise<OpenAIModerationAttempt> {
 	const startTime = Date.now();
 	let upstreamResponse: Response;
 	let upstreamText: string;
@@ -334,25 +413,20 @@ async function runOpenAIContentFilterRequest(
 			throw error;
 		}
 
-		const moderationError = classifyContentFilterError({
-			source: "openai",
-			inputType: request.kind,
-			error,
-		});
-		logModerationError(
-			context,
-			moderationError,
-			{
+		return {
+			success: false,
+			error: classifyContentFilterError({
+				source: "openai",
+				inputType: request.kind,
+				error,
+			}),
+			payload: {
 				durationMs: Date.now() - startTime,
 				inputType: request.kind,
 				timeout: isTimeoutError(error),
 			},
-			error,
-		);
-
-		return {
-			success: false,
-			response: createFailedOpenAIContentFilterResult(null, [moderationError]),
+			thrown: error,
+			upstreamRequestId: null,
 		};
 	}
 
@@ -370,27 +444,24 @@ async function runOpenAIContentFilterRequest(
 		? parseModerationResponse(responseJson)
 		: null;
 	if (!moderationResponse) {
-		const moderationError = classifyContentFilterError({
-			source: "openai",
-			inputType: request.kind,
-			status: upstreamResponse.status,
-			response: responseJson,
-			badResponse: upstreamResponse.ok,
-		});
-		logModerationError(context, moderationError, {
-			durationMs: Date.now() - startTime,
-			inputType: request.kind,
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			upstreamRequestId,
-			response: responseJson,
-		});
-
 		return {
 			success: false,
-			response: createFailedOpenAIContentFilterResult(upstreamRequestId, [
-				moderationError,
-			]),
+			error: classifyContentFilterError({
+				source: "openai",
+				inputType: request.kind,
+				status: upstreamResponse.status,
+				response: responseJson,
+				badResponse: upstreamResponse.ok,
+			}),
+			payload: {
+				durationMs: Date.now() - startTime,
+				inputType: request.kind,
+				status: upstreamResponse.status,
+				statusText: upstreamResponse.statusText,
+				upstreamRequestId,
+				response: responseJson,
+			},
+			upstreamRequestId,
 		};
 	}
 

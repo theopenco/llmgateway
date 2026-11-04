@@ -1565,4 +1565,335 @@ describe("keys route", () => {
 			"Maximum 2 active API keys per organization",
 		);
 	});
+
+	describe("listing scopes, usage periods, and bulk actions", () => {
+		async function signInOtherDeveloper() {
+			await db.insert(tables.account).values({
+				id: "other-account-id",
+				providerId: "credential",
+				accountId: "other-user-id",
+				userId: "other-user-id",
+				password:
+					"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",
+			});
+			const auth = await app.request("/auth/sign-in/email", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					email: "other-developer@example.com",
+					password: "admin@example.com1A",
+				}),
+			});
+			expect(auth.status).toBe(200);
+			return auth.headers.get("set-cookie")!;
+		}
+
+		async function bulk(
+			cookie: string,
+			action: "deactivate" | "reactivate" | "delete",
+			ids: string[],
+		) {
+			const res = await app.request("/keys/api/bulk", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: cookie },
+				body: JSON.stringify({ action, ids }),
+			});
+			expect(res.status).toBe(200);
+			return (await res.json()) as {
+				succeeded: string[];
+				skipped: string[];
+				failed: { id: string; reason: string }[];
+			};
+		}
+
+		async function statusOf(id: string) {
+			const key = await db.query.apiKey.findFirst({
+				where: { id: { eq: id } },
+			});
+			return key?.status;
+		}
+
+		async function seedForeignOrgProject() {
+			await db.insert(tables.organization).values({
+				id: "foreign-org-id",
+				name: "Foreign Organization",
+				billingEmail: "foreign@example.com",
+			});
+			await db.insert(tables.project).values({
+				id: "foreign-project-id",
+				name: "Foreign Project",
+				organizationId: "foreign-org-id",
+			});
+		}
+
+		test("GET /keys/api returns period usage and last used hour", async () => {
+			const hour = (hoursAgo: number) => {
+				const offsetMs = hoursAgo * ONE_HOUR_MS;
+				const date = new Date(Date.now() - offsetMs);
+				date.setUTCMinutes(0, 0, 0);
+				return date;
+			};
+			await db.insert(tables.apiKeyHourlyStats).values([
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					hourTimestamp: hour(2),
+					requestCount: 3,
+					cost: 1.5,
+				},
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					hourTimestamp: hour(24 * 10),
+					requestCount: 5,
+					cost: 4,
+				},
+			]);
+
+			const week = await app.request(
+				"/keys/api?projectId=test-project-id&period=7d",
+				{ headers: { Cookie: token } },
+			);
+			expect(week.status).toBe(200);
+			const weekKey = (await week.json()).apiKeys[0];
+			expect(Number(weekKey.periodUsage)).toBeCloseTo(1.5);
+			expect(weekKey.periodRequestCount).toBe(3);
+			expect(new Date(weekKey.lastUsedAt).getTime()).toBe(hour(2).getTime());
+
+			const month = await app.request(
+				"/keys/api?projectId=test-project-id&period=30d",
+				{ headers: { Cookie: token } },
+			);
+			const monthKey = (await month.json()).apiKeys[0];
+			expect(Number(monthKey.periodUsage)).toBeCloseTo(5.5);
+			expect(monthKey.periodRequestCount).toBe(8);
+
+			const all = await app.request("/keys/api?projectId=test-project-id", {
+				headers: { Cookie: token },
+			});
+			const allJson = await all.json();
+			expect(allJson.period).toBe("all");
+			expect(allJson.apiKeys[0].periodUsage).toBeNull();
+			expect(allJson.apiKeys[0].periodRequestCount).toBeNull();
+		});
+
+		test("GET /keys/api returns null lastUsedAt for an unused key", async () => {
+			const res = await app.request(
+				"/keys/api?projectId=test-project-id&period=24h",
+				{ headers: { Cookie: token } },
+			);
+			const key = (await res.json()).apiKeys[0];
+			expect(key.lastUsedAt).toBeNull();
+			expect(key.periodUsage).toBe("0");
+			expect(key.periodRequestCount).toBe(0);
+		});
+
+		test("GET /keys/api?organizationId lists keys across the org's projects", async () => {
+			await db.insert(tables.project).values({
+				id: "second-project-id",
+				name: "Second Project",
+				organizationId: "test-org-id",
+			});
+			await db.insert(tables.apiKey).values({
+				id: "second-api-key-id",
+				...hashApiKeyForStorage("second-token"),
+				projectId: "second-project-id",
+				description: "Second Project Key",
+				createdBy: "test-user-id",
+			});
+			await seedForeignOrgProject();
+
+			const res = await app.request("/keys/api?organizationId=test-org-id", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.apiKeys.map((key: { id: string }) => key.id).sort()).toEqual(
+				["second-api-key-id", "test-api-key-id"].sort(),
+			);
+			expect(json.planLimits.currentCount).toBe(2);
+			expect(json.userRole).toBe("owner");
+
+			const foreign = await app.request(
+				"/keys/api?organizationId=foreign-org-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(foreign.status).toBe(403);
+
+			const both = await app.request(
+				"/keys/api?organizationId=test-org-id&projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(both.status).toBe(400);
+		});
+
+		test("GET /keys/api?organizationId rejects developers", async () => {
+			await seedOtherMemberKey({});
+			const devToken = await signInOtherDeveloper();
+			const res = await app.request("/keys/api?organizationId=test-org-id", {
+				headers: { Cookie: devToken },
+			});
+			expect(res.status).toBe(403);
+		});
+
+		test("POST /keys/api/bulk deactivates, skips, and rejects per key", async () => {
+			await db.insert(tables.apiKey).values([
+				{
+					id: "inactive-key-id",
+					...hashApiKeyForStorage("inactive-token"),
+					projectId: "test-project-id",
+					description: "Inactive Key",
+					status: "inactive",
+					createdBy: "test-user-id",
+				},
+				{
+					id: "playground-key-id",
+					...hashApiKeyForStorage("playground-token"),
+					projectId: "test-project-id",
+					description: "Playground",
+					kind: "playground",
+					createdBy: "test-user-id",
+				},
+			]);
+
+			const result = await bulk(token, "deactivate", [
+				"test-api-key-id",
+				"inactive-key-id",
+				"playground-key-id",
+				"missing-key-id",
+			]);
+			expect(result.succeeded).toEqual(["test-api-key-id"]);
+			expect(result.skipped).toEqual(["inactive-key-id"]);
+			expect(result.failed).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						id: "playground-key-id",
+						reason: "playground",
+					}),
+					expect.objectContaining({
+						id: "missing-key-id",
+						reason: "not_found",
+					}),
+				]),
+			);
+			expect(await statusOf("test-api-key-id")).toBe("inactive");
+			expect(await statusOf("playground-key-id")).toBe("active");
+
+			const auditLogs = await db.query.auditLog.findMany({
+				where: { resourceId: { eq: "test-api-key-id" } },
+			});
+			expect(auditLogs).toHaveLength(1);
+			expect(auditLogs[0].action).toBe("api_key.update_status");
+			expect(auditLogs[0].metadata?.bulk).toBe(true);
+		});
+
+		test("POST /keys/api/bulk keeps developers to their own keys", async () => {
+			await seedOtherMemberKey({});
+			const devToken = await signInOtherDeveloper();
+
+			const result = await bulk(devToken, "delete", [
+				"test-api-key-id",
+				"other-api-key-id",
+			]);
+			expect(result.succeeded).toEqual(["other-api-key-id"]);
+			expect(result.failed).toEqual([
+				expect.objectContaining({ id: "test-api-key-id", reason: "forbidden" }),
+			]);
+			expect(await statusOf("test-api-key-id")).toBe("active");
+			expect(await statusOf("other-api-key-id")).toBe("deleted");
+		});
+
+		test("POST /keys/api/bulk reactivate skips expired keys and respects the cap", async () => {
+			await db
+				.update(tables.organization)
+				.set({ apiKeyLimit: 2 })
+				.where(eq(tables.organization.id, "test-org-id"));
+			await db.insert(tables.apiKey).values([
+				{
+					id: "inactive-1",
+					...hashApiKeyForStorage("inactive-token-1"),
+					projectId: "test-project-id",
+					description: "Inactive 1",
+					status: "inactive",
+					createdBy: "test-user-id",
+				},
+				{
+					id: "inactive-2",
+					...hashApiKeyForStorage("inactive-token-2"),
+					projectId: "test-project-id",
+					description: "Inactive 2",
+					status: "inactive",
+					createdBy: "test-user-id",
+				},
+				{
+					id: "expired-key",
+					...hashApiKeyForStorage("expired-token"),
+					projectId: "test-project-id",
+					description: "Expired",
+					status: "inactive",
+					expiresAt: new Date(Date.now() - ONE_HOUR_MS),
+					createdBy: "test-user-id",
+				},
+			]);
+
+			const result = await bulk(token, "reactivate", [
+				"inactive-1",
+				"inactive-2",
+				"expired-key",
+			]);
+			expect(result.succeeded).toEqual(["inactive-1"]);
+			expect(result.failed).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: "expired-key", reason: "expired" }),
+					expect.objectContaining({
+						id: "inactive-2",
+						reason: "limit_reached",
+					}),
+				]),
+			);
+			expect(await statusOf("inactive-1")).toBe("active");
+			expect(await statusOf("inactive-2")).toBe("inactive");
+			expect(await statusOf("expired-key")).toBe("inactive");
+		});
+
+		test("POST /keys/api/bulk cannot touch another organization's keys", async () => {
+			await seedForeignOrgProject();
+			await db.insert(tables.apiKey).values({
+				id: "foreign-key-id",
+				...hashApiKeyForStorage("foreign-token"),
+				projectId: "foreign-project-id",
+				description: "Foreign Key",
+				createdBy: "test-user-id",
+			});
+
+			const result = await bulk(token, "delete", ["foreign-key-id"]);
+			expect(result.succeeded).toEqual([]);
+			expect(result.failed).toEqual([
+				expect.objectContaining({ id: "foreign-key-id", reason: "not_found" }),
+			]);
+			expect(await statusOf("foreign-key-id")).toBe("active");
+		});
+
+		test("POST /keys/api/bulk invalidates the gateway api_key cache", async () => {
+			const swrCacheKey = "apiKey:token:bulk-token-fingerprint";
+			await swrWrap(swrCacheKey, [getTableName(tables.apiKey)], async () => ({
+				token: "test-token",
+			}));
+			await waitForSwrMirrorWrites();
+			expect(await redisClient.get(swrMirrorKey(swrCacheKey))).not.toBeNull();
+
+			const result = await bulk(token, "deactivate", ["test-api-key-id"]);
+			expect(result.succeeded).toEqual(["test-api-key-id"]);
+			expect(await redisClient.get(swrMirrorKey(swrCacheKey))).toBeNull();
+		});
+
+		test("POST /keys/api/bulk rejects an empty selection", async () => {
+			const res = await app.request("/keys/api/bulk", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ action: "delete", ids: [] }),
+			});
+			expect(res.status).toBe(400);
+		});
+	});
 });

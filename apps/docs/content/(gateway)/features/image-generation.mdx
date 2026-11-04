@@ -136,6 +136,8 @@ result.images.forEach((image, i) => {
 
 The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subset of `images.edit` parameters.
 
+When `/v1/chat/completions` is converted to an OpenAI-compatible multipart image edit, remote input images must return an image content type and stay within the caller's image size limit. The gateway checks downloaded bytes even when `Content-Length` is missing or understated, stops oversized downloads, and returns a `400` error.
+
 ### Parameters
 
 | Parameter            | Type                     | Required | Description                                                                       |
@@ -606,6 +608,7 @@ Available Google models:
 | `gemini-3-pro-image`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.             |
 | `gemini-3.1-flash-image` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K).            |
 | `gemini-nano-banana-2.1` | Nano Banana 2.1, the Flash-tier successor to Nano Banana 2. Supports 1K–4K sizes (default 1K). |
+| `gemini-2.5-flash-image` | Gemini 2.5 Flash Image (Nano Banana). Supports aspect ratios; always 1K, `image_size` ignored. |
 
 #### gemini-3-pro-image
 

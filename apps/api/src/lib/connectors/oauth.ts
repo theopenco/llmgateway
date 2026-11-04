@@ -11,7 +11,7 @@ import {
 	OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { HTTPException } from "hono/http-exception";
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 

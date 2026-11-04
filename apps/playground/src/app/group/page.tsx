@@ -184,9 +184,13 @@ export default async function GroupPage({
 			) : null}
 			<GroupChatClient
 				key={selectedProject?.id}
+				// Matches the client's text-only filter so image models don't
+				// inflate the serialized RSC props.
 				models={models.filter(
 					(m) =>
-						!m.output?.includes("video") && !m.output?.includes("embedding"),
+						!m.output?.includes("image") &&
+						!m.output?.includes("video") &&
+						!m.output?.includes("embedding"),
 				)}
 				providers={providers}
 				organizations={organizations}

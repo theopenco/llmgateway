@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { APIError } from "better-auth/api";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/account-deletion.js";
 import { requestEmailChange } from "@/lib/email-change.js";
 import { getAdminRole } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
@@ -223,7 +224,7 @@ const completeOnboardingSchema = z.object({});
 
 const updatePasswordSchema = z.object({
 	currentPassword: z
-		.string({ required_error: "Current password is required" })
+		.string({ error: "Current password is required" })
 		.min(1, "Current password is required"),
 	newPassword: z
 		.string()

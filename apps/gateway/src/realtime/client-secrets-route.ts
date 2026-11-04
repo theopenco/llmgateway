@@ -229,6 +229,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 			intent:
 				body.session.type === "transcription" ? "transcription" : undefined,
 			clientIp: getClientIpFromRequest(c),
+			advanceRoundRobin: false,
 		});
 	} catch (error) {
 		if (error instanceof RealtimeConnectError) {
@@ -326,7 +327,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 
 	const instructions = body.session.instructions ?? null;
 	if (instructions !== null) {
-		if (isZeroDataRetentionEnabled(preflight.organization)) {
+		if (isZeroDataRetentionEnabled(preflight.organization, preflight.apiKey)) {
 			return errorResponse(
 				c,
 				400,

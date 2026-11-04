@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
-import { useStripe } from "@/lib/stripe";
+import { loadStripeInstance } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import {
@@ -40,6 +40,12 @@ const ActivePlanChangeTier = dynamic(
 const CancelPlanDialog = dynamic(
 	() => import("@/app/dashboard/components/CancelPlanDialog"),
 );
+
+// The dialog only mounts on first open; preloading on hover/focus hides the
+// chunk download behind the user's intent.
+function preloadCancelPlanDialog() {
+	void import("@/app/dashboard/components/CancelPlanDialog");
+}
 
 const DevPassPaymentMethod = dynamic(
 	() => import("@/app/dashboard/components/DevPassPaymentMethod"),
@@ -94,7 +100,6 @@ export default function BillingClient({
 	const plans = usePlans();
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const { stripe } = useStripe();
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
@@ -132,6 +137,9 @@ export default function BillingClient({
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [cancelOpen, setCancelOpen] = useState(false);
+	// Mounted on first open so the dialog's chunk isn't fetched on every
+	// billing view; stays mounted afterwards to keep the close animation.
+	const [cancelMounted, setCancelMounted] = useState(false);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
 	const [isCancellingDowngrade, setIsCancellingDowngrade] = useState(false);
@@ -177,6 +185,9 @@ export default function BillingClient({
 		// monthly/annual cadence by reading it from the org's stored devPlanCycle
 		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
+		// Start loading Stripe.js now so it races the change-tier request and is
+		// ready if the bank requires a 3DS challenge.
+		const stripePromise = loadStripeInstance(config.stripePublishableKey);
 		try {
 			const result = await changeTierMutation.mutateAsync({
 				body: { newTier, expectedAmountDueCents, timing },
@@ -186,6 +197,7 @@ export default function BillingClient({
 				// server left the change as a Stripe pending update; confirming the
 				// payment intent here completes it (the webhook then applies the
 				// tier), while abandoning the challenge leaves the plan unchanged.
+				const stripe = await stripePromise;
 				if (!stripe) {
 					throw new Error("Stripe is not ready. Please refresh and try again.");
 				}
@@ -507,7 +519,12 @@ export default function BillingClient({
 								size="sm"
 								disabled={isCancelling}
 								className="text-muted-foreground"
-								onClick={() => setCancelOpen(true)}
+								onMouseEnter={preloadCancelPlanDialog}
+								onFocus={preloadCancelPlanDialog}
+								onClick={() => {
+									setCancelMounted(true);
+									setCancelOpen(true);
+								}}
 								data-testid="cancel-plan-open"
 							>
 								{isCancelling && (
@@ -515,24 +532,26 @@ export default function BillingClient({
 								)}
 								Cancel subscription
 							</Button>
-							<CancelPlanDialog
-								open={cancelOpen}
-								onOpenChange={setCancelOpen}
-								tier={activeTier}
-								creditsUsed={parseFloat(
-									devPlanStatus.devPlanCreditsUsed ?? "0",
-								)}
-								creditsLimit={parseFloat(
-									devPlanStatus.devPlanCreditsLimit ?? "0",
-								)}
-								renewWhen={renewWhen}
-								pendingTier={pendingTier}
-								organizationId={devPlanStatus.organizationId ?? null}
-								isCancelling={isCancelling}
-								isDowngrading={subscribingTier !== null}
-								onCancel={handleCancel}
-								onDowngrade={handleDowngrade}
-							/>
+							{cancelMounted && (
+								<CancelPlanDialog
+									open={cancelOpen}
+									onOpenChange={setCancelOpen}
+									tier={activeTier}
+									creditsUsed={parseFloat(
+										devPlanStatus.devPlanCreditsUsed ?? "0",
+									)}
+									creditsLimit={parseFloat(
+										devPlanStatus.devPlanCreditsLimit ?? "0",
+									)}
+									renewWhen={renewWhen}
+									pendingTier={pendingTier}
+									organizationId={devPlanStatus.organizationId ?? null}
+									isCancelling={isCancelling}
+									isDowngrading={subscribingTier !== null}
+									onCancel={handleCancel}
+									onDowngrade={handleDowngrade}
+								/>
+							)}
 						</>
 					)}
 				</div>

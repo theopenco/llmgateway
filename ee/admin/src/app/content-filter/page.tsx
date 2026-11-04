@@ -2,6 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { ContentFilterSettingsForm } from "@/components/content-filter-settings-form";
+import { InternalClassifierCheckExport } from "@/components/internal-classifier-check-export";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -275,6 +276,20 @@ export default async function ContentFilterPage({
 
 			<Card>
 				<CardHeader>
+					<CardTitle>Internal classifier checks</CardTitle>
+					<CardDescription>
+						Every internal classifier verdict, passes included, with the audit
+						CSV&apos;s columns and prompt fingerprints, read from request logs.
+						Up to 24 hours per export; logs keep them for 30 days.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<InternalClassifierCheckExport />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
 					<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 						<div>
 							<CardTitle>Violations by organization</CardTitle>
@@ -371,6 +386,7 @@ export default async function ContentFilterPage({
 										<TableHead className="text-right">Blocked</TableHead>
 										<TableHead>Top categories</TableHead>
 										<TableHead>Top providers</TableHead>
+										<TableHead>Top categories by provider</TableHead>
 										<TableHead>Top models</TableHead>
 										<TableHead>Top mappings</TableHead>
 										<TableHead>Top API keys</TableHead>
@@ -431,6 +447,35 @@ export default async function ContentFilterPage({
 																{p.usedProvider} ({p.violationCount})
 															</span>
 														))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{org.topProviders.every(
+													(p) => p.topCategories.length === 0,
+												) ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topProviders
+															.filter((p) => p.topCategories.length > 0)
+															.map((p) => (
+																<span
+																	key={p.usedProvider}
+																	className="whitespace-nowrap"
+																>
+																	<span className="font-medium text-foreground">
+																		{p.usedProvider}
+																	</span>
+																	:{" "}
+																	{p.topCategories
+																		.map(
+																			(c) =>
+																				`${c.category} (${formatNumber(c.violationCount)})`,
+																		)
+																		.join(", ")}
+																</span>
+															))}
 													</div>
 												)}
 											</TableCell>

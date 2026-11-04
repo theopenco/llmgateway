@@ -143,6 +143,12 @@ describe("summarizeUpstreamBody", () => {
 describe("contentFilterErrorLogLevel", () => {
 	it("warns on 4xx and errors on everything else", () => {
 		expect(contentFilterErrorLogLevel({ kind: "upstream_4xx" })).toBe("warn");
+		expect(
+			contentFilterErrorLogLevel({ kind: "upstream_4xx", status: 400 }),
+		).toBe("warn");
+		expect(
+			contentFilterErrorLogLevel({ kind: "upstream_4xx", status: 429 }),
+		).toBe("warn");
 		for (const kind of [
 			"upstream_5xx",
 			"timeout",
@@ -151,6 +157,14 @@ describe("contentFilterErrorLogLevel", () => {
 			"unexpected",
 		] as const) {
 			expect(contentFilterErrorLogLevel({ kind })).toBe("error");
+		}
+	});
+
+	it("errors on a rejected credential", () => {
+		for (const status of [401, 403]) {
+			expect(contentFilterErrorLogLevel({ kind: "upstream_4xx", status })).toBe(
+				"error",
+			);
 		}
 	});
 });

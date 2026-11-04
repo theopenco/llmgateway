@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { readJsonBody } from "@/lib/read-json-body";
 import { transcribesInputNatively } from "@/lib/realtime-transcription";
 
 import { models as modelDefinitions } from "@llmgateway/models";
@@ -103,6 +104,7 @@ function resolveRealtimeWsUrl(): string {
 }
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody<RealtimeSessionRequestBody>(req);
 	const user = await getUser();
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -115,15 +117,14 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	let body: RealtimeSessionRequestBody;
-	try {
-		body = (await req.json()) as RealtimeSessionRequestBody;
-	} catch {
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
 		return NextResponse.json(
 			{ error: "Invalid JSON payload" },
 			{ status: 400 },
 		);
 	}
+	const body = bodyResult.body;
 
 	if (typeof body.model !== "string" || !body.model.trim()) {
 		return NextResponse.json(

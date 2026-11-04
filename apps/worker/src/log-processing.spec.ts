@@ -284,6 +284,60 @@ describe("Log Processing", () => {
 			expect(updatedOrg!.devPlanPremiumWeekStart).toBeInstanceOf(Date);
 		});
 
+		test("should not accrue premium weekly usage for a model a global discount prices as standard", async () => {
+			await db
+				.update(organization)
+				.set({
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "0",
+					devPlanPremiumCreditsUsed: "0",
+					devPlanPremiumWeekStart: null,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const discountId = `log-processing-discount-${randomUUID()}`;
+			// Through cdb so its mutation hook drops cached discount lookups.
+			await cdb.insert(tables.discount).values({
+				id: discountId,
+				organizationId: null,
+				provider: null,
+				model: "claude-fable-5",
+				discountPercent: "0.9",
+			});
+
+			try {
+				await db.insert(log).values({
+					requestId: "test-request-premium-discounted",
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.5,
+					cached: false,
+					usedMode: "credits",
+					duration: 2000,
+					requestedModel: "anthropic/claude-fable-5",
+					requestedProvider: "anthropic",
+					usedModel: "anthropic/claude-fable-5",
+					usedProvider: "anthropic",
+					responseSize: 150,
+					mode: "credits",
+				});
+
+				await batchProcessLogs();
+
+				const updatedOrg = await db.query.organization.findFirst({
+					where: { id: { eq: testOrg.id } },
+				});
+
+				expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(0.5);
+				expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(0);
+			} finally {
+				await cdb
+					.delete(tables.discount)
+					.where(eq(tables.discount.id, discountId));
+			}
+		});
+
 		test("should bill overflow to organization credits once the dev plan pool is exhausted", async () => {
 			// PAYG overflow: with the monthly pool fully used, the cost cannot
 			// draw from the plan pool, so the worker drains the org's regular

@@ -10,9 +10,12 @@ The gateway is latency-critical and high-throughput.
 ## Hot path
 
 - Read no `log` rows on the request path, however narrow the query or short the cache. Credit gates, spend and limit checks, and routing signals come from Redis counters maintained on the write path (incremented at `insertLog`, settled by the billing worker) or small cached rows.
+- Pass the request API key to compliance and retention helpers. Organization and key policies both apply; keep allowlists separate so disjoint lists deny all rather than becoming unrestricted.
 - Route on the capability field curated for it (`supportedToolChoices`, `serviceTiers`, `supportsAssistantPrefill`, …). `supportedParameters` is a partial list.
-- Provider-bound reasoning (mappings where `usesEncryptedReasoning` holds: `reasoning: true` on an `encryptedReasoning` provider) can only verify on the account that produced it. `chat/tools/reasoning-credential-pin.ts` pins a replaying turn to that credential, including a `pending_deletion` key; new credential selection must honor the pin. Before the first attempt, `stripForeignReasoning` drops OpenAI-format payloads pinned to another credential or already rejected (`rememberRejectedReasoning`), so a conversation that failed over does not fail once per turn. A retry that leaves the credential goes through `resolveProviderContextForRetry`, which drops all OpenAI-format encrypted reasoning; Gemini signatures cannot be dropped and still block fallback. New bound-reasoning shapes belong in `providerBoundReasoningIds`.
+- Provider-bound reasoning (mappings where `usesEncryptedReasoning` holds: `reasoning: true` with the mapping's `encryptedReasoning` override or provider default) can only verify on the account that produced it. `chat/tools/reasoning-credential-pin.ts` pins a replaying turn to that credential, including a `pending_deletion` key; new credential selection must honor the pin. Before the first attempt, `stripForeignReasoning` drops OpenAI-format payloads pinned to another credential or already rejected (`rememberRejectedReasoning`), so a conversation that failed over does not fail once per turn. A retry that leaves the credential goes through `resolveProviderContextForRetry`, which drops all OpenAI-format encrypted reasoning; Gemini signatures cannot be dropped and still block fallback. A successful session fallback tombstones the optional reasoning it omitted, so an old credential pin cannot reclaim the session. New bound-reasoning shapes belong in `providerBoundReasoningIds`.
 - Bare model ids route only to deployments in the model's full context-window tier (`getContextTierMinSize` in `packages/models`). Do not add prompt-size estimates to provider selection for a fixed model; chars/4 misjudges per-model tokenizers.
+
+For IAM, auth, compliance, retention, or other security changes, follow [All gateway paths](../security-audit/SKILL.md#all-gateway-paths) in the security-audit skill; chat and Responses are not the whole surface.
 
 ## User-supplied URLs
 
@@ -31,6 +34,20 @@ Worker requests to a BYOK base URL or webhook target pass `tenantControlled`
 to `fetchWithSignals` in `apps/worker/src/services/video-jobs.ts`. Route every non-`data:` URL through the guard
 wherever remote content is inlined (e.g. `requiresBase64Images` mappings).
 
+Start content-download deadlines before URL/DNS validation and keep them through
+body consumption. Race unabortable validation awaits; late completion must never
+start a fetch. Cancel active readers on abort: some Node fetch runtimes lose body
+aborts during garbage collection. Cover validation, header and body stalls with
+real-HTTP and forced-GC regression tests.
+
+## Managed key selection
+
+Availability probes must pass `advanceRoundRobin: false` through credential
+resolution; only upstream attempts reserve round-robin turns. On cursor failure,
+retain ordered degradation for the request and use the existing uptime-aware
+selector. Import counters in low-level helpers from
+`@llmgateway/instrumentation/metrics` to avoid initializing tracing.
+
 ## Errors
 
 Keep `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts` conservative.
@@ -43,11 +60,16 @@ raise the misclassification risk and confirm first.
 
 ## Content filter
 
-The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) writes its audit
-CSV from the request body only: `request_id` and `account_id` come from the
-classify payload, headers are ignored. `internal-content-filter.ts` sends the
-gateway request id and the organization id (never the project, key, or user id —
-audit rows join on organization).
+The self-hosted classifier (`LLM_CONTENT_FILTER_INTERNAL_URL`) is stateless and
+receives only the prompt. Every verdict, passes included, is stored on the log's
+content filter response, the only record; it carries the prompt fingerprint
+while the classifier runs with its hash-all option. Exports, including the
+pseudonymized vendor sample, are in the `internal-classifier` skill.
+Customer-facing log APIs never return the content filter log columns.
+
+Every classifier fails open. OpenAI moderation retries a network error or 5xx
+once and logs the retried attempt at `warn`. Final failures log at
+`contentFilterErrorLogLevel`: `warn` for a 4xx other than 401/403, else `error`.
 
 ## Logging, streaming, shutdown
 

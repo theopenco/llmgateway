@@ -325,7 +325,7 @@ export function ModelCard({
 			}
 			map.get(key)!.mappings.push(provider);
 		}
-		// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+		// Providers with a marketing badge first
 		return Array.from(map.values()).sort(
 			(a, b) =>
 				Number(Boolean(b.providerInfo?.modelCardBadge)) -
@@ -410,6 +410,25 @@ export function ModelCard({
 							>
 								{model.family}
 							</Badge>
+							{model.virtualModelTarget && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Badge
+											variant="outline"
+											className="text-[10px]"
+											tabIndex={0}
+										>
+											Virtual model
+										</Badge>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Currently {model.virtualModelTarget}. The served version
+											and pricing may change.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							{model.premium && (
 								<Badge className="text-[10px] px-2 py-0.5 font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
 									<Gem className="h-2.5 w-2.5" />

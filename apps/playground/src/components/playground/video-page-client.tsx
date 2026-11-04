@@ -43,9 +43,11 @@ import {
 	getSupportedVideoSizesForSelection,
 	getVideoOrientation,
 	getVideoResolution,
+	getVideoReasoningRequestFields,
 	isPendingVideoModel,
 	POLL_TIMEOUT_ERROR_CODE,
 	pollVideoJob,
+	requiresVideoLipSyncInputs,
 	supportsVideoEndFrameInput,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
@@ -65,6 +67,7 @@ import type {
 	VideoGalleryItem,
 	VideoInputImage,
 	VideoJob,
+	VideoReasoningEffort,
 	VideoSize,
 } from "@/lib/video-gen";
 
@@ -196,6 +199,8 @@ export default function VideoPageClient({
 	const [videoSize, setVideoSize] = useState<VideoSize>("1280x720");
 	const [videoDuration, setVideoDuration] = useState<VideoDuration>(8);
 	const [audioEnabled, setAudioEnabled] = useState(true);
+	const [reasoningEffort, setReasoningEffort] =
+		useState<VideoReasoningEffort>("high");
 	const [frameInputs, setFrameInputs] = useState<VideoFrameInputs>({
 		start: null,
 		end: null,
@@ -547,10 +552,7 @@ export default function VideoPageClient({
 
 	// Sync URL → state for back/forward navigation
 	useEffect(() => {
-		if (videoIdFromUrl !== selectedItemId) {
-			setSelectedItemId(videoIdFromUrl);
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+		setSelectedItemId(videoIdFromUrl);
 	}, [videoIdFromUrl]);
 
 	const lastRestoredIdRef = useRef<string | null>(null);
@@ -699,10 +701,12 @@ export default function VideoPageClient({
 				videoSize,
 				videoDuration,
 				inputImageCount,
+				referenceVideos.length,
 			),
 		[
 			comparisonMode,
 			inputImageCount,
+			referenceVideos.length,
 			selectedModels,
 			videoDuration,
 			videoGenModels,
@@ -843,6 +847,15 @@ export default function VideoPageClient({
 			}
 			if (frameInputs.end && !frameInputs.start) {
 				toast.error("A last frame needs a first frame. Please add one.");
+				return;
+			}
+			if (
+				selectedModels.some(requiresVideoLipSyncInputs) &&
+				(referenceImages.length !== 1 || referenceAudios.length !== 1)
+			) {
+				toast.error(
+					"Lip-sync models need exactly one reference image and one reference audio URL.",
+				);
 				return;
 			}
 
@@ -1040,6 +1053,7 @@ export default function VideoPageClient({
 							size: videoSize,
 							seconds: videoDuration,
 							audio: getAudioForModel(modelId),
+							...getVideoReasoningRequestFields(modelId, reasoningEffort),
 							...inputFields,
 						}),
 						signal,
@@ -1166,6 +1180,7 @@ export default function VideoPageClient({
 			fetchClient,
 			videoSize,
 			videoDuration,
+			reasoningEffort,
 			effectiveAudioEnabled,
 			getAudioForModel,
 			frameInputs,
@@ -1363,6 +1378,8 @@ export default function VideoPageClient({
 						setVideoDuration={handleDurationChange}
 						audioEnabled={effectiveAudioEnabled}
 						setAudioEnabled={setAudioEnabled}
+						reasoningEffort={reasoningEffort}
+						setReasoningEffort={setReasoningEffort}
 						audioToggleDisabled={isGenerating || audioToggleLocked}
 						audioToggleDisabledReason={audioToggleLockedReason}
 						canUseFrameInputs={canUseFrameInputs}

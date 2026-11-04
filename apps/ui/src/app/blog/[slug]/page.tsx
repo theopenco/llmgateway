@@ -8,6 +8,7 @@ import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { serializeJsonLd } from "@/lib/json-ld";
+import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 import { plainTextFromMarkdown } from "@/lib/utils/plain-text";
 
@@ -299,15 +300,20 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: entry.title,
+		title: pageTitle(entry.title),
 		authors: entry.author
 			? [entry.author]
 			: [{ name: "LLM Gateway", url: "https://llmgateway.io" }],
 		description: entry.summary ?? "LLM Gateway blog post",
+		alternates: { canonical: `/blog/${entry.slug}` },
 		openGraph: {
 			title: entry.title,
 			description: entry.summary ?? "LLM Gateway blog post",
 			type: "article",
+			url: `https://llmgateway.io/blog/${entry.slug}`,
+			publishedTime: entry.date,
+			modifiedTime: entry.updatedAt ?? entry.date,
+			authors: entry.author?.url ? [entry.author.url] : undefined,
 			images: entry.image
 				? [
 						{

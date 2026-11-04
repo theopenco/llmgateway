@@ -454,16 +454,45 @@ export const xaiModels = [
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 			{
-				providerId: "azure-ai-foundry",
+				providerId: "azure",
 				externalId: "grok-4-1-fast-reasoning",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
 				imageInputPrice: undefined,
-				contextSize: 2_000_000,
+				contextSize: 128_000,
+				maxOutput: 128_000,
+				streaming: true,
+				vision: true,
+				requiresBase64Images: true,
+				reasoning: true,
+				encryptedReasoning: false,
+				reasoningOutput: "omit",
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "azure-ai-foundry",
+				externalId: "grok-4-1-fast-reasoning",
+				deactivatedAt: new Date("2026-11-07"),
+				inputPrice: "0.2e-6",
+				outputPrice: "0.5e-6",
+				requestPrice: "0",
+				imageInputPrice: undefined,
+				contextSize: 128_000,
 				maxOutput: 30000,
 				streaming: true,
 				vision: true,
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningOutput: "omit",
 				tools: true,
@@ -524,6 +553,7 @@ export const xaiModels = [
 			{
 				providerId: "azure-ai-foundry",
 				externalId: "grok-4-1-fast-non-reasoning",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -682,7 +712,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -690,8 +719,13 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 2_000_000,
 				maxOutput: 30000,
+				// Temperatures near 2 return gibberish until max_tokens.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningOutput: "omit",
 				tools: true,
@@ -713,7 +747,6 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "vertex-openai",
-				stability: "unstable" as const,
 				externalId: "grok-4.20-non-reasoning",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -723,6 +756,9 @@ export const xaiModels = [
 				maxOutput: 30000,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
@@ -814,8 +850,34 @@ export const xaiModels = [
 				regions: [{ id: "global" }, { id: "us" }, { id: "us-west-2" }],
 			},
 			{
+				providerId: "azure",
+				externalId: "grok-4.3",
+				inputPrice: "1.25e-6",
+				cachedInputPrice: "0.20e-6",
+				outputPrice: "2.50e-6",
+				requestPrice: "0",
+				contextSize: 200_000,
+				maxOutput: 8_192,
+				streaming: true,
+				vision: false,
+				reasoning: true,
+				encryptedReasoning: false,
+				reasoningOutput: "omit",
+				tools: true,
+				jsonOutput: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
 				providerId: "azure-ai-foundry",
 				externalId: "grok-4.3",
+				deactivatedAt: new Date("2026-11-07"),
 				inputPrice: "1.25e-6",
 				cachedInputPrice: "0.20e-6",
 				outputPrice: "2.50e-6",
@@ -1185,10 +1247,6 @@ export const xaiModels = [
 			},
 			{
 				providerId: "vertex-openai",
-				// Vertex 404s ("not found or your project does not have access")
-				// until Grok 4.6 is enabled for the project in Model Garden;
-				// drop this once the platform project has access.
-				stability: "unstable" as const,
 				externalId: "grok-4.6",
 				inputPrice: "2.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1212,8 +1270,13 @@ export const xaiModels = [
 				requestPrice: "0",
 				contextSize: 500_000,
 				maxOutput: undefined,
+				// Temperatures near 2 never return; 1 answers normally.
+				maxTemperature: 1,
 				streaming: true,
 				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
 				reasoning: true,
 				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningOutput: "omit",
@@ -1317,6 +1380,57 @@ export const xaiModels = [
 					"reasoning_effort",
 				],
 				regions: [{ id: "global" }, { id: "us" }],
+			},
+			{
+				providerId: "vertex-openai",
+				externalId: "grok-4.7",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: "2.0e-6",
+						outputPrice: "6.0e-6",
+						cachedInputPrice: "0.5e-6",
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "1.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 524_288,
+				maxOutput: undefined,
+				// Same as Bedrock: temperature 2 never returns; 1 answers normally.
+				maxTemperature: 1,
+				streaming: true,
+				vision: true,
+				// Vertex fetches remote images itself and refuses hosts whose
+				// robots.txt disallows it; inline them instead.
+				requiresBase64Images: true,
+				reasoning: true,
+				// Vertex rejects xhigh/none, xAI rejects max on this deployment.
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
+				reasoningOutput: "omit",
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+				regions: [{ id: "global" }],
 			},
 		],
 	},

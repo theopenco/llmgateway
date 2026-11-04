@@ -5,6 +5,7 @@ import {
 	describe,
 	expect,
 	test,
+	vi,
 } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -614,13 +615,20 @@ describe("smart routing", () => {
 			providers: ["openai", "novita"],
 		});
 
-		const res = await chatCompletion(token, {
-			model: "smart",
-			messages: [{ role: "user", content: "hi free narrow" }],
-			free_models_only: true,
-		});
-		expect(res.status).toBe(200);
-		expect((await res.json()).model).toContain("ling-3.1-flash");
+		// No free model is active today; pin the clock to when this one was.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
+		try {
+			const res = await chatCompletion(token, {
+				model: "smart",
+				messages: [{ role: "user", content: "hi free narrow" }],
+				free_models_only: true,
+			});
+			expect(res.status).toBe(200);
+			expect((await res.json()).model).toContain("ling-3.1-flash");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("skips the classifier when the policy blocks its provider", async () => {

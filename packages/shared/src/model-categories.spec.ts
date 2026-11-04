@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	discountLookupFromMappings,
 	getModelCategory,
 	isPremiumModel,
 	isPremiumUsedModel,
@@ -50,6 +51,35 @@ describe("model-categories", () => {
 	it("classifies standard usedModel values as standard", () => {
 		expect(isPremiumUsedModel("openai/gpt-4o-mini")).toBe(false);
 		expect(isPremiumUsedModel("custom/some-unknown-model")).toBe(false);
+	});
+
+	it("classifies by price after public discounts", () => {
+		// Same list price on every provider, above the output threshold.
+		const modelId = "gemini-4-argon";
+		expect(isPremiumModel(modelId)).toBe(true);
+		expect(isPremiumModel(modelId, () => "0.5")).toBe(false);
+		expect(isPremiumModel(modelId, () => "0.1")).toBe(true);
+		// Any provider still at a premium price keeps the model premium.
+		expect(
+			isPremiumModel(modelId, (providerId) =>
+				providerId === "google-ai-studio" ? "0.5" : null,
+			),
+		).toBe(true);
+		// Out-of-range discounts are ignored.
+		expect(isPremiumModel(modelId, () => "1.5")).toBe(true);
+		expect(getModelCategory(modelId, () => 0.5)).toBe("standard");
+		expect(
+			isPremiumUsedModel("google-vertex/gemini-4-argon", () => "0.5"),
+		).toBe(false);
+	});
+
+	it("builds a discount lookup from API mappings", () => {
+		const lookup = discountLookupFromMappings([
+			{ providerId: "google-ai-studio", discount: null },
+			{ providerId: "google-vertex", discount: "0.5" },
+		]);
+		expect(lookup("google-ai-studio")).toBeUndefined();
+		expect(lookup("google-vertex")).toBe("0.5");
 	});
 
 	it("accepts a bare model id in usedModel form", () => {

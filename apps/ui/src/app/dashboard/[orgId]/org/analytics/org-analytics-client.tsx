@@ -9,7 +9,10 @@ import {
 	AnalyticsDateRange,
 	getAnalyticsRange,
 } from "@/components/analytics/analytics-date-range";
-import { currencyFormatter } from "@/components/analytics/chart-helpers";
+import {
+	completeBreakdown,
+	currencyFormatter,
+} from "@/components/analytics/chart-helpers";
 import {
 	useChartStyle,
 	ChartStyleSelector,
@@ -61,6 +64,9 @@ interface OrgActivityRow extends DimensionRow {
 	apiKeysRequestCount: number;
 	creditsCost: number;
 	apiKeysCost: number;
+	dataStorageCost?: number;
+	creditsDataStorageCost?: number;
+	apiKeysDataStorageCost?: number;
 }
 
 const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
@@ -277,14 +283,32 @@ export function OrgAnalyticsClient() {
 		},
 	);
 
-	const rows = ((data?.activity ?? []) as OrgActivityRow[]).map((row) => ({
-		...applyUsageMode(row, usageMode),
-		breakdown: row.breakdown.map((entry) => applyUsageMode(entry, usageMode)),
-	}));
+	// Per-key groupings miss platform-key traffic and every grouping misses
+	// storage, so both are added as entries and the breakdown adds up to the
+	// total spend.
+	const rows = ((data?.activity ?? []) as OrgActivityRow[]).map((raw) => {
+		const row = {
+			...applyUsageMode(raw, usageMode),
+			dataStorageCost:
+				(usageMode === "credits"
+					? raw.creditsDataStorageCost
+					: usageMode === "api-keys"
+						? raw.apiKeysDataStorageCost
+						: raw.dataStorageCost) ?? 0,
+		};
+		return {
+			...row,
+			breakdown: completeBreakdown(
+				row,
+				raw.breakdown.map((entry) => applyUsageMode(entry, usageMode)),
+				groupBy === "apiKey" || groupBy === "user",
+			),
+		};
+	});
 
 	const totals = rows.reduce(
 		(acc, row) => {
-			acc.cost += row.cost;
+			acc.cost += row.cost + row.dataStorageCost;
 			acc.requestCount += row.requestCount;
 			acc.totalTokens += row.totalTokens;
 			return acc;

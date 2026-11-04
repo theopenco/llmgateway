@@ -10,6 +10,13 @@ import {
 } from "./model-verification.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
+// Capability fixtures isolate their checks; the content baseline has its own suite.
+vi.mock("./model-verification-compatibility.js", () => ({
+	requiresMessageContentVerification: (target: {
+		apiFormat?: string;
+		decisions?: boolean;
+	}) => !target.decisions && target.apiFormat === "openai-chat-completions",
+}));
 
 vi.mock("./gcp-access-token.js", () => ({
 	getGcpServiceAccountAccessToken: vi.fn(async () => "derived-access-token"),
@@ -71,7 +78,9 @@ describe("model verification", () => {
 	it("keeps Chat Completions payloads when the base URL contains /responses", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
-			.mockResolvedValue(Response.json(chatBody({ content: "OK" })));
+			.mockImplementation(async () =>
+				Response.json(chatBody({ content: "OK" })),
+			);
 		const result = await runProviderModelVerification({
 			target: {
 				...target,
@@ -93,7 +102,7 @@ describe("model verification", () => {
 		});
 
 		expect(result.passed).toBe(true);
-		expect(fetchImplementation).toHaveBeenCalledOnce();
+		expect(fetchImplementation).toHaveBeenCalledTimes(4);
 		const [endpoint, request] = fetchImplementation.mock.calls[0];
 		expect(endpoint).toBe(
 			"https://carrier.example/responses-proxy/v1/chat/completions",
@@ -321,7 +330,10 @@ describe("model verification", () => {
 						],
 					}),
 				)
-				.mockResolvedValueOnce(Response.json(body));
+				.mockResolvedValueOnce(Response.json(body))
+				.mockImplementation(async () =>
+					Response.json(chatBody({ content: "OK" })),
+				);
 
 			const result = await runProviderModelVerification({
 				target: {
@@ -346,6 +358,7 @@ describe("model verification", () => {
 			expect(result.checks.map((check) => check.id)).toEqual([
 				"basic",
 				"tools",
+				...(apiFormat === "openai-chat-completions" ? ["message_content"] : []),
 			]);
 			expect(result.passed).toBe(true);
 			const [toolEndpoint, toolRequest] = fetchImplementation.mock.calls[1];
@@ -1925,5 +1938,135 @@ describe("model verification", () => {
 				String(second.mock.calls[1][1]?.body),
 			);
 		});
+	});
+});
+
+describe("model verification - declared web search format", () => {
+	const searchTarget = (
+		webSearchFormat: "web_search_options" | "web_search_tool",
+	): ProviderModelVerificationTarget => ({
+		...target,
+		providerId: "custom-carrier",
+		apiFormat: "openai-chat-completions",
+		streaming: false,
+		vision: false,
+		audio: false,
+		tools: false,
+		jsonOutput: false,
+		jsonOutputSchema: false,
+		reasoning: false,
+		reasoningMaxTokens: false,
+		reasoningEfforts: null,
+		webSearch: true,
+		webSearchFormat,
+	});
+	const run = async (
+		webSearchFormat: "web_search_options" | "web_search_tool",
+		searchResponse: unknown,
+	) => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json(chatBody({ content: "OK" })))
+			.mockResolvedValueOnce(Response.json(searchResponse))
+			.mockImplementation(async () =>
+				Response.json(chatBody({ content: "OK" })),
+			);
+		const result = await runProviderModelVerification({
+			target: searchTarget(webSearchFormat),
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+		const payload = JSON.parse(
+			String(fetchImplementation.mock.calls[1][1]?.body),
+		);
+		return { result, payload };
+	};
+
+	it("sends the tool shape and passes on a prompt grown by search results", async () => {
+		// SCX's tool-shape reply: no annotations or search usage, only the
+		// retrieved pages in prompt_tokens.
+		const { result, payload } = await run(
+			"web_search_tool",
+			chatBody({ content: "Today is October 21, 2026." }, "stop", {
+				prompt_tokens: 61_351,
+				completion_tokens: 40,
+				total_tokens: 61_391,
+			}),
+		);
+		expect(payload.tools).toEqual([
+			{ type: "web_search", search_context_size: "low" },
+		]);
+		expect(payload.tool_choice).toBe("required");
+		expect(payload).not.toHaveProperty("web_search_options");
+		expect(result.checks[1]).toMatchObject({
+			id: "web_search",
+			label: "Web search (web_search_tool)",
+			status: "passed",
+		});
+		expect(result.passed).toBe(true);
+	});
+
+	it("leaves tool_choice unset for a listing that does not take required", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json(chatBody({ content: "OK" })))
+			.mockResolvedValueOnce(
+				Response.json(
+					chatBody({ content: "Today." }, "stop", {
+						prompt_tokens: 61_351,
+						completion_tokens: 40,
+						total_tokens: 61_391,
+					}),
+				),
+			);
+		fetchImplementation.mockImplementation(async () =>
+			Response.json(chatBody({ content: "OK" })),
+		);
+		const result = await runProviderModelVerification({
+			target: {
+				...searchTarget("web_search_tool"),
+				supportedToolChoices: ["auto"],
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+		const payload = JSON.parse(
+			String(fetchImplementation.mock.calls[1][1]?.body),
+		);
+		expect(payload.tools).toEqual([
+			{ type: "web_search", search_context_size: "low" },
+		]);
+		expect(payload).not.toHaveProperty("tool_choice");
+		expect(result.passed).toBe(true);
+	});
+
+	it("fails when the endpoint ignores the declared format", async () => {
+		const { result, payload } = await run(
+			"web_search_options",
+			chatBody({ content: "I cannot browse the web." }, "stop", {
+				prompt_tokens: 81,
+				completion_tokens: 12,
+				total_tokens: 93,
+			}),
+		);
+		expect(payload.web_search_options).toEqual({ search_context_size: "low" });
+		expect(payload).not.toHaveProperty("tools");
+		expect(result.checks[1]).toMatchObject({ status: "failed" });
+		expect(result.passed).toBe(false);
+	});
+
+	it("passes on url_citation annotations", async () => {
+		const { result } = await run(
+			"web_search_options",
+			chatBody({
+				content: "Today.",
+				annotations: [
+					{ type: "url_citation", url_citation: { url: "https://x.test" } },
+				],
+			}),
+		);
+		expect(result.passed).toBe(true);
 	});
 });

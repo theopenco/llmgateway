@@ -65,7 +65,8 @@ const COPY: Record<
 		option: "Breakdown by API key",
 		overTime: "Cost by API key over time",
 		ranked: "Cost by API key",
-		description: "Cost and usage broken down by API key for this project",
+		description:
+			"Cost and usage broken down by API key for this project. Traffic from platform keys is shown as Unattributed.",
 	},
 	user: {
 		option: "Breakdown by user",
@@ -191,6 +192,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	);
 
 	const usageMode = useUsageMode();
+	const rawActivity = useMemo(() => data?.activity ?? [], [data]);
 	const activity: DailyActivity[] = useMemo(
 		() =>
 			(data?.activity ?? []).map((day) =>
@@ -204,17 +206,18 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		[activity, groupBy],
 	);
 
-	// Totals come from the same rows the charts read, so the header and the
-	// breakdown can never disagree.
+	// Totals come from the same rows the charts read. Storage is billed on top of
+	// inference; the cards add it and the charts show it as its own series.
 	const totals = useMemo(
 		() =>
 			activity.reduce(
 				(acc, day) => ({
 					cost: acc.cost + day.cost,
+					storageCost: acc.storageCost + day.dataStorageCost,
 					requestCount: acc.requestCount + day.requestCount,
 					totalTokens: acc.totalTokens + day.totalTokens,
 				}),
-				{ cost: 0, requestCount: 0, totalTokens: 0 },
+				{ cost: 0, storageCost: 0, requestCount: 0, totalTokens: 0 },
 			),
 		[activity],
 	);
@@ -258,10 +261,15 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 					<MetricCard
 						label="Total cost"
-						value={currencyFormatter.format(totals.cost)}
+						value={currencyFormatter.format(totals.cost + totals.storageCost)}
+						subtitle={
+							totals.storageCost > 0
+								? `Includes ${currencyFormatter.format(totals.storageCost)} data storage`
+								: undefined
+						}
 						accent="green"
 						icon={<Coins className="h-4 w-4" />}
-						trend={activity.map((day) => day.cost)}
+						trend={activity.map((day) => day.cost + day.dataStorageCost)}
 						isLoading={isLoading}
 					/>
 					<MetricCard
@@ -292,7 +300,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 						description={`Compare ${dimensionNoun} usage across the selected range`}
 					/>
 				)}
-				<TokenUsageCard activity={activity} loading={isLoading} />
+				<TokenUsageCard activity={rawActivity} loading={isLoading} />
 				{groupBy === "model" ? (
 					<CostByModelCard activity={activity} loading={isLoading} />
 				) : (

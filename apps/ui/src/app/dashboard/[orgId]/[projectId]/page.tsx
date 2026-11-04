@@ -1,12 +1,12 @@
+import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
 import { redirect } from "next/navigation";
 
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
-import { fetchServerData, getOrganizations } from "@/lib/server-api";
+import { getOrganizations } from "@/lib/server-api";
+import { createServerQuery } from "@/lib/server-query";
 import { getTimeZonePreference } from "@/lib/timezone-server";
 
 import { formatDayKey, shiftDayKey } from "@llmgateway/shared";
-
-import type { ActivitT } from "@/types/activity";
 
 export default async function Dashboard({
 	params,
@@ -22,10 +22,8 @@ export default async function Dashboard({
 	const { orgId, projectId } = await params;
 	const searchParamsData = searchParams ? await searchParams : {};
 
-	// Bucket and default the range in the user's display zone, and hand the
-	// same zone to the client query below. Seeding a local-zone query with a
-	// UTC-bucketed response would show UTC buckets labelled as local until the
-	// query's staleTime expires.
+	// Bucket and default the range in the user's display zone, the same key the
+	// client query builds, so it picks up this prefetch instead of refetching.
 	const { timeZone } = await getTimeZonePreference();
 	const todayKey = formatDayKey(new Date(), timeZone);
 	const fromParam = searchParamsData?.from ?? shiftDayKey(todayKey, -6);
@@ -33,10 +31,11 @@ export default async function Dashboard({
 
 	const orgsDataPromise = getOrganizations();
 
-	const initialActivityDataPromise = fetchServerData<ActivitT>(
-		"GET",
-		"/activity",
-		{
+	// Not awaited: the page renders its loading state immediately and the
+	// activity data streams in, instead of holding back the first paint.
+	const { queryClient, api } = await createServerQuery();
+	void queryClient.prefetchQuery(
+		api.queryOptions("get", "/activity", {
 			params: {
 				query: {
 					from: fromParam,
@@ -45,7 +44,7 @@ export default async function Dashboard({
 					projectId,
 				},
 			},
-		},
+		}),
 	);
 
 	// Project-scoped "developer" members don't get the project-wide dashboard —
@@ -56,13 +55,14 @@ export default async function Dashboard({
 		redirect(`/dashboard/${orgId}/${projectId}/me`);
 	}
 
-	const initialActivityData = await initialActivityDataPromise;
-
+	// A failed server request reaches the browser as an error; retry once there
+	// with the client's own fetch, as the old null fallback did.
 	return (
-		<DashboardClient
-			initialActivityData={initialActivityData ?? undefined}
-			initialActivityRange={{ from: fromParam, to: toParam }}
-			initialActivityTimeZone={timeZone}
-		/>
+		<HydrationBoundary
+			state={dehydrate(queryClient)}
+			options={{ defaultOptions: { queries: { retry: 1 } } }}
+		>
+			<DashboardClient />
+		</HydrationBoundary>
 	);
 }

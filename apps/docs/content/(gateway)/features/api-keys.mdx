@@ -32,6 +32,12 @@ each with its own page:
 | [Provider keys](/learn/provider-keys)                 | Bring your own upstream provider credentials so requests bill to your provider account |
 | [Platform secret keys](/features/embeddable-payments) | Mint end-user sessions from your backend when using the Payments SDK (`sk_…`)          |
 
+## Enterprise compliance policies
+
+Owners and admins can open a key’s **Compliance** action to configure [provider compliance requirements](/features/compliance#api-key-policies), headquarters restrictions, and provider/model lists. Key policies can narrow access but never relax enabled organization policies or bypass IAM rules. They also work independently when organization policies are disabled.
+
+The organization **Settings → Compliance** page lists active, unexpired keys with explicit policies across all projects. Removing a key policy restores organization-only enforcement.
+
 ## Creating API Keys
 
 ### Via Dashboard
@@ -109,6 +115,16 @@ Enable **API key budgets** in the dashboard's notification settings to receive i
 ## Disabling/Enabling API Keys
 
 You can disable an API key to stop it from being used, but the key is not deleted and can be re-enabled later.
+
+To deactivate, reactivate, or delete many keys at once, select them on the
+project or organization **API Keys** page and use the bulk actions. The list
+flags active keys unused for 30+ days (and, more urgently, 90+ days) so you can
+find abandoned keys to deactivate. See [API Keys in the
+dashboard](/learn/api-keys#selecting-keys-and-bulk-actions).
+
+Low-spend keys without a limit show a one-click [limit
+suggestion](/learn/api-keys#limit-suggestions), such as $10 per week, so a
+leaked key cannot run up costs.
 
 ## Rotating (Rolling) API Keys
 
@@ -190,6 +206,20 @@ Learn](/learn/api-keys).
 
 IAM (Identity Access Management) rules provide fine-grained access control over what models, providers, and pricing tiers an API key can access.
 
+### Endpoint coverage
+
+Applicable IAM and compliance checks cover every inference path: chat completions, Responses and compaction, Messages, all AI SDK protocol versions, image generation and edits, embeddings, moderation, OCR, rerank, search, typed decisions, speech, transcription, video creation, and realtime. Internal adapters preserve credentials and the configured trusted client IP; retries and fallback cannot widen access. Realtime also checks transcription models before receiving audio and revalidates access when a session enables transcription.
+
+Moderation intentionally ignores model and pricing IAM rules for compatibility. It still enforces provider/IP ceilings and organization/API-key compliance policies.
+
+Authenticated model discovery and AI SDK config omit models blocked by organization/key compliance or IAM. The unauthenticated model catalogue and public MCP discovery remain public metadata.
+
+Behind an edge that overwrites the trusted IP header, configure `GATEWAY_BACKEND_URL` and `API_BACKEND_URL` with trusted private service URLs for MCP hops. Going back through the public edge can replace the caller’s IP with the gateway’s address; do not work around that by trusting alternate headers.
+
+Private key/credit metadata and MCP account/usage reads validate the credential, expiry, current membership, project, organization, and applicable IP restrictions. They remain readable after quota exhaustion. Historical outputs keep their ownership and signed-download checks; model/provider rules do not retroactively turn a public catalogue or an already-authorized historical read into new inference.
+
+`GET /v1/credits` retains the AI SDK account-credit contract: any authorized regular project key can read organization-wide credit figures. This is separate from role-scoped MCP analytics; end-user wallet sessions cannot use the account-credit endpoint.
+
 ### Rule Types
 
 #### Model Access Rules
@@ -245,6 +275,15 @@ When an `allow_ip_cidrs` rule is configured and the gateway cannot determine the
 - **Deny rules always apply**: a request matching any deny rule is rejected, regardless of allow rules.
 - **Moderation is special-cased**: `/v1/moderations` runs a fixed moderation model that cannot appear in model allowlists, so only provider and IP rules apply to it — model and pricing rules are skipped.
 
+### Virtual model aliases
+
+A [virtual model](/learn/models#virtual-models) alias resolves to the versioned model it currently names before rules run:
+
+- A rule naming the versioned ID covers requests through the alias.
+- `deny_models` naming an alias blocks the model it currently resolves to, through the alias or its versioned ID.
+- `allow_models` naming an alias admits only requests that use the alias. Add the versioned ID to allow pinned requests too.
+- The same applies to end-user session model scopes. When the alias moves to a new version, these rules follow it.
+
 ## Member-Level IAM Rules
 
 The same rule types can also be configured **per organization member** by owners and admins on the [Team page](/learn/team) (admins cannot modify an owner's rules). Member-level rules act as an organization-wide ceiling for that member:
@@ -277,11 +316,14 @@ When API keys encounter IAM rule violations, the API returns a `403` with the st
 }
 ```
 
-Common error scenarios:
+Common `403` scenarios:
 
 - Model not allowed by IAM rules
 - Provider blocked by IAM rules
 - Pricing limits exceeded
+
+Key-validity failures return a `401` instead:
+
 - API key disabled or deleted
 - API key expired (TTL passed)
 - API key rolled, so the old secret is no longer valid

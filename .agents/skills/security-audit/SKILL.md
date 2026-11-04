@@ -78,6 +78,16 @@ Seed reconnaissance from these; they are not the whole attack surface.
 - Admin: `ee/admin`, `apps/api/src/routes/admin*.ts`.
 - Rendered user or model content: grep `dangerouslySetInnerHTML` in `apps/` and `ee/`.
 
+## All gateway paths
+
+Gateway IAM, authentication, authorization, compliance, retention, and other security changes must cover **every supported path**, not just chat completions or Responses.
+
+- Derive the inventory from `apps/gateway/src/app.ts`, `apps/gateway/src/serve.ts`, and mounted routers, including feature-flag/license variants and RPC tools. Include protocol aliases/adapters, native inference/media endpoints, model/key/credit reads, MCP/OAuth, realtime upgrades and later messages, async polling/downloads, and rejection logging.
+- Trace credentials, the original browser Origin and wallet/session scope, trusted client IP, tenant ownership, and organization/member/team/key restrictions through internal hops, final provider selection, fallback, streaming, caching, and follow-up reads.
+- For realtime, authorize new content, audio, and configuration before provider egress, including protocol aliases; post-billing checks are not authorization. Preserve control-only cancel/drain paths and reject unsupported data or mutating events.
+- Record enforcement or an explicit public/metadata/legacy exception for every entry. Preserve existing organization-policy behavior; an exception for a read must never bypass generation checks.
+- Add negative request-path tests across the inventory, including aliases and multipart/WebSocket transports. Keep route and RPC-tool inventory regression tests that fail when a new entry has not been classified. Helper-call counts, typechecks, and chat-only tests are not proof of all-path coverage.
+
 ## Running a full audit
 
 Follow `AUDIT-WORKFLOW.md`. Write the run directory outside the repo

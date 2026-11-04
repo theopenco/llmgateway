@@ -4,18 +4,20 @@ import { notFound } from "next/navigation";
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import AudioPageClient from "@/components/playground/audio-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
+import { speechModels } from "@/lib/audio-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	AUDIO_MODEL_COOKIE,
 	decodeModelPreference,
 } from "@/lib/model-preferences";
+import { pageTitle } from "@/lib/page-title";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Text to Speech — Compare Voices and Models",
+	title: pageTitle("AI Text to Speech — Compare Voices and Models"),
 	description:
 		"Turn text into speech in Lounge. Choose a supported model and voice, compare outputs, and download generated audio.",
 	alternates: { canonical: "/audio" },
@@ -186,7 +188,7 @@ export default async function AudioPage({
 				/>
 			) : null}
 			<AudioPageClient
-				models={models}
+				models={speechModels(models)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

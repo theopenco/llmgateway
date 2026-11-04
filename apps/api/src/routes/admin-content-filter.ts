@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -8,6 +8,7 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -361,7 +362,11 @@ const violationsResponseSchema = z
 					z.object({ category: z.string(), violationCount: z.number() }),
 				),
 				topModels: z.array(modelBreakdownSchema),
-				topProviders: z.array(providerBreakdownSchema),
+				topProviders: z.array(
+					providerBreakdownSchema.extend({
+						topCategories: z.array(categoryCountSchema),
+					}),
+				),
 				topApiKeys: z.array(apiKeyBreakdownSchema),
 				// All-time PAYG credits bought (top-ups and manual payments) net of
 				// their refunds, in USD.
@@ -532,6 +537,56 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		const list = modelsByOrg.get(row.organizationId) ?? [];
 		list.push(toModelBreakdown(row));
 		modelsByOrg.set(row.organizationId, list);
+	}
+
+	const providerCategoryRows =
+		organizationIds.length > 0
+			? await db
+					.select({
+						organizationId: contentFilterHourlyModelStats.organizationId,
+						usedProvider: contentFilterHourlyModelStats.usedProvider,
+						category: contentFilterHourlyModelStats.category,
+						violationCount: modelViolations,
+					})
+					.from(contentFilterHourlyModelStats)
+					.where(
+						and(
+							gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+							isDecidingModel,
+							ne(
+								contentFilterHourlyModelStats.category,
+								CONTENT_FILTER_STATS_ALL_CATEGORY,
+							),
+							inArray(
+								contentFilterHourlyModelStats.organizationId,
+								organizationIds,
+							),
+						),
+					)
+					.groupBy(
+						contentFilterHourlyModelStats.organizationId,
+						contentFilterHourlyModelStats.usedProvider,
+						contentFilterHourlyModelStats.category,
+					)
+					.having(sql`sum(${contentFilterHourlyModelStats.violationCount}) > 0`)
+			: [];
+
+	// Keyed by organization, then provider.
+	const providerCategoriesByOrg = new Map<
+		string,
+		Map<string, z.infer<typeof categoryCountSchema>[]>
+	>();
+	for (const row of providerCategoryRows) {
+		const byProvider =
+			providerCategoriesByOrg.get(row.organizationId) ??
+			new Map<string, z.infer<typeof categoryCountSchema>[]>();
+		const list = byProvider.get(row.usedProvider) ?? [];
+		list.push({
+			category: row.category,
+			violationCount: Number(row.violationCount),
+		});
+		byProvider.set(row.usedProvider, list);
+		providerCategoriesByOrg.set(row.organizationId, byProvider);
 	}
 
 	// Ranked per organization in the database, so only the top keys of each
@@ -712,7 +767,18 @@ adminContentFilter.openapi(getViolations, async (c) => {
 				.slice()
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_MODELS),
-			topProviders: toProviderBreakdowns(orgModels).slice(0, TOP_PROVIDERS),
+			topProviders: toProviderBreakdowns(orgModels)
+				.slice(0, TOP_PROVIDERS)
+				.map((provider) => ({
+					...provider,
+					topCategories: (
+						providerCategoriesByOrg
+							.get(row.organizationId)
+							?.get(provider.usedProvider) ?? []
+					)
+						.sort((a, b) => b.violationCount - a.violationCount)
+						.slice(0, TOP_CATEGORIES),
+				})),
 			topApiKeys: apiKeysByOrg.get(row.organizationId) ?? [],
 			topUpNet: toDollars(revenue?.topUpNet ?? 0),
 			subscriptionNet: toDollars(revenue?.subscriptionNet ?? 0),

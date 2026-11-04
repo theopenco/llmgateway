@@ -13,7 +13,7 @@ export const errorDetails = z.object({
 export const toolFunction = z.object({
 	name: z.string(),
 	description: z.string().optional(),
-	parameters: z.record(z.any()).optional(),
+	parameters: z.record(z.string(), z.any()).optional(),
 });
 
 export const functionTool = z.object({
@@ -44,7 +44,19 @@ export const webSearchTool = z.object({
 	max_uses: z.number().optional(),
 });
 
-export const tool = z.union([functionTool, webSearchTool, toolSearchTool]);
+export const webFetchTool = z.object({
+	type: z.literal("web_fetch"),
+	web_fetch_type: z.string(),
+	name: z.string().optional(),
+	max_uses: z.number().optional(),
+});
+
+export const tool = z.union([
+	functionTool,
+	webSearchTool,
+	toolSearchTool,
+	webFetchTool,
+]);
 
 export const toolChoice = z.union([
 	z.literal("none"),

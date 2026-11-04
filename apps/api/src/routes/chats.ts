@@ -1,9 +1,10 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { preserveAnsweredToolCalls } from "@/lib/connectors/tool-approval.js";
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 
@@ -55,7 +56,7 @@ const messageSchema = z.object({
 	reasoning: z.string().nullable(), // Reasoning content
 	tools: z.string().nullable(), // JSON string of tool parts
 	sources: z.string().nullable(), // JSON string of web search source citations
-	metadata: z.record(z.unknown()).nullable(),
+	metadata: z.record(z.string(), z.unknown()).nullable(),
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
@@ -117,7 +118,7 @@ const orgShareSchema = z.object({
 			reasoning: z.string().nullable(),
 			tools: z.string().nullable(),
 			sources: z.string().nullable(),
-			metadata: z.record(z.unknown()).nullable().optional(),
+			metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 			sequence: z.number(),
 			createdAt: z.string().datetime(),
 		}),
@@ -135,7 +136,7 @@ const sharedMessageSnapshotSchema = z.array(
 		reasoning: z.string().nullable(),
 		tools: z.string().nullable(),
 		sources: z.string().nullable().optional(),
-		metadata: z.record(z.unknown()).nullable().optional(),
+		metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 		sequence: z.number(),
 		createdAt: z.string().datetime(),
 	}),
@@ -179,7 +180,7 @@ const createMessageSchema = z
 		reasoning: z.string().optional(), // Reasoning content
 		tools: z.string().optional(), // Tool parts JSON
 		sources: z.string().optional(), // Web search source citations JSON
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.refine(
 		(data) =>
@@ -1503,11 +1504,23 @@ chats.openapi(forkSharedChat, async (c) => {
 		})
 		.from(tables.chatShare)
 		.innerJoin(tables.chat, eq(tables.chatShare.chatId, tables.chat.id))
+		.leftJoin(
+			tables.organization,
+			eq(tables.chatShare.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
 				eq(tables.chatShare.id, shareId),
 				isNull(tables.chatShare.deletedAt),
 				eq(tables.chat.status, "active"),
+				// Org shares follow the same lifecycle as getOrgShare.
+				or(
+					isNull(tables.chatShare.organizationId),
+					and(
+						eq(tables.organization.status, "active"),
+						eq(tables.organization.kind, "default"),
+					),
+				),
 			),
 		)
 		.limit(1);

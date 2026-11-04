@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 
+import { resetDbCircuit } from "@llmgateway/cache";
 import { db, eq, getTableName, pool, tables } from "@llmgateway/db";
 import { getProviderDefinition, models } from "@llmgateway/models";
 import {
@@ -197,6 +198,8 @@ export function createGatewayApiTestHarness() {
 			GATEWAY_TEST_DB_LOCK_ID,
 		]);
 		await clearCache();
+		// A previous test's simulated DB outage must not leave the circuit open.
+		resetDbCircuit();
 		resetMockVideoState();
 		resetMockAudioState();
 		await resetGatewayTestData(lockClient);

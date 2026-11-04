@@ -325,10 +325,13 @@ function buildBucket(
 			model.provider === "anthropic" || model.provider === "aws-bedrock"
 				? Math.round(inputTokens * 0.04)
 				: 0;
-		const uncachedCost = (inputTokens - cachedTokens) * model.inputPrice;
+		const uncachedCost =
+			(inputTokens - cachedTokens - cacheWriteTokens) * model.inputPrice;
+		// Anthropic-style cache writes bill at 1.25x the input rate.
+		const cacheWriteCost = cacheWriteTokens * model.inputPrice * 1.25;
 		const cachedCost = cachedTokens * model.cachedInputPrice;
 		const completionCost = outputTokens * model.outputPrice;
-		const cost = uncachedCost + cachedCost + completionCost;
+		const cost = uncachedCost + cachedCost + cacheWriteCost + completionCost;
 		const apiKeysRequestCount = Math.round(requestCount * model.byokShare);
 		return {
 			id: model.id,
@@ -340,6 +343,10 @@ function buildBucket(
 			cacheWriteTokens,
 			totalTokens: inputTokens + outputTokens,
 			cost: round(cost),
+			inputCost: round(uncachedCost),
+			outputCost: round(completionCost),
+			cachedInputCost: round(cachedCost),
+			cacheWriteInputCost: round(cacheWriteCost),
 			creditsRequestCount: requestCount - apiKeysRequestCount,
 			apiKeysRequestCount,
 			creditsCost: round(cost * (1 - model.byokShare)),
@@ -364,9 +371,13 @@ function buildBucket(
 	let inputCost = 0;
 	let outputCost = 0;
 	let cachedInputCost = 0;
+	let cacheWriteInputCost = 0;
 	modelBreakdown.forEach((row, index) => {
 		const model = MODELS[index];
-		inputCost += (row.inputTokens - row.cachedTokens) * model.inputPrice;
+		inputCost +=
+			(row.inputTokens - row.cachedTokens - row.cacheWriteTokens) *
+			model.inputPrice;
+		cacheWriteInputCost += row.cacheWriteTokens * model.inputPrice * 1.25;
 		cachedInputCost += row.cachedTokens * model.cachedInputPrice;
 		outputCost += row.outputTokens * model.outputPrice;
 	});
@@ -431,7 +442,7 @@ function buildBucket(
 		imageOutputCost: 0,
 		videoOutputCost: 0,
 		cachedInputCost: round(cachedInputCost),
-		cacheWriteInputCost: 0,
+		cacheWriteInputCost: round(cacheWriteInputCost),
 		errorCount,
 		clientErrorCount,
 		errorRate:

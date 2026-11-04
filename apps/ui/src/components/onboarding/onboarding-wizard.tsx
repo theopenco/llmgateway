@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -36,6 +35,7 @@ import {
 import { Textarea } from "@/lib/components/textarea";
 import { useAppConfig } from "@/lib/config";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import { ONBOARDING_MODEL } from "@llmgateway/shared";
 

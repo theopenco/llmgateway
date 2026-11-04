@@ -9,6 +9,7 @@ import {
 	MessageSquare,
 	PenTool,
 	Phone,
+	Scale,
 	ScrollText,
 	Users,
 } from "lucide-react";
@@ -29,6 +30,12 @@ export const STUDIO_NAV_ITEMS = [
 	{ href: "/image", label: "Image", tooltip: "Image Studio", icon: ImagePlus },
 	{ href: "/video", label: "Video", tooltip: "Video Studio", icon: Film },
 	{ href: "/audio", label: "Audio", tooltip: "Audio Studio", icon: AudioLines },
+	{
+		href: "/decisions",
+		label: "Decide",
+		tooltip: "Decision Studio",
+		icon: Scale,
+	},
 	{ href: "/realtime", label: "Voice", tooltip: "Voice Calls", icon: Phone },
 	{ href: "/canvas", label: "Canvas", tooltip: "Canvas", icon: PenTool },
 	{ href: "/projects", label: "Projects", tooltip: "Projects", icon: Folder },

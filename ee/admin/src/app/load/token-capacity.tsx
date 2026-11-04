@@ -41,6 +41,7 @@ import {
 	formatProviderCacheRate,
 	providerCacheRate,
 } from "@/lib/provider-cache-rate";
+import { LOAD_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import {
 	formatCompactNumber,
@@ -109,7 +110,7 @@ export function TokenCapacity() {
 		params.get("tokenModelView") === "mapping" ? "mapping" : "canonical";
 	const compact = params.get("tokenNumbers") !== "full";
 	const show = (value: number | undefined) => count(value, compact);
-	const mode = useUsageMode();
+	const mode = useUsageMode(LOAD_USAGE_MODE_DEFAULT);
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
@@ -312,7 +313,7 @@ export function TokenCapacity() {
 						compact
 					/>
 				) : null}
-				<UsageModeSelector compact />
+				<UsageModeSelector compact defaultMode={LOAD_USAGE_MODE_DEFAULT} />
 				<SegmentedUrlSelector
 					param="tokenNumbers"
 					value={compact ? "compact" : "full"}

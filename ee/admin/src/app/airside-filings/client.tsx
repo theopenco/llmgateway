@@ -964,7 +964,9 @@ export function AirsideFilingsClient() {
 													</div>
 												) : null}
 												<div className="text-muted-foreground text-xs">
-													{filing.model.apiFormat}
+													{filing.model.decisions
+														? "decisions (/v1/decisions)"
+														: filing.model.apiFormat}
 												</div>
 												{filing.kind === "initial" ? (
 													filing.model.sharesCatalogueModelName ? (

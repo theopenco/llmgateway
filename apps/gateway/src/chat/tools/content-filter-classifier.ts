@@ -81,9 +81,16 @@ export interface ContentFilterCheckResult extends OpenAIContentFilterCheckResult
 	imageDurationMs?: number;
 }
 
-/** Whether a check covered everything it set out to cover. */
+/**
+ * Whether a check covered everything it set out to cover. Every failed call
+ * leaves an error, so one failed image among several successful ones counts.
+ */
 function moderationFailed(result: ContentFilterCheckResult): boolean {
-	return result.results.length === 0 || result.partialModerationFailed === true;
+	return (
+		result.results.length === 0 ||
+		result.partialModerationFailed === true ||
+		result.errors.length > 0
+	);
 }
 
 export async function hasClassifierCredential(

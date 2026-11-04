@@ -99,7 +99,12 @@ interface GlobalStatsResponse {
 			cost: number;
 		}[];
 	};
-	breakdown: { key: string; label: string; requestCount: number }[];
+	breakdown: {
+		key: string;
+		label: string;
+		requestCount: number;
+		cost: number;
+	}[];
 	timeseries: { date: string; requestCount: number; cost: number }[];
 	timeseriesBreakdown: {
 		date: string;
@@ -381,6 +386,48 @@ describe("admin — global stats mode/kind dimensions", () => {
 			});
 			expect(byKind.breakdown).toEqual([
 				expect.objectContaining({ key: "default", requestCount: 4 }),
+			]);
+		});
+
+		test("groups by credential with a row for unattributed traffic", async () => {
+			const body = await fetchStats(cookie, { groupBy: "providerKey" });
+			expect(body.groupBy).toBe("providerKey");
+			expect(body.totals.requestCount).toBe(18);
+			expect(body.breakdown).toEqual([
+				expect.objectContaining({
+					key: "none",
+					label: "No provider key (env-var credentials)",
+					requestCount: 14,
+				}),
+				expect.objectContaining({ key: PROVIDER_KEY_ID, requestCount: 4 }),
+			]);
+			expect(
+				body.breakdown.reduce((sum, row) => sum + row.cost, 0),
+			).toBeCloseTo(body.totals.cost, 6);
+			expect(
+				body.timeseriesBreakdown.reduce(
+					(sum, row) => sum + row.requestCount,
+					0,
+				),
+			).toBe(18);
+
+			const byMode = await fetchStats(cookie, {
+				groupBy: "providerKey",
+				mode: "api-keys",
+			});
+			expect(byMode.breakdown).toEqual([
+				expect.objectContaining({ key: "none", requestCount: 5 }),
+			]);
+
+			const filtered = await fetchStats(cookie, {
+				groupBy: "providerKey",
+				providerKeyId: PROVIDER_KEY_ID,
+			});
+			expect(filtered.breakdown).toEqual([
+				expect.objectContaining({ key: PROVIDER_KEY_ID, requestCount: 4 }),
+			]);
+			expect(filtered.timeseriesBreakdown).toEqual([
+				expect.objectContaining({ key: PROVIDER_KEY_ID, requestCount: 4 }),
 			]);
 		});
 

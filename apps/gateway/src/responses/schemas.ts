@@ -11,7 +11,7 @@ import { parsePromptModelReference } from "@llmgateway/shared/prompt-template";
  * Flatten a Zod error into `path: message` pairs a client can act on.
  *
  * Union failures report a single issue at the union's own path ("Invalid
- * input"), burying the reason in `unionErrors`. That is useless on a schema
+ * input"), burying the reason in `errors`. That is useless on a schema
  * whose `input` is a union of unions: a request rejected for one bad item in a
  * 200-item array reports only "input: Invalid input". Each union is expanded to
  * the branch that got furthest into the value, which is the branch the client
@@ -19,12 +19,20 @@ import { parsePromptModelReference } from "@llmgateway/shared/prompt-template";
  */
 function expandIssues(issues: z.ZodIssue[]): z.ZodIssue[] {
 	return issues.flatMap((issue) => {
-		if (issue.code !== z.ZodIssueCode.invalid_union) {
+		if (issue.code !== "invalid_union") {
 			return [issue];
 		}
-		const nested = issue.unionErrors.flatMap((error) =>
-			expandIssues(error.issues),
+		const nested = issue.errors.flatMap((unionIssues) =>
+			expandIssues(
+				unionIssues.map((nestedIssue) => ({
+					...nestedIssue,
+					path: [...issue.path, ...nestedIssue.path],
+				})),
+			),
 		);
+		if (nested.length === 0) {
+			return [issue];
+		}
 		const deepest = Math.max(0, ...nested.map((i) => i.path.length));
 		return nested.filter((i) => i.path.length === deepest);
 	});
@@ -131,7 +139,8 @@ const nullishToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
 	schema
 		.nullable()
 		.optional()
-		.transform((val) => (val === null ? undefined : val));
+		.transform((val) => (val === null ? undefined : val))
+		.optional();
 
 const itemStatusSchema = nullishToUndefined(
 	z.enum(["in_progress", "completed", "incomplete"]),
@@ -199,29 +208,28 @@ export type ToolTreeNode =
 	  }
 	| { type: "custom"; name: string; description?: string };
 
-const toolTreeNodeSchema: z.ZodType<ToolTreeNode, z.ZodTypeDef, unknown> =
-	z.lazy(() =>
-		z.discriminatedUnion("type", [
-			z.object({
-				type: z.literal("namespace"),
-				name: z.string(),
-				description: nullishToUndefined(z.string()),
-				tools: z.array(toolTreeNodeSchema),
-			}),
-			z.object({
-				type: z.literal("function"),
-				name: z.string(),
-				description: nullishToUndefined(z.string()),
-				parameters: nullishToUndefined(z.record(z.any())),
-				strict: nullishToUndefined(z.boolean()),
-			}),
-			z.object({
-				type: z.literal("custom"),
-				name: z.string(),
-				description: nullishToUndefined(z.string()),
-			}),
-		]),
-	);
+const toolTreeNodeSchema: z.ZodType<ToolTreeNode> = z.lazy(() =>
+	z.discriminatedUnion("type", [
+		z.object({
+			type: z.literal("namespace"),
+			name: z.string(),
+			description: nullishToUndefined(z.string()),
+			tools: z.array(toolTreeNodeSchema),
+		}),
+		z.object({
+			type: z.literal("function"),
+			name: z.string(),
+			description: nullishToUndefined(z.string()),
+			parameters: nullishToUndefined(z.record(z.string(), z.any())),
+			strict: nullishToUndefined(z.boolean()),
+		}),
+		z.object({
+			type: z.literal("custom"),
+			name: z.string(),
+			description: nullishToUndefined(z.string()),
+		}),
+	]),
+);
 
 // Codex 0.144+ declares its tools here instead of in the top-level `tools`
 // array. The gateway flattens the tree into `tools` before conversion.
@@ -266,8 +274,8 @@ const imageGenerationCallItemSchema = z
 const reasoningItemSchema = z.object({
 	type: z.literal("reasoning"),
 	id: nullishToUndefined(z.string()),
-	summary: nullishToUndefined(z.array(z.record(z.any()))),
-	content: nullishToUndefined(z.array(z.record(z.any()))),
+	summary: nullishToUndefined(z.array(z.record(z.string(), z.any()))),
+	content: nullishToUndefined(z.array(z.record(z.string(), z.any()))),
 	encrypted_content: nullishToUndefined(z.string()),
 	status: itemStatusSchema,
 });
@@ -322,7 +330,7 @@ const promptReferenceSchema = z
 			.transform(nullToUndefined),
 		label: z.string().nullable().optional().transform(nullToUndefined),
 		variables: z
-			.record(z.union([z.string(), z.number(), z.boolean()]))
+			.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
 			.nullable()
 			.optional()
 			.transform(nullToUndefined),
@@ -382,7 +390,7 @@ export const responsesRequestSchema = z
 						type: z.literal("function"),
 						name: z.string(),
 						description: z.string().optional(),
-						parameters: z.record(z.any()).optional(),
+						parameters: z.record(z.string(), z.any()).optional(),
 						strict: z.boolean().optional(),
 					}),
 					z.object({
@@ -399,13 +407,19 @@ export const responsesRequestSchema = z
 						max_uses: z.number().optional(),
 						allowed_domains: z.array(z.string()).optional(),
 						blocked_domains: z.array(z.string()).optional(),
+						// `false` is OpenAI's cache-only search; see the chat schema.
+						external_web_access: z.boolean().optional(),
+						// OpenAI's shape for the domain allow-list.
+						filters: z
+							.object({ allowed_domains: z.array(z.string()).optional() })
+							.optional(),
 					}),
 					z.object({
 						type: z.literal("image_generation"),
 						size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
 					}),
 					// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
-					z.record(z.any()),
+					z.record(z.string(), z.any()),
 				]),
 			)
 			.optional(),
@@ -428,9 +442,10 @@ export const responsesRequestSchema = z
 					}),
 				}),
 				// Demands a web search rather than offering one. See the Chat
-				// Completions schema for what this unlocks.
+				// Completions schema for what this unlocks. `web_search_preview` is
+				// OpenAI's earlier name for the same tool.
 				z.object({
-					type: z.literal("web_search"),
+					type: z.enum(["web_search", "web_search_preview"]),
 				}),
 			])
 			.optional(),
@@ -456,7 +471,7 @@ export const responsesRequestSchema = z
 			.nullable()
 			.optional()
 			.transform((val) => (val === null ? undefined : val)),
-		text: z.record(z.any()).optional(),
+		text: z.record(z.string(), z.any()).optional(),
 		store: z.boolean().optional(),
 		// Additional output data to include. Only "reasoning.encrypted_content" has
 		// gateway-level behavior (returns encrypted reasoning payloads on reasoning
@@ -467,7 +482,13 @@ export const responsesRequestSchema = z
 			.nullable()
 			.optional()
 			.transform((val) => (val === null ? undefined : val)),
-		metadata: z.record(z.string()).optional(),
+		metadata: z.record(z.string(), z.string()).optional(),
+		safety_identifier: z
+			.string()
+			.max(128)
+			.nullable()
+			.optional()
+			.transform((value) => value ?? undefined),
 		top_p: z
 			.number()
 			.nullable()
@@ -493,6 +514,12 @@ export const responsesRequestSchema = z
 export type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
 
 export const compactRequestSchema = z.object({
+	safety_identifier: z
+		.string()
+		.max(128)
+		.nullable()
+		.optional()
+		.transform((value) => value ?? undefined),
 	model: z.string().openapi({
 		example: "gpt-4o-mini",
 	}),

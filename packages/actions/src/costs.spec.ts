@@ -309,6 +309,76 @@ describe("calculateCosts", () => {
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
+	it.each([
+		{
+			model: "gpt-5.4",
+			provider: "openai",
+			input: 5e-6,
+			cached: 0.5e-6,
+			output: 22.5e-6,
+		},
+		{
+			model: "gpt-5.4",
+			provider: "azure",
+			input: 5e-6,
+			cached: 0.5e-6,
+			output: 22.5e-6,
+		},
+		{
+			model: "gpt-5.5",
+			provider: "openai",
+			input: 10e-6,
+			cached: 1e-6,
+			output: 45e-6,
+		},
+		{
+			model: "gpt-5.5",
+			provider: "azure",
+			input: 10e-6,
+			cached: 1e-6,
+			output: 45e-6,
+		},
+	])(
+		"applies $model long-context pricing on $provider above 272K prompt tokens",
+		async ({ model, provider, input, cached, output }) => {
+			const result = await calculateCosts(
+				model,
+				provider,
+				null,
+				300000,
+				1000,
+				100000,
+			);
+
+			expect(result.inputCost).toBeCloseTo(200000 * input, 6);
+			expect(result.cachedInputCost).toBeCloseTo(100000 * cached, 6);
+			expect(result.outputCost).toBeCloseTo(1000 * output, 6);
+			expect(result.pricingTier).toBe("Over 272K");
+		},
+	);
+
+	it.each([
+		{ model: "gpt-5.4-pro", provider: "openai" },
+		{ model: "gpt-5.4-pro", provider: "azure" },
+		{ model: "gpt-5.5-pro", provider: "openai" },
+	])(
+		"applies $model long-context pricing on $provider above 272K prompt tokens",
+		async ({ model, provider }) => {
+			const result = await calculateCosts(
+				model,
+				provider,
+				null,
+				272001,
+				1000,
+				null,
+			);
+
+			expect(result.inputCost).toBeCloseTo(272001 * 60e-6, 6);
+			expect(result.outputCost).toBeCloseTo(1000 * 270e-6, 6);
+			expect(result.pricingTier).toBe("Over 272K");
+		},
+	);
+
 	it("bills GPT-6 Astra cache writes at the short-context rate", async () => {
 		const result = await calculateCosts(
 			"gpt-6-astra",
@@ -1098,6 +1168,35 @@ describe("calculateCosts", () => {
 		expect(result.imageInputCost).toBeCloseTo(516 * (2 / 1e6));
 		expect(result.promptTokens).toBe(526);
 		expect(result.inputCost).toBeCloseTo(526 * (2 / 1e6));
+	});
+
+	it("bills gemini-2.5-flash-image text output at the text rate", async () => {
+		// Live AI Studio usage: 1302 candidate tokens, 1290 of them IMAGE
+		const result = await calculateCosts(
+			"gemini-2.5-flash-image",
+			"google-vertex",
+			null,
+			5,
+			1302,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			undefined,
+			1290,
+		);
+
+		const imageCost = 1290 * (30 / 1e6);
+		const textCost = 12 * (2.5 / 1e6);
+		expect(result.imageOutputTokens).toBe(1290);
+		expect(result.imageOutputCost).toBeCloseTo(imageCost);
+		expect(result.outputCost).toBeCloseTo(textCost + imageCost);
+		expect(result.inputCost).toBeCloseTo(5 * (0.3 / 1e6));
 	});
 
 	it("should track image output tokens and costs separately", async () => {
