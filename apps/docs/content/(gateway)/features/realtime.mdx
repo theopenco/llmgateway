@@ -375,7 +375,7 @@ exhausted balance. A blocked generation surfaces as a standard `error` event
 on the session instead of a response, and is recorded in your request logs like
 a [rejected request](/resources/error-handling#rejected-request-logs).
 
-New content, audio buffers, instructions, and private upstream reads are authorized before forwarding. Transcription models are checked against organization compliance at secret creation, connection, and each new input buffer; continuous chunks share that buffer’s authorization. Gemini also rechecks after an explicit input-stream boundary. Enabling or changing transcription with `session.update` rechecks current access. Unsupported client events, including `transcription_session.update`, are rejected; use `session.update`. Cancellation and cleanup remain available.
+New content, audio buffers, instructions, and private upstream reads are authorized before forwarding. Transcription models are checked against organization and API-key compliance at secret creation, connection, and each new input buffer; continuous chunks share that buffer’s authorization. Gemini also rechecks after an explicit input-stream boundary. Enabling or changing transcription with `session.update` rechecks current access. Unsupported client events, including `transcription_session.update`, are rejected; use `session.update`. Cancellation and cleanup remain available.
 
 Default per-session safety limits:
 

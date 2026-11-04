@@ -339,16 +339,21 @@ async function runRealtimePreflightInner(
 		);
 	}
 
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: match.modelId,
-		apiKeyId: apiKey.id,
-		model: input.requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: match.modelId,
+			apiKeyId: apiKey.id,
+			model: input.requestedModel,
+		},
+		apiKey,
+	);
 
-	// ASR is separately billable. Every candidate must pass IAM and the
-	// organization model policy; its provider passed compliance above.
-	const compliancePolicy = getActiveCompliancePolicy(organization);
+	// ASR is separately billable. Every candidate must pass IAM and both model
+	// policies; its provider already passed compliance above.
+	const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
 	const allowedTranscriptionModelIds: string[] =
 		sessionType === "transcription" ? [match.modelId] : [];
 	for (const candidate of sessionType === "transcription"

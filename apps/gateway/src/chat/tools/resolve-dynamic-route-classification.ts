@@ -40,7 +40,10 @@ export async function resolveDynamicRouteClassification(
 	// The classifier sends prompt text to TypeSafe, so an organization whose
 	// compliance policy disallows that provider must not have its prompts sent
 	// there — the same fail-closed rule the content filter applies.
-	const compliancePolicy = getActiveCompliancePolicy(params.organization);
+	const compliancePolicy = getActiveCompliancePolicy(
+		params.organization,
+		params.context.apiKey,
+	);
 	if (
 		compliancePolicy &&
 		!isProviderIdCompliant("typesafe", compliancePolicy)

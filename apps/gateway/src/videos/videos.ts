@@ -43,6 +43,7 @@ import {
 	isProviderIdCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
+	assertProviderCompliant,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -2883,16 +2884,16 @@ async function findVideoJobCached(
 }
 
 async function requireVideoJobForProject(
-	projectId: string,
+	context: RequestContext,
 	videoId: string,
-	sessionWalletId: string | null = null,
 ): Promise<VideoJobRecord> {
+	const { project, organization, apiKey } = context;
 	const job = await findVideoJobCached(
-		`videoJob:${projectId}:${videoId}`,
-		`video-job:${projectId}:${videoId}`,
+		`videoJob:${project.id}:${videoId}`,
+		`video-job:${project.id}:${videoId}`,
 		and(
 			eq(tables.videoJob.id, videoId),
-			eq(tables.videoJob.projectId, projectId),
+			eq(tables.videoJob.projectId, project.id),
 		),
 	);
 
@@ -2902,14 +2903,26 @@ async function requireVideoJobForProject(
 		});
 	}
 
-	// LLM SDK: an ephemeral end-user session may only read jobs owned by
-	// its own wallet. End-users share a project, so a project-only scope would
-	// leak other end-users' jobs. (Normal developer keys pass null and see all
-	// project jobs, as before.)
+	const sessionWalletId = apiKey.endCustomerWalletId;
 	if (sessionWalletId && job.endCustomerWalletId !== sessionWalletId) {
 		throw new HTTPException(404, {
 			message: "Video not found",
 		});
+	}
+
+	// Preserve historical org-only video access; the added read guard is opt-in.
+	if (apiKey.providerCompliancePolicy?.enabled) {
+		await assertProviderCompliant(
+			organization,
+			job.usedProvider,
+			{
+				organizationId: organization.id,
+				modelId: job.model,
+				apiKeyId: apiKey.id,
+				model: getFormattedUsedVideoModel(job.usedProvider, job.usedModel),
+			},
+			apiKey,
+		);
 	}
 
 	return job;
@@ -4894,7 +4907,8 @@ async function insertVideoClientErrorLog(options: {
 		cachedTokens: null,
 		cacheWriteTokens: null,
 		messages:
-			getEffectiveRetentionLevel(options.organization) === "retain"
+			getEffectiveRetentionLevel(options.organization, options.apiKey) ===
+			"retain"
 				? [
 						{
 							role: "user",
@@ -4963,7 +4977,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				"Video generation is not available for coding plans. Coding plans only include text-based inference.",
 		});
 	}
-	if (isZeroDataRetentionEnabled(organization)) {
+	if (isZeroDataRetentionEnabled(organization, apiKey)) {
 		throw new HTTPException(400, {
 			message:
 				"Video generation is unavailable while zero data retention is active because video jobs require temporary output storage.",
@@ -5065,9 +5079,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
-	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	const videoCompliancePolicy = getActiveCompliancePolicy(organization, apiKey);
 	const retainVideoPayloads =
-		getEffectiveRetentionLevel(organization) === "retain";
+		getEffectiveRetentionLevel(organization, apiKey) === "retain";
 	let complianceModelInfo: ModelDefinition = accessModelInfo;
 	if (videoCompliancePolicy) {
 		// A pinned provider is dispatched directly, so block it explicitly even
@@ -5362,7 +5376,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			if (
 				isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
 				!getGoogleVertexVideoOutputBucket() &&
-				getEffectiveRetentionLevel(organization) === "none"
+				getEffectiveRetentionLevel(organization, apiKey) === "none"
 			) {
 				const statusCode = 400;
 				routingAttempts.push({
@@ -5727,13 +5741,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 });
 
 videos.openapi(getVideo, async (c): Promise<any> => {
-	const { project, apiKey } = await requireRequestContext(c);
+	const context = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(
-		project.id,
-		videoId,
-		apiKey.endCustomerWalletId ?? null,
-	);
+	const job = await requireVideoJobForProject(context, videoId);
 	return c.json(await serializeVideoJob(job));
 });
 
@@ -5821,13 +5831,9 @@ videos.openapi(getVideoLogContent, async (c) => {
 });
 
 videos.openapi(getVideoContent, async (c) => {
-	const { project, apiKey } = await requireRequestContext(c);
+	const context = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(
-		project.id,
-		videoId,
-		apiKey.endCustomerWalletId ?? null,
-	);
+	const job = await requireVideoJobForProject(context, videoId);
 
 	if (job.status !== "completed") {
 		throw new HTTPException(409, {

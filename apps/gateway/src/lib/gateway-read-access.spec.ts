@@ -102,6 +102,36 @@ describe("gateway authenticated reads", () => {
 	});
 
 	test.each(configPaths)(
+		"%s filters discovery through organization and key restrictions",
+		async (path) => {
+			await db
+				.update(tables.organization)
+				.set({
+					plan: "enterprise",
+					providerCompliancePolicy: {
+						enabled: true,
+						allowedProviders: ["openai"],
+					},
+				})
+				.where(eq(tables.organization.id, "org-id"));
+			await db
+				.update(tables.apiKey)
+				.set({
+					providerCompliancePolicy: {
+						enabled: true,
+						allowedModels: ["gpt-4o-mini"],
+					},
+				})
+				.where(eq(tables.apiKey.id, "read-access-key"));
+			const response = await app.request(path, { headers });
+			expect(response.status).toBe(200);
+			expect(
+				(await response.json()).models.map((model: { id: string }) => model.id),
+			).toEqual(["openai/gpt-4o-mini"]);
+		},
+	);
+
+	test.each(configPaths)(
 		"%s filters discovery through organization provider and model restrictions",
 		async (path) => {
 			await db

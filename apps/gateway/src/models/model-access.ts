@@ -101,7 +101,7 @@ export async function filterAccessibleModels(
 	},
 ): Promise<ModelDefinition[]> {
 	const { apiKey, organization, project, wallet, iamRules, clientIp } = access;
-	const policy = getActiveCompliancePolicy(organization);
+	const policy = getActiveCompliancePolicy(organization, apiKey);
 	const effectiveProviders = policy ? await getEffectiveProviders() : undefined;
 	const isDevPlan =
 		organization.kind === "devpass" && organization.devPlan !== "none";

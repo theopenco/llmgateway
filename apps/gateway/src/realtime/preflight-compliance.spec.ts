@@ -11,6 +11,7 @@ import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
 const policies = vi.hoisted(() => ({
 	organization: null as ProviderCompliancePolicy | null,
+	key: null as ProviderCompliancePolicy | null,
 }));
 
 vi.mock("@/lib/cached-queries.js", () => ({
@@ -19,6 +20,7 @@ vi.mock("@/lib/cached-queries.js", () => ({
 		status: "active",
 		keyType: "user",
 		projectId: "project-id",
+		providerCompliancePolicy: policies.key,
 	})),
 	findProjectById: vi.fn(async () => ({
 		id: "project-id",
@@ -69,6 +71,7 @@ vi.mock("@llmgateway/guardrails", () => ({ logViolation: vi.fn() }));
 beforeEach(() => {
 	vi.clearAllMocks();
 	policies.organization = null;
+	policies.key = null;
 });
 
 const connect = () =>
@@ -80,16 +83,33 @@ const connect = () =>
 	});
 
 describe("realtime ASR compliance preflight", () => {
-	it("excludes ASR denied by the organization policy before credential resolution", async () => {
+	it.each(["organization", "key"] as const)(
+		"excludes ASR denied by the %s policy before credential resolution",
+		async (scope) => {
+			policies[scope] = {
+				enabled: true,
+				blockedModels: ["gpt-4o-mini-transcribe"],
+			};
+			const result = await connect();
+			expect(result.allowedTranscriptionModelIds).not.toContain(
+				"gpt-4o-mini-transcribe",
+			);
+			expect(result.allowedTranscriptionModelIds).toContain(
+				"gpt-4o-transcribe",
+			);
+		},
+	);
+
+	it("intersects organization and key model allowlists", async () => {
 		policies.organization = {
 			enabled: true,
-			blockedModels: ["gpt-4o-mini-transcribe"],
+			allowedModels: ["gpt-realtime", "gpt-4o-mini-transcribe"],
 		};
-		const result = await connect();
-		expect(result.allowedTranscriptionModelIds).not.toContain(
-			"gpt-4o-mini-transcribe",
-		);
-		expect(result.allowedTranscriptionModelIds).toContain("gpt-4o-transcribe");
+		policies.key = {
+			enabled: true,
+			allowedModels: ["gpt-realtime", "gpt-4o-transcribe"],
+		};
+		expect((await connect()).allowedTranscriptionModelIds).toEqual([]);
 	});
 
 	it("restricts ASR to the organization model allowlist", async () => {
@@ -117,11 +137,14 @@ describe("realtime ASR compliance preflight", () => {
 		vi.mocked(validateRequestModelAccess).mockResolvedValue({ allowed: true });
 	});
 
-	it("rejects a provider denied by the organization policy before resolving credentials", async () => {
-		policies.organization = { enabled: true, blockedProviders: ["openai"] };
-		await expect(connect()).rejects.toMatchObject({ status: 403 });
-		expect(resolvePlatformCredential).not.toHaveBeenCalled();
-	});
+	it.each(["organization", "key"] as const)(
+		"rejects a provider denied by the %s policy before resolving credentials",
+		async (scope) => {
+			policies[scope] = { enabled: true, blockedProviders: ["openai"] };
+			await expect(connect()).rejects.toMatchObject({ status: 403 });
+			expect(resolvePlatformCredential).not.toHaveBeenCalled();
+		},
+	);
 });
 
 vi.mock("./client-secrets.js", () => ({
@@ -131,39 +154,42 @@ vi.mock("./client-secrets.js", () => ({
 }));
 
 describe("ASR client secret compliance", () => {
-	it("rejects the organization-blocked ASR model before minting a secret", async () => {
-		vi.stubEnv("REALTIME_ENABLED", "true");
-		policies.organization = {
-			enabled: true,
-			blockedModels: ["gpt-4o-mini-transcribe"],
-		};
-		try {
-			const response = await realtimeClientSecretsRoute.request(
-				"/client_secrets",
-				{
-					method: "POST",
-					headers: {
-						"content-type": "application/json",
-						authorization: "Bearer test-token",
-					},
-					body: JSON.stringify({
-						session: {
-							type: "realtime",
-							model: "gpt-realtime",
-							audio: {
-								input: { transcription: { model: "gpt-4o-mini-transcribe" } },
-							},
+	it.each(["organization", "key"] as const)(
+		"rejects the %s blocked ASR model before minting a secret",
+		async (scope) => {
+			vi.stubEnv("REALTIME_ENABLED", "true");
+			policies[scope] = {
+				enabled: true,
+				blockedModels: ["gpt-4o-mini-transcribe"],
+			};
+			try {
+				const response = await realtimeClientSecretsRoute.request(
+					"/client_secrets",
+					{
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							authorization: "Bearer test-token",
 						},
-					}),
-				},
-			);
-			expect(response.status).toBe(403);
-			expect(await response.json()).toMatchObject({
-				error: { code: "transcription_model_not_allowed" },
-			});
-			expect(createClientSecret).not.toHaveBeenCalled();
-		} finally {
-			vi.unstubAllEnvs();
-		}
-	});
+						body: JSON.stringify({
+							session: {
+								type: "realtime",
+								model: "gpt-realtime",
+								audio: {
+									input: { transcription: { model: "gpt-4o-mini-transcribe" } },
+								},
+							},
+						}),
+					},
+				);
+				expect(response.status).toBe(403);
+				expect(await response.json()).toMatchObject({
+					error: { code: "transcription_model_not_allowed" },
+				});
+				expect(createClientSecret).not.toHaveBeenCalled();
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		},
+	);
 });

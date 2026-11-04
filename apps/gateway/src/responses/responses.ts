@@ -314,7 +314,10 @@ responses.post("/", async (c) => {
 
 	const { project, organization } = authResult;
 
-	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+		organization,
+		authResult.apiKey,
+	);
 	if (zeroDataRetentionEnabled && req.store !== false) {
 		return c.json(
 			{
@@ -966,7 +969,10 @@ responses.post("/compact", async (c) => {
 	}
 
 	const { project, organization } = authResult;
-	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+		organization,
+		authResult.apiKey,
+	);
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {

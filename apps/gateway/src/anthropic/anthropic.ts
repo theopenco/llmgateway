@@ -81,7 +81,7 @@ async function shouldRetainPayloadLogs(c: Context): Promise<boolean> {
 		? await findOrganizationById(project.organizationId)
 		: null;
 
-	return getEffectiveRetentionLevel(organization) === "retain";
+	return getEffectiveRetentionLevel(organization, apiKey) === "retain";
 }
 
 function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {

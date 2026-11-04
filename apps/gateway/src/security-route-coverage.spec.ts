@@ -145,25 +145,45 @@ describe("all inference path security boundaries", () => {
 		},
 	);
 
-	describe("organization compliance", () => {
-		test.each(inferencePaths)(
-			"$path cannot escape restrictions",
-			async (endpoint) => {
-				await db
-					.update(tables.organization)
-					.set({
-						providerCompliancePolicy: {
-							enabled: true,
-							allowedProviders: ["custom:private"],
-						},
-					})
-					.where(eq(tables.organization.id, "org-id"));
-				const response = await request(endpoint);
-				expect(response.status, await response.text()).toBe(403);
-				expect(upstreamCalls).toBe(0);
-			},
-		);
-	});
+	describe.each(["organization", "key", "intersection"] as const)(
+		"%s compliance",
+		(scope) => {
+			test.each(inferencePaths)(
+				"$path cannot escape restrictions",
+				async (endpoint) => {
+					if (scope !== "key") {
+						await db
+							.update(tables.organization)
+							.set({
+								providerCompliancePolicy: {
+									enabled: true,
+									allowedProviders:
+										scope === "intersection" ? ["openai"] : ["custom:private"],
+								},
+							})
+							.where(eq(tables.organization.id, "org-id"));
+					}
+					if (scope !== "organization") {
+						await db
+							.update(tables.apiKey)
+							.set({
+								providerCompliancePolicy: {
+									enabled: true,
+									allowedProviders:
+										scope === "intersection"
+											? ["anthropic"]
+											: ["custom:private"],
+								},
+							})
+							.where(eq(tables.apiKey.id, "security-coverage-key"));
+					}
+					const response = await request(endpoint);
+					expect(response.status, await response.text()).toBe(403);
+					expect(upstreamCalls).toBe(0);
+				},
+			);
+		},
+	);
 
 	describe.each(["key", "member", "team"] as const)("%s IAM floor", (scope) => {
 		test.each(inferencePaths)(
@@ -207,14 +227,14 @@ describe("all inference path security boundaries", () => {
 				ruleValue: { ipCidrs: ["198.51.100.0/24"] },
 			});
 			await db
-				.update(tables.organization)
+				.update(tables.apiKey)
 				.set({
 					providerCompliancePolicy: {
 						enabled: true,
 						allowedProviders: ["custom:private"],
 					},
 				})
-				.where(eq(tables.organization.id, "org-id"));
+				.where(eq(tables.apiKey.id, "security-coverage-key"));
 			const response = await request(endpoint);
 			const body = await response.text();
 			expect(response.status, body).toBe(403);
@@ -241,14 +261,14 @@ describe("all inference path security boundaries", () => {
 				ruleValue: { ipCidrs: ["198.51.100.0/24"] },
 			});
 			await db
-				.update(tables.organization)
+				.update(tables.apiKey)
 				.set({
 					providerCompliancePolicy: {
 						enabled: true,
 						allowedProviders: ["custom:private"],
 					},
 				})
-				.where(eq(tables.organization.id, "org-id"));
+				.where(eq(tables.apiKey.id, "security-coverage-key"));
 			const response = await app.request("/mcp", {
 				method: "POST",
 				headers: {

@@ -561,7 +561,7 @@ async function resolveImageClientErrorLogContext(
 		project,
 		organization,
 		requestId,
-		retentionLevel: getEffectiveRetentionLevel(organization),
+		retentionLevel: getEffectiveRetentionLevel(organization, apiKey),
 	};
 }
 
