@@ -102,7 +102,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Always use top-level `import`, never `require`. Dynamic imports are allowed only in frontend code (`next/dynamic` code splitting, lazy-loaded heavy client libraries, `content-collections`) and in tests; backend code uses static imports.
 - Apply DRY principles; when a helper exists in one app, extract it into a shared package instead of copying it.
 - Do not add caching or memoization around `process.env` reads unless there is a measured hot-path need.
-- Always use pnpm for package management.
+- Always use pnpm for package management. When bumping pnpm, update both `.tool-versions` and `packageManager` in the root `package.json`; Dependabot reads only `packageManager` and otherwise regenerates the lockfile with a newer pnpm that CI rejects.
 - Security gating is enforced server-side; UI gates are UX only.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
