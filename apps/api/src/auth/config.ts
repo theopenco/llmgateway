@@ -12,13 +12,17 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
+import { getSsoProvider } from "@/auth/sso-context.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import {
 	hasSsoAccess,
 	validateSsoSessionOrganization,
+	resolveSsoLoginProvider,
 } from "@/lib/sso-access.js";
+import { emailMatchesSsoDomains } from "@/lib/sso-domains.js";
+import { resolveSsoUser } from "@/lib/sso-user-resolution.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import {
 	getBlockedSignupCountries,
@@ -46,6 +50,7 @@ import {
 	getClientIpHeaderName,
 } from "@llmgateway/shared/client-ip";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
+import { SSO_DNS_TOKEN_PREFIX } from "@llmgateway/shared/sso";
 
 const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
@@ -75,7 +80,7 @@ async function isSSOEnforcedForEmail(
 		return false;
 	}
 	const providers = await db.query.ssoProvider.findMany({
-		where: { enforced: { eq: true } },
+		where: { enforced: { eq: true }, domainVerified: { eq: true } },
 		columns: { domain: true, organizationId: true },
 	});
 	const matching = providers.filter(
@@ -897,10 +902,12 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// only when `domainVerified` is true and the asserted email is on
 					// the connection's domain — without this, SCIM-provisioned users can
 					// never complete their first SAML login (`account_not_linked`). It
-					// also makes SAML sign-in reject unverified providers outright, so
-					// registration stamps `domainVerified: true` (see routes/sso.ts)
-					// instead of using the plugin's DNS-TXT verification flow.
-					domainVerification: { enabled: true },
+					// rejects unverified providers; ownership is established by DNS TXT.
+					resolveUser: resolveSsoUser,
+					domainVerification: {
+						enabled: true,
+						tokenPrefix: SSO_DNS_TOKEN_PREFIX,
+					},
 				}),
 			],
 			emailAndPassword: {
@@ -1096,6 +1103,19 @@ The LLM Gateway Team`.trim();
 					},
 			hooks: {
 				before: createAuthMiddleware(async (ctx) => {
+					if (ctx.path === "/sign-in/sso") {
+						const providerId = await resolveSsoLoginProvider(ctx.body ?? {});
+						if (!providerId) {
+							return Response.json(
+								{
+									error: "sso_unavailable",
+									message: "No verified SSO connection is available",
+								},
+								{ status: 403 },
+							);
+						}
+						ctx.body.providerId = providerId;
+					}
 					if (
 						ctx.path === "/change-password" &&
 						ctx.body &&
@@ -1380,21 +1400,32 @@ The LLM Gateway Team`.trim();
 						organizationId: string | null;
 					} | null = null;
 					if (ctx.path.startsWith("/sso/")) {
-						const linkedAccounts = await db.query.account.findMany({
-							where: { userId: { eq: userId } },
-							columns: { providerId: true },
-						});
-						const providerIds = linkedAccounts.map((a) => a.providerId);
-						const provider = providerIds.length
+						const resolvedProviderId = getSsoProvider();
+						const provider = resolvedProviderId
 							? await db.query.ssoProvider.findFirst({
-									where: { providerId: { in: providerIds } },
+									where: { providerId: { eq: resolvedProviderId } },
 									columns: {
 										id: true,
 										providerId: true,
 										organizationId: true,
+										domain: true,
+										domainVerified: true,
 									},
 								})
 							: null;
+						if (
+							!provider?.organizationId ||
+							!provider.domainVerified ||
+							!emailMatchesSsoDomains(newSession.user.email, provider.domain)
+						) {
+							await db
+								.delete(tables.session)
+								.where(eq(tables.session.id, newSession.session.id));
+							return Response.json(
+								{ error: "sso_unavailable" },
+								{ status: 403 },
+							);
+						}
 						ssoProvider = provider ?? null;
 						if (provider?.organizationId) {
 							const accessError = await validateSsoSessionOrganization(

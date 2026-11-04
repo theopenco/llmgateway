@@ -12,6 +12,7 @@ import {
 } from "@/lib/crm.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
+import { PRO_SUBSCRIPTION_PAYMENT_TX_TYPES } from "@/utils/devpass-filter.js";
 
 import {
 	and,
@@ -407,7 +408,7 @@ const REVENUE_TYPES = [
 	"credit_topup",
 	"credit_manual_payment",
 	"enterprise_license_fee",
-	"subscription_start",
+	...PRO_SUBSCRIPTION_PAYMENT_TX_TYPES,
 ] as const;
 
 function daysBack(days: number): number {

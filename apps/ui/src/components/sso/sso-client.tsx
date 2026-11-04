@@ -66,6 +66,7 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { PRO_PLAN_PRICES, PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
+import { SSO_PROVIDER_ID_MAX_LENGTH } from "@llmgateway/shared/sso";
 
 import type React from "react";
 
@@ -186,7 +187,8 @@ export function SsoClient() {
 	const [domain, setDomain] = useState("");
 	const [entryPoint, setEntryPoint] = useState("");
 	const [cert, setCert] = useState("");
-	const [enforced, setEnforced] = useState(false);
+	const [idpEntityId, setIdpEntityId] = useState("");
+
 	const [generatedToken, setGeneratedToken] = useState<string | null>(null);
 	// Edit buffer for an existing connection's email domains. `null` = dialog
 	// closed; otherwise holds the connection slug plus the comma-separated list
@@ -226,7 +228,9 @@ export function SsoClient() {
 	const isSamlType = providerType !== "" && providerType !== "google";
 	const providerSuffix = providerType === "generic" ? "saml" : providerType;
 	const suggestedSlug =
-		orgSlug && isSamlType ? `${orgSlug}-${providerSuffix}` : "";
+		orgSlug && isSamlType
+			? `${orgSlug}-${providerSuffix}`.slice(0, SSO_PROVIDER_ID_MAX_LENGTH)
+			: "";
 	const effectiveSlug = (providerIdEdited ? providerId : suggestedSlug).trim();
 	const preview = samlEndpoints(apiUrl, effectiveSlug);
 	const providerLabel =
@@ -501,7 +505,8 @@ export function SsoClient() {
 					domain: domain.trim(),
 					entryPoint: entryPoint.trim(),
 					cert: cert.trim(),
-					enforced,
+					idpEntityId: idpEntityId.trim() || undefined,
+					enforced: false,
 				},
 			});
 			toast({ title: "SSO connection created" });
@@ -511,7 +516,7 @@ export function SsoClient() {
 			setDomain("");
 			setEntryPoint("");
 			setCert("");
-			setEnforced(true);
+			setIdpEntityId("");
 			invalidateProviders();
 		} catch (error) {
 			toast({
@@ -664,7 +669,9 @@ export function SsoClient() {
 	// Google Workspace auto-join is stored on the organization, not as a SAML
 	// connection. It rides on the "Sign in with Google" button, so a SAML
 	// connection with Require SSO on the same domain blocks it entirely.
-	const googleDomain = selectedOrganization.ssoAutoJoinDomain ?? null;
+	const googleDomain = isEnterprise
+		? (selectedOrganization.ssoAutoJoinDomain ?? null)
+		: null;
 	const enforcedSamlDomains = new Set(
 		providers
 			.filter((provider) => provider.enforced)
@@ -763,6 +770,12 @@ export function SsoClient() {
 										label={endpointLabels(provider.providerType).acs}
 										value={provider.acsUrl}
 									/>
+									<DomainVerificationBlock
+										key={`${provider.providerId}:${provider.domain}`}
+										organizationId={organizationId}
+										providerId={provider.providerId}
+										verified={provider.domainVerified}
+									/>
 									<div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
 										<div>
 											<p className="text-sm font-medium">Require SSO</p>
@@ -774,7 +787,9 @@ export function SsoClient() {
 										</div>
 										<Switch
 											checked={provider.enforced}
-											disabled={updateProvider.isPending}
+											disabled={
+												updateProvider.isPending || !provider.domainVerified
+											}
 											onCheckedChange={(checked) =>
 												handleToggleEnforced(provider.providerId, checked)
 											}
@@ -870,7 +885,9 @@ export function SsoClient() {
 											<SelectItem value="okta">Okta</SelectItem>
 											<SelectItem value="entra">Microsoft Entra ID</SelectItem>
 											<SelectItem value="generic">Other (SAML 2.0)</SelectItem>
-											<SelectItem value="google">Google Workspace</SelectItem>
+											{isEnterprise && (
+												<SelectItem value="google">Google Workspace</SelectItem>
+											)}
 										</SelectContent>
 									</Select>
 									{providerType === "google" && (
@@ -935,6 +952,7 @@ export function SsoClient() {
 											</div>
 											<Input
 												id="sso-provider-id"
+												maxLength={SSO_PROVIDER_ID_MAX_LENGTH}
 												placeholder="acme-entra"
 												value={providerIdEdited ? providerId : suggestedSlug}
 												onChange={(e) => {
@@ -1041,6 +1059,22 @@ export function SsoClient() {
 										/>
 									</div>
 									<div className="space-y-2">
+										<Label htmlFor="sso-idp-issuer">
+											IdP entity ID / issuer
+										</Label>
+										<Input
+											id="sso-idp-issuer"
+											value={idpEntityId}
+											onChange={(event) => setIdpEntityId(event.target.value)}
+											placeholder="From your identity provider’s SAML metadata"
+											required={providerType === "generic"}
+										/>
+										<p className="text-xs text-muted-foreground">
+											Optional for standard Entra and Okta URLs; required for
+											other SAML providers.
+										</p>
+									</div>
+									<div className="space-y-2">
 										<Label htmlFor="sso-cert">X.509 signing certificate</Label>
 										<Textarea
 											id="sso-cert"
@@ -1052,16 +1086,11 @@ export function SsoClient() {
 											required
 										/>
 									</div>
-									<div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
-										<div>
-											<p className="text-sm font-medium">Require SSO</p>
-											<p className="text-xs text-muted-foreground">
-												Block password, social and passkey sign-in for
-												{domain.trim() ? ` ${domain.trim()}` : " this domain"}.
-											</p>
-										</div>
-										<Switch checked={enforced} onCheckedChange={setEnforced} />
-									</div>
+									<p className="text-sm text-muted-foreground">
+										Verify all email domains after creating the connection, then
+										enable Require SSO. The connection creator must complete DNS
+										verification.
+									</p>
 									<Button type="submit" disabled={registerMutation.isPending}>
 										{registerMutation.isPending
 											? "Creating..."
@@ -1117,7 +1146,11 @@ export function SsoClient() {
 										void handleGenerateScim();
 									}
 								}}
-								disabled={generateScim.isPending}
+								disabled={
+									generateScim.isPending ||
+									(!isEnterprise &&
+										!providers.some((provider) => provider.domainVerified))
+								}
 							>
 								{scim?.configured ? "Rotate SCIM token" : "Generate SCIM token"}
 							</Button>
@@ -1540,6 +1573,102 @@ export function SsoClient() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+		</div>
+	);
+}
+
+function DomainVerificationBlock({
+	organizationId,
+	providerId,
+	verified,
+}: {
+	organizationId: string;
+	providerId: string;
+	verified: boolean;
+}) {
+	const api = useApi();
+
+	const queryClient = useQueryClient();
+	const [records, setRecords] = useState<
+		{ name: string; value: string }[] | null
+	>(null);
+	const request = api.useMutation(
+		"post",
+		"/sso/providers/{providerId}/verification",
+	);
+	const verify = api.useMutation(
+		"post",
+		"/sso/providers/{providerId}/verify-domain",
+	);
+	async function requestRecords() {
+		try {
+			const result = await request.mutateAsync({
+				params: { path: { providerId } },
+				body: { organizationId },
+			});
+			setRecords(result.records);
+		} catch (error) {
+			toast({
+				title: getApiErrorMessage(error, "Failed to request DNS records"),
+				variant: "destructive",
+			});
+		}
+	}
+	async function verifyRecords() {
+		try {
+			await verify.mutateAsync({
+				params: { path: { providerId } },
+				body: { organizationId },
+			});
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/sso/providers", {
+					params: { query: { organizationId } },
+				}).queryKey,
+			});
+			toast({ title: "All connection domains verified" });
+		} catch (error) {
+			toast({
+				title: getApiErrorMessage(error, "DNS verification failed"),
+				variant: "destructive",
+			});
+		}
+	}
+	if (verified) {
+		return <Badge variant="secondary">Domain ownership verified</Badge>;
+	}
+	return (
+		<div className="space-y-3 rounded-md border p-3">
+			<p className="text-sm font-medium">Verify domain ownership</p>
+			<p className="text-xs text-muted-foreground">
+				The connection creator must publish every TXT record before SSO or
+				self-serve SCIM can provision identities. Domain changes require new
+				verification.
+			</p>
+			{records?.map((record) => (
+				<div key={record.name} className="space-y-2">
+					<ReadOnlyField label="DNS TXT name" value={record.name} />
+					<ReadOnlyField label="DNS TXT value" value={record.value} />
+				</div>
+			))}
+			<div className="flex flex-wrap gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					onClick={() => void requestRecords()}
+					disabled={request.isPending}
+				>
+					{records ? "Refresh TXT records" : "Get TXT records"}
+				</Button>
+				{records && (
+					<Button
+						type="button"
+						onClick={() => void verifyRecords()}
+						disabled={verify.isPending}
+					>
+						{verify.isPending ? "Checking DNS..." : "Verify domains"}
+					</Button>
+				)}
+			</div>
 		</div>
 	);
 }

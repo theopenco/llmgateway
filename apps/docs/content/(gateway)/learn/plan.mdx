@@ -43,3 +43,9 @@ Both hosted-service add-ons are available for organizations with **up to 100 sea
 ## Cancelling
 
 Cancelling keeps your seats, keys, projects, and add-ons active until the end of the paid billing period, then the organization returns to the Free plan and its limits. You can resume any time before the period ends. Invoices for every payment — including renewals and prorated changes — are emailed to your billing address and listed on the Transactions page.
+
+## Identity setup and payment recovery
+
+The Pro SSO add-on provides SAML, not Google Workspace domain auto-join. Every new connection must prove ownership of all its email domains through DNS TXT records before sign-in or enforcement. Pro SCIM uses a token bound to that verified connection and only provisions identities within those domains. See [SSO setup](/features/sso#verify-domain-ownership).
+
+Initial payment failure is recorded without granting unpaid SSO/SCIM add-ons. During payment recovery, previously granted allowances are retained; an unpaid increase does not grant additional seats or add-ons until the subscription becomes active.

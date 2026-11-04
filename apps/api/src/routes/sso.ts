@@ -23,9 +23,15 @@ import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
+import {
+	SSO_DNS_TOKEN_PREFIX,
+	SSO_MAX_DOMAINS,
+	SSO_PROVIDER_ID_MAX_LENGTH,
+} from "@llmgateway/shared/sso";
 
 import type { ServerTypes } from "@/vars.js";
 import type { SSOOptions, SSOPlugin } from "@better-auth/sso";
+import type { Context } from "hono";
 
 export const sso = new OpenAPIHono<ServerTypes>();
 
@@ -226,7 +232,6 @@ const registerSSOProvider = (
 // immutable object id (present in the default claim set) as the stable account
 // identifier rather than the NameID, which can change with the user's UPN.
 const ENTRA_SAML_MAPPING: SamlMapping = {
-	id: "http://schemas.microsoft.com/identity/claims/objectidentifier",
 	email: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
 	name: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
 	firstName: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",
@@ -249,6 +254,11 @@ function samlEndpoints(providerId: string) {
 // `account_not_linked` bounces even though the IdP authenticated the user.
 function parseDomainsOrThrow(input: string): string {
 	const { domains, invalid } = normalizeSsoDomains(input);
+	if (domains.length > SSO_MAX_DOMAINS) {
+		throw new HTTPException(400, {
+			message: `Use at most ${SSO_MAX_DOMAINS} domains per connection`,
+		});
+	}
 	if (invalid.length > 0) {
 		throw new HTTPException(400, {
 			message: `Invalid email domain(s): ${invalid.join(", ")}`,
@@ -271,11 +281,10 @@ const GUID_RE =
 // vendor from the SSO URL — both put a stable identifier in that URL:
 //   - Entra: the response Issuer is always `https://sts.windows.net/<tenant>/`,
 //     and the tenant GUID is a path segment of the login URL (…/<tenant>/saml2).
+
 //   - Okta: the Issuer is `http://www.okta.com/<appId>`, and `<appId>` (`exk…`)
 //     is a path segment of the app SSO URL.
-// Generic IdPs vary too much to derive, so we leave the entity id unset (the
-// plugin then falls back to `issuer`, which only works if the IdP's entity id
-// happens to equal the SP metadata URL).
+// Generic IdPs require their entity ID from the administrator.
 function deriveIdpEntityId(
 	providerType: "okta" | "entra" | "generic",
 	entryPoint: string,
@@ -303,6 +312,7 @@ const providerSchema = z.object({
 	providerType: z.enum(["okta", "entra", "generic"]),
 	issuer: z.string(),
 	domain: z.string(),
+	domainVerified: z.boolean(),
 	enforced: z.boolean(),
 	createdAt: z.date(),
 	metadataUrl: z.string(),
@@ -315,7 +325,7 @@ const registerBodySchema = z.object({
 		.string()
 		.trim()
 		.min(1)
-		.max(64)
+		.max(SSO_PROVIDER_ID_MAX_LENGTH)
 		.regex(
 			/^[a-z0-9-]+$/,
 			"Provider ID may only contain lowercase letters, numbers and hyphens",
@@ -334,6 +344,7 @@ const registerBodySchema = z.object({
 	cert: z.string().trim().min(1).openapi({
 		description: "IdP X.509 signing certificate (PEM or base64 body)",
 	}),
+	idpEntityId: z.string().trim().url().max(2048).optional(),
 	enforced: z.boolean().default(false).openapi({
 		description:
 			"When true, users whose email domain matches may only sign in via SSO",
@@ -411,7 +422,19 @@ sso.openapi(register, async (c) => {
 	const { metadataUrl, acsUrl } = samlEndpoints(providerId);
 
 	const isEntra = providerType === "entra";
-	const idpEntityId = deriveIdpEntityId(providerType, entryPoint);
+	const idpEntityId =
+		c.req.valid("json").idpEntityId ??
+		deriveIdpEntityId(providerType, entryPoint);
+	if (!idpEntityId) {
+		throw new HTTPException(400, {
+			message: "Enter the IdP entity ID (issuer) from its SAML metadata",
+		});
+	}
+	if (enforced) {
+		throw new HTTPException(400, {
+			message: "Verify domain ownership before requiring SSO",
+		});
+	}
 
 	// Register without `organizationId`: the plugin's org-linking path calls the
 	// Better Auth organization plugin's `member` model, which this app does not
@@ -450,12 +473,13 @@ sso.openapi(register, async (c) => {
 
 	const [provider] = await db
 		.update(tables.ssoProvider)
-		// `domainVerified: true`: the plugin refuses SAML sign-in for unverified
-		// providers and only implicitly links logins to existing (e.g. SCIM-
-		// provisioned) users on verified domains. Registration is restricted to
-		// org admins wiring up their own IdP, so treat that as verification
-		// rather than running the plugin's DNS-TXT flow.
-		.set({ organizationId, providerType, enforced, domainVerified: true })
+		// Administration and payment do not prove ownership of the claimed domains.
+		.set({
+			organizationId,
+			providerType,
+			enforced: false,
+			domainVerified: false,
+		})
 		.where(eq(tables.ssoProvider.providerId, providerId))
 		.returning({
 			id: tables.ssoProvider.id,
@@ -463,6 +487,7 @@ sso.openapi(register, async (c) => {
 			providerType: tables.ssoProvider.providerType,
 			issuer: tables.ssoProvider.issuer,
 			domain: tables.ssoProvider.domain,
+			domainVerified: tables.ssoProvider.domainVerified,
 			enforced: tables.ssoProvider.enforced,
 			createdAt: tables.ssoProvider.createdAt,
 		});
@@ -549,6 +574,7 @@ sso.openapi(list, async (c) => {
 			providerType: true,
 			issuer: true,
 			domain: true,
+			domainVerified: true,
 			enforced: true,
 			createdAt: true,
 		},
@@ -558,6 +584,7 @@ sso.openapi(list, async (c) => {
 	return c.json({
 		providers: rows.map((row) => ({
 			...row,
+			domainVerified: row.domainVerified === true,
 			...samlEndpoints(row.providerId),
 		})),
 	});
@@ -679,17 +706,31 @@ sso.openapi(updateProvider, async (c) => {
 			providerId: { eq: providerId },
 			organizationId: { eq: organizationId },
 		},
-		columns: { enforced: true, domain: true },
+		columns: { enforced: true, domain: true, domainVerified: true },
 	});
 	if (!current) {
 		throw new HTTPException(404, { message: "SSO provider not found" });
 	}
 
+	const domainChanged =
+		normalizedDomain !== undefined && normalizedDomain !== current.domain;
+	if (domainChanged && providerId.length > SSO_PROVIDER_ID_MAX_LENGTH) {
+		throw new HTTPException(400, {
+			message:
+				"Create a connection with a shorter ID before changing its domains",
+		});
+	}
+	if (enforced && (!current.domainVerified || domainChanged)) {
+		throw new HTTPException(400, {
+			message: "Verify domain ownership before requiring SSO",
+		});
+	}
 	const [provider] = await db
 		.update(tables.ssoProvider)
 		.set({
 			...(enforced === undefined ? {} : { enforced }),
 			...(normalizedDomain === undefined ? {} : { domain: normalizedDomain }),
+			...(domainChanged ? { domainVerified: false, enforced: false } : {}),
 		})
 		.where(
 			and(
@@ -703,6 +744,7 @@ sso.openapi(updateProvider, async (c) => {
 			providerType: tables.ssoProvider.providerType,
 			issuer: tables.ssoProvider.issuer,
 			domain: tables.ssoProvider.domain,
+			domainVerified: tables.ssoProvider.domainVerified,
 			enforced: tables.ssoProvider.enforced,
 			createdAt: tables.ssoProvider.createdAt,
 		});
@@ -727,7 +769,11 @@ sso.openapi(updateProvider, async (c) => {
 	});
 
 	return c.json({
-		provider: { ...provider, ...samlEndpoints(provider.providerId) },
+		provider: {
+			...provider,
+			domainVerified: provider.domainVerified === true,
+			...samlEndpoints(provider.providerId),
+		},
 	});
 });
 
@@ -1330,6 +1376,36 @@ sso.openapi(generateScim, async (c) => {
 	const { organizationId, ssoProviderId } = c.req.valid("json");
 
 	await assertScimOrgAccess(user.id, organizationId);
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: { plan: true },
+	});
+	const connection = ssoProviderId
+		? await db.query.ssoProvider.findFirst({
+				where: {
+					id: { eq: ssoProviderId },
+					organizationId: { eq: organizationId },
+				},
+			})
+		: organization?.plan === "pro"
+			? await db.query.ssoProvider.findFirst({
+					where: {
+						organizationId: { eq: organizationId },
+						domainVerified: { eq: true },
+					},
+				})
+			: null;
+	if (ssoProviderId && !connection) {
+		throw new HTTPException(404, {
+			message: "SSO connection not found in this organization",
+		});
+	}
+	if (organization?.plan === "pro" && !connection?.domainVerified) {
+		throw new HTTPException(403, {
+			message: "Verify an owned SSO connection before enabling SCIM",
+		});
+	}
+	const boundProviderId = connection?.id ?? null;
 
 	// One active token per org: rotating replaces the previous one so the IdP
 	// only ever needs the latest secret.
@@ -1353,7 +1429,7 @@ sso.openapi(generateScim, async (c) => {
 			tokenHash,
 			maskedToken,
 			organizationId,
-			ssoProviderId: ssoProviderId ?? null,
+			ssoProviderId: boundProviderId,
 			createdBy: user.id,
 		})
 		.returning({ id: tables.scimToken.id });
@@ -1429,3 +1505,133 @@ sso.openapi(revokeScim, async (c) => {
 });
 
 export default sso;
+
+const domainVerificationBody = z.object({ organizationId: z.string() });
+const domainVerificationRecords = z.object({
+	records: z.array(z.object({ name: z.string(), value: z.string() })),
+});
+
+interface DomainVerificationApi {
+	requestDomainVerification: (args: {
+		body: { providerId: string };
+		headers: Headers;
+	}) => Promise<{ domainVerificationToken: string }>;
+	verifyDomain: (args: {
+		body: { providerId: string };
+		headers: Headers;
+	}) => Promise<unknown>;
+}
+
+async function assertDomainVerificationAccess(
+	c: Context<ServerTypes>,
+	organizationId: string,
+	providerId: string,
+) {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	await assertSsoOrgAccess(user.id, organizationId);
+	const provider = await db.query.ssoProvider.findFirst({
+		where: {
+			providerId: { eq: providerId },
+			organizationId: { eq: organizationId },
+		},
+	});
+	if (!provider) {
+		throw new HTTPException(404, { message: "SSO provider not found" });
+	}
+	if (provider.userId !== user.id) {
+		throw new HTTPException(403, {
+			message: "The connection creator must verify its domains",
+		});
+	}
+	if (providerId.length > SSO_PROVIDER_ID_MAX_LENGTH) {
+		throw new HTTPException(400, {
+			message: "Create a connection with a shorter ID for DNS verification",
+		});
+	}
+	return provider;
+}
+
+const requestDomainVerification = createRoute({
+	method: "post",
+	path: "/providers/{providerId}/verification",
+	tags: ["SSO"],
+	summary: "Get DNS ownership verification records",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		body: {
+			content: { "application/json": { schema: domainVerificationBody } },
+		},
+	},
+	responses: {
+		201: {
+			description: "DNS TXT records",
+			content: { "application/json": { schema: domainVerificationRecords } },
+		},
+	},
+});
+sso.openapi(requestDomainVerification, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const { organizationId } = c.req.valid("json");
+	const provider = await assertDomainVerificationAccess(
+		c,
+		organizationId,
+		providerId,
+	);
+	try {
+		const api = apiAuth.api as unknown as DomainVerificationApi;
+		const result = await api.requestDomainVerification({
+			body: { providerId },
+			headers: c.req.raw.headers,
+		});
+		return c.json(
+			{
+				records: normalizeSsoDomains(provider.domain).domains.map((domain) => ({
+					name: `_${SSO_DNS_TOKEN_PREFIX}-${providerId}.${domain}`,
+					value: result.domainVerificationToken,
+				})),
+			},
+			201,
+		);
+	} catch (error) {
+		rethrowAsHttpException(error);
+	}
+});
+
+const verifyProviderDomain = createRoute({
+	method: "post",
+	path: "/providers/{providerId}/verify-domain",
+	tags: ["SSO"],
+	summary: "Verify SSO domain ownership",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		body: {
+			content: { "application/json": { schema: domainVerificationBody } },
+		},
+	},
+	responses: {
+		200: {
+			description: "All domains verified",
+			content: {
+				"application/json": { schema: z.object({ verified: z.literal(true) }) },
+			},
+		},
+	},
+});
+sso.openapi(verifyProviderDomain, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const { organizationId } = c.req.valid("json");
+	await assertDomainVerificationAccess(c, organizationId, providerId);
+	try {
+		const api = apiAuth.api as unknown as DomainVerificationApi;
+		await api.verifyDomain({
+			body: { providerId },
+			headers: c.req.raw.headers,
+		});
+	} catch (error) {
+		rethrowAsHttpException(error);
+	}
+	return c.json({ verified: true as const }, 200);
+});

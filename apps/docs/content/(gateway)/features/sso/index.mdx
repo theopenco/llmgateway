@@ -53,6 +53,14 @@ With `API_URL = https://internal.llmgateway.io` and a connection slug of `acme-e
 | Reply URL (ACS)                   | `https://internal.llmgateway.io/auth/sso/saml2/sp/acs/acme-entra`                 |
 | SCIM Tenant URL                   | `https://internal.llmgateway.io/scim/v2`                                          |
 
+## Verify domain ownership
+
+New SAML connections cannot authenticate users until their domains are verified. The connection creator must open **Verify domain ownership**, copy every DNS TXT name/value into the corresponding zone, and click **Verify domains**. All listed domains must pass; changing the domain list clears verification and disables **Require SSO** until verification succeeds again. Test a verified SSO login before requiring SSO.
+
+An IdP may only assert identities within its verified domains. Add and verify every email domain it sends, including domains that differ from the sign-in name. For a generic SAML provider, enter its **IdP entity ID / issuer** from its metadata; standard Entra and Okta URLs can derive this value.
+
+On Pro, SCIM tokens are bound to a verified connection in the same organization and cannot provision identities outside that connection’s verified domains. Invite external users normally instead. Google Workspace domain auto-join remains Enterprise-only; the Pro add-on provides SAML SSO.
+
 ## SCIM authentication
 
 SCIM uses a **static bearer token**, not OAuth. You generate the token once on the **SSO → Directory sync (SCIM)** card, and your IdP sends it as `Authorization: Bearer <token>` on every request. In your IdP's provisioning config, that means:

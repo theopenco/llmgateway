@@ -143,7 +143,7 @@ describe("scim audit logging", () => {
 		expect(response.status).toBe(200);
 	});
 
-	test("Pro orgs need both the SSO and SCIM add-ons to use SCIM", async () => {
+	test("Pro SCIM requires both add-ons and an owned verified connection", async () => {
 		const setPro = async (proSsoEnabled: boolean, proScimEnabled: boolean) =>
 			await db
 				.update(tables.organization)
@@ -159,6 +159,25 @@ describe("scim audit logging", () => {
 		expect(await listUsers()).toBe(403);
 
 		await setPro(true, true);
+		expect(await listUsers()).toBe(403);
+		const token = await db.query.scimToken.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		const [connection] = await db
+			.insert(tables.ssoProvider)
+			.values({
+				providerId: "scim-owned-test-domain",
+				userId: token!.createdBy,
+				organizationId: ORG_ID,
+				issuer: "https://idp.example.test",
+				domain: "example.com",
+				domainVerified: true,
+			})
+			.returning();
+		await db
+			.update(tables.scimToken)
+			.set({ ssoProviderId: connection.id })
+			.where(eq(tables.scimToken.id, token!.id));
 		expect(await listUsers()).toBe(200);
 	});
 

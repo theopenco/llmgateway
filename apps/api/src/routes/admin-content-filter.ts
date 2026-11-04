@@ -13,6 +13,7 @@ import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
 	firstRowPerInvoiceFilter,
+	PRO_SUBSCRIPTION_PAYMENT_TX_TYPES,
 } from "@/utils/devpass-filter.js";
 
 import {
@@ -223,7 +224,7 @@ function toModelBreakdown(row: {
 const SUBSCRIPTION_PAYMENT_TYPES = [
 	...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
 	...CHAT_PLAN_TX_TYPES,
-	"subscription_start",
+	...PRO_SUBSCRIPTION_PAYMENT_TX_TYPES,
 ] as const;
 
 // Sums of NUMERIC strings drift in float math; report whole cents.

@@ -19,7 +19,6 @@ import {
 	hasRefundAction,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
-import { hasSsoAccess } from "@/lib/sso-access.js";
 import {
 	getUserProjectIds,
 	getAdminOrganizationIds,
@@ -862,17 +861,21 @@ organization.openapi(updateOrganization, async (c) => {
 		}
 	}
 
-	// Google SSO domain auto-join is managed by owners and admins and follows
-	// SSO access (enterprise, or Pro with the SSO add-on). The value is
-	// normalized and validated before storage.
+	// Google domain auto-join is Enterprise-only; owners can clear stale settings.
 	let normalizedSsoDomain: string | null | undefined;
+	if (
+		ssoAutoJoinDomain &&
+		(!userOrganization.organization ||
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization.id,
+				userOrganization.organization.plan,
+			))
+	) {
+		throw new HTTPException(403, {
+			message: "Google Workspace domain auto-join requires Enterprise access",
+		});
+	}
 	if (ssoAutoJoinDomain !== undefined) {
-		if (!hasSsoAccess(userOrganization.organization)) {
-			throw new HTTPException(403, {
-				message:
-					"SSO auto-join requires an enterprise plan or the Pro SSO add-on",
-			});
-		}
 		if (
 			userOrganization.role !== "owner" &&
 			userOrganization.role !== "admin"

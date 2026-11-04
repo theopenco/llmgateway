@@ -1,6 +1,25 @@
 // An SSO connection's `domain` column holds one or more email domains as a
 // comma-separated list. Every consumer (the SSO plugin's sign-in resolution and
 // SAML-callback trust check, plus our own SSO-only enforcement) splits on
+
+export function extractEmailDomain(email: string): string | null {
+	const at = email.lastIndexOf("@");
+	if (at <= 0 || at === email.length - 1) {
+		return null;
+	}
+	return email.slice(at + 1).toLowerCase();
+}
+
+export function emailMatchesSsoDomains(
+	email: string,
+	domains: string,
+): boolean {
+	const domain = extractEmailDomain(email.trim());
+	return (
+		domain !== null && normalizeSsoDomains(domains).domains.includes(domain)
+	);
+}
+
 // commas, so multi-domain connections work end-to-end — e.g. an org whose
 // userPrincipalName domain differs from its mail domain needs both listed.
 const DOMAIN_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;

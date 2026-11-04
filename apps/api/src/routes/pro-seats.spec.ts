@@ -53,8 +53,20 @@ describe("paid Pro membership capacity", () => {
 			name: "Test Project",
 			organizationId: orgId,
 		});
+		const [connection] = await db
+			.insert(tables.ssoProvider)
+			.values({
+				providerId: "pro-capacity-idp",
+				organizationId: orgId,
+				userId: "test-user-id",
+				issuer: "https://idp.example.test",
+				domain: "example.com",
+				domainVerified: true,
+			})
+			.returning();
 		await db.insert(tables.scimToken).values({
 			organizationId: orgId,
+			ssoProviderId: connection.id,
 			tokenHash: getApiKeyFingerprint(token),
 			maskedToken: "test-token",
 			createdBy: "test-user-id",
@@ -80,7 +92,7 @@ describe("paid Pro membership capacity", () => {
 		expect(await memberships()).toHaveLength(2);
 	});
 
-	it("honors configured Google domain auto-join for a paid Pro SSO add-on", async () => {
+	it("keeps Google domain auto-join Enterprise-only", async () => {
 		await db
 			.update(tables.organization)
 			.set({ ssoAutoJoinDomain: "pro-join.example.com" })
@@ -96,7 +108,7 @@ describe("paid Pro membership capacity", () => {
 				userId: "pro-google-user",
 				email: "user@pro-join.example.com",
 			}),
-		).toBe(orgId);
+		).toBeNull();
 	});
 	it("does not auto-join Pro domains after the SSO add-on is removed", async () => {
 		await db

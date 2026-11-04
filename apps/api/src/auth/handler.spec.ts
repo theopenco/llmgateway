@@ -31,7 +31,9 @@ describe("hosted Pro SSO login entry", () => {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ email: "user@example.com" }),
 		});
-		expect(response.status).not.toBe(403);
+		expect(await response.json()).not.toMatchObject({
+			error: "enterprise_license_required",
+		});
 	});
 	test("keeps unlicensed self-hosted SSO entry blocked", async () => {
 		vi.stubEnv("NODE_ENV", "production");

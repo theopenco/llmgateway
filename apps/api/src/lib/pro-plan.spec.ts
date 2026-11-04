@@ -135,6 +135,24 @@ describe("extractProQuantities", () => {
 		expect(result).toBeNull();
 	});
 
+	it("fails closed for a known seat subscription when pricing config is missing", () => {
+		const current = subscriptionWithItems([
+			{ priceId: "price_seat", quantity: 3 },
+		]);
+		current.metadata = { proBillingVersion: "seats_v1" };
+		delete process.env.STRIPE_PRO_SEAT_PRICE_ID;
+		expect(() => extractProQuantities(current)).toThrow("not configured");
+		current.metadata = {};
+		expect(() => extractProQuantities(current, true)).toThrow("not configured");
+	});
+	it("rejects partial add-on configuration without silently revoking paid flags", () => {
+		delete process.env.STRIPE_PRO_SSO_PRICE_ID;
+		expect(() =>
+			extractProQuantities(
+				subscriptionWithItems([{ priceId: "price_seat", quantity: 3 }]),
+			),
+		).toThrow("incomplete");
+	});
 	function invoiceWithLines(
 		lines: { priceId: string; amountCents: number }[],
 	): Stripe.Invoice {

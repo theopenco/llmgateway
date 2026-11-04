@@ -1,4 +1,6 @@
-import { db, eq, tables } from "@llmgateway/db";
+import { extractEmailDomain, normalizeSsoDomains } from "@/lib/sso-domains.js";
+
+import { db, eq, tables, and, sql } from "@llmgateway/db";
 import { PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
@@ -83,3 +85,51 @@ export const SSO_PLAN_REQUIRED_MESSAGE = `SSO requires an enterprise plan or the
 
 export const SCIM_PLAN_REQUIRED_MESSAGE =
 	"SCIM provisioning requires an enterprise plan or the Pro SCIM add-on (on top of the SSO add-on)";
+
+export async function resolveSsoLoginProvider(input: {
+	providerId?: unknown;
+	email?: unknown;
+	domain?: unknown;
+}): Promise<string | null> {
+	const providerId =
+		typeof input.providerId === "string" ? input.providerId.trim() : null;
+	const domain =
+		typeof input.email === "string"
+			? extractEmailDomain(input.email)
+			: typeof input.domain === "string"
+				? normalizeSsoDomains(input.domain).domains[0]
+				: null;
+	if (!providerId && !domain) {
+		return null;
+	}
+	const rows = await db
+		.select({
+			providerId: tables.ssoProvider.providerId,
+			organization: {
+				id: tables.organization.id,
+				plan: tables.organization.plan,
+				status: tables.organization.status,
+				proSeats: tables.organization.proSeats,
+				proSsoEnabled: tables.organization.proSsoEnabled,
+			},
+		})
+		.from(tables.ssoProvider)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.ssoProvider.organizationId),
+		)
+		.where(
+			and(
+				eq(tables.ssoProvider.domainVerified, true),
+				providerId
+					? eq(tables.ssoProvider.providerId, providerId)
+					: sql`EXISTS (SELECT 1 FROM unnest(string_to_array(${tables.ssoProvider.domain}, ',')) AS domains(value) WHERE lower(btrim(value)) = ${domain})`,
+			),
+		);
+	return (
+		rows.find(
+			(row) =>
+				row.organization.status !== "deleted" && hasSsoAccess(row.organization),
+		)?.providerId ?? null
+	);
+}

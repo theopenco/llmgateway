@@ -1,5 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
+import { lockOrganizationBilling } from "@/lib/billing-operation.js";
+
 import { db, drizzleCache, eq, tables } from "@llmgateway/db";
 
 export type CapacityTransaction = Parameters<
@@ -12,6 +14,7 @@ export async function withOrganizationCapacity<T>(
 	mutation: (tx: CapacityTransaction, organization: Organization) => Promise<T>,
 ): Promise<T> {
 	const result = await db.transaction(async (tx) => {
+		await lockOrganizationBilling(tx, organizationId);
 		const [organization] = await tx
 			.select()
 			.from(tables.organization)

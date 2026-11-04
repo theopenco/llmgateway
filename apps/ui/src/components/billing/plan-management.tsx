@@ -439,7 +439,10 @@ export function PlanManagement() {
 	const isLegacyPro = isPro && selectedOrganization?.proSeats === null;
 
 	const seatsUsed = teamData
-		? teamData.members.length + teamData.invites.length
+		? teamData.members.length +
+			teamData.invites.filter(
+				(invite) => new Date(invite.expiresAt).getTime() > Date.now(),
+			).length
 		: null;
 	const seatLimit = teamData?.seatLimit ?? null;
 	const keysUsed = keysData?.planLimits?.currentCount ?? null;

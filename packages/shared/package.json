@@ -6,6 +6,11 @@
 	"sideEffects": false,
 	"type": "module",
 	"exports": {
+		"./sso": {
+			"types": "./dist/sso.d.ts",
+			"import": "./dist/sso.js",
+			"default": "./dist/sso.js"
+		},
 		"./account-block": {
 			"types": "./dist/account-block.d.ts",
 			"import": "./dist/account-block.js",

@@ -87,6 +87,7 @@ function makeUpdatedEvent(overrides: {
 				items: {
 					data: [
 						{
+							price: { id: "price_legacy_test" },
 							current_period_end:
 								overrides.currentPeriodEnd ??
 								Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS,
@@ -284,6 +285,7 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 			metadata: { organizationId: ORG_ID },
 		});
 
+		stripeMock.subscriptions.retrieve.mockResolvedValue(event.data.object);
 		await handleSubscriptionUpdated(event);
 
 		expect(sendEmailMock).not.toHaveBeenCalled();
@@ -1097,7 +1099,7 @@ describe("handleInvoicePaymentSucceeded — initial chat plan invoice", () => {
 function makeCreatedEvent(
 	status: Stripe.Subscription.Status,
 ): Stripe.CustomerSubscriptionCreatedEvent {
-	return {
+	const event = {
 		id: "evt_test_created",
 		type: "customer.subscription.created",
 		data: {
@@ -1110,6 +1112,8 @@ function makeCreatedEvent(
 			},
 		},
 	} as unknown as Stripe.CustomerSubscriptionCreatedEvent;
+	stripeMock.subscriptions.retrieve.mockResolvedValue(event.data.object);
+	return event;
 }
 
 describe("handleSubscriptionCreated — Pro payment state", () => {
@@ -1193,7 +1197,7 @@ describe("handleInvoicePaymentSucceeded — superseded Pro subscription", () => 
 		await deleteAll();
 	});
 
-	test("ignores a paid invoice from a superseded Pro subscription", async () => {
+	test("records superseded paid invoices without changing active entitlements", async () => {
 		// Org resolution finds the org by customer/metadata regardless of which
 		// subscription billed, so without an id check a stale invoice would drag
 		// the active subscription's paid-through date backwards.
@@ -1230,12 +1234,20 @@ describe("handleInvoicePaymentSucceeded — superseded Pro subscription", () => 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
-		expect(txns).toHaveLength(0);
+		expect(txns).toHaveLength(1);
+		expect(txns[0]).toMatchObject({
+			stripeInvoiceId: "in_stale_pro",
+			type: "subscription_renewal",
+		});
+		expect(org?.stripeSubscriptionId).toBe("sub_active_pro");
 	});
 
 	test("still applies an invoice for the active Pro subscription", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUB_ID,
+			status: "active",
+			cancel_at_period_end: false,
+			items: { data: [] },
 			metadata: {},
 		});
 		await db.insert(tables.organization).values({

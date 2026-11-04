@@ -1,3 +1,4 @@
+import { lockOrganizationBilling } from "@/lib/billing-operation.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
 
 import { and, db, eq, sql, tables } from "@llmgateway/db";
@@ -8,8 +9,6 @@ import {
 } from "@llmgateway/shared/enterprise-license";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-const ENTERPRISE_SEAT_LOCK_ID = 4_547_101_761;
 
 export class EnterpriseSeatLimitError extends Error {
 	constructor(
@@ -77,22 +76,33 @@ async function withSeatLock<T>(
 	mutation: (tx: DbTransaction) => Promise<T>,
 	license: EnterpriseLicenseStatus,
 ): Promise<T> {
-	return await db.transaction(async (tx) => {
-		// Never queue the deployment-wide license lock behind one organization.
-		await tx
-			.select({ id: tables.organization.id })
-			.from(tables.organization)
-			.where(eq(tables.organization.id, organizationId))
-			.for("no key update");
-		const candidates = await resolveCandidates(tx);
-		if (license.maxSeats !== null && candidates.length > 0) {
-			await tx.execute(
-				sql`SELECT pg_advisory_xact_lock(${ENTERPRISE_SEAT_LOCK_ID})`,
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await db.transaction(
+				async (tx) => {
+					await lockOrganizationBilling(tx, organizationId);
+					await tx
+						.select({ id: tables.organization.id })
+						.from(tables.organization)
+						.where(eq(tables.organization.id, organizationId))
+						.for("no key update");
+					const candidates = await resolveCandidates(tx);
+					if (candidates.length) {
+						await assertCapacity(tx, candidates, license);
+					}
+					return await mutation(tx);
+				},
+				{
+					isolationLevel:
+						license.maxSeats === null ? "read committed" : "serializable",
+				},
 			);
-			await assertCapacity(tx, candidates, license);
+		} catch (error) {
+			if (attempt >= 3 || !isCapacitySerializationConflict(error)) {
+				throw error;
+			}
 		}
-		return await mutation(tx);
-	});
+	}
 }
 
 export async function withEnterpriseSeatForOrganization<T>(
@@ -261,4 +271,20 @@ export class OrganizationSeatLimitError extends EnterpriseSeatLimitError {
 		this.name = "OrganizationSeatLimitError";
 		this.message = `The organization has reached its ${maxSeats} user seat limit`;
 	}
+}
+
+function isCapacitySerializationConflict(error: unknown): boolean {
+	let current = error;
+	for (
+		let depth = 0;
+		depth < 5 && typeof current === "object" && current !== null;
+		depth++
+	) {
+		const detail = current as { code?: unknown; cause?: unknown };
+		if (detail.code === "40001" || detail.code === "40P01") {
+			return true;
+		}
+		current = detail.cause;
+	}
+	return false;
 }

@@ -1,10 +1,16 @@
+import { createHmac } from "node:crypto";
+
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { withBillingOperation } from "@/lib/billing-operation.js";
 import { getBillingOrganization } from "@/lib/billing-organization.js";
-import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
 import { extractProQuantities } from "@/lib/pro-plan.js";
+import {
+	recordProCancellationTransition,
+	trackProReactivation,
+} from "@/lib/pro-subscription-state.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { createRoute } from "@/utils/create-route.js";
@@ -20,10 +26,11 @@ import {
 	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_SSO_MAX_SEATS,
 } from "@llmgateway/shared";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
 import { getStripe } from "./payments.js";
 
-import type { CapacityTransaction } from "@/lib/organization-capacity.js";
+import type { CapacityTransaction } from "@/lib/billing-operation.js";
 import type { ServerTypes } from "@/vars.js";
 import type Stripe from "stripe";
 
@@ -67,7 +74,14 @@ export function getProPriceIds(): {
 	const extraProject = process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID;
 	const sso = process.env.STRIPE_PRO_SSO_PRICE_ID;
 	const scim = process.env.STRIPE_PRO_SCIM_PRICE_ID;
-	if (!seat || !extraApiKey || !extraProject || !sso || !scim) {
+	if (
+		!seat ||
+		!extraApiKey ||
+		!extraProject ||
+		!sso ||
+		!scim ||
+		new Set([seat, extraApiKey, extraProject, sso, scim]).size !== 5
+	) {
 		throw new HTTPException(500, {
 			message:
 				"Pro plan price IDs are not configured (STRIPE_PRO_SEAT_PRICE_ID, STRIPE_PRO_EXTRA_API_KEY_PRICE_ID, STRIPE_PRO_EXTRA_PROJECT_PRICE_ID, STRIPE_PRO_SSO_PRICE_ID, STRIPE_PRO_SCIM_PRICE_ID)",
@@ -256,104 +270,194 @@ subscriptions.openapi(createProSubscription, async (c) => {
 	);
 	assertOwner(userOrganization.role);
 
-	const organization = userOrganization.organization;
-
-	// Block paid subscriptions for personal/chat orgs (dev/chat plans only)
-	if (organization.kind !== "default") {
+	const snapshot = userOrganization.organization;
+	if (snapshot.kind !== "default" || snapshot.plan === "enterprise") {
 		throw new HTTPException(403, {
-			message:
-				"Paid subscriptions are not available for personal organizations. Please use Dev Plans at devpass.llmgateway.io or create a regular organization.",
+			message: "This organization cannot purchase a Pro subscription",
 		});
 	}
-
-	if (organization.plan === "enterprise") {
-		throw new HTTPException(400, {
-			message:
-				"Your organization is on an enterprise plan. Contact us to change your agreement.",
-		});
-	}
-
-	// Check if organization already has a pro subscription
-	if (organization.plan === "pro" && organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "Organization already has an active pro subscription",
-		});
-	}
-
-	await assertSelectionCoversUsage(
-		organization.id,
-		seats,
-		extraApiKeys,
-		extraProjects,
-	);
-
-	try {
-		const stripeCustomerId = await ensureStripeCustomer(organization.id);
-
-		// Create Stripe Checkout session
-		const session = await getStripe().checkout.sessions.create({
-			customer: stripeCustomerId,
-			mode: "subscription",
-			line_items: buildProLineItems({
-				seats,
-				extraApiKeys,
-				extraProjects,
-				ssoAddon,
-				scimAddon,
-			}),
-			allow_promotion_codes: true,
-			...(await forcedThreeDSecureOptions()),
-			success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?success=true`,
-			cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?canceled=true`,
-			metadata: {
-				organizationId: organization.id,
-				plan: "pro",
-				userEmail: user.email,
-			},
-			subscription_data: {
-				metadata: {
-					organizationId: organization.id,
-					plan: "pro",
-					userEmail: user.email,
-				},
-			},
-		});
-
-		if (!session.url) {
-			throw new HTTPException(500, {
-				message: "Failed to generate checkout URL",
+	const stripeCustomerId = await ensureStripeCustomer(snapshot.id);
+	return await withBillingOperation(snapshot.id, async (tx, organization) => {
+		if (organization.kind !== "default" || organization.plan === "enterprise") {
+			throw new HTTPException(403, {
+				message: "This organization cannot purchase a Pro subscription",
 			});
 		}
-
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.create",
-			resourceType: "subscription",
-			metadata: {
-				seats,
-				extraApiKeys,
-				extraProjects,
-				ssoAddon,
-				scimAddon,
-			},
-		});
-
-		return c.json({
-			checkoutUrl: session.url,
-		});
-	} catch (error) {
-		if (error instanceof HTTPException) {
-			throw error;
+		if (organization.stripeSubscriptionId) {
+			throw new HTTPException(400, {
+				message: "Organization already has a pro subscription",
+			});
 		}
-		logger.error(
-			"Stripe checkout session error",
-			error instanceof Error ? error : new Error(String(error)),
+		await assertSelectionCoversUsage(
+			organization.id,
+			seats,
+			extraApiKeys,
+			extraProjects,
+			tx,
 		);
-		throw new HTTPException(500, {
-			message: "Failed to create checkout session",
+		const configuration = JSON.stringify({
+			seats,
+			extraApiKeys,
+			extraProjects,
+			ssoAddon,
+			scimAddon,
+			prices: getProPriceIds(),
 		});
-	}
+		const [pending] = await tx
+			.select()
+			.from(tables.organizationBillingOperation)
+			.where(
+				eq(tables.organizationBillingOperation.organizationId, organization.id),
+			);
+		try {
+			const stripe = getStripe();
+			let reusable: Stripe.Checkout.Session | undefined;
+			if (pending.checkoutSessionId) {
+				const previous = await stripe.checkout.sessions.retrieve(
+					pending.checkoutSessionId,
+				);
+				if (previous.metadata?.organizationId !== organization.id) {
+					throw new Error("Stored checkout organization mismatch");
+				}
+				if (previous.status === "complete") {
+					const id =
+						typeof previous.subscription === "string"
+							? previous.subscription
+							: previous.subscription?.id;
+					const current = id ? await stripe.subscriptions.retrieve(id) : null;
+					if (
+						!current ||
+						!["canceled", "incomplete_expired"].includes(current.status)
+					) {
+						throw new HTTPException(409, {
+							message:
+								"Checkout is being finalized; refresh your subscription status",
+						});
+					}
+				}
+				if (previous.status === "open") {
+					if (previous.metadata?.proConfiguration === configuration) {
+						reusable = previous;
+					} else {
+						await stripe.checkout.sessions.expire(previous.id);
+					}
+				}
+			}
+			let cursor: string | undefined;
+			for (;;) {
+				const page = await stripe.checkout.sessions.list({
+					customer: stripeCustomerId,
+					status: "open",
+					limit: 100,
+					...(cursor ? { starting_after: cursor } : {}),
+				});
+				for (const session of page.data) {
+					if (
+						session.mode !== "subscription" ||
+						session.metadata?.organizationId !== organization.id ||
+						session.metadata.plan !== "pro" ||
+						session.id === reusable?.id
+					) {
+						continue;
+					}
+					if (
+						!reusable &&
+						session.metadata.proConfiguration === configuration
+					) {
+						reusable = session;
+					} else {
+						await stripe.checkout.sessions.expire(session.id);
+					}
+				}
+				if (!page.has_more) {
+					break;
+				}
+				if (!page.data.length) {
+					throw new Error("Stripe returned an incomplete checkout page");
+				}
+				cursor = page.data[page.data.length - 1].id;
+			}
+			const session =
+				reusable ??
+				(await stripe.checkout.sessions.create(
+					{
+						customer: stripeCustomerId,
+						mode: "subscription",
+						line_items: buildProLineItems({
+							seats,
+							extraApiKeys,
+							extraProjects,
+							ssoAddon,
+							scimAddon,
+						}),
+						allow_promotion_codes: true,
+						...(await forcedThreeDSecureOptions()),
+						success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?success=true`,
+						cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?canceled=true`,
+						metadata: {
+							organizationId: organization.id,
+							plan: "pro",
+							userEmail: user.email,
+							proConfiguration: configuration,
+						},
+						subscription_data: {
+							metadata: {
+								organizationId: organization.id,
+								plan: "pro",
+								userEmail: user.email,
+								proBillingVersion: "seats_v1",
+							},
+						},
+					},
+					{
+						idempotencyKey: `pro-checkout-${createHmac(
+							"sha256",
+							getApiKeyHashSecret(),
+						)
+							.update(
+								`pro-checkout:${organization.id}:${configuration}:${pending.checkoutSessionId ?? "initial"}`,
+							)
+							.digest("hex")}`,
+					},
+				));
+			if (!session.url) {
+				throw new HTTPException(500, {
+					message: "Failed to generate checkout URL",
+				});
+			}
+			await tx
+				.update(tables.organizationBillingOperation)
+				.set({
+					checkoutSessionId: session.id,
+					checkoutConfiguration: configuration,
+				})
+				.where(
+					eq(
+						tables.organizationBillingOperation.organizationId,
+						organization.id,
+					),
+				);
+			await logAuditEvent({
+				organizationId: organization.id,
+				userId: user.id,
+				action: "subscription.create",
+				resourceType: "subscription",
+				metadata: { seats, extraApiKeys, extraProjects, ssoAddon, scimAddon },
+			});
+			return c.json({ checkoutUrl: session.url });
+		} catch (error) {
+			if (error instanceof HTTPException) {
+				throw error;
+			}
+			logger.error(
+				"Stripe checkout session error",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+			throw new HTTPException(500, {
+				message: "Failed to create checkout session",
+			});
+		}
+	});
 });
 
 const updateProSubscription = createRoute({
@@ -402,7 +506,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 	);
 	assertOwner(userOrganization.role);
 
-	return await withOrganizationCapacity(
+	return await withBillingOperation(
 		userOrganization.organization.id,
 		async (tx, organization) => {
 			if (
@@ -488,7 +592,10 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 					},
 				);
 
-				const quantities = extractProQuantities(updatedSubscription);
+				const quantities = extractProQuantities(
+					updatedSubscription,
+					organization.proSeats !== null,
+				);
 				if (!quantities) {
 					throw new HTTPException(409, {
 						message: "Stripe returned an unrecognized Pro subscription",
@@ -567,7 +674,7 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 	);
 	assertOwner(userOrganization.role);
 
-	return await withOrganizationCapacity(
+	const result = await withBillingOperation(
 		userOrganization.organization.id,
 		async (tx, organization) => {
 			if (!organization.stripeSubscriptionId) {
@@ -585,6 +692,11 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 					},
 				);
 
+				const reactivated = await recordProCancellationTransition(
+					tx,
+					organization,
+					updatedSubscription.cancel_at_period_end,
+				);
 				await logAuditEvent({
 					organizationId: organization.id,
 					userId: user.id,
@@ -600,9 +712,11 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 					})
 					.where(eq(tables.organization.id, organization.id));
 
-				return c.json({
-					success: true,
-				});
+				return {
+					response: c.json({ success: true }, 200),
+					reactivated,
+					organization: { id: organization.id, name: organization.name },
+				};
 			} catch (error) {
 				logger.error(
 					"Stripe subscription cancellation error",
@@ -614,6 +728,10 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 			}
 		},
 	);
+	if (result.reactivated) {
+		trackProReactivation(result.organization, "dashboard");
+	}
+	return result.response;
 });
 
 const resumeProSubscription = createRoute({
@@ -650,7 +768,7 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 	);
 	assertOwner(userOrganization.role);
 
-	return await withOrganizationCapacity(
+	const result = await withBillingOperation(
 		userOrganization.organization.id,
 		async (tx, organization) => {
 			if (!organization.stripeSubscriptionId) {
@@ -679,6 +797,11 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 					},
 				);
 
+				const reactivated = await recordProCancellationTransition(
+					tx,
+					organization,
+					updatedSubscription.cancel_at_period_end,
+				);
 				await logAuditEvent({
 					organizationId: organization.id,
 					userId: user.id,
@@ -694,9 +817,11 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 					})
 					.where(eq(tables.organization.id, organization.id));
 
-				return c.json({
-					success: true,
-				});
+				return {
+					response: c.json({ success: true }, 200),
+					reactivated,
+					organization: { id: organization.id, name: organization.name },
+				};
 			} catch (error) {
 				if (error instanceof HTTPException) {
 					throw error;
@@ -711,6 +836,10 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 			}
 		},
 	);
+	if (result.reactivated) {
+		trackProReactivation(result.organization, "dashboard");
+	}
+	return result.response;
 });
 
 const getSubscriptionStatus = createRoute({

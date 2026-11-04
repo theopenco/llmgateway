@@ -4,7 +4,11 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
+import { withBillingOperation } from "@/lib/billing-operation.js";
+import {
+	recordProCancellationTransition,
+	trackProReactivation,
+} from "@/lib/pro-subscription-state.js";
 import { createRoute } from "@/utils/create-route.js";
 
 import {
@@ -1726,9 +1730,24 @@ async function handleCheckoutSessionCompleted(
 				return;
 			}
 
-			const activated = await withOrganizationCapacity(
+			const activated = await withBillingOperation(
 				organizationId,
 				async (tx, organization) => {
+					if (
+						organization.stripeSubscriptionId &&
+						organization.stripeSubscriptionId !== subscriptionId
+					) {
+						logger.error(
+							"Paid Pro checkout conflicts with the active subscription; manual cancellation/refund review required",
+							{
+								organizationId,
+								subscriptionId,
+								activeSubscriptionId: organization.stripeSubscriptionId,
+								checkoutSessionId: session.id,
+							},
+						);
+						return null;
+					}
 					if (
 						!subscriptionId ||
 						organization.kind !== "default" ||
@@ -1743,7 +1762,10 @@ async function handleCheckoutSessionCompleted(
 					if (current.status !== "active" && current.status !== "trialing") {
 						return null;
 					}
-					const proQuantities = extractProQuantities(current);
+					const proQuantities = extractProQuantities(
+						current,
+						organization.proSeats !== null,
+					);
 					const result = await tx
 						.update(tables.organization)
 						.set({
@@ -5126,20 +5148,6 @@ export async function handleInvoicePaymentSucceeded(event: {
 		logger.warn(
 			`Skipping plan: "pro" for ${organization.kind} org ${organizationId} (invoice ${invoice.id}) - non-default orgs use product-specific plan fields`,
 		);
-	} else if (
-		organization.stripeSubscriptionId &&
-		organization.stripeSubscriptionId !== subscriptionId
-	) {
-		// A superseded Pro subscription can still deliver a paid invoice, and org
-		// resolution finds the org by customer/metadata regardless. Writing here
-		// would move the active subscription's paid-through date back to the stale
-		// invoice's period and mark it current. Mirrors the id checks the dev and
-		// chat branches already apply. A *new* subscription whose first invoice
-		// beats its `checkout.session.completed` still passes: the id is null then,
-		// and the checkout handler owns that first invoice either way.
-		logger.warn(
-			`Skipping stale Pro subscription invoice ${invoice.id} for organization ${organizationId}: invoice subscription ${subscriptionId} is not the active subscription ${organization.stripeSubscriptionId}`,
-		);
 	} else {
 		// Enterprise agreements are admin-managed and locked — a stray Stripe
 		// invoice must not flip the plan or corrupt the admin-set term dates.
@@ -5167,60 +5175,85 @@ export async function handleInvoicePaymentSucceeded(event: {
 					: "Pro subscription started";
 		const proBreakdown = extractProInvoiceBreakdown(invoice);
 
-		const [transaction] = await db
-			.insert(tables.transaction)
-			.values({
-				organizationId,
-				type: proTransactionType,
-				amount: (invoice.amount_paid / 100).toString(),
-				currency: invoice.currency.toUpperCase(),
-				status: "completed",
-				stripePaymentIntentId: (invoice as any).payment_intent,
-				stripeInvoiceId: invoice.id,
-				amountBreakdown: proBreakdown ?? undefined,
-				description: proDescription,
-			})
-			.returning();
-
-		// Update organization to pro tier and mark subscription as not cancelled
 		try {
-			const result = await withOrganizationCapacity(
+			const { transaction, result } = await withBillingOperation(
 				organizationId,
 				async (tx, organization) => {
-					if (
-						!subscriptionId ||
-						organization.kind !== "default" ||
-						organization.plan === "enterprise" ||
-						(organization.stripeSubscriptionId &&
-							organization.stripeSubscriptionId !== subscriptionId)
-					) {
-						return [];
+					const recorded = await tx.query.transaction.findFirst({
+						where: { stripeInvoiceId: { eq: invoice.id } },
+					});
+					if (recorded) {
+						return { transaction: null, result: [] };
 					}
-					const current =
-						await getStripe().subscriptions.retrieve(subscriptionId);
-					if (current.status !== "active" && current.status !== "trialing") {
-						return [];
-					}
-					return await tx
-						.update(tables.organization)
-						.set({
-							plan: "pro",
-							stripeSubscriptionId: subscriptionId,
-							planExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
-							subscriptionCancelled: current.cancel_at_period_end,
-							subscriptionPaymentStatus: "current",
-							...(extractProQuantities(current) ?? {
-								proSeats: null,
-								proExtraApiKeys: 0,
-								proExtraProjects: 0,
-								proSsoEnabled: false,
-								proScimEnabled: false,
-							}),
+					const applies =
+						!!subscriptionId &&
+						organization.kind === "default" &&
+						organization.plan !== "enterprise" &&
+						(!organization.stripeSubscriptionId ||
+							organization.stripeSubscriptionId === subscriptionId);
+					const current = applies
+						? await getStripe().subscriptions.retrieve(subscriptionId!)
+						: null;
+					const paymentIntent = (
+						invoice as Stripe.Invoice & {
+							payment_intent?: string | { id: string } | null;
+						}
+					).payment_intent;
+					const [transaction] = await tx
+						.insert(tables.transaction)
+						.values({
+							organizationId,
+							type: proTransactionType,
+							amount: new Decimal(invoice.amount_paid).div(100).toString(),
+							currency: invoice.currency.toUpperCase(),
+							status: "completed",
+							stripePaymentIntentId:
+								typeof paymentIntent === "string"
+									? paymentIntent
+									: paymentIntent?.id,
+							stripeInvoiceId: invoice.id,
+							amountBreakdown: proBreakdown ?? undefined,
+							description: proDescription,
 						})
-						.where(eq(tables.organization.id, organizationId))
 						.returning();
+					let result: (typeof tables.organization.$inferSelect)[] = [];
+					if (
+						current &&
+						(current.status === "active" || current.status === "trialing")
+					) {
+						result = await tx
+							.update(tables.organization)
+							.set({
+								plan: "pro",
+								stripeSubscriptionId: subscriptionId,
+								planExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
+								subscriptionCancelled: current.cancel_at_period_end,
+								subscriptionPaymentStatus: "current",
+								...(extractProQuantities(
+									current,
+									organization.proSeats !== null,
+								) ?? {
+									proSeats: null,
+									proExtraApiKeys: 0,
+									proExtraProjects: 0,
+									proSsoEnabled: false,
+									proScimEnabled: false,
+								}),
+							})
+							.where(eq(tables.organization.id, organizationId))
+							.returning();
+					} else if (!applies) {
+						logger.error(
+							"Paid Pro invoice does not match the active subscription; manual billing review required",
+							{ organizationId, invoiceId: invoice.id, subscriptionId },
+						);
+					}
+					return { transaction, result };
 				},
 			);
+			if (!transaction) {
+				return;
+			}
 
 			logger.info(
 				`Successfully upgraded organization ${organizationId} to pro tier. Updated rows: ${result.length}`,
@@ -5698,89 +5731,75 @@ export async function handleSubscriptionUpdated(
 			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 		);
 	} else {
-		await withOrganizationCapacity(organizationId, async (tx, organization) => {
-			if (
-				organization.kind !== "default" ||
-				organization.plan !== "pro" ||
-				organization.stripeSubscriptionId !== subscription.id
-			) {
-				return;
-			}
-			const currentSubscription = await getStripe().subscriptions.retrieve(
-				subscription.id,
-			);
-			const isSubscriptionActive = !currentSubscription.cancel_at_period_end;
-			const currentPeriodEnd =
-				currentSubscription.items.data[0]?.current_period_end;
-			const expiresAt = currentPeriodEnd
-				? new Date(currentPeriodEnd * 1000)
-				: undefined;
-			const paymentStatusUpdate = PAYMENT_FAILURE_STATUSES.includes(
-				currentSubscription.status,
-			)
-				? ("past_due" as const)
-				: ("current" as const);
-			const wasSubscriptionCancelled = organization.subscriptionCancelled;
-
-			// Create transaction record for subscription cancellation if it was cancelled
-			if (!isSubscriptionActive && !wasSubscriptionCancelled) {
-				await tx.insert(tables.transaction).values({
-					organizationId,
-					type: "subscription_cancel",
-					currency: "USD",
-					status: "completed",
-					description: "Pro subscription cancelled",
-				});
-			}
-
-			const currentQuantities = extractProQuantities(currentSubscription) ?? {
-				proSeats: null,
-				proExtraApiKeys: 0,
-				proExtraProjects: 0,
-				proSsoEnabled: false,
-				proScimEnabled: false,
-			};
-
-			await tx
-				.update(tables.organization)
-				.set({
-					planExpiresAt: organization.planExpiresAt ? undefined : expiresAt,
-					subscriptionCancelled: !isSubscriptionActive,
-					subscriptionPaymentStatus: paymentStatusUpdate,
-					...currentQuantities,
-				})
-				.where(eq(tables.organization.id, organizationId));
-
-			// Track subscription reactivation if it was previously cancelled and is now active
-			if (isSubscriptionActive && wasSubscriptionCancelled) {
-				posthog.groupIdentify({
-					groupType: "organization",
-					groupKey: organizationId,
-					properties: {
-						name: organization.name,
-					},
-				});
-				posthog.capture({
-					distinctId: "organization",
-					event: "subscription_reactivated",
-					groups: {
-						organization: organizationId,
-					},
-					properties: {
-						plan: "pro",
-						organization: organizationId,
-						source: "stripe_subscription_updated",
-					},
-				});
-				logger.info(
-					`Reactivated subscription for organization ${organizationId}`,
+		const reactivatedOrganization = await withBillingOperation(
+			organizationId,
+			async (tx, organization) => {
+				if (
+					organization.kind !== "default" ||
+					organization.plan !== "pro" ||
+					organization.stripeSubscriptionId !== subscription.id
+				) {
+					return;
+				}
+				const currentSubscription = await getStripe().subscriptions.retrieve(
+					subscription.id,
 				);
-			}
+				const isSubscriptionActive = !currentSubscription.cancel_at_period_end;
+				const currentPeriodEnd =
+					currentSubscription.items.data[0]?.current_period_end;
+				const expiresAt = currentPeriodEnd
+					? new Date(currentPeriodEnd * 1000)
+					: undefined;
+				const paymentStatusUpdate = PAYMENT_FAILURE_STATUSES.includes(
+					currentSubscription.status,
+				)
+					? ("past_due" as const)
+					: ("current" as const);
+				const reactivated = await recordProCancellationTransition(
+					tx,
+					organization,
+					!isSubscriptionActive,
+				);
 
-			logger.info(
-				`Updated subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
+				const currentQuantities =
+					currentSubscription.status === "active" ||
+					currentSubscription.status === "trialing"
+						? (extractProQuantities(
+								currentSubscription,
+								organization.proSeats !== null,
+							) ?? {
+								proSeats: null,
+								proExtraApiKeys: 0,
+								proExtraProjects: 0,
+								proSsoEnabled: false,
+								proScimEnabled: false,
+							})
+						: {};
+
+				await tx
+					.update(tables.organization)
+					.set({
+						planExpiresAt: organization.planExpiresAt ? undefined : expiresAt,
+						subscriptionCancelled: !isSubscriptionActive,
+						subscriptionPaymentStatus: paymentStatusUpdate,
+						...currentQuantities,
+					})
+					.where(eq(tables.organization.id, organizationId));
+
+				logger.info(
+					`Updated subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
+				);
+				return reactivated
+					? { id: organization.id, name: organization.name }
+					: undefined;
+			},
+		);
+		if (reactivatedOrganization) {
+			trackProReactivation(
+				reactivatedOrganization,
+				"stripe_subscription_updated",
 			);
-		});
+		}
 	}
 }
 
@@ -5797,7 +5816,7 @@ export async function handleSubscriptionDeleted(
 
 	if (!result) {
 		logger.error(`Organization not found for customer: ${customer}`);
-		return;
+		return undefined;
 	}
 
 	const { organizationId, organization } = result;
@@ -5828,7 +5847,7 @@ export async function handleSubscriptionDeleted(
 		logger.info(
 			`Ignoring stale dev-plan subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.devPlanStripeSubscriptionId})`,
 		);
-		return;
+		return undefined;
 	}
 	if (
 		isChatPlan &&
@@ -5838,7 +5857,7 @@ export async function handleSubscriptionDeleted(
 		logger.info(
 			`Ignoring stale chat-plan subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.chatPlanStripeSubscriptionId})`,
 		);
-		return;
+		return undefined;
 	}
 	if (
 		!isDevPlan &&
@@ -5849,7 +5868,7 @@ export async function handleSubscriptionDeleted(
 		logger.info(
 			`Ignoring stale subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.stripeSubscriptionId})`,
 		);
-		return;
+		return undefined;
 	}
 
 	if (isChatPlan) {
@@ -5982,112 +6001,125 @@ export async function handleSubscriptionDeleted(
 			`Ended dev plan ${previousDevPlan} for organization ${organizationId}`,
 		);
 	} else {
-		await withOrganizationCapacity(organizationId, async (tx, organization) => {
-			if (
-				organization.kind !== "default" ||
-				organization.stripeSubscriptionId !== subscription.id
-			) {
-				return;
-			}
-			if (organization.plan === "enterprise") {
-				// The org moved to an admin-managed enterprise agreement while a Pro
-				// subscription was still winding down. Detach the ended subscription
-				// and clear the purchased quantities, but never touch the enterprise
-				// plan or its admin-set term dates — and skip the "downgraded to free"
-				// email, since nothing user-facing changed.
-				await tx
-					.update(tables.organization)
-					.set({
-						stripeSubscriptionId: null,
-						subscriptionCancelled: false,
-						proSeats: null,
-						proExtraApiKeys: 0,
-						proExtraProjects: 0,
-						proSsoEnabled: false,
-						proScimEnabled: false,
-					})
-					.where(eq(tables.organization.id, organizationId));
+		const downgraded = await withBillingOperation(
+			organizationId,
+			async (tx, organization) => {
+				if (
+					organization.kind !== "default" ||
+					organization.stripeSubscriptionId !== subscription.id
+				) {
+					return undefined;
+				}
+				if (organization.plan === "enterprise") {
+					// The org moved to an admin-managed enterprise agreement while a Pro
+					// subscription was still winding down. Detach the ended subscription
+					// and clear the purchased quantities, but never touch the enterprise
+					// plan or its admin-set term dates — and skip the "downgraded to free"
+					// email, since nothing user-facing changed.
+					await tx
+						.update(tables.organization)
+						.set({
+							stripeSubscriptionId: null,
+							subscriptionCancelled: false,
+							proSeats: null,
+							proExtraApiKeys: 0,
+							proExtraProjects: 0,
+							proSsoEnabled: false,
+							proScimEnabled: false,
+						})
+						.where(eq(tables.organization.id, organizationId));
 
-				await tx.insert(tables.transaction).values({
-					organizationId,
-					type: "subscription_end",
-					currency: "USD",
-					status: "completed",
-					description: "Pro subscription ended (organization is on enterprise)",
-				});
+					await tx.insert(tables.transaction).values({
+						organizationId,
+						type: "subscription_end",
+						currency: "USD",
+						status: "completed",
+						description:
+							"Pro subscription ended (organization is on enterprise)",
+					});
 
-				logger.info(
-					`Detached ended Pro subscription ${subscription.id} from ENTERPRISE org ${organizationId}; plan untouched`,
-				);
-			} else {
-				// Handle regular pro subscription deletion
-				// Create transaction record for subscription end
-				await tx.insert(tables.transaction).values({
-					organizationId,
-					type: "subscription_end",
-					currency: "USD",
-					status: "completed",
-					description: "Pro subscription ended",
-				});
+					logger.info(
+						`Detached ended Pro subscription ${subscription.id} from ENTERPRISE org ${organizationId}; plan untouched`,
+					);
+				} else {
+					// Handle regular pro subscription deletion
+					// Create transaction record for subscription end
+					await tx.insert(tables.transaction).values({
+						organizationId,
+						type: "subscription_end",
+						currency: "USD",
+						status: "completed",
+						description: "Pro subscription ended",
+					});
 
-				// Downgrade organization to free plan and mark subscription as cancelled
-				await tx
-					.update(tables.organization)
-					.set({
-						plan: "free",
-						stripeSubscriptionId: null,
-						planExpiresAt: null,
-						subscriptionCancelled: false,
-						subscriptionPaymentStatus: "current",
-						proSeats: null,
-						proExtraApiKeys: 0,
-						proExtraProjects: 0,
-						proSsoEnabled: false,
-						proScimEnabled: false,
-					})
-					.where(eq(tables.organization.id, organizationId));
+					// Downgrade organization to free plan and mark subscription as cancelled
+					await tx
+						.update(tables.organization)
+						.set({
+							plan: "free",
+							stripeSubscriptionId: null,
+							planExpiresAt: null,
+							subscriptionCancelled: false,
+							subscriptionPaymentStatus: "current",
+							proSeats: null,
+							proExtraApiKeys: 0,
+							proExtraProjects: 0,
+							proSsoEnabled: false,
+							proScimEnabled: false,
+						})
+						.where(eq(tables.organization.id, organizationId));
 
-				// Send subscription cancelled email
-				await sendTransactionalEmail({
-					to: organization.billingEmail,
-					organizationId: organization.id,
-					subject: "Your LLMGateway Subscription Has Been Cancelled",
-					html: generateSubscriptionCancelledEmailHtml({
-						id: organizationId,
+					return {
+						id: organization.id,
 						name: organization.name,
-						kind: "default",
-					}),
-				});
+						billingEmail: organization.billingEmail,
+					};
+				}
+				return undefined;
+			},
+		);
+		if (downgraded) {
+			const organization = downgraded;
+			// Send subscription cancelled email
+			await sendTransactionalEmail({
+				to: organization.billingEmail,
+				organizationId: organization.id,
+				subject: "Your LLMGateway Subscription Has Been Cancelled",
+				html: generateSubscriptionCancelledEmailHtml({
+					id: organizationId,
+					name: organization.name,
+					kind: "default",
+				}),
+			});
 
-				logger.info(
-					`Sent subscription cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
-				);
+			logger.info(
+				`Sent subscription cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
+			);
 
-				// Track subscription cancellation in PostHog
-				posthog.groupIdentify({
-					groupType: "organization",
-					groupKey: organizationId,
-					properties: {
-						name: organization.name,
-					},
-				});
-				posthog.capture({
-					distinctId: "organization",
-					event: "subscription_cancelled",
-					groups: {
-						organization: organizationId,
-					},
-					properties: {
-						previousPlan: "pro",
-						newPlan: "free",
-						organization: organizationId,
-						source: "stripe_subscription_deleted",
-					},
-				});
+			// Track subscription cancellation in PostHog
+			posthog.groupIdentify({
+				groupType: "organization",
+				groupKey: organizationId,
+				properties: {
+					name: organization.name,
+				},
+			});
+			posthog.capture({
+				distinctId: "organization",
+				event: "subscription_cancelled",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					previousPlan: "pro",
+					newPlan: "free",
+					organization: organizationId,
+					source: "stripe_subscription_deleted",
+				},
+			});
 
-				logger.info(`Downgraded organization ${organizationId} to free plan`);
-			}
-		});
+			logger.info(`Downgraded organization ${organizationId} to free plan`);
+		}
 	}
 }
 
@@ -6144,7 +6176,21 @@ export async function handleSubscriptionCreated(
 	}
 
 	try {
-		await withOrganizationCapacity(organizationId, async (tx, organization) => {
+		await withBillingOperation(organizationId, async (tx, organization) => {
+			if (
+				organization.stripeSubscriptionId &&
+				organization.stripeSubscriptionId !== subscription.id
+			) {
+				logger.error(
+					"Additional Pro subscription detected; manual cancellation/refund review required",
+					{
+						organizationId,
+						subscriptionId: subscription.id,
+						activeSubscriptionId: organization.stripeSubscriptionId,
+					},
+				);
+				return;
+			}
 			if (
 				organization.kind !== "default" ||
 				organization.plan === "enterprise" ||
@@ -6157,11 +6203,14 @@ export async function handleSubscriptionCreated(
 				subscription.id,
 			);
 			if (
-				currentSubscription.status !== "active" &&
-				currentSubscription.status !== "trialing"
+				currentSubscription.status === "canceled" ||
+				currentSubscription.status === "incomplete_expired"
 			) {
 				return;
 			}
+			const purchasedEntitlementsActive =
+				currentSubscription.status === "active" ||
+				currentSubscription.status === "trialing";
 			// Same reset semantics as the checkout handler: activating a
 			// subscription with no matching seat item clears any previous
 			// subscription's quantities instead of carrying them over.
@@ -6186,13 +6235,21 @@ export async function handleSubscriptionCreated(
 							: PAYMENT_FAILURE_STATUSES.includes(currentSubscription.status)
 								? "past_due"
 								: "current",
-					...(extractProQuantities(currentSubscription) ?? {
-						proSeats: null,
-						proExtraApiKeys: 0,
-						proExtraProjects: 0,
-						proSsoEnabled: false,
-						proScimEnabled: false,
-					}),
+					...(!purchasedEntitlementsActive &&
+					organization.stripeSubscriptionId === subscription.id
+						? {}
+						: ((purchasedEntitlementsActive
+								? extractProQuantities(
+										currentSubscription,
+										organization.proSeats !== null,
+									)
+								: null) ?? {
+								proSeats: null,
+								proExtraApiKeys: 0,
+								proExtraProjects: 0,
+								proSsoEnabled: false,
+								proScimEnabled: false,
+							})),
 				})
 				.where(eq(tables.organization.id, organizationId))
 				.returning();

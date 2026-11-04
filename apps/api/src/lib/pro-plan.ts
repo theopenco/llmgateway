@@ -16,21 +16,51 @@ export type ProBreakdownComponent = (typeof PRO_BREAKDOWN_COMPONENTS)[number];
 // matching the configured Stripe price IDs. Returns null when the
 // subscription has no seat line item (legacy flat-fee Pro subscriptions), in
 // which case the historical plan-default limits continue to apply.
-export function extractProQuantities(subscription: Stripe.Subscription): {
+export function extractProQuantities(
+	subscription: Stripe.Subscription,
+	seatBasedExpected = false,
+): {
 	proSeats: number;
 	proExtraApiKeys: number;
 	proExtraProjects: number;
 	proSsoEnabled: boolean;
 	proScimEnabled: boolean;
 } | null {
+	const required =
+		seatBasedExpected ||
+		subscription.metadata?.proBillingVersion === "seats_v1";
 	const seatPriceId = process.env.STRIPE_PRO_SEAT_PRICE_ID;
 	if (!seatPriceId) {
+		if (required) {
+			throw new Error("Seat-based Pro pricing is not configured");
+		}
 		return null;
 	}
 	const items = subscription.items.data;
 	const seatItem = items.find((item) => item.price.id === seatPriceId);
 	if (!seatItem) {
+		if (required) {
+			throw new Error(
+				"The expected Pro seat price is missing from the subscription",
+			);
+		}
 		return null;
+	}
+	const prices = [
+		seatPriceId,
+		process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID,
+		process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID,
+		process.env.STRIPE_PRO_SSO_PRICE_ID,
+		process.env.STRIPE_PRO_SCIM_PRICE_ID,
+	];
+	if (
+		prices.some((price) => !price) ||
+		new Set(prices).size !== prices.length ||
+		subscription.items.has_more
+	) {
+		throw new Error(
+			"Seat-based Pro pricing configuration is incomplete or ambiguous",
+		);
 	}
 	const extraItem = items.find(
 		(item) => item.price.id === process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID,

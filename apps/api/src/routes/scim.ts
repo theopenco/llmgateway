@@ -9,6 +9,7 @@ import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { hasScimAccess } from "@/lib/sso-access.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { emailMatchesSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
 import { recomputeUserTeam as applyUserTeam } from "@/lib/sso-teams.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
@@ -57,6 +58,7 @@ const apiUrl = getApiBaseUrl();
 interface ScimVars {
 	Variables: {
 		scimOrgId: string;
+		scimDomains: string | null;
 		// The admin who issued the SCIM token; used as the audit-log actor for
 		// IdP-initiated syncs. Nullable (the token's `createdBy` is `set null` on
 		// user deletion), so audit helpers fall back to the affected member.
@@ -178,6 +180,7 @@ scim.use("/*", async (c, next) => {
 		columns: {
 			id: true,
 			organizationId: true,
+			ssoProviderId: true,
 			createdBy: true,
 		},
 	});
@@ -208,6 +211,27 @@ scim.use("/*", async (c, next) => {
 		);
 	}
 
+	let verifiedDomains: string | null = null;
+	if (organization.plan === "pro") {
+		const connection = row.ssoProviderId
+			? await db.query.ssoProvider.findFirst({
+					where: {
+						id: { eq: row.ssoProviderId },
+						organizationId: { eq: row.organizationId },
+						domainVerified: { eq: true },
+					},
+					columns: { domain: true },
+				})
+			: null;
+		if (!connection) {
+			return scimError(
+				403,
+				"SCIM requires a verified connection owned by this organization",
+			);
+		}
+		verifiedDomains = connection.domain;
+	}
+	c.set("scimDomains", verifiedDomains);
 	c.set("scimOrgId", row.organizationId);
 	c.set("scimActorUserId", row.createdBy);
 
@@ -512,6 +536,12 @@ scim.post("/Users", async (c) => {
 	}
 
 	const email = resolveEmail(payload);
+	if (email && !isEmailInScimScope(c, email)) {
+		return scimError(
+			403,
+			"Identity email is outside the connection's verified domains",
+		);
+	}
 	if (!email) {
 		return scimError(400, "userName or a primary email is required");
 	}
@@ -780,6 +810,12 @@ scim.put("/Users/:id", async (c) => {
 	if (!user) {
 		return scimError(404, "User not found");
 	}
+	if (!isEmailInScimScope(c, user.email)) {
+		return scimError(
+			403,
+			"Identity email is outside the connection's verified domains",
+		);
+	}
 
 	const active =
 		payload.active === undefined ? true : parseScimBoolean(payload.active);
@@ -878,6 +914,12 @@ scim.patch("/Users/:id", async (c) => {
 
 	if (!user) {
 		return scimError(404, "User not found");
+	}
+	if (!isEmailInScimScope(c, user.email)) {
+		return scimError(
+			403,
+			"Identity email is outside the connection's verified domains",
+		);
 	}
 
 	const wasMember = await isMember(user.id, orgId);
@@ -1415,3 +1457,8 @@ scim.delete("/Groups/:id", async (c) => {
 });
 
 export default scim;
+
+function isEmailInScimScope(c: Context<ScimVars>, email: string): boolean {
+	const domains = c.get("scimDomains");
+	return domains === null || emailMatchesSsoDomains(email, domains);
+}

@@ -554,6 +554,17 @@ export const organization = snakeCase.table(
 	],
 );
 
+export const organizationBillingOperation = snakeCase.table(
+	"organization_billing_operation",
+	{
+		organizationId: text()
+			.primaryKey()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		checkoutSessionId: text(),
+		checkoutConfiguration: text(),
+	},
+);
+
 // Stable Stripe card identifiers retained after the card itself is detached.
 // This preserves the one-card-per-DevPass-account rule without storing card
 // details locally.
@@ -3265,12 +3276,7 @@ export const ssoProvider = snakeCase.table(
 		// When true, users whose email domain matches this connection may only
 		// sign in via SSO; password/social/passkey sessions are rejected.
 		enforced: boolean().notNull().default(false),
-		// Better Auth's SSO domain-verification flag. The SAML callback only
-		// implicitly links an SSO login to an existing user (e.g. one
-		// pre-provisioned via SCIM) when the provider's domain is verified and
-		// the asserted email is on that domain; otherwise such logins fail with
-		// `account_not_linked`. We stamp it true at registration instead of
-		// running the plugin's DNS-TXT verification flow.
+		// Set only after DNS ownership verification; domain edits clear this proof.
 		domainVerified: boolean().notNull().default(false),
 	},
 	(table) => [
