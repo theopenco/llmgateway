@@ -695,8 +695,7 @@ export function SsoClient() {
 				<p className="text-muted-foreground">
 					Connect Okta, Microsoft Entra ID, or any SAML 2.0 identity provider so
 					members sign in with SSO, enable SCIM so users are provisioned
-					automatically, or let Google Workspace users auto-join by email
-					domain.
+					automatically. Google Workspace domain auto-join is Enterprise-only.
 				</p>
 			</div>
 
@@ -705,8 +704,8 @@ export function SsoClient() {
 					<CardTitle>Connections</CardTitle>
 					<CardDescription>
 						Users whose email matches a connection&apos;s domain can sign in via
-						your identity provider — or, with a Google Workspace connection,
-						auto-join this organization when signing in with Google.
+						your identity provider — or, with an Enterprise Google Workspace
+						connection, auto-join this organization when signing in with Google.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-6">

@@ -283,7 +283,6 @@ const ORGANIZATION_NAVIGATION: readonly {
 		href: "org/sso",
 		label: "SSO",
 		icon: AnimatedBuilding2,
-		enterpriseGated: true,
 	},
 ];
 

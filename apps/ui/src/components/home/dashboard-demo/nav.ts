@@ -95,7 +95,7 @@ export const ORGANIZATION_NAVIGATION: NavLink[] = [
 		icon: AnimatedKeySquare,
 		enterprise: true,
 	},
-	{ href: "org/sso", label: "SSO", icon: AnimatedBuilding2, enterprise: true },
+	{ href: "org/sso", label: "SSO", icon: AnimatedBuilding2 },
 ];
 
 export const ORGANIZATION_SETTINGS: NavLink[] = [
