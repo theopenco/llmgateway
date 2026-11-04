@@ -9650,7 +9650,7 @@ describe("api", () => {
 		expect(logs[0].sessionId).toBe("pi-session-42");
 	});
 
-	test("Deactivated provider falls back to active provider", async () => {
+	test("Pinned deactivated provider is rejected instead of rerouted", async () => {
 		// Use fake timers to set the date between the two deactivation dates:
 		// google-ai-studio deactivatedAt: 2026-01-17
 		// google-vertex deactivatedAt: 2026-01-27
@@ -9682,8 +9682,8 @@ describe("api", () => {
 				baseUrl: mockServerUrl,
 			});
 
-			// Request with google-ai-studio (deactivated at 2026-01-17)
-			// Should fall back to google-vertex (still active until 2026-01-27)
+			// google-ai-studio (deactivated 2026-01-17) must not reroute to
+			// google-vertex (still active until 2026-01-27).
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -9701,13 +9701,11 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(200);
+			expect(res.status).toBe(410);
 			const json = await res.json();
-			expect(json).toHaveProperty("choices.[0].message.content");
-			// Verify it routed to google-vertex, not google-ai-studio
-			expect(json.metadata.used_provider).toBe("google-vertex");
-			// The requested provider should be cleared since it was deactivated
-			expect(json.metadata.requested_provider).toBeNull();
+			expect(json.error.message).toContain(
+				"Provider google-ai-studio no longer serves model gemini-2.5-flash-preview-09-2025",
+			);
 		} finally {
 			vi.useRealTimers();
 			if (originalGoogleCloudProject !== undefined) {

@@ -1305,7 +1305,7 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
-		test("deactivated provider falls back and sets metadata in response and DB log", async () => {
+		test("unpinned request skips the deactivated provider and logs the active one", async () => {
 			vi.useFakeTimers({ shouldAdvanceTime: true });
 			vi.setSystemTime(new Date("2026-01-20T12:00:00Z"));
 
@@ -1331,8 +1331,8 @@ describe("fallback and error status code handling", () => {
 					baseUrl: mockServerUrl,
 				});
 
-				// Request with google-ai-studio (deactivated at 2026-01-17)
-				// Should fall back to google-vertex (still active until 2026-01-27)
+				// google-ai-studio is deactivated (2026-01-17); google-vertex is
+				// still active (until 2026-01-27).
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -1340,7 +1340,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "google-ai-studio/gemini-2.5-flash-preview-09-2025",
+						model: "gemini-2.5-flash-preview-09-2025",
 						messages: [
 							{
 								role: "user",
@@ -1353,10 +1353,8 @@ describe("fallback and error status code handling", () => {
 				expect(res.status).toBe(200);
 				const json = await res.json();
 
-				// Verify response metadata shows correct fallback
 				expect(json).toHaveProperty("metadata");
 				expect(json.metadata.used_provider).toBe("google-vertex");
-				// The requested provider should be cleared since it was deactivated
 				expect(json.metadata.requested_provider).toBeNull();
 
 				// Verify DB log entry

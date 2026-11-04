@@ -29,6 +29,14 @@ node .agents/skills/model-benchmarks/scripts/run-benchmark.mjs <model-id> \
   --mapping <provider> --profile load --budget 300000
 ```
 
+Mappings come from the target gateway's `GET /v1/models` (derived from
+`--url`), so Airside listings — carriers that exist only in the database and
+never in `packages/models` — are benchmarked like catalogue mappings, with
+`source: "airside"` in the target metadata. Pass `--catalogue static` only for
+an offline run against the static catalogue, which has no Airside listings.
+Pick comparison mappings that are active: `--mapping` rejects deactivated ones
+unless `--include-deactivated` is set.
+
 Do not pass `--output` or `--format`; the wrapper owns them. Set
 `BENCHMARK_OUTPUT_DIR` when results belong elsewhere. The benchmark CLI reads
 `LLM_GATEWAY_API_KEY`, falls back to `LLMGATEWAY_API_KEY`, and loads the root
