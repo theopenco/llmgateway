@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb as db, eq, tables } from "@llmgateway/db";
@@ -9,6 +10,8 @@ import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import type { ProviderAccessRestriction } from "@llmgateway/models";
+
+type RoutingMetadata = (typeof tables.log.$inferSelect)["routingMetadata"];
 
 const RESTRICTION_MESSAGE = "restricted for your organization";
 
@@ -64,6 +67,24 @@ describe("staff-managed provider access restriction", () => {
 				messages: [{ role: "user", content: `Hello ${model}!` }],
 			}),
 		});
+	}
+
+	// The denied provider is reported as filtered out, never as a candidate.
+	function expectRecordedRestriction(
+		routingMetadata: RoutingMetadata | null | undefined,
+		denied: string,
+	) {
+		const entry = routingMetadata?.filteredProviders?.find(
+			(filtered) => filtered.providerId === denied,
+		);
+		expect(entry?.codes).toContain("provider_access_restriction");
+		expect(entry?.reasons).toContain(
+			"provider access is restricted for this organization",
+		);
+		expect(routingMetadata?.availableProviders).not.toContain(denied);
+		expect(
+			routingMetadata?.providerScores?.map((score) => score.providerId),
+		).not.toContain(denied);
 	}
 
 	async function expectRestricted(res: Response) {
@@ -145,6 +166,78 @@ describe("staff-managed provider access restriction", () => {
 		await restrict({ providers: ["openai"] });
 
 		await expectRestricted(await chat("openai/gpt-4o-mini"));
+	});
+
+	// DevPass cannot pin a provider, so routing around the restriction is the
+	// only way it reaches a model whose cheapest provider is denied.
+	test.each([
+		{
+			label: "PAYG",
+			devPass: false,
+			model: "gpt-oss-120b",
+			denied: "groq",
+			used: "cerebras",
+		},
+		{
+			label: "DevPass",
+			devPass: true,
+			model: "muse-glimmer-30b",
+			denied: "together-ai",
+			used: "deepinfra",
+		},
+	])(
+		"$label: an unpinned model routes around a denied provider and records why",
+		async ({ devPass, model, denied, used }) => {
+			if (devPass) {
+				await harness.setDevPlan({ devPlan: "pro" });
+			}
+			await db.insert(tables.providerKey).values(
+				[denied, used].map((provider) => ({
+					id: `provider-key-${provider}`,
+					...encryptProviderKeyForStorage(
+						`${provider}-test-key`,
+						`provider-key-${provider}`,
+						"org-id",
+					),
+					provider,
+					organizationId: "org-id",
+					baseUrl: harness.mockServerUrl,
+				})),
+			);
+			await restrict({ providers: [denied] });
+
+			const res = await chat(model);
+			expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+
+			const [log] = await waitForLogs(1);
+			expect(log.usedProvider).toBe(used);
+			expectRecordedRestriction(log.routingMetadata, denied);
+		},
+	);
+
+	test("auto routing routes around a denied provider and records why", async () => {
+		// Auto's default candidates are Claude models, served by both providers.
+		await db.insert(tables.providerKey).values(
+			["anthropic", "aws-bedrock"].map((provider) => ({
+				id: `provider-key-${provider}`,
+				...encryptProviderKeyForStorage(
+					`${provider}-test-key`,
+					`provider-key-${provider}`,
+					"org-id",
+				),
+				provider,
+				organizationId: "org-id",
+				baseUrl: harness.mockServerUrl,
+			})),
+		);
+		await restrict({ providers: ["aws-bedrock"] });
+
+		const res = await chat("auto");
+		expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+
+		const [log] = await waitForLogs(1);
+		expect(log.usedProvider).toBe("anthropic");
+		expectRecordedRestriction(log.routingMetadata, "aws-bedrock");
 	});
 
 	test("allow list only serves listed mappings", async () => {
