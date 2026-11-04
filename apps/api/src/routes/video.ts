@@ -114,7 +114,7 @@ video.openapi(getVideoStatus, async (c) => {
 		{ type: "video"; url: string; mime_type?: string | null }[] | undefined;
 	if (
 		job.status === "completed" &&
-		(job.logId || hasQuarantinedVideoBilling(job))
+		(job.logId || hasUnsettledVideoBilling(job))
 	) {
 		try {
 			content = [
@@ -145,7 +145,7 @@ video.openapi(getVideoStatus, async (c) => {
 	const awaitingResultLog =
 		job.status === "completed" &&
 		!job.logId &&
-		!hasQuarantinedVideoBilling(job) &&
+		!hasUnsettledVideoBilling(job) &&
 		Date.now() - (job.completedAt ?? job.createdAt).getTime() <
 			RESULT_LOG_GRACE_MS;
 
@@ -171,7 +171,7 @@ video.openapi(getVideoStatus, async (c) => {
 		200,
 	);
 });
-function hasQuarantinedVideoBilling(job: {
+function hasUnsettledVideoBilling(job: {
 	usedProvider: string;
 	upstreamStatusResponse: unknown;
 }): boolean {
@@ -180,7 +180,9 @@ function hasQuarantinedVideoBilling(job: {
 		job.usedProvider === "bytedance" &&
 		!!status &&
 		typeof status === "object" &&
-		"llmgateway_billing_quarantined" in status &&
-		status.llmgateway_billing_quarantined === true
+		(("llmgateway_billing_pending" in status &&
+			status.llmgateway_billing_pending === true) ||
+			("llmgateway_billing_quarantined" in status &&
+				status.llmgateway_billing_quarantined === true))
 	);
 }

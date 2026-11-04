@@ -162,7 +162,7 @@ describe("GET /video/{videoId}", () => {
 		expect(json.content).toBeUndefined();
 	});
 
-	async function quarantineCompletedJob() {
+	async function quarantineCompletedJob(quarantined = true) {
 		await db
 			.update(tables.videoJob)
 			.set({
@@ -174,35 +174,38 @@ describe("GET /video/{videoId}", () => {
 				contentUrl: "https://example.com/generated.mp4",
 				upstreamStatusResponse: {
 					llmgateway_billing_pending: true,
-					llmgateway_billing_quarantined: true,
+					llmgateway_billing_quarantined: quarantined,
 				},
 			})
 			.where(eq(tables.videoJob.id, "video-id"));
 		await db.delete(tables.log).where(eq(tables.log.id, "log-id"));
 	}
 
-	test("serves quarantined completion through a signed job URL without a billing log", async () => {
-		await quarantineCompletedJob();
-		const res = await app.request("/video/video-id", {
-			headers: { Cookie: token },
-		});
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		expect(json.status).toBe("completed");
-		expect(json.progress).toBe(100);
-		expect(json.completed_at).not.toBeNull();
-		expect(json.usage).toBeUndefined();
-		const url = new URL(json.content[0].url);
-		expect(url.pathname).toBe("/v1/video-assets/jobs/video-id/content");
-		expect(
-			verifyVideoJobContentAccessToken(
-				url.searchParams.get("token")!,
-				"video-id",
-			),
-		).toBe(true);
-		expect(json.content[0].url).not.toContain("example.com");
-		expect(await db.query.log.findMany()).toHaveLength(0);
-	});
+	test.each([true, false])(
+		"serves unsettled completion through a signed job URL: quarantined=%s",
+		async (quarantined) => {
+			await quarantineCompletedJob(quarantined);
+			const res = await app.request("/video/video-id", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.status).toBe("completed");
+			expect(json.progress).toBe(100);
+			expect(json.completed_at).not.toBeNull();
+			expect(json.usage).toBeUndefined();
+			const url = new URL(json.content[0].url);
+			expect(url.pathname).toBe("/v1/video-assets/jobs/video-id/content");
+			expect(
+				verifyVideoJobContentAccessToken(
+					url.searchParams.get("token")!,
+					"video-id",
+				),
+			).toBe(true);
+			expect(json.content[0].url).not.toContain("example.com");
+			expect(await db.query.log.findMany()).toHaveLength(0);
+		},
+	);
 
 	test("does not sign quarantined playback for a caller outside the organization", async () => {
 		await quarantineCompletedJob();
