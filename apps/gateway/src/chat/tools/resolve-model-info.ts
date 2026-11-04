@@ -19,9 +19,13 @@ export interface ResolveModelInfoResult {
 export function deactivatedProviderPinError(
 	provider: string,
 	modelId: string,
+	hasActiveProvider: boolean,
 ): HTTPException {
+	const advice = hasActiveProvider
+		? ` Request "${modelId}" without a provider prefix to route to an active provider.`
+		: "";
 	return new HTTPException(410, {
-		message: `Provider ${provider} no longer serves model ${modelId}: the mapping has been deactivated. Request "${modelId}" without a provider prefix to route to an active provider.`,
+		message: `Provider ${provider} no longer serves model ${modelId}: the mapping has been deactivated.${advice}`,
 	});
 }
 
@@ -130,7 +134,11 @@ export function resolveModelInfo(
 		!activeProviders.some((p) => p.providerId === requestedProvider)
 	) {
 		if (allModelProviders.some((p) => p.providerId === requestedProvider)) {
-			throw deactivatedProviderPinError(requestedProvider, modelInfo.id);
+			throw deactivatedProviderPinError(
+				requestedProvider,
+				modelInfo.id,
+				activeProviders.length > 0,
+			);
 		}
 		throw new HTTPException(400, {
 			message: `Provider ${requestedProvider} does not support model ${modelInfo.id}`,

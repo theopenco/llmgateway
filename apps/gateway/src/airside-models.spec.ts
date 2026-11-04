@@ -411,6 +411,30 @@ describe("airside-listed models", () => {
 		);
 	});
 
+	test("omits the unpinned-retry hint when no listing is active", async () => {
+		await materializeTestMapping({
+			providerId: "quartz",
+			modelId: "solo-carrier-model",
+			modelName: "Solo Carrier Model",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+		});
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ deactivatedAt: new Date(Date.now() - 60_000) })
+			.where(eq(tables.modelProviderMapping.modelId, "solo-carrier-model"));
+		await clearCache();
+
+		const error: unknown = await resolveAirsideModel(
+			"quartz/solo-carrier-model",
+		).catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toContain(
+			"the mapping has been deactivated.",
+		);
+		expect((error as Error).message).not.toContain("without a provider prefix");
+	});
+
 	async function setup(
 		token: string,
 		options: {

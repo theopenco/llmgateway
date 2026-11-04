@@ -242,7 +242,11 @@ function buildRoutingResolution(
 		requestedProvider &&
 		!modelInfo.providers.some((p) => p.providerId === requestedProvider)
 	) {
-		throw deactivatedProviderPinError(requestedProvider, modelInfo.id);
+		throw deactivatedProviderPinError(
+			requestedProvider,
+			modelInfo.id,
+			modelInfo.providers.length > 0,
+		);
 	}
 	return {
 		parseResult: {
