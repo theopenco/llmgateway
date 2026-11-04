@@ -37,6 +37,8 @@ const readRoutes = [
 	"GET /v1/videos/:video_id",
 	"GET /v1/videos/:video_id/content",
 	"GET /v1/videos/logs/:log_id/content",
+	// Read-only asset access requires a job-scoped bearer signature.
+	"GET /v1/video-assets/jobs/:video_id/content",
 	...[1, 2, 3, 4].map((version) => `GET /v${version}/ai/config`),
 ];
 const headers = {
@@ -76,7 +78,7 @@ describe("complete gateway route inventory", () => {
 			"ALL /mcp",
 		].sort();
 		expect(actual).toEqual(classified);
-		expect(actual).toHaveLength(48);
+		expect(actual).toHaveLength(49);
 	});
 
 	test("tracks the separate realtime upgrade and internal-only metrics router", () => {

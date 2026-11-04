@@ -200,6 +200,11 @@
 			"import": "./dist/lounge-connectors.js",
 			"default": "./dist/lounge-connectors.js"
 		},
+		"./video-token-pricing": {
+			"types": "./dist/video-token-pricing.d.ts",
+			"import": "./dist/video-token-pricing.js",
+			"default": "./dist/video-token-pricing.js"
+		},
 		"./video-generation-config": {
 			"types": "./dist/video-generation-config.d.ts",
 			"import": "./dist/video-generation-config.js",

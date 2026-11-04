@@ -286,9 +286,9 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 ## Create a Video
 
-Credits-billed video jobs are gated on their estimated cost before anything is submitted upstream. The estimate is the model's per-second rate for the requested resolution (the audio-inclusive rate when the model prices audio separately) times the duration, plus any input-image price. Your organization must hold at least that amount, and never less than `$1.00`, beyond what its still-running video jobs already reserve; otherwise the request fails with `402`. The estimate is reserved when the job is created and settled to the actual cost when the job finishes, so a burst of submissions cannot spend more than the balance covers.
+Credits-billed video jobs are gated on their estimated cost before anything is submitted upstream. The estimate is the model's per-second rate for the requested resolution (the audio-inclusive rate when the model prices audio separately) times the duration, plus any input-image price. Your organization must hold at least that amount, and never less than `$1.00`, beyond what its still-running video jobs already reserve; otherwise the request fails with `402`. The estimate is reserved when the job is created and settled to the actual cost when the job finishes, so a burst of submissions cannot spend more than the balance covers. Seedance requests with reference videos reserve the output duration plus the maximum total input-video duration: 30 seconds for Seedance 2.5 or 15 seconds for the 2.0 series. This conservative estimate uses the undiscounted per-second equivalent; final billing uses actual provider tokens and the video-input tier.
 
-Pricing is per second of generated video. For Seedance and KLING v3.0, enabling audio can increase the per-second rate on models that price audio and video separately.
+Video pricing is per generated second or per reported video token, depending on the model. Audio changes the price only on models with separate audio and silent rates.
 
 Veo 3.1:
 
@@ -308,20 +308,22 @@ Gemini Omni 1.1 Flash bills video output at `$17.50 / 1M` video tokens, which wo
 | `gemini-omni-1.1-flash` | `google-ai-studio` | 1080p      | `$0.1520 / second` |
 | `gemini-omni-1.1-flash` | `google-ai-studio` | 4k         | `$0.3041 / second` |
 
-Seedance (ByteDance):
+Seedance (ByteDance) bills the provider's `usage.completion_tokens`, not rounded output seconds. These token counts include reference-video consumption and any provider minimum. The rate depends on output resolution and whether the input contains a video:
 
-| Model               | Provider    | Resolution | With audio          | Video only          |
-| ------------------- | ----------- | ---------- | ------------------- | ------------------- |
-| `seedance-2-5`      | `bytedance` | 480p       | `$0.1028 / second`  | `$0.1028 / second`  |
-| `seedance-2-5`      | `bytedance` | 720p       | `$0.2311 / second`  | `$0.2311 / second`  |
-| `seedance-2-5`      | `bytedance` | 1080p      | `$0.52 / second`    | `$0.52 / second`    |
-| `seedance-2-0`      | `bytedance` | 720p       | `$0.1512 / second`  | `$0.1512 / second`  |
-| `seedance-2-0`      | `bytedance` | 1080p      | `$0.3402 / second`  | `$0.3402 / second`  |
-| `seedance-2-0-fast` | `bytedance` | 720p       | `$0.121 / second`   | `$0.121 / second`   |
-| `seedance-2-0-mini` | `bytedance` | 480p       | `$0.0378 / second`  | `$0.0378 / second`  |
-| `seedance-2-0-mini` | `bytedance` | 720p       | `$0.0756 / second`  | `$0.0756 / second`  |
-| `seedance-1-5-pro`  | `bytedance` | 720p       | `$0.05184 / second` | `$0.02592 / second` |
-| `seedance-1-5-pro`  | `bytedance` | 1080p      | `$0.1166 / second`  | `$0.05832 / second` |
+| Model               | Resolution | Without video input (USD / 1M tokens) | With video input (USD / 1M tokens) |
+| ------------------- | ---------- | ------------------------------------- | ---------------------------------- |
+| `seedance-2-5`      | 480p, 720p | $10.70                                | $6.40                              |
+| `seedance-2-5`      | 1080p      | $11.70                                | $7.00                              |
+| `seedance-2-0`      | 720p       | $7.00                                 | $4.30                              |
+| `seedance-2-0`      | 1080p      | $7.70                                 | $4.70                              |
+| `seedance-2-0-fast` | 720p       | $5.60                                 | $3.30                              |
+| `seedance-2-0-mini` | 480p, 720p | $3.50                                 | $2.10                              |
+
+Generated audio does not change these Seedance 2.x token rates. Reference images or audio alone use the **without video input** tier. Pixel dimensions, aspect ratio, input-video length, and output frames determine token consumption; a per-second estimate is not the final charge. For example, Seedance 2.0 Mini's 480p landscape output is 864×496, regardless of its nominal requested size.
+
+`seedance-1-5-pro` costs **$2.40 / 1M tokens with generated audio** or **$1.20 / 1M tokens without audio**, at either supported resolution. Its requested resolution is forwarded explicitly. This mapping retires on **November 11, 2026**. Offline/flex and Draft settings are not exposed by this API.
+
+A successful provider response without valid billing usage is retried up to 12 times before settlement and completion callbacks. If billing data is still missing, the completed video remains available with its cost unsettled, automatic polling stops, and an operator must reconcile the verified usage and pricing context. Its credit reservation remains held beyond the normal two-hour window until settlement; the gateway never substitutes a guessed charge. See the [official BytePlus pricing and billing rules](https://docs.byteplus.com/docs/modelark/model-pricing).
 
 KLING (AtlasCloud):
 
@@ -410,9 +412,9 @@ Failed, canceled, and expired jobs report a cost of `0`.
 
 Job polling and the direct `/v1/videos/{video_id}/content` endpoint require a valid key with project access and, for end-user sessions, ownership of the job’s wallet. Applicable source-IP restrictions still apply. Enabled key policies additionally check historical video access against both organization and key requirements; organization-only policies do not retroactively block historical downloads.
 
-Signed bearer URLs can appear in completed job responses (`content[].url`), dashboard links, and exports. They are scoped to one log and an expiry. Treat the whole URL as a credential: anyone holding it can download that output without an API key until the signed expiry (normally seven days). Changing an API key or compliance policy does not revoke a previously issued signed link.
+Signed bearer URLs can appear in completed job responses (`content[].url`), dashboard links, and exports. They are scoped to one video job or log and an expiry. Treat the whole URL as a credential: anyone holding it can download that output without an API key until the signed expiry (normally seven days), provided the underlying video is still available. BytePlus Seedance provider URLs expire after 24 hours: download those videos within that window even if the gateway token remains valid. Changing an API key or compliance policy does not revoke a previously issued signed link.
 
-Production deployments must configure `LLM_VIDEO_CONTENT_JWT_SECRET`. Never enable `VIDEO_CONTENT_TOKEN_ALLOW_DEV=true` in production: without a configured secret it activates the fixed, public development signing key regardless of `NODE_ENV`, allowing video-download tokens to be forged. Use that fallback only for local development; `false` or another value does not enable it.
+Production deployments must configure `LLM_VIDEO_CONTENT_JWT_SECRET`. Both job- and log-scoped links honor its development-fallback and revocation controls: rotating this secret revokes both. Gateway hash-keyring rotations preserve job links while their previous key remains retained. Never enable `VIDEO_CONTENT_TOKEN_ALLOW_DEV=true` in production: without a configured secret it activates the fixed, public development signing key regardless of `NODE_ENV`, allowing video-download tokens to be forged. Use that fallback only for local development; `false` or another value does not enable it.
 
 Once the job is complete, stream the resulting video bytes from the content endpoint:
 

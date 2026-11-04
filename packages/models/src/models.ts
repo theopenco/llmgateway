@@ -443,8 +443,10 @@ export interface ProviderModelMapping {
 	 * provider bills by output tokens (e.g. Gemini Omni). When the upstream
 	 * usage reports video output tokens, finalization bills them at this rate
 	 * instead of `perSecondPrice`, which still drives estimates and routing.
+	 * Records select `<resolution>_with_video` / `_without_video` or
+	 * `<resolution>_audio` / `_video`, with `default_` fallbacks.
 	 */
-	videoOutputPrice?: Price;
+	videoOutputPrice?: Price | Record<string, Price>;
 	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
