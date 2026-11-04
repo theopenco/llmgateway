@@ -44,6 +44,8 @@ Most review happens before the PR exists. Before `gh pr create`:
   failed check (title length, description, rollback) and every finding, or
   resolve it with a one-line reason; unresolved threads block the merge.
   Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- `security-review` (sensitive paths, branches in this repository only)
+  posts its findings as threads too; treat them the same way.
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
 
