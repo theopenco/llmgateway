@@ -1,24 +1,16 @@
 import {
 	ArrowRight,
 	ArrowUpRight,
-	BadgeCheck,
-	BarChart3,
-	Bell,
 	CheckCircle2,
-	FileSearch,
-	GitBranch,
 	HelpCircle,
-	Lock,
-	Paintbrush,
 	Sparkles,
-	ShieldCheck,
-	Users,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Fragment } from "react";
 
+import { enterpriseFeatureIcons } from "@/components/enterprise/feature-icons";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Badge } from "@/lib/components/badge";
@@ -45,18 +37,6 @@ const EnterpriseFeatureShowcase = dynamic(() =>
 	),
 );
 
-const iconMap = {
-	"shield-check": ShieldCheck,
-	"badge-check": BadgeCheck,
-	"git-branch": GitBranch,
-	audit: FileSearch,
-	bell: Bell,
-	lock: Lock,
-	paintbrush: Paintbrush,
-	chart: BarChart3,
-	users: Users,
-} as const;
-
 const accentBg: Record<string, string> = {
 	indigo: "bg-indigo-500/10 text-indigo-500 ring-indigo-500/20",
 	amber: "bg-amber-500/10 text-amber-500 ring-amber-500/20",
@@ -75,6 +55,16 @@ const accentGlow: Record<string, string> = {
 	violet: "from-violet-500/20 via-transparent to-transparent",
 };
 
+function featureTitle(slug: string): string {
+	return enterpriseFeatures.find((f) => f.slug === slug)?.title ?? slug;
+}
+
+function toPlainText(text: string): string {
+	return text.replace(/\[\[([^\]]+)\]\]/g, (_, slug: string) =>
+		featureTitle(slug),
+	);
+}
+
 function renderTextWithLinks(text: string): React.ReactNode {
 	const parts = text.split(/(\[\[[^\]]+\]\])/g);
 	return parts.map((part, i) => {
@@ -83,8 +73,7 @@ function renderTextWithLinks(text: string): React.ReactNode {
 			return <Fragment key={i}>{part}</Fragment>;
 		}
 		const slug = match[1];
-		const target = enterpriseFeatures.find((f) => f.slug === slug);
-		const label = target?.title ?? slug;
+		const label = featureTitle(slug);
 		return (
 			<Link
 				key={i}
@@ -105,7 +94,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 		notFound();
 	}
 
-	const Icon = iconMap[feature.iconName];
+	const Icon = enterpriseFeatureIcons[feature.iconName];
 	const hasShowcase = SHOWCASE_SLUGS.has(slug);
 
 	const breadcrumbSchema = {
@@ -141,7 +130,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 			name: q.question,
 			acceptedAnswer: {
 				"@type": "Answer",
-				text: q.answer,
+				text: toPlainText(q.answer),
 			},
 		})),
 	};
@@ -150,7 +139,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 		"@context": "https://schema.org",
 		"@type": "Service",
 		name: `LLM Gateway Enterprise – ${feature.title}`,
-		description: feature.longDescription,
+		description: toPlainText(feature.longDescription),
 		brand: {
 			"@type": "Brand",
 			name: "LLM Gateway",
@@ -289,7 +278,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 											<h3 className="text-lg font-semibold">{benefit.title}</h3>
 										</div>
 										<p className="text-muted-foreground leading-relaxed pl-8">
-											{benefit.description}
+											{renderTextWithLinks(benefit.description)}
 										</p>
 									</div>
 								))}
@@ -325,7 +314,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 											{step.title}
 										</h3>
 										<p className="text-sm text-muted-foreground leading-relaxed">
-											{step.description}
+											{renderTextWithLinks(step.description)}
 										</p>
 									</li>
 								))}
@@ -389,7 +378,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 											{useCase.title}
 										</h3>
 										<p className="text-sm text-muted-foreground leading-relaxed">
-											{useCase.description}
+											{renderTextWithLinks(useCase.description)}
 										</p>
 									</div>
 								))}
@@ -441,7 +430,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 							</div>
 							<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 								{otherFeatures.map((other) => {
-									const OtherIcon = iconMap[other.iconName];
+									const OtherIcon = enterpriseFeatureIcons[other.iconName];
 									return (
 										<Link
 											key={other.slug}
@@ -460,7 +449,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 												{other.title}
 											</h3>
 											<p className="text-sm text-muted-foreground line-clamp-2">
-												{other.description}
+												{toPlainText(other.description)}
 											</p>
 										</Link>
 									);
