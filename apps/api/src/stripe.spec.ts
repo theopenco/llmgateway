@@ -2121,6 +2121,74 @@ describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", 
 	});
 });
 
+describe("DevPass renewal unrelated conflicts", () => {
+	test("a primary-key conflict fails without acknowledging the paid renewal", async () => {
+		await deleteAll();
+		await seedDevPlanOrg({ kind: "devpass" });
+		await db
+			.update(tables.organization)
+			.set({ devPlanCreditsUsed: "150", subscriptionPaymentStatus: "past_due" })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.transaction).values({
+			id: "test-renewal-collision",
+			organizationId: ORG_ID,
+			type: "credit_gift",
+		});
+		sendEmailMock.mockClear();
+		const event = makeInvoiceEvent({
+			billingReason: "subscription_cycle",
+			amountPaid: 7900,
+			invoiceId: "in_unrelated_conflict",
+		});
+		const id = vi
+			.spyOn(
+				tables.transaction.id as typeof tables.transaction.id & {
+					defaultFn: NonNullable<typeof tables.transaction.id.defaultFn>;
+				},
+				"defaultFn",
+			)
+			.mockReturnValueOnce("test-renewal-collision");
+		try {
+			await expect(handleInvoicePaymentSucceeded(event)).rejects.toMatchObject({
+				cause: { code: "23505", constraint: "transaction_pkey" },
+			});
+			expect(
+				await db.query.transaction.findFirst({
+					where: { stripeInvoiceId: { eq: event.data.object.id } },
+				}),
+			).toBeUndefined();
+			expect(
+				await db.query.organization.findFirst({
+					where: { id: { eq: ORG_ID } },
+				}),
+			).toMatchObject({
+				devPlanCreditsUsed: "150",
+				subscriptionPaymentStatus: "past_due",
+			});
+			expect(sendEmailMock).not.toHaveBeenCalled();
+			id.mockRestore();
+			await handleInvoicePaymentSucceeded(event);
+			expect(
+				await db.query.transaction.findMany({
+					where: { stripeInvoiceId: { eq: event.data.object.id } },
+				}),
+			).toHaveLength(1);
+			expect(
+				await db.query.organization.findFirst({
+					where: { id: { eq: ORG_ID } },
+				}),
+			).toMatchObject({
+				devPlanCreditsUsed: "0",
+				subscriptionPaymentStatus: "current",
+			});
+			expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		} finally {
+			id.mockRestore();
+			await deleteAll();
+		}
+	});
+});
+
 function makeChargeRefundedEvent(overrides: {
 	paymentIntentId: string;
 	customer: string;

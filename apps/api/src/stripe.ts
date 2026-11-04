@@ -4703,7 +4703,10 @@ export async function handleInvoicePaymentSucceeded(event: {
 					stripeInvoiceId: invoice.id,
 					description: `Dev Plan ${effectiveTier.toUpperCase()} renewed`,
 				})
-				.onConflictDoNothing()
+				.onConflictDoNothing({
+					target: tables.transaction.stripeInvoiceId,
+					where: sql`${tables.transaction.stripeInvoiceId} IS NOT NULL`,
+				})
 				.returning();
 
 			if (created) {
