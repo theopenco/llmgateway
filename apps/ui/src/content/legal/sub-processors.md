@@ -77,7 +77,7 @@ If you object to a new sub-processor on reasonable data-protection grounds, emai
 
 Personal data may be transferred outside the EEA and the UK to the sub-processors above and to the AI providers you select.
 
-**The safeguard in place depends on which one.** For the operational sub-processors in Section 1, the applicable agreements incorporate the **EU Standard Contractual Clauses** (and the UK International Data Transfer Addendum where applicable), alongside supplementary technical measures including encryption in transit.
+**The required safeguard depends on the recipient and processing.** For operational sub-processors, an applicable transfer mechanism must be confirmed for the account and services used; published EU Standard Contractual Clauses or a UK Addendum alone do not prove execution. We do not represent that contractual safeguards have been confirmed for every operational sub-processor. Technical measures such as encryption in transit do not replace them.
 
 For the AI providers in Section 2, this is **provider-specific and in several cases unresolved**. A number of providers we can route to are headquartered in countries with no adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider, because it is not.
 

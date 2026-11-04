@@ -11,6 +11,10 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import {
+	compliancePolicyForSave,
+	hasEnterpriseComplianceRules,
+} from "@/lib/compliance-policy";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -41,7 +45,6 @@ import {
 	getProviderRefPolicyListFailures,
 	getProviderRequirementFailures,
 	models,
-	projectPolicyToDataProtection,
 	providers as catalogueProviders,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
@@ -278,14 +281,10 @@ export function ComplianceClient() {
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const canManage = currentUserRole === "owner" || currentUserRole === "admin";
 
-	// What saving will persist for this org. A non-enterprise plan may only
-	// store the data-protection controls, so the impact preview has to project
-	// the same way — otherwise it promises filtering (by SOC 2, by a
-	// blocked-provider list) that the saved policy will not contain.
-	const effectivePolicy = useMemo(
-		() => (isEnterprise ? policy : projectPolicyToDataProtection(policy)),
-		[isEnterprise, policy],
-	);
+	// Stored restrictions remain enforced after a downgrade.
+	const effectivePolicy = policy;
+	const inheritedEnterpriseRules =
+		!isEnterprise && hasEnterpriseComplianceRules(policy);
 
 	const { allowed, blocked } = useMemo(() => {
 		const allowedList: ProviderDefinition[] = [];
@@ -458,16 +457,17 @@ export function ComplianceClient() {
 	};
 
 	const savePolicy = async (nextPolicy: ProviderCompliancePolicy) => {
+		const body = compliancePolicyForSave(nextPolicy, isEnterprise);
+		if (!body) {
+			toast({
+				title: "Saved restrictions are still active",
+				description:
+					"Disable and save this policy before replacing its Enterprise-only rules, or restore Enterprise access.",
+				variant: "destructive",
+			});
+			return;
+		}
 		try {
-			// An org that downgraded from enterprise can still hold stored
-			// certification requirements and restriction lists. The switches for
-			// those are locked above, but they are still in `policy`, and the API
-			// rejects them on a non-enterprise plan — so drop them here rather than
-			// surfacing a 403 the user cannot act on.
-			const body = isEnterprise
-				? nextPolicy
-				: projectPolicyToDataProtection(nextPolicy);
-
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
 				body: { providerCompliancePolicy: body },
@@ -549,6 +549,13 @@ export function ComplianceClient() {
 						<div className="flex items-center justify-between">
 							<div>
 								<CardTitle>Provider Compliance Policy</CardTitle>
+								{inheritedEnterpriseRules && policy.enabled && (
+									<p role="status" className="text-sm text-muted-foreground">
+										Saved Enterprise-only restrictions are still enforced and
+										shown below. Disable and save the policy before replacing
+										them, or restore Enterprise access.
+									</p>
+								)}
 								<CardDescription>
 									Only route requests to providers that meet the required
 									certifications and data policies. Requests to non-compliant
@@ -570,7 +577,9 @@ export function ComplianceClient() {
 								<Button
 									onClick={handleSave}
 									disabled={
-										updateOrganization.isPending || zdrConflictsWithSettings
+										updateOrganization.isPending ||
+										zdrConflictsWithSettings ||
+										(inheritedEnterpriseRules && policy.enabled)
 									}
 								>
 									<Save className="h-4 w-4 mr-2" />
@@ -711,9 +720,7 @@ export function ComplianceClient() {
 								>
 									<div className="flex items-center gap-4">
 										<Switch
-											checked={
-												locked ? false : (policy[requirement.key] ?? false)
-											}
+											checked={policy[requirement.key] ?? false}
 											disabled={requirementDisabled}
 											onCheckedChange={(value) =>
 												setPolicy((p) => ({

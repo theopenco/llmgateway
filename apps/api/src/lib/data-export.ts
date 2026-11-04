@@ -1,6 +1,43 @@
 import { z } from "@hono/zod-openapi";
 
-import { db } from "@llmgateway/db";
+import { db, eq, getTableColumns, inArray, sql, tables } from "@llmgateway/db";
+
+import type { SQL, SQLWrapper, Table } from "@llmgateway/db";
+
+export const EXPORT_COLLECTION_LIMIT = 100;
+export const CHAT_MESSAGE_EXPORT_LIMIT = 1000;
+export const EXPORT_RECORD_BYTES = 16 * 1024;
+
+function pickExportColumns<T extends Table>(
+	table: T,
+	keys: (keyof T["_"]["columns"])[],
+): Record<string, SQLWrapper> {
+	const columns = getTableColumns(table);
+	return Object.fromEntries(keys.map((key) => [key, columns[key]]));
+}
+
+async function readExportRows(
+	table: Table,
+	columns: Record<string, SQLWrapper>,
+	where: SQL,
+	orderBy: SQL,
+	limit: number,
+): Promise<Record<string, unknown>[]> {
+	const content = sql`jsonb_build_object(${sql.join(
+		Object.entries(columns).map(
+			([key, column]) => sql`${key}::text, ${column}`,
+		),
+		sql`, `,
+	)})`;
+	// Bound each record in PostgreSQL, before its content enters the Node heap.
+	const result = await db.execute<{ value: Record<string, unknown> }>(sql`
+		select case when octet_length((${content})::text) <= ${EXPORT_RECORD_BYTES}
+			then ${content}
+			else jsonb_build_object('id', ${columns.id}, 'chatId', ${columns.chatId ?? sql`null`}, 'sequence', ${columns.sequence ?? sql`null`}, 'exportOmitted', true)
+		end as value from ${table} where ${where} order by ${orderBy} limit ${limit + 1}
+	`);
+	return result.rows.map((row) => row.value);
+}
 
 /**
  * Self-serve data export backing GDPR Art. 15 (access) and Art. 20
@@ -49,7 +86,7 @@ export const EXCLUDED_FROM_EXPORT: ExportExclusion[] = [
 	{
 		category: "Credentials",
 		detail:
-			"API key tokens, master keys, provider API keys, password hashes, session tokens and passkey credentials.",
+			"API key tokens, master keys, provider API keys, password hashes, session tokens, passkey credentials, device-login codes, connector credentials and notification action links.",
 		reason:
 			"Exporting live secrets would make this file a credential-exfiltration risk. Manage them in the dashboard instead.",
 	},
@@ -64,7 +101,14 @@ export const EXCLUDED_FROM_EXPORT: ExportExclusion[] = [
 		category: "Security audit records",
 		detail: "Audit log entries recording administrative actions.",
 		reason:
-			"Retained for security and integrity purposes, and they routinely reference other people's actions.",
+			"These can reference other people's administrative actions. Contact support for a scoped access review.",
+	},
+	{
+		category: "Organization, supplier and integration records",
+		detail:
+			"Billing documents, organization-controlled administration and SDK sessions, supplier records, connection authorizations and chat-sharing records are not included in this account download.",
+		reason:
+			"These need a separately authorized, scoped access review because they may contain credentials or information about other people. Contact the address below; this download is not a complete response to every access request.",
 	},
 ];
 
@@ -114,10 +158,14 @@ export const userDataExportSchema = z.object({
 		audio: z.array(z.unknown()),
 		video: z.array(z.unknown()),
 		realtime: z.array(z.unknown()),
+		sandbox: z.array(z.unknown()),
+		decisions: z.array(z.unknown()),
 	}),
 	preferences: z.object({
 		favoriteModels: z.array(z.unknown()),
 		modelRatings: z.array(z.unknown()),
+		notificationPreferences: z.array(z.unknown()),
+		availabilityWatches: z.array(z.unknown()),
 	}),
 	feedback: z.object({
 		modelSurveyResponses: z.array(z.unknown()),
@@ -125,6 +173,7 @@ export const userDataExportSchema = z.object({
 		chatPlanCancellations: z.array(z.unknown()),
 		refunds: z.array(z.unknown()),
 	}),
+	notifications: z.array(z.unknown()),
 	loungePoints: z.array(z.unknown()),
 	skills: z.array(z.unknown()),
 });
@@ -144,33 +193,39 @@ export type UserDataExport = z.infer<typeof userDataExportSchema>;
 export async function buildUserDataExport(
 	userId: string,
 ): Promise<UserDataExport | null> {
-	const profile = await db.query.user.findFirst({
-		where: { id: { eq: userId } },
-		columns: {
-			id: true,
-			createdAt: true,
-			updatedAt: true,
-			name: true,
-			email: true,
-			emailVerified: true,
-			image: true,
-			onboardingCompleted: true,
-			newsletterSubscribed: true,
-			status: true,
-			username: true,
-			profilePublic: true,
-			profileHidePicture: true,
-			bio: true,
-			githubUsername: true,
-			xUsername: true,
-		},
+	const subject = await db.query.user.findFirst({
+		where: { id: userId },
+		columns: { id: true, email: true },
 	});
-
-	if (!profile) {
+	if (!subject) {
 		return null;
 	}
-
+	const truncated: UserDataExport["notes"]["truncated"] = [];
+	const collect = async (
+		section: string,
+		table: Table,
+		columns: Record<string, SQLWrapper>,
+		where: SQL,
+		limit = EXPORT_COLLECTION_LIMIT,
+		orderBy: SQL = sql`${columns.id}`,
+	) => {
+		const rows = await readExportRows(table, columns, where, orderBy, limit);
+		if (rows.length > limit || rows.some((row) => row.exportOmitted === true)) {
+			truncated.push({
+				section,
+				limit,
+				note: `Up to ${limit} records are included. Records larger than ${EXPORT_RECORD_BYTES} bytes are represented by their id and exportOmitted=true. Contact us below for the remainder.`,
+			});
+		}
+		return rows.slice(0, limit);
+	};
+	const userRows = (
+		section: string,
+		table: Table & { userId: SQLWrapper },
+		columns: Record<string, SQLWrapper>,
+	) => collect(section, table, columns, eq(table.userId, userId));
 	const [
+		profileRows,
 		accounts,
 		passkeys,
 		sessions,
@@ -190,180 +245,301 @@ export async function buildUserDataExport(
 		audio,
 		video,
 		realtime,
+		sandbox,
+		decisions,
+		notificationPreferences,
+		notifications,
+		availabilityWatches,
 	] = await Promise.all([
-		// providerId only — never the stored access/refresh tokens or password.
-		db.query.account.findMany({
-			where: { userId: { eq: userId } },
-			columns: { id: true, providerId: true, createdAt: true, updatedAt: true },
+		collect(
+			"profile",
+			tables.user,
+			pickExportColumns(tables.user, [
+				"id",
+				"createdAt",
+				"updatedAt",
+				"name",
+				"email",
+				"emailVerified",
+				"image",
+				"onboardingCompleted",
+				"newsletterSubscribed",
+				"status",
+				"username",
+				"profilePublic",
+				"profileHidePicture",
+				"bio",
+				"githubUsername",
+				"xUsername",
+			]),
+			eq(tables.user.id, userId),
+			1,
+		),
+		userRows(
+			"authentication.accounts",
+			tables.account,
+			pickExportColumns(tables.account, [
+				"id",
+				"providerId",
+				"createdAt",
+				"updatedAt",
+			]),
+		),
+		userRows(
+			"authentication.passkeys",
+			tables.passkey,
+			pickExportColumns(tables.passkey, [
+				"id",
+				"name",
+				"deviceType",
+				"backedUp",
+				"createdAt",
+			]),
+		),
+		userRows(
+			"authentication.sessions",
+			tables.session,
+			pickExportColumns(tables.session, [
+				"id",
+				"createdAt",
+				"updatedAt",
+				"expiresAt",
+				"ipAddress",
+				"userAgent",
+			]),
+		),
+		userRows("organizations", tables.userOrganization, {
+			...pickExportColumns(tables.userOrganization, [
+				"id",
+				"organizationId",
+				"role",
+				"createdAt",
+			]),
+			organization: sql`(select jsonb_build_object('id', ${tables.organization.id}, 'name', ${tables.organization.name}, 'plan', ${tables.organization.plan}) from ${tables.organization} where ${tables.organization.id} = ${tables.userOrganization.organizationId})`,
 		}),
-		// Metadata only — never the public key or credential id.
-		db.query.passkey.findMany({
-			where: { userId: { eq: userId } },
-			columns: {
-				id: true,
-				name: true,
-				deviceType: true,
-				backedUp: true,
-				createdAt: true,
-			},
-		}),
-		// Where and when you signed in. Never the session token.
-		db.query.session.findMany({
-			where: { userId: { eq: userId } },
-			columns: {
-				id: true,
-				createdAt: true,
-				updatedAt: true,
-				expiresAt: true,
-				ipAddress: true,
-				userAgent: true,
-			},
-		}),
-		db.query.userOrganization.findMany({
-			where: { userId: { eq: userId } },
-			columns: { id: true, organizationId: true, role: true, createdAt: true },
-			with: { organization: { columns: { id: true, name: true, plan: true } } },
-		}),
-		// Key metadata so you can see what exists. Never the token itself.
-		db.query.apiKey.findMany({
-			where: { createdBy: { eq: userId } },
-			columns: {
-				id: true,
-				createdAt: true,
-				updatedAt: true,
-				description: true,
-				status: true,
-				keyType: true,
-				projectId: true,
-				expiresAt: true,
-				usageLimit: true,
-				currentPeriodUsage: true,
-			},
-		}),
-		db.query.chat.findMany({
-			where: { userId: { eq: userId } },
-			// Chats carry every message body, including base64 image and audio
-			// attachments, so an unbounded join is the one query here that can
-			// pull hundreds of megabytes into memory to serialize a single
-			// response. Newest first and capped; `truncated` below tells the
-			// data subject when the cap was hit so a partial export is never
-			// mistaken for a complete one.
-			limit: CHAT_EXPORT_LIMIT + 1,
-			orderBy: { createdAt: "desc" },
-			columns: {
-				id: true,
-				createdAt: true,
-				updatedAt: true,
-				title: true,
-				model: true,
-				status: true,
-				pinned: true,
-				projectId: true,
-			},
-			with: {
-				messages: {
-					columns: {
-						id: true,
-						createdAt: true,
-						role: true,
-						content: true,
-						images: true,
-						audios: true,
-						documents: true,
-						reasoning: true,
-						tools: true,
-						sources: true,
-						sequence: true,
-					},
-				},
-			},
-		}),
-		db.query.chatProject.findMany({
-			where: { userId: { eq: userId } },
-			columns: {
-				id: true,
-				createdAt: true,
-				updatedAt: true,
-				name: true,
-				description: true,
-				instructions: true,
-			},
-		}),
-		db.query.userFavoriteModel.findMany({
-			where: { userId: { eq: userId } },
-			columns: { id: true, modelId: true, createdAt: true },
-		}),
-		db.query.modelRating.findMany({
-			where: { userId: { eq: userId } },
-			columns: {
-				id: true,
-				modelId: true,
-				rating: true,
-				comment: true,
-				createdAt: true,
-			},
-		}),
-		db.query.modelSurveyResponse.findMany({
-			where: { userId: { eq: userId } },
-		}),
-		db.query.devPlanCancellationFeedback.findMany({
-			where: { userId: { eq: userId } },
-		}),
-		db.query.chatPlanCancellationFeedback.findMany({
-			where: { userId: { eq: userId } },
-		}),
-		db.query.refundFeedback.findMany({ where: { userId: { eq: userId } } }),
-		db.query.loungePointEvent.findMany({ where: { userId: { eq: userId } } }),
-		db.query.skill.findMany({ where: { userId: { eq: userId } } }),
-		db.query.playgroundImageHistory.findMany({
-			where: { userId: { eq: userId } },
-		}),
-		db.query.playgroundAudioHistory.findMany({
-			where: { userId: { eq: userId } },
-		}),
-		db.query.playgroundVideoHistory.findMany({
-			where: { userId: { eq: userId } },
-		}),
-		db.query.playgroundRealtimeHistory.findMany({
-			where: { userId: { eq: userId } },
-		}),
+		collect(
+			"apiKeys",
+			tables.apiKey,
+			pickExportColumns(tables.apiKey, [
+				"id",
+				"createdAt",
+				"updatedAt",
+				"description",
+				"status",
+				"keyType",
+				"projectId",
+				"expiresAt",
+				"usageLimit",
+				"currentPeriodUsage",
+			]),
+			eq(tables.apiKey.createdBy, userId),
+		),
+		collect(
+			"chats",
+			tables.chat,
+			pickExportColumns(tables.chat, [
+				"id",
+				"createdAt",
+				"updatedAt",
+				"title",
+				"model",
+				"status",
+				"pinned",
+				"projectId",
+			]),
+			eq(tables.chat.userId, userId),
+			CHAT_EXPORT_LIMIT,
+			sql`${tables.chat.createdAt} desc, ${tables.chat.id} desc`,
+		),
+		userRows(
+			"chatProjects",
+			tables.chatProject,
+			pickExportColumns(tables.chatProject, [
+				"id",
+				"createdAt",
+				"updatedAt",
+				"name",
+				"description",
+				"instructions",
+			]),
+		),
+		userRows(
+			"preferences.favoriteModels",
+			tables.userFavoriteModel,
+			pickExportColumns(tables.userFavoriteModel, [
+				"id",
+				"modelId",
+				"createdAt",
+			]),
+		),
+		userRows(
+			"preferences.modelRatings",
+			tables.modelRating,
+			pickExportColumns(tables.modelRating, [
+				"id",
+				"modelId",
+				"rating",
+				"comment",
+				"createdAt",
+			]),
+		),
+		userRows(
+			"feedback.modelSurveyResponses",
+			tables.modelSurveyResponse,
+			getTableColumns(tables.modelSurveyResponse),
+		),
+		userRows(
+			"feedback.devPlanCancellations",
+			tables.devPlanCancellationFeedback,
+			getTableColumns(tables.devPlanCancellationFeedback),
+		),
+		userRows(
+			"feedback.chatPlanCancellations",
+			tables.chatPlanCancellationFeedback,
+			getTableColumns(tables.chatPlanCancellationFeedback),
+		),
+		userRows(
+			"feedback.refunds",
+			tables.refundFeedback,
+			getTableColumns(tables.refundFeedback),
+		),
+		userRows(
+			"loungePoints",
+			tables.loungePointEvent,
+			getTableColumns(tables.loungePointEvent),
+		),
+		userRows("skills", tables.skill, getTableColumns(tables.skill)),
+		userRows(
+			"playgroundHistory.images",
+			tables.playgroundImageHistory,
+			getTableColumns(tables.playgroundImageHistory),
+		),
+		userRows(
+			"playgroundHistory.audio",
+			tables.playgroundAudioHistory,
+			getTableColumns(tables.playgroundAudioHistory),
+		),
+		userRows(
+			"playgroundHistory.video",
+			tables.playgroundVideoHistory,
+			getTableColumns(tables.playgroundVideoHistory),
+		),
+		userRows(
+			"playgroundHistory.realtime",
+			tables.playgroundRealtimeHistory,
+			getTableColumns(tables.playgroundRealtimeHistory),
+		),
+		userRows(
+			"playgroundHistory.sandbox",
+			tables.sandboxEscapeRun,
+			getTableColumns(tables.sandboxEscapeRun),
+		),
+		userRows(
+			"playgroundHistory.decisions",
+			tables.playgroundDecisionHistory,
+			getTableColumns(tables.playgroundDecisionHistory),
+		),
+		userRows(
+			"preferences.notificationPreferences",
+			tables.notificationPreference,
+			getTableColumns(tables.notificationPreference),
+		),
+		userRows(
+			"notifications",
+			tables.notification,
+			pickExportColumns(tables.notification, [
+				"id",
+				"projectId",
+				"organizationId",
+				"apiKeyId",
+				"type",
+				"title",
+				"message",
+				"inApp",
+				"email",
+				"createdAt",
+				"readAt",
+				"emailSentAt",
+			]),
+		),
+		collect(
+			"preferences.availabilityWatches",
+			tables.modelAvailabilityWatch,
+			getTableColumns(tables.modelAvailabilityWatch),
+			eq(tables.modelAvailabilityWatch.createdByUserId, userId),
+		),
 	]);
-
-	// One row over the limit means there were more; drop it and say so.
-	const chatsTruncated = chats.length > CHAT_EXPORT_LIMIT;
-	const exportedChats = chatsTruncated
-		? chats.slice(0, CHAT_EXPORT_LIMIT)
-		: chats;
-
-	// Annotated so the literal below is still checked against the documented
-	// shape, even though the function returns the open record the route needs.
-	const result: UserDataExport = {
+	const chatIds = chats.flatMap((chat) =>
+		typeof chat.id === "string" ? [chat.id] : [],
+	);
+	const messages =
+		chatIds.length === 0
+			? []
+			: await collect(
+					"chatMessages",
+					tables.message,
+					pickExportColumns(tables.message, [
+						"id",
+						"chatId",
+						"createdAt",
+						"role",
+						"content",
+						"images",
+						"audios",
+						"documents",
+						"reasoning",
+						"tools",
+						"sources",
+						"sequence",
+					]),
+					inArray(tables.message.chatId, chatIds),
+					CHAT_MESSAGE_EXPORT_LIMIT,
+					sql`${tables.message.createdAt} desc, ${tables.message.sequence} desc, ${tables.message.id} desc`,
+				);
+	const messagesByChat = new Map<string, Record<string, unknown>[]>();
+	for (const message of messages) {
+		if (typeof message.chatId !== "string") {
+			continue;
+		}
+		const group = messagesByChat.get(message.chatId) ?? [];
+		group.push(message);
+		messagesByChat.set(message.chatId, group);
+	}
+	return {
 		exportedAt: new Date().toISOString(),
 		format: "llmgateway.user-data-export.v1",
-		subject: { id: profile.id, email: profile.email },
+		subject,
 		notes: {
 			about:
-				"The account-scoped records LLM Gateway holds about you, exported under GDPR Art. 15 (right of access) and Art. 20 (right to data portability). See `excluded` for what is not included and why.",
+				"Account-scoped records exported under GDPR Art. 15 and Art. 20. See excluded and truncated for restrictions and how to request the remainder.",
 			excluded: EXCLUDED_FROM_EXPORT,
-			truncated: chatsTruncated
-				? [
-						{
-							section: "chats",
-							limit: CHAT_EXPORT_LIMIT,
-							note: `Only your ${CHAT_EXPORT_LIMIT} most recent chats are included. Email us at the address below for the rest.`,
-						},
-					]
-				: [],
+			truncated,
 			contact: "contact@llmgateway.io",
 		},
-		profile,
+		profile: profileRows[0],
 		authentication: { accounts, passkeys, sessions },
 		organizations: memberships,
 		apiKeys,
-		chats: exportedChats,
+		chats: chats.map((chat) => ({
+			...chat,
+			messages:
+				messagesByChat
+					.get(String(chat.id))
+					?.sort(
+						(a, b) =>
+							Number(a.sequence) - Number(b.sequence) ||
+							String(a.id).localeCompare(String(b.id)),
+					) ?? [],
+		})),
 		chatProjects,
-		playgroundHistory: { images, audio, video, realtime },
-		preferences: { favoriteModels, modelRatings },
+		playgroundHistory: { images, audio, video, realtime, sandbox, decisions },
+		preferences: {
+			favoriteModels,
+			modelRatings,
+			notificationPreferences,
+			availabilityWatches,
+		},
+		notifications,
 		feedback: {
 			modelSurveyResponses: surveyResponses,
 			devPlanCancellations,
@@ -373,6 +549,4 @@ export async function buildUserDataExport(
 		loungePoints,
 		skills,
 	};
-
-	return result;
 }

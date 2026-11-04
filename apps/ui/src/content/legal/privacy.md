@@ -127,7 +127,7 @@ Where we retain billing records after account deletion, we restrict processing o
 
 - Your user record, sessions, API keys, passkeys and chats are **hard-deleted**.
 - Any organization you were the last member of is **closed**: its subscriptions are cancelled, its Stripe customer record — including the name, email and billing address Stripe held — is **deleted at Stripe**, and its display name, billing contact email and logo are **overwritten with placeholders**.
-- Your email address is **removed** from retained billing records such as failed-payment entries.
+- The current email address on your account is **removed** from failed-payment entries. For organizations closed with your account, historical contact addresses are removed too. Historical addresses in organizations that remain active may need a separate review to identify the records; contact us if this applies to your request.
 - What remains is the accounting record itself, kept for the statutory period described above: the amounts, dates and currencies of the transactions, and the "bill to" identity that appears on the invoices we issued — the billing company name, billing address and tax identifier you supplied. Invoice law requires the recipient's identity on the document, so these are retained rather than anonymized.
 
 ---
@@ -198,7 +198,7 @@ If you do not want your requests routed through stealth or undisclosed providers
 
 Data may be processed and stored on servers located in the **European Union or the United States**, and may be transferred to AI providers and sub-processors in other countries.
 
-**The safeguard depends on the recipient.** For the sub-processors we engage to run the Service (hosting, payments, email, analytics), the applicable agreements incorporate the **Standard Contractual Clauses (SCCs)** or an equivalent Article 46 mechanism, alongside technical measures including encryption in transit.
+**The safeguard depends on the recipient and processing.** Operational sub-processors require an applicable transfer mechanism, such as the **Standard Contractual Clauses (SCCs)** where needed. A published agreement alone does not establish that it is in force for our account. We do not represent that contractual safeguards have been confirmed for every operational sub-processor. Encryption in transit does not replace the required transfer mechanism.
 
 For the **AI providers you route to, this is provider-specific and in several cases unresolved.** Several are headquartered in countries with no EU adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider you can select, because it is not. Each provider's headquarters and GDPR posture is shown on our [Provider Information page](https://llmgateway.io/legal/providers), and the current position is described on our [Sub-processor page](https://llmgateway.io/legal/sub-processors).
 

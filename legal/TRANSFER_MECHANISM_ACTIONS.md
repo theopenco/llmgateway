@@ -47,42 +47,27 @@ Both incorporate their DPA automatically on acceptance of the service agreement,
 so there is nothing to sign. For the Art. 30 record, save a dated PDF of the
 version in force and note the date in `legal/SUBPROCESSOR_DPAS.md`.
 
-## 4. AI providers in countries without an adequacy decision
+## 4. Review AI-provider transfer mechanisms
 
-The open Art. 46 exposure. **Do not paste a provider list into this file** — the
-catalogue changes continuously and a copy here would be wrong within days. Print
-the current set instead:
-
-`@llmgateway/models` is an ES module, so this runs as ESM (`--input-type=module`)
-rather than with `require`. Single-quote the script so the shell cannot expand
-anything inside it:
+Generate candidates from the live catalogue; headquarters and a GDPR claim do
+not establish whether a particular transfer is covered by an adequacy decision:
 
 ```bash
-pnpm --filter @llmgateway/models build
+pnpm exec turbo run build --filter=@llmgateway/models --concurrency=1
 node --input-type=module -e '
 import { providers } from "./packages/models/dist/index.js";
-const ADEQUATE = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE","IS","LI","NO","GB","CH","CA","JP","KR","NZ","IL","AR","UY","AD","FO","GG","IM","JE"]);
-const EXEMPT = new Set(["llmgateway", "custom"]); // internal router, per-org endpoints
-const posture = (p) => !p.dataPolicy
-  ? "no data policy"
-  : p.dataPolicy.gdpr === false
-    ? "states NOT GDPR compliant"
-    : "policy, GDPR position unknown";
-const exposed = providers.filter((p) => !EXEMPT.has(p.id) && p.dataPolicy?.gdpr !== true && (!p.headquarters || !ADEQUATE.has(p.headquarters)));
-console.log(exposed.map((p) => [p.id, p.headquarters ?? "undisclosed", posture(p)].join("\t")).join("\n"));
+const exempt = new Set(["llmgateway", "custom"]);
+console.log(providers.filter((p) => !exempt.has(p.id) && p.dataPolicy?.gdpr !== true)
+  .map((p) => [p.id, p.headquarters ?? "undisclosed"].join("\t")).join("\n"));
 '
 ```
 
-Two caveats on the adequacy set, both of which make the output *optimistic*
-rather than conservative — treat it as a starting list, not a verdict:
-
-- **It is a snapshot.** Re-check it against the Commission's adequacy page before
-  relying on it; decisions get added, and existing ones (the UK's) come up for
-  renewal.
-- **`CA` is over-broad.** The Canadian decision covers only organisations subject
-  to PIPEDA — i.e. commercial activity — so it does not automatically cover every
-  Canadian provider. Confirm the specific provider falls in scope before treating
-  a `CA` headquarters as adequate.
+Check each recipient and transfer against the [Commission’s current adequacy
+decisions](https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/adequacy-decisions_en),
+including the decision’s scope. The list includes Brazil; Canada covers
+commercial organisations subject to PIPEDA, and US coverage requires the
+recipient’s participation in the EU–US Data Privacy Framework. Do not infer
+coverage from a country code alone. This is a review queue, not a legal verdict.
 
 For each provider the command prints, one of these has to happen:
 

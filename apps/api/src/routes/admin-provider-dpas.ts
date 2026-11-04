@@ -5,8 +5,7 @@ import { z } from "zod";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 
-import { db, tables } from "@llmgateway/db";
-import { providers } from "@llmgateway/models";
+import { db, tables, getEffectiveProviders } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -87,7 +86,7 @@ adminProviderDpas.openapi(listProviderDpas, async (c) => {
 	// The catalogue is the source of truth for which providers exist; the DB
 	// row only carries the DPA record (and may not exist yet on a fresh
 	// environment, which reads as "not signed").
-	const result = providers
+	const result = (await getEffectiveProviders())
 		.filter((provider) => !DPA_EXEMPT_PROVIDER_IDS.has(provider.id))
 		.map((provider) => {
 			const row = rowById.get(provider.id);
@@ -144,7 +143,9 @@ adminProviderDpas.openapi(updateProviderDpa, async (c) => {
 	// adminMiddleware guarantees an authenticated admin user.
 	const authUser = c.get("user")!;
 
-	const definition = providers.find((provider) => provider.id === providerId);
+	const definition = (await getEffectiveProviders()).find(
+		(provider) => provider.id === providerId,
+	);
 	if (!definition || DPA_EXEMPT_PROVIDER_IDS.has(providerId)) {
 		throw new HTTPException(404, {
 			message: `Unknown provider: ${providerId}`,

@@ -1,5 +1,7 @@
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
 
+import { getProviderDefinition } from "@llmgateway/models";
+
 import {
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
@@ -13,7 +15,10 @@ import {
 	withDpaEnforcement,
 } from "./compliance.js";
 
-import type { ProviderCompliancePolicy } from "@llmgateway/models";
+import type {
+	ProviderCompliancePolicy,
+	ProviderDefinition,
+} from "@llmgateway/models";
 
 const POLICY: ProviderCompliancePolicy = {
 	enabled: true,

@@ -853,3 +853,68 @@ describe("anonymizeBillingRecordsForEmail", () => {
 		expect(failures.every((failure) => failure.userEmail === null)).toBe(true);
 	});
 });
+describe("account erasure retry", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		stripeMock.subscriptions.cancel.mockReset();
+		stripeMock.customers.del.mockReset();
+	});
+	afterEach(async () => {
+		await deleteAll();
+	});
+	test("cascades the deleted actor audit rows without deleting another actor history", async () => {
+		const token = await createTestUser();
+		await seedOrg({ kind: "default" });
+		await addSecondMember();
+		await db.insert(tables.auditLog).values([
+			{
+				id: "audit-deleted-actor",
+				userId: USER_ID,
+				organizationId: ORG_ID,
+				action: "organization.update",
+				resourceType: "organization",
+			},
+			{
+				id: "audit-surviving-actor",
+				userId: "second-user-id",
+				organizationId: ORG_ID,
+				action: "organization.update",
+				resourceType: "organization",
+			},
+		]);
+		expect((await deleteAccount(token)).status).toBe(200);
+		const records = await db.query.auditLog.findMany({
+			where: { organizationId: ORG_ID },
+		});
+		expect(records.map((record) => record.id)).toEqual([
+			"audit-surviving-actor",
+		]);
+	});
+	test("cleans historical billing contacts after the sole organization was already closed", async () => {
+		const token = await createTestUser();
+		await seedOrg({
+			status: "deleted",
+			name: DELETED_ORGANIZATION_NAME,
+			billingEmail: DELETED_ORGANIZATION_BILLING_EMAIL,
+		});
+		await db.insert(tables.paymentFailure).values({
+			organizationId: ORG_ID,
+			userEmail: "former@example.com",
+			amount: "10.00",
+			declineCode: "insufficient_funds",
+			source: "auto_topup",
+		});
+		expect(
+			(await findSoleMemberOrganizations(USER_ID)).find(
+				(org) => org.id === ORG_ID,
+			),
+		).toBeUndefined();
+		expect((await deleteAccount(token)).status).toBe(200);
+		const failure = await db.query.paymentFailure.findFirst({
+			where: { organizationId: ORG_ID },
+		});
+		expect(failure?.userEmail).toBeNull();
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+		expect(stripeMock.customers.del).not.toHaveBeenCalled();
+	});
+});

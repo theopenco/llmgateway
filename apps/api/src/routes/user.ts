@@ -706,6 +706,7 @@ user.openapi(exportUserData, async (c) => {
 		`user_data_export:${authUser.id}`,
 		EXPORT_RATE_LIMIT_MAX,
 		EXPORT_RATE_LIMIT_WINDOW_SECONDS,
+		{ failOpen: false },
 	);
 
 	if (!withinRateLimit) {

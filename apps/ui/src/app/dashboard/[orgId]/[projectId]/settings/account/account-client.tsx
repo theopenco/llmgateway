@@ -417,8 +417,9 @@ function DownloadDataCard() {
 				</p>
 				<p className="text-muted-foreground text-sm">
 					Gateway request logs are not included — those belong to the
-					organization that submitted them. If you have a very large chat
-					history the file includes your most recent chats and says so.
+					organization that submitted them. Large histories and records can be
+					truncated. The file identifies limits and explains how to request the
+					remainder.
 				</p>
 				<p className="text-muted-foreground text-sm">
 					For your safety the file never contains credentials — API key tokens,

@@ -169,7 +169,9 @@ Self-hosted deployments have full control over data retention:
 
 ## Personal data export
 
-**Settings → Account → Download Your Data** returns a JSON copy of the account-scoped records LLM Gateway holds about you — profile, organization memberships, API key metadata, chats, playground history and preferences — under GDPR Art. 15 and Art. 20. It never contains credentials, and gateway request logs are excluded because they belong to the organization that submitted them; the file lists every exclusion and why. Exports are limited to a few per hour per account.
+**Settings → Account → Download Your Data** returns a JSON copy of your account-scoped profile, memberships, API key metadata, chats, playground history and preferences. Credentials and organization-controlled request logs are excluded; the file explains each exclusion.
+
+Each account can request **five exports per hour**. An export includes up to **1,000 chats**, **1,000 messages across those chats**, and **100 records per other collection**. Records over **16 KiB** are replaced with their ID and `exportOmitted: true` before leaving the database. The `notes.truncated` section identifies affected collections; contact the address in the file for the remainder.
 
 ## Privacy and Security
 

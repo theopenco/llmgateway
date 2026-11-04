@@ -255,6 +255,7 @@ export interface SoleMemberOrganization {
  */
 export async function findSoleMemberOrganizations(
 	userId: string,
+	includeDeleted = false,
 ): Promise<SoleMemberOrganization[]> {
 	const memberships = await db.query.userOrganization.findMany({
 		where: { userId: { eq: userId } },
@@ -292,7 +293,7 @@ export async function findSoleMemberOrganizations(
 	});
 
 	return organizations
-		.filter((org) => org.status !== "deleted")
+		.filter((org) => includeDeleted || org.status !== "deleted")
 		.map((org) => {
 			const subscriptions: OrganizationSubscriptionRefs = {
 				stripeSubscriptionId: org.stripeSubscriptionId,
@@ -341,7 +342,9 @@ export async function findSoleMemberOrganizations(
 export async function tearDownSoleMemberOrganizations(
 	userId: string,
 ): Promise<SoleMemberOrganization[]> {
-	const organizations = await findSoleMemberOrganizations(userId);
+	// A failed local cleanup may have already closed an organization. Keep its
+	// id in scope on retry so historical billing contacts are still erased.
+	const organizations = await findSoleMemberOrganizations(userId, true);
 	if (organizations.length === 0) {
 		return [];
 	}

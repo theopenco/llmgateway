@@ -372,7 +372,20 @@ export const providers: ProviderDefinition[] = [
 		privacyPolicyUrl: "https://fal.ai/legal/privacy-policy",
 		usagePolicyUrl: "https://fal.ai/legal/acceptable-use-policy",
 		legalEntity: "Features & Labels, Inc.",
-		dataPolicy: null,
+		headquarters: "US",
+		// API terms exclude some third-party models, so no blanket guarantees.
+		dataPolicy: {
+			apiTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+			gdpr: null,
+		},
+		additionalLinks: [
+			{
+				desc: "API data handling and exclusions",
+				link: "https://fal.ai/legal/api-services",
+			},
+		],
 	},
 	{
 		id: "llmgateway",

@@ -32,6 +32,8 @@ In DevPass, enable **No AI training** directly under **Settings**. It uses the s
 
 On plans below Enterprise, saving a policy that sets anything outside the data-protection controls is rejected with a `403` naming the settings that need Enterprise — a policy is never saved with requirements the gateway would not enforce.
 
+Stored restrictions remain enforced after a downgrade. The dashboard shows their actual values and prevents an ordinary save from silently removing Enterprise-only rules. Explicitly disable and save the policy before replacing those rules, or restore Enterprise access.
+
 | Requirement                   | A provider is allowed when…                                      |
 | ----------------------------- | ---------------------------------------------------------------- |
 | **Zero data retention (ZDR)** | it does not log prompts and declares a zero-day retention period |

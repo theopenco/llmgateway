@@ -45,6 +45,7 @@ import {
 	assertProviderCompliant,
 	getActiveCompliancePolicy,
 	getEffectiveRetentionLevel,
+	withDpaEnforcement,
 } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import {
@@ -1032,7 +1033,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	if (tieredContentFilterPlan) {
 		// Prompts never reach a classifier's provider when the org's compliance
 		// policy excludes it.
-		const compliancePolicy = getActiveCompliancePolicy(organization);
+		const compliancePolicy = await withDpaEnforcement(
+			getActiveCompliancePolicy(organization),
+		);
 		const classifierAllowed = (classifier: ContentFilterClassifier) =>
 			isContentFilterClassifierCompliant(classifier, compliancePolicy);
 		const started = await startTieredContentFilter({

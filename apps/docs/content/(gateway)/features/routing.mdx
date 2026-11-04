@@ -37,6 +37,10 @@ provider definition preserves its provider ID, existing pins, and session
 preferences for models still listed in Airside. Models without an active listing
 stop being available from that provider.
 
+## Compliance gates
+
+[Provider compliance policies](/features/compliance) apply to automatic selection, provider pins, fallback and your own provider keys. When a deployment enables `REQUIRE_PROVIDER_DPA_FOR_GDPR`, a policy requiring GDPR also requires an administrator-recorded signed DPA, including for active Airside carriers. Classifiers that receive prompt content use the same gate. Signed records are cached for up to 60 seconds; lookup failures do not extend an expired grant. Custom endpoints use their organization’s attestation instead. DevPass retains its supported [No AI training control](/features/compliance).
+
 ## Reasoning-effort compatibility
 
 Automatic provider selection checks `reasoning_effort` (or `reasoning.effort`)

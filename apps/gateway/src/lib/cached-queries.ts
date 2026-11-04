@@ -452,22 +452,17 @@ const DPA_TTL_SECONDS = 60;
  * by the compliance layer when `REQUIRE_PROVIDER_DPA_FOR_GDPR` is enabled.
  */
 export async function findDpaSignedProviderIds(): Promise<string[]> {
-	return await swrWrap(
-		"provider-dpa-signed",
-		[getTableName(providerTable)],
-		async () => {
-			const rows = await db
-				.select({ id: providerTable.id })
-				.from(providerTable)
-				.where(isNotNull(providerTable.dpaSignedAt))
-				.$withCache({
-					tag: "provider-dpa-signed",
-					autoInvalidate: false,
-					config: { ex: DPA_TTL_SECONDS },
-				});
-			return rows.map((row) => row.id);
-		},
-	);
+	// Authorization grants must not survive the primary cache TTL on failure.
+	const rows = await db
+		.select({ id: providerTable.id })
+		.from(providerTable)
+		.where(isNotNull(providerTable.dpaSignedAt))
+		.$withCache({
+			tag: "provider-dpa-signed",
+			autoInvalidate: false,
+			config: { ex: DPA_TTL_SECONDS },
+		});
+	return rows.map((row) => row.id);
 }
 
 /**

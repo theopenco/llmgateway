@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, cdb } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const originalEnforcementFlag = process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
@@ -127,11 +127,79 @@ describe("admin provider DPAs", () => {
 		}
 	});
 
+	it("supports signed records for active Airside carriers", async () => {
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "dpa-company", name: "Test Company" });
+		await cdb.insert(tables.providerClaim).values({
+			providerCompanyId: "dpa-company",
+			providerId: "test-dpa-carrier",
+			kind: "custom",
+			status: "active",
+			matchedDomain: "example.com",
+			customName: "Test Carrier",
+			customBaseUrl: "https://example.com/v1",
+			gdpr: true,
+		});
+		const response = await app.request(
+			"/admin/provider-dpas/test-dpa-carrier",
+			{
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ signed: true }),
+			},
+		);
+		expect(response.status).toBe(200);
+		const listing = await app.request("/admin/provider-dpas", {
+			headers: { Cookie: cookie },
+		});
+		expect(
+			(await listing.json()).providers.find(
+				(row: { providerId: string }) => row.providerId === "test-dpa-carrier",
+			),
+		).toMatchObject({ gdpr: true, dpaSignedBy: "admin@example.com" });
+	});
+
 	it("rejects non-admin users", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		const res = await app.request("/admin/provider-dpas", {
 			headers: { Cookie: cookie },
 		});
 		expect(res.status).toBe(403);
+	});
+});
+describe("public Airside training posture", () => {
+	beforeEach(async () => {
+		await deleteAll();
+	});
+	afterEach(async () => {
+		await deleteAll();
+	});
+	it("warns on a DB-only carrier that declares training on prompts", async () => {
+		await db.insert(tables.provider).values({
+			id: "training-test-carrier",
+			name: "Test Carrier",
+			description: "Synthetic carrier",
+		});
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "training-test-company", name: "Test Company" });
+		await cdb.insert(tables.providerClaim).values({
+			providerCompanyId: "training-test-company",
+			providerId: "training-test-carrier",
+			kind: "custom",
+			status: "active",
+			matchedDomain: "example.com",
+			customName: "Test Carrier",
+			customBaseUrl: "https://example.com/v1",
+			apiTraining: true,
+		});
+		const response = await app.request("/internal/providers");
+		expect(response.status).toBe(200);
+		expect(
+			(await response.json()).providers.find(
+				(row: { id: string }) => row.id === "training-test-carrier",
+			),
+		).toMatchObject({ apiTraining: true });
 	});
 });
