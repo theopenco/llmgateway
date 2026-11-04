@@ -464,6 +464,9 @@ await Promise.all(
 				break;
 			}
 			const job = queue.shift();
+			if (!job) {
+				break;
+			}
 			try {
 				await runOne(job);
 			} catch (err) {

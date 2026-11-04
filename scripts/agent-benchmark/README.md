@@ -45,7 +45,10 @@ gateway returned (OpenAI chat, Responses or Anthropic Messages format) into
 from the same responses the gateway billed, rather than by their own counters.
 Each line also counts the request's messages by role (`roles`: system, user, assistant, tool
 results) and the characters of non-tool user content (`userChars`), so text an agent injects
-between steps shows up without logging prompt bodies.
+between steps shows up without logging prompt bodies. Compressed request bodies (gzip, deflate,
+brotli, zstd) are decoded first. The `2026-11-04` suite ran before that decoding existed: Empryo
+3.12 compresses its requests, so its lines there carry the usage block but an empty `request`,
+and `report.mjs` takes its first model call as the first request.
 
 - **Input tokens** include cached reads and cache writes.
 - **Cost** is computed per request from the pinned provider's list prices in

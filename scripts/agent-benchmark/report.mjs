@@ -62,7 +62,12 @@ for (const name of readdirSync(suiteDir)) {
 		.filter((r) => r.modelCall);
 	const ok = requests.filter((r) => r.usage);
 	const sum = (pick) => ok.reduce((total, r) => total + pick(r), 0);
-	const modelsUsed = [...new Set(requests.map((r) => r.request.model))];
+	const modelsUsed = [
+		...new Set(requests.map((r) => r.request.model).filter(Boolean)),
+	];
+	const firstRequest =
+		ok.find((r) => r.request.toolCount > 0) ??
+		ok.find((r) => r.request.toolCount === undefined);
 	allRuns.push({
 		runId: result.runId,
 		task: result.task,
@@ -81,10 +86,8 @@ for (const name of readdirSync(suiteDir)) {
 		cacheWriteTokens: sum((r) => r.usage.cacheWrite),
 		outputTokens: sum((r) => r.usage.output),
 		totalTokens: sum((r) => r.usage.input + r.usage.output),
-		firstRequestInputTokens:
-			ok.find((r) => r.request.toolCount > 0)?.usage.input ?? 0,
-		toolsInFirstRequest:
-			ok.find((r) => r.request.toolCount > 0)?.request.toolCount ?? 0,
+		firstRequestInputTokens: firstRequest?.usage.input ?? 0,
+		toolsInFirstRequest: firstRequest?.request.toolCount ?? 0,
 		costUsd: sum((r) => requestCost(model, r)),
 		gatewayReportedCostUsd: ok.every((r) => r.usage.gatewayCost !== null)
 			? sum((r) => r.usage.gatewayCost)

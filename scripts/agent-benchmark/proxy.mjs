@@ -3,6 +3,12 @@ import { createServer } from "node:http";
 import { connect } from "node:net";
 import { dirname } from "node:path";
 import { TLSSocket } from "node:tls";
+import {
+	brotliDecompressSync,
+	gunzipSync,
+	inflateSync,
+	zstdDecompressSync,
+} from "node:zlib";
 
 const port = Number(process.env.BENCH_PROXY_PORT ?? 0);
 const runId = process.env.BENCH_RUN_ID ?? "adhoc";
@@ -215,6 +221,23 @@ function normalizeUsage(format, u) {
 	};
 }
 
+const decoders = {
+	gzip: gunzipSync,
+	"x-gzip": gunzipSync,
+	deflate: inflateSync,
+	br: brotliDecompressSync,
+	zstd: zstdDecompressSync,
+};
+
+function decodeBody(body, encoding) {
+	return String(encoding ?? "")
+		.split(",")
+		.map((e) => e.trim().toLowerCase())
+		.filter((e) => e && e !== "identity")
+		.reverse()
+		.reduce((buf, e) => decoders[e](buf), body);
+}
+
 const server = createServer(async (req, res) => {
 	const started = Date.now();
 	const rawUrl = req.url ?? "/";
@@ -229,7 +252,11 @@ const server = createServer(async (req, res) => {
 	let parsedBody;
 	try {
 		parsedBody = requestBody.length
-			? JSON.parse(requestBody.toString("utf8"))
+			? JSON.parse(
+					decodeBody(requestBody, req.headers["content-encoding"]).toString(
+						"utf8",
+					),
+				)
 			: undefined;
 	} catch {}
 	const headers = {};
