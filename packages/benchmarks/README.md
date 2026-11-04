@@ -56,6 +56,8 @@ Output paths resolve from the package working directory, and their parent direct
 
 Run `pnpm benchmark -- --help` for all options. Mapping selectors accept a provider, exact `provider:region`, `provider:*` for every region, or `*` for every active mapping.
 
+The CLI reads mappings from the gateway's `/v1/models` (next to `--url`), which includes Airside listings that the static catalogue lacks. `--catalogue static` uses `resolveBenchmarkTargets()` instead; programmatically, pass `fetchGatewayMappingDescriptors()` output to `buildBenchmarkTargets()`.
+
 ## Metrics
 
 Quality is reported overall and by capability dimension, category, and difficulty. Repeated cases include first-pass accuracy, consistency, answer entropy, calibration, robustness drop, pairwise agreement, agreement on reference errors, rare-error agreement, and behavioral similarity with a bootstrap confidence interval.
