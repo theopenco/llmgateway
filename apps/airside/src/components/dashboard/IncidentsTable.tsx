@@ -115,12 +115,14 @@ function ErrorDetails({
 	mapping,
 	window,
 	includeRetried,
+	groupSimilar,
 	includeByok,
 }: {
 	providerCompanyId: string;
 	mapping: IncidentMapping;
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	includeByok: boolean;
 }) {
 	const api = useApi();
@@ -135,6 +137,7 @@ function ErrorDetails({
 					mapping: mapping.usedModel,
 					window,
 					includeRetried: includeRetried ? "true" : "false",
+					groupSimilar: groupSimilar ? "true" : "false",
 					includeByok: includeByok ? "true" : "false",
 				},
 			},
@@ -244,12 +247,14 @@ export function IncidentsTable({
 	mappings,
 	window,
 	includeRetried,
+	groupSimilar,
 	includeByok,
 }: {
 	providerCompanyId: string;
 	mappings: IncidentMapping[];
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	groupSimilar: boolean;
 	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(
@@ -344,6 +349,7 @@ export function IncidentsTable({
 											mapping={mapping}
 											window={window}
 											includeRetried={includeRetried}
+											groupSimilar={groupSimilar}
 											includeByok={includeByok}
 										/>
 									</TableCell>

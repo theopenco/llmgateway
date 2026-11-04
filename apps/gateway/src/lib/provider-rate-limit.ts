@@ -1,38 +1,27 @@
 import { randomUUID } from "node:crypto";
 
-import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { findEffectiveRateLimit } from "./cached-queries.js";
+import {
+	addTokenWindowEntry,
+	addWindowEntry,
+	isRateLimitExempt,
+	PROVIDER_RATE_LIMIT_WINDOWS,
+	providerRateLimitWindows,
+	readRequestWindow,
+	readTokenWindow,
+	TOKEN_WINDOWS,
+	type ProviderRateLimitExemption,
+	type ProviderRateLimitWindow,
+	type ProviderRateLimitWindowState,
+} from "./rate-limit-windows.js";
 
-import type { RateLimitMode, RateLimitSource } from "@llmgateway/db";
-
-export const providerRateLimitWindows = {
-	rpm: {
-		headerSuffix: "RPM",
-		label: "requests per minute",
-		redisSuffix: "rpm",
-		seconds: 60,
-	},
-	rpd: {
-		headerSuffix: "RPD",
-		label: "requests per day",
-		redisSuffix: "rpd",
-		seconds: 60 * 60 * 24,
-	},
-} as const;
-
-export type ProviderRateLimitWindow = keyof typeof providerRateLimitWindows;
-
-export interface ProviderRateLimitWindowState {
-	currentCount: number;
-	limit: number;
-	remaining: number;
-	rateLimited: boolean;
-	retryAfter?: number;
-	source: RateLimitSource;
-	mode: RateLimitMode;
-}
+import type {
+	EffectiveRateLimit,
+	RateLimitMode,
+	RateLimitSource,
+} from "@llmgateway/db";
 
 export interface ProviderRateLimitResult {
 	allowed: boolean;
@@ -86,6 +75,59 @@ function buildProviderRateLimitKey(
 	);
 }
 
+interface WindowConfig {
+	limit: number;
+	source: RateLimitSource;
+	mode: RateLimitMode;
+	shared?: boolean;
+	provider?: string | null;
+	model?: string | null;
+}
+
+function getWindowConfig(
+	effective: EffectiveRateLimit,
+	window: ProviderRateLimitWindow,
+): WindowConfig {
+	switch (window) {
+		case "rpm":
+			return {
+				limit: effective.maxRpm,
+				source: effective.rpmSource,
+				mode: effective.rpmMode ?? "strict",
+				shared: effective.rpmShared,
+				provider: effective.rpmProvider,
+				model: effective.rpmModel,
+			};
+		case "rpd":
+			return {
+				limit: effective.maxRpd,
+				source: effective.rpdSource,
+				mode: effective.rpdMode ?? "strict",
+				shared: effective.rpdShared,
+				provider: effective.rpdProvider,
+				model: effective.rpdModel,
+			};
+		case "tpm":
+			return {
+				limit: effective.maxTpm ?? 0,
+				source: effective.tpmSource ?? "none",
+				mode: effective.tpmMode ?? "strict",
+				shared: effective.tpmShared,
+				provider: effective.tpmProvider,
+				model: effective.tpmModel,
+			};
+		case "tpd":
+			return {
+				limit: effective.maxTpd ?? 0,
+				source: effective.tpdSource ?? "none",
+				mode: effective.tpdMode ?? "strict",
+				shared: effective.tpdShared,
+				provider: effective.tpdProvider,
+				model: effective.tpdModel,
+			};
+	}
+}
+
 async function readWindowState(
 	key: string,
 	window: ProviderRateLimitWindow,
@@ -109,54 +151,9 @@ async function readWindowState(
 		};
 	}
 
-	const windowSeconds = providerRateLimitWindows[window].seconds;
-	const windowDurationMs = windowSeconds * 1000;
-	const windowStart = now - windowDurationMs;
-
-	await redisClient.zremrangebyscore(key, "-inf", windowStart);
-	const currentCount = await redisClient.zcard(key);
-
-	if (currentCount >= limit) {
-		const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
-		const retryAfter =
-			oldestEntry.length > 1
-				? Math.max(
-						1,
-						Math.ceil(
-							(parseInt(oldestEntry[1], 10) + windowDurationMs - now) / 1000,
-						),
-					)
-				: windowSeconds;
-
-		return {
-			currentCount,
-			limit,
-			remaining: 0,
-			rateLimited: true,
-			retryAfter,
-			source,
-			mode,
-		};
-	}
-
-	return {
-		currentCount,
-		limit,
-		remaining: Math.max(0, limit - currentCount),
-		rateLimited: false,
-		source,
-		mode,
-	};
-}
-
-async function addWindowEntry(
-	key: string,
-	window: ProviderRateLimitWindow,
-	now: number,
-	member: string,
-): Promise<void> {
-	await redisClient.zadd(key, now, member);
-	await redisClient.expire(key, providerRateLimitWindows[window].seconds * 2);
+	return providerRateLimitWindows[window].unit === "tokens"
+		? await readTokenWindow(key, window, limit, now, source, mode)
+		: await readRequestWindow(key, window, limit, now, source, mode);
 }
 
 function getCombinedRetryAfter(
@@ -178,30 +175,51 @@ function getCombinedRetryAfter(
 	}, undefined);
 }
 
+function buildUnlimitedLimits(): Record<
+	ProviderRateLimitWindow,
+	ProviderRateLimitWindowState
+> {
+	const unlimited: ProviderRateLimitWindowState = {
+		currentCount: 0,
+		limit: 0,
+		remaining: 0,
+		rateLimited: false,
+		source: "none",
+		mode: "strict",
+	};
+	return {
+		rpm: { ...unlimited },
+		rpd: { ...unlimited },
+		tpm: { ...unlimited },
+		tpd: { ...unlimited },
+	};
+}
+
 function buildFallbackResult(): ProviderRateLimitResult {
 	return {
 		allowed: true,
 		rateLimited: false,
 		blockedBy: [],
-		limits: {
-			rpm: {
-				currentCount: 0,
-				limit: 0,
-				remaining: 0,
-				rateLimited: false,
-				source: "none",
-				mode: "strict",
-			},
-			rpd: {
-				currentCount: 0,
-				limit: 0,
-				remaining: 0,
-				rateLimited: false,
-				source: "none",
-				mode: "strict",
-			},
-		},
+		limits: buildUnlimitedLimits(),
 	};
+}
+
+function buildWindowKey(
+	window: ProviderRateLimitWindow,
+	organizationId: string,
+	provider: string,
+	model: string,
+	config: WindowConfig,
+): string {
+	return buildProviderRateLimitKey(
+		window,
+		organizationId,
+		provider,
+		model,
+		config.shared,
+		config.provider,
+		config.model,
+	);
 }
 
 async function getProviderRateLimitStates(
@@ -219,44 +237,26 @@ async function getProviderRateLimitStates(
 	);
 	const now = Date.now();
 
-	const keys = {
-		rpm: buildProviderRateLimitKey(
-			"rpm",
+	const keys = {} as Record<ProviderRateLimitWindow, string>;
+	const limits = buildUnlimitedLimits();
+	for (const window of PROVIDER_RATE_LIMIT_WINDOWS) {
+		const config = getWindowConfig(effectiveRateLimit, window);
+		keys[window] = buildWindowKey(
+			window,
 			organizationId,
 			provider,
 			model,
-			effectiveRateLimit.rpmShared,
-			effectiveRateLimit.rpmProvider,
-			effectiveRateLimit.rpmModel,
-		),
-		rpd: buildProviderRateLimitKey(
-			"rpd",
-			organizationId,
-			provider,
-			model,
-			effectiveRateLimit.rpdShared,
-			effectiveRateLimit.rpdProvider,
-			effectiveRateLimit.rpdModel,
-		),
-	};
-	const limits = {
-		rpm: await readWindowState(
-			keys.rpm,
-			"rpm",
-			effectiveRateLimit.maxRpm,
+			config,
+		);
+		limits[window] = await readWindowState(
+			keys[window],
+			window,
+			config.limit,
 			now,
-			effectiveRateLimit.rpmSource,
-			effectiveRateLimit.rpmMode ?? "strict",
-		),
-		rpd: await readWindowState(
-			keys.rpd,
-			"rpd",
-			effectiveRateLimit.maxRpd,
-			now,
-			effectiveRateLimit.rpdSource,
-			effectiveRateLimit.rpdMode ?? "strict",
-		),
-	};
+			config.source,
+			config.mode,
+		);
+	}
 
 	return { keys, limits };
 }
@@ -285,10 +285,7 @@ function isSessionExemptible(
 	);
 }
 
-export interface ProviderRateLimitExemption {
-	sessionPinned?: boolean;
-	explicitProvider?: boolean;
-}
+export type { ProviderRateLimitExemption };
 
 export function getProviderRateLimitBypassReason(
 	result: Pick<ProviderRateLimitResult, "limits" | "blockedBy">,
@@ -297,13 +294,9 @@ export function getProviderRateLimitBypassReason(
 	if (result.blockedBy.length === 0) {
 		return undefined;
 	}
-	const allowed = result.blockedBy.every((window) => {
-		const { mode } = result.limits[window];
-		return (
-			(mode === "soft" || mode === "lax") &&
-			(options.sessionPinned || (mode === "lax" && options.explicitProvider))
-		);
-	});
+	const allowed = result.blockedBy.every((window) =>
+		isRateLimitExempt(result.limits[window].mode, options),
+	);
 	return allowed
 		? options.sessionPinned
 			? "session_pin"
@@ -402,7 +395,7 @@ export async function filterRateLimitedProviders(
 }
 
 /**
- * Pick fallback candidates that are not at their RPM/RPD cap.
+ * Pick fallback candidates that are not at a request or token cap.
  * Dedupes peeks by providerId since rate limits are keyed by org+provider+root
  * model id, so region-expanded variants share the same window. Falls open to
  * original candidates if every one is capped, except exhausted lax or zero caps.
@@ -493,7 +486,11 @@ export async function checkProviderRateLimit(
 			Object.entries(limits) as Array<
 				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
 			>
-		).filter(([, limit]) => limit.limit > 0 || limit.rateLimited);
+		).filter(
+			([window, limit]) =>
+				providerRateLimitWindows[window].unit === "requests" &&
+				(limit.limit > 0 || limit.rateLimited),
+		);
 
 		await Promise.all(
 			configuredWindows.map(([window]) =>
@@ -510,10 +507,7 @@ export async function checkProviderRateLimit(
 				};
 				return acc;
 			},
-			{
-				rpm: limits.rpm,
-				rpd: limits.rpd,
-			},
+			{ ...limits },
 		);
 
 		logger.debug(`Provider rate limit check passed`, {
@@ -533,5 +527,46 @@ export async function checkProviderRateLimit(
 	} catch (error) {
 		logger.error("Error checking provider rate limit:", error as Error);
 		return buildFallbackResult();
+	}
+}
+
+/**
+ * Add a logged request's prompt + completion tokens to the token windows of
+ * the provider/model caps that apply to it. Token caps are post-paid: the
+ * request that crosses a cap completes, and later ones are rejected until the
+ * window slides. Swallows its own errors so logging is never blocked.
+ */
+export async function recordProviderTokenUsage(
+	organizationId: string,
+	provider: string,
+	model: string,
+	tokens: number,
+): Promise<void> {
+	if (!(tokens > 0)) {
+		return;
+	}
+	try {
+		const effectiveRateLimit = await findEffectiveRateLimit(
+			organizationId,
+			provider,
+			model,
+		);
+		const now = Date.now();
+		await Promise.all(
+			TOKEN_WINDOWS.map(async (window) => {
+				const config = getWindowConfig(effectiveRateLimit, window);
+				if (config.limit <= 0) {
+					return;
+				}
+				await addTokenWindowEntry(
+					buildWindowKey(window, organizationId, provider, model, config),
+					window,
+					now,
+					tokens,
+				);
+			}),
+		);
+	} catch (error) {
+		logger.error("Error recording provider token usage:", error as Error);
 	}
 }

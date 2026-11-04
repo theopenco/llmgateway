@@ -45,9 +45,11 @@ import {
 } from "@/lib/providers-catalog";
 
 import {
+	applyDeclaredCompliance,
 	countryCodeToFlag,
 	getProviderCountries,
 	isProviderCompliant,
+	type DeclaredCompliance,
 	type ProviderCompliancePolicy,
 	type ProviderDataPolicy,
 	type ProviderId,
@@ -179,6 +181,9 @@ interface ProvidersGridProps {
 	extraProviders?: ExtraGridProvider[];
 	/** API-backed counts, including approved Airside listings. */
 	modelCounts?: Record<string, number>;
+	/** providerId → certifications the Airside carrier declared over the
+	 *  reviewed catalogue policy. */
+	declaredCompliance?: Record<string, DeclaredCompliance>;
 }
 
 type GridProvider =
@@ -201,6 +206,7 @@ export function ProvidersGrid({
 	uploadedLogos,
 	extraProviders,
 	modelCounts,
+	declaredCompliance,
 }: ProvidersGridProps = {}) {
 	const router = useRouter();
 	const api = useApi();
@@ -222,15 +228,21 @@ export function ProvidersGrid({
 	};
 
 	const visibleProviders = useMemo<GridProvider[]>(() => {
-		const listedProviders = publicProviderDefinitions.filter(
-			(provider) => modelsCountOf(provider, modelCounts) > 0,
-		);
+		const listedProviders = publicProviderDefinitions
+			.filter((provider) => modelsCountOf(provider, modelCounts) > 0)
+			.map((provider) => ({
+				...provider,
+				dataPolicy: applyDeclaredCompliance(
+					provider.dataPolicy,
+					declaredCompliance?.[provider.id],
+				),
+			}));
 		const all = [...listedProviders, ...(extraProviders ?? [])];
 		if (countryCode) {
 			return all.filter((p) => p.headquarters === countryCode);
 		}
 		return all;
-	}, [countryCode, extraProviders, modelCounts]);
+	}, [countryCode, extraProviders, modelCounts, declaredCompliance]);
 
 	const totalProviders = visibleProviders.length;
 	const totalModels = visibleProviders.reduce(

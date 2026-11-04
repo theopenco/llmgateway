@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import {
 	APICallError,
 	convertToModelMessages,
@@ -12,6 +12,7 @@ import {
 import { HTTPException } from "hono/http-exception";
 
 import { listConnectorTools } from "@/lib/connectors/tools.js";
+import { createRoute } from "@/utils/create-route.js";
 import { resolvePlaygroundToken } from "@/utils/playground-key.js";
 import { isUpstreamError } from "@/utils/upstream-error.js";
 
@@ -59,7 +60,7 @@ loungeChat.openapi(
 										z.object({
 											id: z.string().min(1).max(255),
 											role: z.enum(["user", "assistant", "system"]),
-											parts: z.array(z.record(z.unknown())).min(1),
+											parts: z.array(z.record(z.string(), z.unknown())).min(1),
 										}),
 									)
 									.min(1),

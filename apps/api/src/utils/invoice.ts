@@ -16,6 +16,10 @@ export function escapeHtml(unsafe: string): string {
 		.replace(/'/g, "&#039;");
 }
 
+// Card refunds take days to reach the statement; every refund email says so.
+export const REFUND_ARRIVAL_NOTICE =
+	"It may take 5–10 business days to appear on your bank statement, depending on your bank.";
+
 export interface InvoiceLineItem {
 	description: string;
 	amount: number;
@@ -222,6 +226,12 @@ export async function generateAndEmailInvoice(
 
 		const pdfBuffer = await generateInvoicePDF(data);
 
+		const isCreditNote = data.documentType === "credit_note";
+		const label = isCreditNote ? "Credit note" : "Invoice";
+		const intro = isCreditNote
+			? `Your refund has been processed and is on its way. ${REFUND_ARRIVAL_NOTICE}`
+			: "Thank you for your payment!";
+
 		const escapedInvoiceNumber = escapeHtml(data.invoiceNumber);
 		const escapedCurrency = escapeHtml(data.currency);
 		const escapedOrganizationId = data.organizationId
@@ -231,10 +241,10 @@ export async function generateAndEmailInvoice(
 		await sendTransactionalEmail({
 			to: data.billingEmail,
 			organizationId: data.organizationId,
-			subject: `Invoice ${escapedInvoiceNumber} - LLMGateway`,
+			subject: `${label} ${escapedInvoiceNumber} - LLMGateway`,
 			attachments: [
 				{
-					filename: `invoice-${escapedInvoiceNumber}.pdf`,
+					filename: `${isCreditNote ? "credit-note" : "invoice"}-${escapedInvoiceNumber}.pdf`,
 					content: pdfBuffer,
 					contentType: "application/pdf",
 				},
@@ -245,7 +255,7 @@ export async function generateAndEmailInvoice(
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>Invoice ${escapedInvoiceNumber}</title>
+		<title>${label} ${escapedInvoiceNumber}</title>
 	</head>
 	<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #ffffff;">
 		<table role="presentation" style="width: 100%; border-collapse: collapse;">
@@ -254,19 +264,19 @@ export async function generateAndEmailInvoice(
 					<table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse;">
 						<tr>
 							<td style="background-color: #000000; padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;">
-								<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Invoice ${escapedInvoiceNumber}</h1>
+								<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">${label} ${escapedInvoiceNumber}</h1>
 							</td>
 						</tr>
 						<tr>
 							<td style="background-color: #f8f9fa; padding: 40px 30px; border-radius: 0 0 8px 8px;">
 								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									Thank you for your payment!
+									${intro}
 								</p>
 								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									Please find your invoice attached to this email.
+									Please find your ${label.toLowerCase()} attached to this email.
 								</p>
 								<p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #666666;">
-									<strong>Invoice Number:</strong> ${escapedInvoiceNumber}<br>
+									<strong>${label} Number:</strong> ${escapedInvoiceNumber}<br>
 									${escapedOrganizationId ? `<strong>Organization ID:</strong> ${escapedOrganizationId}<br>` : ""}
 									<strong>Date:</strong> ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}<br>
 									<strong>Total:</strong> ${escapedCurrency} ${data.lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}
@@ -276,7 +286,7 @@ export async function generateAndEmailInvoice(
 						<tr>
 							<td style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;">
 								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									If you have any questions about this invoice, please contact us at <a href="mailto:contact@llmgateway.io" style="color: #000000; text-decoration: none;">contact@llmgateway.io</a>
+									If you have any questions about this ${label.toLowerCase()}, please contact us at <a href="mailto:contact@llmgateway.io" style="color: #000000; text-decoration: none;">contact@llmgateway.io</a>
 								</p>
 								${renderFooterNoticeHtml("transactional")}
 							</td>

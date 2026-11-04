@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 import { describe, expect, test } from "vitest";
 
+import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -64,11 +65,11 @@ describe("realtime preflight with managed credentials", () => {
 		// Health failures must attribute to the credential actually sent.
 		expect(result.trackedKeyHealthId).toBe("managed-openai");
 		expect(result.envVarName).toBeUndefined();
-		const [organization] = await db
-			.select({ safetyIdentifier: tables.organization.safetyIdentifier })
-			.from(tables.organization)
-			.where(eq(tables.organization.id, "org-id"));
-		expect(result.safetyIdentifier).toBe(organization?.safetyIdentifier);
+		const [apiKey] = await db
+			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
+			.from(tables.apiKey)
+			.where(eq(tables.apiKey.id, "token-id"));
+		expect(result.safetyIdentifier).toBe(apiKey?.safetyIdentifier);
 		// A managed credential is the platform's own key: the org is billed for
 		// the session exactly as it was on the env-var path.
 		expect(result.usedMode).toBe("credits");
@@ -157,5 +158,63 @@ describe("realtime preflight with managed credentials", () => {
 		});
 		expect(row?.providerDiscountPercent).toBeCloseTo(0.05);
 		expect(row?.providerMarginPercent).toBeCloseTo(0.25);
+	});
+});
+describe("realtime round-robin credential selection", () => {
+	const harness = createGatewayApiTestHarness();
+	test("client-secret minting does not consume connection turns", async () => {
+		await harness.setProjectMode("credits");
+		await db.insert(tables.apiKey).values({
+			id: "rr-api-key",
+			...hashApiKeyForStorage("test-token"),
+			projectId: "project-id",
+			description: "Round robin test",
+			createdBy: "user-id",
+		});
+		for (const [sortOrder, id] of ["realtime-a", "realtime-b"].entries()) {
+			await cdb.insert(tables.providerKey).values({
+				id,
+				provider: "openai",
+				managed: true,
+				sortOrder,
+				selectionStrategy: "round_robin",
+				...encryptProviderKeyForStorage(`token-${id}`, id, null),
+			});
+		}
+		const previousEnabled = process.env.REALTIME_ENABLED;
+		process.env.REALTIME_ENABLED = "true";
+		try {
+			const selected = [];
+			for (let index = 0; index < 4; index++) {
+				const mint = await app.request("/v1/realtime/client_secrets", {
+					method: "POST",
+					headers: {
+						Authorization: "Bearer test-token",
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						session: { type: "realtime", model: "gpt-realtime" },
+					}),
+				});
+				expect(mint.status).toBe(200);
+				const connection = await runRealtimePreflight({
+					token: "test-token",
+					requestedModel: "gpt-realtime",
+				});
+				selected.push(connection.managedKey?.id);
+			}
+			expect(selected).toEqual([
+				"realtime-a",
+				"realtime-b",
+				"realtime-a",
+				"realtime-b",
+			]);
+		} finally {
+			if (previousEnabled === undefined) {
+				delete process.env.REALTIME_ENABLED;
+			} else {
+				process.env.REALTIME_ENABLED = previousEnabled;
+			}
+		}
 	});
 });

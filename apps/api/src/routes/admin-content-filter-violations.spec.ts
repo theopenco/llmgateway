@@ -97,6 +97,24 @@ describe("admin content filter violations", () => {
 				blockedCount: 0,
 			},
 			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "violence",
+				violationCount: 3,
+			},
+			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				category: "hate",
+				violationCount: 1,
+			},
+			{
 				hourTimestamp: hoursAgo(2),
 				organizationId: "cf-org-b",
 				projectId: "proj-b",
@@ -182,6 +200,7 @@ describe("admin content filter violations", () => {
 							violationCount: 3,
 							blockedCount: 1,
 							violationRate: 0.5,
+							topCategories: [{ category: "violence", violationCount: 3 }],
 						},
 						{
 							usedProvider: "anthropic",
@@ -189,8 +208,12 @@ describe("admin content filter violations", () => {
 							violationCount: 1,
 							blockedCount: 0,
 							violationRate: 0.25,
+							topCategories: [{ category: "hate", violationCount: 1 }],
 						},
 					],
+					topApiKeys: [],
+					topUpNet: 0,
+					subscriptionNet: 0,
 				},
 				{
 					organizationId: "cf-org-b",
@@ -219,8 +242,12 @@ describe("admin content filter violations", () => {
 							violationCount: 1,
 							blockedCount: 0,
 							violationRate: 0.05,
+							topCategories: [],
 						},
 					],
+					topApiKeys: [],
+					topUpNet: 0,
+					subscriptionNet: 0,
 				},
 			],
 			models: [
@@ -303,6 +330,15 @@ describe("admin content filter violations", () => {
 			violationCount: 2,
 			blockedCount: 1,
 		});
+		await db.insert(tables.contentFilterHourlyModelStats).values({
+			hourTimestamp: hoursAgo(1),
+			organizationId: "cf-org-a",
+			projectId: "proj-a",
+			usedModel: "openai/gpt-5.6-terra",
+			usedProvider: "openai",
+			category: "hate",
+			violationCount: 2,
+		});
 
 		const res = await app.request(
 			"/admin/content-filter/violations?window=24h",
@@ -319,9 +355,134 @@ describe("admin content filter violations", () => {
 				violationCount: 5,
 				blockedCount: 2,
 				violationRate: 5 / 16,
+				// Categories sum across the provider's models, ranked by count.
+				topCategories: [
+					{ category: "violence", violationCount: 3 },
+					{ category: "hate", violationCount: 2 },
+				],
 			},
 			{
 				usedProvider: "anthropic",
+				sampledCount: 4,
+				violationCount: 1,
+				blockedCount: 0,
+				violationRate: 0.25,
+				topCategories: [{ category: "hate", violationCount: 1 }],
+			},
+		]);
+	});
+
+	test("lists each organization's top API keys", async () => {
+		await db.insert(tables.project).values({
+			id: "proj-a",
+			name: "Project A",
+			organizationId: "cf-org-a",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "cf-key-a1",
+			description: "Key A1",
+			tokenHash: "cf-key-a1-hash",
+			tokenMasked: "masked",
+			projectId: "proj-a",
+			createdBy: "test-user-id",
+			status: "inactive",
+		});
+		const row = {
+			organizationId: "cf-org-a",
+			projectId: "proj-a",
+			classifier: "openai",
+			category: "all",
+		};
+		await db.insert(tables.contentFilterHourlyApiKeyStats).values([
+			{
+				...row,
+				hourTimestamp: hoursAgo(1),
+				apiKeyId: "cf-key-a1",
+				sampledCount: 6,
+				violationCount: 3,
+				blockedCount: 1,
+			},
+			{
+				...row,
+				hourTimestamp: hoursAgo(2),
+				apiKeyId: "cf-key-a1",
+				sampledCount: 2,
+				violationCount: 0,
+				blockedCount: 0,
+			},
+			// A key row that no longer exists keeps its counts.
+			{
+				...row,
+				hourTimestamp: hoursAgo(1),
+				apiKeyId: "cf-key-gone",
+				sampledCount: 4,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			// Sampled without a violation: takes no top-key slot.
+			{
+				...row,
+				hourTimestamp: hoursAgo(1),
+				apiKeyId: "cf-key-clean",
+				sampledCount: 50,
+				violationCount: 0,
+				blockedCount: 0,
+			},
+			// Category rows and shadow rows never feed the totals.
+			{
+				...row,
+				hourTimestamp: hoursAgo(1),
+				apiKeyId: "cf-key-a1",
+				category: "violence",
+				sampledCount: 0,
+				violationCount: 3,
+				blockedCount: 0,
+			},
+			{
+				...row,
+				hourTimestamp: hoursAgo(1),
+				apiKeyId: "cf-key-gone",
+				role: "shadow",
+				sampledCount: 100,
+				violationCount: 100,
+				blockedCount: 0,
+			},
+			// Outside the 24h window.
+			{
+				...row,
+				hourTimestamp: hoursAgo(30),
+				apiKeyId: "cf-key-gone",
+				sampledCount: 100,
+				violationCount: 100,
+				blockedCount: 0,
+			},
+		]);
+
+		const res = await app.request(
+			"/admin/content-filter/violations?window=24h",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		const orgA = body.organizations.find(
+			(org: { organizationId: string }) => org.organizationId === "cf-org-a",
+		);
+		expect(orgA.topApiKeys).toEqual([
+			{
+				apiKeyId: "cf-key-a1",
+				description: "Key A1",
+				status: "inactive",
+				projectId: "proj-a",
+				sampledCount: 8,
+				violationCount: 3,
+				blockedCount: 1,
+				violationRate: 3 / 8,
+			},
+			{
+				apiKeyId: "cf-key-gone",
+				description: null,
+				status: null,
+				projectId: "proj-a",
 				sampledCount: 4,
 				violationCount: 1,
 				blockedCount: 0,
@@ -423,6 +584,11 @@ describe("admin content filter violations", () => {
 			usedProvider: "openai",
 			category: "all",
 		});
+		await db.insert(tables.contentFilterHourlyApiKeyStats).values({
+			...shadow,
+			apiKeyId: "cf-key-a1",
+			category: "all",
+		});
 		expect(await read()).toEqual(before);
 
 		// Requests decided by another classifier in the same hour add up.
@@ -438,6 +604,112 @@ describe("admin content filter violations", () => {
 			sampledCount: 35,
 			violationCount: 6,
 			blockedCount: 1,
+		});
+	});
+
+	test("reports each organization's net top-ups and subscription value", async () => {
+		await db.insert(tables.transaction).values([
+			// Top-ups net of their refund's credit clawback.
+			{
+				id: "cf-topup",
+				organizationId: "cf-org-a",
+				type: "credit_topup",
+				amount: "52.50",
+				creditAmount: "50",
+				status: "completed",
+			},
+			{
+				organizationId: "cf-org-a",
+				type: "credit_manual_payment",
+				amount: "20",
+				creditAmount: "20",
+				status: "completed",
+			},
+			{
+				organizationId: "cf-org-a",
+				type: "credit_refund",
+				amount: "10",
+				creditAmount: "-10",
+				status: "completed",
+				relatedTransactionId: "cf-topup",
+			},
+			// Never counted: failed, gifted.
+			{
+				organizationId: "cf-org-a",
+				type: "credit_topup",
+				amount: "100",
+				creditAmount: "100",
+				status: "failed",
+			},
+			{
+				organizationId: "cf-org-a",
+				type: "credit_gift",
+				creditAmount: "25",
+				status: "completed",
+			},
+			// DevPass charges: dollars count, the plan's virtual credits do not.
+			{
+				organizationId: "cf-org-b",
+				type: "dev_plan_start",
+				amount: "29",
+				creditAmount: "87",
+				status: "completed",
+				stripeInvoiceId: "inv_cf_1",
+			},
+			// Zero-amount and bookkeeping rows never count.
+			{
+				organizationId: "cf-org-b",
+				type: "dev_plan_cancel",
+				amount: "0",
+				status: "completed",
+			},
+			{
+				id: "cf-devpass-upgrade",
+				organizationId: "cf-org-b",
+				type: "dev_plan_upgrade",
+				amount: "50",
+				status: "completed",
+				stripeInvoiceId: "inv_cf_2",
+			},
+			{
+				organizationId: "cf-org-b",
+				type: "credit_refund",
+				amount: "20",
+				creditAmount: "0",
+				status: "completed",
+				relatedTransactionId: "cf-devpass-upgrade",
+			},
+			{
+				organizationId: "cf-org-b",
+				type: "chat_plan_renewal",
+				amount: "10",
+				status: "completed",
+				stripeInvoiceId: "inv_cf_3",
+			},
+		]);
+
+		const res = await app.request(
+			"/admin/content-filter/violations?window=24h",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		const revenue = Object.fromEntries(
+			body.organizations.map(
+				(org: {
+					organizationId: string;
+					topUpNet: number;
+					subscriptionNet: number;
+				}) => [
+					org.organizationId,
+					{ topUpNet: org.topUpNet, subscriptionNet: org.subscriptionNet },
+				],
+			),
+		);
+		expect(revenue).toEqual({
+			"cf-org-a": { topUpNet: 60, subscriptionNet: 0 },
+			// 29 + 50 - 20 refunded + 10.
+			"cf-org-b": { topUpNet: 0, subscriptionNet: 69 },
 		});
 	});
 

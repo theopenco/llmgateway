@@ -3,10 +3,16 @@ import Link from "next/link";
 
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
-import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
+import { fetchProviders } from "@/lib/fetch-models";
+import {
+	activeModelCounts,
+	declaredComplianceByProvider,
+	listedProviders,
+} from "@/lib/providers-catalog";
 
 import {
 	PROVIDER_COUNTRY_NAMES,
+	applyDeclaredCompliance,
 	countryCodeToFlag,
 	type ProviderDataPolicy,
 	type ProviderDefinition,
@@ -227,7 +233,10 @@ function Compliance({
 	);
 }
 
-export default function ProviderLegalInformationPage() {
+export default async function ProviderLegalInformationPage() {
+	const declaredCompliance = declaredComplianceByProvider(
+		await fetchProviders(),
+	);
 	const providers = listedProviders
 		.filter((provider) => Boolean(provider.website))
 		.sort((a, b) => a.name.localeCompare(b.name));
@@ -324,7 +333,12 @@ export default function ProviderLegalInformationPage() {
 											<DataHandling policy={provider.dataPolicy} />
 										</td>
 										<td className="px-4 py-5">
-											<Compliance policy={provider.dataPolicy} />
+											<Compliance
+												policy={applyDeclaredCompliance(
+													provider.dataPolicy,
+													declaredCompliance[provider.id],
+												)}
+											/>
 										</td>
 										<td className="px-4 py-5">
 											<div className="min-w-40 space-y-3">

@@ -47,6 +47,7 @@ export function UnstableErrorMessageFilter({
 				onChange={(event) => setValue(event.target.value)}
 				placeholder="text in error details"
 				aria-label="Filter errors by message"
+				title="Matches the raw error text, so search without <id>, <uuid>, or <n> placeholders."
 				maxLength={500}
 				className="h-8 w-64 text-xs"
 				disabled={isPending}

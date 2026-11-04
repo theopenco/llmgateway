@@ -1,3 +1,31 @@
+export const DATA_PROTECTION_POLICY_KEYS = [
+	"requireGdpr",
+	"blockApiTraining",
+	"blockPromptLogging",
+	"blockStealthProviders",
+	"allowedCountries",
+] as const satisfies readonly (keyof ProviderCompliancePolicy)[];
+
+/**
+ * Projects a policy onto the data-protection controls in
+ * {@link DATA_PROTECTION_POLICY_KEYS}, preserving `enabled`.
+ *
+ * This is the subset a non-enterprise organization may configure, so the
+ * dashboard uses it to build what it saves and previews for those plans.
+ */
+export function projectPolicyToDataProtection(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy {
+	return {
+		enabled: policy.enabled,
+		requireGdpr: policy.requireGdpr,
+		blockApiTraining: policy.blockApiTraining,
+		blockPromptLogging: policy.blockPromptLogging,
+		blockStealthProviders: policy.blockStealthProviders,
+		allowedCountries: policy.allowedCountries,
+	};
+}
+
 /**
  * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
  * host is not a fixed domain but is derived from a per-credential workspace
@@ -112,6 +140,48 @@ export interface ProviderDataPolicy {
 	gdpr?: boolean | null;
 }
 
+/**
+ * Certifications a provider declares itself in Airside. A null field keeps
+ * the catalogue's reviewed value; SOC 2 `0` declares no certification.
+ */
+export interface DeclaredCompliance {
+	gdpr: boolean | null;
+	soc2: number | null;
+	iso27001: boolean | null;
+}
+
+/** `policy` with the provider's own declared certifications layered on top. */
+export function applyDeclaredCompliance<
+	T extends ProviderDataPolicy | null | undefined,
+>(
+	policy: T,
+	declared: DeclaredCompliance | null | undefined,
+): T | ProviderDataPolicy {
+	if (
+		!declared ||
+		(declared.gdpr === null &&
+			declared.soc2 === null &&
+			declared.iso27001 === null)
+	) {
+		return policy;
+	}
+	const base: ProviderDataPolicy = policy ?? {
+		apiTraining: null,
+		promptLogging: null,
+	};
+	return {
+		...base,
+		gdpr: declared.gdpr ?? base.gdpr,
+		iso27001: declared.iso27001 ?? base.iso27001,
+		soc2:
+			declared.soc2 === null
+				? base.soc2
+				: declared.soc2 === 1 || declared.soc2 === 2
+					? declared.soc2
+					: null,
+	};
+}
+
 export interface ProviderAdditionalLink {
 	desc: string;
 	link: string;
@@ -198,54 +268,12 @@ export function narrowPolicyToDevPass(
 		: undefined;
 }
 
-/**
- * The subset of {@link ProviderCompliancePolicy} that decides **where personal
- * data may be transferred**, as opposed to the certification and procurement
- * governance the rest of the policy expresses.
- *
- * This split exists for a legal reason, not a commercial one. For the prompts a
- * customer routes through us they are the controller, so they — not us — carry
- * the Art. 44-49 obligation for a transfer to a provider in a country with no
- * adequacy decision. A control that is the customer's only means of discharging
- * that obligation cannot sit behind a plan upgrade, so these can be configured
- * on every plan (enforced at save time by the API). Certification
- * requirements and the fine-grained allow/block lists stay an enterprise
- * feature: they are governance tooling, not a lawful-basis mechanism.
- */
-export const DATA_PROTECTION_POLICY_KEYS = [
-	"requireGdpr",
-	"blockApiTraining",
-	"blockPromptLogging",
-	"blockStealthProviders",
-	"allowedCountries",
-] as const satisfies readonly (keyof ProviderCompliancePolicy)[];
-
-/**
- * Projects a policy onto the data-protection controls in
- * {@link DATA_PROTECTION_POLICY_KEYS}, preserving `enabled`.
- *
- * This is the subset a non-enterprise organization may configure, so the
- * dashboard uses it to build what it saves and previews for those plans.
- */
-export function projectPolicyToDataProtection(
-	policy: ProviderCompliancePolicy,
-): ProviderCompliancePolicy {
-	return {
-		enabled: policy.enabled,
-		requireGdpr: policy.requireGdpr,
-		blockApiTraining: policy.blockApiTraining,
-		blockPromptLogging: policy.blockPromptLogging,
-		blockStealthProviders: policy.blockStealthProviders,
-		allowedCountries: policy.allowedCountries,
-	};
-}
-
 export interface ProviderDefinition {
 	id: string;
 	name: string;
 	description: string;
 	/**
-	 * Whether LLM Gateway forwards its opaque per-organization safety identifier
+	 * Whether LLM Gateway forwards its opaque per-API-key safety identifier
 	 * to this provider. Informational only; request preparation does not use it.
 	 */
 	forwardsSafetyIdentifier: boolean;
@@ -328,6 +356,24 @@ export interface ProviderDefinition {
 }
 
 export const providers: ProviderDefinition[] = [
+	{
+		id: "fal-ai",
+		name: "fal",
+		forwardsSafetyIdentifier: false,
+		description: "fal is a platform for generative media inference.",
+		env: {
+			required: { apiKey: "LLM_FAL_AI_API_KEY" },
+			optional: { baseUrl: "LLM_FAL_AI_BASE_URL" },
+		},
+		website: "https://fal.ai",
+		apiKeyInstructions: "Create an API key in the fal dashboard.",
+		learnMore: "https://fal.ai/dashboard/keys",
+		termsUrl: "https://fal.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://fal.ai/legal/privacy-policy",
+		usagePolicyUrl: "https://fal.ai/legal/acceptable-use-policy",
+		legalEntity: "Features & Labels, Inc.",
+		dataPolicy: null,
+	},
 	{
 		id: "llmgateway",
 		name: "LLM Gateway",
@@ -467,7 +513,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://ai.google.com",
 		statusPageUrl: "https://aistudio.google.com/status",
 		announcement: null,
-		priority: 0.8,
 		serviceTiers: [
 			{
 				id: "flex",
@@ -485,7 +530,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -498,30 +543,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
-	},
-	{
-		id: "glacier",
-		name: "Glacier",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Glacier is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
-		env: {
-			required: {
-				apiKey: "LLM_GLACIER_API_KEY",
-				baseUrl: "LLM_GLACIER_BASE_URL",
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://business.safety.google/processorterms/",
 			},
-		},
-		cancellation: true,
-		color: "#4285f4",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		legalEntity: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.2,
+		],
 	},
 	{
 		id: "google-vertex",
@@ -563,7 +590,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -576,6 +603,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-openai",
@@ -608,7 +641,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -621,6 +654,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-anthropic",
@@ -655,7 +694,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -668,6 +707,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "quartz",
@@ -1164,7 +1209,7 @@ export const providers: ProviderDefinition[] = [
 		id: "azure",
 		name: "Azure",
 		forwardsSafetyIdentifier: true,
-		description: "Microsoft Azure - enterprise-grade OpenAI models",
+		description: "Microsoft Azure - enterprise-grade OpenAI-compatible models",
 		encryptedReasoning: true,
 		env: {
 			required: {
@@ -1226,10 +1271,10 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "azure-ai-foundry",
-		name: "Azure AI Foundry",
+		name: "Azure AI Foundry (Legacy)",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Microsoft Azure AI Foundry - third-party models (Grok, Llama, Mistral, ...) via the Azure Models inference endpoint",
+			"Legacy Azure Model Inference API. Use Azure with the AI Foundry deployment type.",
 		env: {
 			required: {
 				apiKey: "LLM_AZURE_AI_FOUNDRY_API_KEY",
@@ -1243,7 +1288,8 @@ export const providers: ProviderDefinition[] = [
 		color: "#0078D4",
 		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
 		statusPageUrl: "https://status.ai.azure.com",
-		announcement: null,
+		announcement:
+			"Legacy mappings retire on 2026-11-07. Use Azure with the AI Foundry deployment type.",
 		apiKeyInstructions:
 			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
@@ -1566,67 +1612,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "scx-ai",
-		managedInAirside: true,
-		name: "SCX.ai (Turbo)",
-		forwardsSafetyIdentifier: false,
-		description:
-			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
-		env: {
-			required: {
-				apiKey: "LLM_SCX_AI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#1a1a2e",
-		modelCardBadge: "Up to 4x faster",
-		website: "https://scx.ai",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://scx.ai/terms",
-		privacyPolicyUrl: "https://scx.ai/privacy",
-		usagePolicyUrl: "https://scx.ai/terms",
-		legalEntity: "SCX.ai Holdings Limited",
-		headquarters: "AU",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 1,
-			iso27001: true,
-		},
-	},
-	{
-		id: "scx-ai-gp",
-		managedInAirside: true,
-		name: "SCX.ai",
-		forwardsSafetyIdentifier: false,
-		description:
-			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible general-purpose inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
-		env: {
-			required: {
-				apiKey: "LLM_SCX_AI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#1a1a2e",
-		website: "https://scx.ai",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://scx.ai/terms",
-		privacyPolicyUrl: "https://scx.ai/privacy",
-		usagePolicyUrl: "https://scx.ai/terms",
-		legalEntity: "SCX.ai Holdings Limited",
-		headquarters: "AU",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 1,
-			iso27001: true,
-		},
-	},
-	{
 		id: "custom",
 		name: "Custom",
 		forwardsSafetyIdentifier: false,
@@ -1644,32 +1629,6 @@ export const providers: ProviderDefinition[] = [
 		legalEntity: null,
 		headquarters: null,
 		dataPolicy: null,
-	},
-	{
-		id: "nanogpt",
-		name: "NanoGPT",
-		forwardsSafetyIdentifier: false,
-		description: "NanoGPT offers a large selection of models",
-		env: {
-			required: {
-				apiKey: "LLM_NANO_GPT_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#10b981",
-		website: "https://nano-gpt.com",
-		statusPageUrl: "https://status.nano-gpt.com",
-		announcement: null,
-		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
-		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
-		usagePolicyUrl: "https://nano-gpt.com/legal/terms-of-service",
-		legalEntity: "NanoGPT LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: null,
-			retentionPeriod: null,
-		},
 	},
 	{
 		id: "bytedance",
@@ -1736,36 +1695,9 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
-		id: "embercloud",
-		name: "EmberCloud",
-		forwardsSafetyIdentifier: false,
-		description:
-			"EmberCloud provides access to a variety of large language models via an OpenAI-compatible API",
-		env: {
-			required: {
-				apiKey: "LLM_EMBERCLOUD_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#FF6047",
-		website: "https://www.embercloud.ai",
-		statusPageUrl: "https://www.embercloud.ai/status",
-		announcement: null,
-		termsUrl: "https://www.embercloud.ai/terms",
-		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
-		usagePolicyUrl: "https://www.embercloud.ai/terms",
-		legalEntity: "EmberCloud Systems",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: true,
-			retentionPeriod: null,
-		},
-	},
-	{
 		id: "meta",
 		name: "Meta",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
@@ -1808,7 +1740,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta-contributor",
 		name: "Meta Contributor",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's discounted, training-eligible Model API tier for Muse models",
 		env: {
@@ -1996,61 +1928,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "runware",
-		managedInAirside: true,
-		name: "Runware",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Runware provides fast, cost-efficient inference for open and frontier LLMs through an OpenAI-compatible API.",
-		env: {
-			required: {
-				apiKey: "LLM_RUNWARE_API_KEY",
-			},
-			optional: {
-				baseUrl: "LLM_RUNWARE_BASE_URL",
-			},
-		},
-		cancellation: false,
-		color: "#a8f399",
-		website: "https://runware.ai",
-		statusPageUrl: "https://status.runware.ai/",
-		announcement: "Launch offer: 30% off all Runware models until September 9",
-		termsUrl: "https://runware.ai/terms",
-		privacyPolicyUrl: "https://runware.ai/privacy",
-		usagePolicyUrl: "https://runware.ai/terms",
-		legalEntity: "Runware Ltd",
-		headquarters: "GB",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-	},
-	{
-		id: "gonka24",
-		managedInAirside: true,
-		name: "Gonka24",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
-		env: {
-			required: {
-				apiKey: "LLM_GONKA_24_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#000000",
-		website: "https://gonka24.com",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://gonka24.com/terms",
-		privacyPolicyUrl: "https://gonka24.com/privacy",
-		usagePolicyUrl: "https://gonka24.com/terms",
-		legalEntity: "Investment company Temir LLC",
-		headquarters: "KZ",
-		dataPolicy: null,
-	},
-	{
 		id: "fireworks",
 		name: "Fireworks AI",
 		forwardsSafetyIdentifier: false,
@@ -2119,41 +1996,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-	},
-	{
-		id: "consensusprotocol",
-		managedInAirside: true,
-		name: "Consensus Protocol",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
-		env: {
-			required: {
-				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#dc2626",
-		website: "https://consensusprotocol.org",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://consensusprotocol.org/terms",
-		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
-		usagePolicyUrl: "https://consensusprotocol.org/terms",
-		legalEntity: "Consensus Protocol LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			gdpr: null,
-		},
-		additionalLinks: [
-			{
-				desc: "Inference data handling",
-				link: "https://consensusprotocol.org/data-policy",
-			},
-		],
 	},
 	{
 		id: "tencent",
@@ -2254,6 +2096,40 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 	},
+	{
+		id: "cloudflare",
+		name: "Cloudflare",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Cloudflare Workers AI runs open-weight models on Cloudflare's global GPU network through an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_CLOUDFLARE_API_KEY",
+				accountId: "LLM_CLOUDFLARE_ACCOUNT_ID",
+			},
+		},
+		cancellation: true,
+		color: "#F38020",
+		website: "https://developers.cloudflare.com/workers-ai",
+		statusPageUrl: "https://www.cloudflarestatus.com",
+		announcement: null,
+		apiKeyInstructions:
+			"Use a Cloudflare API token with Workers AI permissions, plus the 32-character account ID from your Cloudflare dashboard.",
+		termsUrl: "https://www.cloudflare.com/terms/",
+		privacyPolicyUrl: "https://www.cloudflare.com/privacypolicy/",
+		usagePolicyUrl:
+			"https://www.cloudflare.com/service-specific-terms-developer-platform/",
+		legalEntity: "Cloudflare, Inc.",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -2269,11 +2145,14 @@ export function getProviderDefinition(
  * replay, so moving a conversation to another provider fails upstream.
  */
 export function usesEncryptedReasoning(
-	mapping: { providerId: string; reasoning?: boolean } | undefined,
+	mapping:
+		| { providerId: string; reasoning?: boolean; encryptedReasoning?: boolean }
+		| undefined,
 ): boolean {
 	return (
 		mapping?.reasoning === true &&
-		getProviderDefinition(mapping.providerId)?.encryptedReasoning === true
+		(mapping.encryptedReasoning ??
+			getProviderDefinition(mapping.providerId)?.encryptedReasoning) === true
 	);
 }
 
@@ -2736,9 +2615,6 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
-	KZ: "Kazakhstan",
-	AU: "Australia",
-	GB: "United Kingdom",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

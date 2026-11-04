@@ -8,6 +8,7 @@ import {
 	Wrench,
 	MessageSquare,
 	Sliders,
+	SlidersHorizontal,
 	ImagePlus,
 	Video,
 	Boxes,
@@ -36,6 +37,7 @@ import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
+import { VirtualModelBanner } from "@/components/models/virtual-model-banner";
 import { JsonLd } from "@/components/seo/json-ld";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
@@ -48,6 +50,7 @@ import {
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
+import { pageTitle } from "@/lib/page-title";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -56,6 +59,7 @@ import {
 	providers as providerDefinitions,
 	expandAllProviderRegions,
 	type StabilityLevel,
+	getVirtualModelTarget,
 } from "@llmgateway/models";
 import {
 	formatPerUnitPrice,
@@ -75,13 +79,14 @@ export const revalidate = 60;
 export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
+	const canonicalName = getVirtualModelTarget(decodedName)?.id ?? decodedName;
 
 	// Fetchers resolve to fallbacks, so an early notFound can leave them pending.
 	const modelDefPromise = findPublicModelDefinition(decodedName);
 	const pageDataPromise = Promise.all([
-		fetchModelDiscounts(decodedName),
+		fetchModelDiscounts(canonicalName),
 		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
+			params: { query: { modelId: canonicalName } },
 		}),
 		fetchProviders(),
 	]);
@@ -133,7 +138,7 @@ export default async function ModelPage({ params }: PageProps) {
 		const globalDiscount = getEffectiveProviderDiscount(
 			allDiscounts,
 			provider.providerId,
-			decodedName,
+			canonicalName,
 		);
 		const baseInfo = providerInfo ?? apiProvider;
 		return {
@@ -166,10 +171,15 @@ export default async function ModelPage({ params }: PageProps) {
 		activeProviders.length > 0 ? activeProviders : modelProviders;
 	// Search models bill per request only, so token and context stats are noise.
 	const isSearchModel = modelDef.output?.includes("search") ?? false;
+	// OCR models bill per page; their zero token prices would read as "free".
+	const isOcrModel =
+		(modelDef.output?.includes("ocr") ?? false) ||
+		visibleProviders.some((p) => Number(p.ocrPagePrice ?? 0) > 0);
+	const hideTokenInfo = isSearchModel || isOcrModel;
 
 	const currentModelDiscount = getBestDiscount(
 		allDiscounts,
-		decodedName,
+		canonicalName,
 		Array.from(new Set(activeProviders.map((p) => p.providerId))),
 	);
 	const currentModelDiscountProvider = currentModelDiscount?.provider
@@ -208,8 +218,13 @@ export default async function ModelPage({ params }: PageProps) {
 	};
 
 	const providerPrices = visibleProviders
-		.filter((p) => p.inputPrice)
-		.map((p) => applyDiscount(perMillion(p.inputPrice)!, p.discount));
+		.filter((p) => (isOcrModel ? p.ocrPagePrice : p.inputPrice))
+		.map((p) =>
+			applyDiscount(
+				isOcrModel ? Number(p.ocrPagePrice) : perMillion(p.inputPrice)!,
+				p.discount,
+			),
+		);
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
@@ -233,6 +248,16 @@ export default async function ModelPage({ params }: PageProps) {
 			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: visibleProviders.length,
+			...(isOcrModel && isFinite(lowestInputPrice)
+				? {
+						priceSpecification: {
+							"@type": "UnitPriceSpecification",
+							price: lowestInputPrice,
+							priceCurrency: "USD",
+							unitText: "per page",
+						},
+					}
+				: {}),
 			availability: "https://schema.org/InStock",
 			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},
@@ -255,6 +280,11 @@ export default async function ModelPage({ params }: PageProps) {
 							Back to all models
 						</Link>
 					</div>
+					<VirtualModelBanner
+						target={modelDef.virtualModelTarget}
+						providers={modelDef.providers}
+						discounts={allDiscounts}
+					/>
 					<div className="mb-8">
 						<div className="flex items-center gap-3 mb-2 flex-wrap">
 							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
@@ -328,11 +358,11 @@ export default async function ModelPage({ params }: PageProps) {
 								Live uptime &amp; insights
 							</Link>
 
-							<ModelUsageStats modelId={decodedName} />
+							<ModelUsageStats modelId={canonicalName} />
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
-							{!isSearchModel && (
+							{!hideTokenInfo && (
 								<div>
 									{formatNumber(
 										Math.max(
@@ -353,7 +383,7 @@ export default async function ModelPage({ params }: PageProps) {
 									})}
 								</div>
 							)}
-							{!isSearchModel && visibleProviders.some((p) => p.inputPrice) && (
+							{!hideTokenInfo && visibleProviders.some((p) => p.inputPrice) && (
 								<div>
 									Starting at{" "}
 									{(() => {
@@ -385,7 +415,7 @@ export default async function ModelPage({ params }: PageProps) {
 									)}
 								</div>
 							)}
-							{!isSearchModel &&
+							{!hideTokenInfo &&
 								visibleProviders.some((p) => p.outputPrice) && (
 									<div>
 										Starting at{" "}
@@ -522,7 +552,9 @@ export default async function ModelPage({ params }: PageProps) {
 									{(() => {
 										const pagePrices = visibleProviders
 											.filter((p) => p.ocrPagePrice !== undefined)
-											.map((p) => Number(p.ocrPagePrice))
+											.map((p) =>
+												applyDiscount(Number(p.ocrPagePrice), p.discount),
+											)
 											.filter((n) => Number.isFinite(n));
 										if (pagePrices.length === 0) {
 											return "Unknown";
@@ -578,6 +610,9 @@ export default async function ModelPage({ params }: PageProps) {
 									: false;
 								const hasTranscription = Array.isArray(modelDef.output)
 									? modelDef.output.includes("transcription")
+									: false;
+								const hasDecision = Array.isArray(modelDef.output)
+									? modelDef.output.includes("decision")
 									: false;
 
 								if (hasStreaming) {
@@ -684,6 +719,14 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-amber-500",
 									});
 								}
+								if (hasDecision) {
+									items.push({
+										key: "decision",
+										icon: SlidersHorizontal,
+										label: "Decisions",
+										color: "text-teal-500",
+									});
+								}
 								if (hasSearch) {
 									items.push({
 										key: "search",
@@ -713,7 +756,10 @@ export default async function ModelPage({ params }: PageProps) {
 							})()}
 						</div>
 
-						<ModelRating modelId={decodedName} />
+						<ModelRating
+							modelId={canonicalName}
+							initialData={ratingsData ?? undefined}
+						/>
 					</div>
 
 					{currentModelDiscount && (
@@ -758,7 +804,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 					<div className="mb-8">
 						<ModelBenchmarks
-							modelId={decodedName}
+							modelId={canonicalName}
 							uploadedIcons={uploadedProviderIcons}
 						/>
 					</div>
@@ -799,10 +845,12 @@ export async function generateMetadata({
 
 	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
 	const pitch = `Use ${model.name ?? model.id} via one OpenAI-compatible API with live per-token pricing across providers.`;
-	const description =
-		model.description && model.description.length + pitch.length <= 250
-			? `${model.description} ${pitch}`
-			: (model.description ?? pitch);
+	const shortPitch = "Live per-token pricing across providers via one API.";
+	const description = !model.description
+		? pitch
+		: ([pitch, shortPitch]
+				.map((suffix) => `${model.description} ${suffix}`)
+				.find((candidate) => candidate.length <= 160) ?? model.description);
 
 	const primaryProvider =
 		getCheapestOgMapping(model, discounts)?.providerId ?? "default";
@@ -810,7 +858,7 @@ export async function generateMetadata({
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {
-		title,
+		title: pageTitle(title),
 		description,
 		alternates: {
 			canonical,

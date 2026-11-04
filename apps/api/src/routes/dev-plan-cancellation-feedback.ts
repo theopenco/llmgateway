@@ -1,6 +1,13 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+
+import {
+	devPlanCancellationCommentsSchema,
+	devPlanCancellationReasonSchema,
+	refineCancellationComments,
+} from "@/lib/dev-plan-cancellation.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { db, tables } from "@llmgateway/db";
 
@@ -8,13 +15,7 @@ import type { ServerTypes } from "@/vars.js";
 
 export const devPlanCancellationFeedback = new OpenAPIHono<ServerTypes>();
 
-const reasonEnum = z.enum([
-	"too_expensive",
-	"missing_features",
-	"not_using_enough",
-	"switched_alternative",
-	"other",
-]);
+const reasonEnum = devPlanCancellationReasonSchema;
 
 async function findUserPersonalOrg(userId: string) {
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -114,10 +115,12 @@ const submit = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						reason: reasonEnum,
-						comments: z.string().max(2000).optional(),
-					}),
+					schema: z
+						.object({
+							reason: reasonEnum,
+							comments: devPlanCancellationCommentsSchema,
+						})
+						.superRefine(refineCancellationComments),
 				},
 			},
 		},
@@ -171,7 +174,7 @@ devPlanCancellationFeedback.openapi(submit, async (c) => {
 			devPlanStripeSubscriptionId: subscriptionId,
 			previousDevPlan,
 			reason,
-			comments: comments ?? null,
+			comments: comments?.trim() || null,
 		})
 		.onConflictDoUpdate({
 			target: [
@@ -180,7 +183,7 @@ devPlanCancellationFeedback.openapi(submit, async (c) => {
 			],
 			set: {
 				reason,
-				comments: comments ?? null,
+				comments: comments?.trim() || null,
 				userId: user.id,
 				updatedAt: new Date(),
 			},

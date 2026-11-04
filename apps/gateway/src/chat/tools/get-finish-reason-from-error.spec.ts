@@ -238,6 +238,19 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400, alibabaError)).toBe("content_filter");
 	});
 
+	it("returns content_filter for OpenAI cyber_policy errors", () => {
+		const openAiError = JSON.stringify({
+			error: {
+				type: "invalid_request",
+				code: "cyber_policy",
+				message:
+					"This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request.",
+				param: null,
+			},
+		});
+		expect(getFinishReasonFromError(400, openAiError)).toBe("content_filter");
+	});
+
 	it("returns content_filter for zai content filter", () => {
 		expect(
 			getFinishReasonFromError(
@@ -369,4 +382,30 @@ describe("getFinishReasonFromError", () => {
 			"gateway_error",
 		);
 	});
+});
+
+describe("Mistral guardrail classification", () => {
+	const guardrailError =
+		'{"object":"error","message":"Request blocked by guardrail policy","type":"guardrail_violation","param":null,"code":"1920","raw_status_code":403}';
+	it("normalizes a guardrail 403 instead of treating it as a credential failure", () => {
+		expect(getFinishReasonFromError(403, guardrailError)).toBe(
+			"content_filter",
+		);
+	});
+	it("preserves server-error precedence", () => {
+		expect(getFinishReasonFromError(503, guardrailError)).toBe(
+			"upstream_error",
+		);
+	});
+	it.each([401, 403])(
+		"preserves unrelated Mistral authentication and permission failures on %i",
+		(status) => {
+			expect(
+				getFinishReasonFromError(
+					status,
+					'{"object":"error","message":"Access to guardrail_violation is disabled","type":"permission_error","code":"1920"}',
+				),
+			).toBe("gateway_error");
+		},
+	);
 });

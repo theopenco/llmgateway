@@ -139,6 +139,13 @@ const migrations = defineCollection({
 		date: z.string(),
 		updatedAt: z.string().optional(),
 		fromProvider: z.string(),
+		// 1200x630 artwork used as the OpenGraph card, with `label` drawn on top.
+		ogImage: z
+			.object({
+				src: z.string(),
+				label: z.string(),
+			})
+			.optional(),
 	}),
 	transform: (document) => withRoutingDefaults(document),
 });

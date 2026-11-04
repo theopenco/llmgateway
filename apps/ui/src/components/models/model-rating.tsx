@@ -13,11 +13,16 @@ import { useApi } from "@/lib/fetch-client";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { ModelRatingsData } from "@/lib/rating-schema";
+
 interface ModelRatingProps {
 	modelId: string;
+	/** Server-fetched ratings, so SSR HTML shows the real rating instead of
+	 * "No ratings yet" and hydration needs no duplicate request. */
+	initialData?: ModelRatingsData;
 }
 
-export function ModelRating({ modelId }: ModelRatingProps) {
+export function ModelRating({ modelId, initialData }: ModelRatingProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const { isAuthenticated } = useSessionStatus();
@@ -32,7 +37,7 @@ export function ModelRating({ modelId }: ModelRatingProps) {
 		"get",
 		"/public/model-ratings",
 		{ params: { query: { modelId } } },
-		{ staleTime: 60 * 1000 },
+		{ staleTime: 60 * 1000, initialData },
 	);
 
 	const ownRatingQuery = api.useQuery(

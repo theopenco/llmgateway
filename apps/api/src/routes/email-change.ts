@@ -1,10 +1,11 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
 	checkEmailChangeConfirmationRateLimit,
 	confirmEmailChange,
 } from "@/lib/email-change.js";
+import { createRoute } from "@/utils/create-route.js";
 
 export const emailChange = new OpenAPIHono();
 

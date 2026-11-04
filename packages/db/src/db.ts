@@ -1,11 +1,62 @@
+import { hostname } from "node:os";
+
 import { instrumentDrizzle } from "@kubiks/otel-drizzle";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { Client, Pool, type ClientConfig } from "pg";
 
 import { logger } from "@llmgateway/logger";
 
-import { patchClientQuery } from "./query-tags.js";
+import { getQueryTag, patchClientQuery } from "./query-tags.js";
 import { relations } from "./relations.js";
+
+function envMs(name: string, fallback: number | undefined): number | undefined {
+	const raw = process.env[name];
+	if (raw === undefined || raw === "") {
+		return fallback;
+	}
+	const value = Number(raw);
+	return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+/**
+ * `<service>/<pod>` in pg_stat_activity, so a blocking or leaked session can be
+ * traced to the process that opened it. Resolved per connection because the
+ * service sets its query tags after this module loads.
+ */
+export function databaseApplicationName(): string {
+	return (
+		process.env.DATABASE_APPLICATION_NAME ??
+		`${getQueryTag("application") ?? "llmgateway"}/${hostname()}`
+	).slice(0, 63);
+}
+
+/**
+ * Session limits sent as startup parameters on every pool connection. A query
+ * waiting on a lock fails after lock_timeout instead of holding a pool slot
+ * (and a server connection) until the blocker finishes, and a transaction left
+ * idle is aborted instead of pinning its locks.
+ */
+export const databaseSessionSettings = {
+	lock_timeout: envMs("DATABASE_LOCK_TIMEOUT_MS", 10_000),
+	idle_in_transaction_session_timeout: envMs(
+		"DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS",
+		60_000,
+	),
+	// Unset by default so long worker queries keep the server/role default.
+	statement_timeout: envMs("DATABASE_STATEMENT_TIMEOUT_MS", undefined),
+} satisfies Pick<
+	ClientConfig,
+	"lock_timeout" | "idle_in_transaction_session_timeout" | "statement_timeout"
+>;
+
+class SessionClient extends Client {
+	public constructor(config?: string | ClientConfig) {
+		super({
+			...(typeof config === "string" ? { connectionString: config } : config),
+			application_name: databaseApplicationName(),
+		});
+	}
+}
 
 // Single shared pool for all database connections
 // This prevents connection exhaustion from having multiple pools
@@ -21,7 +72,26 @@ export const pool = new Pool({
 	allowExitOnIdle: false,
 	keepAlive: true,
 	keepAliveInitialDelayMillis: 10000, // Start sending keepalive probes after 10s of idle
+	...databaseSessionSettings,
+	Client: SessionClient,
 });
+
+const poolMax = pool.options.max;
+
+/** Pool occupancy for metrics: see `registerDbPoolMetrics`. */
+export function getPoolStats(): {
+	total: number;
+	idle: number;
+	waiting: number;
+	max: number;
+} {
+	return {
+		total: pool.totalCount,
+		idle: pool.idleCount,
+		waiting: pool.waitingCount,
+		max: poolMax,
+	};
+}
 
 // Log pool errors to help diagnose connection issues
 pool.on("error", (err) => {

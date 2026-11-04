@@ -1,11 +1,16 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
+	pollVideoJob,
 	getSupportedVideoDurationsForSelection,
 	getSupportedVideoRequestOptions,
 	getSupportedVideoSizesForSelection,
 	getNormalizedVideoRequestSelection,
 	isPendingVideoModel,
+	getVideoReasoningRequestFields,
+	getVideoResolutions,
+	getVideoOrientations,
+	requiresVideoLipSyncInputs,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
@@ -14,6 +19,7 @@ import {
 } from "./video-gen";
 
 import type { ApiModel, ApiModelProviderMapping } from "./fetch-models";
+import type { VideoJob } from "./video-gen";
 
 function makeMapping(
 	overrides: Partial<ApiModelProviderMapping> = {},
@@ -55,6 +61,7 @@ function makeMapping(
 		realtime: null,
 		realtimeTranscription: null,
 		realtimeTranscriptionTurnDetection: null,
+		speechGenerations: null,
 		supportedVoices: null,
 		discount: null,
 		stability: "beta",
@@ -297,6 +304,46 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(options.durations).toHaveLength(0);
 	});
 
+	test("VEED Fabric takes reference image and audio inputs on AtlasCloud only", () => {
+		for (const modelId of [
+			"veed-fabric-1-0",
+			"atlascloud/veed-fabric-1-0-fast",
+		]) {
+			expect(requiresVideoLipSyncInputs(modelId)).toBe(true);
+			expect(supportsVideoReferenceInput(modelId)).toBe(true);
+			expect(supportsVideoReferenceAudioInput(modelId)).toBe(true);
+			expect(supportsVideoReferenceVideoInput(modelId)).toBe(false);
+			expect(supportsVideoFrameInput(modelId)).toBe(false);
+		}
+		expect(supportsVideoReferenceAudioInput("bytedance/veed-fabric-1-0")).toBe(
+			false,
+		);
+		expect(requiresVideoLipSyncInputs("seedance-2-0")).toBe(false);
+
+		const model = makeModel(
+			[
+				makeMapping({
+					modelId: "veed-fabric-1-0",
+					providerId: "atlascloud",
+					externalId: "veed/fabric-1.0",
+					supportedVideoSizes: ["854x480", "480x854", "1280x720", "720x1280"],
+					supportedVideoDurationsSeconds: null,
+					supportedVideoDurationsSecondsImageToVideo: null,
+					supportsVideoWithoutAudio: false,
+				}),
+			],
+			"veed-fabric-1-0",
+		);
+		expect(
+			getSupportedVideoRequestOptions([model], ["veed-fabric-1-0"], "reference")
+				.sizes,
+		).toEqual(["854x480", "480x854", "1280x720", "720x1280"]);
+		expect(
+			getSupportedVideoRequestOptions([model], ["veed-fabric-1-0"], "frames")
+				.sizes,
+		).toHaveLength(0);
+	});
+
 	test("Seedance 2.5 gets the same reference/frame capabilities as Seedance 2.0", () => {
 		expect(supportsVideoFrameInput("seedance-2-5")).toBe(true);
 		expect(supportsVideoFrameInput("bytedance/seedance-2-5")).toBe(true);
@@ -387,8 +434,10 @@ describe("AtlasCloud KLING v3.0 frame capabilities", () => {
 
 	test("supportsVideoFrameInput is true for AtlasCloud Kling", () => {
 		expect(supportsVideoFrameInput("kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("kling-v3-0-pro")).toBe(true);
 		expect(supportsVideoFrameInput("kling-v3-0-turbo")).toBe(true);
 		expect(supportsVideoFrameInput("atlascloud/kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-pro")).toBe(true);
 		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-turbo")).toBe(true);
 		expect(supportsVideoFrameInput("openai/kling-v3-0")).toBe(false);
 	});
@@ -457,6 +506,74 @@ describe("Grok Imagine Video 1.5 capabilities", () => {
 	});
 });
 
+describe("FLUX 3 Max studio options", () => {
+	const sizes = ["1280x720", "720x1280", "1920x1080", "1080x1920"];
+	const durations = Array.from({ length: 16 }, (_, i) => i + 5);
+	const model = makeModel(
+		[
+			makeMapping({
+				modelId: "flux-3-max",
+				providerId: "fal-ai",
+				externalId: "blackforestlabs/flux-3-max",
+				supportedVideoSizes: sizes,
+				supportedVideoDurationsSeconds: durations,
+				supportedVideoDurationsSecondsImageToVideo: null,
+			}),
+		],
+		"flux-3-max",
+	);
+
+	test.each(["none", "frames"] as const)(
+		"offers both resolutions and 5–20s in %s mode",
+		(mode) => {
+			const options = getSupportedVideoRequestOptions(
+				[model],
+				["fal-ai/flux-3-max"],
+				mode,
+			);
+			expect(options).toEqual({ sizes, durations });
+			expect(getVideoResolutions(options.sizes)).toEqual(["720p", "1080p"]);
+			for (const resolution of ["720p", "1080p"] as const) {
+				expect(getVideoOrientations(options.sizes, resolution)).toEqual([
+					"landscape",
+					"portrait",
+				]);
+			}
+			expect(
+				getNormalizedVideoRequestSelection(
+					[model],
+					[model.id],
+					mode,
+					"1280x720",
+					4,
+				),
+			).toEqual({ size: "1280x720", duration: 5 });
+		},
+	);
+
+	test.each(["low", "high"] as const)(
+		"forwards %s prompt reasoning only to FLUX requests",
+		(effort) => {
+			for (const modelId of [
+				"flux-3-max",
+				"fal-ai/flux-3-max",
+				"fal-ai/flux-3-max:us",
+			]) {
+				expect(getVideoReasoningRequestFields(modelId, effort)).toEqual({
+					reasoning_effort: effort,
+				});
+			}
+			for (const modelId of [
+				"seedance-2-5",
+				"openai/flux-3-max",
+				"fal-ai/blackforestlabs/flux-3-max",
+			]) {
+				expect(getVideoReasoningRequestFields(modelId, effort)).toEqual({});
+			}
+		},
+	);
+});
+
 describe("saved video model results", () => {
 	test("a created job with no result is pending", () => {
 		expect(isPendingVideoModel({ jobId: "video_1", videoUrl: null })).toBe(
@@ -476,5 +593,55 @@ describe("saved video model results", () => {
 
 	test("content URLs go through the playground proxy", () => {
 		expect(videoContentUrl("video_1")).toBe("/api/video/video_1/content");
+	});
+});
+
+describe("pollVideoJob", () => {
+	function job(status: VideoJob["status"]): VideoJob {
+		return {
+			id: "video_1",
+			object: "video",
+			model: "fal-ai/flux-3-max",
+			status,
+			progress: 0,
+			created_at: 0,
+			completed_at: null,
+			expires_at: null,
+			error: null,
+		};
+	}
+
+	// Hidden tabs throttle timers to about once a minute, so a job that
+	// finished while the user was away must be picked up as soon as they return.
+	test("polls again as soon as the tab becomes visible", async () => {
+		const page = new EventTarget() as EventTarget & {
+			visibilityState: DocumentVisibilityState;
+		};
+		page.visibilityState = "hidden";
+		vi.stubGlobal("document", page);
+		try {
+			const responses = [job("in_progress"), job("completed")];
+			const fetchClient = {
+				GET: vi.fn(async () => ({
+					data: responses.shift(),
+					response: new Response(null, { status: 200 }),
+				})),
+			} as unknown as Parameters<typeof pollVideoJob>[1];
+
+			const poll = pollVideoJob("video_1", fetchClient);
+			expect((await poll.next()).value?.status).toBe("in_progress");
+
+			const next = poll.next();
+			setTimeout(() => {
+				page.visibilityState = "visible";
+				page.dispatchEvent(new Event("visibilitychange"));
+			}, 50);
+			const started = Date.now();
+			expect((await next).value?.status).toBe("completed");
+			expect(Date.now() - started).toBeLessThan(1_000);
+			expect(fetchClient.GET).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });

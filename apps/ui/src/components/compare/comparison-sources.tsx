@@ -15,8 +15,9 @@ export function ComparisonSources({ slug }: { slug: string }) {
 			</h2>
 			<p className="mt-2">{comparison.betterForThem}</p>
 			<p className="mt-4">
-				Pricing and features checked September 27, 2026. Plans, regions and
-				model eligibility can change.
+				Pricing and features checked{" "}
+				{comparison.checkedOn ?? "September 27, 2026"}. Plans, regions and model
+				eligibility can change.
 			</p>
 			<ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
 				{comparison.sources.map((source) => (

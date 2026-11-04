@@ -356,6 +356,7 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 			listed.mapping.apiFormat === "provider-native"
 				? undefined
 				: (listed.mapping.apiFormat ?? undefined),
+		decisions: listed.mapping.decisions || undefined,
 		inputPrice: listed.mapping.inputPrice ?? undefined,
 		outputPrice: listed.mapping.outputPrice ?? undefined,
 		cachedInputPrice: listed.mapping.cachedInputPrice ?? undefined,
@@ -374,6 +375,7 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 		reasoningEfforts: (listed.mapping.reasoningEfforts ??
 			undefined) as ProviderModelMapping["reasoningEfforts"],
 		webSearch: listed.mapping.webSearch,
+		webSearchFormat: listed.mapping.webSearchFormat ?? undefined,
 		quantization: listed.mapping.quantization ?? undefined,
 		// Catalogue-only fields the listing carries in its DB row; a static
 		// entry still in the catalogue covers rows not synced yet.
@@ -395,8 +397,11 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 		stability: listed.mapping.stability,
 		webSearchPrice:
 			listed.mapping.webSearchPrice ?? staticMapping?.webSearchPrice,
-		webSearchForcedOnly:
-			listed.mapping.webSearchForcedOnly ?? staticMapping?.webSearchForcedOnly,
+		// A declared format lets the model elect its own searches.
+		webSearchForcedOnly: listed.mapping.webSearchFormat
+			? undefined
+			: (listed.mapping.webSearchForcedOnly ??
+				staticMapping?.webSearchForcedOnly),
 		cacheWriteInputPrice:
 			listed.mapping.cacheWriteInputPrice ??
 			staticMapping?.cacheWriteInputPrice,

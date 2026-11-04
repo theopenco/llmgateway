@@ -111,14 +111,15 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 			dpr: number,
 		) => {
 			ctx.clearRect(0, 0, width, height);
-			ctx.fillStyle = "transparent";
-			ctx.fillRect(0, 0, width, height);
 
+			// One solid fill colour with per-cell globalAlpha: building an rgba
+			// string per cell would allocate and parse thousands of colour
+			// strings per frame in this 60fps loop.
+			ctx.fillStyle = `${memoizedColor}1)`;
 			for (let i = 0; i < cols; i++) {
+				const squareIndex = i * rows;
 				for (let j = 0; j < rows; j++) {
-					const squareIndex = i * rows;
-					const opacity = squares[squareIndex + j];
-					ctx.fillStyle = `${memoizedColor}${opacity})`;
+					ctx.globalAlpha = squares[squareIndex + j];
 					ctx.fillRect(
 						i * (squareSize + gridGap) * dpr,
 						j * (squareSize + gridGap) * dpr,
@@ -127,6 +128,7 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 					);
 				}
 			}
+			ctx.globalAlpha = 1;
 		},
 		[memoizedColor, squareSize, gridGap],
 	);

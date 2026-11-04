@@ -13,7 +13,10 @@ type SharedAllModelsProps = ComponentProps<typeof SharedAllModels>;
 // `footer` is passed in from the server pages (usually <Footer />) so the
 // server-only footer never enters this client bundle.
 export function AllModels(
-	props: Omit<SharedAllModelsProps, "renderCta" | "showPricingTierFilter">,
+	props: Omit<
+		SharedAllModelsProps,
+		"renderCta" | "showPricingTierFilter" | "showLoungePlanFilter"
+	>,
 ) {
 	const searchParams = useSearchParams();
 	// The premium/standard tier only matters for DevPass fair-use limits, so
@@ -27,6 +30,7 @@ export function AllModels(
 			{...props}
 			renderCta={(args) => <ModelCtaButton {...args} />}
 			showPricingTierFilter={showPricingTierFilter}
+			showLoungePlanFilter
 		/>
 	);
 }

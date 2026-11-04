@@ -13,6 +13,11 @@ import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
 import type { ToolRegistry } from "./tool-registry.js";
 import type { GoogleExtraContent } from "@llmgateway/models";
 
+export interface ResponsesError {
+	code: string;
+	message: string;
+}
+
 // One assistant message output item in the stream. Providers may emit several
 // per turn (e.g. a commentary message before tool calls and a final_answer
 // message after); each keeps its own id, phase, text, and the output index it
@@ -139,6 +144,7 @@ function buildResponsePayload(
 	overrides: {
 		status: "in_progress" | "completed" | "incomplete" | "failed";
 		output?: Record<string, unknown>[];
+		error?: ResponsesError;
 	},
 ): Record<string, unknown> {
 	const req = state.request;
@@ -181,7 +187,7 @@ function buildResponsePayload(
 		previous_response_id: req?.previous_response_id ?? null,
 		instructions: req?.instructions ?? null,
 		output,
-		error: null,
+		error: overrides.error ?? null,
 		tools: normalizeEchoedTools(req?.tools),
 		tool_choice: req?.tool_choice ?? "auto",
 		truncation: req?.truncation ?? "disabled",
@@ -965,11 +971,73 @@ export function createCompletionEvents(
 }
 
 /**
- * Generate a response.failed event for streaming errors.
+ * Generate a response.failed event for streaming errors. The payload always
+ * carries an error so clients can surface the failure.
  */
-export function createFailedEvent(state: StreamingState): SSEEvent {
+export function createFailedEvent(
+	state: StreamingState,
+	error: ResponsesError = {
+		code: "server_error",
+		message: "An error occurred while streaming the response",
+	},
+): SSEEvent {
 	return emitEvent(state, "response.failed", {
 		type: "response.failed",
-		response: buildResponsePayload(state, { status: "failed" }),
+		response: buildResponsePayload(state, { status: "failed", error }),
 	});
+}
+
+// Codes Responses clients act on (e.g. Codex stops retrying invalid_prompt and
+// backs off on rate_limit_exceeded); anything else is reported as server_error.
+const PASSTHROUGH_ERROR_CODES = new Set([
+	"server_error",
+	"rate_limit_exceeded",
+	"invalid_prompt",
+	"context_length_exceeded",
+	"insufficient_quota",
+]);
+
+/**
+ * Returns the Responses error for a chat completions stream error event
+ * (`{ error: { message, type, code } }`), or null when the chunk is not one.
+ */
+export function getChatStreamError(
+	chunk: Record<string, unknown>,
+	eventType: string | null,
+): ResponsesError | null {
+	const error = chunk.error;
+	const isErrorObject =
+		typeof error === "object" && error !== null && !Array.isArray(error);
+	if (
+		eventType !== "error" &&
+		chunk.type !== "error" &&
+		!(isErrorObject && !chunk.choices)
+	) {
+		return null;
+	}
+	const details: Record<string, unknown> = isErrorObject
+		? (error as Record<string, unknown>)
+		: chunk;
+	const code = typeof details.code === "string" ? details.code : undefined;
+	const type = typeof details.type === "string" ? details.type : undefined;
+	const message =
+		typeof details.message === "string" && details.message
+			? details.message
+			: "Upstream request failed";
+	if (code && PASSTHROUGH_ERROR_CODES.has(code)) {
+		return { code, message };
+	}
+	const kinds = [code, type];
+	if (kinds.includes("rate_limit_error")) {
+		return { code: "rate_limit_exceeded", message };
+	}
+	// Upstream 4xx bodies are passed through, so OpenAI/Anthropic-shaped
+	// `invalid_request_error` arrives here alongside the gateway's own types.
+	const isClientError = kinds.some(
+		(kind) =>
+			kind === "client_error" ||
+			kind === "content_filter" ||
+			kind === "invalid_request_error",
+	);
+	return { code: isClientError ? "invalid_prompt" : "server_error", message };
 }

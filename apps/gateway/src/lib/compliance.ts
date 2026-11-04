@@ -7,6 +7,7 @@ import {
 	customModelRef,
 	customProviderRef,
 	getAttestationComplianceFailures,
+	getModelDenyRefs,
 	getModelPolicyListFailures,
 	getProviderComplianceFailures,
 	getProviderDefinition,
@@ -188,10 +189,31 @@ export function isModelIdCompliant(
 	policy: ProviderCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): boolean {
+	return modelListFailures(modelId, policy, context).length === 0;
+}
+
+// A blocked alias blocks the model it resolves to, and a blocked model blocks
+// listings named after its aliases; an allow list must still name the model
+// itself, so an alias-only entry never widens access.
+function modelListFailures(
+	modelId: string,
+	policy: ProviderCompliancePolicy,
+	context?: ComplianceCheckContext,
+): ComplianceFailureReason[] {
 	const modelRefs = context?.customProviderName
 		? [modelId, customModelRef(context.customProviderName, modelId)]
 		: [modelId];
-	return isModelAllowedByPolicy(modelRefs, policy);
+	const failures = getModelPolicyListFailures(modelRefs, policy);
+	if (
+		!failures.includes("blockedModels") &&
+		!isModelAllowedByPolicy(getModelDenyRefs(modelId), {
+			...policy,
+			allowedModels: undefined,
+		})
+	) {
+		failures.push("blockedModels");
+	}
+	return failures;
 }
 
 /**
@@ -227,10 +249,7 @@ export function getComplianceFailureReasons(
 				: ["unknownProvider" as const]),
 		);
 	}
-	const modelRefs = context?.customProviderName
-		? [modelId, customModelRef(context.customProviderName, modelId)]
-		: [modelId];
-	failures.push(...getModelPolicyListFailures(modelRefs, policy));
+	failures.push(...modelListFailures(modelId, policy, context));
 	return Array.from(new Set(failures));
 }
 

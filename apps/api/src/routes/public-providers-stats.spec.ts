@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
+import { resetLocalPublicResponseCache } from "@/lib/public-response-cache.js";
 import { deleteAll } from "@/testing.js";
 
 import { redisClient } from "@llmgateway/cache";
@@ -65,6 +66,7 @@ describe("public providers stats", () => {
 		// autoInvalidate off, so a seeded row alone won't dislodge the previous
 		// test's result.
 		await redisClient.flushdb();
+		resetLocalPublicResponseCache();
 	});
 
 	afterEach(async () => {
@@ -100,6 +102,7 @@ describe("public providers stats", () => {
 				.delete(tables.provider)
 				.where(eq(tables.provider.id, PROVIDER_ID));
 			await redisClient.flushdb();
+			resetLocalPublicResponseCache();
 
 			expect(await fetchProviderStats(window)).toBeUndefined();
 			expect(
@@ -240,6 +243,7 @@ describe("public providers stats", () => {
 				),
 			);
 		await redisClient.flushdb();
+		resetLocalPublicResponseCache();
 		expect(await fetchProviderStats()).toEqual(dense);
 	});
 });

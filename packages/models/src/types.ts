@@ -121,9 +121,9 @@ export interface ToolResultContent {
 }
 
 /**
- * Anthropic content block with no OpenAI-format equivalent — currently the
- * server-side tool search pair (`server_tool_use` + `tool_search_tool_result`)
- * and the `tool_reference` blocks a client-side tool search returns. Carried
+ * Anthropic content block with no OpenAI-format equivalent — server tool
+ * blocks (`server_tool_use` and its `*_tool_result`: tool search, web search,
+ * web fetch) and the `tool_reference` blocks a client-side tool search returns. Carried
  * verbatim between the caller and the Anthropic Messages API and dropped for
  * every other upstream.
  */
@@ -188,8 +188,7 @@ export interface BaseMessage {
 	}>;
 	// Anthropic content blocks that survive a round trip verbatim because the
 	// OpenAI format has no equivalent. On an assistant message these are the
-	// server-side tool search blocks, spliced back in ahead of the tool_use
-	// blocks; on a tool message they are the `tool_result` content array, which
+	// server tool blocks (tool search, web search, web fetch); on a tool message they are the `tool_result` content array, which
 	// is how a client-side tool search returns `tool_reference` blocks. Replayed
 	// on the Anthropic Messages API only and stripped for every other upstream.
 	anthropic_native_blocks?: AnthropicNativeBlock[];
@@ -251,7 +250,19 @@ export interface OpenAIFunctionToolInput {
 		name: string;
 		description?: string;
 		parameters?: FunctionParameter | Record<string, any>;
+		/** Schema-constrained arguments; Anthropic takes it at the tool level. */
+		strict?: boolean;
 	};
+	/**
+	 * Anthropic-only: callers allowed to invoke the tool (programmatic tool
+	 * calling). Stripped for every other upstream.
+	 */
+	allowed_callers?: string[];
+	/**
+	 * Anthropic-only: stream tool input as it is generated (fine-grained tool
+	 * streaming). Stripped for every other upstream.
+	 */
+	eager_input_streaming?: boolean;
 	/**
 	 * Anthropic-only: keep this tool out of the rendered tools section so it
 	 * never enters the cached prompt prefix, and load it on demand when the
@@ -292,18 +303,38 @@ export interface OpenAIToolSearchToolInput {
 	name?: string;
 }
 
-// Compatible type for API requests - accepts function, web_search and
-// tool_search tools
+/**
+ * Anthropic's server-side web fetch tool, emitted verbatim on the Anthropic
+ * Messages API and dropped everywhere else.
+ */
+export interface OpenAIWebFetchToolInput {
+	type: "web_fetch";
+	/** Anthropic tool type, e.g. `web_fetch_20250910`. */
+	web_fetch_type: string;
+	name?: string;
+	max_uses?: number;
+	allowed_domains?: string[];
+	blocked_domains?: string[];
+	citations?: { enabled: boolean };
+	max_content_tokens?: number;
+}
+
+// Compatible type for API requests - accepts function, web_search,
+// tool_search and web_fetch tools
 export type OpenAIToolInput =
 	| OpenAIFunctionToolInput
 	| OpenAIWebSearchToolInput
-	| OpenAIToolSearchToolInput;
+	| OpenAIToolSearchToolInput
+	| OpenAIWebFetchToolInput;
 
 export interface AnthropicTool {
 	name: string;
 	description?: string;
 	input_schema: FunctionParameter;
 	cache_control?: CacheControl;
+	strict?: boolean;
+	allowed_callers?: string[];
+	eager_input_streaming?: boolean;
 }
 
 export interface GoogleTool {
@@ -397,6 +428,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	user?: string;
 	tools?: OpenAITool[];
 	tool_choice?: ToolChoiceType;
+	parallel_tool_calls?: boolean;
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;
@@ -491,6 +523,7 @@ export interface OpenAIResponsesRequestBody {
 		  }
 	>;
 	tool_choice?: ResponsesToolChoice;
+	parallel_tool_calls?: boolean;
 	stream?: boolean;
 	temperature?: number;
 	max_output_tokens?: number;
@@ -548,7 +581,7 @@ export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
 	/**
-	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * Processing tier for the Gemini Developer API (google-ai-studio).
 	 * "flex" / "priority" select Flex / Priority inference. The served tier is
 	 * returned in the `x-gemini-service-tier` response header.
 	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
@@ -800,6 +833,13 @@ export interface WebSearchTool {
 	 * with allowed_domains.
 	 */
 	blocked_domains?: string[];
+	/**
+	 * `false` asks for OpenAI's cache-only search, which never fetches live
+	 * pages. Only OpenAI's Responses API offers it; every other upstream drops
+	 * the tool rather than running a live search. Omitted or `true` is live
+	 * search.
+	 */
+	external_web_access?: boolean;
 	/**
 	 * Whether the caller demanded a search rather than offering one, i.e. sent
 	 * `tool_choice: {type: "web_search"}`. Not part of the tool the client

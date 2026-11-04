@@ -2,6 +2,8 @@ import { and, desc, eq, getTableName, isNull, or } from "drizzle-orm";
 
 import { swrWrap } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import { models } from "@llmgateway/models";
+import { isPremiumModel } from "@llmgateway/shared";
 
 import { cdb } from "./cdb.js";
 import {
@@ -304,4 +306,36 @@ export function resolveEffectiveDiscount(
 		discount: "0",
 		source: "none",
 	};
+}
+
+/**
+ * {@link isPremiumModel} at public prices: each mapping's active global or
+ * Airside discount applies, never an org-specific one, so the DevPass premium
+ * gate and the worker's premium accrual match the public catalogue. A failed
+ * discount lookup resolves to 0%, falling back to list prices.
+ */
+export async function isPremiumModelAfterDiscounts(
+	modelId: string,
+): Promise<boolean> {
+	// Discounts only lower prices, so a model standard at list price stays so.
+	if (!isPremiumModel(modelId)) {
+		return false;
+	}
+	const model = models.find((m) => m.id === modelId);
+	if (!model) {
+		return false;
+	}
+	const providerIds = [...new Set(model.providers.map((p) => p.providerId))];
+	const discounts = new Map<string, string>(
+		await Promise.all(
+			providerIds.map(
+				async (providerId) =>
+					[
+						providerId,
+						(await getEffectiveDiscount(null, providerId, modelId)).discount,
+					] as const,
+			),
+		),
+	);
+	return isPremiumModel(modelId, (providerId) => discounts.get(providerId));
 }

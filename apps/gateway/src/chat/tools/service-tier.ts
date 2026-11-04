@@ -144,6 +144,17 @@ export function assertServiceTierHonored(options: {
 	});
 }
 
+const FLEX_UNAVAILABLE_PATTERN =
+	/flex_unavailable|flex processing is temporarily unavailable/i;
+
+/**
+ * Whether an upstream error says Flex capacity is exhausted. OpenAI sheds Flex
+ * with `flex_unavailable` and asks callers to retry later or at standard.
+ */
+export function isFlexUnavailableError(errorText: string | undefined): boolean {
+	return !!errorText && FLEX_UNAVAILABLE_PATTERN.test(errorText);
+}
+
 /**
  * The endpoint region a provider-key row routes through, mirroring what
  * `getProviderEndpoint` reads. A platform-managed credential carries its

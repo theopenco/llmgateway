@@ -241,6 +241,27 @@ describe("Escape API", () => {
 			state: { step: 1, moves: ["wait"] },
 		});
 	});
+	it.each([400, 404])(
+		"returns upstream %i as a client error with the gateway message",
+		async (status) => {
+			upstream.mockImplementation(async () =>
+				Response.json(
+					{
+						error: {
+							message: "Requested model fixture not supported",
+							type: "invalid_request_error",
+						},
+					},
+					{ status },
+				),
+			);
+			const response = await request({ model: "fixture" });
+			expect(response.status).toBe(400);
+			expect(await response.text()).toContain(
+				"Requested model fixture not supported",
+			);
+		},
+	);
 	it.each([402, 429, 500])(
 		"surfaces upstream %i without silently retrying a billable turn",
 		async (status) => {

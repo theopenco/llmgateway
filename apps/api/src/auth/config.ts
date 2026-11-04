@@ -164,6 +164,19 @@ redisClient.on("error", (err: unknown) =>
 	),
 );
 
+// Fixed-window counter for Better Auth's rate-limit `consume`. Increment and
+// expiry must land together, and the TTL check repairs a counter left without
+// expiry by an earlier failure — same idiom as
+// apps/api/src/utils/public-rate-limit.ts (which imports redisClient from
+// here, so the helper cannot be shared without a cycle).
+const CONSUME_AUTH_RATE_LIMIT = `
+local count = redis.call('incr', KEYS[1])
+if count == 1 or redis.call('ttl', KEYS[1]) < 0 then
+	redis.call('expire', KEYS[1], ARGV[1])
+end
+return {count, redis.call('ttl', KEYS[1])}
+`;
+
 export interface RateLimitConfig {
 	keyPrefix: string;
 	windowSizeMs: number;
@@ -258,6 +271,52 @@ export async function checkAndRecordSignupAttempt(
 			resetTime: now,
 			remaining: 0,
 		};
+	}
+}
+
+// Real users stay far below this per IP per day; credential stuffing from a
+// small proxy pool sends thousands per IP while slipping under the short
+// per-IP window.
+export const SIGN_IN_DAILY_LIMIT = 100;
+const DAY_SECONDS = 24 * 60 * 60;
+
+/**
+ * Count an email sign-in attempt against a fixed 24h window per IP.
+ */
+export async function recordDailySignInAttempt(
+	ipAddress: string,
+): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+	const key = `sign_in_daily:${ipAddress}`;
+	try {
+		const results = await redisClient
+			.multi()
+			.set(key, 0, "EX", DAY_SECONDS, "NX")
+			.incr(key)
+			.ttl(key)
+			.exec();
+		if (!results) {
+			throw new Error("Sign-in rate limit transaction aborted");
+		}
+		// A failed command inside MULTI still resolves; surface it so the catch
+		// below fails open instead of treating `undefined <= limit` as over cap.
+		for (const [commandError] of results) {
+			if (commandError) {
+				throw commandError;
+			}
+		}
+		const count = results[1][1] as number;
+		const ttl = results[2][1] as number;
+		return {
+			allowed: count <= SIGN_IN_DAILY_LIMIT,
+			retryAfterSeconds: ttl > 0 ? ttl : DAY_SECONDS,
+		};
+	} catch (error) {
+		logger.error(
+			"Sign-in daily limit check failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		// Fail open so a Redis outage does not block every sign-in.
+		return { allowed: true, retryAfterSeconds: 0 };
 	}
 }
 
@@ -644,13 +703,48 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
  * with `disableImplicitSignUp: true` — and the UI turns it into a "sign up
  * instead?" prompt. `account_not_linked` is emitted when an OAuth or SSO email
  * matches an existing user that cannot be implicitly linked; the UI shows a
- * "sign in with your original method" message. Logging either at error
- * severity only trips production alerting.
+ * "sign in with your original method" message. `Change email is disabled.` is
+ * a client calling Better Auth's built-in `/change-email`, which no app uses
+ * (email changes go through `PATCH /user/me`). `State not found` and a
+ * `state_not_found` parse failure mean the OAuth/SSO callback had no `state`
+ * param at all (bots, hand-built URLs, provider errors without state).
+ * Replayed or expired callbacks still carry `state` and surface as
+ * `state_mismatch`, which stays at error. `Invalid callbackURL: <url>` (and
+ * the redirect/errorCallback/newUserCallback variants) is the origin check
+ * rejecting an untrusted redirect target with a 403 — open-redirect probes.
+ * `Invalid origin` stays at error: a missing trustedOrigins entry breaks
+ * every sign-in. Logging any of these at error severity only trips
+ * production alerting.
  */
-const clientAuthErrorCodes = new Set(["signup_disabled", "account_not_linked"]);
+const clientAuthErrorMessages = new Set([
+	"signup_disabled",
+	"account_not_linked",
+	"Change email is disabled.",
+	"State not found",
+]);
 
-export function isClientAuthError(message: string): boolean {
-	return clientAuthErrorCodes.has(message.trim());
+const untrustedRedirectUrlMessage =
+	/^Invalid (?:callbackURL|redirectURL|errorCallbackURL|newUserCallbackURL): /;
+
+export function isClientAuthError(
+	message: string,
+	args: unknown[] = [],
+): boolean {
+	const text = message.trim();
+	if (
+		clientAuthErrorMessages.has(text) ||
+		untrustedRedirectUrlMessage.test(text)
+	) {
+		return true;
+	}
+	return (
+		text === "Failed to parse state" &&
+		args.some(
+			(arg) =>
+				arg instanceof Error &&
+				(arg as Error & { code?: unknown }).code === "state_not_found",
+		)
+	);
 }
 
 function extractLogExtra(args: unknown[]): object | undefined {
@@ -658,8 +752,13 @@ function extractLogExtra(args: unknown[]): object | undefined {
 	if (errArg) {
 		return errArg as Error;
 	}
-	return args.find((arg) => arg && typeof arg === "object") as
-		object | undefined;
+	const objArg = args.find((arg) => arg && typeof arg === "object");
+	if (objArg) {
+		return objArg as object;
+	}
+	// Keep scalar details such as the provider's `?error=` code.
+	const rest = args.filter((arg) => arg !== undefined && arg !== null);
+	return rest.length ? { details: rest } : undefined;
 }
 
 export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
@@ -674,7 +773,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					const text = `[Better Auth] ${message}`;
 					const effectiveLevel =
 						level === "error" &&
-						(isClientJsonError(message, args) || isClientAuthError(message))
+						(isClientJsonError(message, args) ||
+							isClientAuthError(message, args))
 							? "warn"
 							: level;
 					switch (effectiveLevel) {
@@ -716,31 +816,35 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			},
 			basePath: "/auth",
 			trustedOrigins: originUrls.split(","),
+			// Callbacks whose state carries no per-flow errorCallbackURL (missing or
+			// unreadable state) land here; the login page shows `?error=` as a
+			// toast. Better Auth's default `/auth/error` redirects to this API's
+			// root in production.
+			onAPIError: {
+				errorURL: `${uiUrl}/login`,
+			},
 			rateLimit: {
 				customStorage: {
-					get: async (key: string) => {
-						const value = await redisClient.get(`auth:rate-limit:${key}`);
-						return value
-							? (JSON.parse(value) as {
-									key: string;
-									count: number;
-									lastRequest: number;
-								})
-							: null;
-					},
-					set: async (
+					consume: async (
 						key: string,
-						value: { key: string; count: number; lastRequest: number },
+						rule: { window: number; max: number },
 					) => {
-						await redisClient.set(
+						const [count, ttl] = (await redisClient.eval(
+							CONSUME_AUTH_RATE_LIMIT,
+							1,
 							`auth:rate-limit:${key}`,
-							JSON.stringify(value),
-							"EX",
-							60,
-						);
+							String(rule.window),
+						)) as [number, number];
+						if (count <= rule.max) {
+							return { allowed: true, retryAfter: null };
+						}
+						return { allowed: false, retryAfter: ttl > 0 ? ttl : rule.window };
 					},
 				},
 				customRules: {
+					// Default is 3 per 10s; credential stuffing rotates IPs at about
+					// one attempt per 5s each, under that limit.
+					"/sign-in/email": { window: 60, max: 5 },
 					"/device/code": { window: 60, max: 30 },
 					"/device/token": { window: 60, max: 120 },
 					"/device": { window: 60, max: 30 },
@@ -993,6 +1097,31 @@ The LLM Gateway Team`.trim();
 					) {
 						const body = ctx.body as { revokeOtherSessions?: boolean };
 						body.revokeOtherSessions = true;
+					}
+
+					if (ctx.path === "/sign-in/email") {
+						const signInIp = getClientIpFromHeaders(ctx.headers);
+						if (signInIp) {
+							const { allowed, retryAfterSeconds } =
+								await recordDailySignInAttempt(signInIp);
+							if (!allowed) {
+								return new Response(
+									JSON.stringify({
+										error: "too_many_requests",
+										message:
+											"Too many sign-in attempts from this network. Please try again later.",
+										retryAfter: retryAfterSeconds,
+									}),
+									{
+										status: 429,
+										headers: {
+											"Content-Type": "application/json",
+											"Retry-After": retryAfterSeconds.toString(),
+										},
+									},
+								);
+							}
+						}
 					}
 
 					if (ctx.path.startsWith("/sign-in")) {

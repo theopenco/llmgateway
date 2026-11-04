@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD COLUMN "forward_cache_control" boolean DEFAULT false NOT NULL;

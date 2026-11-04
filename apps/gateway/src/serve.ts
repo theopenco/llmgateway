@@ -2,9 +2,10 @@ import { createAdaptorServer, serve } from "@hono/node-server";
 
 import { startProviderEnvInventoryPublisher } from "@llmgateway/actions";
 import { redisClient, storageRedisClient } from "@llmgateway/cache";
-import { closeDatabase, setQueryTags } from "@llmgateway/db";
+import { closeDatabase, getPoolStats, setQueryTags } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
+	registerDbPoolMetrics,
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
@@ -59,6 +60,7 @@ async function startServer() {
 
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "gateway" });
+	registerDbPoolMetrics(getPoolStats);
 
 	installUpstreamDispatcher();
 

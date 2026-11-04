@@ -98,9 +98,7 @@ export async function orgRateLimitMiddleware(
 	// regardless of plan.
 	if (!isEnterprise) {
 		// Only regular (pay-as-you-go) orgs get a spend-tier boost; dev/chat plans
-		// stay on their flat, tight limit. The multiplier is resolved lazily inside
-		// checkOrgRateLimit and only once the org has reached its base limit, so the
-		// common under-limit path skips the spend lookup entirely.
+		// stay on their flat, tight limit.
 		const result = await checkOrgRateLimit(
 			organizationId,
 			config,

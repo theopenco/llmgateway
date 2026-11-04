@@ -2,12 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ImageResponse } from "next/og";
-import sharp from "sharp";
 
-import { LogoLockup } from "@/lib/icons/Logo";
+import Logo, { LogoLockup } from "@/lib/icons/Logo";
 import { ogSize } from "@/lib/og";
-
-import { MARKETING_STATS } from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
 
@@ -15,7 +12,6 @@ const INK = "#09090b";
 const PAPER = "#f4f1e8";
 const MUTED = "rgba(244,241,232,0.64)";
 const FAINT = "rgba(244,241,232,0.42)";
-const AMBER = "#fcd34d";
 
 const fontDir = join(process.cwd(), "src/assets/og-fonts");
 const fontFiles = Promise.all([
@@ -123,153 +119,24 @@ async function renderCard({
 	);
 }
 
-export async function homeOgImage() {
-	return await renderCard({
-		glow: "rgba(245,184,61,0.24)",
-		children: (
-			<div
-				style={{
-					display: "flex",
-					flex: 1,
-					alignItems: "center",
-					justifyContent: "space-between",
-					gap: 32,
-				}}
-			>
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "column",
-						width: 640,
-						gap: 20,
-					}}
-				>
-					<Eyebrow>Enterprise AI gateway</Eyebrow>
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "column",
-							fontSize: 62,
-							fontWeight: 800,
-							letterSpacing: "-0.045em",
-							lineHeight: 1.02,
-						}}
-					>
-						<span>Company-wide AI,</span>
-						<span
-							style={{
-								fontFamily: "Serif",
-								fontStyle: "italic",
-								fontWeight: 400,
-								letterSpacing: "-0.02em",
-								color: AMBER,
-								marginTop: 6,
-							}}
-						>
-							live in weeks, not quarters.
-						</span>
-					</div>
-					<div
-						style={{
-							display: "flex",
-							fontSize: 23,
-							lineHeight: 1.4,
-							color: MUTED,
-						}}
-					>
-						{`One OpenAI-compatible gateway to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers. SSO, audit logs and guardrails on Enterprise.`}
-					</div>
-				</div>
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "column",
-						width: 396,
-						borderRadius: 22,
-						background: "#fffdf7",
-						color: "#111113",
-						padding: "26px 28px",
-						boxShadow: "0 40px 90px -30px rgba(245,184,61,0.45)",
-					}}
-				>
-					<div
-						style={{
-							display: "flex",
-							justifyContent: "space-between",
-							fontFamily: "Mono",
-							fontSize: 13,
-							letterSpacing: "0.18em",
-							color: "rgba(17,17,19,0.5)",
-						}}
-					>
-						<span>● BOARDING PASS</span>
-						<span>ENTERPRISE PILOT</span>
-					</div>
-					<div
-						style={{
-							display: "flex",
-							marginTop: 16,
-							fontSize: 28,
-							fontWeight: 800,
-							letterSpacing: "-0.035em",
-						}}
-					>
-						30-day production pilot
-					</div>
-					{[
-						["WEEK 1", "Traffic live"],
-						["WEEK 2", "Controls on"],
-						["DAY 30", "You decide"],
-					].map(([when, what]) => (
-						<div
-							key={when}
-							style={{
-								display: "flex",
-								alignItems: "baseline",
-								gap: 18,
-								marginTop: 14,
-							}}
-						>
-							<span
-								style={{
-									display: "flex",
-									width: 78,
-									fontFamily: "Mono",
-									fontSize: 14,
-									letterSpacing: "0.12em",
-									color: "#b45309",
-								}}
-							>
-								{when}
-							</span>
-							<span style={{ display: "flex", fontSize: 20 }}>{what}</span>
-						</div>
-					))}
-					<div
-						style={{
-							display: "flex",
-							marginTop: 22,
-							borderTop: "2px dashed rgba(17,17,19,0.16)",
-						}}
-					/>
-					<div
-						style={{
-							display: "flex",
-							justifyContent: "center",
-							marginTop: 20,
-							padding: "14px 0",
-							borderRadius: 999,
-							background: AMBER,
-							fontSize: 20,
-							fontWeight: 800,
-						}}
-					>
-						Start your 30-day pilot →
-					</div>
-				</div>
-			</div>
-		),
-	});
+/** Plain black card with the white logo mark: the home share preview. */
+export function homeOgImage() {
+	return new ImageResponse(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				background: "#000000",
+				color: "#ffffff",
+			}}
+		>
+			<Logo style={{ width: 244, height: 260 }} />
+		</div>,
+		ogSize,
+	);
 }
 
 export interface ProductOgOptions {
@@ -293,11 +160,13 @@ export async function productOgImage({
 	accent,
 	glow,
 }: ProductOgOptions) {
-	const image = await sharp(
-		join(process.cwd(), "public/home/products", screenshot),
-	)
-		.png()
-		.toBuffer();
+	const image = await readFile(
+		join(
+			process.cwd(),
+			"public/og-products",
+			screenshot.replace(/\.webp$/, ".png"),
+		),
+	);
 	return await renderCard({
 		glow,
 		children: (

@@ -30,6 +30,7 @@ function useHeaderLinks(): HeaderLink[] {
 	return [
 		{ href: "/#how-it-works", label: "How it works" },
 		{ href: "/#dispatch", label: "Dispatch" },
+		{ href: "/airworthy", label: "Airworthy" },
 		{ href: "/#faq", label: "FAQ" },
 		{ href: "/resources", label: "Guides & tools" },
 		{
