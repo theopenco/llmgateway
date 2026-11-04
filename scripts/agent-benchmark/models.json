@@ -1,0 +1,65 @@
+{
+	"note": "Prices are USD per 1M tokens for the pinned provider, copied from packages/models. cacheWrite defaults to input when absent; cacheWrite1h prices Anthropic one-hour cache writes.",
+	"models": {
+		"fable-5.1": {
+			"label": "Claude Fable 5.1",
+			"gatewayId": "anthropic/claude-fable-5-1",
+			"prices": {
+				"input": 10,
+				"cacheRead": 0.25,
+				"cacheWrite": 12.5,
+				"output": 50,
+				"cacheWrite1h": 20
+			}
+		},
+		"opus-5.5": {
+			"label": "Claude Opus 5.5",
+			"gatewayId": "anthropic/claude-opus-5-5",
+			"prices": {
+				"input": 4,
+				"cacheRead": 0.2,
+				"cacheWrite": 5,
+				"output": 20,
+				"cacheWrite1h": 8
+			}
+		},
+		"gpt-6.1-sol": {
+			"label": "GPT-6.1 Sol",
+			"gatewayId": "openai/gpt-6.1-sol",
+			"prices": {
+				"input": 2,
+				"cacheRead": 0.1,
+				"cacheWrite": 2.5,
+				"output": 10
+			}
+		},
+		"gpt-6-luna": {
+			"label": "GPT-6 Luna",
+			"gatewayId": "openai/gpt-6-luna",
+			"prices": {
+				"input": 0.1,
+				"cacheRead": 0.01,
+				"cacheWrite": 0.125,
+				"output": 0.5
+			}
+		},
+		"deepseek-v4.1-flash": {
+			"label": "DeepSeek V4.1 Flash",
+			"gatewayId": "fireworks/deepseek-v4.1-flash",
+			"prices": {
+				"input": 0.22,
+				"cacheRead": 0.007,
+				"output": 0.66
+			}
+		},
+		"glm-5.3-flash": {
+			"label": "GLM 5.3 Flash",
+			"gatewayId": "fireworks/glm-5.3-flash",
+			"prices": {
+				"input": 0.15,
+				"cacheRead": 0.03,
+				"output": 0.5
+			}
+		}
+	}
+}
