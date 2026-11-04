@@ -24,6 +24,7 @@ import {
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
@@ -39,7 +40,6 @@ import {
 	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	anthropicContentBlockInputSchema,
@@ -1330,7 +1330,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...internalApiOriginHeaders("messages", { hasClientCacheMarkers }),
-			...forwardedIpHeaders(c.req.raw.headers),
+			...internalPrincipalHeaders(c.req.raw.headers),
 			...forwardedCustomHeaders(c.req.raw.headers),
 			...(sessionId ? { "x-session-id": sessionId } : {}),
 			// Forward the fallback opt-out (presence-sensitive: the inner handler

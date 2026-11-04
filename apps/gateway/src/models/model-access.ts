@@ -36,8 +36,9 @@ import type { ComplianceCheckContext } from "@/lib/compliance.js";
 import type { ModelDefinition } from "@llmgateway/models";
 import type { Context } from "hono";
 
-export async function getModelsAccess(c: Context) {
+export async function getModelsAccess(c: Context, suppliedToken?: string) {
 	if (
+		!suppliedToken &&
 		!c.req.raw.headers.has("Authorization") &&
 		!c.req.raw.headers.has("x-api-key")
 	) {
@@ -45,7 +46,7 @@ export async function getModelsAccess(c: Context) {
 	}
 
 	c.header("Cache-Control", "private, no-store");
-	const apiKey = await findApiKeyByToken(extractApiToken(c));
+	const apiKey = await findApiKeyByToken(suppliedToken ?? extractApiToken(c));
 	if (!apiKey || apiKey.status !== "active") {
 		throw new HTTPException(401, { message: "Invalid or inactive API key" });
 	}

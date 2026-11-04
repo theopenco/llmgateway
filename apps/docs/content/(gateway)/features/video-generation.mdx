@@ -408,6 +408,12 @@ Failed, canceled, and expired jobs report a cost of `0`.
 
 ## Download the Video
 
+Job polling and the direct `/v1/videos/{video_id}/content` endpoint require a valid key with project access and, for end-user sessions, ownership of the job’s wallet. Applicable source-IP restrictions still apply. Organization compliance policies do not retroactively block historical downloads.
+
+Signed bearer URLs can appear in completed job responses (`content[].url`), dashboard links, and exports. They are scoped to one log and an expiry. Treat the whole URL as a credential: anyone holding it can download that output without an API key until the signed expiry (normally seven days). Changing an API key or compliance policy does not revoke a previously issued signed link.
+
+Production deployments must configure `LLM_VIDEO_CONTENT_JWT_SECRET`. Never enable `VIDEO_CONTENT_TOKEN_ALLOW_DEV=true` in production: without a configured secret it activates the fixed, public development signing key regardless of `NODE_ENV`, allowing video-download tokens to be forged. Use that fallback only for local development; `false` or another value does not enable it.
+
 Once the job is complete, stream the resulting video bytes from the content endpoint:
 
 ```bash

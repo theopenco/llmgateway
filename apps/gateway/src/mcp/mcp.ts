@@ -25,6 +25,8 @@ import {
 } from "@/lib/cached-queries.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
@@ -36,7 +38,6 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
@@ -1257,6 +1258,9 @@ export async function mcpHandler(c: Context): Promise<Response> {
 
 	let zeroDataRetentionEnabled = false;
 	try {
+		if (apiKeyRecord.keyType === "user" && !apiKeyRecord.endUserSession) {
+			await getAuthenticatedReadAccess(c, apiKey);
+		}
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
 			const mcpOrganization = await findOrganizationById(
@@ -1304,7 +1308,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				405,
 			);
 		}
-		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
+		const clientHeaders = internalPrincipalHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",
@@ -1433,7 +1437,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
+		const clientHeaders = internalPrincipalHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",
@@ -1569,7 +1573,21 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "DELETE") {
-		// Session termination
+		// Session termination uses the same owner boundary as reads and messages.
+		const connection = sseConnections.get(sessionId);
+		if (connection && connection.apiKey !== apiKey) {
+			return c.json(
+				{
+					jsonrpc: "2.0",
+					error: {
+						code: -32001,
+						message: "Session belongs to a different API key",
+					},
+					id: null,
+				},
+				403,
+			);
+		}
 		sseConnections.delete(sessionId);
 		return new Response(null, { status: 204 });
 	}
