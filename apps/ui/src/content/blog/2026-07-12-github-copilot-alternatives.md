@@ -11,7 +11,7 @@ faqs:
   - question: "What is the cheapest GitHub Copilot alternative?"
     answer: "Open-source tools — Cline, Continue, and Aider — are free; you pay only token costs. Routed through LLM Gateway with prompt caching and a cheap default model, a typical developer's chat usage runs a few dollars a month. Flat-fee options start at $17–$29/month."
   - question: "Can I cap what my team spends on AI coding tools?"
-    answer: "Yes, with a gateway. LLM Gateway enforces hard budget limits per organization, project, and API key, so an agent stops at the cap instead of billing past it. Copilot's spending budgets exist but are off by default; most flat-fee products cap by throttling your own usage."
+    answer: "Yes, with a gateway. LLM Gateway enforces hard budget limits per organization member and API key, so an agent stops at the cap instead of billing past it. Copilot's spending budgets exist but are off by default; most flat-fee products cap by throttling your own usage."
   - question: "Is GitHub Copilot still worth keeping for completions?"
     answer: "Often, yes. Inline completions weren't moved to AI Credits — they're still effectively flat-fee, and Copilot's completions remain excellent. The common hybrid: keep Copilot Free (2,000 completions/month) or a $10 Pro seat for completions, and run chat and agents through a gateway you control."
 image:
@@ -62,7 +62,7 @@ Four questions separate the options fast:
 
 **Best overall replacement for Copilot Chat and agent mode: any agent, any model, and a spending cap that actually caps.**
 
-[LLM Gateway](https://llmgateway.io) isn't an editor — it's the infrastructure move. One OpenAI-compatible endpoint routes any coding agent (DevPass Code, Claude Code, Cline, Continue, Aider, Codex CLI) to 200+ models across 40+ providers, with provider token rates passed through at zero markup and budgets enforced per organization, project, and API key.
+[LLM Gateway](https://llmgateway.io) isn't an editor — it's the infrastructure move. One OpenAI-compatible endpoint routes any coding agent (DevPass Code, Claude Code, Cline, Continue, Aider, Codex CLI) to 200+ models across 40+ providers, with provider token rates passed through at zero markup and budgets enforced per organization member and API key.
 
 **What sets it apart:**
 

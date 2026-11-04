@@ -352,6 +352,17 @@ export default async function OrganizationsPage({
 							</TableHead>
 							<TableHead>
 								<SortableHeader
+									label="Subscription Value"
+									sortKey="totalSubscriptionValue"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									search={search}
+									dateRange={dateRange}
+									filters={filters}
+								/>
+							</TableHead>
+							<TableHead>
+								<SortableHeader
 									label="Total Spent"
 									sortKey="totalSpent"
 									currentSortBy={sortBy}
@@ -412,7 +423,7 @@ export default async function OrganizationsPage({
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={showActions ? 13 : 12}
+									colSpan={showActions ? 14 : 13}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -469,6 +480,11 @@ export default async function OrganizationsPage({
 									<TableCell className="tabular-nums text-muted-foreground">
 										{currencyFormatter.format(
 											parseFloat(org.totalCreditsAllTime ?? "0"),
+										)}
+									</TableCell>
+									<TableCell className="tabular-nums text-muted-foreground">
+										{currencyFormatter.format(
+											parseFloat(org.totalSubscriptionValue ?? "0"),
 										)}
 									</TableCell>
 									<TableCell className="tabular-nums text-muted-foreground">

@@ -64,7 +64,7 @@ export default async function PlanPage({
 							</CardDescription>
 						</CardHeader>
 						<CardContent>
-							<PlanManagement />
+							<PlanManagement key={orgId} />
 						</CardContent>
 					</Card>
 				</div>

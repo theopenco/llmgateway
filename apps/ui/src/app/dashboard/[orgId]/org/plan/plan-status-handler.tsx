@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useToast } from "@/lib/components/use-toast";
-import { useApi } from "@/lib/fetch-client";
+import { invalidateProPlanQueries } from "@/lib/pro-plan-cache";
 
 interface PlanStatusHandlerProps {
 	checkoutStatus?: string;
@@ -15,7 +15,7 @@ interface PlanStatusHandlerProps {
 // reflects the new subscription as soon as the webhook has landed.
 export function PlanStatusHandler({ checkoutStatus }: PlanStatusHandlerProps) {
 	const { toast } = useToast();
-	const api = useApi();
+
 	const queryClient = useQueryClient();
 	const handled = useRef(false);
 
@@ -31,9 +31,7 @@ export function PlanStatusHandler({ checkoutStatus }: PlanStatusHandlerProps) {
 				description:
 					"Welcome to Pro! It may take a few seconds for your new limits to show up.",
 			});
-			void queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/orgs").queryKey,
-			});
+			void invalidateProPlanQueries(queryClient);
 		} else if (checkoutStatus === "canceled") {
 			toast({
 				title: "Checkout canceled",
@@ -41,7 +39,7 @@ export function PlanStatusHandler({ checkoutStatus }: PlanStatusHandlerProps) {
 				variant: "destructive",
 			});
 		}
-	}, [checkoutStatus, toast, api, queryClient]);
+	}, [checkoutStatus, toast, queryClient]);
 
 	return null;
 }

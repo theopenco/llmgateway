@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 // Pro plan pricing. The Pro plan has no feature differences from Free — it
 // raises the team-seat and API-key limits and unlocks paid add-ons. All
 // billing is monthly, per seat.
@@ -41,14 +43,13 @@ export interface ProPlanSelection {
 	scimAddon: boolean;
 }
 
-// Monthly USD total for a Pro configuration. Prices are whole dollars, so
-// plain integer arithmetic is exact here.
+// Monthly USD total for a Pro configuration.
 export function getProPlanMonthlyTotal(selection: ProPlanSelection): number {
-	const seatCost = selection.seats * PRO_PLAN_PRICES.seat;
-	const extraKeyCost = selection.extraApiKeys * PRO_PLAN_PRICES.extraApiKey;
-	const extraProjectCost =
-		selection.extraProjects * PRO_PLAN_PRICES.extraProject;
-	const ssoCost = selection.ssoAddon ? PRO_PLAN_PRICES.sso : 0;
-	const scimCost = selection.scimAddon ? PRO_PLAN_PRICES.scim : 0;
-	return seatCost + extraKeyCost + extraProjectCost + ssoCost + scimCost;
+	return new Decimal(selection.seats)
+		.mul(PRO_PLAN_PRICES.seat)
+		.add(new Decimal(selection.extraApiKeys).mul(PRO_PLAN_PRICES.extraApiKey))
+		.add(new Decimal(selection.extraProjects).mul(PRO_PLAN_PRICES.extraProject))
+		.add(selection.ssoAddon ? PRO_PLAN_PRICES.sso : 0)
+		.add(selection.scimAddon ? PRO_PLAN_PRICES.scim : 0)
+		.toNumber();
 }

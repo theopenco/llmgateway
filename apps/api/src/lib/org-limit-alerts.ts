@@ -17,7 +17,7 @@ export type OrgLimitEvent =
 
 /** Discord detail for a deployment license seat rejection. */
 export function licenseSeatDetail(error: EnterpriseSeatLimitError): string {
-	return `Enterprise license: ${error.seatsUsed}/${error.maxSeats} seats`;
+	return `${error.name === "OrganizationSeatLimitError" ? "Organization" : "Enterprise license"}: ${error.seatsUsed}/${error.maxSeats} seats`;
 }
 
 function describe(

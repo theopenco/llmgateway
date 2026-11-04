@@ -7,13 +7,14 @@ import {
 	OPENROUTER_GLYPH_PATH,
 	OPENROUTER_GLYPH_VIEWBOX,
 } from "@/lib/openrouter-mark";
+import { pageTitle } from "@/lib/page-title";
 
 import { allMigrations } from "content-collections";
 
 const Footer = dynamic(() => import("@/components/landing/footer"));
 
 export const metadata = {
-	title: "Migration Guides — From Copilot, OpenRouter, LiteLLM",
+	title: pageTitle("Migration Guides — From Copilot, OpenRouter, LiteLLM"),
 	description:
 		"Step-by-step guides to migrate from GitHub Copilot, OpenRouter, Vercel AI Gateway, LiteLLM, Portkey, and other LLM providers to LLM Gateway.",
 	openGraph: {

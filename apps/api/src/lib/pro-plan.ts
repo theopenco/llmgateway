@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 import type Stripe from "stripe";
 
 export const PRO_BREAKDOWN_COMPONENTS = [
@@ -61,6 +63,10 @@ export function extractProQuantities(subscription: Stripe.Subscription): {
 export function extractProInvoiceBreakdown(
 	invoice: Stripe.Invoice,
 ): Record<ProBreakdownComponent, string> | null {
+	// Stripe embeds only the first page; omit unknown itemization rather than report partial revenue.
+	if (invoice.lines?.has_more) {
+		return null;
+	}
 	const priceToComponent = new Map<string, ProBreakdownComponent>();
 	const priceEnvByComponent: Record<ProBreakdownComponent, string | undefined> =
 		{
@@ -80,19 +86,23 @@ export function extractProInvoiceBreakdown(
 		return null;
 	}
 
-	const cents: Record<ProBreakdownComponent, number> = {
-		seats: 0,
-		extraApiKeys: 0,
-		extraProjects: 0,
-		sso: 0,
-		scim: 0,
+	const cents: Record<ProBreakdownComponent, Decimal> = {
+		seats: new Decimal(0),
+		extraApiKeys: new Decimal(0),
+		extraProjects: new Decimal(0),
+		sso: new Decimal(0),
+		scim: new Decimal(0),
 	};
 	let matchedAny = false;
 	for (const line of invoice.lines?.data ?? []) {
 		const priceId = line.pricing?.price_details?.price;
 		const component = priceId ? priceToComponent.get(priceId) : undefined;
 		if (component) {
-			cents[component] += line.amount;
+			const discounts = (line.discount_amounts ?? []).reduce(
+				(sum, discount) => sum.add(discount.amount),
+				new Decimal(0),
+			);
+			cents[component] = cents[component].add(line.amount).sub(discounts);
 			matchedAny = true;
 		}
 	}
@@ -101,10 +111,10 @@ export function extractProInvoiceBreakdown(
 	}
 
 	return {
-		seats: (cents.seats / 100).toFixed(2),
-		extraApiKeys: (cents.extraApiKeys / 100).toFixed(2),
-		extraProjects: (cents.extraProjects / 100).toFixed(2),
-		sso: (cents.sso / 100).toFixed(2),
-		scim: (cents.scim / 100).toFixed(2),
+		seats: cents.seats.div(100).toFixed(2),
+		extraApiKeys: cents.extraApiKeys.div(100).toFixed(2),
+		extraProjects: cents.extraProjects.div(100).toFixed(2),
+		sso: cents.sso.div(100).toFixed(2),
+		scim: cents.scim.div(100).toFixed(2),
 	};
 }

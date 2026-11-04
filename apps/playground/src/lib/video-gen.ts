@@ -1,8 +1,22 @@
+import { supportsVideoReasoningEffort } from "@llmgateway/shared/video-generation-config";
+
 import type { paths } from "@/lib/api/v1";
-import type { VideoJob } from "@llmgateway/shared/video-generation-config";
+import type {
+	VideoJob,
+	VideoReasoningEffort,
+} from "@llmgateway/shared/video-generation-config";
 import type { Client } from "openapi-fetch";
 
 export * from "@llmgateway/shared/video-generation-config";
+
+export function getVideoReasoningRequestFields(
+	modelId: string,
+	reasoningEffort: VideoReasoningEffort,
+): { reasoning_effort?: VideoReasoningEffort } {
+	return supportsVideoReasoningEffort(modelId)
+		? { reasoning_effort: reasoningEffort }
+		: {};
+}
 
 export function downloadVideo(url: string, filename?: string) {
 	const name = filename ?? `video-${Date.now()}.mp4`;
@@ -55,17 +69,33 @@ const MAX_POLL_DURATION_MS = 60 * 60 * 1000;
 const MAX_CONSECUTIVE_ERRORS = 10;
 const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
+// Background tabs throttle timers to as little as once a minute, so a job that
+// finished while the tab was hidden would otherwise stay "generating" for up
+// to a minute after the user comes back. Returning to the tab polls at once.
 function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(resolve, ms);
-		signal?.addEventListener(
-			"abort",
-			() => {
-				clearTimeout(timer);
-				reject(new DOMException("Aborted", "AbortError"));
-			},
-			{ once: true },
-		);
+		const doc = typeof document === "undefined" ? undefined : document;
+		const cleanup = () => {
+			clearTimeout(timer);
+			doc?.removeEventListener("visibilitychange", onVisibilityChange);
+			signal?.removeEventListener("abort", onAbort);
+		};
+		const onVisibilityChange = () => {
+			if (doc?.visibilityState === "visible") {
+				cleanup();
+				resolve();
+			}
+		};
+		const onAbort = () => {
+			cleanup();
+			reject(new DOMException("Aborted", "AbortError"));
+		};
+		const timer = setTimeout(() => {
+			cleanup();
+			resolve();
+		}, ms);
+		doc?.addEventListener("visibilitychange", onVisibilityChange);
+		signal?.addEventListener("abort", onAbort, { once: true });
 	});
 }
 

@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -56,6 +56,7 @@ import {
 } from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
+import { createRoute } from "@/utils/create-route.js";
 import {
 	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
@@ -1546,7 +1547,7 @@ v1Master.openapi(deleteMemberIamRule, async (c) => {
 });
 
 // Custom providers are BYOK provider keys with `provider: "custom"`, addressed
-// by the gateway as `custom/<name>/<model>`. Only custom keys are exposed here:
+// by the gateway as `<name>/<model>`. Only custom keys are exposed here:
 // catalog providers require an upstream credential check that isn't meaningful
 // for unattended provisioning.
 async function loadCustomProviderKeyForOrg(id: string, organizationId: string) {
@@ -1604,6 +1605,7 @@ const createCustomProviderBody = z.object({
 	baseUrl: z.string().url(),
 	token: providerTokenField,
 	customModelsOnly: z.boolean().optional(),
+	forwardCacheControl: z.boolean().optional(),
 	complianceAttestation: complianceAttestationSchema.optional(),
 });
 
@@ -1613,6 +1615,7 @@ const updateCustomProviderBody = z
 		token: providerTokenField.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
 		customModelsOnly: z.boolean().optional(),
+		forwardCacheControl: z.boolean().optional(),
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 	})
 	.refine((v) => Object.keys(v).length > 0, {
@@ -1651,8 +1654,14 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { name, baseUrl, token, customModelsOnly, complianceAttestation } =
-		c.req.valid("json");
+	const {
+		name,
+		baseUrl,
+		token,
+		customModelsOnly,
+		forwardCacheControl,
+		complianceAttestation,
+	} = c.req.valid("json");
 
 	await assertProviderBaseUrlAllowed(baseUrl);
 	await assertCustomProviderNameAvailable(masterKey.organizationId, name);
@@ -1676,6 +1685,9 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			tokenMasked: maskToken(token),
 			tokenHash: getApiKeyFingerprint(token),
 			customModelsOnly: customModelsOnly ?? false,
+			// New keys forward by default; the column default (false) keeps keys
+			// created before this setting existed on the old behaviour.
+			forwardCacheControl: forwardCacheControl ?? true,
 			complianceAttestation: complianceAttestation
 				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
 				: null,
@@ -1688,7 +1700,11 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		action: "provider_key.create",
 		resourceType: "provider_key",
 		resourceId: providerKey.id,
-		metadata: { provider: "custom", resourceName: name },
+		metadata: {
+			provider: "custom",
+			resourceName: name,
+			forwardCacheControl: providerKey.forwardCacheControl,
+		},
 	});
 
 	return c.json({ customProvider: toPublicProviderKey(providerKey) }, 201);
@@ -1800,8 +1816,14 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { baseUrl, token, status, customModelsOnly, complianceAttestation } =
-		c.req.valid("json");
+	const {
+		baseUrl,
+		token,
+		status,
+		customModelsOnly,
+		forwardCacheControl,
+		complianceAttestation,
+	} = c.req.valid("json");
 
 	const existing = await loadCustomProviderKeyForOrg(
 		id,
@@ -1830,6 +1852,9 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
+	}
+	if (forwardCacheControl !== undefined) {
+		updates.forwardCacheControl = forwardCacheControl;
 	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
@@ -1864,6 +1889,15 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		changes.customModelsOnly = {
 			old: existing.customModelsOnly,
 			new: customModelsOnly,
+		};
+	}
+	if (
+		forwardCacheControl !== undefined &&
+		existing.forwardCacheControl !== forwardCacheControl
+	) {
+		changes.forwardCacheControl = {
+			old: existing.forwardCacheControl,
+			new: forwardCacheControl,
 		};
 	}
 	if (complianceAttestation !== undefined) {

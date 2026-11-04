@@ -45,6 +45,9 @@ export function Footer() {
 					<Link href="/resources" className="hover:text-foreground">
 						Guides & tools
 					</Link>
+					<Link href="/airworthy" className="hover:text-foreground">
+						Airworthy certification
+					</Link>
 					<a
 						href={`${config.uiUrl}/rankings`}
 						className="hover:text-foreground"

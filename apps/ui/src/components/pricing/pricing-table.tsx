@@ -98,9 +98,9 @@ const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Free Models",
 		description: "Zero-cost models with rate limits",
-		free: "3 (rate limited)",
-		pro: "3 (rate limited)",
-		enterprise: "3 (custom limits)",
+		free: "1 (rate limited)",
+		pro: "1 (rate limited)",
+		enterprise: "1 (custom limits)",
 	},
 	{
 		name: "Chat and API Access",
@@ -125,12 +125,12 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreText: "See storage pricing →",
 		free: "Metadata only",
 		pro: "Metadata only",
-		enterprise: "Full payload retention, unlimited",
+		enterprise: "Full payload retention, 30 days",
 	},
 	{
 		name: "Auto-routing & Vendor Selection",
 		description: "Automatic provider routing",
-		learnMoreLink: "/features/auto-routing",
+		learnMoreLink: "/features/routing",
 		free: true,
 		pro: true,
 		enterprise: true,

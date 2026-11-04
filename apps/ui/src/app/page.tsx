@@ -1,7 +1,12 @@
 import dynamic from "next/dynamic";
+import { Suspense } from "react";
 
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { LandingHero } from "@/components/landing/landing-hero";
+import {
+	Testimonials,
+	TestimonialsFallback,
+} from "@/components/landing/testimonials";
 
 import { allMigrations } from "content-collections";
 
@@ -28,9 +33,6 @@ const Uptime = dynamic(() =>
 		(mod) => mod.UptimeVisualization,
 	),
 );
-const Testimonials = dynamic(() =>
-	import("@/components/landing/testimonials").then((mod) => mod.Testimonials),
-);
 const Faq = dynamic(() =>
 	import("@/components/landing/faq").then((mod) => mod.Faq),
 );
@@ -44,29 +46,69 @@ const Footer = dynamic(() => import("@/components/landing/footer"));
 
 const HIDDEN_MIGRATIONS = new Set(["vercel-ai-gateway", "portkey"]);
 
+// Sections after the hero skip style, layout and paint until they near the
+// viewport, so their ~2,000 elements stay out of every layout during load.
+// Section placeholders are at least as tall as the tallest section, so a
+// skipped section's content never overflows onto the next one, which made
+// Lighthouse report overlapping tap targets.
+const BELOW_FOLD =
+	"[content-visibility:auto] [contain-intrinsic-size:auto_1000px]";
+const BELOW_FOLD_CHILDREN =
+	"[&>*:not(:first-child)]:[content-visibility:auto] [&>*:not(:first-child)]:[contain-intrinsic-size:auto_3700px] md:[&>*:not(:first-child)]:[contain-intrinsic-size:auto_2600px] lg:[&>*:not(:first-child)]:[contain-intrinsic-size:auto_2400px]";
+
 export default function Home() {
 	const migrations = allMigrations
 		.filter((m) => !HIDDEN_MIGRATIONS.has(m.slug))
 		.map((m) => ({ slug: m.slug, fromProvider: m.fromProvider }));
 
+	// Each Suspense boundary hydrates on its own at low priority once the hero
+	// is interactive, so below-the-fold sections no longer add to one long
+	// hydration task. A section that suspends needs a fallback with the same
+	// layout (see Testimonials) so it never streams in empty.
 	return (
 		<>
 			<HeroRSC />
-			<main>
+			<main className={BELOW_FOLD_CHILDREN}>
 				<LandingHero />
-				<TrustBar />
-				<Features />
-				<ControlPlane />
-				<ProductFamily />
-				<Graph />
-				<DeveloperLane migrations={migrations} />
-				<Uptime showEyebrow={false} />
-				<Testimonials />
-				<Faq />
-				<EnterpriseCTA />
-				<CallToAction />
+				<Suspense>
+					<TrustBar />
+				</Suspense>
+				<Suspense>
+					<Features />
+				</Suspense>
+				<Suspense>
+					<ControlPlane />
+				</Suspense>
+				<Suspense>
+					<ProductFamily />
+				</Suspense>
+				<Suspense>
+					<Graph />
+				</Suspense>
+				<Suspense>
+					<DeveloperLane migrations={migrations} />
+				</Suspense>
+				<Suspense>
+					<Uptime showEyebrow={false} />
+				</Suspense>
+				<Suspense fallback={<TestimonialsFallback />}>
+					<Testimonials />
+				</Suspense>
+				<Suspense>
+					<Faq />
+				</Suspense>
+				<Suspense>
+					<EnterpriseCTA />
+				</Suspense>
+				<Suspense>
+					<CallToAction />
+				</Suspense>
 			</main>
-			<Footer />
+			<div className={BELOW_FOLD}>
+				<Suspense>
+					<Footer />
+				</Suspense>
+			</div>
 		</>
 	);
 }

@@ -233,6 +233,7 @@ export async function recordRealtimeResponse(
 				mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
 				usedMode: preflight.usedMode,
 				source: normalizeLogSource(input.source),
+				apiOrigin: "realtime",
 				userAgent: input.userAgent ?? null,
 				// Float cost columns stay populated for dashboards and legacy queries;
 				// billingCost is the exact decimal the worker debits.
@@ -398,6 +399,7 @@ export async function recordRealtimeTranscription(
 				mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
 				usedMode: preflight.usedMode,
 				source: normalizeLogSource(input.source),
+				apiOrigin: "realtime",
 				userAgent: input.userAgent ?? null,
 				cost: costs.totalCost.toNumber(),
 				inputCost: costs.inputCost.toNumber(),

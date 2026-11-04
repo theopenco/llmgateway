@@ -40,18 +40,24 @@ const mockRequests: Array<{
 	authorization: string | undefined;
 	model: string | undefined;
 	stream: boolean;
+	messages: unknown;
 }> = [];
 
 mockServer.on(
 	"POST",
 	["/v1/chat/completions", "/v2/ai/openai/chat/completions"],
 	async (c) => {
-		const body = await c.req.json<{ model?: string; stream?: boolean }>();
+		const body = await c.req.json<{
+			model?: string;
+			stream?: boolean;
+			messages?: unknown;
+		}>();
 		mockRequests.push({
 			path: c.req.path,
 			authorization: c.req.header("authorization"),
 			model: body.model,
 			stream: body.stream === true,
+			messages: body.messages,
 		});
 
 		if (
@@ -184,6 +190,7 @@ async function setupTestData(opts: {
 	includeProviderKey?: boolean;
 	includeCatalogProviderKey?: boolean;
 	customModelsOnly?: boolean;
+	forwardCacheControl?: boolean;
 }) {
 	await db.insert(tables.user).values({
 		id: "custom-user",
@@ -234,6 +241,7 @@ async function setupTestData(opts: {
 			organizationId: "custom-org",
 			baseUrl: `http://localhost:${MOCK_PORT}`,
 			customModelsOnly: opts.customModelsOnly ?? false,
+			forwardCacheControl: opts.forwardCacheControl ?? false,
 		});
 	}
 
@@ -567,7 +575,7 @@ describe("Custom Provider", () => {
 				"weighted-score",
 			);
 
-			expect(mockRequests).toEqual([
+			expect(mockRequests).toMatchObject([
 				{
 					path: "/v1/chat/completions",
 					authorization: "Bearer sk-test-key",
@@ -738,6 +746,120 @@ describe("Custom Provider", () => {
 			expect((await res.json()).error.message).toContain(
 				"Custom providers are not supported in credits mode",
 			);
+		});
+	});
+
+	describe("cache_control forwarding", () => {
+		function cachedChatRequest(prompt: string) {
+			return app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${TEST_TOKEN}`,
+				},
+				body: JSON.stringify({
+					model: "my-custom/claude-router",
+					messages: [
+						{
+							role: "system",
+							content: [
+								{
+									type: "text",
+									text: prompt,
+									cache_control: { type: "ephemeral", ttl: "1h" },
+								},
+							],
+						},
+						{ role: "user", content: "hello" },
+					],
+				}),
+			});
+		}
+
+		test("forwards caller markers when the key opts in", async () => {
+			await setupTestData({
+				mode: "api-keys",
+				includeProviderKey: true,
+				forwardCacheControl: true,
+			});
+
+			const res = await cachedChatRequest("forward on");
+			expect(res.status).toBe(200);
+			expect(mockRequests[0]?.messages).toEqual([
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "forward on",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{ role: "user", content: "hello" },
+			]);
+		});
+
+		test("strips caller markers by default", async () => {
+			await setupTestData({ mode: "api-keys", includeProviderKey: true });
+
+			const res = await cachedChatRequest("forward off");
+			expect(res.status).toBe(200);
+			expect(JSON.stringify(mockRequests[0]?.messages)).not.toContain(
+				"cache_control",
+			);
+		});
+
+		test("forwards a /v1/messages tool_result marker on a text part", async () => {
+			await setupTestData({
+				mode: "api-keys",
+				includeProviderKey: true,
+				forwardCacheControl: true,
+			});
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-api-key": TEST_TOKEN,
+				},
+				body: JSON.stringify({
+					model: "my-custom/claude-router",
+					max_tokens: 64,
+					messages: [
+						{ role: "user", content: "read it" },
+						{
+							role: "assistant",
+							content: [
+								{ type: "tool_use", id: "toolu_1", name: "read", input: {} },
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: "file contents",
+									cache_control: { type: "ephemeral" },
+								},
+							],
+						},
+					],
+				}),
+			});
+			expect(res.status).toBe(200);
+			const messages = mockRequests[0]?.messages as Array<{
+				role: string;
+				content: unknown;
+			}>;
+			expect(messages.find((m) => m.role === "tool")?.content).toEqual([
+				{
+					type: "text",
+					text: "file contents",
+					cache_control: { type: "ephemeral" },
+				},
+			]);
 		});
 	});
 

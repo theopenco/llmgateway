@@ -247,7 +247,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	}
 
 	function pointerDown(event: PointerEvent) {
-		if (reducedMotion || grabbed !== null || event.button !== 0) {
+		if (!studio || reducedMotion || grabbed !== null || event.button !== 0) {
 			return;
 		}
 		updatePointer(event);
@@ -271,7 +271,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	}
 
 	function pointerMove(event: PointerEvent) {
-		if (reducedMotion) {
+		if (!studio || reducedMotion) {
 			return;
 		}
 		updatePointer(event);

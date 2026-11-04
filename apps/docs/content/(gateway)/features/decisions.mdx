@@ -1,0 +1,222 @@
+---
+title: Decisions
+description: Get typed, probabilistic decisions instead of generated text with the OpenAI-compatible /v1/decisions endpoint
+icon: SlidersHorizontal
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+LLMGateway exposes an OpenAI-compatible `/v1/decisions` endpoint for decision
+models: models that read text or images, answer questions you define, and
+return typed answers with calibrated probabilities. There is no free-form text
+in the response — every answer is a value your code can branch on directly.
+
+Use it when a model call exists only to make a decision: routing a support
+ticket, scoring a retrieved passage, checking a product photo for damage, or
+classifying a record. A chat model can do these too, but you then have to parse
+prose, and you get no probability to threshold on.
+
+The request and response follow [OpenAI's Decisions API](https://developers.openai.com/api/docs/guides/decisions),
+so the OpenAI SDKs work by pointing their base URL at LLMGateway. The same
+request shape works for every decision model, whichever provider serves it.
+
+For the full request and response schema, see the
+[API reference](/v1_decisions). To try a decision model without writing code,
+open the [Decision Studio](/learn/playground-decisions) in Lounge: build the
+questions in the browser, compare models on the same input, and copy the run
+as a `/v1/decisions` request.
+
+## Models
+
+`microsoft-decision-1` is served by Azure and works with LLMGateway credits.
+To use your own Azure key instead, deploy Microsoft-Decision-1 in Microsoft
+Foundry with the deployment name `Decision-1`, then add the Azure key and
+resource in LLMGateway. The gateway calls the resource's Foundry host
+(`https://<resource>.services.ai.azure.com`).
+
+Browse all decision models on the
+[models page](https://llmgateway.io/models?filters=1).
+
+Providers list their own decision models through
+[Airside](/features/airside#decision-models); those models are served on
+`/v1/decisions` like any other and billed at their approved fares.
+
+## Endpoint
+
+`POST https://api.llmgateway.io/v1/decisions`
+
+## Question types
+
+| Type        | Ask                                  | Answer                                                           |
+| ----------- | ------------------------------------ | ---------------------------------------------------------------- |
+| `predicate` | Whether a condition is true          | `probability`: 0 to 1                                            |
+| `choice`    | One option from `choices` you define | `choice`, `probabilities` per option, `confidence`               |
+| `score`     | A rating across ordered `levels`     | `score` (can land between levels), `probabilities`, `confidence` |
+
+Answers come back in the order you asked, echoing each question's `name`. A
+question the model declines returns `{ "type": "refusal", "name": … }` while
+the others are still answered.
+
+## cURL
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/decisions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-6-luna-decisions",
+    "input": "Help! My payouts have been failing for 3 days.",
+    "questions": [
+      {
+        "type": "choice",
+        "name": "department",
+        "instructions": "Which team should handle this?",
+        "choices": [
+          { "value": "billing", "description": "Payments, invoicing, refunds" },
+          { "value": "technical", "description": "Bugs, outages, integrations" }
+        ]
+      },
+      {
+        "type": "predicate",
+        "name": "is_urgent",
+        "instructions": "Does this convey urgency?"
+      },
+      {
+        "type": "score",
+        "name": "impact",
+        "instructions": "Rate the operational impact.",
+        "levels": [{ "label": "None" }, { "label": "Limited" }, { "label": "Critical" }]
+      }
+    ]
+  }'
+```
+
+```json
+{
+	"model": "openai/gpt-6-luna-decisions",
+	"answers": [
+		{
+			"type": "choice",
+			"name": "department",
+			"choice": "billing",
+			"probabilities": [
+				{ "value": "billing", "probability": 0.88 },
+				{ "value": "technical", "probability": 0.12 }
+			],
+			"confidence": 0.81
+		},
+		{ "type": "predicate", "name": "is_urgent", "probability": 0.95 },
+		{
+			"type": "score",
+			"name": "impact",
+			"score": 1.9,
+			"probabilities": [
+				{ "value": 0, "label": "None", "probability": 0.0 },
+				{ "value": 1, "label": "Limited", "probability": 0.1 },
+				{ "value": 2, "label": "Critical", "probability": 0.9 }
+			],
+			"confidence": 0.88
+		}
+	],
+	"usage": { "input_tokens": 318, "output_tokens": 0, "total_tokens": 318 }
+}
+```
+
+## OpenAI SDK
+
+Point the client at LLMGateway and call `decisions.create` (OpenAI JavaScript
+SDK 7.30.0 or later, Python SDK 3.26.0 or later):
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const decision = await client.decisions.create({
+	model: "gpt-6-luna-decisions",
+	input: ticket,
+	questions: [
+		{
+			type: "predicate",
+			name: "is_urgent",
+			instructions: "Does this convey urgency?",
+		},
+	],
+});
+
+const [answer] = decision.answers;
+if (answer.type === "predicate" && answer.probability > 0.8) {
+	await escalate(ticket);
+}
+```
+
+## Images
+
+Send user messages with `input_text` and `input_image` parts to evaluate images
+on models that accept them:
+
+```json
+{
+	"model": "gpt-6-luna-decisions",
+	"input": [
+		{
+			"role": "user",
+			"content": [
+				{ "type": "input_text", "text": "Inspect the product in this photo." },
+				{ "type": "input_image", "image_url": "data:image/png;base64,…" }
+			]
+		}
+	],
+	"questions": [
+		{
+			"type": "predicate",
+			"name": "visible_damage",
+			"instructions": "Does the product have visible damage?"
+		}
+	]
+}
+```
+
+Text-only models such as `microsoft-decision-1` reject image parts with a 400.
+TypeSafe's Jev models take PNG and JPEG images only. The gateway accepts up to
+16 images and 22.5 MB of image data per request, 16 MB per image, so the
+request fits TypeSafe's body limit; TypeSafe rejects images under 280 or over
+1568 pixels per side. Requests with images run in TypeSafe's long-context mode
+(262k tokens). TypeSafe treats image input as experimental.
+
+<Callout type="info">
+	Decision models are billed on input tokens only — the input plus every
+	question. There is no output, cache-read or cache-write charge.
+</Callout>
+
+<Callout type="warn">
+	Decision models only work on `/v1/decisions` (TypeSafe models also on the
+	legacy `/v1/systemone`). Requesting one on `/v1/chat/completions` returns a
+	400 pointing you at the right endpoint, and they cannot generate text or call
+	tools. There is no streaming — the response is a single object.
+</Callout>
+
+## Migrating from /v1/systemone
+
+`/v1/systemone` is TypeSafe's request format and serves Jev only. It will be
+deprecated in favor of `/v1/decisions`, and new decision models ship on
+`/v1/decisions` only. Jev works on both, at the same price, so you can move
+without changing models.
+
+| `/v1/systemone`                   | `/v1/decisions`                                         |
+| --------------------------------- | ------------------------------------------------------- |
+| `state` (string, object or array) | `input` (string, or user messages with text and images) |
+| `questions` map keyed by id       | `questions` array; the id goes in `name`                |
+| `noul` question                   | `predicate` question                                    |
+| `choice` `criteria` record        | `choices`: `[{ value, description }]`                   |
+| `score` `criteria` list           | `levels`: `[{ label, description }]`                    |
+| `answers` map keyed by id         | `answers` array in question order, with `name`          |
+| `noul` answer                     | `probability`                                           |
+| `probabilities` record            | `probabilities` array of `{ value, probability }`       |
+| `legend` on score answers         | `label` on each score probability                       |
+
+Structured state has no direct equivalent: serialize it to a string (for
+example with `JSON.stringify`) and pass it as `input`.

@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -24,6 +24,7 @@ import {
 	getAdminOrganizationIds,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -215,6 +216,8 @@ const organizationSchema = z
 		devPlanCreditsLimit: z.string(),
 		devPlanPremiumCreditsUsed: z.string(),
 		devPlanPremiumWeekStart: z.date().nullable(),
+		devPlanDailyCreditsUsed: z.string(),
+		devPlanDayStart: z.date().nullable(),
 		devPlanResetPassesLite: z.number(),
 		devPlanResetPassesPro: z.number(),
 		devPlanResetPassesMax: z.number(),

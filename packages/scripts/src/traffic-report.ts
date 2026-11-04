@@ -780,5 +780,13 @@ if (isEntrypoint) {
 	});
 }
 
-export { buildWindow, buildEmbed, fetchReport };
+export {
+	buildWindow,
+	buildEmbed,
+	fetchReport,
+	formatInt,
+	formatDelta,
+	renderTable,
+	postToDiscord,
+};
 export type { ReportWindow, ReportData, Period };

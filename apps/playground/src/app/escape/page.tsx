@@ -46,24 +46,46 @@ export default async function EscapePage({
 		? requestedLevel
 		: ESCAPE_FIRST_LEVEL_ID;
 
-	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
-		await Promise.all([
-			fetchModels(),
-			fetchProviders(),
-			// Chained, not parallel: the first call's response is discarded and it is
-			// made purely for its side effect of creating the Chat organization,
-			// which must exist before the org list is read.
-			fetchServerData("GET", "/playground/chat-org").then(() =>
-				fetchServerData("GET", "/orgs", {
-					params: { query: { includeChat: "true" } },
-				}),
-			),
-			orgId
-				? fetchServerData("GET", "/orgs/{id}/projects", {
-						params: { path: { id: orgId } },
-					})
-				: null,
-		]);
+	// The chat-org call must precede the org list read: it creates the Chat
+	// organization as a side effect. Its response also names the Chat org, so
+	// the default selection's projects fetch can start as soon as it resolves
+	// instead of after the org list.
+	const chatOrgPromise = fetchServerData<{
+		organizationId: string;
+		projectId: string;
+	}>("GET", "/playground/chat-org");
+
+	const [
+		models,
+		providers,
+		initialOrganizationsData,
+		orgIdProjectsData,
+		chatOrgData,
+		chatOrgProjectsData,
+	] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+		chatOrgPromise.then(() =>
+			fetchServerData("GET", "/orgs", {
+				params: { query: { includeChat: "true" } },
+			}),
+		),
+		orgId
+			? fetchServerData("GET", "/orgs/{id}/projects", {
+					params: { path: { id: orgId } },
+				})
+			: null,
+		chatOrgPromise,
+		orgId
+			? null
+			: chatOrgPromise.then((chatOrg) =>
+					chatOrg
+						? fetchServerData("GET", "/orgs/{id}/projects", {
+								params: { path: { id: chatOrg.organizationId } },
+							})
+						: null,
+				),
+	]);
 
 	let initialProjectsData = (orgIdProjectsData ?? null) as {
 		projects: Project[];
@@ -84,6 +106,14 @@ export default async function EscapePage({
 		chatOrg ??
 		organizations[0] ??
 		null;
+
+	if (
+		!initialProjectsData &&
+		selectedOrganization &&
+		selectedOrganization.id === chatOrgData?.organizationId
+	) {
+		initialProjectsData = chatOrgProjectsData as { projects: Project[] } | null;
+	}
 
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {

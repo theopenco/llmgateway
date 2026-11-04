@@ -1,6 +1,7 @@
 import {
+	billedServerToolUseCount,
 	fromConverseReasoningContent,
-	isToolSearchBlock,
+	pairedServerToolBlocks,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
@@ -70,7 +71,10 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
-	options?: { cacheThoughtSignatures?: boolean },
+	options?: {
+		cacheThoughtSignatures?: boolean;
+		serverToolUseAlwaysReported?: boolean;
+	},
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -98,6 +102,7 @@ export function parseProviderResponse(
 	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
+	let anthropicContent: AnthropicNativeBlock[] | null = null;
 	let anthropicSafeguardResults: unknown = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -307,8 +312,17 @@ export function parseProviderResponse(
 					block.type === "web_search_tool_result" &&
 					Array.isArray(block.content),
 			);
+			// DeepSeek reports the billed searches and fetches, which can be
+			// fewer than its result blocks.
+			const billedServerToolUse = billedServerToolUseCount(
+				json.usage,
+				options?.serverToolUseAlwaysReported,
+			);
+			if (billedServerToolUse !== undefined) {
+				webSearchCount = billedServerToolUse;
+			}
 			if (webSearchBlocks.length > 0) {
-				webSearchCount = webSearchBlocks.length;
+				webSearchCount = billedServerToolUse ?? webSearchBlocks.length;
 				// Extract citations from each web search result
 				for (const block of webSearchBlocks) {
 					for (const item of block.content) {
@@ -377,14 +391,28 @@ export function parseProviderResponse(
 						? promptTokens + completionTokens
 						: null;
 			}
-			// Server-side tool search leaves a server_tool_use +
-			// tool_search_tool_result pair in the content. Neither has an
-			// OpenAI-format equivalent, so surface them verbatim for the
-			// /v1/messages layer to replay — Anthropic expands the tool_reference
-			// entries they carry on every later turn.
-			const toolSearchBlocks = contentBlocks.filter(isToolSearchBlock);
-			if (toolSearchBlocks.length > 0) {
-				anthropicNativeBlocks = toolSearchBlocks;
+			// Server tools (tool search, web search, web fetch) leave
+			// server_tool_use + result pairs in the content. None has an
+			// OpenAI-format equivalent, so surface them verbatim for replay: the
+			// tool_reference and encrypted_content they carry are what the model
+			// sees of the result on a later turn.
+			const serverToolBlocks =
+				pairedServerToolBlocks<AnthropicNativeBlock>(contentBlocks);
+			if (serverToolBlocks.length > 0) {
+				anthropicNativeBlocks = serverToolBlocks;
+			}
+			// The /v1/messages layer returns such a turn as Anthropic sent it:
+			// lowering it loses the block order and the text citations.
+			if (
+				serverToolBlocks.length > 0 ||
+				textBlocks.some((block: any) => Array.isArray(block.citations))
+			) {
+				anthropicContent = contentBlocks.map((block: any) =>
+					(block.type === "thinking" && typeof block.signature === "string") ||
+					(block.type === "redacted_thinking" && typeof block.data === "string")
+						? sealAnthropicThinkingBlock(usedProvider, block)
+						: block,
+				);
 			}
 			// Server-side safeguard verdicts, present when the request carried
 			// `safeguards` (Claude Code auto mode). Opaque to the gateway.
@@ -413,7 +441,6 @@ export function parseProviderResponse(
 			break;
 		}
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			// A response with no candidates used to be assigned "content_filter"
@@ -599,6 +626,8 @@ export function parseProviderResponse(
 				for (const detail of json.usageMetadata.promptTokensDetails) {
 					if (detail?.modality === "AUDIO" && detail.tokenCount) {
 						audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+					} else if (detail?.modality === "IMAGE" && detail.tokenCount) {
+						imageInputTokens = (imageInputTokens ?? 0) + detail.tokenCount;
 					}
 				}
 			}
@@ -1205,8 +1234,19 @@ export function parseProviderResponse(
 					)
 					.filter(Boolean)
 					.join("\n\n");
-				if (summaryText) {
-					reasoningContent = summaryText;
+				// DeepSeek returns raw reasoning in `content` and no summary.
+				const reasoningText = reasoningOutputs
+					.flatMap(({ item }: any) =>
+						Array.isArray(item.content)
+							? item.content
+									.filter((part: any) => part?.type === "reasoning_text")
+									.map((part: any) => part.text ?? "")
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n");
+				if (summaryText || reasoningText) {
+					reasoningContent = summaryText || reasoningText;
 				}
 
 				// Collect encrypted reasoning payloads (returned when the upstream
@@ -1296,7 +1336,13 @@ export function parseProviderResponse(
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",
 				);
-				if (webSearchCalls.length > 0) {
+				const serverToolUse = billedServerToolUseCount(
+					json.usage,
+					options?.serverToolUseAlwaysReported,
+				);
+				if (serverToolUse !== undefined) {
+					webSearchCount = serverToolUse;
+				} else if (webSearchCalls.length > 0) {
 					webSearchCount = webSearchCalls.length;
 				}
 
@@ -1407,18 +1453,6 @@ export function parseProviderResponse(
 					}
 				}
 
-				// SCX returns finish_reason "stop" even when the message contains
-				// tool calls; normalize to "tool_calls" so downstream consumers see
-				// the OpenAI-standard value.
-				if (
-					usedProvider === "scx-ai" &&
-					finishReason === "stop" &&
-					Array.isArray(toolResults) &&
-					toolResults.length > 0
-				) {
-					finishReason = "tool_calls";
-				}
-
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
@@ -1492,17 +1526,6 @@ export function parseProviderResponse(
 						webSearchCount = 1;
 					}
 				}
-
-				// SCX resells Qwen through DashScope, which returns no search
-				// metadata over the OpenAI-compatible protocol. See the `alibaba`
-				// case: only a forced request searches, and it always does.
-				if (
-					usedProvider === "scx-ai-gp" &&
-					webSearchRequested &&
-					webSearchForced
-				) {
-					webSearchCount = 1;
-				}
 			}
 			break;
 	}
@@ -1552,6 +1575,7 @@ export function parseProviderResponse(
 		cachedAudioInputTokens,
 		toolResults,
 		anthropicNativeBlocks,
+		anthropicContent,
 		anthropicSafeguardResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

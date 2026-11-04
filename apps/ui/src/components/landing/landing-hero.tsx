@@ -26,8 +26,6 @@ export function LandingHero() {
 				<div className="h-320 -translate-y-[350px] absolute left-0 top-0 w-56 -rotate-45 bg-[radial-gradient(50%_50%_at_50%_50%,hsla(0,0%,85%,.04)_0,hsla(0,0%,45%,.02)_80%,transparent_100%)]" />
 			</div>
 			<section>
-				{/* pt-36 (not pt-24) on mobile clears the Runware promo banner
-						    stacked above the fixed navbar; revert when the promo ends. */}
 				<div className="relative pt-36">
 					<div
 						aria-hidden

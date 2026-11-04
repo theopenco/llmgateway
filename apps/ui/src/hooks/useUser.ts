@@ -1,12 +1,12 @@
 "use client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useAuthClient } from "@/lib/auth-client";
 import { getAuthPagePath } from "@/lib/auth-redirect";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import type { Route } from "next";
 
@@ -27,13 +27,20 @@ export interface UseUserOptions {
 	enabled?: boolean;
 }
 
+type SessionStatus = Awaited<
+	ReturnType<ReturnType<typeof useAuthClient>["getSession"]>
+>["data"];
+
 /**
  * Lightweight session check for marketing/auth surfaces. Uses better-auth's
  * get-session endpoint, which returns 200 with null for anonymous visitors,
  * so it never logs a 401 console error like /user/me does.
  */
-export function useSessionStatus() {
+export function useSessionStatus(options?: {
+	refetchOnWindowFocus?: (session: SessionStatus) => boolean;
+}) {
 	const authClient = useAuthClient();
+	const shouldRefetchOnFocus = options?.refetchOnWindowFocus;
 
 	const { data, isLoading } = useQuery({
 		queryKey: ["auth-session-status"],
@@ -43,7 +50,8 @@ export function useSessionStatus() {
 		},
 		retry: 0,
 		staleTime: 60 * 1000,
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: (query) =>
+			shouldRefetchOnFocus?.(query.state.data ?? null) ? "always" : false,
 	});
 
 	return {

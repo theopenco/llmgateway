@@ -173,6 +173,7 @@ export default [
 			"**/test-utils/**",
 			"apps/ui/**",
 			"apps/docs/**",
+			"packages/shared/src/components/models-directory/**",
 		],
 		rules: {
 			"no-console": "off",

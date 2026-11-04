@@ -92,7 +92,7 @@ async function readBodyWithLimit(
 
 			received += value.byteLength;
 			if (received > maxSizeBytes) {
-				await reader.cancel();
+				cancelImageBody(reader);
 				const actualSizeMB = received / (1024 * 1024);
 				logger.warn("Image size exceeds limit while downloading", {
 					size: received,
@@ -123,16 +123,18 @@ export async function processImageUrl(
 	isProd = false,
 	maxSizeMB = 20,
 	userPlan: "free" | "pro" | "enterprise" | null = null,
+	signal?: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
-	if (url.startsWith("data:")) {
+	if (url.slice(0, 5).toLowerCase() === "data:") {
 		const parsed = parseDataUrl(url);
 		if (!parsed) {
 			logger.warn("Invalid data URL format provided");
 			throw new RequestError("Invalid image data URL format");
 		}
 
-		const { mediaType: mimeType, data, isBase64 } = parsed;
+		const { data, isBase64 } = parsed;
+		const mimeType = parsed.mediaType.toLowerCase();
 
 		// Validate it's an image MIME type
 		if (!mimeType.startsWith("image/")) {
@@ -197,9 +199,11 @@ export async function processImageUrl(
 	// SSRF: remote content must not resolve to an internal host. This also
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
 	await assertSafeUserContentUrl(url);
+	signal?.throwIfAborted();
 
+	let response: Response | undefined;
 	try {
-		const response = await fetchNoRedirect(url);
+		response = await fetchNoRedirect(url, signal ? { signal } : undefined);
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -214,7 +218,11 @@ export async function processImageUrl(
 		// Content type first: an oversized non-image would otherwise be reported
 		// as a size problem, sending the user off to shrink a file that was never
 		// going to be accepted.
-		const contentType = response.headers.get("content-type");
+		const contentType = response.headers
+			.get("content-type")
+			?.split(";", 1)[0]
+			.trim()
+			.toLowerCase();
 		if (!contentType || !contentType.startsWith("image/")) {
 			logger.warn("Invalid content type for image URL", {
 				contentType,
@@ -256,6 +264,10 @@ export async function processImageUrl(
 		if (error instanceof RequestError) {
 			throw error;
 		}
+		// The caller cancelled or timed out the download; it decides how to report it.
+		if (signal?.aborted) {
+			throw signal.reason;
+		}
 
 		// Log the full error internally but sanitize the thrown error
 		logger.error("Error processing image URL", {
@@ -265,5 +277,18 @@ export async function processImageUrl(
 
 		// Generic error for all other cases
 		throw new Error("Failed to process image from URL");
+	} finally {
+		if (response?.body && !response.bodyUsed) {
+			cancelImageBody(response.body);
+		}
 	}
+}
+function cancelImageBody(
+	body: ReadableStream<Uint8Array> | ReadableStreamDefaultReader<Uint8Array>,
+): void {
+	void body.cancel().catch((error: unknown) => {
+		logger.warn("Could not cancel image response body", {
+			err: error instanceof Error ? error : new Error(String(error)),
+		});
+	});
 }

@@ -18,11 +18,20 @@ Historical usage and recorded costs remain available when a provider is removed 
 	darkHeight={900}
 />
 
+## Breakdown
+
+The breakdown selector picks what each chart series represents:
+
+- **Model** (default) — One series per model, combining every provider that served it (for example, the same model served by two providers counts as one)
+- **Mapping** — One series per provider mapping, to see which provider served each model
+- **API key** — One series per API key
+- **User** — One series per team member (Enterprise owners and admins)
+
 ## Filters
 
 Two filters let you narrow down the data:
 
-- **API Key** — Select a specific API key or view usage across all keys
+- **API Key** — Select a specific API key or view usage across all keys (model views only)
 - **Date range** — Choose a time period to analyze
 
 ## Usage Chart

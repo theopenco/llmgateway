@@ -41,7 +41,7 @@ export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 			)}
 			role="radiogroup"
 		>
-			{THEME_OPTIONS.map(({ value, label, Icon }) => {
+			{THEME_OPTIONS.map(({ value, label, Icon }, index) => {
 				const isActive = mounted && active === value;
 				return (
 					<button
@@ -55,6 +55,26 @@ export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 								: "text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200",
 						)}
 						key={value}
+						tabIndex={active === value ? 0 : -1}
+						onKeyDown={(event) => {
+							const direction = ["ArrowRight", "ArrowDown"].includes(event.key)
+								? 1
+								: ["ArrowLeft", "ArrowUp"].includes(event.key)
+									? -1
+									: 0;
+							if (!direction) {
+								return;
+							}
+							event.preventDefault();
+							const nextIndex =
+								(index + direction + THEME_OPTIONS.length) %
+								THEME_OPTIONS.length;
+							setTheme(THEME_OPTIONS[nextIndex].value);
+							event.currentTarget.parentElement
+								?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+								.item(nextIndex)
+								?.focus();
+						}}
 						onClick={() => setTheme(value)}
 						role="radio"
 						title={label}

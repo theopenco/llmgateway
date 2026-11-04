@@ -1,3 +1,4 @@
+import { db, eq, tables } from "@llmgateway/db";
 import { PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
@@ -5,6 +6,31 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 // organizations that purchased the SSO add-on. The add-on is capped at
 // PRO_PLAN_SSO_MAX_SEATS seats — checked here as well as at purchase time so
 // a seat quantity raised past the cap out-of-band (e.g. via the Stripe
+
+export async function validateSsoSessionOrganization(
+	organizationId: string,
+	sessionId: string,
+): Promise<Response | undefined> {
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+	});
+	if (
+		organization &&
+		organization.status !== "deleted" &&
+		hasSsoAccess(organization)
+	) {
+		return;
+	}
+	await db.delete(tables.session).where(eq(tables.session.id, sessionId));
+	return Response.json(
+		{
+			error: "sso_plan_required",
+			message: "An active SSO entitlement is required",
+		},
+		{ status: 403 },
+	);
+}
+
 // portal) cuts SSO access off instead of silently exceeding the limit.
 export function hasSsoAccess(
 	org:

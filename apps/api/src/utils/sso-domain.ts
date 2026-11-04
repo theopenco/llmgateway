@@ -3,6 +3,7 @@ import {
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
 import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
+import { hasSsoAccess } from "@/lib/sso-access.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
@@ -243,10 +244,7 @@ export async function autoJoinSsoProviderOrganization({
 		},
 	});
 
-	if (
-		!organization ||
-		!hasOrganizationEnterpriseAccess(organization.id, organization.plan)
-	) {
+	if (!organization || !hasSsoAccess(organization)) {
 		return null;
 	}
 

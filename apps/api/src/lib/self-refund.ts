@@ -13,7 +13,7 @@ import {
 	REFUND_COMMENTS_MAX_LENGTH,
 	REFUND_REASONS,
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
-	SELF_REFUND_USAGE_PERCENT,
+	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -31,22 +31,19 @@ const SELF_REFUND_WINDOW_MS = SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 const RESET_PASS_SELF_REFUND_WINDOW_MS =
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-// Usage at or above the threshold share of the purchased credits denies the
-// self-refund; equivalently, repeat top-ups require the balance to still cover
-// the remainder.
-const SELF_REFUND_USAGE_THRESHOLD = new Decimal(SELF_REFUND_USAGE_PERCENT).div(
-	100,
-);
-const SELF_REFUND_BALANCE_FLOOR = new Decimal(1).minus(
-	SELF_REFUND_USAGE_THRESHOLD,
-);
-
 function dec(value: string | number | null | undefined): Decimal {
 	return new Decimal(value ?? 0);
 }
 
-function usageExceedsThreshold(used: Decimal, total: Decimal): boolean {
-	return used.gte(total.times(SELF_REFUND_USAGE_THRESHOLD));
+function usageExceedsThreshold(
+	used: Decimal,
+	total: Decimal,
+	transaction: TransactionRow,
+): boolean {
+	const threshold = new Decimal(
+		getSelfRefundUsagePercent(transaction.createdAt),
+	).div(100);
+	return used.gte(total.times(threshold));
 }
 
 export type SelfRefundIneligibilityReason =
@@ -156,9 +153,8 @@ function latestOf(rows: TransactionRow[]): TransactionRow | undefined {
 
 /**
  * Total credits ever consumed by the org, reconstructed from the pooled
- * balance: every credit grant and drain besides gateway usage is recorded
- * either as a transaction row (topups, manual payments, gifts, refunds,
- * end-user bonuses) or on
+ * balance: every credit grant besides gateway usage is recorded either as a
+ * transaction row (topups, manual payments, gifts, refunds) or on
  * the org row itself (referral earnings, which are only ever incremented), so
  * usage = grants − balance. Referral-bonus reversals aren't reconstructed,
  * which only over-counts usage — erring toward denying the refund.
@@ -181,10 +177,10 @@ function computeUsedCredits(
 			// credit_refund rows carry a negative creditAmount, netting out the
 			// refunded grant.
 			granted = granted.plus(dec(t.creditAmount));
-		} else if (t.type === "end_user_bonus") {
-			// End-user signup bonuses are funded from the org balance.
-			granted = granted.minus(dec(t.amount));
 		}
+		// end_user_bonus rows (bonuses and live wallet grants) only move org
+		// credits into end-user wallets, where they are spent; leaving them out
+		// counts the move as usage, and a claw-back simply restores the balance.
 	}
 	return granted.minus(dec(organization.credits));
 }
@@ -208,21 +204,25 @@ function checkCreditTopupEligibility(
 		// credits, so free credits can't be burned and the paid top-up refunded
 		// in full afterwards.
 		const usedCredits = computeUsedCredits(organization, transactions);
-		if (usageExceedsThreshold(usedCredits, creditAmount)) {
+		if (usageExceedsThreshold(usedCredits, creditAmount, transaction)) {
 			return ineligible("usage_exceeded");
 		}
 		return { eligible: true };
 	}
 
 	// Repeat top-ups: only the most recent purchase is refundable, and only
-	// while the remaining balance still covers at least 90% of it (the
-	// remaining pool is attributed to the newest purchase first).
+	// while usage attributed to it stays below its limit. The remaining
+	// balance is attributed to the newest purchase first.
 	const latestTopup = latestOf(completedTopups);
 	if (latestTopup?.id !== transaction.id) {
 		return ineligible("not_latest_purchase");
 	}
 	if (
-		dec(organization.credits).lt(creditAmount.times(SELF_REFUND_BALANCE_FLOOR))
+		usageExceedsThreshold(
+			creditAmount.minus(dec(organization.credits)),
+			creditAmount,
+			transaction,
+		)
 	) {
 		return ineligible("usage_exceeded");
 	}
@@ -268,7 +268,10 @@ function checkPlanEligibility(
 		return ineligible("not_latest_purchase");
 	}
 
-	if (!creditsLimit.gt(0) || usageExceedsThreshold(creditsUsed, creditsLimit)) {
+	if (
+		!creditsLimit.gt(0) ||
+		usageExceedsThreshold(creditsUsed, creditsLimit, transaction)
+	) {
 		return ineligible("usage_exceeded");
 	}
 	return { eligible: true };

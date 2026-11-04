@@ -73,7 +73,10 @@ export const mockMetrics = {
 	totalTokens: "1.2M",
 };
 
-export const mockLogs = [
+// Factory, not a module constant: the "minutes ago" offsets must be computed
+// per render, or a long-lived server process renders drifted timestamps that
+// hydration-mismatch against the client's.
+export const getMockLogs = () => [
 	{
 		id: "log-1",
 		// eslint-disable-next-line no-mixed-operators
@@ -153,7 +156,8 @@ export const mockLogs = [
 	},
 ];
 
-export const mockApiKeys = [
+// Factory for the same hydration reason as getMockLogs.
+export const getMockApiKeys = () => [
 	{
 		id: "key_1",
 		name: "Production API Key",

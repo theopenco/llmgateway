@@ -1,8 +1,11 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
+
+import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	checkAndReserveTopUp,
@@ -63,7 +66,10 @@ import {
 	generateSubscriptionCancelledEmailHtml,
 	sendTransactionalEmail,
 } from "./utils/email.js";
-import { generateAndEmailInvoice } from "./utils/invoice.js";
+import {
+	generateAndEmailInvoice,
+	buildInvoiceDataForTransaction,
+} from "./utils/invoice.js";
 import {
 	resolveChatPlanBillingDetails,
 	resolveDevPassBillingDetails,
@@ -93,13 +99,16 @@ function proInvoiceLineItems(
 ): { description: string; amount: number }[] {
 	if (breakdown) {
 		const items = Object.entries(breakdown)
-			.filter(([, amount]) => Number(amount) !== 0)
+			.filter(([, amount]) => !new Decimal(amount).isZero())
 			.map(([component, amount]) => ({
 				description: PRO_COMPONENT_LABELS[component] ?? component,
 				amount: Number(amount),
 			}));
-		const sum = items.reduce((acc, item) => acc + item.amount, 0);
-		if (items.length && Math.abs(sum - totalUsd) < 0.005) {
+		const sum = items.reduce(
+			(acc, item) => acc.add(item.amount),
+			new Decimal(0),
+		);
+		if (items.length && sum.sub(totalUsd).abs().lt("0.005")) {
 			return items;
 		}
 	}
@@ -348,6 +357,27 @@ const webhookHandler = createRoute({
 	},
 });
 
+/** A `stripe-signature` header the Stripe SDK cannot verify without crashing. */
+class MalformedStripeSignatureError extends Error {}
+
+const STRIPE_V1_SIGNATURE = /^[0-9a-f]+$/;
+
+/**
+ * The SDK's `secureCompare` throws a plain Error on an empty `v1` value and a
+ * RangeError on a non-ASCII one, instead of StripeSignatureVerificationError.
+ * Stripe always sends lowercase hex, so reject anything else before verifying.
+ */
+function assertWellFormedSignatureHeader(sig: string): void {
+	for (const item of sig.split(",")) {
+		const [key, value = ""] = item.split("=");
+		if (key === "v1" && !STRIPE_V1_SIGNATURE.test(value)) {
+			throw new MalformedStripeSignatureError(
+				"stripe-signature header has a malformed v1 signature",
+			);
+		}
+	}
+}
+
 /**
  * Verify a Stripe webhook signature against the live secret, then the sandbox
  * secret. Whichever verifies wins; if both are configured and neither matches,
@@ -357,6 +387,7 @@ function constructWebhookEvent(
 	body: string,
 	sig: string,
 ): { event: Stripe.Event; mode: StripeMode } {
+	assertWellFormedSignatureHeader(sig);
 	const secrets: ReadonlyArray<[StripeMode, string | undefined]> = [
 		["live", process.env.STRIPE_WEBHOOK_SECRET],
 		["test", process.env.STRIPE_WEBHOOK_SECRET_TEST],
@@ -391,7 +422,7 @@ async function handleTestModeWebhookEvent(event: Stripe.Event): Promise<void> {
 		case "payment_intent.succeeded": {
 			const pi = event.data.object;
 			if (pi.metadata?.kind === "end_user_topup") {
-				await handleEndUserTopUpSucceeded(pi);
+				await handleEndUserTopUpSucceeded(pi, "test");
 			} else {
 				logger.warn("Ignoring non-SDK test-mode payment_intent.succeeded", {
 					paymentIntentId: pi.id,
@@ -499,7 +530,10 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 		// hitting the public webhook endpoint (e.g. a `fake_signature` header). They
 		// are not actionable, so log at warn level and still return 400 rather than
 		// raising an error alert.
-		if (error instanceof Stripe.errors.StripeSignatureVerificationError) {
+		if (
+			error instanceof Stripe.errors.StripeSignatureVerificationError ||
+			error instanceof MalformedStripeSignatureError
+		) {
 			logger.warn("Ignoring Stripe webhook with invalid signature", {
 				message: error.message,
 			});
@@ -893,6 +927,14 @@ export function isDevPlanCardDedupeEnforced(): boolean {
 	return process.env.NODE_ENV !== "development";
 }
 
+// The plan chooser's pay-as-you-go opt-in travels through checkout metadata
+// as "true"/"false"; absent means the org keeps its existing setting.
+function parseDevPlanPaygEnabled(
+	value: string | undefined,
+): boolean | undefined {
+	return value === "true" ? true : value === "false" ? false : undefined;
+}
+
 /**
  * Finalize a DevPass setup-mode checkout session: verify the card fingerprint
  * is not already in use by another organization, then create the Stripe
@@ -924,6 +966,9 @@ export async function finalizeDevPlanSetupSession(
 		metadata.devPlanCycle === "annual" ? "annual" : "monthly";
 	const priceId = metadata.priceId;
 	const userEmail = metadata.userEmail;
+	const devPlanPaygEnabled = parseDevPlanPaygEnabled(
+		metadata.devPlanPaygEnabled,
+	);
 
 	if (!organizationId || !devPlanTier || !priceId) {
 		return { status: "invalid_session", reason: "missing_metadata" };
@@ -1062,6 +1107,9 @@ export async function finalizeDevPlanSetupSession(
 					devPlanCycle,
 					setupSessionId: sessionId,
 					userEmail: userEmail ?? "",
+					...(devPlanPaygEnabled !== undefined
+						? { devPlanPaygEnabled: String(devPlanPaygEnabled) }
+						: {}),
 				},
 				expand: ["latest_invoice.payment_intent"],
 			},
@@ -1122,6 +1170,7 @@ export async function finalizeDevPlanSetupSession(
 			devPlanCancelled: false,
 			devPlanCycle,
 			devPlanCardFingerprint: fingerprint,
+			...(devPlanPaygEnabled !== undefined ? { devPlanPaygEnabled } : {}),
 			subscriptionPaymentStatus: "current",
 		})
 		.where(
@@ -1391,7 +1440,9 @@ async function handleCheckoutSessionCompleted(
 
 			const creditsLimit = getChatPlanCreditsLimit(chatPlanTier);
 
-			await db
+			// Only this handler sets chatPlanStripeSubscriptionId, so a match means
+			// the checkout was already processed; a redelivery must not reset usage.
+			const activated = await db
 				.update(tables.organization)
 				.set({
 					chatPlan: chatPlanTier,
@@ -1404,11 +1455,28 @@ async function handleCheckoutSessionCompleted(
 					chatPlanCardFingerprint: fingerprint,
 					subscriptionPaymentStatus: "current",
 				})
-				.where(eq(tables.organization.id, organizationId));
-
-			logger.info(
-				`Successfully activated chat plan ${chatPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
-			);
+				.where(
+					and(
+						eq(tables.organization.id, organizationId),
+						// Without a subscription id there is nothing to match a redelivery
+						// on, so keep activating as before.
+						subscriptionId
+							? sql`${tables.organization.chatPlanStripeSubscriptionId} IS DISTINCT FROM ${subscriptionId}`
+							: undefined,
+					),
+				)
+				.returning({ id: tables.organization.id });
+			// Still fall through on a redelivery: the invoice-keyed transaction
+			// insert below is deduplicated and may not have run the first time.
+			if (activated.length === 0) {
+				logger.info(
+					`Chat plan already activated for subscription ${subscriptionId}; not resetting usage on redelivered checkout`,
+				);
+			} else {
+				logger.info(
+					`Successfully activated chat plan ${chatPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
+				);
+			}
 
 			const stripeInvoiceId = session.invoice as string | undefined;
 			const existing = stripeInvoiceId
@@ -1434,30 +1502,34 @@ async function handleCheckoutSessionCompleted(
 						stripeInvoiceId: stripeInvoiceId,
 						description: `Lounge ${chatPlanTier.toUpperCase()} membership started via Stripe Checkout`,
 					})
+					// A concurrent delivery may insert the invoice-keyed row first.
+					.onConflictDoNothing()
 					.returning();
 
-				try {
-					const billingDetails =
-						await resolveChatPlanBillingDetails(organization);
-					await generateAndEmailInvoice({
-						organizationId: organization.id,
-						invoiceNumber: transaction.id,
-						invoiceDate: new Date(),
-						organizationName: organization.name,
-						...billingDetails,
-						lineItems: [
-							{
-								description: `Lounge ${chatPlanTier.toUpperCase()} membership ($${creditsLimit} credits included)`,
-								amount: (session.amount_total ?? 0) / 100,
-							},
-						],
-						currency: (session.currency ?? "USD").toUpperCase(),
-					});
-				} catch (e) {
-					logger.error(
-						"Invoice email failed (chat plan checkout); suppressing webhook failure",
-						e as Error,
-					);
+				if (transaction) {
+					try {
+						const billingDetails =
+							await resolveChatPlanBillingDetails(organization);
+						await generateAndEmailInvoice({
+							organizationId: organization.id,
+							invoiceNumber: transaction.id,
+							invoiceDate: new Date(),
+							organizationName: organization.name,
+							...billingDetails,
+							lineItems: [
+								{
+									description: `Lounge ${chatPlanTier.toUpperCase()} membership ($${creditsLimit} credits included)`,
+									amount: (session.amount_total ?? 0) / 100,
+								},
+							],
+							currency: (session.currency ?? "USD").toUpperCase(),
+						});
+					} catch (e) {
+						logger.error(
+							"Invoice email failed (chat plan checkout); suppressing webhook failure",
+							e as Error,
+						);
+					}
 				}
 			}
 
@@ -1519,6 +1591,8 @@ async function handleCheckoutSessionCompleted(
 					devPlanCreditsUsed: "0",
 					devPlanPremiumCreditsUsed: "0",
 					devPlanPremiumWeekStart: new Date(),
+					devPlanDailyCreditsUsed: "0",
+					devPlanDayStart: null,
 					devPlanIncludedResetPassesUsed: 0,
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
@@ -1652,35 +1726,48 @@ async function handleCheckoutSessionCompleted(
 				return;
 			}
 
-			// Sync the purchased seat/API-key/SSO quantities from the
-			// subscription's line items so limits reflect what was bought. A
-			// subscription without a seat line item (legacy price, or unmatched
-			// price IDs) must RESET the quantity fields — activating a new
-			// subscription while keeping a previous subscription's quantities
-			// would grant entitlements that are no longer paid for.
-			const proQuantities = subscriptionId
-				? extractProQuantities(
-						await getStripe().subscriptions.retrieve(subscriptionId),
-					)
-				: null;
-
-			const result = await db
-				.update(tables.organization)
-				.set({
-					plan: "pro",
-					stripeSubscriptionId: subscriptionId,
-					subscriptionCancelled: false,
-					subscriptionPaymentStatus: "current",
-					...(proQuantities ?? {
-						proSeats: null,
-						proExtraApiKeys: 0,
-						proExtraProjects: 0,
-						proSsoEnabled: false,
-						proScimEnabled: false,
-					}),
-				})
-				.where(eq(tables.organization.id, organizationId))
-				.returning();
+			const activated = await withOrganizationCapacity(
+				organizationId,
+				async (tx, organization) => {
+					if (
+						!subscriptionId ||
+						organization.kind !== "default" ||
+						organization.plan === "enterprise" ||
+						(organization.stripeSubscriptionId &&
+							organization.stripeSubscriptionId !== subscriptionId)
+					) {
+						return null;
+					}
+					const current =
+						await getStripe().subscriptions.retrieve(subscriptionId);
+					if (current.status !== "active" && current.status !== "trialing") {
+						return null;
+					}
+					const proQuantities = extractProQuantities(current);
+					const result = await tx
+						.update(tables.organization)
+						.set({
+							plan: "pro",
+							stripeSubscriptionId: subscriptionId,
+							subscriptionCancelled: current.cancel_at_period_end,
+							subscriptionPaymentStatus: "current",
+							...(proQuantities ?? {
+								proSeats: null,
+								proExtraApiKeys: 0,
+								proExtraProjects: 0,
+								proSsoEnabled: false,
+								proScimEnabled: false,
+							}),
+						})
+						.where(eq(tables.organization.id, organizationId))
+						.returning();
+					return { result, proQuantities };
+				},
+			);
+			if (!activated) {
+				return;
+			}
+			const { result, proQuantities } = activated;
 
 			logger.info(
 				`Successfully upgraded organization ${organizationId} to pro tier via checkout. Updated rows: ${result.length}`,
@@ -1906,6 +1993,27 @@ async function resolvePurchaserDistinctId(
 	return "organization";
 }
 
+/**
+ * Inside a transaction, serialize work on one credit top-up payment intent and
+ * report whether it was already credited. Returns true for a duplicate.
+ */
+async function claimCreditTopUpPaymentIntent(
+	tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+	paymentIntentId: string,
+): Promise<boolean> {
+	await tx.execute(
+		sql`SELECT pg_advisory_xact_lock(hashtext(${`credit-topup:${paymentIntentId}`}))`,
+	);
+	const existing = await tx.query.transaction.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: paymentIntentId },
+			type: { eq: "credit_topup" },
+			status: { eq: "completed" },
+		},
+	});
+	return Boolean(existing);
+}
+
 async function recordCreditTopUp({
 	organizationId,
 	finalCreditAmount,
@@ -1939,44 +2047,62 @@ async function recordCreditTopUp({
 	source: string;
 	bonusType?: BonusType | null;
 	purchaserUserId?: string | null;
-}) {
-	await db
-		.update(tables.organization)
-		.set({
-			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-			paymentFailureCount: 0,
-			lastPaymentFailureAt: null,
-			paymentFailureStartedAt: null,
-			lastTopUpAmount: creditAmount.toString(),
-		})
-		.where(eq(tables.organization.id, organizationId));
+}): Promise<boolean> {
+	// Credit and record the purchase atomically, serialized per payment intent,
+	// so overlapping or retried deliveries of one event credit it only once.
+	const completedTransaction = await db.transaction(async (tx) => {
+		if (stripePaymentIntentId) {
+			if (await claimCreditTopUpPaymentIntent(tx, stripePaymentIntentId)) {
+				return null;
+			}
+		}
 
-	// Reset low-balance email dedup so alerts can fire again on next cycle
-	await db
-		.delete(tables.followUpEmail)
-		.where(
-			and(
-				eq(tables.followUpEmail.organizationId, organizationId),
-				inArray(tables.followUpEmail.emailType, [
-					"low_balance_20",
-					"low_balance_5",
-				]),
-			),
+		await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+				paymentFailureCount: 0,
+				lastPaymentFailureAt: null,
+				paymentFailureStartedAt: null,
+				lastTopUpAmount: creditAmount.toString(),
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		// Reset low-balance email dedup so alerts can fire again on next cycle
+		await tx
+			.delete(tables.followUpEmail)
+			.where(
+				and(
+					eq(tables.followUpEmail.organizationId, organizationId),
+					inArray(tables.followUpEmail.emailType, [
+						"low_balance_20",
+						"low_balance_5",
+					]),
+				),
+			);
+
+		const [row] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "credit_topup",
+				creditAmount: finalCreditAmount.toString(),
+				amount: totalAmountInDollars.toString(),
+				currency,
+				status: "completed",
+				stripePaymentIntentId,
+				description,
+			})
+			.returning();
+		return row;
+	});
+
+	if (!completedTransaction) {
+		logger.info(
+			`Skipping duplicate credit top-up for payment intent ${stripePaymentIntentId}`,
 		);
-
-	const [completedTransaction] = await db
-		.insert(tables.transaction)
-		.values({
-			organizationId,
-			type: "credit_topup",
-			creditAmount: finalCreditAmount.toString(),
-			amount: totalAmountInDollars.toString(),
-			currency,
-			status: "completed",
-			stripePaymentIntentId,
-			description,
-		})
-		.returning();
+		return false;
+	}
 
 	// The completed transaction row now covers this amount in the velocity
 	// window's DB sum, so the initiation-time Redis reservation would count it
@@ -2073,6 +2199,7 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
+	return true;
 }
 
 export async function handleAirsideListingCheckout(
@@ -2282,7 +2409,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 
 	const bonusLabel = getBonusLabel(bonusType);
 
-	await recordCreditTopUp({
+	const recorded = await recordCreditTopUp({
 		organizationId,
 		finalCreditAmount,
 		bonusAmount,
@@ -2299,6 +2426,9 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		bonusType,
 		purchaserUserId: resolvedUser?.id ?? null,
 	});
+	if (!recorded) {
+		return;
+	}
 
 	await notifyCreditsPurchased({
 		email: userEmail ?? organization.billingEmail,
@@ -2326,6 +2456,9 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
  */
 export async function handleEndUserTopUpSucceeded(
 	paymentIntent: Stripe.PaymentIntent,
+	// Mode of the secret that verified the webhook; only wallets of the same
+	// mode may be credited.
+	eventMode: StripeMode = "live",
 ) {
 	const md = paymentIntent.metadata;
 	const walletId = md.walletId;
@@ -2366,6 +2499,15 @@ export async function handleEndUserTopUpSucceeded(
 	});
 	if (!wallet) {
 		logger.error(`Wallet not found for end-user top-up: ${walletId}`);
+		return;
+	}
+	if (wallet.mode !== eventMode) {
+		logger.error("Ignoring end-user top-up for a wallet of another mode", {
+			paymentIntentId: paymentIntent.id,
+			walletId,
+			walletMode: wallet.mode,
+			eventMode,
+		});
 		return;
 	}
 
@@ -3199,53 +3341,66 @@ async function handlePaymentIntentSucceeded(
 			: `${topupNoun} via Stripe`;
 
 	if (transactionId) {
-		await db
-			.update(tables.organization)
-			.set({
-				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-				paymentFailureCount: 0,
-				lastPaymentFailureAt: null,
-				paymentFailureStartedAt: null,
-				lastTopUpAmount: creditAmount.toString(),
-			})
-			.where(eq(tables.organization.id, organizationId));
+		// Credit and complete the pending row atomically, serialized per payment
+		// intent, so a redelivered event cannot credit twice.
+		const completedTransactionId = await db.transaction(async (tx) => {
+			if (await claimCreditTopUpPaymentIntent(tx, paymentIntent.id)) {
+				return null;
+			}
 
-		// Reset low-balance email dedup so alerts can fire again on next cycle
-		await db
-			.delete(tables.followUpEmail)
-			.where(
-				and(
-					eq(tables.followUpEmail.organizationId, organizationId),
-					inArray(tables.followUpEmail.emailType, [
-						"low_balance_20",
-						"low_balance_5",
-					]),
-				),
-			);
+			await tx
+				.update(tables.organization)
+				.set({
+					credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+					paymentFailureCount: 0,
+					lastPaymentFailureAt: null,
+					paymentFailureStartedAt: null,
+					lastTopUpAmount: creditAmount.toString(),
+				})
+				.where(eq(tables.organization.id, organizationId));
 
-		const updatedTransaction = await db
-			.update(tables.transaction)
-			.set({
-				status: "completed",
-				stripePaymentIntentId: paymentIntent.id,
-				description:
-					bonusAmount > 0
-						? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-						: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
-				creditAmount: finalCreditAmount.toString(),
-				amount: totalAmountInDollars.toString(),
-			})
-			.where(eq(tables.transaction.id, transactionId))
-			.returning()
-			.then((rows) => rows[0]);
+			// Reset low-balance email dedup so alerts can fire again on next cycle
+			await tx
+				.delete(tables.followUpEmail)
+				.where(
+					and(
+						eq(tables.followUpEmail.organizationId, organizationId),
+						inArray(tables.followUpEmail.emailType, [
+							"low_balance_20",
+							"low_balance_5",
+						]),
+					),
+				);
 
-		let completedTransactionId: string;
+			const updatedTransaction = await tx
+				.update(tables.transaction)
+				.set({
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description:
+						bonusAmount > 0
+							? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+							: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
+					creditAmount: finalCreditAmount.toString(),
+					amount: totalAmountInDollars.toString(),
+				})
+				.where(
+					and(
+						eq(tables.transaction.id, transactionId),
+						eq(tables.transaction.organizationId, organizationId),
+					),
+				)
+				.returning()
+				.then((rows) => rows[0]);
 
-		if (!updatedTransaction) {
+			if (updatedTransaction) {
+				return updatedTransaction.id;
+			}
+
 			logger.warn(
 				`Could not find pending transaction ${transactionId} for organization ${organizationId}, creating new record`,
 			);
-			const [fallbackTransaction] = await db
+			const [fallbackTransaction] = await tx
 				.insert(tables.transaction)
 				.values({
 					organizationId,
@@ -3258,9 +3413,14 @@ async function handlePaymentIntentSucceeded(
 					description: transactionDescription,
 				})
 				.returning();
-			completedTransactionId = fallbackTransaction.id;
-		} else {
-			completedTransactionId = updatedTransaction.id;
+			return fallbackTransaction.id;
+		});
+
+		if (!completedTransactionId) {
+			logger.info(
+				`Skipping duplicate auto top-up for payment intent ${paymentIntent.id}`,
+			);
+			return;
 		}
 
 		const lineItems = [
@@ -3323,7 +3483,7 @@ async function handlePaymentIntentSucceeded(
 			},
 		});
 	} else {
-		await recordCreditTopUp({
+		const recorded = await recordCreditTopUp({
 			organizationId,
 			finalCreditAmount,
 			bonusAmount,
@@ -3337,6 +3497,9 @@ async function handlePaymentIntentSucceeded(
 			bonusType,
 			purchaserUserId: resolvedUser?.id ?? null,
 		});
+		if (!recorded) {
+			return;
+		}
 	}
 
 	await notifyCreditsPurchased({
@@ -3657,6 +3820,23 @@ export async function handleChargeRefunded(
 		},
 	});
 	if (walletTopUp) {
+		// Sandbox refunds may only reverse sandbox wallets, and live refunds only
+		// live ones.
+		const eventMode: StripeMode = options.endUserOnly ? "test" : "live";
+		const topUpWallet = await db.query.wallet.findFirst({
+			where: { id: { eq: walletTopUp.walletId } },
+			columns: { mode: true },
+		});
+		if (topUpWallet?.mode !== eventMode) {
+			logger.error("Ignoring end-user refund for a wallet of another mode", {
+				paymentIntentId: payment_intent as string,
+				walletId: walletTopUp.walletId,
+				walletMode: topUpWallet?.mode,
+				eventMode,
+			});
+			return;
+		}
+
 		// `amount_refunded` is cumulative across repeated partial refunds, so the
 		// amount for *this* event is the most recent refund on the charge.
 		const latestRefund = charge.refunds?.data?.[0];
@@ -3737,11 +3917,14 @@ export async function handleChargeRefunded(
 	];
 
 	// Find the original transaction by stripePaymentIntentId first (covers
-	// credit_topup and any row that recorded the payment intent).
+	// credit_topup and any row that recorded the payment intent). Only the
+	// completed purchase granted credits; a declined attempt on the same payment
+	// intent leaves a failed row that must not be matched.
 	let originalTransaction = await db.query.transaction.findFirst({
 		where: {
 			stripePaymentIntentId: { eq: payment_intent as string },
 			type: { in: refundableTypes },
+			status: { eq: "completed" },
 		},
 	});
 
@@ -3769,6 +3952,7 @@ export async function handleChargeRefunded(
 				where: {
 					stripeInvoiceId: { eq: invoiceId },
 					type: { in: refundableTypes },
+					status: { eq: "completed" },
 				},
 			});
 		}
@@ -3852,20 +4036,22 @@ export async function handleChargeRefunded(
 		return;
 	}
 
-	// Create refund transaction
-	await db.insert(tables.transaction).values({
-		organizationId: originalTransaction.organizationId,
-		type: "credit_refund",
-		amount: refundAmountInDollars.toString(),
-		creditAmount: (-creditRefundAmount).toString(),
-		currency: originalTransaction.currency,
-		status: "completed",
-		stripePaymentIntentId: payment_intent as string,
-		stripeRefundId: latestRefund.id,
-		relatedTransactionId: originalTransaction.id,
-		refundReason: latestRefund.reason ?? null,
-		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
-	});
+	const [refundTransaction] = await db
+		.insert(tables.transaction)
+		.values({
+			organizationId: originalTransaction.organizationId,
+			type: "credit_refund",
+			amount: refundAmountInDollars.toString(),
+			creditAmount: (-creditRefundAmount).toString(),
+			currency: originalTransaction.currency,
+			status: "completed",
+			stripePaymentIntentId: payment_intent as string,
+			stripeRefundId: latestRefund.id,
+			relatedTransactionId: originalTransaction.id,
+			refundReason: latestRefund.reason ?? null,
+			description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
+		})
+		.returning();
 
 	// Deduct credits from organization (allow negative) — only for credit_topup
 	// refunds, since dev plan / subscription purchases don't add to credits.
@@ -3950,6 +4136,28 @@ export async function handleChargeRefunded(
 				);
 			}
 		}
+	}
+
+	// Last, so the credit and Reset Pass side effects never wait on email delivery.
+	try {
+		const billingDetails =
+			organization.kind === "devpass"
+				? await resolveDevPassBillingDetails(organization)
+				: organization.kind === "chat"
+					? await resolveChatPlanBillingDetails(organization)
+					: organization;
+		await generateAndEmailInvoice(
+			buildInvoiceDataForTransaction(
+				refundTransaction,
+				{ id: organization.id, name: organization.name, ...billingDetails },
+				originalTransaction,
+			),
+		);
+	} catch (e) {
+		logger.error(
+			"Credit note email failed (refund); suppressing failure",
+			e as Error,
+		);
 	}
 
 	// Notify the internal Discord channel, mirroring the purchase notification.
@@ -4232,6 +4440,9 @@ export async function handleInvoicePaymentSucceeded(event: {
 		DevPlanTier | undefined;
 	const initialDevPlanCycle: DevPlanCycle =
 		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
+	const initialDevPlanPaygEnabled = parseDevPlanPaygEnabled(
+		subscriptionMetadata.devPlanPaygEnabled,
+	);
 	const isInitialDevPlanSubscription =
 		subscriptionMetadata.subscriptionType === "dev_plan" &&
 		!!initialDevPlanTier &&
@@ -4296,6 +4507,9 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlanCancelled: false,
 				devPlanCycle: initialDevPlanCycle,
 				devPlanCardFingerprint: fingerprint,
+				...(initialDevPlanPaygEnabled !== undefined
+					? { devPlanPaygEnabled: initialDevPlanPaygEnabled }
+					: {}),
 				subscriptionPaymentStatus: "current",
 			})
 			.where(
@@ -4610,6 +4824,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 					devPlanCreditsUsed: "0",
 					devPlanPremiumCreditsUsed: "0",
 					devPlanPremiumWeekStart: new Date(),
+					devPlanDailyCreditsUsed: "0",
+					devPlanDayStart: null,
 					devPlanIncludedResetPassesUsed: 0,
 					devPlanBillingCycleStart: new Date(),
 					devPlanExpiresAt: renewedPeriodEnd ?? undefined,
@@ -4741,6 +4957,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 						devPlanCreditsUsed: "0",
 						devPlanPremiumCreditsUsed: "0",
 						devPlanPremiumWeekStart: new Date(),
+						devPlanDailyCreditsUsed: "0",
+						devPlanDayStart: null,
 						devPlanIncludedResetPassesUsed: 0,
 						devPlanBillingCycleStart: new Date(),
 						devPlanExpiresAt: newPeriodEnd ?? undefined,
@@ -4966,16 +5184,43 @@ export async function handleInvoicePaymentSucceeded(event: {
 
 		// Update organization to pro tier and mark subscription as not cancelled
 		try {
-			const result = await db
-				.update(tables.organization)
-				.set({
-					plan: "pro",
-					planExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
-					subscriptionCancelled: false,
-					subscriptionPaymentStatus: "current",
-				})
-				.where(eq(tables.organization.id, organizationId))
-				.returning();
+			const result = await withOrganizationCapacity(
+				organizationId,
+				async (tx, organization) => {
+					if (
+						!subscriptionId ||
+						organization.kind !== "default" ||
+						organization.plan === "enterprise" ||
+						(organization.stripeSubscriptionId &&
+							organization.stripeSubscriptionId !== subscriptionId)
+					) {
+						return [];
+					}
+					const current =
+						await getStripe().subscriptions.retrieve(subscriptionId);
+					if (current.status !== "active" && current.status !== "trialing") {
+						return [];
+					}
+					return await tx
+						.update(tables.organization)
+						.set({
+							plan: "pro",
+							stripeSubscriptionId: subscriptionId,
+							planExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
+							subscriptionCancelled: current.cancel_at_period_end,
+							subscriptionPaymentStatus: "current",
+							...(extractProQuantities(current) ?? {
+								proSeats: null,
+								proExtraApiKeys: 0,
+								proExtraProjects: 0,
+								proSsoEnabled: false,
+								proScimEnabled: false,
+							}),
+						})
+						.where(eq(tables.organization.id, organizationId))
+						.returning();
+				},
+			);
 
 			logger.info(
 				`Successfully upgraded organization ${organizationId} to pro tier. Updated rows: ${result.length}`,
@@ -5453,100 +5698,89 @@ export async function handleSubscriptionUpdated(
 			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 		);
 	} else {
-		// On an enterprise org, planExpiresAt is the admin-booked term end —
-		// a Stripe subscription event must never overwrite it (or the plan).
-		if (organization.plan === "enterprise") {
-			logger.warn(
-				`Ignoring subscription.updated ${subscription.id} for ENTERPRISE org ${organizationId} — enterprise plans are locked`,
+		await withOrganizationCapacity(organizationId, async (tx, organization) => {
+			if (
+				organization.kind !== "default" ||
+				organization.plan !== "pro" ||
+				organization.stripeSubscriptionId !== subscription.id
+			) {
+				return;
+			}
+			const currentSubscription = await getStripe().subscriptions.retrieve(
+				subscription.id,
 			);
-			return;
-		}
+			const isSubscriptionActive = !currentSubscription.cancel_at_period_end;
+			const currentPeriodEnd =
+				currentSubscription.items.data[0]?.current_period_end;
+			const expiresAt = currentPeriodEnd
+				? new Date(currentPeriodEnd * 1000)
+				: undefined;
+			const paymentStatusUpdate = PAYMENT_FAILURE_STATUSES.includes(
+				currentSubscription.status,
+			)
+				? ("past_due" as const)
+				: ("current" as const);
+			const wasSubscriptionCancelled = organization.subscriptionCancelled;
 
-		// Handle regular pro subscription update. Same stale-event guard as the
-		// dev/chat branches above: once the org has activated a subscription,
-		// only that subscription may drive plan state (a superseded sub's
-		// trailing events must not overwrite the active quantities).
-		if (
-			organization.stripeSubscriptionId &&
-			organization.stripeSubscriptionId !== subscription.id
-		) {
+			// Create transaction record for subscription cancellation if it was cancelled
+			if (!isSubscriptionActive && !wasSubscriptionCancelled) {
+				await tx.insert(tables.transaction).values({
+					organizationId,
+					type: "subscription_cancel",
+					currency: "USD",
+					status: "completed",
+					description: "Pro subscription cancelled",
+				});
+			}
+
+			const currentQuantities = extractProQuantities(currentSubscription) ?? {
+				proSeats: null,
+				proExtraApiKeys: 0,
+				proExtraProjects: 0,
+				proSsoEnabled: false,
+				proScimEnabled: false,
+			};
+
+			await tx
+				.update(tables.organization)
+				.set({
+					planExpiresAt: organization.planExpiresAt ? undefined : expiresAt,
+					subscriptionCancelled: !isSubscriptionActive,
+					subscriptionPaymentStatus: paymentStatusUpdate,
+					...currentQuantities,
+				})
+				.where(eq(tables.organization.id, organizationId));
+
+			// Track subscription reactivation if it was previously cancelled and is now active
+			if (isSubscriptionActive && wasSubscriptionCancelled) {
+				posthog.groupIdentify({
+					groupType: "organization",
+					groupKey: organizationId,
+					properties: {
+						name: organization.name,
+					},
+				});
+				posthog.capture({
+					distinctId: "organization",
+					event: "subscription_reactivated",
+					groups: {
+						organization: organizationId,
+					},
+					properties: {
+						plan: "pro",
+						organization: organizationId,
+						source: "stripe_subscription_updated",
+					},
+				});
+				logger.info(
+					`Reactivated subscription for organization ${organizationId}`,
+				);
+			}
+
 			logger.info(
-				`Ignoring stale subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.stripeSubscriptionId}, status: ${subscription.status})`,
+				`Updated subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 			);
-			return;
-		}
-		const wasSubscriptionCancelled = organization.subscriptionCancelled;
-
-		// Create transaction record for subscription cancellation if it was cancelled
-		if (!isSubscriptionActive && !wasSubscriptionCancelled) {
-			await db.insert(tables.transaction).values({
-				organizationId,
-				type: "subscription_cancel",
-				currency: "USD",
-				status: "completed",
-				description: "Pro subscription cancelled",
-			});
-		}
-
-		// Re-sync purchased quantities so seat/add-on changes made via the
-		// dashboard or the Stripe portal are reflected in limits. Stripe does
-		// not guarantee webhook ordering, so quantities come from a fresh
-		// retrieve of the subscription (its CURRENT state) rather than the
-		// event payload — a late-arriving older event then still converges on
-		// the latest configuration. If the retrieve fails, skip the quantity
-		// sync instead of risking a stale write; the next event or the
-		// dashboard's own write will catch up.
-		let currentQuantities: ReturnType<typeof extractProQuantities> = null;
-		try {
-			currentQuantities = extractProQuantities(
-				await getStripe().subscriptions.retrieve(subscription.id),
-			);
-		} catch (error) {
-			logger.error(
-				`Failed to re-retrieve subscription ${subscription.id} for quantity sync; skipping`,
-				error as Error,
-			);
-		}
-
-		await db
-			.update(tables.organization)
-			.set({
-				planExpiresAt: organization.planExpiresAt ? undefined : expiresAt,
-				subscriptionCancelled: !isSubscriptionActive,
-				subscriptionPaymentStatus: paymentStatusUpdate,
-				...(currentQuantities ?? {}),
-			})
-			.where(eq(tables.organization.id, organizationId));
-
-		// Track subscription reactivation if it was previously cancelled and is now active
-		if (isSubscriptionActive && wasSubscriptionCancelled) {
-			posthog.groupIdentify({
-				groupType: "organization",
-				groupKey: organizationId,
-				properties: {
-					name: organization.name,
-				},
-			});
-			posthog.capture({
-				distinctId: "organization",
-				event: "subscription_reactivated",
-				groups: {
-					organization: organizationId,
-				},
-				properties: {
-					plan: "pro",
-					organization: organizationId,
-					source: "stripe_subscription_updated",
-				},
-			});
-			logger.info(
-				`Reactivated subscription for organization ${organizationId}`,
-			);
-		}
-
-		logger.info(
-			`Updated subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
-		);
+		});
 	}
 }
 
@@ -5700,6 +5934,8 @@ export async function handleSubscriptionDeleted(
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: null,
+				devPlanDailyCreditsUsed: "0",
+				devPlanDayStart: null,
 				// Included passes expire with the plan; purchased passes
 				// (devPlanResetPasses) are kept — they were paid for and apply
 				// again on resubscribe.
@@ -5745,103 +5981,113 @@ export async function handleSubscriptionDeleted(
 		logger.info(
 			`Ended dev plan ${previousDevPlan} for organization ${organizationId}`,
 		);
-	} else if (organization.plan === "enterprise") {
-		// The org moved to an admin-managed enterprise agreement while a Pro
-		// subscription was still winding down. Detach the ended subscription
-		// and clear the purchased quantities, but never touch the enterprise
-		// plan or its admin-set term dates — and skip the "downgraded to free"
-		// email, since nothing user-facing changed.
-		await db
-			.update(tables.organization)
-			.set({
-				stripeSubscriptionId: null,
-				subscriptionCancelled: false,
-				proSeats: null,
-				proExtraApiKeys: 0,
-				proExtraProjects: 0,
-				proSsoEnabled: false,
-				proScimEnabled: false,
-			})
-			.where(eq(tables.organization.id, organizationId));
-
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "subscription_end",
-			currency: "USD",
-			status: "completed",
-			description: "Pro subscription ended (organization is on enterprise)",
-		});
-
-		logger.info(
-			`Detached ended Pro subscription ${subscription.id} from ENTERPRISE org ${organizationId}; plan untouched`,
-		);
 	} else {
-		// Handle regular pro subscription deletion
-		// Create transaction record for subscription end
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "subscription_end",
-			currency: "USD",
-			status: "completed",
-			description: "Pro subscription ended",
+		await withOrganizationCapacity(organizationId, async (tx, organization) => {
+			if (
+				organization.kind !== "default" ||
+				organization.stripeSubscriptionId !== subscription.id
+			) {
+				return;
+			}
+			if (organization.plan === "enterprise") {
+				// The org moved to an admin-managed enterprise agreement while a Pro
+				// subscription was still winding down. Detach the ended subscription
+				// and clear the purchased quantities, but never touch the enterprise
+				// plan or its admin-set term dates — and skip the "downgraded to free"
+				// email, since nothing user-facing changed.
+				await tx
+					.update(tables.organization)
+					.set({
+						stripeSubscriptionId: null,
+						subscriptionCancelled: false,
+						proSeats: null,
+						proExtraApiKeys: 0,
+						proExtraProjects: 0,
+						proSsoEnabled: false,
+						proScimEnabled: false,
+					})
+					.where(eq(tables.organization.id, organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId,
+					type: "subscription_end",
+					currency: "USD",
+					status: "completed",
+					description: "Pro subscription ended (organization is on enterprise)",
+				});
+
+				logger.info(
+					`Detached ended Pro subscription ${subscription.id} from ENTERPRISE org ${organizationId}; plan untouched`,
+				);
+			} else {
+				// Handle regular pro subscription deletion
+				// Create transaction record for subscription end
+				await tx.insert(tables.transaction).values({
+					organizationId,
+					type: "subscription_end",
+					currency: "USD",
+					status: "completed",
+					description: "Pro subscription ended",
+				});
+
+				// Downgrade organization to free plan and mark subscription as cancelled
+				await tx
+					.update(tables.organization)
+					.set({
+						plan: "free",
+						stripeSubscriptionId: null,
+						planExpiresAt: null,
+						subscriptionCancelled: false,
+						subscriptionPaymentStatus: "current",
+						proSeats: null,
+						proExtraApiKeys: 0,
+						proExtraProjects: 0,
+						proSsoEnabled: false,
+						proScimEnabled: false,
+					})
+					.where(eq(tables.organization.id, organizationId));
+
+				// Send subscription cancelled email
+				await sendTransactionalEmail({
+					to: organization.billingEmail,
+					organizationId: organization.id,
+					subject: "Your LLMGateway Subscription Has Been Cancelled",
+					html: generateSubscriptionCancelledEmailHtml({
+						id: organizationId,
+						name: organization.name,
+						kind: "default",
+					}),
+				});
+
+				logger.info(
+					`Sent subscription cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
+				);
+
+				// Track subscription cancellation in PostHog
+				posthog.groupIdentify({
+					groupType: "organization",
+					groupKey: organizationId,
+					properties: {
+						name: organization.name,
+					},
+				});
+				posthog.capture({
+					distinctId: "organization",
+					event: "subscription_cancelled",
+					groups: {
+						organization: organizationId,
+					},
+					properties: {
+						previousPlan: "pro",
+						newPlan: "free",
+						organization: organizationId,
+						source: "stripe_subscription_deleted",
+					},
+				});
+
+				logger.info(`Downgraded organization ${organizationId} to free plan`);
+			}
 		});
-
-		// Downgrade organization to free plan and mark subscription as cancelled
-		await db
-			.update(tables.organization)
-			.set({
-				plan: "free",
-				stripeSubscriptionId: null,
-				planExpiresAt: null,
-				subscriptionCancelled: false,
-				subscriptionPaymentStatus: "current",
-				proSeats: null,
-				proExtraApiKeys: 0,
-				proExtraProjects: 0,
-				proSsoEnabled: false,
-				proScimEnabled: false,
-			})
-			.where(eq(tables.organization.id, organizationId));
-
-		// Send subscription cancelled email
-		await sendTransactionalEmail({
-			to: organization.billingEmail,
-			organizationId: organization.id,
-			subject: "Your LLMGateway Subscription Has Been Cancelled",
-			html: generateSubscriptionCancelledEmailHtml({
-				id: organizationId,
-				name: organization.name,
-				kind: "default",
-			}),
-		});
-
-		logger.info(
-			`Sent subscription cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
-		);
-
-		// Track subscription cancellation in PostHog
-		posthog.groupIdentify({
-			groupType: "organization",
-			groupKey: organizationId,
-			properties: {
-				name: organization.name,
-			},
-		});
-		posthog.capture({
-			distinctId: "organization",
-			event: "subscription_cancelled",
-			groups: {
-				organization: organizationId,
-			},
-			properties: {
-				previousPlan: "pro",
-				newPlan: "free",
-				organization: organizationId,
-				source: "stripe_subscription_deleted",
-			},
-		});
-
-		logger.info(`Downgraded organization ${organizationId} to free plan`);
 	}
 }
 
@@ -5898,40 +6144,59 @@ export async function handleSubscriptionCreated(
 	}
 
 	try {
-		// Same reset semantics as the checkout handler: activating a
-		// subscription with no matching seat item clears any previous
-		// subscription's quantities instead of carrying them over.
-		await db
-			.update(tables.organization)
-			.set({
-				plan: "pro",
-				stripeSubscriptionId: subscription.id,
-				subscriptionCancelled: false,
-				// Derive rather than assume "current": a subscription can be created
-				// `incomplete`/`past_due`, and an `invoice.payment_failed` that raced
-				// ahead of this handler was skipped by its active-subscription guard
-				// (stripeSubscriptionId was not set yet), so nothing else would mark
-				// it. Clearing unconditionally would show a failed Pro subscription as
-				// healthy indefinitely. Once checkout has recorded this subscription,
-				// leave the state it derived from the actual payment alone: the first
-				// invoice is deduped by then, so a stale `incomplete` written here
-				// would have nothing left to clear it.
-				subscriptionPaymentStatus:
-					organization.stripeSubscriptionId === subscription.id
-						? undefined
-						: PAYMENT_FAILURE_STATUSES.includes(subscription.status)
-							? "past_due"
-							: "current",
-				...(extractProQuantities(subscription) ?? {
-					proSeats: null,
-					proExtraApiKeys: 0,
-					proExtraProjects: 0,
-					proSsoEnabled: false,
-					proScimEnabled: false,
-				}),
-			})
-			.where(eq(tables.organization.id, organizationId))
-			.returning();
+		await withOrganizationCapacity(organizationId, async (tx, organization) => {
+			if (
+				organization.kind !== "default" ||
+				organization.plan === "enterprise" ||
+				(organization.stripeSubscriptionId &&
+					organization.stripeSubscriptionId !== subscription.id)
+			) {
+				return;
+			}
+			const currentSubscription = await getStripe().subscriptions.retrieve(
+				subscription.id,
+			);
+			if (
+				currentSubscription.status !== "active" &&
+				currentSubscription.status !== "trialing"
+			) {
+				return;
+			}
+			// Same reset semantics as the checkout handler: activating a
+			// subscription with no matching seat item clears any previous
+			// subscription's quantities instead of carrying them over.
+			await tx
+				.update(tables.organization)
+				.set({
+					plan: "pro",
+					stripeSubscriptionId: subscription.id,
+					subscriptionCancelled: false,
+					// Derive rather than assume "current": a subscription can be created
+					// `incomplete`/`past_due`, and an `invoice.payment_failed` that raced
+					// ahead of this handler was skipped by its active-subscription guard
+					// (stripeSubscriptionId was not set yet), so nothing else would mark
+					// it. Clearing unconditionally would show a failed Pro subscription as
+					// healthy indefinitely. Once checkout has recorded this subscription,
+					// leave the state it derived from the actual payment alone: the first
+					// invoice is deduped by then, so a stale `incomplete` written here
+					// would have nothing left to clear it.
+					subscriptionPaymentStatus:
+						organization.stripeSubscriptionId === subscription.id
+							? undefined
+							: PAYMENT_FAILURE_STATUSES.includes(currentSubscription.status)
+								? "past_due"
+								: "current",
+					...(extractProQuantities(currentSubscription) ?? {
+						proSeats: null,
+						proExtraApiKeys: 0,
+						proExtraProjects: 0,
+						proSsoEnabled: false,
+						proScimEnabled: false,
+					}),
+				})
+				.where(eq(tables.organization.id, organizationId))
+				.returning();
+		});
 
 		logger.info(
 			`Successfully updated organization ${organizationId} with subscription ${subscription.id}`,

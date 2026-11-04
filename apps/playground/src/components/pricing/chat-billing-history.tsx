@@ -28,7 +28,7 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	isRefundFeedbackComplete,
-	SELF_REFUND_USAGE_PERCENT,
+	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
 	type RefundReason,
 } from "@llmgateway/shared";
@@ -166,7 +166,7 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
-	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
+	usage_exceeded: "This payment has reached its refund usage limit",
 };
 
 function isPlanPayment(type: Transaction["type"]): boolean {
@@ -203,8 +203,8 @@ function RefundButton({
 				setComments("");
 				toast.success(
 					isPlanPayment(transaction.type)
-						? "Refund processing. Your chat plan has been cancelled and the refund will arrive within a few business days."
-						: "Refund processing. It will appear in your billing history shortly.",
+						? "Refund processing. Your chat plan has been cancelled and the refund is on its way. It may take 5–10 business days to appear on your bank statement."
+						: "Refund processing. The refund is on its way. It may take 5–10 business days to appear on your bank statement.",
 				);
 				void queryClient.invalidateQueries({
 					predicate: (query) => {
@@ -244,8 +244,11 @@ function RefundButton({
 						</span>
 					</TooltipTrigger>
 					<TooltipContent>
-						{REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"] ??
-							"This payment cannot be refunded"}
+						{refund.reason === "usage_exceeded"
+							? `At least ${getSelfRefundUsagePercent(transaction.createdAt)}% of these credits have been used`
+							: (REFUND_INELIGIBILITY_COPY[
+									refund.reason ?? "unsupported_type"
+								] ?? "This payment cannot be refunded")}
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>

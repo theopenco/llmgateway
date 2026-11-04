@@ -33,7 +33,12 @@ async function getLogs(path: string, cookie: string): Promise<Response> {
 	});
 }
 
-async function seedLog(id: string, projectId: string, apiKeyId: string) {
+async function seedLog(
+	id: string,
+	projectId: string,
+	apiKeyId: string,
+	overrides: Partial<typeof tables.log.$inferInsert> = {},
+) {
 	await db.insert(tables.log).values({
 		id,
 		requestId: `${id}-request`,
@@ -47,6 +52,7 @@ async function seedLog(id: string, projectId: string, apiKeyId: string) {
 		responseSize: 10,
 		mode: "credits",
 		usedMode: "credits",
+		...overrides,
 	});
 }
 
@@ -204,6 +210,39 @@ describe("admin organization and project logs", () => {
 		const body = (await res.json()) as LogsBody;
 		expect(body.logs.map((l) => l.id)).toEqual(["seat-logs-2"]);
 		expect(body.logs[0].apiKeyUserEmail).toBe(BOB_EMAIL);
+	});
+
+	it("filters project logs by model id across regions and by error", async () => {
+		const regional = {
+			requestedModel: "claude-opus-5-5",
+			usedModel: "aws-bedrock/claude-opus-5-5:global",
+			usedProvider: "aws-bedrock",
+		};
+		await seedLog("seat-logs-err", PROJECT_A, "seat-logs-alice-key", {
+			...regional,
+			hasError: true,
+			unifiedFinishReason: "upstream_error",
+		});
+		await seedLog("seat-logs-ok", PROJECT_A, "seat-logs-alice-key", {
+			...regional,
+			unifiedFinishReason: "completed",
+		});
+
+		const byModel = await getLogs(
+			`/projects/${PROJECT_A}/logs?model=claude-opus-5-5`,
+			cookie,
+		);
+		expect(
+			((await byModel.json()) as LogsBody).logs.map((l) => l.id).sort(),
+		).toEqual(["seat-logs-err", "seat-logs-ok"]);
+
+		const byModelAndError = await getLogs(
+			`/projects/${PROJECT_A}/logs?model=claude-opus-5-5&errorType=any`,
+			cookie,
+		);
+		expect(
+			((await byModelAndError.json()) as LogsBody).logs.map((l) => l.id),
+		).toEqual(["seat-logs-err"]);
 	});
 
 	it("404s for an unknown organization", async () => {

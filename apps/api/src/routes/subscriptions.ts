@@ -1,10 +1,13 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getBillingOrganization } from "@/lib/billing-organization.js";
+import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
+import { extractProQuantities } from "@/lib/pro-plan.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
@@ -20,6 +23,7 @@ import {
 
 import { getStripe } from "./payments.js";
 
+import type { CapacityTransaction } from "@/lib/organization-capacity.js";
 import type { ServerTypes } from "@/vars.js";
 import type Stripe from "stripe";
 
@@ -108,20 +112,21 @@ async function assertSelectionCoversUsage(
 	seats: number,
 	extraApiKeys: number,
 	extraProjects: number,
+	client: typeof db | CapacityTransaction = db,
 ) {
 	const [members, invites, orgProjects] = await Promise.all([
-		db.query.userOrganization.findMany({
+		client.query.userOrganization.findMany({
 			where: { organizationId: { eq: organizationId } },
 			columns: { id: true },
 		}),
-		db.query.organizationInvite.findMany({
+		client.query.organizationInvite.findMany({
 			where: {
 				organizationId: { eq: organizationId },
 				status: { eq: "pending" },
 			},
 			columns: { expiresAt: true },
 		}),
-		db.query.project.findMany({
+		client.query.project.findMany({
 			where: {
 				organizationId: { eq: organizationId },
 				status: { ne: "deleted" },
@@ -141,7 +146,7 @@ async function assertSelectionCoversUsage(
 	}
 
 	const activeKeys = orgProjects.length
-		? await db.query.apiKey.findMany({
+		? await client.query.apiKey.findMany({
 				where: {
 					projectId: { in: orgProjects.map((p) => p.id) },
 					status: { eq: "active" },
@@ -397,126 +402,135 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 	);
 	assertOwner(userOrganization.role);
 
-	const organization = userOrganization.organization;
-
-	if (organization.plan !== "pro" || !organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "No active pro subscription found",
-		});
-	}
-
-	// Legacy flat-fee Pro subscriptions have no seat line item to adjust.
-	if (organization.proSeats === null) {
-		throw new HTTPException(400, {
-			message:
-				"Your legacy Pro subscription cannot be changed here. Cancel it first, then subscribe to the new per-seat Pro plan.",
-		});
-	}
-
-	await assertSelectionCoversUsage(
-		organization.id,
-		seats,
-		extraApiKeys,
-		extraProjects,
-	);
-
-	const priceIds = getProPriceIds();
-
-	try {
-		const stripe = getStripe();
-		const subscription = await stripe.subscriptions.retrieve(
-			organization.stripeSubscriptionId,
-		);
-
-		// A subscription that is ending or unpaid must not take prorated
-		// quantity changes — resume (or resolve payment) first.
-		if (subscription.cancel_at_period_end) {
-			throw new HTTPException(400, {
-				message:
-					"Your subscription is scheduled to cancel. Resume it before changing seats or add-ons.",
-			});
-		}
-		if (
-			subscription.status !== "active" &&
-			subscription.status !== "trialing"
-		) {
-			throw new HTTPException(400, {
-				message: `Your subscription is ${subscription.status} and cannot be changed right now.`,
-			});
-		}
-
-		// Map the desired quantities onto the existing subscription items:
-		// update quantities in place, add missing items, delete dropped ones.
-		const desired: { price: string; quantity: number }[] = [
-			{ price: priceIds.seat, quantity: seats },
-			{ price: priceIds.extraApiKey, quantity: extraApiKeys },
-			{ price: priceIds.extraProject, quantity: extraProjects },
-			{ price: priceIds.sso, quantity: ssoAddon ? 1 : 0 },
-			{ price: priceIds.scim, quantity: scimAddon ? 1 : 0 },
-		];
-
-		const items: Stripe.SubscriptionUpdateParams.Item[] = [];
-		for (const { price, quantity } of desired) {
-			const existing = subscription.items.data.find(
-				(item) => item.price.id === price,
-			);
-			if (existing && quantity > 0) {
-				items.push({ id: existing.id, quantity });
-			} else if (existing && quantity === 0) {
-				items.push({ id: existing.id, deleted: true });
-			} else if (!existing && quantity > 0) {
-				items.push({ price, quantity });
+	return await withOrganizationCapacity(
+		userOrganization.organization.id,
+		async (tx, organization) => {
+			if (
+				organization.kind !== "default" ||
+				organization.plan !== "pro" ||
+				!organization.stripeSubscriptionId
+			) {
+				throw new HTTPException(400, {
+					message: "No active pro subscription found",
+				});
 			}
-		}
 
-		await stripe.subscriptions.update(organization.stripeSubscriptionId, {
-			items,
-			proration_behavior: "create_prorations",
-		});
+			// Legacy flat-fee Pro subscriptions have no seat line item to adjust.
+			if (organization.proSeats === null) {
+				throw new HTTPException(400, {
+					message:
+						"Your legacy Pro subscription cannot be changed here. Cancel it first, then subscribe to the new per-seat Pro plan.",
+				});
+			}
 
-		// The subscription.updated webhook re-syncs these from Stripe as well;
-		// writing them here makes the dashboard reflect the change immediately.
-		await db
-			.update(tables.organization)
-			.set({
-				proSeats: seats,
-				proExtraApiKeys: extraApiKeys,
-				proExtraProjects: extraProjects,
-				proSsoEnabled: ssoAddon,
-				proScimEnabled: scimAddon,
-			})
-			.where(eq(tables.organization.id, organization.id));
-
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.update",
-			resourceType: "subscription",
-			resourceId: organization.stripeSubscriptionId,
-			metadata: {
+			await assertSelectionCoversUsage(
+				organization.id,
 				seats,
 				extraApiKeys,
 				extraProjects,
-				ssoAddon,
-				scimAddon,
-			},
-		});
+				tx,
+			);
 
-		return c.json({
-			success: true,
-		});
-	} catch (error) {
-		if (error instanceof HTTPException) {
-			throw error;
-		}
-		logger.error(
-			"Stripe subscription update error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw new HTTPException(500, {
-			message: "Failed to update subscription",
-		});
-	}
+			const priceIds = getProPriceIds();
+
+			try {
+				const stripe = getStripe();
+				const subscription = await stripe.subscriptions.retrieve(
+					organization.stripeSubscriptionId,
+				);
+
+				// A subscription that is ending or unpaid must not take prorated
+				// quantity changes — resume (or resolve payment) first.
+				if (subscription.cancel_at_period_end) {
+					throw new HTTPException(400, {
+						message:
+							"Your subscription is scheduled to cancel. Resume it before changing seats or add-ons.",
+					});
+				}
+				if (
+					subscription.status !== "active" &&
+					subscription.status !== "trialing"
+				) {
+					throw new HTTPException(400, {
+						message: `Your subscription is ${subscription.status} and cannot be changed right now.`,
+					});
+				}
+
+				// Map the desired quantities onto the existing subscription items:
+				// update quantities in place, add missing items, delete dropped ones.
+				const desired: { price: string; quantity: number }[] = [
+					{ price: priceIds.seat, quantity: seats },
+					{ price: priceIds.extraApiKey, quantity: extraApiKeys },
+					{ price: priceIds.extraProject, quantity: extraProjects },
+					{ price: priceIds.sso, quantity: ssoAddon ? 1 : 0 },
+					{ price: priceIds.scim, quantity: scimAddon ? 1 : 0 },
+				];
+
+				const items: Stripe.SubscriptionUpdateParams.Item[] = [];
+				for (const { price, quantity } of desired) {
+					const existing = subscription.items.data.find(
+						(item) => item.price.id === price,
+					);
+					if (existing && quantity > 0) {
+						items.push({ id: existing.id, quantity });
+					} else if (existing && quantity === 0) {
+						items.push({ id: existing.id, deleted: true });
+					} else if (!existing && quantity > 0) {
+						items.push({ price, quantity });
+					}
+				}
+
+				const updatedSubscription = await stripe.subscriptions.update(
+					organization.stripeSubscriptionId,
+					{
+						items,
+						proration_behavior: "create_prorations",
+					},
+				);
+
+				const quantities = extractProQuantities(updatedSubscription);
+				if (!quantities) {
+					throw new HTTPException(409, {
+						message: "Stripe returned an unrecognized Pro subscription",
+					});
+				}
+				await tx
+					.update(tables.organization)
+					.set(quantities)
+					.where(eq(tables.organization.id, organization.id));
+
+				await logAuditEvent({
+					organizationId: organization.id,
+					userId: user.id,
+					action: "subscription.update",
+					resourceType: "subscription",
+					resourceId: organization.stripeSubscriptionId,
+					metadata: {
+						seats,
+						extraApiKeys,
+						extraProjects,
+						ssoAddon,
+						scimAddon,
+					},
+				});
+
+				return c.json({
+					success: true,
+				});
+			} catch (error) {
+				if (error instanceof HTTPException) {
+					throw error;
+				}
+				logger.error(
+					"Stripe subscription update error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				throw new HTTPException(500, {
+					message: "Failed to update subscription",
+				});
+			}
+		},
+	);
 });
 
 const cancelProSubscription = createRoute({
@@ -553,45 +567,51 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 	);
 	assertOwner(userOrganization.role);
 
-	const organization = userOrganization.organization;
+	return await withOrganizationCapacity(
+		userOrganization.organization.id,
+		async (tx, organization) => {
+			if (!organization.stripeSubscriptionId) {
+				throw new HTTPException(400, {
+					message: "No active subscription found",
+				});
+			}
 
-	if (!organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "No active subscription found",
-		});
-	}
+			try {
+				// Cancel the subscription at the end of the current period
+				await getStripe().subscriptions.update(
+					organization.stripeSubscriptionId,
+					{
+						cancel_at_period_end: true,
+					},
+				);
 
-	try {
-		// Cancel the subscription at the end of the current period
-		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
-			cancel_at_period_end: true,
-		});
+				await logAuditEvent({
+					organizationId: organization.id,
+					userId: user.id,
+					action: "subscription.cancel",
+					resourceType: "subscription",
+					resourceId: organization.stripeSubscriptionId,
+				});
 
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.cancel",
-			resourceType: "subscription",
-			resourceId: organization.stripeSubscriptionId,
-		});
+				// let the webhook handler the rest to unify the logic
+				await new Promise((resolve) => {
+					setTimeout(resolve, 5000);
+				});
 
-		// let the webhook handler the rest to unify the logic
-		await new Promise((resolve) => {
-			setTimeout(resolve, 5000);
-		});
-
-		return c.json({
-			success: true,
-		});
-	} catch (error) {
-		logger.error(
-			"Stripe subscription cancellation error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw new HTTPException(500, {
-			message: "Failed to cancel subscription",
-		});
-	}
+				return c.json({
+					success: true,
+				});
+			} catch (error) {
+				logger.error(
+					"Stripe subscription cancellation error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				throw new HTTPException(500, {
+					message: "Failed to cancel subscription",
+				});
+			}
+		},
+	);
 });
 
 const resumeProSubscription = createRoute({
@@ -628,59 +648,65 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 	);
 	assertOwner(userOrganization.role);
 
-	const organization = userOrganization.organization;
+	return await withOrganizationCapacity(
+		userOrganization.organization.id,
+		async (tx, organization) => {
+			if (!organization.stripeSubscriptionId) {
+				throw new HTTPException(400, {
+					message: "No active subscription found",
+				});
+			}
 
-	if (!organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "No active subscription found",
-		});
-	}
+			try {
+				// Check if subscription is actually cancelled
+				const subscription = await getStripe().subscriptions.retrieve(
+					organization.stripeSubscriptionId,
+				);
 
-	try {
-		// Check if subscription is actually cancelled
-		const subscription = await getStripe().subscriptions.retrieve(
-			organization.stripeSubscriptionId,
-		);
+				if (!subscription.cancel_at_period_end) {
+					throw new HTTPException(400, {
+						message: "Subscription is not cancelled",
+					});
+				}
 
-		if (!subscription.cancel_at_period_end) {
-			throw new HTTPException(400, {
-				message: "Subscription is not cancelled",
-			});
-		}
+				// Resume the subscription by setting cancel_at_period_end to false
+				await getStripe().subscriptions.update(
+					organization.stripeSubscriptionId,
+					{
+						cancel_at_period_end: false,
+					},
+				);
 
-		// Resume the subscription by setting cancel_at_period_end to false
-		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
-			cancel_at_period_end: false,
-		});
+				await logAuditEvent({
+					organizationId: organization.id,
+					userId: user.id,
+					action: "subscription.resume",
+					resourceType: "subscription",
+					resourceId: organization.stripeSubscriptionId,
+				});
 
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.resume",
-			resourceType: "subscription",
-			resourceId: organization.stripeSubscriptionId,
-		});
+				// let the webhook handler the rest to unify the logic
+				await new Promise((resolve) => {
+					setTimeout(resolve, 5000);
+				});
 
-		// let the webhook handler the rest to unify the logic
-		await new Promise((resolve) => {
-			setTimeout(resolve, 5000);
-		});
-
-		return c.json({
-			success: true,
-		});
-	} catch (error) {
-		if (error instanceof HTTPException) {
-			throw error;
-		}
-		logger.error(
-			"Stripe subscription resume error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw new HTTPException(500, {
-			message: "Failed to resume subscription",
-		});
-	}
+				return c.json({
+					success: true,
+				});
+			} catch (error) {
+				if (error instanceof HTTPException) {
+					throw error;
+				}
+				logger.error(
+					"Stripe subscription resume error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				throw new HTTPException(500, {
+					message: "Failed to resume subscription",
+				});
+			}
+		},
+	);
 });
 
 const getSubscriptionStatus = createRoute({

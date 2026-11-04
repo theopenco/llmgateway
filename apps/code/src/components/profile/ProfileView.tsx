@@ -18,7 +18,6 @@ import {
 import { ProfileViewerCta } from "@/components/profile/ProfileViewerCta";
 import { ProfileWrapped } from "@/components/profile/ProfileWrapped";
 import { useAppConfig } from "@/lib/config";
-import { resolveCanonicalModel } from "@/lib/model-family";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 import {
@@ -27,9 +26,16 @@ import {
 } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
+import type { CanonicalModel } from "@/lib/model-family";
 
-export type ProfileData =
+export type ApiProfileData =
 	paths["/user/profile"]["get"]["responses"][200]["content"]["application/json"]["profile"];
+
+// Model rows carry their canonical model, resolved on the server by
+// attachCanonicalModels so the full catalogue never enters the client bundle.
+export type ProfileData = Omit<ApiProfileData, "models"> & {
+	models: (ApiProfileData["models"][number] & { canonical: CanonicalModel })[];
+};
 
 // The tokens chart pulls in recharts and renders below the fold, so keep it
 // out of the profile page's initial bundle.
@@ -67,7 +73,7 @@ function aggregateCanonicalModels(
 ): CanonicalModelUsage[] {
 	const byCanonical = new Map<string, CanonicalModelUsage>();
 	for (const row of rows) {
-		const resolved = resolveCanonicalModel(row.id);
+		const resolved = row.canonical;
 		const existing = byCanonical.get(resolved.id);
 		if (existing) {
 			existing.requestCount += row.requestCount;
@@ -139,7 +145,13 @@ function StatCard({
 	);
 }
 
-export function ProfileView({ profile }: { profile: ProfileData }) {
+export function ProfileView({
+	profile,
+	shareEnabled = true,
+}: {
+	profile: ProfileData;
+	shareEnabled?: boolean;
+}) {
 	const displayName =
 		profile.name?.trim() || profile.username || "DevPass user";
 	const topAgent =
@@ -173,11 +185,13 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 					)}
 				</div>
 				<div className="ml-auto flex-shrink-0 self-start">
-					<ProfileShareActions
-						profile={profile}
-						location="profile_header"
-						variant="compact"
-					/>
+					{shareEnabled && (
+						<ProfileShareActions
+							profile={profile}
+							location="profile_header"
+							variant="compact"
+						/>
+					)}
 				</div>
 			</div>
 
@@ -188,7 +202,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 
 			{/* Wrapped card + share toolkit */}
 			<div className="mt-8">
-				<ProfileWrapped profile={profile} />
+				<ProfileWrapped profile={profile} shareEnabled={shareEnabled} />
 			</div>
 
 			<div className="mt-8 grid gap-8 lg:grid-cols-[240px_1fr]">

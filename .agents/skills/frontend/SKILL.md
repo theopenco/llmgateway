@@ -27,5 +27,6 @@ description: Build and change LLM Gateway Next.js frontends — apps/ui, apps/pl
 
 - Format counts and chart values with `formatNumber`, `formatCompactNumber`, and `formatChartValue` from `@llmgateway/shared/number-format`. Keep date, currency, and CSV formatting separate.
 - Format chart tooltip values with `ChartTooltipContent`'s `valueFormatter`; `formatter` replaces the whole row and drops series labels.
+- Chart tooltips list rows by value, largest first. `ChartTooltipContent` already does this; a custom tooltip must order its rows with `sortTooltipPayload` or `sortByValueDesc` from `@llmgateway/shared/chart-tooltip`.
 
 Before a PR, follow the screenshot rules in the `pull-request` skill.

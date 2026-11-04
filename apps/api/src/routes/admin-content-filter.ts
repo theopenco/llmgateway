@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -8,10 +8,19 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createRoute } from "@/utils/create-route.js";
+import {
+	CHAT_PLAN_TX_TYPES,
+	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+	firstRowPerInvoiceFilter,
+} from "@/utils/devpass-filter.js";
 
 import {
+	aliasedTable,
 	and,
+	asc,
 	CONTENT_FILTER_STATS_ALL_CATEGORY,
+	contentFilterHourlyApiKeyStats,
 	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
 	db,
@@ -19,6 +28,8 @@ import {
 	eq,
 	gte,
 	inArray,
+	isNotNull,
+	lte,
 	ne,
 	sql,
 	tables,
@@ -45,6 +56,8 @@ const TOP_MODELS = 5;
 const TOP_PROVIDERS = 5;
 const TOP_ORGANIZATION_CATEGORIES = 10;
 const TOP_ORGANIZATION_MODELS = 10;
+const TOP_API_KEYS = 5;
+const TOP_ORGANIZATION_API_KEYS = 10;
 const TOP_GLOBAL_MODELS = 25;
 const FOCUS_ORGANIZATIONS = 50;
 // Sample floor for the per-slice rate ranking. Organizations under it are still
@@ -68,6 +81,74 @@ const isDeciding = eq(contentFilterHourlyStats.role, "deciding");
 const isDecidingModel = eq(contentFilterHourlyModelStats.role, "deciding");
 
 const modelViolationRate = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.violationCount})::float / nullif(sum(${contentFilterHourlyModelStats.sampledCount}), 0), 0)`;
+
+const apiKeySampled = sql<number>`coalesce(sum(${contentFilterHourlyApiKeyStats.sampledCount}), 0)::int`;
+const apiKeyViolations = sql<number>`coalesce(sum(${contentFilterHourlyApiKeyStats.violationCount}), 0)::int`;
+const apiKeyBlocked = sql<number>`coalesce(sum(${contentFilterHourlyApiKeyStats.blockedCount}), 0)::int`;
+const isDecidingApiKey = eq(contentFilterHourlyApiKeyStats.role, "deciding");
+
+const categoryCountSchema = z.object({
+	category: z.string(),
+	violationCount: z.number(),
+});
+
+const apiKeyBreakdownSchema = z.object({
+	apiKeyId: z.string(),
+	// Null when the key row no longer exists.
+	description: z.string().nullable(),
+	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	projectId: z.string(),
+	sampledCount: z.number(),
+	violationCount: z.number(),
+	blockedCount: z.number(),
+	violationRate: z.number(),
+});
+
+const organizationApiKeySchema = apiKeyBreakdownSchema.extend({
+	projectName: z.string().nullable(),
+	topCategories: z.array(categoryCountSchema),
+});
+
+type ApiKeyBreakdown = z.infer<typeof apiKeyBreakdownSchema>;
+
+// The rollup has no foreign key to api_key, so a removed key keeps its counts.
+const apiKeyJoin = and(
+	eq(tables.apiKey.id, contentFilterHourlyApiKeyStats.apiKeyId),
+	eq(tables.apiKey.projectId, contentFilterHourlyApiKeyStats.projectId),
+);
+
+const apiKeyColumns = {
+	apiKeyId: contentFilterHourlyApiKeyStats.apiKeyId,
+	projectId: contentFilterHourlyApiKeyStats.projectId,
+	description: tables.apiKey.description,
+	status: tables.apiKey.status,
+	sampledCount: apiKeySampled,
+	violationCount: apiKeyViolations,
+	blockedCount: apiKeyBlocked,
+};
+
+function toApiKeyBreakdown(row: {
+	apiKeyId: string;
+	projectId: string;
+	description: string | null;
+	status: ApiKeyBreakdown["status"];
+	sampledCount: number;
+	violationCount: number;
+	blockedCount: number;
+}): ApiKeyBreakdown {
+	const sampledCount = Number(row.sampledCount);
+	const violationCount = Number(row.violationCount);
+	return {
+		apiKeyId: row.apiKeyId,
+		description: row.description ?? null,
+		status: row.status ?? null,
+		projectId: row.projectId,
+		sampledCount,
+		violationCount,
+		blockedCount: Number(row.blockedCount),
+		violationRate: sampledCount > 0 ? violationCount / sampledCount : 0,
+	};
+}
 
 const modelBreakdownSchema = z.object({
 	usedModel: z.string(),
@@ -137,6 +218,126 @@ function toModelBreakdown(row: {
 	};
 }
 
+// Recurring plan charges: DevPass, Chat Plans and org Pro subscriptions.
+// Cancel/end rows are bookkeeping and never carry a positive amount.
+const SUBSCRIPTION_PAYMENT_TYPES = [
+	...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+	...CHAT_PLAN_TX_TYPES,
+	"subscription_start",
+] as const;
+
+// Sums of NUMERIC strings drift in float math; report whole cents.
+function toDollars(value: number): number {
+	return Math.round(value * 100) / 100;
+}
+
+interface OrganizationRevenue {
+	topUpNet: number;
+	subscriptionNet: number;
+}
+
+/**
+ * All-time money in per organization, so a violation can be weighed against
+ * what the customer is worth. Top-ups mirror the admin org list's
+ * "credits all time": `creditAmount` of top-ups and manual payments plus the
+ * (negative) clawback on their refunds — plan rows store virtual credits there,
+ * so they are excluded. Subscriptions sum `amount` once per Stripe invoice and
+ * subtract refunds booked against those charges.
+ */
+async function loadOrganizationRevenue(
+	organizationIds: string[],
+): Promise<Map<string, OrganizationRevenue>> {
+	const revenue = new Map<string, OrganizationRevenue>();
+	if (organizationIds.length === 0) {
+		return revenue;
+	}
+
+	const refundedCharge = aliasedTable(tables.transaction, "refunded_charge");
+	const [topUpRows, subscriptionRows, subscriptionRefundRows] =
+		await Promise.all([
+			db
+				.select({
+					organizationId: tables.transaction.organizationId,
+					total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`,
+				})
+				.from(tables.transaction)
+				.where(
+					and(
+						inArray(tables.transaction.organizationId, organizationIds),
+						eq(tables.transaction.status, "completed"),
+						inArray(tables.transaction.type, [
+							"credit_topup",
+							"credit_manual_payment",
+							"credit_refund",
+						]),
+					),
+				)
+				.groupBy(tables.transaction.organizationId),
+			db
+				.select({
+					organizationId: tables.transaction.organizationId,
+					total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				})
+				.from(tables.transaction)
+				.where(
+					and(
+						inArray(tables.transaction.organizationId, organizationIds),
+						eq(tables.transaction.status, "completed"),
+						inArray(tables.transaction.type, SUBSCRIPTION_PAYMENT_TYPES),
+						isNotNull(tables.transaction.amount),
+						sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+						firstRowPerInvoiceFilter(SUBSCRIPTION_PAYMENT_TYPES),
+					),
+				)
+				.groupBy(tables.transaction.organizationId),
+			db
+				.select({
+					organizationId: tables.transaction.organizationId,
+					total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				})
+				.from(tables.transaction)
+				.innerJoin(
+					refundedCharge,
+					eq(tables.transaction.relatedTransactionId, refundedCharge.id),
+				)
+				.where(
+					and(
+						inArray(tables.transaction.organizationId, organizationIds),
+						eq(tables.transaction.type, "credit_refund"),
+						eq(tables.transaction.status, "completed"),
+						sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+						eq(
+							refundedCharge.organizationId,
+							tables.transaction.organizationId,
+						),
+						eq(refundedCharge.status, "completed"),
+						inArray(refundedCharge.type, SUBSCRIPTION_PAYMENT_TYPES),
+					),
+				)
+				.groupBy(tables.transaction.organizationId),
+		]);
+
+	const entry = (organizationId: string) => {
+		const existing = revenue.get(organizationId);
+		if (existing) {
+			return existing;
+		}
+		const created = { topUpNet: 0, subscriptionNet: 0 };
+		revenue.set(organizationId, created);
+		return created;
+	};
+	for (const row of topUpRows) {
+		entry(row.organizationId).topUpNet += Number(row.total);
+	}
+	for (const row of subscriptionRows) {
+		entry(row.organizationId).subscriptionNet += Number(row.total);
+	}
+	for (const row of subscriptionRefundRows) {
+		entry(row.organizationId).subscriptionNet -= Number(row.total);
+	}
+	return revenue;
+}
+
 const violationsResponseSchema = z
 	.object({
 		window: violationsWindowSchema,
@@ -161,7 +362,18 @@ const violationsResponseSchema = z
 					z.object({ category: z.string(), violationCount: z.number() }),
 				),
 				topModels: z.array(modelBreakdownSchema),
-				topProviders: z.array(providerBreakdownSchema),
+				topProviders: z.array(
+					providerBreakdownSchema.extend({
+						topCategories: z.array(categoryCountSchema),
+					}),
+				),
+				topApiKeys: z.array(apiKeyBreakdownSchema),
+				// All-time PAYG credits bought (top-ups and manual payments) net of
+				// their refunds, in USD.
+				topUpNet: z.number(),
+				// All-time subscription payments (DevPass, Chat Plan, Pro) net of
+				// their refunds, in USD.
+				subscriptionNet: z.number(),
 			}),
 		),
 		models: z.array(modelBreakdownSchema),
@@ -247,6 +459,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.limit(TOP_ORGANIZATIONS);
 
 	const organizationIds = orgRows.map((row) => row.organizationId);
+	const revenueByOrg = await loadOrganizationRevenue(organizationIds);
 	const categoryRows =
 		organizationIds.length > 0
 			? await db
@@ -324,6 +537,126 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		const list = modelsByOrg.get(row.organizationId) ?? [];
 		list.push(toModelBreakdown(row));
 		modelsByOrg.set(row.organizationId, list);
+	}
+
+	const providerCategoryRows =
+		organizationIds.length > 0
+			? await db
+					.select({
+						organizationId: contentFilterHourlyModelStats.organizationId,
+						usedProvider: contentFilterHourlyModelStats.usedProvider,
+						category: contentFilterHourlyModelStats.category,
+						violationCount: modelViolations,
+					})
+					.from(contentFilterHourlyModelStats)
+					.where(
+						and(
+							gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+							isDecidingModel,
+							ne(
+								contentFilterHourlyModelStats.category,
+								CONTENT_FILTER_STATS_ALL_CATEGORY,
+							),
+							inArray(
+								contentFilterHourlyModelStats.organizationId,
+								organizationIds,
+							),
+						),
+					)
+					.groupBy(
+						contentFilterHourlyModelStats.organizationId,
+						contentFilterHourlyModelStats.usedProvider,
+						contentFilterHourlyModelStats.category,
+					)
+					.having(sql`sum(${contentFilterHourlyModelStats.violationCount}) > 0`)
+			: [];
+
+	// Keyed by organization, then provider.
+	const providerCategoriesByOrg = new Map<
+		string,
+		Map<string, z.infer<typeof categoryCountSchema>[]>
+	>();
+	for (const row of providerCategoryRows) {
+		const byProvider =
+			providerCategoriesByOrg.get(row.organizationId) ??
+			new Map<string, z.infer<typeof categoryCountSchema>[]>();
+		const list = byProvider.get(row.usedProvider) ?? [];
+		list.push({
+			category: row.category,
+			violationCount: Number(row.violationCount),
+		});
+		byProvider.set(row.usedProvider, list);
+		providerCategoriesByOrg.set(row.organizationId, byProvider);
+	}
+
+	// Ranked per organization in the database, so only the top keys of each
+	// org leave it. Keys without a violation never take a slot here; the
+	// per-org activity endpoint still lists them.
+	const rankedApiKeys = db
+		.select({
+			organizationId: contentFilterHourlyApiKeyStats.organizationId,
+			apiKeyId: contentFilterHourlyApiKeyStats.apiKeyId,
+			projectId: contentFilterHourlyApiKeyStats.projectId,
+			sampledCount: apiKeySampled.as("sampled_count"),
+			violationCount: apiKeyViolations.as("violation_count"),
+			blockedCount: apiKeyBlocked.as("blocked_count"),
+			rank: sql<number>`row_number() over (
+				partition by ${contentFilterHourlyApiKeyStats.organizationId}
+				order by sum(${contentFilterHourlyApiKeyStats.violationCount}) desc,
+					sum(${contentFilterHourlyApiKeyStats.sampledCount}) desc,
+					${contentFilterHourlyApiKeyStats.apiKeyId}
+			)`.as("rank"),
+		})
+		.from(contentFilterHourlyApiKeyStats)
+		.where(
+			and(
+				gte(contentFilterHourlyApiKeyStats.hourTimestamp, windowStart),
+				isDecidingApiKey,
+				eq(
+					contentFilterHourlyApiKeyStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+				inArray(contentFilterHourlyApiKeyStats.organizationId, organizationIds),
+			),
+		)
+		.groupBy(
+			contentFilterHourlyApiKeyStats.organizationId,
+			contentFilterHourlyApiKeyStats.apiKeyId,
+			contentFilterHourlyApiKeyStats.projectId,
+		)
+		.having(sql`sum(${contentFilterHourlyApiKeyStats.violationCount}) > 0`)
+		.as("ranked_api_keys");
+
+	const apiKeyRows =
+		organizationIds.length > 0
+			? await db
+					.select({
+						organizationId: rankedApiKeys.organizationId,
+						apiKeyId: rankedApiKeys.apiKeyId,
+						projectId: rankedApiKeys.projectId,
+						description: tables.apiKey.description,
+						status: tables.apiKey.status,
+						sampledCount: rankedApiKeys.sampledCount,
+						violationCount: rankedApiKeys.violationCount,
+						blockedCount: rankedApiKeys.blockedCount,
+					})
+					.from(rankedApiKeys)
+					.leftJoin(
+						tables.apiKey,
+						and(
+							eq(tables.apiKey.id, rankedApiKeys.apiKeyId),
+							eq(tables.apiKey.projectId, rankedApiKeys.projectId),
+						),
+					)
+					.where(lte(rankedApiKeys.rank, TOP_API_KEYS))
+					.orderBy(rankedApiKeys.organizationId, rankedApiKeys.rank)
+			: [];
+
+	const apiKeysByOrg = new Map<string, ApiKeyBreakdown[]>();
+	for (const row of apiKeyRows) {
+		const list = apiKeysByOrg.get(row.organizationId) ?? [];
+		list.push(toApiKeyBreakdown(row));
+		apiKeysByOrg.set(row.organizationId, list);
 	}
 
 	// Cross-tenant model ranking, independent of the org list cap: which models
@@ -417,6 +750,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		const sampledCount = Number(row.sampledCount);
 		const violationCount = Number(row.violationCount);
 		const blockedCount = Number(row.blockedCount);
+		const revenue = revenueByOrg.get(row.organizationId);
 		return {
 			organizationId: row.organizationId,
 			organizationName: row.organizationName ?? null,
@@ -433,7 +767,21 @@ adminContentFilter.openapi(getViolations, async (c) => {
 				.slice()
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_MODELS),
-			topProviders: toProviderBreakdowns(orgModels).slice(0, TOP_PROVIDERS),
+			topProviders: toProviderBreakdowns(orgModels)
+				.slice(0, TOP_PROVIDERS)
+				.map((provider) => ({
+					...provider,
+					topCategories: (
+						providerCategoriesByOrg
+							.get(row.organizationId)
+							?.get(provider.usedProvider) ?? []
+					)
+						.sort((a, b) => b.violationCount - a.violationCount)
+						.slice(0, TOP_CATEGORIES),
+				})),
+			topApiKeys: apiKeysByOrg.get(row.organizationId) ?? [],
+			topUpNet: toDollars(revenue?.topUpNet ?? 0),
+			subscriptionNet: toDollars(revenue?.subscriptionNet ?? 0),
 		};
 	});
 
@@ -612,10 +960,9 @@ const activityResponseSchema = z
 			blockedCount: z.number(),
 			violationRate: z.number(),
 		}),
-		topCategories: z.array(
-			z.object({ category: z.string(), violationCount: z.number() }),
-		),
+		topCategories: z.array(categoryCountSchema),
 		topModels: z.array(modelBreakdownSchema),
+		topApiKeys: z.array(organizationApiKeySchema),
 		data: z.array(
 			z.object({
 				timestamp: z.string(),
@@ -642,7 +989,7 @@ const getOrganizationActivity = createRoute({
 				"application/json": { schema: activityResponseSchema },
 			},
 			description:
-				"One organization's gateway content filter activity over time: sampled, violating and blocked requests per bucket, plus window totals, top categories and top models.",
+				"One organization's gateway content filter activity over time: sampled, violating and blocked requests per bucket, plus window totals, top categories, top models and top API keys.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -679,7 +1026,13 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 		isDecidingModel,
 	);
 
-	const [series, categories, models] = await Promise.all([
+	const apiKeyWindow = and(
+		eq(contentFilterHourlyApiKeyStats.organizationId, orgId),
+		gte(contentFilterHourlyApiKeyStats.hourTimestamp, startDate),
+		isDecidingApiKey,
+	);
+
+	const [series, categories, models, apiKeys] = await Promise.all([
 		db
 			.select({
 				bucket: bucketExpr,
@@ -740,7 +1093,75 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 			)
 			.orderBy(desc(modelViolations), desc(modelSampled))
 			.limit(TOP_ORGANIZATION_MODELS),
+		db
+			.select({ ...apiKeyColumns, projectName: tables.project.name })
+			.from(contentFilterHourlyApiKeyStats)
+			.leftJoin(tables.apiKey, apiKeyJoin)
+			.leftJoin(
+				tables.project,
+				eq(tables.project.id, contentFilterHourlyApiKeyStats.projectId),
+			)
+			.where(
+				and(
+					apiKeyWindow,
+					eq(
+						contentFilterHourlyApiKeyStats.category,
+						CONTENT_FILTER_STATS_ALL_CATEGORY,
+					),
+				),
+			)
+			.groupBy(
+				contentFilterHourlyApiKeyStats.apiKeyId,
+				contentFilterHourlyApiKeyStats.projectId,
+				tables.apiKey.description,
+				tables.apiKey.status,
+				tables.project.name,
+			)
+			.orderBy(
+				desc(apiKeyViolations),
+				desc(apiKeySampled),
+				asc(contentFilterHourlyApiKeyStats.apiKeyId),
+			)
+			.limit(TOP_ORGANIZATION_API_KEYS),
 	]);
+
+	const apiKeyIds = apiKeys.map((row) => row.apiKeyId);
+	const apiKeyCategoryRows =
+		apiKeyIds.length > 0
+			? await db
+					.select({
+						apiKeyId: contentFilterHourlyApiKeyStats.apiKeyId,
+						category: contentFilterHourlyApiKeyStats.category,
+						violationCount: apiKeyViolations,
+					})
+					.from(contentFilterHourlyApiKeyStats)
+					.where(
+						and(
+							apiKeyWindow,
+							ne(
+								contentFilterHourlyApiKeyStats.category,
+								CONTENT_FILTER_STATS_ALL_CATEGORY,
+							),
+							inArray(contentFilterHourlyApiKeyStats.apiKeyId, apiKeyIds),
+						),
+					)
+					.groupBy(
+						contentFilterHourlyApiKeyStats.apiKeyId,
+						contentFilterHourlyApiKeyStats.category,
+					)
+			: [];
+	const categoriesByApiKey = new Map<
+		string,
+		z.infer<typeof categoryCountSchema>[]
+	>();
+	for (const row of apiKeyCategoryRows) {
+		const list = categoriesByApiKey.get(row.apiKeyId) ?? [];
+		list.push({
+			category: row.category,
+			violationCount: Number(row.violationCount),
+		});
+		categoriesByApiKey.set(row.apiKeyId, list);
+	}
 
 	const byBucket = new Map(
 		series.map((row) => [new Date(row.bucket).toISOString(), row]),
@@ -775,6 +1196,17 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 			violationCount: Number(row.violationCount),
 		})),
 		topModels: models.map(toModelBreakdown),
+		topApiKeys: apiKeys.map((row) => ({
+			...toApiKeyBreakdown(row),
+			projectName: row.projectName ?? null,
+			topCategories: (categoriesByApiKey.get(row.apiKeyId) ?? [])
+				.sort(
+					(a, b) =>
+						b.violationCount - a.violationCount ||
+						a.category.localeCompare(b.category),
+				)
+				.slice(0, TOP_CATEGORIES),
+		})),
 		data,
 	});
 });

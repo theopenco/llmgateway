@@ -1,7 +1,8 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { generateText, tool } from "ai";
 import { HTTPException } from "hono/http-exception";
 
+import { createRoute } from "@/utils/create-route.js";
 import {
 	getGatewayUrl,
 	resolvePlaygroundToken,

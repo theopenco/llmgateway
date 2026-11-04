@@ -99,6 +99,7 @@ function makeSessionApiKey(models?: string[]): GatewayApiKey {
 		currentPeriodStartedAt: null,
 		projectId: "project-1",
 		createdBy: "user-1",
+		safetyIdentifier: "key_test",
 		endUserSession: {
 			id: "session-1",
 			walletId: "wallet-1",
@@ -174,6 +175,36 @@ describe("validateEndUserSessionModelAccess", () => {
 			allowed: false,
 			reason: "Model session-model is not in the allowed models list",
 		});
+	});
+});
+
+describe("validateEndUserSessionModelAccess — virtual aliases", () => {
+	const cut = {
+		...sessionModel,
+		id: "deepseek-v4.1-flash-1017",
+	};
+
+	it("admits a scope naming the alias only for requests via that alias", () => {
+		const apiKey = makeSessionApiKey(["deepseek-v4.1-flash-latest"]);
+		expect(
+			validateEndUserSessionModelAccess(apiKey, cut.id, cut, {
+				requestedModelAlias: "deepseek-v4.1-flash-latest",
+			})?.allowed,
+		).toBe(true);
+		expect(
+			validateEndUserSessionModelAccess(apiKey, cut.id, cut)?.allowed,
+		).toBe(false);
+	});
+
+	it("ignores an alias of another model", () => {
+		expect(
+			validateEndUserSessionModelAccess(
+				makeSessionApiKey(["jev-latest"]),
+				cut.id,
+				cut,
+				{ requestedModelAlias: "jev-latest" },
+			)?.allowed,
+		).toBe(false);
 	});
 });
 

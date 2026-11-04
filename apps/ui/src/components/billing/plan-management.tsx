@@ -2,7 +2,6 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { EnterprisePlanTerm } from "@/components/billing/enterprise-plan-term";
@@ -24,6 +23,8 @@ import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
+import { invalidateProPlanQueries } from "@/lib/pro-plan-cache";
 
 import {
 	getOrganizationTerm,
@@ -521,18 +522,7 @@ export function PlanManagement() {
 		"/subscriptions/resume-pro-subscription",
 	);
 
-	const invalidatePlanQueries = async () => {
-		await Promise.all([
-			queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/subscriptions/status", {
-					params: { query: { organizationId } },
-				}).queryKey,
-			}),
-			queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/orgs").queryKey,
-			}),
-		]);
-	};
+	const invalidatePlanQueries = () => invalidateProPlanQueries(queryClient);
 
 	const handleUpgrade = async () => {
 		if (!organizationId) {

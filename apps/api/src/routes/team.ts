@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -10,9 +10,11 @@ import {
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
+import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
 import { recomputeUserTeam } from "@/lib/sso-teams.js";
+import { createRoute } from "@/utils/create-route.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -824,70 +826,87 @@ team.openapi(addMember, async (c) => {
 		projectIds,
 	);
 
-	const currentMembers = await db.query.userOrganization.findMany({
-		where: {
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: { user: { columns: { email: true } } },
-	});
-
-	// Pending invites reserve a seat so accepted invites can't blow the cap.
-	const pendingInvites = await listActivePendingInvites(organizationId);
-
-	const memberLimit = resolveSeatLimit(userOrganization.organization);
-
-	if (currentMembers.length + pendingInvites.length >= memberLimit) {
-		throw new HTTPException(403, {
-			message: `Your organization has reached the maximum of ${memberLimit} team members. Upgrade to Pro on the plan page to add more seats, or contact us at contact@llmgateway.io.`,
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can add members",
-		});
-	}
-
-	if (userOrganization.role === "admin" && role === "owner") {
-		throw new HTTPException(403, {
-			message: "Only owners can add other owners",
-		});
-	}
-
 	const normalizedEmail = email.trim().toLowerCase();
+	const invite = await withOrganizationCapacity(
+		organizationId,
+		async (tx, organization) => {
+			const currentMembers = await tx.query.userOrganization.findMany({
+				where: {
+					organizationId: {
+						eq: organizationId,
+					},
+				},
+				with: { user: { columns: { email: true } } },
+			});
 
-	if (
-		currentMembers.some(
-			(member) => member.user?.email.trim().toLowerCase() === normalizedEmail,
-		)
-	) {
-		throw new HTTPException(400, {
-			message: "User is already a member of this organization",
-		});
-	}
+			// Pending invites reserve a seat so accepted invites can't blow the cap.
+			const pendingInvites = (
+				await tx.query.organizationInvite.findMany({
+					where: {
+						organizationId: { eq: organizationId },
+						status: { eq: "pending" },
+					},
+				})
+			).filter((invite) => invite.expiresAt > new Date());
 
-	// Use the same invitation flow regardless of whether an account exists.
-	if (pendingInvites.some((invite) => invite.email === normalizedEmail)) {
-		throw new HTTPException(400, {
-			message: "An invitation for this email is already pending",
-		});
-	}
+			const memberLimit = resolveSeatLimit(organization);
 
-	const [invite] = await db
-		.insert(tables.organizationInvite)
-		.values({
-			organizationId,
-			email: normalizedEmail,
-			role,
-			projectIds: isProjectScopedRole(role)
-				? grantedProjects.map((p) => p.id)
-				: null,
-			invitedBy: authUser.id,
-			expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
-		})
-		.returning();
+			if (currentMembers.length + pendingInvites.length >= memberLimit) {
+				throw new HTTPException(403, {
+					message: `Your organization has reached the maximum of ${memberLimit} team members. Upgrade to Pro on the plan page to add more seats, or contact us at contact@llmgateway.io.`,
+				});
+			}
+
+			if (
+				userOrganization.role !== "owner" &&
+				userOrganization.role !== "admin"
+			) {
+				throw new HTTPException(403, {
+					message: "Only owners and admins can add members",
+				});
+			}
+
+			if (userOrganization.role === "admin" && role === "owner") {
+				throw new HTTPException(403, {
+					message: "Only owners can add other owners",
+				});
+			}
+
+			if (
+				currentMembers.some(
+					(member) =>
+						member.user?.email.trim().toLowerCase() === normalizedEmail,
+				)
+			) {
+				throw new HTTPException(400, {
+					message: "User is already a member of this organization",
+				});
+			}
+
+			// Use the same invitation flow regardless of whether an account exists.
+			if (pendingInvites.some((invite) => invite.email === normalizedEmail)) {
+				throw new HTTPException(400, {
+					message: "An invitation for this email is already pending",
+				});
+			}
+
+			const [invite] = await tx
+				.insert(tables.organizationInvite)
+				.values({
+					organizationId,
+					email: normalizedEmail,
+					role,
+					projectIds: isProjectScopedRole(role)
+						? grantedProjects.map((p) => p.id)
+						: null,
+					invitedBy: authUser.id,
+					expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
+				})
+				.returning();
+
+			return invite;
+		},
+	);
 
 	const orgName = userOrganization.organization?.name ?? "an organization";
 	const inviterName = authUser.name?.trim() || authUser.email;

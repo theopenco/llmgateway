@@ -3,11 +3,11 @@
 import { cjk } from "@streamdown/cjk";
 import { createCodePlugin } from "@streamdown/code";
 import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
 import "katex/dist/katex.min.css";
 import { type ComponentProps, memo } from "react";
 import { Streamdown } from "streamdown";
 
+import { lazyMermaid } from "@/components/ai-elements/lazy-mermaid";
 import { cn } from "@/lib/utils";
 
 import type { BundledTheme } from "shiki";
@@ -55,7 +55,7 @@ export const Response = memo(
 				className,
 			)}
 			isAnimating={isStreaming}
-			plugins={{ code, mermaid, math, cjk }}
+			plugins={{ code, mermaid: lazyMermaid, math, cjk }}
 			shikiTheme={shikiTheme}
 			linkSafety={{ enabled: true, onLinkCheck: isTrustedLink }}
 			{...props}

@@ -18,8 +18,10 @@ import { assertProviderCompliant } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 
 import { readProviderKey } from "@llmgateway/actions";
+import { getRequestedModelAlias } from "@llmgateway/models";
 
 import {
 	findRealtimeMapping,
@@ -55,6 +57,8 @@ export interface RealtimePreflightInput {
 	 */
 	intent?: string;
 	clientIp?: string;
+	/** Secret minting checks availability without selecting an upstream account. */
+	advanceRoundRobin?: boolean;
 }
 
 export interface RealtimePreflightResult {
@@ -101,9 +105,10 @@ export interface RealtimePreflightResult {
 	clientIp: string | undefined;
 	/**
 	 * Stable, privacy-preserving identifier forwarded upstream via the
-	 * OpenAI-Safety-Identifier header.
+	 * OpenAI-Safety-Identifier header; undefined when the managed credential
+	 * turns forwarding off.
 	 */
-	safetyIdentifier: string;
+	safetyIdentifier: string | undefined;
 }
 
 export function getAvailableCredits(organization: Organization): number {
@@ -179,6 +184,24 @@ async function runRealtimePreflightInner(
 		);
 	}
 
+	// Authenticate before model resolution so unauthenticated callers get a
+	// 401 instead of catalogue-dependent errors.
+	const apiKey = await findApiKeyByToken(input.token);
+	if (!apiKey) {
+		throw new RealtimeConnectError(
+			401,
+			"invalid_api_key",
+			"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		);
+	}
+	if (apiKey.status !== "active") {
+		throw new RealtimeConnectError(
+			401,
+			"inactive_api_key",
+			"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted).",
+		);
+	}
+
 	let sessionType: RealtimeSessionType = "realtime";
 	let match = transcriptionIntent
 		? null
@@ -224,21 +247,6 @@ async function runRealtimePreflightInner(
 		);
 	}
 
-	const apiKey = await findApiKeyByToken(input.token);
-	if (!apiKey) {
-		throw new RealtimeConnectError(
-			401,
-			"invalid_api_key",
-			"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		);
-	}
-	if (apiKey.status !== "active") {
-		throw new RealtimeConnectError(
-			401,
-			"inactive_api_key",
-			"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted).",
-		);
-	}
 	// End-user session tokens (LLM SDK) and platform keys are deferred for
 	// realtime: their wallet-substitution billing path is not wired up here.
 	if (apiKey.keyType !== "user" || apiKey.endUserSession) {
@@ -305,6 +313,10 @@ async function runRealtimePreflightInner(
 		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: match.modelId,
 		requestedProvider: providerId,
+		requestedModelAlias: getRequestedModelAlias(
+			input.requestedModel,
+			match.modelId,
+		),
 		activeModelInfo: match.modelDef,
 		clientIp: input.clientIp,
 	});
@@ -371,6 +383,7 @@ async function runRealtimePreflightInner(
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
+				advanceRoundRobin: input.advanceRoundRobin,
 			},
 		);
 		managedKey = platformCredential.managedKey;
@@ -460,6 +473,9 @@ async function runRealtimePreflightInner(
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
-		safetyIdentifier: organization.safetyIdentifier,
+		safetyIdentifier: forwardedSafetyIdentifier(
+			managedKey,
+			apiKey.safetyIdentifier,
+		),
 	};
 }

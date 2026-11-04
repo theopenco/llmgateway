@@ -28,7 +28,7 @@ The top of the page shows progress bars for **seats** (members plus pending invi
 
 Pick a seat count, add extra API keys or projects if you need more than the included allowance, toggle the add-ons, and review the live monthly total. The summary states exactly what you end up with ("With this plan you get 10 seats, 13 API keys, and 12 projects in total") before you're redirected to Stripe Checkout. Only organization **owners** can manage the subscription.
 
-Your selection must cover what the organization already uses: every member and pending invite needs a seat, every active API key needs an included or extra key, and every project needs an included or extra project slot.
+Your selection must cover what the organization already uses: every member and pending invite needs a seat, every active API key needs an included or extra key, and every project needs an included or extra project slot. Pending invites reserve seats; SSO sign-ins and SCIM creation or reactivation cannot exceed the same allowance. Provisioning never purchases extra seats automatically.
 
 ## Changing your subscription
 

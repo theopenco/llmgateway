@@ -4,18 +4,20 @@ import { notFound } from "next/navigation";
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import AudioPageClient from "@/components/playground/audio-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
+import { speechModels } from "@/lib/audio-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	AUDIO_MODEL_COOKIE,
 	decodeModelPreference,
 } from "@/lib/model-preferences";
+import { pageTitle } from "@/lib/page-title";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Text to Speech — Compare Voices and Models",
+	title: pageTitle("AI Text to Speech — Compare Voices and Models"),
 	description:
 		"Turn text into speech in Lounge. Choose a supported model and voice, compare outputs, and download generated audio.",
 	alternates: { canonical: "/audio" },
@@ -39,27 +41,50 @@ export default async function AudioPage({
 		cookieStore.get(AUDIO_MODEL_COOKIE)?.value,
 	);
 
-	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
-		await Promise.all([
-			fetchModels(),
-			fetchProviders(),
-			// Ensure the dedicated Chat org exists, then list it so it can back the
-			// default billing context for the playground.
-			fetchServerData("GET", "/playground/chat-org").then(() =>
-				fetchServerData("GET", "/orgs", {
-					params: { query: { includeChat: "true" } },
-				}),
-			),
-			orgId
-				? fetchServerData("GET", "/orgs/{id}/projects", {
-						params: {
-							path: {
-								id: orgId,
-							},
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground. Its response already names
+	// the Chat org, so the default selection's projects fetch can start as
+	// soon as it resolves instead of after the org list.
+	const chatOrgPromise = fetchServerData<{
+		organizationId: string;
+		projectId: string;
+	}>("GET", "/playground/chat-org");
+
+	const [
+		models,
+		providers,
+		initialOrganizationsData,
+		orgIdProjectsData,
+		chatOrgData,
+		chatOrgProjectsData,
+	] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+		chatOrgPromise.then(() =>
+			fetchServerData("GET", "/orgs", {
+				params: { query: { includeChat: "true" } },
+			}),
+		),
+		orgId
+			? fetchServerData("GET", "/orgs/{id}/projects", {
+					params: {
+						path: {
+							id: orgId,
 						},
-					})
-				: null,
-		]);
+					},
+				})
+			: null,
+		chatOrgPromise,
+		orgId
+			? null
+			: chatOrgPromise.then((chatOrg) =>
+					chatOrg
+						? fetchServerData("GET", "/orgs/{id}/projects", {
+								params: { path: { id: chatOrg.organizationId } },
+							})
+						: null,
+				),
+	]);
 
 	let initialProjectsData = (orgIdProjectsData ?? null) as {
 		projects: Project[];
@@ -105,6 +130,14 @@ export default async function AudioPage({
 
 	if (!selectedOrganization) {
 		return <PlaygroundSeoSection variant="audio" />;
+	}
+
+	if (
+		!initialProjectsData &&
+		selectedOrganization &&
+		selectedOrganization.id === chatOrgData?.organizationId
+	) {
+		initialProjectsData = chatOrgProjectsData as { projects: Project[] } | null;
 	}
 
 	if (!initialProjectsData && selectedOrganization?.id) {
@@ -155,7 +188,7 @@ export default async function AudioPage({
 				/>
 			) : null}
 			<AudioPageClient
-				models={models}
+				models={speechModels(models)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
