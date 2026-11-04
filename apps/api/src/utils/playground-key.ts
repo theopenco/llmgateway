@@ -55,7 +55,8 @@ export async function getOrCreatePlaygroundApiKey(
 				),
 			)
 			.orderBy(asc(tables.apiKey.createdAt))
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 
 		const now = Date.now();
 		const tokenMatches =
