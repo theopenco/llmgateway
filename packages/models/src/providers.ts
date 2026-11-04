@@ -11,7 +11,8 @@ export const DATA_PROTECTION_POLICY_KEYS = [
  * {@link DATA_PROTECTION_POLICY_KEYS}, preserving `enabled`.
  *
  * This is the subset a non-enterprise organization may configure, so the
- * dashboard uses it to build what it saves and previews for those plans.
+ * dashboard uses it for eligible saves. Never use it to hide active stored
+ * restrictions in previews or runtime enforcement.
  */
 export function projectPolicyToDataProtection(
 	policy: ProviderCompliancePolicy,

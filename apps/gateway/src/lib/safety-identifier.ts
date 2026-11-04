@@ -1,10 +1,18 @@
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
-/**
- * The API key's safety identifier to send upstream, or undefined when the
- * platform-managed credential serving the request has forwarding turned off.
- * Only managed credentials carry the setting; organization keys always forward.
- */
+export function getClientSafetyIdentifierParams(body: unknown): {
+	safety_identifier?: string;
+} {
+	if (!body || typeof body !== "object") {
+		return {};
+	}
+	const request = body as Record<string, unknown>;
+	const value = request.safety_identifier ?? request.user;
+	return typeof value === "string" && value.length > 0 && value.length <= 128
+		? { safety_identifier: value }
+		: {};
+}
+/** Applies the managed credential setting; callers omit identifiers for BYOK. */
 export function forwardedSafetyIdentifier(
 	managedKey:
 		| Pick<

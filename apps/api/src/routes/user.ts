@@ -29,7 +29,15 @@ import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	tables,
+	cdb,
+	drizzleCache,
+	getTableName,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
@@ -842,7 +850,9 @@ user.openapi(deleteUser, async (c) => {
 		returnHeaders: true,
 	});
 
-	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
+	await cdb.delete(tables.user).where(eq(tables.user.id, authUser.id));
+	// FK cascades bypass child-table mutation hooks; evict after the cascade.
+	await drizzleCache.onMutate({ tables: [getTableName(tables.apiKey)] });
 
 	await notifyUserAccountDeleted(userRecord.email, userRecord.name, {
 		closedOrganizations: closedOrganizations.length,

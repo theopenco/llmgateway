@@ -120,7 +120,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -559,7 +559,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -577,12 +577,17 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: embeddings resolve to a single
 	// provider, so block the request before any data is sent if that provider
 	// doesn't meet the org's required certifications/data policies.
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -910,7 +915,9 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			const forwarded = forwardedSafetyIdentifier(managedKey, safetyIdentifier);
+			const forwarded = providerKey
+				? undefined
+				: forwardedSafetyIdentifier(managedKey, safetyIdentifier);
 			if (
 				forwarded !== undefined &&
 				(providerId === "openai" || providerId === "azure")

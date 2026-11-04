@@ -4,7 +4,20 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import {
+	swrWrap,
+	waitForSwrMirrorWrites,
+	resetDbCircuit,
+} from "@llmgateway/cache";
+import {
+	db,
+	tables,
+	cdb,
+	getTableName,
+	eq,
+	organizationCacheTag,
+} from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import {
 	anonymizeBillingRecordsForEmail,
@@ -916,5 +929,77 @@ describe("account erasure retry", () => {
 		expect(failure?.userEmail).toBeNull();
 		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
 		expect(stripeMock.customers.del).not.toHaveBeenCalled();
+	});
+});
+describe("account erasure credential caches", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		resetDbCircuit();
+	});
+	afterEach(async () => {
+		resetDbCircuit();
+		await deleteAll();
+	});
+	test("revokes warmed key caches instead of reviving a deleted key on outage", async () => {
+		const cookie = await createTestUser();
+		await seedOrg();
+		const id = `erasure-cache-${crypto.randomUUID()}`;
+		await db
+			.insert(tables.project)
+			.values({ id, organizationId: ORG_ID, name: "Test Project" });
+		await db.insert(tables.apiKey).values({
+			id,
+			...hashApiKeyForStorage(`test-token-${id}`),
+			projectId: id,
+			createdBy: USER_ID,
+			description: "Test Key",
+		});
+		let offline = false;
+		const lookup = () =>
+			swrWrap(`erasure-auth:${id}`, [getTableName(tables.apiKey)], async () => {
+				if (offline) {
+					throw new Error("Synthetic database connection terminated");
+				}
+				const rows = await cdb
+					.select()
+					.from(tables.apiKey)
+					.where(eq(tables.apiKey.id, id))
+					.limit(1)
+					.$withCache({ tag: id, autoInvalidate: true, config: { ex: 60 } });
+				return rows[0];
+			});
+		const orgLookup = () =>
+			swrWrap(
+				`org:${ORG_ID}`,
+				[getTableName(tables.organization)],
+				async () => {
+					if (offline) {
+						throw new Error("Synthetic database connection terminated");
+					}
+					const rows = await cdb
+						.select()
+						.from(tables.organization)
+						.where(eq(tables.organization.id, ORG_ID))
+						.limit(1)
+						.$withCache({
+							tag: organizationCacheTag(ORG_ID),
+							autoInvalidate: true,
+						});
+					return rows[0];
+				},
+			);
+		expect((await lookup())?.id).toBe(id);
+		expect((await orgLookup())?.status).toBe("active");
+		await waitForSwrMirrorWrites();
+		expect((await deleteAccount(cookie)).status).toBe(200);
+		expect(await db.query.apiKey.findFirst({ where: { id } })).toBeUndefined();
+		offline = true;
+		await expect
+			.soft(lookup())
+			.rejects.toThrow("Synthetic database connection terminated");
+		resetDbCircuit();
+		await expect
+			.soft(orgLookup())
+			.rejects.toThrow("Synthetic database connection terminated");
 	});
 });

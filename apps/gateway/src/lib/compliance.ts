@@ -16,15 +16,84 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
-	providers,
 	type ComplianceFailureReason,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
+	providers,
 } from "@llmgateway/models";
 
 import { findDpaSignedProviderIds } from "./cached-queries.js";
 
 import type { ProviderDefinition } from "@llmgateway/models";
+
+const DPA_EXEMPT_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
+
+export function isDpaEnforcementEnabled(): boolean {
+	return process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR === "true";
+}
+
+export function applyDpaRequirement(
+	policy: ActiveCompliancePolicy,
+	signedProviderIds: ReadonlySet<string>,
+	candidateProviders: readonly ProviderDefinition[] = providers,
+): ActiveCompliancePolicy {
+	if (policy.allOf) {
+		return {
+			...policy,
+			allOf: policy.allOf.map((constraint) =>
+				constraint.requireGdpr
+					? applyDpaRequirement(
+							constraint,
+							signedProviderIds,
+							candidateProviders,
+						)
+					: constraint,
+			),
+		};
+	}
+	const unsigned = candidateProviders
+		.filter(
+			(provider) =>
+				!DPA_EXEMPT_PROVIDER_IDS.has(provider.id) &&
+				!signedProviderIds.has(provider.id),
+		)
+		.map((provider) => provider.id);
+	return unsigned.length === 0
+		? policy
+		: {
+				...policy,
+				blockedProviders: [...(policy.blockedProviders ?? []), ...unsigned],
+			};
+}
+
+/** Preserve independent org/key floors; an outer blocklist would be ignored by allOf. */
+export async function withDpaEnforcement(
+	policy: ActiveCompliancePolicy | undefined,
+): Promise<ActiveCompliancePolicy | undefined> {
+	if (
+		!policy ||
+		!isDpaEnforcementEnabled() ||
+		!(
+			policy.requireGdpr ||
+			policy.allOf?.some((constraint) => constraint.requireGdpr)
+		)
+	) {
+		return policy;
+	}
+	const [signedIds, effectiveProviders] = await Promise.all([
+		findDpaSignedProviderIds(),
+		getEffectiveProviders(),
+	]);
+	return applyDpaRequirement(policy, new Set(signedIds), effectiveProviders);
+}
+
+interface CompliancePolicySource {
+	providerCompliancePolicy?: ProviderCompliancePolicy | null;
+}
+
+interface ActiveCompliancePolicy extends ProviderCompliancePolicy {
+	allOf?: readonly ProviderCompliancePolicy[];
+}
 
 interface OrganizationLike {
 	id: string;
@@ -36,114 +105,44 @@ interface OrganizationLike {
 
 export function isZeroDataRetentionEnabled(
 	organization: OrganizationLike | null | undefined,
+	apiKey?: CompliancePolicySource | null,
 ): boolean {
 	return organization
-		? getActiveCompliancePolicy(organization)?.zeroDataRetention === true
+		? getActiveCompliancePolicy(organization, apiKey)?.zeroDataRetention ===
+				true
 		: false;
 }
 
 export function getEffectiveRetentionLevel(
 	organization: OrganizationLike | null | undefined,
+	apiKey?: CompliancePolicySource | null,
 ): "retain" | "none" {
-	return isZeroDataRetentionEnabled(organization)
+	return isZeroDataRetentionEnabled(organization, apiKey)
 		? "none"
 		: (organization?.retentionLevel ?? "none");
 }
 
-/**
- * The active provider compliance policy for an organization, or `undefined`
- * when none is enabled. Enforcement deliberately checks neither enterprise
- * access nor the organization kind: what a policy may contain is restricted at
- * configuration time in the API (full policies need enterprise access, other
- * plans may only save the data-protection subset in `DATA_PROTECTION_POLICY_KEYS`
- * and DevPass settings can only write the no-training requirement), but an
- * enabled stored policy must fail closed. Gating enforcement on plan/license
- * silently dropped all restrictions when the gate misfired, and narrowing by
- * kind stripped the full policy of a devpass-kind org that holds an enterprise
- * plan down to the no-training requirement — both are compliance breaches, not downgrades.
- */
+/** Both enabled policies apply. Stored restrictions survive subscription changes. */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
-): ProviderCompliancePolicy | undefined {
-	const policy = organization.providerCompliancePolicy;
-	return policy?.enabled ? policy : undefined;
-}
-
-/**
- * Whether `requireGdpr` additionally requires a signed data-processing
- * agreement on record for the provider (`provider.dpaSignedAt`, maintained in
- * the admin dashboard). Off by default so enabling DPA tracking does not break
- * existing `requireGdpr` routing; infra flips the flag once the records are
- * filled in.
- */
-export function isDpaEnforcementEnabled(): boolean {
-	return process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR === "true";
-}
-
-/**
- * Pseudo-providers with no upstream operator to contract with: `llmgateway` is
- * the internal router, and `custom` providers carry their posture per-org as a
- * compliance attestation. Neither can have a DPA row, and blocking them here
- * would break routing that the DPA requirement is not about.
- */
-const DPA_EXEMPT_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
-
-/**
- * Folds the DPA requirement into the policy by extending `blockedProviders`
- * with every catalogue provider that has no signed agreement on record.
- *
- * Expressed through the existing block list rather than a new check so every
- * consumer — pinned-provider checks, mapping filters, the OpenAI fallback —
- * enforces it without threading extra state through each call site. Under
- * `requireGdpr` the extra ids are at worst redundant: providers that are not
- * `gdpr: true` in the catalogue are already blocked. Note the dashboard's
- * impact preview cannot see this server-side merge (it knows neither the flag
- * nor the signed set), so with the flag on it may show a provider as allowed
- * that the gateway blocks.
- */
-export function applyDpaRequirement(
-	policy: ProviderCompliancePolicy,
-	signedProviderIds: ReadonlySet<string>,
-	candidateProviders: readonly ProviderDefinition[] = providers,
-): ProviderCompliancePolicy {
-	const unsigned = candidateProviders
-		.filter(
-			(provider) =>
-				!DPA_EXEMPT_PROVIDER_IDS.has(provider.id) &&
-				!signedProviderIds.has(provider.id),
-		)
-		.map((provider) => provider.id);
-
-	if (unsigned.length === 0) {
-		return policy;
+	apiKey?: CompliancePolicySource | null,
+): ActiveCompliancePolicy | undefined {
+	const orgPolicy = organization.providerCompliancePolicy;
+	const keyPolicy = apiKey?.providerCompliancePolicy;
+	if (!orgPolicy?.enabled) {
+		return keyPolicy?.enabled ? keyPolicy : undefined;
 	}
-
+	if (!keyPolicy?.enabled) {
+		return orgPolicy;
+	}
+	// Empty allowlist intersections must deny all, not become unrestricted.
+	// Custom model aliases must match each policy independently.
 	return {
-		...policy,
-		blockedProviders: [...(policy.blockedProviders ?? []), ...unsigned],
+		enabled: true,
+		zeroDataRetention:
+			orgPolicy.zeroDataRetention || keyPolicy.zeroDataRetention,
+		allOf: [orgPolicy, keyPolicy],
 	};
-}
-
-/**
- * Applies the signed-DPA requirement to an active policy when the enforcement
- * flag is on and the policy asks for GDPR-compliant providers. Anything else —
- * flag off, no policy, or a policy without `requireGdpr` — passes through
- * unchanged, so default routing is unaffected.
- */
-export async function withDpaEnforcement(
-	policy: ProviderCompliancePolicy | undefined,
-): Promise<ProviderCompliancePolicy | undefined> {
-	if (!policy?.requireGdpr || !isDpaEnforcementEnabled()) {
-		return policy;
-	}
-	// Effective providers, not just the static catalogue: an active Airside
-	// carrier can self-declare `gdpr: true`, and it has no DPA record either, so
-	// leaving it out would let it satisfy `requireGdpr` unchecked.
-	const [signedIds, effectiveProviders] = await Promise.all([
-		findDpaSignedProviderIds(),
-		getEffectiveProviders(),
-	]);
-	return applyDpaRequirement(policy, new Set(signedIds), effectiveProviders);
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */
@@ -157,9 +156,14 @@ export interface ComplianceCheckContext {
 /** Whether a provider id satisfies the policy (unknown providers fail closed). */
 export function isProviderIdCompliant(
 	providerId: string,
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): boolean {
+	if (policy.allOf) {
+		return policy.allOf.every((constraint) =>
+			isProviderIdCompliant(providerId, constraint, context),
+		);
+	}
 	// "custom" has a catalogue entry with a null dataPolicy, so it must be
 	// short-circuited before the lookup below or it always fails closed. The
 	// policy's provider lists address custom providers as `custom:<name>`.
@@ -186,15 +190,19 @@ export function isProviderIdCompliant(
  */
 export function isModelIdCompliant(
 	modelId: string,
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): boolean {
+	if (policy.allOf) {
+		return policy.allOf.every((constraint) =>
+			isModelIdCompliant(modelId, constraint, context),
+		);
+	}
 	return modelListFailures(modelId, policy, context).length === 0;
 }
 
 // A blocked alias blocks the model it resolves to, and a blocked model blocks
-// listings named after its aliases; an allow list must still name the model
-// itself, so an alias-only entry never widens access.
+// listings named after its aliases; allowlists must name the model itself.
 function modelListFailures(
 	modelId: string,
 	policy: ProviderCompliancePolicy,
@@ -226,9 +234,18 @@ function modelListFailures(
 export function getComplianceFailureReasons(
 	providerId: string,
 	modelId: string,
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): ComplianceFailureReason[] {
+	if (policy.allOf) {
+		return Array.from(
+			new Set(
+				policy.allOf.flatMap((constraint) =>
+					getComplianceFailureReasons(providerId, modelId, constraint, context),
+				),
+			),
+		);
+	}
 	const failures: ComplianceFailureReason[] = [];
 	if (providerId === "custom") {
 		const providerRef = context?.customProviderName
@@ -256,7 +273,7 @@ export function getComplianceFailureReasons(
 /** Drop provider mappings that don't satisfy the policy. */
 export function filterCompliantProviders<T extends { providerId: string }>(
 	list: T[],
-	policy: ProviderCompliancePolicy,
+	policy: ActiveCompliancePolicy,
 	context?: ComplianceCheckContext,
 ): T[] {
 	return list.filter((provider) =>
@@ -265,7 +282,7 @@ export function filterCompliantProviders<T extends { providerId: string }>(
 }
 
 export function complianceBlockMessage(modelId: string): string {
-	return `This request was blocked by your organization's provider compliance policy. No available provider for ${modelId} meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy.`;
+	return `This request was blocked by your organization or API key provider compliance policy. No available provider for ${modelId} meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy.`;
 }
 
 /**
@@ -312,9 +329,10 @@ export async function assertProviderCompliant(
 		apiKeyId?: string;
 		model?: string;
 	},
+	apiKey?: CompliancePolicySource | null,
 ): Promise<void> {
 	const policy = await withDpaEnforcement(
-		getActiveCompliancePolicy(organization),
+		getActiveCompliancePolicy(organization, apiKey),
 	);
 	if (
 		!policy ||

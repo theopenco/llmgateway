@@ -28,9 +28,8 @@ interface ResolveDynamicRouteClassificationParams {
 /**
  * Rate a request for a dynamic route's `classifier` nodes.
  *
- * Fail-open throughout: a blocked provider, a missing credential, an outage or
- * a timeout all return `null`, and those nodes then take their `else` branch.
- * A route must never fail because its classifier could not be reached.
+ * Classifier availability failures return `null` and take the `else` branch.
+ * Compliance-store failures propagate rather than bypassing a privacy gate.
  *
  * Like auto routing, a sticky session classifies once and reuses that verdict
  * for its remaining turns.
@@ -42,7 +41,7 @@ export async function resolveDynamicRouteClassification(
 	// compliance policy disallows that provider must not have its prompts sent
 	// there — the same fail-closed rule the content filter applies.
 	const compliancePolicy = await withDpaEnforcement(
-		getActiveCompliancePolicy(params.organization),
+		getActiveCompliancePolicy(params.organization, params.context.apiKey),
 	);
 	if (
 		compliancePolicy &&

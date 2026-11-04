@@ -63,7 +63,7 @@ Your backend ──(secret key sk_)──▶ POST /v1/sessions ──▶ ephemer
 Before you write any code, configure the project you want to embed:
 
 1. Open the LLM Gateway dashboard and select your project.
-2. Go to **Settings → Payments SDK** and turn on **End-user sessions** (this requires the preview to be enabled for your project).
+2. After preview access is approved for your project, go to **Settings → Payments SDK** and turn on **End-user sessions**. Preview approval only unlocks setup; it does not enable sessions automatically.
 3. _(Optional)_ Set a **markup percent** — the margin you earn on every top-up — and/or a **top-up bonus percent** to gift end-users extra credit (funded from your organization's credit balance).
 4. Add the browser origins allowed to call the gateway, one per line (e.g. `https://app.example.com`).
 5. Under **Receipts & branding**, set your **brand name**, **support email** and **statement descriptor** so end-user payments are recognisable as yours (see below), then click **Save Settings**.
@@ -124,6 +124,10 @@ Refunds send a credit note the same way.
 	`sk_test_…` key cannot manage webhook endpoints or use Stripe Connect
 	onboarding/payouts (both return `403` — use a live secret key).
 </Callout>
+
+Session tokens can use speech generation, but charges come only from the bound end-user wallet; project BYOK settings, organization credits, and chat-plan allowances do not subsidize that wallet. Session expiry, customer/wallet state, allowed origin, model scope, and sandbox restrictions are checked before provider dispatch.
+
+For `/v1/responses`, end-user sessions must provide direct input and set `store: false`. SDK requests to `/v1/responses/compact` are also direct-input only and never persist compaction state; that endpoint does not accept a `store` option. Session tokens cannot retrieve stored responses or use `previous_response_id` or `item_reference` inputs, because stored Responses state is project-scoped rather than wallet-scoped. Keep conversation history in your app and resend it as direct input.
 
 <Callout type="warn">
 	The platform secret key is shown only once. Do not put it in frontend code,

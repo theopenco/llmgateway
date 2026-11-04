@@ -9,11 +9,12 @@ import { Callout } from "fumadocs-ui/components/callout";
 Provider compliance policies let you guarantee that requests are only ever routed to providers that meet your organization's regulatory requirements. When a request would be routed to a provider that doesn't meet the policy, the gateway blocks it **before any data leaves the gateway**.
 
 <Callout type="info">
-	The data-protection controls — **GDPR compliant**, **No training on prompts**,
-	**No stealth providers** and the allowed-countries list — are available on
-	every plan. The certification requirements and the fine-grained provider/model
-	lists are available on [**Enterprise**](https://llmgateway.io/enterprise).
-	DevPass offers only **No AI training**.
+	The organization-level data-protection controls — **GDPR compliant**, **No
+	training on prompts**, **No stealth providers** and the allowed-countries list
+	— are available on every plan. The certification requirements and the
+	fine-grained provider/model lists are available on
+	[**Enterprise**](https://llmgateway.io/enterprise). DevPass offers only **No
+	AI training**.
 </Callout>
 
 For providers managed entirely through Airside, policy checks use the active
@@ -47,9 +48,9 @@ Stored restrictions remain enforced after a downgrade. The dashboard shows their
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
-Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on. ZDR is a separate Enterprise compliance policy and is unchanged by the Enterprise requirement for **Retain All Data** itself.
+Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on. ZDR remains an Enterprise compliance requirement, distinct from the Enterprise permission to retain payloads. The organization-level controls listed above do not unlock ZDR. Key-policy configuration keeps the Enterprise and deployment checks described below.
 
-Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer available for new configuration and does not enable the gateway-level ZDR controls described above.
+Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer offered as a new dashboard control and does not enable the gateway-level ZDR controls described above.
 
 Stealth providers are undisclosed platforms that LLM Gateway routes to without naming the operator, so their data policy and headquarters are unknown. That already makes them fail every certification and data-policy requirement above, but **No stealth providers** excludes them explicitly — useful when you want them gone without turning on any other requirement.
 
@@ -57,7 +58,7 @@ The settings page shows a live **Provider Impact** preview of which providers ar
 
 ## Provider headquarters
 
-Beyond certifications, you can restrict routing by the country a provider is headquartered in. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.
+On supported organization plans, you can restrict routing by the country a provider is headquartered in. Headquarters alone does not establish processing/storage location or an applicable transfer safeguard. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.
 
 The selector only offers countries that are referenced by a catalogue provider or active Airside profile — browse the [providers directory](https://llmgateway.io/providers) to see the current set and each provider's headquarters. Selecting no country applies no location restriction. The country filter is also fail-closed: when at least one country is selected, a provider whose headquarters is unknown is treated as non-compliant.
 
@@ -96,7 +97,30 @@ These indicators evaluate the requirements only — deliberately ignoring the al
 
 Elsewhere in the dashboard (for example the API-key provider filter), the colored dot next to a provider is simply the provider's **brand color** and carries no compliance meaning.
 
-These restrictions are **organization-wide** and take precedence over member-level and API-key-level [IAM rules](/features/api-keys): they are enforced after IAM evaluation, so no user-, team-, or key-level allow rule can grant access to a provider or model the compliance policy excludes.
+Organization-level restrictions are **organization-wide** and take precedence over member-level and API-key-level [IAM rules](/features/api-keys): they are enforced after IAM evaluation, so no user-, team-, or key-level allow rule can grant access to a provider or model the compliance policy excludes.
+
+## API key policies
+
+On Enterprise, open an API key’s **Compliance** action to configure the same requirements, headquarters filters, and provider/model lists for that key. Organization owners and admins can manage these policies. **Settings → Compliance** also lists active, unexpired keys with explicit settings across the organization’s projects, including policies that are currently disabled.
+
+The organization policy is a mandatory baseline, not an overridable default:
+
+- Every enabled organization requirement still applies; a key can only add restrictions.
+- Provider, model, and country allowlists must each pass both policies. Disjoint allowlists block all matching traffic.
+- A blocklist at either level wins over an allowlist at the other.
+- Disabling or removing the key policy leaves organization restrictions intact. With the organization policy off, an enabled key policy works independently.
+
+Key-level **Zero data retention** forces metadata-only logging and bypasses caching for that key’s requests without changing organization retention or other keys. It also requires `store: false` for Responses requests and blocks asynchronous video generation. Unlike organization-wide ZDR, it does not require changing every project’s caching settings first.
+
+Configuring key policies requires Enterprise access. Saved restrictions remain enforced after a subscription change; owners and admins can remove a key policy to return to organization-only enforcement. Compliance alerts continue to evaluate the organization policy, not individual key policies.
+
+### Deployment rollout
+
+Key-level policy configuration is off by default. After applying the database migration, upgrade every gateway instance and drain pre-upgrade realtime sessions. Then set `API_KEY_COMPLIANCE_ENABLED=true` on the internal API to allow new key-policy settings. Deploy the editor last. Until enabled, otherwise authorized non-null key-policy writes return `503`; role and Enterprise checks still apply. Ordinary key operations and organization policy updates are unaffected. Owners and admins can still clear a key policy with `null`.
+
+The rollout switch controls configuration only: saved organization and API-key restrictions remain enforced even when the switch is off. Existing keys default to no explicit policy and continue to use their organization policy unchanged.
+
+Organization policies continue to govern video creation without retroactively blocking historical video downloads. An enabled key policy additionally checks historical video access against both organization and key restrictions.
 
 ## Enforcement
 
@@ -105,7 +129,7 @@ When no available provider for a model meets the policy — or a pinned provider
 ```json
 {
 	"error": {
-		"message": "This request was blocked by your organization's provider compliance policy. No available provider for deepseek-v3.2 meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy."
+		"message": "This request was blocked by your organization or API key provider compliance policy. No available provider for requested-model meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy."
 	}
 }
 ```
@@ -119,7 +143,7 @@ Each block is recorded as a **security event** so administrators can review what
 
 ### Signed data-processing agreements
 
-A deployment can require that **GDPR compliant** also means LLM Gateway holds a signed data-processing agreement with the provider, by setting `REQUIRE_PROVIDER_DPA_FOR_GDPR=true`. With it on, a provider that is GDPR compliant in the catalogue but has no agreement on record is blocked under **GDPR compliant**, including providers listed through Airside; your own custom providers are unaffected, because their posture is the attestation below. The flag changes nothing for policies that do not require GDPR compliance, and the dashboard's impact preview does not reflect it, so a provider it shows as allowed can still be blocked.
+A deployment can require that **GDPR compliant** also means LLM Gateway holds a signed data-processing agreement with the provider, by setting `REQUIRE_PROVIDER_DPA_FOR_GDPR=true`. With it on, a provider that is GDPR compliant in the catalogue but has no agreement on record is blocked under **GDPR compliant**, including providers listed through Airside; your own custom providers are unaffected, because their posture is the attestation below. It applies whenever either enabled organization or key policy requires GDPR, without weakening the other policy. Signed-provider records are cached for up to 60 seconds; lookup errors never extend an expired grant. The flag changes nothing for policies that do not require GDPR compliance, and the dashboard's impact preview does not reflect it, so a provider it shows as allowed can still be blocked.
 
 ## Custom providers
 
@@ -154,9 +178,44 @@ Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for 
 
 ## Safety identifiers
 
-Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per API key. It contains no personal data — no email address, user id, organization name or key id — and it is the only thing that ties a report of abusive traffic back to the exact API key that sent it.
+LLM Gateway keeps **your end-user identifier** separate from **its provider-facing API-key identifier**. Sending an identifier helps correlate your users’ requests in gateway logs; it does not let you choose or override the identifier sent to providers.
 
-Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from the API key that authenticated the request.
+### Send an end-user identifier
+
+Choose a stable, opaque value for each end user and send it in the request body:
+
+| Endpoint                                                             | Request field       |
+| -------------------------------------------------------------------- | ------------------- |
+| Chat completions (`/v1/chat/completions`)                            | `safety_identifier` |
+| Responses (`/v1/responses`) and compaction (`/v1/responses/compact`) | `safety_identifier` |
+| Decisions (`/v1/decisions`)                                          | `safety_identifier` |
+| Native Messages (`/v1/messages`)                                     | `metadata.user_id`  |
+| Embeddings (`/v1/embeddings`)                                        | `user`              |
+
+For example, replace `your-model-id` with a model from the [models directory](https://llmgateway.io/models):
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model-id",
+    "messages": [{ "role": "user", "content": "Hello" }],
+    "safety_identifier": "app-user-42"
+  }'
+```
+
+Use a non-empty value of at most **128 characters**. Chat completions also accepts legacy `user` when `safety_identifier` is absent or `null`. Longer `safety_identifier` values are rejected; longer `user` or `metadata.user_id` values are not recorded as safety identifiers.
+
+In both credits and bring-your-own-key mode, the client value is saved in request log metadata as `params.safety_identifier`, even without debug logging. Rejections before the body is parsed, such as early rate limits, may not include it. Reuse it for the same end user when correlating traffic or reporting requests to us. It remains metadata when prompt/completion retention is disabled and is subject to [metadata retention](/features/data-retention). Do not include personal data; it is not an authentication or authorization mechanism.
+
+### What providers receive
+
+LLM Gateway generates an opaque, random identifier once per gateway API key. It contains no personal data or API-key secret. Requests using the same API key share this provider-facing identifier even if they have different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
+
+- **Credits:** upstream APIs that support abuse attribution receive the fixed gateway API-key identifier when forwarding is enabled on the gateway-managed credential, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
+- **Bring your own key (BYOK):** neither the gateway identifier nor your client identifier is sent as a provider safety identifier.
+- **Hybrid:** the credential used on each attempt determines the behavior, including retries and fallback. An attempt using your provider key follows BYOK behavior; one using LLM Gateway’s credentials follows credits behavior.
 
 ## Access Control
 
@@ -173,4 +232,4 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 
 ## Get Started
 
-DevPass subscribers can configure **No AI training** under **Settings**. The data-protection controls are available on every plan under **Settings → Compliance**; [contact us](https://llmgateway.io/enterprise) for the certification requirements and the fine-grained provider and model lists.
+DevPass subscribers can configure **No AI training** under **Settings**. Organization-level data-protection controls are available on every supported plan under **Settings → Compliance**; [contact us](https://llmgateway.io/enterprise) for the certification requirements and the fine-grained provider and model lists.

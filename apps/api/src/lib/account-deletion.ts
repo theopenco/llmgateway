@@ -3,7 +3,7 @@ import Stripe from "stripe";
 
 import { getStripe } from "@/routes/payments.js";
 
-import { db, eq, inArray, or, tables } from "@llmgateway/db";
+import { db, eq, inArray, or, tables, cdb } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 /**
@@ -376,10 +376,10 @@ export async function tearDownSoleMemberOrganizations(
 		}
 	}
 
-	// Phase 2: local writes only. Nothing here calls out, so once the first
-	// update lands the rest follow.
+	// Phase 2: local writes only. Cached mutations also revoke stale active
+	// organization snapshots; retries retain any already-closed ids.
 	for (const org of organizations) {
-		await db
+		await cdb
 			.update(tables.organization)
 			.set({
 				status: "deleted",

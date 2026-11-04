@@ -38,3 +38,19 @@ describe("downgraded compliance policies", () => {
 		).toMatchObject({ enabled: true, requireGdpr: true });
 	});
 });
+it("keeps headquarters and stealth controls free while ZDR remains premium", () => {
+	const privacy = {
+		enabled: true,
+		requireGdpr: true,
+		blockStealthProviders: true,
+		allowedCountries: ["US"],
+	};
+	expect(hasEnterpriseComplianceRules(privacy)).toBe(false);
+	expect(compliancePolicyForSave(privacy, false)).toMatchObject(privacy);
+	expect(
+		hasEnterpriseComplianceRules({ enabled: true, zeroDataRetention: true }),
+	).toBe(true);
+	expect(
+		compliancePolicyForSave({ enabled: true, zeroDataRetention: true }, false),
+	).toBeUndefined();
+});

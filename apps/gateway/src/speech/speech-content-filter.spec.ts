@@ -109,62 +109,80 @@ describe("speech gateway content filter", () => {
 			}),
 		});
 
-	test("does not send speech content to an unsigned moderation provider", async () => {
-		const previousFlag = process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
-		process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = "true";
-		try {
-			await cdb
-				.update(tables.organization)
-				.set({ providerCompliancePolicy: { enabled: true, requireGdpr: true } })
-				.where(eq(tables.organization.id, "org-id"));
-			await db
-				.insert(tables.provider)
-				.values({
-					id: "elevenlabs",
-					name: "ElevenLabs",
-					description: "Test provider",
-					dpaSignedAt: new Date(),
-				})
-				.onConflictDoUpdate({
-					target: tables.provider.id,
-					set: { dpaSignedAt: new Date() },
+	test.each(["organization", "organization-and-key", "key"])(
+		"does not send speech content to an unsigned moderation provider (%s)",
+		async (scope) => {
+			const requestId = `speech-dpa-${scope}-${Date.now()}`;
+			const previousFlag = process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
+			process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = "true";
+			try {
+				await cdb
+					.update(tables.organization)
+					.set({
+						providerCompliancePolicy: {
+							enabled: true,
+							requireGdpr: scope !== "key",
+						},
+					})
+					.where(eq(tables.organization.id, "org-id"));
+				await cdb
+					.update(tables.apiKey)
+					.set({
+						providerCompliancePolicy:
+							scope === "organization"
+								? null
+								: { enabled: true, requireGdpr: scope === "key" },
+					})
+					.where(eq(tables.apiKey.id, "token-id"));
+				await db
+					.insert(tables.provider)
+					.values({
+						id: "elevenlabs",
+						name: "ElevenLabs",
+						description: "Test provider",
+						dpaSignedAt: new Date(),
+					})
+					.onConflictDoUpdate({
+						target: tables.provider.id,
+						set: { dpaSignedAt: new Date() },
+					});
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-elevenlabs",
+					...encryptProviderKeyForStorage(
+						"elevenlabs-test-key",
+						"provider-key-elevenlabs",
+						"org-id",
+					),
+					provider: "elevenlabs",
+					organizationId: "org-id",
+					baseUrl: harness.mockServerUrl,
 				});
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-elevenlabs",
-				...encryptProviderKeyForStorage(
-					"elevenlabs-test-key",
-					"provider-key-elevenlabs",
-					"org-id",
-				),
-				provider: "elevenlabs",
-				organizationId: "org-id",
-				baseUrl: harness.mockServerUrl,
-			});
-			await harness.setContentFilterSettings({ providerIds: ["elevenlabs"] });
-			const response = await app.request("/v1/audio/speech", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-					"x-request-id": "speech-dpa-unsigned-moderator",
-				},
-				body: JSON.stringify({
-					model: "elevenlabs/eleven-multilingual-v2",
-					input: "Read this synthetic text",
-				}),
-			});
-			expect(response.status).toBe(200);
-			await waitForLogByRequestId("speech-dpa-unsigned-moderator");
-			expect(speechCalls).toBe(1);
-			expect(moderationCalls).toBe(0);
-		} finally {
-			if (previousFlag === undefined) {
-				delete process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
-			} else {
-				process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = previousFlag;
+				await harness.setContentFilterSettings({ providerIds: ["elevenlabs"] });
+				const response = await app.request("/v1/audio/speech", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-request-id": requestId,
+					},
+					body: JSON.stringify({
+						model: "elevenlabs/eleven-multilingual-v2",
+						input: `Read this synthetic text ${requestId}`,
+					}),
+				});
+				expect(response.status).toBe(200);
+				await waitForLogByRequestId(requestId);
+				expect(speechCalls).toBe(1);
+				expect(moderationCalls).toBe(0);
+			} finally {
+				if (previousFlag === undefined) {
+					delete process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
+				} else {
+					process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = previousFlag;
+				}
 			}
-		}
-	});
+		},
+	);
 	test("skips moderation when the provider is not enabled", async () => {
 		await harness.setContentFilterSettings({ providerIds: ["google-vertex"] });
 

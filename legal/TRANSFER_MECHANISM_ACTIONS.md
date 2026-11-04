@@ -11,12 +11,14 @@ closes.
 
 ---
 
-## 1. PostHog DPA — the only operational sub-processor with no DPA in force
+## 1. PostHog DPA — verify account-specific execution
 
 PostHog's published DPA is explicitly non-binding: *"It's not binding on its own
 — only the one you generate and countersign through the app counts."* Until this
-is done there is **no data processing agreement with PostHog**, and PostHog
-receives account identifiers, email addresses and IP addresses.
+is verified, this record does not establish an agreement in force for the account.
+Verify the personal-data categories sent, including account identifiers, email
+addresses and IP addresses. An authorized account/legal owner must check for an
+existing applicable agreement before accepting or signing anything.
 
 1. Sign in to PostHog as an organization admin.
 2. Go to **app.posthog.com/legal**.

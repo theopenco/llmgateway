@@ -447,49 +447,55 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	// is a fixed pseudo-model outside the catalogue, so model/pricing allowlists
 	// can never name it and evaluating them would deny existing keys with no way
 	// to allowlist it. deny/allow_providers ["openai"] and IP CIDR rules still
-	// gate moderation. End-user sessions are exempt: their model allowlists
-	// target chat models and must not block the moderation endpoint.
-	if (!apiKey.endUserSession) {
-		const iamValidation = await validateRequestModelAccess({
-			apiKey,
-			organizationId: project.organizationId,
-			providerAccessRestriction: organization.providerAccessRestriction,
-			requestedModel: "openai-moderation",
-			activeModelInfo: {
-				id: "openai-moderation",
-				family: "openai",
-				free: false,
-				providers: [
-					{
-						providerId: "openai",
-						externalId: upstreamModel,
-						streaming: false,
-					},
-				],
-			},
-			clientIp: getClientIpFromRequest(c),
-			applicableRuleTypes: [
-				"allow_providers",
-				"deny_providers",
-				"allow_ip_cidrs",
-				"deny_ip_cidrs",
+	// gate moderation. Ignore only the chat model scope of end-user sessions;
+	// the organization provider ceiling and key provider/IP rules still apply.
+	const iamValidation = await validateRequestModelAccess({
+		apiKey: apiKey.endUserSession
+			? { ...apiKey, endUserSession: undefined }
+			: apiKey,
+		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
+		requestedModel: "openai-moderation",
+		requestedProvider: "openai",
+		activeModelInfo: {
+			id: "openai-moderation",
+			family: "openai",
+			free: false,
+			providers: [
+				{
+					providerId: "openai",
+					externalId: upstreamModel,
+					streaming: false,
+				},
 			],
-		});
-		if (!iamValidation.allowed) {
-			throwIamException(iamValidation.reason ?? "Model access denied");
-		}
+		},
+		clientIp: getClientIpFromRequest(c),
+		applicableRuleTypes: [
+			"allow_providers",
+			"deny_providers",
+			"allow_ip_cidrs",
+			"deny_ip_cidrs",
+		],
+	});
+	if (!iamValidation.allowed) {
+		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
 
 	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
 	// before sending if the org's policy doesn't permit it.
-	await assertProviderCompliant(organization, "openai", {
-		organizationId: project.organizationId,
-		modelId: moderationModelId,
-		apiKeyId: apiKey.id,
-		model: upstreamModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		"openai",
+		{
+			organizationId: project.organizationId,
+			modelId: moderationModelId,
+			apiKeyId: apiKey.id,
+			model: upstreamModel,
+		},
+		apiKey,
+	);
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.

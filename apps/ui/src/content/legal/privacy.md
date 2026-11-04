@@ -128,7 +128,9 @@ Where we retain billing records after account deletion, we restrict processing o
 - Your user record, sessions, API keys, passkeys and chats are **hard-deleted**.
 - Any organization you were the last member of is **closed**: its subscriptions are cancelled, its Stripe customer record — including the name, email and billing address Stripe held — is **deleted at Stripe**, and its display name, billing contact email and logo are **overwritten with placeholders**.
 - The current email address on your account is **removed** from failed-payment entries. For organizations closed with your account, historical contact addresses are removed too. Historical addresses in organizations that remain active may need a separate review to identify the records; contact us if this applies to your request.
-- What remains is the accounting record itself, kept for the statutory period described above: the amounts, dates and currencies of the transactions, and the "bill to" identity that appears on the invoices we issued — the billing company name, billing address and tax identifier you supplied. Invoice law requires the recipient's identity on the document, so these are retained rather than anonymized.
+- For these retained billing entries, the accounting record is kept for the statutory period described above: the amounts, dates and currencies of the transactions, and the "bill to" identity that appears on the invoices we issued — the billing company name, billing address and tax identifier you supplied. Invoice law requires the recipient's identity on the document, so these are retained rather than anonymized.
+
+Processor-side cleanup can fail independently of local deletion. Unresolved processor records and historical address attribution require separately verified follow-up; the account action alone does not confirm completion of every erasure request. These implementation limits do not remove the applicable legal obligations.
 
 ---
 

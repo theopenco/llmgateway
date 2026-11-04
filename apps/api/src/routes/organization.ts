@@ -12,6 +12,7 @@ import {
 	ORGANIZATION_DELETE_IDLE_DAYS,
 	ORGANIZATION_DELETE_MAX_CREDITS,
 } from "@/lib/organization-deletion.js";
+import { providerCompliancePolicySchema } from "@/lib/provider-compliance-policy.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -68,14 +69,11 @@ import {
 	getEffectiveProviders,
 } from "@llmgateway/db";
 import {
-	DATA_PROTECTION_POLICY_KEYS,
 	getProviderCountries,
-	models,
-	providers,
+	DATA_PROTECTION_POLICY_KEYS,
 } from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
-	CUSTOM_PROVIDER_NAME_REGEX,
 	getBaseLimit,
 	getNextSpendTier,
 	getOrgSpendTier,
@@ -99,65 +97,9 @@ import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const organization = new OpenAPIHono<ServerTypes>();
 
-// Closed sets for the compliance policy's fine-grained restriction lists.
-// Custom providers are addressed as `custom:<name>` and their models as
-// `<name>/<model>`; the names are only format-validated because provider keys
-// can be created/renamed independently of the stored policy.
-const catalogueProviderIds = new Set<string>(
-	providers.map((provider) => provider.id),
-);
-const catalogueModelIds = new Set<string>(models.map((model) => model.id));
-const customProviderRefRegex = new RegExp(
-	`^custom:${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}$`,
-);
-const customModelRefRegex = new RegExp(
-	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
-);
-
 const zdrRetentionConflictMessage =
 	"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.";
-
-const complianceProviderRefSchema = z
-	.string()
-	.max(256)
-	.refine(
-		(ref) => catalogueProviderIds.has(ref) || customProviderRefRegex.test(ref),
-		{ message: "Unknown provider" },
-	);
-
-const complianceModelRefSchema = z
-	.string()
-	.max(256)
-	.refine(
-		(ref) => catalogueModelIds.has(ref) || customModelRefRegex.test(ref),
-		{
-			message: "Unknown model",
-		},
-	);
-
 // Define schemas directly with Zod instead of using createSelectSchema
-const providerCompliancePolicySchema = z.object({
-	enabled: z.boolean(),
-	requireSoc2: z.boolean().optional(),
-	requireSoc2Type2: z.boolean().optional(),
-	requireIso27001: z.boolean().optional(),
-	requireSoc2OrIso27001: z.boolean().optional(),
-	requireGdpr: z.boolean().optional(),
-	blockApiTraining: z.boolean().optional(),
-	blockPromptLogging: z.boolean().optional(),
-	zeroDataRetention: z.boolean().optional(),
-	blockStealthProviders: z.boolean().optional(),
-	allowedCountries: z
-		.array(
-			z.string().regex(/^[A-Z]{2}$/, "Use an ISO 3166-1 alpha-2 country code"),
-		)
-		.optional(),
-	blockedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
-	allowedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
-	blockedModels: z.array(complianceModelRefSchema).max(500).optional(),
-	allowedModels: z.array(complianceModelRefSchema).max(500).optional(),
-});
-
 const organizationSchema = z
 	.object({
 		id: z.string(),
@@ -789,16 +731,8 @@ organization.openapi(updateOrganization, async (c) => {
 	const grandfatheredRetain =
 		retentionLevel === "retain" && !retentionEnterpriseAccess;
 
-	// Compliance policies are managed by owners and admins (matching the
-	// Guardrails settings page). DevPass accepts only the no-API-training
-	// requirement, regardless of plan. For other organizations the
-	// certification requirements and fine-grained allow/block lists are an
-	// enterprise feature; the data-protection controls are not, because they are
-	// the customer's only means of constraining where their personal data is
-	// transferred, and they are the controller for it. Non-enterprise orgs may
-	// therefore save the narrowed policy, and anything outside that subset is
-	// rejected rather than silently dropped — a policy that appears to require
-	// SOC 2 but does not enforce it is worse than one that refuses to be saved.
+	// DevPass accepts only the no-API-training requirement, regardless of plan.
+	// Other organizations retain the enterprise gate for enabling a policy.
 	if (providerCompliancePolicy !== undefined) {
 		if (
 			userOrganization.role !== "owner" &&
@@ -855,12 +789,10 @@ organization.openapi(updateOrganization, async (c) => {
 				userOrganization.organization?.plan,
 			)
 		) {
-			const enterpriseOnlyKeys = Object.entries(providerCompliancePolicy)
+			const unsupportedKeys = Object.entries(providerCompliancePolicy)
 				.filter(([key, value]) => {
-					if (key === "enabled") {
-						return false;
-					}
 					if (
+						key === "enabled" ||
 						(DATA_PROTECTION_POLICY_KEYS as readonly string[]).includes(key)
 					) {
 						return false;
@@ -868,10 +800,9 @@ organization.openapi(updateOrganization, async (c) => {
 					return Array.isArray(value) ? value.length > 0 : Boolean(value);
 				})
 				.map(([key]) => key);
-
-			if (enterpriseOnlyKeys.length > 0) {
+			if (unsupportedKeys.length > 0) {
 				throw new HTTPException(403, {
-					message: `These compliance settings require an enterprise plan: ${enterpriseOnlyKeys.join(", ")}. Data-protection controls (${DATA_PROTECTION_POLICY_KEYS.join(", ")}) are available on every plan.`,
+					message: `These compliance settings require an Enterprise plan: ${unsupportedKeys.join(", ")}`,
 				});
 			}
 		}
