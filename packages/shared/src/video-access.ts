@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { getApiKeyHashSecret } from "./api-key-hash.js";
+import { getApiKeyHashSecret, getApiKeyHashSecrets } from "./api-key-hash.js";
 import {
 	buildGatewayVideoLogContentUrl,
 	getGatewayPublicBaseUrl,
@@ -129,9 +129,10 @@ export function buildSignedGatewayVideoLogContentUrl(logId: string): string {
 	return url.toString();
 }
 
-function getVideoJobContentTokenSecret(): string {
-	return createHmac("sha256", getApiKeyHashSecret())
-		.update("video-job-content:v1")
+function getVideoJobContentTokenSecret(secret = getApiKeyHashSecret()): string {
+	return createHmac("sha256", secret)
+		.update("video-job-content:v1:")
+		.update(getVideoContentTokenSecret())
 		.digest("hex");
 }
 
@@ -166,14 +167,17 @@ export function verifyVideoJobContentAccessToken(
 	) {
 		return false;
 	}
-	const expectedSignature = Buffer.from(
-		signJwtSegment(header, payload, getVideoJobContentTokenSecret()),
-	);
 	const providedSignature = Buffer.from(signature);
-	if (
-		providedSignature.length !== expectedSignature.length ||
-		!timingSafeEqual(providedSignature, expectedSignature)
-	) {
+	const validSignature = getApiKeyHashSecrets().some((secret) => {
+		const expectedSignature = Buffer.from(
+			signJwtSegment(header, payload, getVideoJobContentTokenSecret(secret)),
+		);
+		return (
+			providedSignature.length === expectedSignature.length &&
+			timingSafeEqual(providedSignature, expectedSignature)
+		);
+	});
+	if (!validSignature) {
 		return false;
 	}
 	try {

@@ -4044,6 +4044,32 @@ describe("signed video job assets", () => {
 	) {
 		return `/v1/video-assets/jobs/${id}/content?token=${encodeURIComponent(token)}`;
 	}
+	test("fails closed before lookup when video signing is disabled", async () => {
+		vi.stubEnv("NODE_ENV", "staging");
+		vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", undefined);
+		vi.stubEnv("VIDEO_CONTENT_TOKEN_ALLOW_DEV", undefined);
+		const path = assetPath();
+		vi.stubEnv("LLM_VIDEO_CONTENT_JWT_SECRET", undefined);
+		await expectSignedAssetRejectedBeforeLookup(path, 500);
+	});
+	test("revokes existing asset links when the video secret rotates", async () => {
+		const path = assetPath();
+		vi.stubEnv("LLM_VIDEO_CONTENT_JWT_SECRET", "rotated-video-content-secret");
+		await expectSignedAssetRejectedBeforeLookup(path, 401);
+	});
+	test("keeps asset access while the API hashing key remains in the rotation keyring", async () => {
+		vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "previous-api-hash-secret");
+		const path = assetPath();
+		vi.stubEnv(
+			"GATEWAY_API_KEY_HASH_SECRET",
+			"current-api-hash-secret,previous-api-hash-secret",
+		);
+		const response = await app.request(path);
+		expect(response.status).toBe(200);
+		expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual([
+			0, 1, 2, 3, 4,
+		]);
+	});
 	test("plays unlogged quarantined content and forwards byte ranges without API credentials", async () => {
 		const url = new URL(
 			buildSignedGatewayVideoJobContentUrl("quarantined-video"),
@@ -4125,3 +4151,16 @@ describe("signed video job assets", () => {
 		expect((await app.request(assetPath())).status).toBe(502);
 	});
 });
+async function expectSignedAssetRejectedBeforeLookup(
+	path: string,
+	status: number,
+): Promise<void> {
+	const lookup = vi.spyOn(db.query.videoJob, "findFirst");
+	try {
+		const response = await app.request(path);
+		expect(response.status).toBe(status);
+		expect(lookup).not.toHaveBeenCalled();
+	} finally {
+		lookup.mockRestore();
+	}
+}
