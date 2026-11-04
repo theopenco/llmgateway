@@ -36,6 +36,11 @@ import {
 	hashApiKeyForStorage,
 	getApiKeyHashSecret,
 } from "@llmgateway/shared/api-key-hash";
+import {
+	buildSignedGatewayVideoJobContentUrl,
+	createVideoJobContentAccessToken,
+	createVideoContentAccessToken,
+} from "@llmgateway/shared/video-access";
 import { getVideoOutputTokenPrice } from "@llmgateway/shared/video-token-pricing";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
@@ -3899,3 +3904,224 @@ function seedanceBillingMetadataTests() {
 		},
 	);
 }
+function seedanceBillingReservationExpiryTests() {
+	const threeHoursMs = 3 * 60 * 60 * 1000;
+	const harness = createGatewayApiTestHarness();
+	beforeAll(() => {
+		vi.stubEnv("LLM_BYTEDANCE_API_KEY", undefined);
+		vi.stubEnv("LLM_BYTEDANCE_BASE_URL", undefined);
+	});
+	afterAll(() => vi.unstubAllEnvs());
+	beforeEach(async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("2");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-seedance-video",
+			provider: "bytedance",
+			...encryptProviderKeyForStorage(
+				"bytedance-test-token",
+				"managed-seedance-video",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+		});
+	});
+
+	test.each([
+		{ status: "in_progress", pending: true, quarantined: false, expected: 402 },
+		{ status: "completed", pending: true, quarantined: true, expected: 402 },
+		{ status: "completed", pending: false, quarantined: true, expected: 402 },
+		{ status: "completed", pending: false, quarantined: false, expected: 200 },
+	] as const)(
+		"retains aged billing holds: $status pending=$pending quarantined=$quarantined",
+		async ({ status, pending, quarantined, expected }) => {
+			await db.insert(tables.videoJob).values({
+				id: "old-seedance-video",
+				requestId: "old-seedance-request",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "token-id",
+				mode: "credits",
+				usedMode: "credits",
+				model: "seedance-2-0",
+				usedProvider: "bytedance",
+				usedModel: "seedance-2-0",
+				upstreamId: "old-seedance-upstream",
+				prompt: "A paper boat on a quiet pond",
+				status,
+				contentUrl:
+					status === "completed" ? "https://example.com/completed.mp4" : null,
+				createdAt: new Date(Date.now() - threeHoursMs),
+				upstreamCreateResponse: { llmgateway_reserved_spend_usd: 1.5 },
+				upstreamStatusResponse: {
+					llmgateway_billing_pending: pending,
+					llmgateway_billing_quarantined: quarantined,
+				},
+			});
+			const response = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "bytedance/seedance-2-0",
+					prompt: "A paper boat on a quiet pond",
+					seconds: 4,
+					size: "1280x720",
+				}),
+			});
+			expect(response.status).toBe(expected);
+			if (quarantined) {
+				const completed = await app.request("/v1/videos/old-seedance-video", {
+					headers: { Authorization: "Bearer real-token" },
+				});
+				expect(completed.status).toBe(200);
+				const video = await completed.json();
+				expect(video.status).toBe("completed");
+				expect(video.content).toEqual([
+					expect.objectContaining({ type: "video", url: expect.any(String) }),
+				]);
+				expect(video).not.toHaveProperty("usage");
+			}
+			if (expected === 402) {
+				expect(getMockVideos()).toHaveLength(0);
+			}
+		},
+	);
+}
+
+describe(
+	"Seedance billing reservation expiry",
+	seedanceBillingReservationExpiryTests,
+);
+
+describe("signed video job assets", () => {
+	const harness = createGatewayApiTestHarness();
+	beforeEach(async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		vi.stubEnv("LLM_VIDEO_CONTENT_JWT_SECRET", "test-video-content-secret");
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.videoJob).values({
+			id: "quarantined-video",
+			requestId: "quarantined-request",
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "token-id",
+			mode: "credits",
+			usedMode: "credits",
+			model: "seedance-2-0",
+			usedModel: "seedance-2-0",
+			usedProvider: "bytedance",
+			upstreamId: "upstream-video",
+			prompt: "A paper boat",
+			status: "completed",
+			contentUrl: `${harness.mockServerUrl}/mock-assets/quarantined-video`,
+			contentType: "video/mp4",
+			upstreamStatusResponse: { llmgateway_billing_quarantined: true },
+		});
+		setMockVideoAsset(new Uint8Array([0, 1, 2, 3, 4]));
+	});
+	afterEach(() => vi.unstubAllEnvs());
+	function assetPath(
+		token = createVideoJobContentAccessToken("quarantined-video"),
+		id = "quarantined-video",
+	) {
+		return `/v1/video-assets/jobs/${id}/content?token=${encodeURIComponent(token)}`;
+	}
+	test("plays unlogged quarantined content and forwards byte ranges without API credentials", async () => {
+		const url = new URL(
+			buildSignedGatewayVideoJobContentUrl("quarantined-video"),
+		);
+		const response = await app.request(`${url.pathname}${url.search}`, {
+			headers: { Range: "bytes=0-1" },
+		});
+		expect(response.status).toBe(206);
+		expect(response.headers.get("Content-Range")).toBe("bytes 0-1/5");
+		expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual([
+			0, 1,
+		]);
+		const outside = await app.request(assetPath(), {
+			headers: { Range: "bytes=5-" },
+		});
+		expect(outside.status).toBe(416);
+		expect(outside.headers.get("Content-Range")).toBe("bytes */5");
+		const job = await db.query.videoJob.findFirst({
+			where: { id: "quarantined-video" },
+		});
+		expect(job?.logId).toBeNull();
+		expect(job?.cost).toBeNull();
+		expect(await db.query.log.findMany()).toHaveLength(0);
+	});
+	test.each(["missing", "wrong-job", "tampered", "expired", "log-token"])(
+		"rejects %s access tokens",
+		async (kind) => {
+			let token = createVideoJobContentAccessToken("quarantined-video");
+			if (kind === "wrong-job") {
+				token = createVideoJobContentAccessToken("other-video");
+			}
+			if (kind === "tampered") {
+				token += "x";
+			}
+			if (kind === "expired") {
+				token = createVideoJobContentAccessToken(
+					"quarantined-video",
+					new Date(0),
+				);
+			}
+			if (kind === "log-token") {
+				token = createVideoContentAccessToken("quarantined-video");
+			}
+			const response = await app.request(
+				kind === "missing"
+					? "/v1/video-assets/jobs/quarantined-video/content"
+					: assetPath(token),
+			);
+			expect(response.status).toBe(401);
+		},
+	);
+	test("rejects a wrong-job token before looking up a nonexistent target", async () => {
+		const response = await app.request(
+			assetPath(
+				createVideoJobContentAccessToken("quarantined-video"),
+				"missing-video",
+			),
+		);
+		expect(response.status).toBe(401);
+	});
+	test("returns 404 for a signed nonexistent job", async () => {
+		const response = await app.request(
+			assetPath(
+				createVideoJobContentAccessToken("missing-video"),
+				"missing-video",
+			),
+		);
+		expect(response.status).toBe(404);
+	});
+	test("never streams a job that has not completed", async () => {
+		await db
+			.update(tables.videoJob)
+			.set({ status: "in_progress" })
+			.where(eq(tables.videoJob.id, "quarantined-video"));
+		expect((await app.request(assetPath())).status).toBe(409);
+	});
+	test("preserves the existing content URL SSRF guard", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		expect((await app.request(assetPath())).status).toBe(502);
+	});
+});

@@ -29,6 +29,7 @@ import {
 	tables,
 	UnifiedFinishReason,
 	isNotNull,
+	sql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -69,6 +70,8 @@ import {
 import { getVideoOutputTokenPrice } from "@llmgateway/shared/video-token-pricing";
 
 import { readMp4DurationSeconds } from "./mp4-duration.js";
+
+const VIDEO_JOB_MAX_BILLING_DEFERRALS = 12;
 
 class VideoBillingPendingError extends Error {}
 
@@ -1561,6 +1564,9 @@ function createWebhookSignature(
 }
 
 async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
+	if (hasQuarantinedVideoBilling(job)) {
+		return;
+	}
 	let currentJob = job;
 	if (
 		!job.resultLoggedAt &&
@@ -1590,6 +1596,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				.where(
 					and(
 						matchVideoJobSnapshot(currentJob),
+						videoBillingNotQuarantined(),
 						inArray(tables.videoJob.status, TERMINAL_VIDEO_STATUS_VALUES),
 						isNull(tables.videoJob.resultLoggedAt),
 					),
@@ -1819,6 +1826,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						eq(tables.videoJob.status, currentJob.status),
 						inArray(tables.videoJob.status, TERMINAL_VIDEO_STATUS_VALUES),
 						isNotNull(tables.videoJob.resultLoggedAt),
+						videoBillingNotQuarantined(),
 						eq(tables.videoJob.callbackStatus, "pending"),
 						isNull(tables.videoJob.callbackEventId),
 					),
@@ -2639,14 +2647,25 @@ export async function processPendingVideoJobs(): Promise<void> {
 					pollAttemptCount: job.pollAttemptCount + 1,
 					upstreamStatusResponse: {
 						...enrichedUpstreamStatus,
+						llmgateway_billing_pending: false,
+						llmgateway_billing_quarantined: false,
 						llmgateway_poll_error_count: 0,
 						llmgateway_last_poll_error: null,
 					},
 				})
-				.where(eq(tables.videoJob.id, job.id))
+				.where(
+					and(
+						matchVideoJobSnapshot(job),
+						isNull(tables.videoJob.resultLoggedAt),
+						videoBillingNotQuarantined(),
+					),
+				)
 				.returning()
 				.then((rows) => rows[0]);
 
+			if (!updatedJob) {
+				continue;
+			}
 			if (TERMINAL_VIDEO_STATUSES.has(updatedJob.status)) {
 				try {
 					await finalizeVideoJob(updatedJob);
@@ -2747,11 +2766,19 @@ export async function processPendingVideoJobs(): Promise<void> {
 						pollAttemptCount: job.pollAttemptCount + 1,
 						upstreamStatusResponse: failedResponse,
 					})
-					.where(eq(tables.videoJob.id, job.id))
+					.where(
+						and(
+							matchVideoJobSnapshot(job),
+							isNull(tables.videoJob.resultLoggedAt),
+							videoBillingNotQuarantined(),
+						),
+					)
 					.returning()
 					.then((rows) => rows[0]);
 
-				await finalizeVideoJob(updatedJob);
+				if (updatedJob) {
+					await finalizeVideoJob(updatedJob);
+				}
 				continue;
 			}
 
@@ -2769,7 +2796,13 @@ export async function processPendingVideoJobs(): Promise<void> {
 						llmgateway_last_poll_error: message,
 					},
 				})
-				.where(eq(tables.videoJob.id, job.id));
+				.where(
+					and(
+						matchVideoJobSnapshot(job),
+						isNull(tables.videoJob.resultLoggedAt),
+						videoBillingNotQuarantined(),
+					),
+				);
 		}
 	}
 
@@ -2779,6 +2812,7 @@ export async function processPendingVideoJobs(): Promise<void> {
 		.where(
 			and(
 				inArray(tables.videoJob.status, TERMINAL_VIDEO_STATUS_VALUES),
+				videoBillingNotQuarantined(),
 				or(
 					isNull(tables.videoJob.resultLoggedAt),
 					and(
@@ -3139,34 +3173,69 @@ async function deferVideoJobBilling(
 		previousCount >= 0
 			? previousCount + 1
 			: 1;
+	const quarantined = retryCount >= VIDEO_JOB_MAX_BILLING_DEFERRALS;
+	const now = new Date();
 	const deferred = await db
 		.update(tables.videoJob)
 		.set({
-			status: "in_progress",
-			completedAt: null,
-			lastPolledAt: new Date(),
-			nextPollAt: new Date(
-				Date.now() + calculateNextVideoPollErrorDelayMs(retryCount),
-			),
+			status: quarantined ? "completed" : "in_progress",
+			progress: quarantined ? 100 : job.progress,
+			completedAt: quarantined
+				? (parseTimestamp(status?.completed_at) ?? job.completedAt ?? now)
+				: null,
+			contentUrl: status
+				? (extractContentUrl(status) ?? job.contentUrl)
+				: job.contentUrl,
+			contentType:
+				typeof status?.mime_type === "string"
+					? status.mime_type
+					: job.contentType,
+			expiresAt: parseTimestamp(status?.expires_at) ?? job.expiresAt,
+			cost: null,
+			videoOutputCost: null,
+			lastPolledAt: now,
+			nextPollAt: quarantined
+				? now
+				: new Date(
+						now.getTime() + calculateNextVideoPollErrorDelayMs(retryCount),
+					),
 			pollAttemptCount: job.pollAttemptCount + 1,
 			upstreamStatusResponse: {
 				...status,
 				llmgateway_billing_pending: true,
+				llmgateway_billing_quarantined: quarantined,
 				llmgateway_billing_retry_count: retryCount,
 				llmgateway_last_billing_error: error.message,
 			},
 		})
 		.where(
-			and(matchVideoJobSnapshot(job), isNull(tables.videoJob.resultLoggedAt)),
+			and(
+				matchVideoJobSnapshot(job),
+				isNull(tables.videoJob.resultLoggedAt),
+				videoBillingNotQuarantined(),
+			),
 		)
 		.returning({ id: tables.videoJob.id });
-	if (deferred.length > 0) {
-		logger.warn("Deferring completed video billing; retrying upstream usage", {
-			videoJobId: job.id,
-			upstreamId: job.upstreamId,
-			retryCount,
-			error: error.message,
-		});
+	if (deferred.length === 0) {
+		return;
+	}
+	const context = {
+		videoJobId: job.id,
+		upstreamId: job.upstreamId,
+		retryCount,
+		error: error.message,
+	};
+	if (quarantined) {
+		logger.error(
+			"Video billing quarantined; manual reconciliation required",
+			error,
+			context,
+		);
+	} else {
+		logger.warn(
+			"Deferring completed video billing; retrying upstream usage",
+			context,
+		);
 	}
 }
 function getVideoStatusResponse(
@@ -3186,6 +3255,13 @@ function matchVideoJobSnapshot(job: VideoJobRecord) {
 			? eq(tables.videoJob.lastPolledAt, job.lastPolledAt)
 			: isNull(tables.videoJob.lastPolledAt),
 	);
+}
+function videoBillingNotQuarantined() {
+	return sql<boolean>`(${tables.videoJob.upstreamStatusResponse}->>'llmgateway_billing_quarantined') IS DISTINCT FROM 'true'`;
+}
+
+function hasQuarantinedVideoBilling(job: VideoJobRecord): boolean {
+	return getVideoStatusResponse(job)?.llmgateway_billing_quarantined === true;
 }
 
 function isGoogleAiStudioVideoProvider(providerId: string): boolean {

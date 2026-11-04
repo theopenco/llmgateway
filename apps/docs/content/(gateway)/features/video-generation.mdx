@@ -323,7 +323,7 @@ Generated audio does not change these Seedance 2.x token rates. Reference images
 
 `seedance-1-5-pro` costs **$2.40 / 1M tokens with generated audio** or **$1.20 / 1M tokens without audio**, at either supported resolution. Its requested resolution is forwarded explicitly. This mapping retires on **November 11, 2026**. Offline/flex and Draft settings are not exposed by this API.
 
-A successful provider response without valid billing usage is polled again before settlement and completion callbacks. See the [official BytePlus pricing and billing rules](https://docs.byteplus.com/docs/modelark/model-pricing).
+A successful provider response without valid billing usage is retried up to 12 times before settlement and completion callbacks. If billing data is still missing, the completed video remains available with its cost unsettled, automatic polling stops, and an operator must reconcile the verified usage and pricing context. Its credit reservation remains held beyond the normal two-hour window until settlement; the gateway never substitutes a guessed charge. See the [official BytePlus pricing and billing rules](https://docs.byteplus.com/docs/modelark/model-pricing).
 
 KLING (AtlasCloud):
 
@@ -412,7 +412,7 @@ Failed, canceled, and expired jobs report a cost of `0`.
 
 Job polling and the direct `/v1/videos/{video_id}/content` endpoint require a valid key with project access and, for end-user sessions, ownership of the job’s wallet. Applicable source-IP restrictions still apply. Enabled key policies additionally check historical video access against both organization and key requirements; organization-only policies do not retroactively block historical downloads.
 
-Signed bearer URLs can appear in completed job responses (`content[].url`), dashboard links, and exports. They are scoped to one log and an expiry. Treat the whole URL as a credential: anyone holding it can download that output without an API key until the signed expiry (normally seven days). Changing an API key or compliance policy does not revoke a previously issued signed link.
+Signed bearer URLs can appear in completed job responses (`content[].url`), dashboard links, and exports. They are scoped to one video job or log and an expiry. Treat the whole URL as a credential: anyone holding it can download that output without an API key until the signed expiry (normally seven days). Changing an API key or compliance policy does not revoke a previously issued signed link.
 
 Production deployments must configure `LLM_VIDEO_CONTENT_JWT_SECRET`. Never enable `VIDEO_CONTENT_TOKEN_ALLOW_DEV=true` in production: without a configured secret it activates the fixed, public development signing key regardless of `NODE_ENV`, allowing video-download tokens to be forged. Use that fallback only for local development; `false` or another value does not enable it.
 

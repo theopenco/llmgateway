@@ -184,7 +184,7 @@ function videoGenerationTests() {
 				body: JSON.stringify({
 					model,
 					prompt:
-						"A colorful paper boat floating slowly on a quiet pond, gentle ripples and birdsong.",
+						"A silent paper boat on a pond. Only original water ambience; no music, singing, voices, logos or text.",
 					size,
 					seconds,
 					audio,

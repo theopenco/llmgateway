@@ -4,6 +4,9 @@ import {
 	buildSignedGatewayVideoLogContentUrl,
 	createVideoContentAccessToken,
 	verifyVideoContentAccessToken,
+	buildSignedGatewayVideoJobContentUrl,
+	createVideoJobContentAccessToken,
+	verifyVideoJobContentAccessToken,
 } from "./video-access.js";
 
 const VIDEO_CONTENT_TOKEN_SECRET_ENV = "LLM_VIDEO_CONTENT_JWT_SECRET";
@@ -152,4 +155,62 @@ describe("video access tokens", () => {
 			);
 		},
 	);
+});
+
+describe("video job access tokens", () => {
+	test("signs job-only gateway URLs without exposing provider content or keys", () => {
+		const url = new URL(buildSignedGatewayVideoJobContentUrl("video-id"));
+		expect(url.pathname).toBe("/v1/video-assets/jobs/video-id/content");
+		expect(
+			verifyVideoJobContentAccessToken(
+				url.searchParams.get("token")!,
+				"video-id",
+			),
+		).toBe(true);
+		expect(Array.from(url.searchParams.keys())).toEqual(["token"]);
+	});
+	test("binds job tokens to the exact job and rejects tampering", () => {
+		const token = createVideoJobContentAccessToken("video-id");
+		expect(verifyVideoJobContentAccessToken(token, "other-video")).toBe(false);
+		const [header, payload] = token.split(".");
+		expect(
+			verifyVideoJobContentAccessToken(
+				`${header}.${payload}.invalid`,
+				"video-id",
+			),
+		).toBe(false);
+		const changedPayload = Buffer.from(
+			JSON.stringify({ j: "other-video", exp: 4102444800 }),
+		).toString("base64url");
+		expect(
+			verifyVideoJobContentAccessToken(
+				token.replace(payload, changedPayload),
+				"other-video",
+			),
+		).toBe(false);
+		expect(verifyVideoJobContentAccessToken(`${token}.extra`, "video-id")).toBe(
+			false,
+		);
+	});
+	test("rejects log tokens and job tokens across scopes", () => {
+		process.env[VIDEO_CONTENT_TOKEN_SECRET_ENV] = "configured-secret";
+		const logToken = createVideoContentAccessToken("video-id");
+		const jobToken = createVideoJobContentAccessToken("video-id");
+		expect(verifyVideoJobContentAccessToken(logToken, "video-id")).toBe(false);
+		expect(verifyVideoContentAccessToken(jobToken, "video-id")).toBe(false);
+	});
+	test("expires at the exact signed boundary", () => {
+		const expires = new Date("2030-01-01T00:00:00Z");
+		const token = createVideoJobContentAccessToken("video-id", expires);
+		expect(
+			verifyVideoJobContentAccessToken(
+				token,
+				"video-id",
+				new Date(expires.getTime() - 1),
+			),
+		).toBe(true);
+		expect(verifyVideoJobContentAccessToken(token, "video-id", expires)).toBe(
+			false,
+		);
+	});
 });

@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, eq } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { verifyVideoJobContentAccessToken } from "@llmgateway/shared/video-access";
 
 const SECRET_ENV = "LLM_VIDEO_CONTENT_JWT_SECRET";
 const ALLOW_DEV_ENV = "VIDEO_CONTENT_TOKEN_ALLOW_DEV";
@@ -159,5 +160,59 @@ describe("GET /video/{videoId}", () => {
 		expect(json.status).toBe("completed");
 		expect(json.progress).toBe(100);
 		expect(json.content).toBeUndefined();
+	});
+
+	async function quarantineCompletedJob() {
+		await db
+			.update(tables.videoJob)
+			.set({
+				logId: null,
+				resultLoggedAt: null,
+				cost: null,
+				videoOutputCost: null,
+				completedAt: new Date(),
+				contentUrl: "https://example.com/generated.mp4",
+				upstreamStatusResponse: {
+					llmgateway_billing_pending: true,
+					llmgateway_billing_quarantined: true,
+				},
+			})
+			.where(eq(tables.videoJob.id, "video-id"));
+		await db.delete(tables.log).where(eq(tables.log.id, "log-id"));
+	}
+
+	test("serves quarantined completion through a signed job URL without a billing log", async () => {
+		await quarantineCompletedJob();
+		const res = await app.request("/video/video-id", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.status).toBe("completed");
+		expect(json.progress).toBe(100);
+		expect(json.completed_at).not.toBeNull();
+		expect(json.usage).toBeUndefined();
+		const url = new URL(json.content[0].url);
+		expect(url.pathname).toBe("/v1/video-assets/jobs/video-id/content");
+		expect(
+			verifyVideoJobContentAccessToken(
+				url.searchParams.get("token")!,
+				"video-id",
+			),
+		).toBe(true);
+		expect(json.content[0].url).not.toContain("example.com");
+		expect(await db.query.log.findMany()).toHaveLength(0);
+	});
+
+	test("does not sign quarantined playback for a caller outside the organization", async () => {
+		await quarantineCompletedJob();
+		await db
+			.delete(tables.userOrganization)
+			.where(eq(tables.userOrganization.id, "user-org-id"));
+		const res = await app.request("/video/video-id", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(404);
+		expect((await res.json()).content).toBeUndefined();
 	});
 });

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { processPendingVideoJobs } from "./video-jobs.js";
@@ -583,47 +584,19 @@ async function testStaleBillingDeferralRace() {
 			callbackStatus: "pending",
 		})
 		.where(eq(tables.videoJob.id, jobId));
-	const staleDeferralReached = createGate();
-	const resumeStaleDeferral = createGate();
-	const update = db.update.bind(db);
-	let interceptDeferral = true;
-	const updateSpy = vi.spyOn(db, "update").mockImplementation(((
-		table: Parameters<typeof db.update>[0],
-	) => {
-		const builder = update(table);
-		const set = builder.set.bind(builder);
-		vi.spyOn(builder, "set").mockImplementation((values) => {
-			const query = set(values);
-			if (
-				table === tables.videoJob &&
-				"status" in values &&
-				values.status === "in_progress" &&
-				interceptDeferral
-			) {
-				interceptDeferral = false;
-				const execute = query.execute.bind(query);
-				vi.spyOn(query, "execute").mockImplementation(async (...args) => {
-					staleDeferralReached.release();
-					await resumeStaleDeferral.promise;
-					return await execute(...args);
-				});
-			}
-			return query;
-		});
-		return builder;
-	}) as typeof db.update);
+	const deferral = pauseBillingDeferral();
 	const staleWorker = processPendingVideoJobs();
 	let currentWorker: Promise<void> | undefined;
 	let finalization: ReturnType<typeof pauseFinalization> | undefined;
 	try {
-		await staleDeferralReached.promise;
+		await deferral.reached.promise;
 		await processPendingVideoJobs();
 		await makeDue();
 		respond({ status: "succeeded", usage: { completion_tokens: 100000 } });
 		finalization = pauseFinalization();
 		currentWorker = processPendingVideoJobs();
 		await finalization.reached.promise;
-		resumeStaleDeferral.release();
+		deferral.resume.release();
 		await staleWorker;
 		const beforeClaim = await db.query.videoJob.findFirst({
 			where: { id: jobId },
@@ -638,12 +611,12 @@ async function testStaleBillingDeferralRace() {
 			usage: { completion_tokens: 100000 },
 		});
 	} finally {
-		resumeStaleDeferral.release();
+		deferral.resume.release();
 		finalization?.resume.release();
 		await staleWorker;
 		await currentWorker;
 		finalization?.spy.mockRestore();
-		updateSpy.mockRestore();
+		deferral.spy.mockRestore();
 	}
 	const { job, logs } = await pollAndRead();
 	expect(job?.status).toBe("completed");
@@ -710,4 +683,419 @@ async function testLostTerminalClaim() {
 test(
 	"a lost terminal billing claim creates neither a free failure log nor a stale callback",
 	testLostTerminalClaim,
+);
+function pauseBillingDeferral() {
+	const reached = createGate();
+	const resume = createGate();
+	const update = db.update.bind(db);
+	let intercept = true;
+	const spy = vi.spyOn(db, "update").mockImplementation(((
+		table: Parameters<typeof db.update>[0],
+	) => {
+		const builder = update(table);
+		const set = builder.set.bind(builder);
+		vi.spyOn(builder, "set").mockImplementation((values) => {
+			const query = set(values);
+			const status =
+				"upstreamStatusResponse" in values
+					? values.upstreamStatusResponse
+					: null;
+			if (
+				table === tables.videoJob &&
+				intercept &&
+				status &&
+				typeof status === "object" &&
+				"llmgateway_billing_pending" in status &&
+				status.llmgateway_billing_pending === true
+			) {
+				intercept = false;
+				const execute = query.execute.bind(query);
+				vi.spyOn(query, "execute").mockImplementation(async (...args) => {
+					reached.release();
+					await resume.promise;
+					return await execute(...args);
+				});
+			}
+			return query;
+		});
+		return builder;
+	}) as typeof db.update);
+	return { reached, resume, spy };
+}
+
+async function testBillingQuarantine() {
+	await createJob();
+	const created = await db.query.videoJob.findFirst({ where: { id: jobId } });
+	await db
+		.update(tables.videoJob)
+		.set({
+			upstreamCreateResponse: {
+				...(created?.upstreamCreateResponse as Record<string, unknown>),
+				llmgateway_reserved_spend_usd: "0.7",
+			},
+			callbackUrl: "https://example.com/webhook",
+			callbackSecret: "test-secret",
+			callbackStatus: "pending",
+		})
+		.where(eq(tables.videoJob.id, jobId));
+	respond({
+		status: "succeeded",
+		content: { video_url: "https://example.com/generated.mp4" },
+	});
+	const errorSpy = vi.spyOn(logger, "error");
+	try {
+		for (let attempt = 1; attempt <= 12; attempt++) {
+			await makeDue();
+			const { job, logs } = await pollAndRead();
+			expect(job?.status).toBe(attempt === 12 ? "completed" : "in_progress");
+			expect(job?.upstreamStatusResponse).toMatchObject({
+				llmgateway_billing_retry_count: attempt,
+				llmgateway_billing_quarantined: attempt === 12,
+			});
+			expect(job?.cost).toBeNull();
+			expect(job?.resultLoggedAt).toBeNull();
+			expect(job?.callbackEventId).toBeNull();
+			expect(
+				(job?.upstreamCreateResponse as Record<string, unknown>)
+					.llmgateway_reserved_spend_usd,
+			).toBe("0.7");
+			expect(logs).toHaveLength(0);
+		}
+		const job = await db.query.videoJob.findFirst({ where: { id: jobId } });
+		expect(job).toMatchObject({
+			status: "completed",
+			progress: 100,
+			contentUrl: "https://example.com/generated.mp4",
+			cost: null,
+			videoOutputCost: null,
+			resultLoggedAt: null,
+			pollAttemptCount: 12,
+		});
+		expect(job?.completedAt).toBeInstanceOf(Date);
+		for (let scan = 0; scan < 15; scan++) {
+			await makeDue();
+			await processPendingVideoJobs();
+		}
+		expect(fetchMock).toHaveBeenCalledTimes(12);
+		expect(
+			errorSpy.mock.calls.filter(
+				([message]) =>
+					message ===
+					"Video billing quarantined; manual reconciliation required",
+			),
+		).toHaveLength(1);
+		expect(await db.query.log.findMany({ where: { projectId } })).toHaveLength(
+			0,
+		);
+		expect(
+			await db.query.webhookDeliveryLog.findMany({
+				where: { videoJobId: jobId },
+			}),
+		).toHaveLength(0);
+		const verifiedStatus = {
+			...(job?.upstreamStatusResponse as Record<string, unknown>),
+			usage: { completion_tokens: 100000 },
+		};
+		await db
+			.update(tables.videoJob)
+			.set({ upstreamStatusResponse: verifiedStatus })
+			.where(eq(tables.videoJob.id, jobId));
+		expect((await pollAndRead()).logs).toHaveLength(0);
+		await db
+			.update(tables.videoJob)
+			.set({
+				upstreamStatusResponse: {
+					...verifiedStatus,
+					llmgateway_billing_quarantined: false,
+				},
+			})
+			.where(eq(tables.videoJob.id, jobId));
+		const settled = await pollAndRead();
+		expect(settled.job?.cost).toBeCloseTo(0.7, 6);
+		expect(settled.job?.resultLoggedAt).toBeInstanceOf(Date);
+		expect(settled.logs).toHaveLength(1);
+		expect(settled.logs[0].cost).toBeCloseTo(0.7, 6);
+		expect(settled.logs[0].completionTokens).toBe("100000");
+		expect((await pollAndRead()).logs).toHaveLength(1);
+		const deliveries = await db.query.webhookDeliveryLog.findMany({
+			where: { videoJobId: jobId },
+		});
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0].eventType).toBe("video.completed");
+		expect(fetchMock).toHaveBeenCalledTimes(12);
+	} finally {
+		errorSpy.mockRestore();
+	}
+}
+
+test(
+	"bounds missing-usage retries, quarantines once and settles only after verified manual release",
+	testBillingQuarantine,
+);
+
+async function testStaleBillingQuarantineRace() {
+	await createJob();
+	await db
+		.update(tables.videoJob)
+		.set({
+			status: "in_progress",
+			pollAttemptCount: 11,
+			upstreamStatusResponse: {
+				status: "succeeded",
+				llmgateway_billing_pending: true,
+				llmgateway_billing_retry_count: 11,
+			},
+			callbackUrl: "https://example.com/webhook",
+			callbackSecret: "test-secret",
+			callbackStatus: "pending",
+		})
+		.where(eq(tables.videoJob.id, jobId));
+	respond({
+		status: "succeeded",
+		content: { video_url: "https://example.com/generated.mp4" },
+	});
+	const deferral = pauseBillingDeferral();
+	const errorSpy = vi.spyOn(logger, "error");
+	const staleWorker = processPendingVideoJobs();
+	let currentWorker: Promise<void> | undefined;
+	let finalization: ReturnType<typeof pauseFinalization> | undefined;
+	try {
+		await deferral.reached.promise;
+		await db
+			.update(tables.videoJob)
+			.set({
+				status: "completed",
+				lastPolledAt: new Date(),
+				pollAttemptCount: 12,
+				upstreamStatusResponse: {
+					status: "succeeded",
+					usage: { completion_tokens: 100000 },
+					llmgateway_billing_quarantined: false,
+				},
+			})
+			.where(eq(tables.videoJob.id, jobId));
+		finalization = pauseFinalization();
+		currentWorker = processPendingVideoJobs();
+		await finalization.reached.promise;
+		deferral.resume.release();
+		await staleWorker;
+		expect(
+			await db.query.videoJob.findFirst({ where: { id: jobId } }),
+		).toMatchObject({
+			status: "completed",
+			pollAttemptCount: 12,
+			upstreamStatusResponse: {
+				usage: { completion_tokens: 100000 },
+				llmgateway_billing_quarantined: false,
+			},
+		});
+		expect(
+			errorSpy.mock.calls.filter(
+				([message]) =>
+					message ===
+					"Video billing quarantined; manual reconciliation required",
+			),
+		).toHaveLength(0);
+	} finally {
+		deferral.resume.release();
+		finalization?.resume.release();
+		await staleWorker;
+		await currentWorker;
+		finalization?.spy.mockRestore();
+		deferral.spy.mockRestore();
+		errorSpy.mockRestore();
+	}
+	const { job, logs } = await pollAndRead();
+	expect(job?.cost).toBeCloseTo(0.7, 6);
+	expect(logs).toHaveLength(1);
+	const deliveries = await db.query.webhookDeliveryLog.findMany({
+		where: { videoJobId: jobId },
+	});
+	expect(deliveries).toHaveLength(1);
+	expect(deliveries[0].eventType).toBe("video.completed");
+}
+
+test(
+	"a stale retry-limit quarantine cannot replace verified usage or emit a false alert",
+	testStaleBillingQuarantineRace,
+);
+async function testQuarantinedMetadataRecovery() {
+	await createJob();
+	await db
+		.update(tables.videoJob)
+		.set({
+			upstreamCreateResponse: {
+				llmgateway_requested_size: "1280x720",
+				llmgateway_requested_duration_seconds: 4,
+			},
+			upstreamStatusResponse: {
+				status: "succeeded",
+				llmgateway_billing_pending: true,
+				llmgateway_billing_retry_count: 11,
+			},
+		})
+		.where(eq(tables.videoJob.id, jobId));
+	respond({ status: "succeeded", usage: { completion_tokens: 100000 } });
+	const pending = await pollAndRead();
+	expect(pending.job).toMatchObject({
+		status: "completed",
+		cost: null,
+		resultLoggedAt: null,
+		upstreamStatusResponse: { llmgateway_billing_quarantined: true },
+	});
+	expect(pending.logs).toHaveLength(0);
+	await db
+		.update(tables.videoJob)
+		.set({
+			upstreamCreateResponse: {
+				llmgateway_video_token_pricing: {
+					resolution: "720p",
+					includeAudio: true,
+					hasVideoInput: true,
+				},
+			},
+			upstreamStatusResponse: {
+				...(pending.job?.upstreamStatusResponse as Record<string, unknown>),
+				llmgateway_billing_quarantined: false,
+			},
+		})
+		.where(eq(tables.videoJob.id, jobId));
+	const settled = await pollAndRead();
+	expect(settled.job?.cost).toBeCloseTo(0.43, 6);
+	expect(settled.logs).toHaveLength(1);
+	expect(settled.logs[0].cost).toBeCloseTo(0.43, 6);
+	expect(fetchMock).toHaveBeenCalledTimes(1);
+}
+
+test(
+	"quarantines missing trusted context and settles only after verified context restoration",
+	testQuarantinedMetadataRecovery,
+);
+
+async function testBillingRetryCounter() {
+	await createJob();
+	await db
+		.update(tables.videoJob)
+		.set({ pollAttemptCount: 500 })
+		.where(eq(tables.videoJob.id, jobId));
+	respond({ status: "succeeded" });
+	const { job } = await pollAndRead();
+	expect(job).toMatchObject({
+		status: "in_progress",
+		pollAttemptCount: 501,
+		upstreamStatusResponse: {
+			llmgateway_billing_retry_count: 1,
+			llmgateway_billing_quarantined: false,
+		},
+	});
+}
+
+test(
+	"ordinary generation polls do not consume billing-deferral attempts",
+	testBillingRetryCounter,
+);
+const staleErrorCases = [false, true].flatMap((terminalError) =>
+	(["pending", "quarantined", "settled"] as const).map((target) => ({
+		terminalError,
+		target,
+	})),
+);
+
+async function testStalePollError({
+	terminalError,
+	target,
+}: {
+	terminalError: boolean;
+	target: "pending" | "quarantined" | "settled";
+}) {
+	await createJob();
+	await db
+		.update(tables.videoJob)
+		.set({
+			upstreamStatusResponse: {
+				llmgateway_poll_error_count: terminalError ? 4 : 0,
+			},
+			callbackUrl: "https://example.com/webhook",
+			callbackSecret: "test-secret",
+			callbackStatus: "pending",
+		})
+		.where(eq(tables.videoJob.id, jobId));
+	const reached = createGate();
+	const resume = createGate();
+	fetchMock.mockImplementationOnce(async () => {
+		reached.release();
+		await resume.promise;
+		throw new Error("Temporary upstream poll error");
+	});
+	fetchMock.mockImplementation(async () =>
+		Response.json({
+			status: "succeeded",
+			usage: { completion_tokens: 100000 },
+		}),
+	);
+	const staleWorker = processPendingVideoJobs();
+	try {
+		await reached.promise;
+		if (target === "settled") {
+			await db
+				.update(tables.videoJob)
+				.set({ nextPollAt: new Date(0) })
+				.where(eq(tables.videoJob.id, jobId));
+			await processPendingVideoJobs();
+		} else {
+			await db
+				.update(tables.videoJob)
+				.set({
+					status: target === "quarantined" ? "completed" : "in_progress",
+					lastPolledAt: new Date(),
+					pollAttemptCount: target === "quarantined" ? 12 : 1,
+					upstreamStatusResponse: {
+						status: "succeeded",
+						llmgateway_billing_pending: true,
+						llmgateway_billing_quarantined: target === "quarantined",
+						llmgateway_billing_retry_count: target === "quarantined" ? 12 : 1,
+					},
+				})
+				.where(eq(tables.videoJob.id, jobId));
+		}
+	} finally {
+		resume.release();
+		await staleWorker;
+	}
+	const job = await db.query.videoJob.findFirst({ where: { id: jobId } });
+	const logs = await db.query.log.findMany({ where: { projectId } });
+	const deliveries = await db.query.webhookDeliveryLog.findMany({
+		where: { videoJobId: jobId },
+	});
+	if (target === "settled") {
+		expect(job).toMatchObject({
+			status: "completed",
+			cost: 0.7,
+			pollAttemptCount: 1,
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].cost).toBeCloseTo(0.7, 6);
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0].eventType).toBe("video.completed");
+	} else {
+		expect(job).toMatchObject({
+			status: target === "quarantined" ? "completed" : "in_progress",
+			cost: null,
+			resultLoggedAt: null,
+			callbackEventId: null,
+			pollAttemptCount: target === "quarantined" ? 12 : 1,
+			upstreamStatusResponse: {
+				llmgateway_billing_pending: true,
+				llmgateway_billing_quarantined: target === "quarantined",
+				llmgateway_billing_retry_count: target === "quarantined" ? 12 : 1,
+			},
+		});
+		expect(logs).toHaveLength(0);
+		expect(deliveries).toHaveLength(0);
+	}
+}
+
+test.each(staleErrorCases)(
+	"stale poll error (terminal=$terminalError) cannot overwrite $target billing",
+	testStalePollError,
 );

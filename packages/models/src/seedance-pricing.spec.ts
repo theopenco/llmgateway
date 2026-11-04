@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { bytedanceModels } from "./models/bytedance.js";
 
-import type { ProviderModelMapping } from "./models.js";
+import type { ProviderModelMapping, ModelDefinition } from "./models.js";
 
 function mapping(id: string): ProviderModelMapping {
 	const model = bytedanceModels.find((candidate) => candidate.id === id);
@@ -74,4 +74,16 @@ describe("Seedance pricing", () => {
 			new Date("2026-11-11"),
 		);
 	});
+});
+
+test("every ByteDance video mapping declares token billing", () => {
+	const definitions: readonly ModelDefinition[] = bytedanceModels;
+	for (const model of definitions) {
+		if (!model.output?.includes("video")) {
+			continue;
+		}
+		for (const provider of model.providers) {
+			expect(provider.videoOutputPrice).toBeDefined();
+		}
+	}
 });
