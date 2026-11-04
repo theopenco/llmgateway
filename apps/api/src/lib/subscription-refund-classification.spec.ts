@@ -60,7 +60,7 @@ async function runBackfill(commit = false) {
 			...(commit ? ["--commit"] : []),
 		],
 		{
-			env: { ...process.env, DATABASE_URL: process.env.TEST_DATABASE_URL },
+			env: process.env,
 			timeout: 20000,
 		},
 	);
