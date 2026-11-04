@@ -827,6 +827,69 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(txns).toHaveLength(1);
 	});
+	test("signed repriced renewal grants the applied tier once, not the retained line price", async () => {
+		vi.stubEnv("STRIPE_DEV_PLAN_PRO_PRICE_ID", "price_test_pro");
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_test_lite");
+		vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_fixture_reprice");
+		const verifier = new Stripe("sk_test_fixture").webhooks;
+		stripeMock.webhooks.constructEvent.mockImplementation(
+			(body, signature, secret) =>
+				verifier.constructEvent(body, signature, secret),
+		);
+		try {
+			await seedUsedDevPlanOrg();
+			await db
+				.update(tables.organization)
+				.set({ devPlanPendingTier: "lite" })
+				.where(eq(tables.organization.id, ORG_ID));
+			const event = makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 2900,
+				invoiceId: "in_reprice_signed",
+				priceId: "price_test_pro",
+			});
+			event.data.object.metadata = {
+				...event.data.object.metadata,
+				devPlanRenewalPriceId: "price_test_lite",
+			};
+			const payload = JSON.stringify(event);
+			const signature = verifier.generateTestHeaderString({
+				payload,
+				secret: "whsec_fixture_reprice",
+			});
+			for (let n = 0; n < 2; n++) {
+				const response = await stripeRoutes.request("/webhook", {
+					method: "POST",
+					headers: {
+						"stripe-signature": signature,
+						"Content-Type": "application/json",
+					},
+					body: payload,
+				});
+				expect(response.status).toBe(200);
+			}
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			expect(org?.devPlan).toBe("lite");
+			expect(org?.devPlanPendingTier).toBeNull();
+			expect(org?.devPlanCreditsLimit).toBe(LITE_ALLOTMENT);
+			const txns = await db.query.transaction.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			});
+			expect(txns).toHaveLength(1);
+			expect(txns[0].creditAmount).toBe(LITE_ALLOTMENT);
+			const tampered = await stripeRoutes.request("/webhook", {
+				method: "POST",
+				headers: { "stripe-signature": signature },
+				body: payload + " ",
+			});
+			expect(tampered.status).toBe(400);
+		} finally {
+			vi.unstubAllEnvs();
+			stripeMock.webhooks.constructEvent.mockReset();
+		}
+	});
 });
 
 describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {

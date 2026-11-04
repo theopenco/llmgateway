@@ -85,6 +85,9 @@ describe.skipIf(!ENABLED)(
 			if (!ENABLED) {
 				return;
 			}
+			if (!/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "")) {
+				throw new Error("Stripe clock tests require test-mode credentials");
+			}
 			stripe = getStripe();
 			expect(PRO_PRICE_ID, "STRIPE_DEV_PLAN_PRO_PRICE_ID must be set").not.toBe(
 				"",
@@ -94,8 +97,22 @@ describe.skipIf(!ENABLED)(
 				"STRIPE_DEV_PLAN_LITE_PRICE_ID must be set",
 			).not.toBe("");
 
-			proUnit = (await stripe.prices.retrieve(PRO_PRICE_ID)).unit_amount ?? 0;
-			liteUnit = (await stripe.prices.retrieve(LITE_PRICE_ID)).unit_amount ?? 0;
+			const proPrice = await stripe.prices.retrieve(PRO_PRICE_ID);
+			const litePrice = await stripe.prices.retrieve(LITE_PRICE_ID);
+			expect(proPrice.livemode).toBe(false);
+			expect(litePrice.livemode).toBe(false);
+			// A metered or tiered price has no unit_amount; defaulting it to 0 would
+			// make the assertions below pass or fail for the wrong reason.
+			expect(
+				proPrice.unit_amount,
+				"PRO price must have a unit_amount",
+			).not.toBeNull();
+			expect(
+				litePrice.unit_amount,
+				"LITE price must have a unit_amount",
+			).not.toBeNull();
+			proUnit = proPrice.unit_amount as number;
+			liteUnit = litePrice.unit_amount as number;
 			expect(proUnit).toBeGreaterThan(liteUnit);
 
 			const now = Math.floor(Date.now() / 1000);
@@ -137,7 +154,7 @@ describe.skipIf(!ENABLED)(
 			}
 			// Deleting the test clock tears down the customer, subscription and all
 			// invoices created against it — nothing lingers in the sandbox.
-			await stripe.testHelpers.testClocks.del(clockId).catch(() => undefined);
+			await stripe.testHelpers.testClocks.del(clockId);
 		}, 60000);
 
 		it("the initial PRO subscription invoice is paid at PRO price", async () => {
@@ -150,6 +167,8 @@ describe.skipIf(!ENABLED)(
 			expect(amountDue(paid!)).toBe(proUnit);
 		}, 120000);
 
+		// `waitForClock` polls for up to two minutes on its own, so every test that
+		// advances the clock needs headroom beyond that for its assertions.
 		it("Stripe drafts the renewal invoice at PRO price before finalizing (root cause)", async () => {
 			// Land 30 minutes into the new period — inside Stripe's ~1h draft window
 			// before the renewal invoice auto-finalizes and charges.
@@ -163,7 +182,7 @@ describe.skipIf(!ENABLED)(
 			expect(draft!.status).toBe("draft");
 			// It bills the OUTGOING (pro) tier: this is the state the incident hit.
 			expect(amountDue(draft!)).toBe(proUnit);
-		}, 120000);
+		}, 240000);
 
 		it("a mid-window downgrade leaves the draft billing PRO until we re-price it", async () => {
 			// Swap the subscription price to LITE exactly as change-tier does.
@@ -253,8 +272,8 @@ describe.skipIf(!ENABLED)(
 				finalized = await stripe.invoices.retrieve(draftId);
 			}
 			expect(finalized.status).toBe("paid");
-			// Without the fix this would have charged proUnit ($79) for a LITE cycle.
+			// Without the fix this would have charged the PRO price for a LITE cycle.
 			expect(finalized.amount_paid).toBe(liteUnit);
-		}, 120000);
+		}, 240000);
 	},
 );

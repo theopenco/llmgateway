@@ -61,6 +61,7 @@ const stripeMock = vi.hoisted(() => ({
 		finalizeInvoice: vi.fn(),
 		voidInvoice: vi.fn(),
 		listLineItems: vi.fn(),
+		addLines: vi.fn(),
 	},
 	invoicePayments: { list: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
@@ -482,7 +483,7 @@ describe("dev plan tier changes", () => {
 		// No pending cycle-renewal invoices by default; upgrades list them to
 		// void any the old cycle left behind.
 		stripeMock.invoices.list.mockResolvedValue({ data: [] });
-		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
+		vi.stubEnv("STRIPE_DEV_PLAN_PRO_PRICE_ID", "price_pro");
 		token = await createTestUser();
 		nowSeconds = Math.floor(Date.now() / 1000);
 		nowSecondsValue = nowSeconds;
@@ -508,6 +509,7 @@ describe("dev plan tier changes", () => {
 	});
 
 	afterEach(async () => {
+		vi.unstubAllEnvs();
 		if (originalProPriceId === undefined) {
 			delete process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID;
 		} else {
@@ -1357,7 +1359,7 @@ describe("dev plan tier changes", () => {
 	});
 
 	it("blocks scheduling an upgrade while another change is pending", async () => {
-		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
+		vi.stubEnv("STRIPE_DEV_PLAN_MAX_PRICE_ID", "price_max");
 		await db
 			.update(tables.organization)
 			.set({ devPlanPendingTier: "pro" })
@@ -1573,7 +1575,7 @@ describe("dev plan tier changes", () => {
 		// Start on pro so switching to lite is a downgrade. The lower tier must not
 		// take effect until renewal: devPlan stays pro, the current cycle's credits
 		// are untouched, and the target tier is recorded as pending.
-		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
 		await db
 			.update(tables.organization)
 			.set({
@@ -1637,10 +1639,9 @@ describe("dev plan tier changes", () => {
 		expect(transaction?.type).toBe("dev_plan_downgrade");
 	});
 
-	it("allows a downgrade even while an upgrade lease is held", async () => {
-		// An in-flight upgrade holds the lease. That must not block a downgrade,
-		// which only schedules the lower tier for renewal and never claims it.
-		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+	it("rejects a scheduled downgrade while another tier change holds the lease", async () => {
+		// Scheduled changes also write draft invoice amounts and must serialize.
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
 		await db
 			.update(tables.organization)
 			.set({
@@ -1669,18 +1670,19 @@ describe("dev plan tier changes", () => {
 			body: JSON.stringify({ newTier: "lite" }),
 		});
 
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(409);
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlan).toBe("pro");
-		expect(org?.devPlanPendingTier).toBe("lite");
+		expect(org?.devPlanPendingTier).toBeNull();
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 	});
 
 	it("blocks scheduling another downgrade while one is already pending", async () => {
 		// A second downgrade can't be scheduled while one is pending; the user must
 		// upgrade or cancel the pending downgrade first. No Stripe call is made.
-		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
 		await db
 			.update(tables.organization)
 			.set({ devPlan: "pro", devPlanPendingTier: "lite" })
@@ -1705,7 +1707,7 @@ describe("dev plan tier changes", () => {
 	it("allows an upgrade while a downgrade is pending and clears the pending tier", async () => {
 		// An upgrade supersedes a scheduled downgrade: it applies immediately, starts
 		// a fresh cycle and clears devPlanPendingTier.
-		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
+		vi.stubEnv("STRIPE_DEV_PLAN_MAX_PRICE_ID", "price_max");
 		await db
 			.update(tables.organization)
 			.set({
@@ -1762,7 +1764,7 @@ describe("dev plan tier changes", () => {
 	it("cancels a scheduled downgrade and reverts the Stripe price to the current tier", async () => {
 		// Cancelling reverts the price swapped in when the downgrade was scheduled,
 		// keeps the user on their current tier, and clears the pending tier.
-		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
+		vi.stubEnv("STRIPE_DEV_PLAN_MAX_PRICE_ID", "price_max");
 		await db
 			.update(tables.organization)
 			.set({ devPlan: "max", devPlanPendingTier: "pro" })
@@ -1824,7 +1826,7 @@ describe("dev plan tier changes", () => {
 		// downgrade inside that window swaps the subscription price too late for
 		// the draft, so without an adjustment the renewal bills the old (higher)
 		// tier while the webhook grants the lower tier's credits.
-		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
 		await db
 			.update(tables.organization)
 			.set({ devPlan: "pro", devPlanCreditsLimit: "237" })
@@ -1846,6 +1848,8 @@ describe("dev plan tier changes", () => {
 			data: [
 				{
 					id: "in_renewal_draft",
+					status: "draft",
+					customer: "cus_dev_plan",
 					billing_reason: "subscription_cycle",
 					currency: "usd",
 					lines: {
@@ -1863,6 +1867,7 @@ describe("dev plan tier changes", () => {
 		stripeMock.prices.retrieve.mockResolvedValue({
 			id: "price_lite",
 			unit_amount: 2900,
+			currency: "usd",
 		});
 
 		const res = await app.request("/dev-plans/change-tier", {
@@ -1875,19 +1880,22 @@ describe("dev plan tier changes", () => {
 		// The draft still bills pro ($79); the adjustment brings it down to the
 		// lite price ($29) the renewal webhook will apply.
 		expect(stripeMock.prices.retrieve).toHaveBeenCalledWith("price_lite");
-		expect(stripeMock.invoiceItems.create).toHaveBeenCalledWith(
+		expect(stripeMock.invoices.addLines).toHaveBeenCalledWith(
+			"in_renewal_draft",
 			expect.objectContaining({
-				customer: "cus_dev_plan",
-				invoice: "in_renewal_draft",
-				amount: -5000,
-				currency: "usd",
-				metadata: expect.objectContaining({
-					devPlanRenewalReprice: "true",
-				}),
+				invoice_metadata: { devPlanRenewalPriceId: "price_lite" },
+				lines: [
+					expect.objectContaining({
+						amount: -5000,
+						metadata: expect.objectContaining({
+							devPlanRenewalReprice: "true",
+						}),
+					}),
+				],
 			}),
 			{
 				idempotencyKey:
-					"dev-plan-renewal-reprice:in_renewal_draft:0:price_lite",
+					"dev-plan-renewal-reprice-v2:in_renewal_draft:0:7900:price_lite",
 			},
 		);
 
@@ -1901,7 +1909,7 @@ describe("dev plan tier changes", () => {
 	it("skips the draft adjustment when the draft already bills the new price", async () => {
 		// The draft can be created concurrently with (or after) the price swap, in
 		// which case it already bills the new tier and must not be adjusted again.
-		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
 		await db
 			.update(tables.organization)
 			.set({ devPlan: "pro", devPlanCreditsLimit: "237" })
@@ -1923,6 +1931,8 @@ describe("dev plan tier changes", () => {
 			data: [
 				{
 					id: "in_renewal_draft",
+					status: "draft",
+					customer: "cus_dev_plan",
 					billing_reason: "subscription_cycle",
 					currency: "usd",
 					lines: {
@@ -1940,6 +1950,7 @@ describe("dev plan tier changes", () => {
 		stripeMock.prices.retrieve.mockResolvedValue({
 			id: "price_lite",
 			unit_amount: 2900,
+			currency: "usd",
 		});
 
 		const res = await app.request("/dev-plans/change-tier", {
@@ -1949,13 +1960,13 @@ describe("dev plan tier changes", () => {
 		});
 
 		expect(res.status).toBe(200);
-		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
+		expect(stripeMock.invoices.addLines).not.toHaveBeenCalled();
 	});
 
 	it("schedules the downgrade even if re-pricing the draft fails", async () => {
 		// Re-pricing is best-effort: a Stripe failure there must not leave the
 		// price swapped without the pending tier recorded (the reverse mismatch).
-		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
 		await db
 			.update(tables.organization)
 			.set({ devPlan: "pro", devPlanCreditsLimit: "237" })
@@ -1992,7 +2003,7 @@ describe("dev plan tier changes", () => {
 		// Scheduling the downgrade inside the pre-renewal window added a negative
 		// adjustment to the draft; cancelling must bring the draft back to the
 		// current tier's price, netting out the earlier adjustment.
-		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
+		vi.stubEnv("STRIPE_DEV_PLAN_PRO_PRICE_ID", "price_pro");
 		await db
 			.update(tables.organization)
 			.set({ devPlan: "pro", devPlanPendingTier: "lite" })
@@ -2015,6 +2026,8 @@ describe("dev plan tier changes", () => {
 			data: [
 				{
 					id: "in_renewal_draft",
+					status: "draft",
+					customer: "cus_dev_plan",
 					billing_reason: "subscription_cycle",
 					currency: "usd",
 					lines: {
@@ -2037,6 +2050,7 @@ describe("dev plan tier changes", () => {
 		stripeMock.prices.retrieve.mockResolvedValue({
 			id: "price_pro",
 			unit_amount: 7900,
+			currency: "usd",
 		});
 
 		const res = await app.request("/dev-plans/cancel-downgrade", {
@@ -2048,18 +2062,22 @@ describe("dev plan tier changes", () => {
 		expect(res.status).toBe(200);
 		// Net billed is $29 (7900 - 5000); the counter-adjustment restores $79.
 		expect(stripeMock.prices.retrieve).toHaveBeenCalledWith("price_pro");
-		expect(stripeMock.invoiceItems.create).toHaveBeenCalledWith(
+		expect(stripeMock.invoices.addLines).toHaveBeenCalledWith(
+			"in_renewal_draft",
 			expect.objectContaining({
-				customer: "cus_dev_plan",
-				invoice: "in_renewal_draft",
-				amount: 5000,
-				currency: "usd",
-				metadata: expect.objectContaining({
-					devPlanRenewalReprice: "true",
-				}),
+				invoice_metadata: { devPlanRenewalPriceId: "price_pro" },
+				lines: [
+					expect.objectContaining({
+						amount: 5000,
+						metadata: expect.objectContaining({
+							devPlanRenewalReprice: "true",
+						}),
+					}),
+				],
 			}),
 			{
-				idempotencyKey: "dev-plan-renewal-reprice:in_renewal_draft:1:price_pro",
+				idempotencyKey:
+					"dev-plan-renewal-reprice-v2:in_renewal_draft:1:2900:price_pro",
 			},
 		);
 		const org = await db.query.organization.findFirst({
@@ -2072,7 +2090,7 @@ describe("dev plan tier changes", () => {
 		// Stripe only embeds the first page of an invoice's lines. Earlier
 		// adjustments past that page must still be netted, or the new adjustment
 		// would overshoot the target price.
-		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
+		vi.stubEnv("STRIPE_DEV_PLAN_PRO_PRICE_ID", "price_pro");
 		await db
 			.update(tables.organization)
 			.set({ devPlan: "pro", devPlanPendingTier: "lite" })
@@ -2094,6 +2112,8 @@ describe("dev plan tier changes", () => {
 			data: [
 				{
 					id: "in_renewal_draft",
+					status: "draft",
+					customer: "cus_dev_plan",
 					billing_reason: "subscription_cycle",
 					currency: "usd",
 					lines: {
@@ -2124,6 +2144,7 @@ describe("dev plan tier changes", () => {
 		stripeMock.prices.retrieve.mockResolvedValue({
 			id: "price_pro",
 			unit_amount: 7900,
+			currency: "usd",
 		});
 
 		const res = await app.request("/dev-plans/cancel-downgrade", {
@@ -2137,12 +2158,108 @@ describe("dev plan tier changes", () => {
 			"in_renewal_draft",
 			{ limit: 100, starting_after: "il_sub" },
 		);
-		expect(stripeMock.invoiceItems.create).toHaveBeenCalledWith(
-			expect.objectContaining({ amount: 5000 }),
+		expect(stripeMock.invoices.addLines).toHaveBeenCalledWith(
+			"in_renewal_draft",
+			expect.objectContaining({
+				lines: [expect.objectContaining({ amount: 5000 })],
+			}),
 			{
-				idempotencyKey: "dev-plan-renewal-reprice:in_renewal_draft:1:price_pro",
+				idempotencyKey:
+					"dev-plan-renewal-reprice-v2:in_renewal_draft:1:2900:price_pro",
 			},
 		);
+	});
+	it("serializes different scheduled targets and cancellation against the same draft", async () => {
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
+		vi.stubEnv("STRIPE_DEV_PLAN_MAX_PRICE_ID", "price_max");
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "pro", devPlanPendingTier: null })
+			.where(eq(tables.organization.id, ORG_ID));
+		let started!: () => void;
+		let finish!: () => void;
+		const entered = new Promise<void>((r) => {
+			started = r;
+		});
+		const held = new Promise<void>((r) => {
+			finish = r;
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(
+				{ metadata: { devPlan: "pro" } },
+				{ price: { id: "price_pro" } },
+			),
+		);
+		stripeMock.subscriptions.update.mockImplementationOnce(async () => {
+			started();
+			await held;
+			return { id: SUBSCRIPTION_ID };
+		});
+		const request = (newTier: string) =>
+			app.request("/dev-plans/change-tier", {
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ newTier, timing: "next_cycle" }),
+			});
+		const first = request("lite");
+		await entered;
+		try {
+			expect((await request("max")).status).toBe(409);
+			expect(stripeMock.subscriptions.update).toHaveBeenCalledTimes(1);
+		} finally {
+			finish();
+		}
+		expect((await first).status).toBe(200);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanPendingTier).toBe("lite");
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
+	});
+	it("rejects a stale scheduling snapshot before the Stripe write", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
+		stripeMock.subscriptions.retrieve.mockImplementationOnce(async () => {
+			await db
+				.update(tables.organization)
+				.set({ devPlanPendingTier: "max" })
+				.where(eq(tables.organization.id, ORG_ID));
+			return retrievedSubscription();
+		});
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ newTier: "lite" }),
+		});
+		expect(res.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
+	it("keeps the pending tier unchanged when the Stripe price update fails", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+		vi.stubEnv("STRIPE_DEV_PLAN_LITE_PRICE_ID", "price_lite");
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.subscriptions.update.mockRejectedValueOnce(
+			new Error("fixture failure"),
+		);
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ newTier: "lite" }),
+		});
+		expect(res.status).toBe(500);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanPendingTier).toBeNull();
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 });
 

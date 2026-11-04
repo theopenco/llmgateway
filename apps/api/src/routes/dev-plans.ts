@@ -162,11 +162,16 @@ type DevPlanHistoryType = (typeof DEV_PLAN_HISTORY_TYPES)[number];
 
 // A failed release is swallowed: the lease then simply expires via the
 // staleness window instead of blocking upgrades until renewal.
-async function releaseTierChangeLease(organizationId: string) {
+async function releaseTierChangeLease(organizationId: string, claimedAt: Date) {
 	await db
 		.update(tables.organization)
 		.set({ devPlanTierChangeClaimedAt: null })
-		.where(eq(tables.organization.id, organizationId))
+		.where(
+			and(
+				eq(tables.organization.id, organizationId),
+				eq(tables.organization.devPlanTierChangeClaimedAt, claimedAt),
+			),
+		)
 		.catch((releaseError) => {
 			logger.error(
 				"Failed to release dev plan tier-change lease",
@@ -175,6 +180,53 @@ async function releaseTierChangeLease(organizationId: string) {
 					: new Error(String(releaseError)),
 			);
 		});
+}
+
+async function claimTierChangeLease(
+	organization: typeof tables.organization.$inferSelect,
+): Promise<Date> {
+	const claimedAt = new Date();
+	const claimed = await db
+		.update(tables.organization)
+		.set({ devPlanTierChangeClaimedAt: claimedAt })
+		.where(
+			and(
+				eq(tables.organization.id, organization.id),
+				eq(tables.organization.devPlan, organization.devPlan),
+				eq(tables.organization.devPlanCycle, organization.devPlanCycle),
+				eq(
+					tables.organization.devPlanStripeSubscriptionId,
+					organization.devPlanStripeSubscriptionId!,
+				),
+				organization.devPlanPendingTier
+					? eq(
+							tables.organization.devPlanPendingTier,
+							organization.devPlanPendingTier,
+						)
+					: isNull(tables.organization.devPlanPendingTier),
+				organization.devPlanBillingCycleStart
+					? eq(
+							tables.organization.devPlanBillingCycleStart,
+							organization.devPlanBillingCycleStart,
+						)
+					: isNull(tables.organization.devPlanBillingCycleStart),
+				or(
+					isNull(tables.organization.devPlanTierChangeClaimedAt),
+					lt(
+						tables.organization.devPlanTierChangeClaimedAt,
+						new Date(Date.now() - STALE_TIER_CHANGE_CLAIM_MS),
+					),
+				),
+			),
+		)
+		.returning({ id: tables.organization.id });
+	if (!claimed.length) {
+		throw new HTTPException(409, {
+			message:
+				"A plan change is already being processed or the plan changed. Refresh and try again.",
+		});
+	}
+	return claimedAt;
 }
 
 // Stripe errors carry a machine-readable `code` (e.g. `card_declined`,
@@ -1288,7 +1340,7 @@ devPlans.openapi(changeTier, async (c) => {
 	// Tracks whether this request won the upgrade lease, so only the winning
 	// request releases it — a request that lost the claim race must not clear a
 	// lease still held by the in-flight upgrade.
-	let claimedLeaseThisCall = false;
+	let claimedLeaseThisCall: Date | null = null;
 
 	try {
 		const subscription =
@@ -1347,53 +1399,7 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Guard UPGRADES against a double charge. An upgrade resets the billing
-		// cycle and charges the full new-tier price, so two racing requests (e.g. a
-		// double-clicked confirm) would each start a fresh cycle and charge again.
-		// Take a lease atomically *before* any Stripe call: a single conditional
-		// UPDATE stamps the claim time only if no lease is held, so of two racing
-		// requests only one wins and the other gets 409. The lease is released when
-		// the request completes (success or failure); if the request dies without
-		// releasing (process crash or restart mid-flight), the lease expires after
-		// the staleness window — far above the Stripe SDK's request timeout, so a
-		// lease that old cannot still have a charge in flight — and a retry
-		// re-claims it. A re-submit after a completed upgrade is not this guard's
-		// job: it is rejected by the "Already on <tier> plan" check above.
-		// Scheduled changes (downgrades and next-cycle upgrades) are exempt: they
-		// only record the target tier for renewal (no charge), so an in-flight
-		// upgrade must not block them.
-		if (applyNow) {
-			const staleClaimBefore = new Date(
-				Date.now() - STALE_TIER_CHANGE_CLAIM_MS,
-			);
-			const claimed = await db
-				.update(tables.organization)
-				.set({ devPlanTierChangeClaimedAt: new Date() })
-				.where(
-					and(
-						eq(tables.organization.id, personalOrg.id),
-						or(
-							isNull(tables.organization.devPlanTierChangeClaimedAt),
-							lt(
-								tables.organization.devPlanTierChangeClaimedAt,
-								staleClaimBefore,
-							),
-						),
-					),
-				)
-				.returning({ id: tables.organization.id });
-			if (claimed.length === 0) {
-				logger.warn("Dev plan upgrade denied: lease already held", {
-					organizationId: personalOrg.id,
-					claimedAt: personalOrg.devPlanTierChangeClaimedAt?.toISOString(),
-				});
-				throw new HTTPException(409, {
-					message:
-						"An upgrade is already being processed. Please try again in a few minutes.",
-				});
-			}
-			claimedLeaseThisCall = true;
-		}
+		claimedLeaseThisCall = await claimTierChangeLease(personalOrg);
 
 		// Immediate upgrades charge the full new-tier price today; scheduled
 		// changes are deferred to renewal and cost nothing now.
@@ -1502,7 +1508,7 @@ devPlans.openapi(changeTier, async (c) => {
 				// a subscription holds at most one pending update, so re-issuing simply
 				// voids the prior invoice and replaces it — last write wins.
 				if (claimedLeaseThisCall) {
-					await releaseTierChangeLease(personalOrg.id);
+					await releaseTierChangeLease(personalOrg.id, claimedLeaseThisCall);
 				}
 				return c.json(
 					{
@@ -1700,7 +1706,7 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 
 		if (claimedLeaseThisCall) {
-			await releaseTierChangeLease(personalOrg.id);
+			await releaseTierChangeLease(personalOrg.id, claimedLeaseThisCall);
 		}
 
 		return c.json({
@@ -1711,7 +1717,7 @@ devPlans.openapi(changeTier, async (c) => {
 		// transient failure (e.g. a declined upgrade charge) doesn't block retries
 		// for the full staleness window.
 		if (claimedLeaseThisCall) {
-			await releaseTierChangeLease(personalOrg.id);
+			await releaseTierChangeLease(personalOrg.id, claimedLeaseThisCall);
 		}
 		if (error instanceof HTTPException) {
 			throw error;
@@ -1837,6 +1843,7 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 		});
 	}
 
+	const claimedAt = await claimTierChangeLease(personalOrg);
 	try {
 		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
@@ -1920,6 +1927,8 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 		throw new HTTPException(500, {
 			message: "Failed to cancel scheduled plan change",
 		});
+	} finally {
+		await releaseTierChangeLease(personalOrg.id, claimedAt);
 	}
 });
 
