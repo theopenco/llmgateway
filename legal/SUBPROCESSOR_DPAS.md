@@ -14,7 +14,7 @@ list is the Sub-processor page.
 
 | Status | Meaning |
 | --- | --- |
-| `incorporated` | The vendor's DPA takes effect automatically on accepting their main service agreement — no separate signature exists to chase. Using the service means it is in force. |
+| `incorporated` | The published terms incorporate the DPA on acceptance of the service agreement. Account acceptance and the applicable version still need evidence. |
 | `executed` | Actively signed or accepted by us, and a copy is filed. The date below is the execution date. |
 | `unconfirmed` | The vendor's terms say it is incorporated, but only from the point *we* accepted it, and that acceptance has not been evidenced on our own account. **Treat as not in place until confirmed.** |
 | `action required` | The DPA only binds once someone actively generates, signs or accepts it. **Not in place until that is done.** |
@@ -27,35 +27,35 @@ list is the Sub-processor page.
 | Stripe, Inc. | Payments, subscriptions, invoicing | `incorporated` | Yes — EEA SCCs (Modules 1 and 2, EU 2021/914) via the Data Transfers Addendum | [stripe.com/legal/dpa](https://stripe.com/legal/dpa) |
 | Resend (Plus Five Five, Inc.) | Transactional and product email | `incorporated` | Yes — EU SCCs "deemed entered into", plus UK Addendum and Swiss modifications | [resend.com/legal/dpa](https://resend.com/legal/dpa) |
 | Google Cloud | Hosting, PostgreSQL, Redis, object storage, tracing | **`unconfirmed`** | Yes — in Appendix 3 (Specific Privacy Laws) | [cloud.google.com/terms/data-processing-addendum](https://cloud.google.com/terms/data-processing-addendum) |
-| PostHog, Inc. | Product analytics, feature flags | **`action required`** | Yes — EU + UK SCCs and Swiss FADP adaptations, but only in the countersigned copy | [posthog.com/dpa](https://posthog.com/dpa) |
+| PostHog, Inc. | Product analytics, feature flags | **`unconfirmed`** | Yes — EU + UK SCCs and Swiss FADP adaptations, but only in the countersigned copy | [posthog.com/dpa](https://posthog.com/dpa) |
 
 ### What each row still needs
 
-- **Stripe** — the DPA "forms part of the Agreement", so it is in force by virtue
-  of our Stripe account existing. Nothing to sign. Save a dated PDF copy of the
-  version in force to the compliance folder so the Art. 30 record has an artifact.
-- **Resend** — "becomes legally binding upon Customer's acceptance of the
-  Agreement". Same as Stripe: nothing to sign, save a dated copy.
+- **Stripe** — the published DPA "forms part of the Agreement". Verify account
+  acceptance and file the applicable dated terms; no separate signature is
+  described by those terms.
+- **Resend** — the published DPA "becomes legally binding upon Customer's
+  acceptance of the Agreement". Verify that acceptance and file the applicable
+  dated terms.
 - **Google Cloud** — the Cloud DPA is incorporated into the Cloud agreement, but
   its effective date is "the date on which Customer accepted, or the parties
   otherwise agreed to, this Addendum". **Confirm it is accepted on the billing
   account actually serving production**, then save a dated copy. This is the one
   row where incorporation is conditional on our own account state.
-- **PostHog** — the published page is explicitly non-binding: "It's not binding
-  on its own — only the one you generate and countersign through the app
-  counts." Someone with access must go to **app.posthog.com/legal**, generate
-  and sign the DPA, and file the countersigned copy. It takes minutes. Until
-  then there is **no DPA with PostHog**, and PostHog receives account
-  identifiers, email addresses and IP addresses.
+- **PostHog** — the published page describes generating and countersigning a
+  binding copy through **app.posthog.com/legal**. An authorized account holder
+  must first check for an existing executed agreement and file it; if absent,
+  complete the vendor procedure. Public terms do not establish whether this
+  account has already done so.
 
-**Two of the four are not in place.** Google Cloud is `unconfirmed` and PostHog
-is `action required` — both must be read as "no DPA in force" until evidenced.
-Only Stripe and Resend bind without any action from us.
+**Account-specific coverage is unverified, not proven absent.** Google Cloud
+and PostHog remain blocked pending acceptance or execution evidence. Stripe
+and Resend publish incorporated terms, but their account acceptance and
+applicable versions must also be evidenced before the tracker is closed.
 
 > These findings are read from each vendor's published DPA terms on the date
 > above. They establish what the vendor offers and how it takes effect — they do
-> **not** confirm the state of our own accounts, which is precisely why Google
-> Cloud is `unconfirmed` rather than `incorporated`.
+> **not** confirm the acceptance or execution state of any account.
 
 Owner and cadence: whoever holds the vendor account (ops for PostHog and Google
 Cloud, finance for Stripe, ops for Resend). Re-verified each quarter as part of

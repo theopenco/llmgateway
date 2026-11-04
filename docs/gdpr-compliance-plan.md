@@ -131,7 +131,7 @@ rest are commercial/legal work that cannot be closed in this repository.
 
 | # | Item | Owner | Status |
 | --- | --- | --- | --- |
-| 1 | Execute and file DPAs for Stripe, PostHog, Resend, Google Cloud | ops / legal | **Two of four in place.** Stripe and Resend incorporate their DPAs (with SCCs) automatically on accepting their service agreement. **Google Cloud is `unconfirmed`** — incorporated only from the point we accepted it, which has not been evidenced on the production billing account — and **PostHog is `action required`**, binding only once generated and countersigned at app.posthog.com/legal. Both must be read as no DPA in force. See `legal/SUBPROCESSOR_DPAS.md` |
+| 1 | Verify and file operational sub-processor DPAs | ops / legal | **Account-specific evidence unverified.** Published terms describe incorporation or execution procedures, not whether those steps were completed on an account. Check existing agreements and acceptance records before taking any missing action. See `legal/SUBPROCESSOR_DPAS.md`. |
 | 2 | Document the Art. 46 transfer mechanism for providers headquartered in countries without an adequacy decision, or restrict EU personal data from reaching them | legal | Open — see §5 |
 | 3 | Publish a versioned sub-processor list with 30-day change notice | engineering | **Done** — `apps/ui/src/content/legal/sub-processors.md` |
 | 4 | Disclose PostHog as a sub-processor | engineering | **Done** — Privacy Policy §5 |
@@ -166,13 +166,13 @@ set, read that file's provider entries rather than trusting a list in a document
 
 Current mitigations, in order of strength:
 
-1. **Compliance policies, on every plan** — an organization can restrict routing
+1. **Organization compliance policies, on every supported plan** — an organization can restrict routing
    by GDPR posture, prompt training, prompt logging, undisclosed identity and
    provider headquarters. Non-compliant requests are rejected, not silently
    rerouted. Enforced server-side in the gateway
    (`apps/gateway/src/chat/chat.ts`, `filterCompliantProviders`), not in the UI.
 
-   These five controls are deliberately **not** gated on plan
+   These organization-level controls are deliberately **not** gated on plan
    (`DATA_PROTECTION_POLICY_KEYS`, checked when the policy is saved — the
    gateway enforces any enabled stored policy in full). They used to
    be Enterprise-only, which meant a free or pro customer had no way to stop
@@ -180,8 +180,8 @@ Current mitigations, in order of strength:
    still carrying the Art. 44-49 obligation for that transfer as the controller.
    Paywalling a customer's only means of discharging a legal obligation is not
    defensible, so the data-protection subset is honoured on every plan.
-   Certification requirements and the fine-grained allow/block lists remain
-   Enterprise: those are governance tooling, not a lawful-basis mechanism.
+   Certification requirements, fine-grained allow/block lists and API-key policy
+   writes retain their Enterprise and deployment gates.
 2. **Signed-DPA gate on `requireGdpr`** — each provider's DPA status is
    recorded on the `provider` table (`dpaSignedAt` / `dpaSignedBy` /
    `dpaNote`), confirmed one provider at a time in the admin dashboard
