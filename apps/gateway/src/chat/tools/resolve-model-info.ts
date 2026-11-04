@@ -121,15 +121,20 @@ export function resolveModelInfo(
 		providers: activeProviders,
 	};
 
-	// A pin is never rerouted: a deactivated pinned mapping is an error, like a
-	// deactivated model or region pin.
+	// A pin is never rerouted: a pin to a deactivated or missing mapping is an
+	// error, like a deactivated model or region pin.
 	if (
 		requestedProvider &&
 		requestedProvider !== "llmgateway" &&
 		requestedProvider !== "custom" &&
 		!activeProviders.some((p) => p.providerId === requestedProvider)
 	) {
-		throw deactivatedProviderPinError(requestedProvider, modelInfo.id);
+		if (allModelProviders.some((p) => p.providerId === requestedProvider)) {
+			throw deactivatedProviderPinError(requestedProvider, modelInfo.id);
+		}
+		throw new HTTPException(400, {
+			message: `Provider ${requestedProvider} does not support model ${modelInfo.id}`,
+		});
 	}
 
 	return {
