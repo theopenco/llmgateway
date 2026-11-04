@@ -49,9 +49,9 @@ import {
  * is tested in packages/db/src/cdb-resilience.spec.ts. Those tests prove that the
  * select builder pattern (db.select().from()) works with Drizzle's cache layer.
  *
- * The functions in cached-queries.ts all use the select builder pattern,
- * which is the only pattern that goes through Drizzle's cache. The relational
- * query API (db.query.table.findFirst()) does NOT use the cache.
+ * The functions in cached-queries.ts all use the select builder pattern, so
+ * each call site sets its own cache tag and TTL. `cdb` hides the relational
+ * query API (db.query), which Drizzle would also cache.
  */
 describe("Cached Queries - Gateway Database Access", () => {
 	const testUserId = "test-user-cached-queries";

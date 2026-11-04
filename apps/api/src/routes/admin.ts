@@ -235,7 +235,9 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		// Provider abuse reports quote the safety identifier we send upstream:
 		// per API key now, per organization for older reports.
 		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
-		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND ak.safety_identifier = ${trimmed})`,
+		// Project and API key IDs match exactly, resolving to their organization.
+		sql`EXISTS (SELECT 1 FROM ${tables.project} p WHERE p.organization_id = ${tables.organization.id} AND p.id = ${trimmed})`,
+		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND (ak.safety_identifier = ${trimmed} OR ak.id = ${trimmed}))`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
 }

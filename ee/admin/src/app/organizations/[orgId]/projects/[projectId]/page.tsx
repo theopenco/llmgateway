@@ -5,6 +5,9 @@ import { notFound } from "next/navigation";
 import { LogsSection } from "@/components/logs-section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import {
 	buildLogModelOptions,
 	buildLogProviderOptions,
@@ -12,6 +15,7 @@ import {
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
+import { PaymentsSdkSettings } from "./payments-sdk-settings";
 import { ProjectCostByModelTimeseries } from "./project-cost-by-model-timeseries";
 import { ProjectMetricsSection } from "./project-metrics";
 
@@ -49,6 +53,7 @@ export default async function ProjectDetailPage({
 	params: Promise<{ orgId: string; projectId: string }>;
 }) {
 	await requireSession();
+	const role = await getSessionAdminRole();
 
 	const { orgId, projectId } = await params;
 
@@ -116,28 +121,43 @@ export default async function ProjectDetailPage({
 				</div>
 			</header>
 
-			<ProjectMetricsSection orgId={orgId} projectId={projectId} />
+			<Tabs defaultValue="overview">
+				<TabsList>
+					<TabsTrigger value="overview">Overview</TabsTrigger>
+					<TabsTrigger value="settings">Settings</TabsTrigger>
+				</TabsList>
+				<TabsContent value="overview" className="space-y-6">
+					<ProjectMetricsSection orgId={orgId} projectId={projectId} />
 
-			<ProjectCostByModelTimeseries orgId={orgId} projectId={projectId} />
+					<ProjectCostByModelTimeseries orgId={orgId} projectId={projectId} />
 
-			<div>
-				<Button variant="outline" size="sm" asChild>
-					<Link
-						href={`/organizations/${orgId}/projects/${projectId}/model-provider-mappings`}
-					>
-						<LayoutGrid className="mr-2 h-4 w-4" />
-						Model-Provider Mappings
-					</Link>
-				</Button>
-			</div>
+					<div>
+						<Button variant="outline" size="sm" asChild>
+							<Link
+								href={`/organizations/${orgId}/projects/${projectId}/model-provider-mappings`}
+							>
+								<LayoutGrid className="mr-2 h-4 w-4" />
+								Model-Provider Mappings
+							</Link>
+						</Button>
+					</div>
 
-			<LogsSection
-				orgId={orgId}
-				projectId={projectId}
-				providerOptions={providerOptions}
-				modelOptions={modelOptions}
-				seatOptions={seatOptions}
-			/>
+					<LogsSection
+						orgId={orgId}
+						projectId={projectId}
+						providerOptions={providerOptions}
+						modelOptions={modelOptions}
+						seatOptions={seatOptions}
+					/>
+				</TabsContent>
+				<TabsContent value="settings">
+					<PaymentsSdkSettings
+						orgId={orgId}
+						projectId={projectId}
+						canWrite={canWrite(role)}
+					/>
+				</TabsContent>
+			</Tabs>
 		</div>
 	);
 }

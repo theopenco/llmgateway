@@ -503,7 +503,8 @@ dynamicRoutes.openapi(publishRoute, async (c) => {
 			.select({ id: tables.dynamicRoute.id })
 			.from(tables.dynamicRoute)
 			.where(eq(tables.dynamicRoute.id, route.id))
-			.for("update");
+			.for("update")
+			.$withCache(false);
 		const [versionRow] = await tx
 			.insert(tables.dynamicRouteVersion)
 			.values({
