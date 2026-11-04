@@ -1,0 +1,27 @@
+{
+  "runId": "pretty-json__claude-code__deepseek-v4.1-flash__r10",
+  "task": "pretty-json",
+  "agent": "claude-code",
+  "model": "deepseek-v4.1-flash",
+  "gatewayId": "fireworks/deepseek-v4.1-flash",
+  "rep": 10,
+  "startedAt": "2026-11-04T22:13:56.734Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 96942,
+  "passed": true,
+  "tests": "12 passed",
+  "patchLines": 100,
+  "agentVersion": "2.1.317 (Claude Code)",
+  "agentConfig": {
+    "ANTHROPIC_BASE_URL": "https://api.llmgateway.io",
+    "ANTHROPIC_MODEL": "fireworks/deepseek-v4.1-flash",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "fireworks/deepseek-v4.1-flash",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "fireworks/deepseek-v4.1-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "fireworks/deepseek-v4.1-flash",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "fireworks/deepseek-v4.1-flash",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}

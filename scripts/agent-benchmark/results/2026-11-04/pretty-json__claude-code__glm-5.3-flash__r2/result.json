@@ -1,0 +1,27 @@
+{
+  "runId": "pretty-json__claude-code__glm-5.3-flash__r2",
+  "task": "pretty-json",
+  "agent": "claude-code",
+  "model": "glm-5.3-flash",
+  "gatewayId": "fireworks/glm-5.3-flash",
+  "rep": 2,
+  "startedAt": "2026-11-04T18:59:30.331Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 657924,
+  "passed": true,
+  "tests": "12 passed",
+  "patchLines": 79,
+  "agentVersion": "2.1.317 (Claude Code)",
+  "agentConfig": {
+    "ANTHROPIC_BASE_URL": "https://api.llmgateway.io",
+    "ANTHROPIC_MODEL": "fireworks/glm-5.3-flash",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "fireworks/glm-5.3-flash",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "fireworks/glm-5.3-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "fireworks/glm-5.3-flash",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "fireworks/glm-5.3-flash",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}

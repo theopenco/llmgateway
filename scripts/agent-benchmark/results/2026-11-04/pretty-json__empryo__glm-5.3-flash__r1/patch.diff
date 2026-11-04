@@ -1,0 +1,111 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..c608ca9 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,77 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  describe('unparseable JSON bodies pass through unchanged', () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('/consumed', async (c, next) => {
++      await next()
++      await c.res.text() // body already read by another middleware
++    })
++    app.get('/204', (c) => c.body(null, 204, { 'Content-Type': 'application/json' }))
++    app.get('/304', (c) => c.body(null, 304, { 'Content-Type': 'application/json' }))
++    app.get('/empty', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    app.get('/invalid', (c) => c.body('not json', 200, { 'Content-Type': 'application/json' }))
++    app.get(
++      '/consumed',
++      (c) =>
++        new Response('{"message":"Hono!"}', {
++          status: 200,
++          headers: { 'Content-Type': 'application/json' },
++        })
++    )
++
++    it('should pass through a 204 response with a JSON content-type and no body', async () => {
++      const res = await app.request('http://localhost/204')
++      expect(res.status).toBe(204)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(await res.text()).toBe('')
++    })
++
++    it('should pass through a 304 response with a JSON content-type and no body', async () => {
++      const res = await app.request('http://localhost/304')
++      expect(res.status).toBe(304)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(await res.text()).toBe('')
++    })
++
++    it('should pass through an empty body', async () => {
++      const res = await app.request('http://localhost/empty')
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(await res.text()).toBe('')
++    })
++
++    it('should pass through a body that is not valid JSON', async () => {
++      const res = await app.request('http://localhost/invalid')
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(await res.text()).toBe('not json')
++    })
++
++    it('should pass through a response whose body was already read by another middleware', async () => {
++      const res = await app.request('http://localhost/consumed')
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.bodyUsed).toBe(true)
++    })
++  })
++
++  it('should remove the Content-Length header when prettifying the body', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.body('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '18',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..71be3ae 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -51,9 +51,21 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+-    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++    if (pretty && contentType && jsonContentTypeRegex.test(contentType) && !c.res.bodyUsed) {
++      try {
++        // Clone before reading: if the body cannot be parsed as JSON (empty or
++        // invalid), the original response must stay untouched so it passes
++        // through unchanged.
++        const obj = JSON.parse(await c.res.clone().text()) as unknown
++        c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++        // The original Content-Length no longer matches the prettified body.
++        // Assigning to `c.res` copies headers from the previous response, so
++        // delete it from the final response.
++        c.res.headers.delete('Content-Length')
++      } catch {
++        // The body cannot be parsed as JSON - pass the response through
++        // unchanged instead of turning it into a 500 error.
++      }
+     }
+   }
+ }

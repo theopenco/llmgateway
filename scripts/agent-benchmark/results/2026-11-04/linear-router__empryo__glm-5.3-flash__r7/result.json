@@ -1,0 +1,52 @@
+{
+  "runId": "linear-router__empryo__glm-5.3-flash__r7",
+  "task": "linear-router",
+  "agent": "empryo",
+  "model": "glm-5.3-flash",
+  "gatewayId": "fireworks/glm-5.3-flash",
+  "rep": 7,
+  "startedAt": "2026-11-04T20:38:29.297Z",
+  "code": 1,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 263219,
+  "passed": false,
+  "tests": "1 failed | 87 passed | 15 skipped",
+  "patchLines": 0,
+  "agentVersion": "empryo 3.12.4-beta",
+  "agentConfig": {
+    "cache": {
+      "ttl": "5m",
+      "coldPrune": false
+    },
+    "compaction": {
+      "onResume": false
+    },
+    "heavyWork": {
+      "slots": 0
+    },
+    "agentFeatures": {
+      "appendOnlyInstructions": true,
+      "turnAudit": false,
+      "finishNudge": "off",
+      "requestMap": false,
+      "fixHistory": false,
+      "editEchoes": false,
+      "codeMode": "off",
+      "learnedResidency": "off"
+    },
+    "skills": {
+      "autoManage": false,
+      "rememberSession": false,
+      "autoLoad": []
+    },
+    "disabledTools": [
+      "skills"
+    ],
+    "liveSkills": false,
+    "soulstack": {
+      "autoUpdate": false
+    },
+    "instructionFiles": []
+  }
+}

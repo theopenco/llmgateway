@@ -1,0 +1,52 @@
+{
+  "runId": "linear-router__empryo__deepseek-v4.1-flash__r4",
+  "task": "linear-router",
+  "agent": "empryo",
+  "model": "deepseek-v4.1-flash",
+  "gatewayId": "fireworks/deepseek-v4.1-flash",
+  "rep": 4,
+  "startedAt": "2026-11-04T19:26:24.952Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 786726,
+  "passed": true,
+  "tests": "88 passed | 15 skipped",
+  "patchLines": 17,
+  "agentVersion": "empryo 3.12.4-beta",
+  "agentConfig": {
+    "cache": {
+      "ttl": "5m",
+      "coldPrune": false
+    },
+    "compaction": {
+      "onResume": false
+    },
+    "heavyWork": {
+      "slots": 0
+    },
+    "agentFeatures": {
+      "appendOnlyInstructions": true,
+      "turnAudit": false,
+      "finishNudge": "off",
+      "requestMap": false,
+      "fixHistory": false,
+      "editEchoes": false,
+      "codeMode": "off",
+      "learnedResidency": "off"
+    },
+    "skills": {
+      "autoManage": false,
+      "rememberSession": false,
+      "autoLoad": []
+    },
+    "disabledTools": [
+      "skills"
+    ],
+    "liveSkills": false,
+    "soulstack": {
+      "autoUpdate": false
+    },
+    "instructionFiles": []
+  }
+}

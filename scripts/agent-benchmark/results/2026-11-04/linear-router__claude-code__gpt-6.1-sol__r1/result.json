@@ -1,0 +1,27 @@
+{
+  "runId": "linear-router__claude-code__gpt-6.1-sol__r1",
+  "task": "linear-router",
+  "agent": "claude-code",
+  "model": "gpt-6.1-sol",
+  "gatewayId": "openai/gpt-6.1-sol",
+  "rep": 1,
+  "startedAt": "2026-11-04T18:20:50.147Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 74961,
+  "passed": true,
+  "tests": "89 passed | 15 skipped",
+  "patchLines": 14,
+  "agentVersion": "2.1.317 (Claude Code)",
+  "agentConfig": {
+    "ANTHROPIC_BASE_URL": "https://api.llmgateway.io",
+    "ANTHROPIC_MODEL": "openai/gpt-6.1-sol",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "openai/gpt-6.1-sol",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "openai/gpt-6.1-sol",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "openai/gpt-6.1-sol",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "openai/gpt-6.1-sol",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}

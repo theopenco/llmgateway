@@ -1,0 +1,101 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo[39m
+
+ [31m❯[39m [30m[45m main [49m[39m src/adapter/aws-lambda/handler.test.ts [2m([22m[2m46 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 44[2mms[22m[39m
+     [32m✓[39m Should determine whether image/png it is binary[32m 1[2mms[22m[39m
+     [32m✓[39m Should determine whether font/woff2 it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether image/svg+xml it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether image/svg+xml; charset=UTF-8 it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether text/plain it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether text/plain; charset=UTF-8 it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether text/css it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether text/javascript it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/json it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/ld+json it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/json it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/vnd.openxmlformats-officedocument.wordprocessingml.document it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/msword it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/epub+zip it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/ld+json it is binary[32m 1[2mms[22m[39m
+     [32m✓[39m Should determine whether application/vnd.oasis.opendocument.text it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/vnd.apple.installer+xml it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/vnd.apple.installer+xml; charset=UTF-8 it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether application/vnd.mozilla.xul+xml it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether APPLICATION/VND.APPLE.INSTALLER+XML it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether APPLICATION/JSON it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether TEXT/PLAIN it is binary[32m 0[2mms[22m[39m
+     [32m✓[39m Should determine whether it is compressed[32m 0[2mms[22m[39m
+     [32m✓[39m Should encode as base64 when content-type is in contentTypesAsBinary array[32m 21[2mms[22m[39m
+     [32m✓[39m Should not encode as base64 when content-type is not in isContentTypeBinary array[32m 0[2mms[22m[39m
+     [32m✓[39m Should use defaultIsContentTypeBinary when isContentTypeBinary is undefined with binary content[32m 0[2mms[22m[39m
+     [32m✓[39m Should use defaultIsContentTypeBinary when isContentTypeBinary is undefined with non-binary content[32m 0[2mms[22m[39m
+     [32m✓[39m Should preserve percent-encoded values in query string for version 1.0[32m 1[2mms[22m[39m
+     [32m✓[39m Should handle special characters correctly in queryStringParameters for version 1.0[32m 0[2mms[22m[39m
+     [32m✓[39m Should preserve empty query parameters for version 1.0[32m 0[2mms[22m[39m
+[31m     [31m×[31m Should preserve empty query parameters for ALB events[39m[32m 5[2mms[22m[39m
+     [32m✓[39m Should return valid Request object from version 1.0 API Gateway event[32m 1[2mms[22m[39m
+     [32m✓[39m Should preserve every repeated header value for version 1.0 API Gateway event[32m 0[2mms[22m[39m
+     [32m✓[39m Should return valid Request object from version 2.0 API Gateway event[32m 0[2mms[22m[39m
+     [32m✓[39m Should return valid Request object from version 2.0 Lattice event[32m 0[2mms[22m[39m
+     [32m✓[39m Should preserve every repeated header value for Lattice event[32m 0[2mms[22m[39m
+       [32m✓[39m Should encode non-ASCII header values with encodeURIComponent[32m 0[2mms[22m[39m
+     [32m✓[39m Should route a V1 REST event by its path even when a base path mapping adds rawPath[32m 1[2mms[22m[39m
+     [32m✓[39m Should return 400 when request contains invalid header names (v2)[32m 3[2mms[22m[39m
+     [32m✓[39m ALB single-header: emits the first Set-Cookie intact, never comma-joined[32m 2[2mms[22m[39m
+     [32m✓[39m Lattice v2: emits multiple Set-Cookie as an array[32m 0[2mms[22m[39m
+     [32m✓[39m Should return 400 when request contains invalid header names (v1)[32m 1[2mms[22m[39m
+     [32m✓[39m Should enforce bodyLimit when the client understates Content-Length[32m 1[2mms[22m[39m
+     [32m✓[39m Should expose the context of a Lambda (REQUEST) authorizer[32m 0[2mms[22m[39m
+     [32m✓[39m Should expose the claims and scopes of a JWT authorizer[32m 2[2mms[22m[39m
+     [32m✓[39m Should type each authorizer variant as optional[32m 0[2mms[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m45 passed[39m[22m[90m (46)[39m
+[2m   Start at [22m 22:08:06
+[2m   Duration [22m 453ms[2m (transform 212ms, setup 0ms, import 253ms, tests 44ms, environment 0ms)[22m
+
+[90mstderr[2m | src/adapter/aws-lambda/handler.test.ts[2m > [22m[2mhandle[2m > [22m[2mShould return 400 when request contains invalid header names (v2)
+[22m[39mError processing request: TypeError: Headers.set: "a"a" is an invalid header name.
+[90m    at Object.webidl.errors.exception (node:internal/deps/undici/undici:4898:14)[39m
+[90m    at Object.webidl.errors.invalidArgument (node:internal/deps/undici/undici:4909:28)[39m
+[90m    at _Headers.set (node:internal/deps/undici/undici:11529:31)[39m
+    at EventV2Processor.getHeaders [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:437:19[90m)[39m
+    at EventV2Processor.createRequest [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:329:26[90m)[39m
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:261:23
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.test.ts:509:26
+    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+
+[90mstderr[2m | src/adapter/aws-lambda/handler.test.ts[2m > [22m[2mhandle[2m > [22m[2mShould return 400 when request contains invalid header names (v1)
+[22m[39mError processing request: TypeError: Headers.append: "a"a" is an invalid header name.
+[90m    at Object.webidl.errors.exception (node:internal/deps/undici/undici:4898:14)[39m
+[90m    at Object.webidl.errors.invalidArgument (node:internal/deps/undici/undici:4909:28)[39m
+[90m    at appendHeader (node:internal/deps/undici/undici:11216:29)[39m
+[90m    at _Headers.append (node:internal/deps/undici/undici:11467:16)[39m
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:484:41
+    at Array.forEach (<anonymous>)
+    at EventV1Processor.getHeaders [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:484:18[90m)[39m
+    at EventV1Processor.createRequest [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:329:26[90m)[39m
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:261:23
+    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.test.ts:586:26
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/adapter/aws-lambda/handler.test.ts[2m > [22mEventProcessor.createRequest[2m > [22mShould preserve empty query parameters for ALB events
+[31m[1mAssertionError[22m: expected 'https://example.test/my/path?present=0' to be 'https://example.test/my/path?empty=&p…' // Object.is equality[39m
+
+Expected: [32m"https://example.test/my/path?[7mempty=&[27mpresent=0"[39m
+Received: [31m"https://example.test/my/path?present=0"[39m
+
+[36m [2m❯[22m src/adapter/aws-lambda/handler.test.ts:[2m276:25[22m[39m
+    [90m274|[39m     [35mconst[39m request [33m=[39m [34mgetProcessor[39m(event)[33m.[39m[34mcreateRequest[39m(event)
+    [90m275|[39m
+    [90m276|[39m     expect(request.url).toBe('https://example.test/my/path?empty=&pres…
+    [90m   |[39m                         [31m^[39m
+    [90m277|[39m   })
+    [90m278|[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
