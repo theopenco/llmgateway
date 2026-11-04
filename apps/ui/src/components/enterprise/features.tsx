@@ -30,9 +30,9 @@ const features = [
 	},
 	{
 		icon: Gauge,
-		title: "No Platform Rate Limits",
+		title: "No Per-Minute or Spend Caps",
 		description:
-			"No per-organization requests-per-minute, spend, or top-up caps. Your request rate is limited only by your credit balance and upstream provider limits.",
+			"No per-organization requests-per-minute, spend, or top-up limits. Concurrency is capped at 2,000 in-flight requests, with a retryable 429 above that.",
 	},
 	{
 		icon: BarChart3,
