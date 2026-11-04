@@ -1,8 +1,9 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getApiKeyScope, getUserProjectIds } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	and,
@@ -13,6 +14,7 @@ import {
 	isNull,
 	notification,
 	notificationPreference,
+	notificationModelScopes,
 	notificationTypes,
 	notInArray,
 	or,
@@ -42,6 +44,10 @@ const preferenceSchema = z.object({
 	inApp: z.boolean().nullable(),
 	email: z.boolean(),
 	budgetThreshold: z.number().int().min(50).max(100).nullable(),
+	/** Which models price change alerts cover; null for every other category. */
+	modelScope: z.enum(notificationModelScopes).nullable().optional(),
+	/** Models covered when `modelScope` is "selected". */
+	modelIds: z.array(z.string().min(1).max(200)).max(500).nullable().optional(),
 });
 const notificationSchema = z.object({
 	id: z.string(),
@@ -115,6 +121,12 @@ async function visibility(userId: string) {
 				inArray(notification.organizationId, adminOrgIds),
 				inArray(notification.type, adminAlertTypes),
 			),
+			// Price changes describe the public catalogue, not a project.
+			and(
+				eq(notification.type, "model_price_change"),
+				isNull(notification.projectId),
+				isNull(notification.organizationId),
+			),
 		),
 	);
 }
@@ -165,9 +177,12 @@ notifications.openapi(
 						inApp: null,
 						email: !isSuppressed,
 						budgetThreshold: null,
+						modelScope: null,
+						modelIds: null,
 					};
 				}
 				const row = saved.find((p) => p.type === category);
+				const priceChange = category === "model_price_change";
 				return {
 					category,
 					inApp: row?.inApp ?? orgAlertTypes.has(category),
@@ -176,6 +191,8 @@ notifications.openapi(
 						!isSuppressed,
 					budgetThreshold:
 						category === "budget" ? (row?.budgetThreshold ?? 80) : null,
+					modelScope: priceChange ? (row?.modelScope ?? "used") : null,
+					modelIds: priceChange ? (row?.modelIds ?? []) : null,
 				};
 			}),
 		});
@@ -212,6 +229,28 @@ notifications.openapi(
 			});
 		}
 
+		const modelScope =
+			value.category === "model_price_change"
+				? (value.modelScope ?? undefined)
+				: undefined;
+		// Unknown ids are dropped rather than rejected: a saved model can be
+		// removed from the catalogue later, and every save sends the list back.
+		let modelIds: string[] | undefined;
+		if (value.category === "model_price_change" && value.modelIds) {
+			const requested = [...new Set(value.modelIds)];
+			const known = new Set(
+				requested.length
+					? (
+							await db.query.model.findMany({
+								columns: { id: true },
+								where: { id: { in: requested } },
+							})
+						).map((model) => model.id)
+					: [],
+			);
+			modelIds = requested.filter((id) => known.has(id));
+		}
+
 		// Enabling always clears the suppression row; a preference that says yes
 		// while the address is suppressed would silently never deliver.
 		if (value.email) {
@@ -231,6 +270,8 @@ notifications.openapi(
 					inApp: value.inApp ?? false,
 					email: value.email,
 					budgetThreshold: value.budgetThreshold ?? 80,
+					modelScope,
+					modelIds,
 				})
 				.onConflictDoUpdate({
 					target: [notificationPreference.userId, notificationPreference.type],
@@ -238,11 +279,13 @@ notifications.openapi(
 						inApp: value.inApp ?? false,
 						email: value.email,
 						budgetThreshold: value.budgetThreshold ?? 80,
+						modelScope,
+						modelIds,
 					},
 				});
 		}
 
-		return c.json(value);
+		return c.json(modelIds ? { ...value, modelIds } : value);
 	},
 );
 

@@ -408,6 +408,59 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		]);
 	});
 
+	it("reports one failed image among successful ones as a failed moderation", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+		checkOpenAI.mockResolvedValue({
+			...result(false, { violence: 0.1 }, "omni-moderation-latest"),
+			errors: [
+				{
+					source: "openai",
+					kind: "upstream_5xx",
+					inputType: "image",
+					status: 500,
+					message: "Unexpected error",
+				},
+			],
+		});
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: PLAN,
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(evaluated?.results[0]?.results).toHaveLength(2);
+		expect(evaluated?.evaluation.moderationFailed).toBe(true);
+		expect(evaluated?.evaluation.action).toBe("passed");
+	});
+
+	it("reports a partly failed OpenAI-decided check as a failed moderation", async () => {
+		checkOpenAI.mockResolvedValue({
+			...result(false, { violence: 0.1 }, "omni-moderation-latest"),
+			errors: [
+				{
+					source: "openai",
+					kind: "upstream_5xx",
+					inputType: "image",
+					status: 500,
+					message: "Unexpected error",
+				},
+			],
+		});
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, classifier: "openai" },
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(evaluated?.evaluation.moderationFailed).toBe(true);
+	});
+
 	it("stores no error list on a clean check", async () => {
 		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
 

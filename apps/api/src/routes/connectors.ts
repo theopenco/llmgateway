@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
@@ -23,6 +23,7 @@ import {
 	callConnectorTool,
 	listConnectorTools,
 } from "@/lib/connectors/tools.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { and, db, eq, lt, tables } from "@llmgateway/db";
 import {
@@ -376,7 +377,7 @@ connectors.openapi(
 									connectorId,
 									name: z.string(),
 									description: z.string(),
-									inputSchema: z.record(z.unknown()),
+									inputSchema: z.record(z.string(), z.unknown()),
 								}),
 							),
 						}),
@@ -409,7 +410,9 @@ connectors.openapi(
 				required: true,
 				content: {
 					"application/json": {
-						schema: z.object({ input: z.record(z.unknown()) }).strict(),
+						schema: z
+							.object({ input: z.record(z.string(), z.unknown()) })
+							.strict(),
 					},
 				},
 			},

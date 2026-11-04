@@ -10,7 +10,12 @@ import { ifevalAdapter } from "./external/ifeval.js";
 import { renderBenchmarkResult } from "./reporters.js";
 import { runBenchmark } from "./runner.js";
 import { getBuiltInProfile, getBuiltInSuite } from "./suites/index.js";
-import { resolveBenchmarkTargets } from "./targets.js";
+import {
+	buildBenchmarkTargets,
+	fetchGatewayMappingDescriptors,
+	gatewayModelsUrl,
+	resolveBenchmarkTargets,
+} from "./targets.js";
 
 import type { BenchmarkOutputFormat } from "./types.js";
 
@@ -49,6 +54,9 @@ Options:
   --allow-cache                Allow gateway response-cache replay
   --allow-fallback             Allow fallback away from pinned mappings
   --include-deactivated        Include deactivated mappings
+  --catalogue <gateway|static> Mapping source: the gateway's /v1/models, which
+                               includes Airside listings (default), or the
+                               static catalogue
   --quiet                      Suppress progress on stderr
   --help                       Show this help
 `;
@@ -117,6 +125,7 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 			"api-key-env": { type: "string" },
 			budget: { type: "string" },
 			case: { type: "string", multiple: true },
+			catalogue: { type: "string" },
 			concurrency: { type: "string" },
 			external: { type: "string" },
 			"external-data": { type: "string" },
@@ -161,11 +170,29 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 	}
 	const mappingValues =
 		values.mapping ?? (positionals[1] ? [positionals[1]] : undefined);
-	const targets = resolveBenchmarkTargets({
-		modelIds,
-		mappings: csv(mappingValues),
-		includeDeactivated: values["include-deactivated"],
-	});
+	const url =
+		values.url ??
+		process.env.BENCHMARK_API_URL ??
+		"https://api.llmgateway.io/v1/chat/completions";
+	const catalogue = values.catalogue ?? "gateway";
+	if (catalogue !== "gateway" && catalogue !== "static") {
+		throw new Error("--catalogue must be gateway or static");
+	}
+	const targets =
+		catalogue === "static"
+			? resolveBenchmarkTargets({
+					modelIds,
+					mappings: csv(mappingValues),
+					includeDeactivated: values["include-deactivated"],
+				})
+			: buildBenchmarkTargets({
+					descriptors: await fetchGatewayMappingDescriptors({
+						modelIds,
+						modelsUrl: gatewayModelsUrl(url),
+					}),
+					mappings: csv(mappingValues),
+					includeDeactivated: values["include-deactivated"],
+				});
 	const suiteSelectors = [values.profile, values.suite, values.external].filter(
 		Boolean,
 	);
@@ -240,10 +267,7 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 	const quiet = values.quiet ?? false;
 	const result = await runBenchmark({
 		client: {
-			url:
-				values.url ??
-				process.env.BENCHMARK_API_URL ??
-				"https://api.llmgateway.io/v1/chat/completions",
+			url,
 			apiKey,
 			disableCache: !values["allow-cache"],
 			disableFallback: !values["allow-fallback"],

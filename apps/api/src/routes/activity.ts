@@ -1,8 +1,13 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import {
+	costComponentFields,
+	costComponentSchema,
+	mapCostComponents,
+} from "@/lib/cost-components.js";
 import { resolveDateRange } from "@/lib/date-range.js";
 import {
 	mapModeSplit,
@@ -25,6 +30,7 @@ import {
 	isKeyScoped,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import {
 	bucketDate,
 	generateTimeSlots,
@@ -69,6 +75,7 @@ const modelUsageSchema = z.object({
 	cacheWriteTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...costComponentSchema,
 	...modeSplitSchema,
 });
 
@@ -538,6 +545,7 @@ activity.openapi(getActivity, async (c) => {
 					"cost",
 				),
 				...modeSplitFields(apiKeyHourlyModelStats),
+				...costComponentFields(apiKeyHourlyModelStats),
 			})
 			.from(apiKeyHourlyModelStats)
 			.where(
@@ -575,6 +583,7 @@ activity.openapi(getActivity, async (c) => {
 				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapCostComponents(breakdown),
 				...mapModeSplit(breakdown),
 			});
 		}
@@ -924,6 +933,7 @@ activity.openapi(getActivity, async (c) => {
 					"cost",
 				),
 				...modeSplitFields(projectHourlyModelStats),
+				...costComponentFields(projectHourlyModelStats),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -952,6 +962,7 @@ activity.openapi(getActivity, async (c) => {
 				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapCostComponents(breakdown),
 				...mapModeSplit(breakdown),
 			});
 		}
@@ -1450,6 +1461,7 @@ const getPromptCacheActivity = createRoute({
 			to: z.string().optional(),
 			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
 			groupBy: z.enum(["model", "apiKey", "user"]).optional(),
+			modelView: z.enum(["canonical", "mapping"]).optional(),
 			bucket: z.enum(["hour", "day"]).optional(),
 			apiKeyId: z.string().max(100).optional(),
 			timezone: timezoneQueryField,
@@ -1480,6 +1492,7 @@ activity.openapi(getPromptCacheActivity, async (c) => {
 		to,
 		timeRange,
 		groupBy,
+		modelView,
 		bucket,
 		apiKeyId,
 		timezone,
@@ -1540,7 +1553,7 @@ activity.openapi(getPromptCacheActivity, async (c) => {
 				? "day"
 				: "hour"),
 		groupBy: groupBy ?? "model",
-		modelView: "canonical",
+		modelView: modelView ?? "canonical",
 		apiKeyId,
 		apiKeyIds,
 		rankBy: "inputTokens",

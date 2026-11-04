@@ -74,15 +74,9 @@ ENV CACHE_PLATFORM=docker-${TARGETPLATFORM}
 WORKDIR /app
 
 COPY .tool-versions ./
+COPY infra/install-tools.sh /tmp/install-tools.sh
 
-# Install asdf plugins and tools
-RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin add  {} && \
-    asdf install && \
-    asdf reshim && \
-    # Verify installations
-    echo "Final versions installed:" && \
-    node -v && \
-    pnpm -v
+RUN bash /tmp/install-tools.sh && rm /tmp/install-tools.sh
 
 # Copy package files
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./

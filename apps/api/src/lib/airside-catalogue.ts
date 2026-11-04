@@ -73,14 +73,24 @@ export async function materializeAirsideModel(
 			.where(eq(tables.model.id, model.modelName))
 			.limit(1)
 			.$withCache(false);
+		// A decision listing's model answers on /v1/decisions only.
+		const output = model.decisions ? ["decision"] : ["text"];
 		if (existingModel.length === 0) {
 			await tx.insert(tables.model).values({
 				id: model.modelName,
 				family: model.family ?? model.providerId,
 				name: model.displayName ?? model.modelName,
 				description: model.description ?? undefined,
+				output,
 				status: "active",
 			});
+		} else if (
+			!catalogueModels.some((definition) => definition.id === model.modelName)
+		) {
+			await tx
+				.update(tables.model)
+				.set({ output })
+				.where(eq(tables.model.id, model.modelName));
 		}
 		const existingMapping = await tx
 			.select({ id: tables.modelProviderMapping.id })
@@ -97,6 +107,7 @@ export async function materializeAirsideModel(
 		const mappingValues = {
 			externalId: model.externalId,
 			apiFormat: model.apiFormat,
+			decisions: model.decisions,
 			source: "airside" as const,
 			inputPrice: filing.inputPrice,
 			outputPrice: filing.outputPrice,
@@ -116,6 +127,7 @@ export async function materializeAirsideModel(
 			reasoningMaxTokens: model.reasoningMaxTokens,
 			reasoningEfforts: model.reasoningEfforts,
 			webSearch: model.webSearch,
+			webSearchFormat: model.webSearchFormat,
 			...catalogueMetadataColumns(model.catalogueMetadata),
 			status: model.pausedAt ? ("inactive" as const) : ("active" as const),
 			deactivatedAt: null,
@@ -231,6 +243,7 @@ export async function syncAirsideModelMetadata(
 				reasoningMaxTokens: model.reasoningMaxTokens,
 				reasoningEfforts: model.reasoningEfforts,
 				webSearch: model.webSearch,
+				webSearchFormat: model.webSearchFormat,
 			})
 			.where(
 				and(
@@ -282,6 +295,7 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 	return {
 		externalId: mapping.externalId,
 		apiFormat: mapping.apiFormat ?? null,
+		decisions: false,
 		source: "catalogue" as const,
 		inputPrice: mapping.inputPrice?.toString() ?? null,
 		outputPrice: mapping.outputPrice?.toString() ?? null,
@@ -301,6 +315,7 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 		jsonOutput: mapping.jsonOutput ?? false,
 		jsonOutputSchema: mapping.jsonOutputSchema ?? false,
 		webSearch: mapping.webSearch ?? false,
+		webSearchFormat: mapping.webSearchFormat ?? null,
 		...catalogueMetadataColumns(catalogueMetadataFromMapping(mapping)),
 		test: mapping.test ?? null,
 		deprecatedAt: mapping.deprecatedAt ?? null,

@@ -100,16 +100,20 @@ export {
 	getChatPlanCreditsLimit,
 	getChatPlanCreditsMultiplier,
 	getChatPlanCreditsMultipliers,
+	getChatPlanMinimumTier,
 	isChatPlanModelAllowed,
 } from "./chat-plans.js";
 
 export {
+	discountLookupFromMappings,
 	getModelCategory,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
 	isPremiumUsedModel,
 	type ModelCategory,
+	type PremiumDiscountLookup,
+	usedModelBaseId,
 } from "./model-categories.js";
 
 export {
@@ -236,11 +240,7 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export {
-	getActiveProviderPromo,
-	MARKETING_STATS,
-	SCX_PROMO,
-} from "./marketing.js";
+export { MARKETING_STATS } from "./marketing.js";
 
 export {
 	type DiscordEmbed,
@@ -281,6 +281,7 @@ export {
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
+	INTERNAL_CLASSIFIER_MODEL,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
 	type ContentFilterClassifier,
@@ -308,6 +309,8 @@ export {
 
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	CUSTOM_PROVIDER_NAME_REGEX,
 	isProviderBaseUrlOverrideAllowed,
 	isProviderHostnameLabel,

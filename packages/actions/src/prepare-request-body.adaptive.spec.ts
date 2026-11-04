@@ -10,6 +10,7 @@ interface AdaptiveThinkingBody {
 	};
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
+		format?: { type: string; schema: Record<string, unknown> };
 	};
 	temperature?: number;
 	top_p?: number;
@@ -28,6 +29,11 @@ async function buildAnthropicBody(
 		reasoning_max_tokens?: number;
 		temperature?: number;
 		top_p?: number;
+		effort?: "low" | "medium" | "high";
+		response_format?: {
+			type: "json_schema";
+			json_schema: { name: string; schema: Record<string, unknown> };
+		};
 	},
 ): Promise<AdaptiveThinkingBody> {
 	return (await prepareRequestBody(
@@ -47,7 +53,7 @@ async function buildAnthropicBody(
 		opts.top_p, // top_p
 		undefined, // frequency_penalty
 		undefined, // presence_penalty
-		undefined, // response_format
+		opts.response_format, // response_format
 		undefined, // tools
 		undefined, // tool_choice
 		opts.reasoning_effort, // reasoning_effort
@@ -57,7 +63,7 @@ async function buildAnthropicBody(
 		null, // userPlan
 		undefined, // sensitive_word_check
 		undefined, // image_config
-		undefined, // effort
+		opts.effort, // effort
 		undefined, // imageGenerations
 		undefined, // webSearchTool
 		opts.reasoning_max_tokens, // reasoning_max_tokens
@@ -81,6 +87,29 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 			expect(body.output_config?.effort).toBe("high");
 		});
 	}
+
+	test("keeps output_config.effort when response_format is json_schema", async () => {
+		const response_format = {
+			type: "json_schema" as const,
+			json_schema: { name: "answer", schema: { type: "object" } },
+		};
+		const fromReasoningEffort = await buildAnthropicBody("claude-opus-4-7", {
+			reasoning_effort: "high",
+			response_format,
+		});
+		expect(fromReasoningEffort.output_config?.effort).toBe("high");
+		expect(fromReasoningEffort.output_config?.format).toEqual({
+			type: "json_schema",
+			schema: { type: "object", additionalProperties: false },
+		});
+
+		const fromEffort = await buildAnthropicBody("claude-opus-4-7", {
+			effort: "low",
+			response_format,
+		});
+		expect(fromEffort.output_config?.effort).toBe("low");
+		expect(fromEffort.output_config?.format?.type).toBe("json_schema");
+	});
 
 	test("Opus 4.6 routes reasoning.max_tokens to adaptive (drops budget_tokens)", async () => {
 		const body = await buildAnthropicBody("claude-opus-4-6", {

@@ -41,6 +41,10 @@ export interface CanonicalModel {
  * Resolve a raw `usedModel` string to its canonical model, using the model's
  * family (creator) for the brand logo rather than the serving provider — so a
  * Qwen model routed through any provider still shows the Alibaba logo.
+ *
+ * Server-only: this module holds the full model catalogue, which must never
+ * enter a client bundle. Client code reads the `canonical` field attached by
+ * attachCanonicalModels (type-only imports of CanonicalModel are fine).
  */
 export function resolveCanonicalModel(usedModel: string): CanonicalModel {
 	const id = canonicalModelId(usedModel);
@@ -55,4 +59,14 @@ export function resolveCanonicalModel(usedModel: string): CanonicalModel {
 		iconKey,
 		known: Boolean(def),
 	};
+}
+
+/** Attach each usage row's canonical model on the server. */
+export function attachCanonicalModels<Row extends { id: string }>(
+	rows: Row[],
+): (Row & { canonical: CanonicalModel })[] {
+	return rows.map((row) => ({
+		...row,
+		canonical: resolveCanonicalModel(row.id),
+	}));
 }

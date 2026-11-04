@@ -537,6 +537,8 @@ describe("category → capability implication tables", () => {
 
 		test("curated and price-based category pages imply nothing", () => {
 			expect(getImpliedCapabilityKeys(null, "coding")).toEqual([]);
+			expect(getImpliedCapabilityKeys(null, "cyber-security")).toEqual([]);
+			expect(getImpliedCapabilityKeys(null, "reverse-engineering")).toEqual([]);
 			expect(getImpliedCapabilityKeys(null, "cheapest")).toEqual([]);
 			expect(getImpliedCapabilityKeys(null, "long-context")).toEqual([]);
 			expect(getImpliedCapabilityKeys(null, "text")).toEqual([]);

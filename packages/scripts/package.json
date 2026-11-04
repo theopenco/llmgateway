@@ -21,6 +21,7 @@
 		"send-devpass": "tsx src/send-devpass.ts",
 		"stripe-earnings": "tsx src/stripe-earnings.ts",
 		"traffic-report": "tsx src/traffic-report.ts",
+		"review-report": "tsx src/review-report.ts",
 		"test-gemini-tools-complex": "tsx src/test-gemini-tools-complex.ts",
 		"test-gemini-tools-simple": "tsx src/test-gemini-tools-simple.ts"
 	},
@@ -35,7 +36,7 @@
 		"resend": "4.5.1",
 		"sql.js": "1.12.0",
 		"stripe": "18.1.1",
-		"zod": "3.25.76"
+		"zod": "4.6.7"
 	},
 	"devDependencies": {
 		"tsx": "4.20.6"

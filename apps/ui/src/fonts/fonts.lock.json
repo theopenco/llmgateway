@@ -1,0 +1,233 @@
+{
+	"configSha256": "fc082a5c500d3fc3c1c4c26ab60bc92aaea85fda5f63fcf2c7fe09c435db8324",
+	"fonts": {
+		"inter": {
+			"source": {
+				"sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+				"bytes": 48256,
+				"glyphs": 518,
+				"axes": {
+					"wght": [100.0, 400.0, 900.0]
+				},
+				"features": [
+					"calt",
+					"ccmp",
+					"dnom",
+					"frac",
+					"kern",
+					"locl",
+					"mark",
+					"mkmk",
+					"numr",
+					"pnum",
+					"tnum"
+				],
+				"hinting": ["gasp", "prep"]
+			},
+			"axisLimits": {
+				"wght": [400.0, 900.0]
+			},
+			"renamedTo": null,
+			"files": {
+				"core": {
+					"file": "inter-core.woff2",
+					"sha256": "e1e5a19091ce6715614fe6d8f3d63094ed421c0479a952006e6df057eb1f05d5",
+					"bytes": 23260,
+					"glyphs": 240,
+					"unicodeRange": "U+0020-007E,U+00A0,U+00A9,U+00B0-00B1,U+00B7,U+00BD,U+00C9,U+00D7,U+00E9,U+0300,U+200B,U+2013-2014,U+2018-2019,U+201C-201D,U+2022,U+2026,U+2039-203A,U+2191,U+2193,U+2212,U+FEFF",
+					"codepoints": "U+0020-007E,U+00A0,U+00A9,U+00B0-00B1,U+00B7,U+00BD,U+00C9,U+00D7,U+00E9,U+0300,U+200B,U+2013-2014,U+2018-2019,U+201C-201D,U+2022,U+2026,U+2039-203A,U+2191,U+2193,U+2212,U+FEFF",
+					"axes": {
+						"wght": [400.0, 400.0, 900.0]
+					},
+					"features": ["calt", "ccmp", "kern", "mark", "mkmk", "tnum"],
+					"hinting": ["gasp", "prep"]
+				},
+				"extended": {
+					"file": "inter-extended.woff2",
+					"sha256": "da64352909d1241477687b2062f3d4afddaaa787aeb574113ef30f9eebcd8667",
+					"bytes": 15788,
+					"glyphs": 224,
+					"unicodeRange": "U+00A1-00A8,U+00AA-00AC,U+00AE-00AF,U+00B2-00B6,U+00B8-00BC,U+00BE-00C8,U+00CA-00D6,U+00D8-00E8,U+00EA-0101,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"codepoints": "U+0041,U+0043,U+0045,U+0049,U+004C,U+004E-004F,U+0052-0053,U+0055,U+0058-005A,U+0061,U+0063,U+0065,U+0069,U+006C,U+006E-006F,U+0072-0073,U+0075,U+007A,U+00A1-00A8,U+00AA-00AC,U+00AE-00AF,U+00B2-00B6,U+00B8-00BC,U+00BE-00C8,U+00CA-00D6,U+00D8-00E8,U+00EA-0101,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"axes": {
+						"wght": [400.0, 400.0, 900.0]
+					},
+					"features": ["calt", "ccmp", "kern", "mark", "mkmk", "tnum"],
+					"hinting": ["gasp", "prep"]
+				}
+			}
+		},
+		"geistMono": {
+			"source": {
+				"sha256": "684ad5b531f81d43c1e8c7038262d5db7cdc1f68006e04d6c7769efa8d33c8cc",
+				"bytes": 23128,
+				"glyphs": 264,
+				"axes": {
+					"wght": [100.0, 400.0, 900.0]
+				},
+				"features": ["ccmp", "dnom", "frac", "locl", "mark", "mkmk", "numr"],
+				"hinting": ["gasp", "prep"]
+			},
+			"axisLimits": {
+				"wght": [400.0, 900.0]
+			},
+			"renamedTo": null,
+			"files": {
+				"core": {
+					"file": "geist-mono-core.woff2",
+					"sha256": "19484e2c342369bf3410ed3684ffbba2e41b16f4f86ef11e01d1d11fcc6b4086",
+					"bytes": 10756,
+					"glyphs": 126,
+					"unicodeRange": "U+0020-007E,U+00A0,U+00A9,U+00B0-00B1,U+00B7,U+00BD,U+00C9,U+00D7,U+00E9,U+0300,U+2013-2014,U+2018-2019,U+201C-201D,U+2022,U+2026,U+2039-203A,U+2191,U+2193,U+2212",
+					"codepoints": "U+0020-007E,U+00A0,U+00A9,U+00B0-00B1,U+00B7,U+00BD,U+00C9,U+00D7,U+00E9,U+0300,U+2013-2014,U+2018-2019,U+201C-201D,U+2022,U+2026,U+2039-203A,U+2191,U+2193,U+2212",
+					"axes": {
+						"wght": [400.0, 400.0, 900.0]
+					},
+					"features": ["ccmp", "mark", "mkmk"],
+					"hinting": ["gasp", "prep"]
+				},
+				"extended": {
+					"file": "geist-mono-extended.woff2",
+					"sha256": "d73f5a71e16cda62cbeb1870c7ccfbd46e2b61f87eb60f0d568fa2639fc57c49",
+					"bytes": 9164,
+					"glyphs": 160,
+					"unicodeRange": "U+00A1-00A8,U+00AA-00AC,U+00AE-00AF,U+00B2-00B6,U+00B8-00BC,U+00BE-00C8,U+00CA-00D6,U+00D8-00E8,U+00EA-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"codepoints": "U+0041,U+0043,U+0045,U+0049,U+004C,U+004E-004F,U+0052-0053,U+0055,U+0058-005A,U+0061,U+0063,U+0065,U+0069,U+006C,U+006E-006F,U+0072-0073,U+0075,U+007A,U+00A1-00A8,U+00AA-00AC,U+00AE-00AF,U+00B2-00B6,U+00B8-00BC,U+00BE-00C8,U+00CA-00D6,U+00D8-00E8,U+00EA-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"axes": {
+						"wght": [400.0, 400.0, 900.0]
+					},
+					"features": ["ccmp", "mark", "mkmk"],
+					"hinting": ["gasp", "prep"]
+				}
+			}
+		},
+		"plusJakarta": {
+			"source": {
+				"sha256": "153fc85b70298beeb1d61a5f723331649e7f23bb77302a66e61cb3e2fbdb5e79",
+				"bytes": 27348,
+				"glyphs": 285,
+				"axes": {
+					"wght": [200.0, 400.0, 800.0]
+				},
+				"features": [
+					"calt",
+					"ccmp",
+					"dnom",
+					"frac",
+					"kern",
+					"liga",
+					"locl",
+					"mark",
+					"numr",
+					"pnum",
+					"tnum"
+				],
+				"hinting": ["gasp", "prep"]
+			},
+			"axisLimits": {
+				"wght": [400.0, 800.0]
+			},
+			"renamedTo": null,
+			"files": {
+				"core": {
+					"file": "plus-jakarta-core.woff2",
+					"sha256": "adb150e050044844539f87489b5667347fdc5060318a8567a730809bbbdcfd9f",
+					"bytes": 13380,
+					"glyphs": 141,
+					"unicodeRange": "U+0020-007E,U+00A0,U+00A9,U+00B0-00B1,U+00B7,U+00BD,U+00C9,U+00D7,U+00E9,U+0300,U+200B,U+2013-2014,U+2018-2019,U+201C-201D,U+2022,U+2026,U+2039-203A,U+2191,U+2193,U+2212",
+					"codepoints": "U+0020-007E,U+00A0,U+00A9,U+00B0-00B1,U+00B7,U+00BD,U+00C9,U+00D7,U+00E9,U+0300,U+200B,U+2013-2014,U+2018-2019,U+201C-201D,U+2022,U+2026,U+2039-203A,U+2191,U+2193,U+2212",
+					"axes": {
+						"wght": [400.0, 400.0, 800.0]
+					},
+					"features": ["calt", "ccmp", "kern", "liga", "mark", "tnum"],
+					"hinting": ["gasp", "prep"]
+				},
+				"extended": {
+					"file": "plus-jakarta-extended.woff2",
+					"sha256": "e16ac393eae80c9ed2eb3a1ee51db0b0b2f4cd2377b0847f1d3a0911e96e95c2",
+					"bytes": 10284,
+					"glyphs": 166,
+					"unicodeRange": "U+00A1-00A8,U+00AA-00AC,U+00AE-00AF,U+00B2-00B6,U+00B8-00BC,U+00BE-00C8,U+00CA-00D6,U+00D8-00E8,U+00EA-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"codepoints": "U+0041,U+0043,U+0045,U+0049,U+004C,U+004E-004F,U+0052-0053,U+0055,U+0058-005A,U+0061,U+0063,U+0065,U+0069,U+006C,U+006E-006F,U+0072-0073,U+0075,U+007A,U+00A1-00A8,U+00AA-00AC,U+00AE-00AF,U+00B2-00B6,U+00B8-00BC,U+00BE-00C8,U+00CA-00D6,U+00D8-00E8,U+00EA-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"axes": {
+						"wght": [400.0, 400.0, 800.0]
+					},
+					"features": ["ccmp", "kern", "mark"],
+					"hinting": ["gasp", "prep"]
+				}
+			}
+		},
+		"editorial": {
+			"source": {
+				"sha256": "5eb09b5ac0e28b67c2f041c8ba6d244604ca0c0980d65912ab2d47fed84ddc31",
+				"bytes": 21032,
+				"glyphs": 220,
+				"axes": {},
+				"features": ["ccmp", "kern", "liga", "locl", "mark", "mkmk"],
+				"hinting": ["cvt", "fpgm", "gasp", "prep"]
+			},
+			"axisLimits": {},
+			"renamedTo": null,
+			"files": {
+				"core": {
+					"file": "editorial-core.woff2",
+					"sha256": "287920810163993c360576ca20fe53481e165213a44cc561cfaf7aed60dae67d",
+					"bytes": 14496,
+					"glyphs": 109,
+					"unicodeRange": "U+0020-007E,U+00A0,U+2013-2014,U+2018-2019,U+201C-201D,U+2026",
+					"codepoints": "U+0020-007E,U+00A0,U+2013-2014,U+2018-2019,U+201C-201D,U+2026",
+					"axes": {},
+					"features": ["kern", "liga"],
+					"hinting": ["cvt", "fpgm", "gasp", "prep"]
+				},
+				"extended": {
+					"file": "editorial-extended.woff2",
+					"sha256": "d296df70d36c3e2485fc25b4da9f6b4c65625fba28ced01ded49901862e602ec",
+					"bytes": 11428,
+					"glyphs": 151,
+					"unicodeRange": "U+00A1-00A3,U+00A5,U+00A7-00AB,U+00AE-00B0,U+00B4,U+00B6-00B8,U+00BA-00BB,U+00BF-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"codepoints": "U+0041,U+0043,U+0045,U+0049,U+004C,U+004E-004F,U+0052-0053,U+0055,U+0058-005A,U+0061,U+0063,U+0065,U+0069,U+006C,U+006E-006F,U+0072-0073,U+0075,U+007A,U+00A1-00A3,U+00A5,U+00A7-00AB,U+00AE-00B0,U+00B4,U+00B6-00B8,U+00BA-00BB,U+00BF-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"axes": {},
+					"features": ["ccmp", "kern", "mark", "mkmk"],
+					"hinting": ["cvt", "fpgm", "gasp", "prep"]
+				}
+			}
+		},
+		"editorialItalic": {
+			"source": {
+				"sha256": "5a51946dfffa82972bc98745359c46761515641fda557c25116459a9f83da4a7",
+				"bytes": 22128,
+				"glyphs": 220,
+				"axes": {},
+				"features": ["ccmp", "kern", "liga", "locl", "mark", "mkmk"],
+				"hinting": ["cvt", "fpgm", "gasp", "prep"]
+			},
+			"axisLimits": {},
+			"renamedTo": null,
+			"files": {
+				"core": {
+					"file": "editorial-italic-core.woff2",
+					"sha256": "eeeab035be5ef6f311acc520c5f6c91e5416bb6dea179decb49bd7587b33afd4",
+					"bytes": 15340,
+					"glyphs": 109,
+					"unicodeRange": "U+0020-007E,U+00A0,U+2013-2014,U+2018-2019,U+201C-201D,U+2026",
+					"codepoints": "U+0020-007E,U+00A0,U+2013-2014,U+2018-2019,U+201C-201D,U+2026",
+					"axes": {},
+					"features": ["kern", "liga"],
+					"hinting": ["cvt", "fpgm", "gasp", "prep"]
+				},
+				"extended": {
+					"file": "editorial-italic-extended.woff2",
+					"sha256": "94426db4053690f882e8987f5aa44a6bc2ed5c6128540bb5dc213ea65ea053fb",
+					"bytes": 12260,
+					"glyphs": 151,
+					"unicodeRange": "U+00A1-00A3,U+00A5,U+00A7-00AB,U+00AE-00B0,U+00B4,U+00B6-00B8,U+00BA-00BB,U+00BF-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"codepoints": "U+0041,U+0043,U+0045,U+0049,U+004C,U+004E-004F,U+0052-0053,U+0055,U+0058-005A,U+0061,U+0063,U+0065,U+0069,U+006C,U+006E-006F,U+0072-0073,U+0075,U+007A,U+00A1-00A3,U+00A5,U+00A7-00AB,U+00AE-00B0,U+00B4,U+00B6-00B8,U+00BA-00BB,U+00BF-0102,U+0106-0107,U+0112-0113,U+0128-012B,U+0131,U+0139-013A,U+0143-0144,U+014C-014D,U+0152-0155,U+015A-015B,U+0168-016B,U+0178-017A,U+0301,U+0303-0304,U+0308",
+					"axes": {},
+					"features": ["ccmp", "kern", "mark", "mkmk"],
+					"hinting": ["cvt", "fpgm", "gasp", "prep"]
+				}
+			}
+		}
+	}
+}

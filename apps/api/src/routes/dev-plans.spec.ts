@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import {
 	afterAll,
 	afterEach,
@@ -594,6 +596,53 @@ describe("dev plan tier changes", () => {
 		expect(activeKeys).toHaveLength(1);
 		expect(activeKeys[0]?.id).toBe(body.apiKeyId);
 		expect(activeKeys[0]?.tokenHash).toBe(getApiKeyFingerprint(body.apiKey));
+	});
+
+	it("rolls the DevPass key for a CLI login and hands back a one-time code", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			...hashApiKeyForStorage("test-dev-plan-token"),
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			createdBy: "test-user-id",
+		});
+		const verifier = randomBytes(32).toString("base64url");
+
+		const response = await app.request("/dev-plans/rotate-api-key/cli-code", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({
+				apiKeyId: "test-dev-plan-api-key",
+				codeChallenge: createHash("sha256")
+					.update(verifier)
+					.digest("base64url"),
+			}),
+		});
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect("apiKey" in body).toBe(false);
+
+		const redeemed = await app.request("/public/cli-auth/token", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ code: body.code, code_verifier: verifier }),
+		});
+		expect(redeemed.status).toBe(200);
+		const { api_key, expires_at } = await redeemed.json();
+		expect(expires_at).toBeNull();
+		const activeKey = await db.query.apiKey.findFirst({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKey?.id).toBe(body.apiKeyId);
+		expect(activeKey?.tokenHash === getApiKeyFingerprint(api_key)).toBe(true);
 	});
 
 	it("preserves playground sessions when rotating the DevPass key", async () => {

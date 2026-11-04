@@ -1,13 +1,19 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
+	publicCertification,
+	publicCertificationSchema,
+} from "@/lib/airside-certification.js";
+import {
+	effectiveCarrierProfile,
 	publicAirsideProfile,
 	publicAirsideProfileSchema,
 } from "@/lib/airside-profile.js";
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import {
 	getEffectiveProviders,
@@ -62,6 +68,9 @@ const providerSchema = z.object({
 	airsideIconUrl: z.string().nullable(),
 	// Self-declared public profile of a custom Airside carrier (display only).
 	airsideProfile: publicAirsideProfileSchema.nullable(),
+	// Airworthy certificate, present only while it is active, unexpired and
+	// the carrier's live profile still matches what it attests.
+	airsideCertification: publicCertificationSchema.nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -125,8 +134,8 @@ const modelProviderMappingSchema = z.object({
 	cacheWriteInputPrice1h: z.string().nullable(),
 	imageInputPrice: z.string().nullable(),
 	imageOutputPrice: z.string().nullable(),
-	imageInputTokensByResolution: z.record(z.number()).nullable(),
-	imageOutputTokensByResolution: z.record(z.number()).nullable(),
+	imageInputTokensByResolution: z.record(z.string(), z.number()).nullable(),
+	imageOutputTokensByResolution: z.record(z.string(), z.number()).nullable(),
 	inputCharacterPrice: z.string().nullable(),
 	inputAudioPrice: z.string().nullable(),
 	cachedInputAudioPrice: z.string().nullable(),
@@ -167,8 +176,8 @@ const modelProviderMappingSchema = z.object({
 	supportedVideoDurationsSecondsImageToVideo: z.array(z.number()).nullable(),
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
-	perSecondPrice: z.record(z.string()).nullable(),
-	perImagePrice: z.record(z.string()).nullable(),
+	perSecondPrice: z.record(z.string(), z.string()).nullable(),
+	perImagePrice: z.record(z.string(), z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
 	peakPricing: peakPricingSchema.nullable(),
 	serviceTiers: z.array(z.string()).nullable(),
@@ -560,17 +569,22 @@ async function fetchModelSearchRows(): Promise<ModelSearchRows> {
 			columns: { providerId: true, customName: true },
 		}),
 	]);
+	const publicProviderIds = getPublicProviderIds(claims);
 	const customNameByProvider = new Map(
 		claims.map((claim) => [claim.providerId, claim.customName]),
 	);
 	return {
 		models,
-		mappings,
-		providers: providers.map((provider) => ({
-			id: provider.id,
-			name:
-				customNameByProvider.get(provider.id) ?? provider.name ?? provider.id,
-		})),
+		mappings: mappings.filter((mapping) =>
+			publicProviderIds.has(mapping.providerId),
+		),
+		providers: providers
+			.filter((provider) => publicProviderIds.has(provider.id))
+			.map((provider) => ({
+				id: provider.id,
+				name:
+					customNameByProvider.get(provider.id) ?? provider.name ?? provider.id,
+			})),
 	};
 }
 
@@ -708,9 +722,11 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	const activeClaims = await db.query.providerClaim.findMany({
 		where: { status: { eq: "active" } },
 		columns: {
+			id: true,
 			providerId: true,
 			kind: true,
 			customName: true,
+			customDescription: true,
 			logoUrl: true,
 			iconUrl: true,
 			website: true,
@@ -728,25 +744,57 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			profileUpdatedAt: true,
 		},
 	});
+	const publicProviderIds = getPublicProviderIds(activeClaims);
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
 	);
 	const airsideProfileFor = (
 		claim: (typeof activeClaims)[number] | undefined,
 	) => (claim ? publicAirsideProfile(claim) : null);
+	const activeCertifications =
+		activeClaims.length > 0
+			? await db.query.providerCertification.findMany({
+					where: {
+						status: { eq: "active" },
+						providerClaimId: { in: activeClaims.map((claim) => claim.id) },
+					},
+				})
+			: [];
+	const certificationByClaim = new Map(
+		activeCertifications.map((row) => [row.providerClaimId, row]),
+	);
+	const airsideCertificationFor = (
+		claim: (typeof activeClaims)[number] | undefined,
+	) =>
+		claim
+			? publicCertification(
+					certificationByClaim.get(claim.id),
+					effectiveCarrierProfile(claim),
+				)
+			: null;
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
-		providers: providers.map((provider) => ({
-			...provider,
-			name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
-			modelCardBadge:
-				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
-				null,
-			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
-			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
-			airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
-		})),
+		providers: providers
+			.filter((provider) => publicProviderIds.has(provider.id))
+			.map((provider) => ({
+				...provider,
+				name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
+				// Custom carriers keep their description on the claim; the provider
+				// row only holds the snapshot taken at approval.
+				description:
+					brandingByProvider.get(provider.id)?.customDescription ??
+					provider.description,
+				modelCardBadge:
+					providerDefinitions.find((p) => p.id === provider.id)
+						?.modelCardBadge ?? null,
+				airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
+				airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
+				airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
+				airsideCertification: airsideCertificationFor(
+					brandingByProvider.get(provider.id),
+				),
+			})),
 	});
 });
 
@@ -762,7 +810,7 @@ const getProviderMarksRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ marks: z.record(z.string()) }),
+					schema: z.object({ marks: z.record(z.string(), z.string()) }),
 				},
 			},
 			description: "Uploaded provider marks",
@@ -1377,7 +1425,9 @@ const getProviderFacts = createRoute({
 								name: z.string(),
 								description: z.string(),
 								forwardsSafetyIdentifier: z.boolean(),
-								env: z.object({ required: z.record(z.string().optional()) }),
+								env: z.object({
+									required: z.record(z.string(), z.string().optional()),
+								}),
 								color: z.string().optional(),
 								website: z.string().nullish(),
 								legalEntity: z.string().nullable(),
@@ -1428,3 +1478,11 @@ internalModels.openapi(getProviderFacts, async (c) => {
 		})),
 	});
 });
+function getPublicProviderIds(
+	claims: readonly { providerId: string }[],
+): Set<string> {
+	return new Set([
+		...providerDefinitions.map((provider) => provider.id),
+		...claims.map((claim) => claim.providerId),
+	]);
+}

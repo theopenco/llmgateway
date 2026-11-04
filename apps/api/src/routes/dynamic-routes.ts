@@ -1,8 +1,9 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
+import { createRoute } from "@/utils/create-route.js";
 
 import { and, cdb, db, eq, sql, tables } from "@llmgateway/db";
 import {
@@ -502,7 +503,8 @@ dynamicRoutes.openapi(publishRoute, async (c) => {
 			.select({ id: tables.dynamicRoute.id })
 			.from(tables.dynamicRoute)
 			.where(eq(tables.dynamicRoute.id, route.id))
-			.for("update");
+			.for("update")
+			.$withCache(false);
 		const [versionRow] = await tx
 			.insert(tables.dynamicRouteVersion)
 			.values({

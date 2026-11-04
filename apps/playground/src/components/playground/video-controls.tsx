@@ -38,6 +38,8 @@ import {
 	getVideoResolutionLabel,
 	getVideoResolutions,
 	getVideoSizeDimensions,
+	supportsVideoReasoningEffort,
+	type VideoReasoningEffort,
 	type VideoDuration,
 	type VideoFrameInputs,
 	type VideoInputImage,
@@ -56,6 +58,8 @@ interface VideoControlsProps {
 	setVideoDuration: (value: VideoDuration) => void;
 	audioEnabled: boolean;
 	setAudioEnabled: (value: boolean) => void;
+	reasoningEffort: VideoReasoningEffort;
+	setReasoningEffort: (value: VideoReasoningEffort) => void;
 	audioToggleDisabled: boolean;
 	audioToggleDisabledReason?: string;
 	canUseFrameInputs: boolean;
@@ -97,6 +101,8 @@ export function VideoControls({
 	setVideoDuration,
 	audioEnabled,
 	setAudioEnabled,
+	reasoningEffort,
+	setReasoningEffort,
 	audioToggleDisabled,
 	audioToggleDisabledReason,
 	canUseFrameInputs,
@@ -739,6 +745,28 @@ export function VideoControls({
 							))}
 						</SelectContent>
 					</Select>
+					{selectedModels.some(supportsVideoReasoningEffort) && (
+						<Select
+							value={reasoningEffort}
+							onValueChange={(value) =>
+								setReasoningEffort(value as VideoReasoningEffort)
+							}
+							disabled={isGenerating}
+						>
+							<SelectTrigger
+								size="sm"
+								className="min-w-[180px]"
+								aria-label="FLUX prompt reasoning"
+								title="FLUX 3 Max prompt reasoning effort, not output resolution or visual quality. Only applies to FLUX."
+							>
+								<SelectValue placeholder="Prompt reasoning" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="low">Prompt reasoning: Low</SelectItem>
+								<SelectItem value="high">Prompt reasoning: High</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
 					<span
 						className="text-xs text-muted-foreground tabular-nums"
 						title="Output size"

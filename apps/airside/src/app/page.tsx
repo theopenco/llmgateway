@@ -87,28 +87,49 @@ const DISPATCH_WEIGHTS = [
 
 const MAX_DISPATCH_WEIGHT = Math.max(...DISPATCH_WEIGHTS.map((w) => w.weight));
 
-const FAQ = [
+const FAQ: {
+	id: string;
+	q: string;
+	a: string;
+	points?: string[];
+}[] = [
 	{
+		id: "who-can-claim",
 		q: "Who can claim a carrier?",
 		a: "Anyone with a verified email address on the provider's own domain. If your API is served from api.acme.ai, an @acme.ai address claims the acme carrier — domain verification establishes ownership. Claims are reviewed before activation.",
 	},
 	{
+		id: "listing-cost",
 		q: "What does listing cost?",
 		a: "A one-time $2,500 listing fee per provider company, paid via Stripe during onboarding and due before your claim is approved — non-refundable, and waived with an invite code if we already work with you. No subscription, no minimum volume: once listed you only share the gateway margin you accept on traffic you win.",
 	},
 	{
+		id: "getting-paid",
+		q: "How do we get paid for traffic?",
+		a: "We agree one of three billing modes with you and set it up together before your carrier goes live — it is not something you pick in the console. Settings → Billing shows the mode in place; contact us to change it. In every mode we reconcile your charges against our own traffic records each month.",
+		points: [
+			"Pay-as-you-go: we open an account on your platform with a card on auto top-up, so usage is charged as it happens.",
+			"Payout: you issue us an API key and invoice us on the 1st for the previous month. We pay out your earnings by USD wire, weekly or monthly.",
+			"Post-billing: we open an account on your platform and you switch it to post-paid. You invoice us on the 1st for the previous month and we pay once a month.",
+		],
+	},
+	{
+		id: "multiple-carriers",
 		q: "Can we run more than one carrier?",
 		a: "Yes. A company can hold multiple providers — regional deployments, a fast-inference brand and a budget brand — all under one operations console.",
 	},
 	{
+		id: "editing-prices",
 		q: "Why can't we edit prices directly?",
 		a: "Because your listed price is what developers are billed. Prices enter service only through an approved tariff filing, so nobody's bill jumps because of a typo at 2am. Changes to active model metadata also go through review.",
 	},
 	{
+		id: "more-traffic",
 		q: "How do we get routed more traffic?",
 		a: "Dispatch scores every candidate on fares, on-time performance, runway capacity and taxi time. Cutting your fares, offering a discount, or accepting a higher landing fee lowers your routing score — and lower scores win.",
 	},
 	{
+		id: "traffic-visibility",
 		q: "What do we see about our traffic?",
 		a: "Requests, errors, tokens and billed traffic across every gateway tenant that flies with you — aggregated per model and per day, the same rollups our own operations dashboard reads.",
 	},
@@ -153,7 +174,10 @@ const JSON_LD = [
 		mainEntity: FAQ.map((item) => ({
 			"@type": "Question",
 			name: item.q,
-			acceptedAnswer: { "@type": "Answer", text: item.a },
+			acceptedAnswer: {
+				"@type": "Answer",
+				text: [item.a, ...(item.points ?? [])].join(" "),
+			},
 		})),
 	},
 ];
@@ -373,9 +397,22 @@ export default function LandingPage() {
 					</h2>
 					<dl className="mt-8 space-y-8">
 						{FAQ.map((item) => (
-							<div key={item.q}>
-								<dt className="font-display font-bold">{item.q}</dt>
-								<dd className="text-muted-foreground mt-2 text-sm">{item.a}</dd>
+							<div key={item.id} id={item.id} className="scroll-mt-20">
+								<dt className="font-display font-bold">
+									<a href={`#${item.id}`} className="hover:underline">
+										{item.q}
+									</a>
+								</dt>
+								<dd className="text-muted-foreground mt-2 text-sm">
+									<p>{item.a}</p>
+									{item.points ? (
+										<ol className="mt-3 list-decimal space-y-2 pl-5">
+											{item.points.map((point) => (
+												<li key={point}>{point}</li>
+											))}
+										</ol>
+									) : null}
+								</dd>
 							</div>
 						))}
 					</dl>

@@ -207,7 +207,12 @@ export async function latestListing(claim: ProviderClaimRow) {
 			providerId: { eq: claim.providerId },
 			status: { ne: "delisted" },
 		},
-		columns: { modelName: true, externalId: true, apiFormat: true },
+		columns: {
+			modelName: true,
+			externalId: true,
+			apiFormat: true,
+			decisions: true,
+		},
 		orderBy: { createdAt: "desc" },
 	});
 }

@@ -16,8 +16,13 @@ import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ProviderModelsTable } from "@/components/provider-models-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	CatalogDetailUsageMode,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
 import { useHistoryClient } from "@/lib/history-client";
+import { CATALOG_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
@@ -120,13 +125,15 @@ export function ProviderDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	// The server rendered the stats for the initial window; only refetch for others.
+	const mode = useUsageMode(CATALOG_USAGE_MODE_DEFAULT);
+	// The server renders the stats for the current mode and the initial
+	// window; only refetch for other windows.
 	const [initialWindow] = useState(window);
 	const $api = useApi();
 	const detailQuery = $api.useQuery(
 		"get",
 		"/admin/providers/{providerId}",
-		{ params: { path: { providerId }, query: { window } } },
+		{ params: { path: { providerId }, query: { window, mode } } },
 		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
 	);
 	const detail = window === initialWindow ? undefined : detailQuery.data;
@@ -137,9 +144,9 @@ export function ProviderDetailClient({
 	const history = useHistoryClient();
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await history.providerHistory(providerId, w);
+			return await history.providerHistory(providerId, w, mode);
 		},
-		[history, providerId],
+		[history, providerId, mode],
 	);
 
 	const verificationsQuery = $api.useQuery(
@@ -192,6 +199,8 @@ export function ProviderDetailClient({
 			{airside ? (
 				<AirsideCarrierCard providerId={providerId} carrier={airside} />
 			) : null}
+
+			<CatalogDetailUsageMode />
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (
@@ -248,6 +257,7 @@ export function ProviderDetailClient({
 					<ProviderModelsTable
 						providerId={providerId}
 						models={models}
+						usageMode={mode}
 						verifications={verifications}
 						onVerificationSettled={() => void verificationsQuery.refetch()}
 					/>

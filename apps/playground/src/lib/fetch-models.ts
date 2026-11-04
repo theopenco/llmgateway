@@ -56,6 +56,7 @@ export interface ApiModelProviderMapping {
 	realtime: boolean | null;
 	realtimeTranscription: boolean | null;
 	realtimeTranscriptionTurnDetection: boolean | null;
+	speechGenerations: boolean | null;
 	supportedVoices: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;

@@ -1,6 +1,3 @@
-import { promisify } from "node:util";
-import { zstdDecompress } from "node:zlib";
-
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
@@ -19,6 +16,12 @@ import {
 } from "@/lib/cached-queries.js";
 import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
+import {
+	assertOriginAllowed,
+	loadEndUserWallet,
+} from "@/lib/end-user-session.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import {
@@ -33,7 +36,6 @@ import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	compactRequestSchema,
@@ -54,6 +56,7 @@ import {
 	processStreamChunk,
 	createCompletionEvents,
 	createFailedEvent,
+	getChatStreamError,
 	buildFinalOutputItems,
 } from "./tools/convert-streaming-to-responses.js";
 import {
@@ -63,21 +66,68 @@ import {
 } from "./tools/response-state.js";
 import { extractAdditionalTools } from "./tools/tool-registry.js";
 
+import type { ResponsesError } from "./tools/convert-streaming-to-responses.js";
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { ServerTypes } from "@/vars.js";
+import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-const zstdDecompressAsync = promisify(zstdDecompress);
-
 export const responses = new Hono<ServerTypes>();
+
+/**
+ * Headers forwarded onto the internal chat completions call. Mirrors the
+ * `/v1/messages` and `/v4/ai` hops: presence-sensitive opt-outs (x-no-cache,
+ * x-no-fallback) and the sticky-session headers the chat handler reads are
+ * only set when the caller actually sent them.
+ */
+function forwardedHeaders(c: Context<ServerTypes>): Record<string, string> {
+	const optional = [
+		"x-no-fallback",
+		"x-no-cache",
+		"x-session-id",
+		"x-session-affinity",
+		"session_id",
+		"session-id",
+	];
+
+	return {
+		"Content-Type": "application/json",
+		Authorization: c.req.header("Authorization") ?? "",
+		"x-api-key": c.req.header("x-api-key") ?? "",
+		"User-Agent": c.req.header("User-Agent") ?? "",
+		"x-request-id": c.req.header("x-request-id") ?? "",
+		"x-source": c.req.header("x-source") ?? "",
+		"x-debug": c.req.header("x-debug") ?? "",
+		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("responses"),
+		...internalPrincipalHeaders(c.req.raw.headers),
+		...forwardedCustomHeaders(c.req.raw.headers),
+		...Object.fromEntries(
+			optional
+				.map((name) => [name, c.req.header(name)])
+				.filter((entry): entry is [string, string] => entry[1] !== undefined),
+		),
+	};
+}
+
+/**
+ * Surface gateway response-cache replays: copy the inner handler's
+ * x-llmgateway-cache marker onto the outgoing response so callers can tell a
+ * replay from a fresh sample.
+ */
+function forwardCacheStatusHeader(c: Context<ServerTypes>, response: Response) {
+	const innerCacheStatus = response.headers.get("x-llmgateway-cache");
+	if (innerCacheStatus) {
+		c.header("x-llmgateway-cache", innerCacheStatus);
+	}
+}
 
 /**
  * Extract and validate the API token from request headers.
  * Returns the token, apiKey, project, and organization.
  */
 async function authenticateRequest(
-	c: {
-		req: { header: (name: string) => string | undefined };
-	},
+	c: Pick<Context<ServerTypes>, "req">,
 	// Only the billable POST handlers enforce spend limits; the GET retrieval
 	// reads a stored response and must stay accessible even when over budget.
 	enforceSpendLimits = false,
@@ -111,9 +161,34 @@ async function authenticateRequest(
 		return { error: "API key is not active", status: 401 as const };
 	}
 
+	if (apiKey.keyType === "platform_publishable") {
+		return {
+			error:
+				"Publishable keys cannot call the Responses API directly. Mint an end-user session token first.",
+			status: 401 as const,
+		};
+	}
+	if (
+		apiKey.keyType === "user" &&
+		apiKey.expiresAt &&
+		apiKey.expiresAt.getTime() <= Date.now()
+	) {
+		return {
+			error: "Unauthorized: LLMGateway API key has expired.",
+			status: 401 as const,
+		};
+	}
+
 	const project = await findProjectById(apiKey.projectId);
 	if (!project) {
 		return { error: "Could not find project", status: 500 as const };
+	}
+
+	if (project.status === "deleted") {
+		return {
+			error: "Project has been archived and is no longer accessible",
+			status: 410 as const,
+		};
 	}
 
 	const organization = await findOrganizationById(project.organizationId);
@@ -137,6 +212,13 @@ async function authenticateRequest(
 	// Project access gates every authenticated path, including retrieval of
 	// stored responses; spend limits only apply where new usage is generated.
 	try {
+		const wallet = await loadEndUserWallet(apiKey);
+		if (wallet) {
+			assertOriginAllowed(c, project);
+			if (!enforceSpendLimits) {
+				assertResponsesHistoryAccess(apiKey);
+			}
+		}
 		await assertMemberProjectAccess(apiKey, project.organizationId);
 		if (enforceSpendLimits) {
 			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
@@ -162,14 +244,7 @@ async function authenticateRequest(
 responses.post("/", async (c) => {
 	let rawBody: unknown;
 	try {
-		const contentEncoding = c.req.header("content-encoding");
-		if (contentEncoding === "zstd") {
-			const compressed = await c.req.arrayBuffer();
-			const decompressed = await zstdDecompressAsync(Buffer.from(compressed));
-			rawBody = JSON.parse(decompressed.toString("utf8"));
-		} else {
-			rawBody = await c.req.json();
-		}
+		rawBody = await c.req.json();
 	} catch {
 		const message = "Invalid JSON in request body";
 		logger.warn("Invalid Responses API JSON", {
@@ -239,7 +314,10 @@ responses.post("/", async (c) => {
 
 	const { project, organization } = authResult;
 
-	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+		organization,
+		authResult.apiKey,
+	);
 	if (zeroDataRetentionEnabled && req.store !== false) {
 		return c.json(
 			{
@@ -264,6 +342,20 @@ responses.post("/", async (c) => {
 		inputItems = [{ role: "user", content: req.input }];
 	} else {
 		inputItems = req.input ?? [];
+	}
+
+	if (
+		req.previous_response_id ||
+		inputItems.some(
+			(item) =>
+				item &&
+				typeof item === "object" &&
+				"type" in item &&
+				item.type === "item_reference",
+		)
+	) {
+		assertResponsesHistoryAccess(authResult.apiKey);
+		await getAuthenticatedReadAccess(c);
 	}
 
 	// Handle previous_response_id for conversation chaining
@@ -336,8 +428,24 @@ responses.post("/", async (c) => {
 					},
 				};
 			}
-			if (tool.type === "web_search") {
-				return tool;
+			// `web_search_preview` and dated `web_search_2025_08_26` are OpenAI's
+			// other names for the same tool.
+			if (
+				typeof tool.type === "string" &&
+				/^web_search(_preview)?(_\d{4}_\d{2}_\d{2})?$/.test(tool.type)
+			) {
+				const { filters, ...rest } = tool as {
+					filters?: { allowed_domains?: string[] };
+					allowed_domains?: string[];
+				};
+				return {
+					...rest,
+					type: "web_search" as const,
+					...(filters?.allowed_domains &&
+						!rest.allowed_domains && {
+							allowed_domains: filters.allowed_domains,
+						}),
+				};
 			}
 			return null;
 		})
@@ -370,6 +478,7 @@ responses.post("/", async (c) => {
 	const chatRequest: Record<string, unknown> = {
 		messages,
 		stream: req.stream,
+		safety_identifier: req.safety_identifier,
 	};
 	if (req.model !== undefined) {
 		chatRequest.model = req.model;
@@ -409,7 +518,10 @@ responses.post("/", async (c) => {
 		chatRequest.tool_choice =
 			typeof req.tool_choice === "object" && "name" in req.tool_choice
 				? { type: "function", function: { name: req.tool_choice.name } }
-				: req.tool_choice;
+				: typeof req.tool_choice === "object" &&
+					  req.tool_choice.type === "web_search_preview"
+					? { type: "web_search" }
+					: req.tool_choice;
 	}
 	if (req.parallel_tool_calls !== undefined) {
 		chatRequest.parallel_tool_calls = req.parallel_tool_calls;
@@ -463,22 +575,7 @@ responses.post("/", async (c) => {
 	const state = createStreamingState(responseModel, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
-	const internalHeaders: Record<string, string> = {
-		"Content-Type": "application/json",
-		Authorization: c.req.header("Authorization") ?? "",
-		"x-api-key": c.req.header("x-api-key") ?? "",
-		"User-Agent": c.req.header("User-Agent") ?? "",
-		"x-request-id": c.req.header("x-request-id") ?? "",
-		"x-source": c.req.header("x-source") ?? "",
-		"x-debug": c.req.header("x-debug") ?? "",
-		...(c.req.header("x-no-fallback") !== undefined && {
-			"x-no-fallback": c.req.header("x-no-fallback") ?? "",
-		}),
-		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-		...internalApiOriginHeaders("responses"),
-		...forwardedIpHeaders(c.req.raw.headers),
-		...forwardedCustomHeaders(c.req.raw.headers),
-	};
+	const internalHeaders: Record<string, string> = forwardedHeaders(c);
 
 	// Pass Responses API context via in-memory Map (not headers) so the chat
 	// handler logs this request under the resp_ id the client sees. Response
@@ -528,6 +625,8 @@ responses.post("/", async (c) => {
 			);
 		}
 	}
+
+	forwardCacheStatusHeader(c, response);
 
 	// Handle streaming response
 	if (req.stream) {
@@ -581,13 +680,38 @@ responses.post("/", async (c) => {
 				});
 			}, KEEPALIVE_INTERVAL_MS);
 
-			const processLine = async (line: string) => {
+			// The chat stream reports upstream failures as `event: error` with an
+			// `{ error }` payload followed by [DONE]; track the event name so the
+			// failure ends this stream as response.failed, not response.completed.
+			let currentEventType: string | null = null;
+			let terminalSent = false;
+			const sendFailed = async (error?: ResponsesError) => {
+				terminalSent = true;
+				await sendCreated();
+				const failedEvent = createFailedEvent(state, error);
+				await stream.writeSSE({
+					event: failedEvent.event,
+					data: failedEvent.data,
+				});
+			};
+
+			const processLine = async (rawLine: string) => {
+				const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+				if (line === "") {
+					currentEventType = null;
+					return false;
+				}
+				if (line.startsWith("event: ")) {
+					currentEventType = line.slice(7).trim();
+					return false;
+				}
 				if (!line.startsWith("data: ")) {
 					return false;
 				}
 				const data = line.slice(6).trim();
 
 				if (data === "[DONE]") {
+					terminalSent = true;
 					await sendCreated();
 					// Send completion events
 					const completionEvents = createCompletionEvents(
@@ -641,6 +765,15 @@ responses.post("/", async (c) => {
 					return false;
 				}
 
+				const upstreamError = getChatStreamError(chunk, currentEventType);
+				if (upstreamError) {
+					logger.warn("Responses stream received an upstream error", {
+						code: upstreamError.code,
+					});
+					await sendFailed(upstreamError);
+					return true;
+				}
+
 				await sendCreated(chunk);
 				const events = processStreamChunk(chunk, state);
 				for (const event of events) {
@@ -672,8 +805,18 @@ responses.post("/", async (c) => {
 				}
 
 				// Process any remaining data in the buffer
-				if (buffer.trim()) {
-					await processLine(buffer);
+				if (buffer.trim() && (await processLine(buffer))) {
+					return;
+				}
+
+				// The chat stream always ends with [DONE]; ending without it means
+				// the response is incomplete, so it must not look successful.
+				if (!terminalSent && !stream.aborted) {
+					logger.warn("Responses stream ended without a terminal event");
+					await sendFailed({
+						code: "server_error",
+						message: "The response stream ended before completion",
+					});
 				}
 			} catch (error) {
 				// A client-side abort needs no terminal event — the socket is
@@ -690,12 +833,9 @@ responses.post("/", async (c) => {
 						error,
 					});
 					try {
-						await sendCreated();
-						const failedEvent = createFailedEvent(state);
-						await stream.writeSSE({
-							event: failedEvent.event,
-							data: failedEvent.data,
-						});
+						if (!terminalSent) {
+							await sendFailed();
+						}
 					} catch (sseError) {
 						logger.error("Failed to send response.failed event", {
 							error: sseError,
@@ -762,14 +902,7 @@ responses.post("/", async (c) => {
 responses.post("/compact", async (c) => {
 	let rawBody: unknown;
 	try {
-		const contentEncoding = c.req.header("content-encoding");
-		if (contentEncoding === "zstd") {
-			const compressed = await c.req.arrayBuffer();
-			const decompressed = await zstdDecompressAsync(Buffer.from(compressed));
-			rawBody = JSON.parse(decompressed.toString("utf8"));
-		} else {
-			rawBody = await c.req.json();
-		}
+		rawBody = await c.req.json();
 	} catch {
 		const message = "Invalid JSON in request body";
 		logger.warn("Invalid Responses compact JSON", {
@@ -837,13 +970,30 @@ responses.post("/compact", async (c) => {
 	}
 
 	const { project, organization } = authResult;
-	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+		organization,
+		authResult.apiKey,
+	);
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {
 		inputItems = [{ type: "message", role: "user", content: req.input }];
 	} else if (Array.isArray(req.input)) {
 		inputItems = req.input;
+	}
+
+	if (
+		req.previous_response_id ||
+		inputItems.some(
+			(item) =>
+				item &&
+				typeof item === "object" &&
+				"type" in item &&
+				item.type === "item_reference",
+		)
+	) {
+		assertResponsesHistoryAccess(authResult.apiKey);
+		await getAuthenticatedReadAccess(c);
 	}
 
 	if (req.previous_response_id) {
@@ -912,6 +1062,7 @@ responses.post("/compact", async (c) => {
 		model: req.model,
 		messages,
 		stream: false,
+		safety_identifier: req.safety_identifier,
 	};
 	if (req.prompt_cache_key !== undefined) {
 		chatRequest.prompt_cache_key = req.prompt_cache_key;
@@ -919,22 +1070,7 @@ responses.post("/compact", async (c) => {
 
 	const compactionId = `resp_${shortid(24)}`;
 
-	const internalHeaders: Record<string, string> = {
-		"Content-Type": "application/json",
-		Authorization: c.req.header("Authorization") ?? "",
-		"x-api-key": c.req.header("x-api-key") ?? "",
-		"User-Agent": c.req.header("User-Agent") ?? "",
-		"x-request-id": c.req.header("x-request-id") ?? "",
-		"x-source": c.req.header("x-source") ?? "",
-		"x-debug": c.req.header("x-debug") ?? "",
-		...(c.req.header("x-no-fallback") !== undefined && {
-			"x-no-fallback": c.req.header("x-no-fallback") ?? "",
-		}),
-		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-		...internalApiOriginHeaders("responses"),
-		...forwardedIpHeaders(c.req.raw.headers),
-		...forwardedCustomHeaders(c.req.raw.headers),
-	};
+	const internalHeaders: Record<string, string> = forwardedHeaders(c);
 
 	const contextKey = compactionId;
 	setResponsesContext(contextKey, { logId: compactionId });
@@ -974,6 +1110,8 @@ responses.post("/compact", async (c) => {
 		}
 	}
 
+	forwardCacheStatusHeader(c, response);
+
 	const chatJson = await response.json();
 	const createdAt = Math.floor(Date.now() / 1000);
 	const compactionResponse = convertChatResponseToCompaction(
@@ -991,7 +1129,8 @@ responses.post("/compact", async (c) => {
 			? chatJson.model
 			: req.model;
 
-	if (!zeroDataRetentionEnabled) {
+	// SDK state is wallet-scoped; this cache is project-scoped.
+	if (!zeroDataRetentionEnabled && !authResult.apiKey.endUserSession) {
 		await storeResponse(
 			compactionId,
 			{
@@ -1029,6 +1168,8 @@ responses.get("/:response_id", async (c) => {
 			authResult.status,
 		);
 	}
+
+	await getAuthenticatedReadAccess(c);
 
 	const { project } = authResult;
 	const responseId = c.req.param("response_id");
@@ -1110,3 +1251,12 @@ responses.get("/:response_id", async (c) => {
 
 	return c.json(responsePayload);
 });
+function assertResponsesHistoryAccess(apiKey: GatewayApiKey): void {
+	// Stored responses and item references have project ownership, not wallet ownership.
+	if (apiKey.endUserSession) {
+		throw new HTTPException(403, {
+			message:
+				"Stored Responses history is not available to end-user sessions. Send conversation input directly instead.",
+		});
+	}
+}

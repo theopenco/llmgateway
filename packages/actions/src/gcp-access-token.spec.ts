@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	GOOGLE_OAUTH_TOKEN_URI,
+	GcpCredentialError,
 	getGcpServiceAccountAccessToken,
 } from "./gcp-access-token.js";
 
@@ -220,12 +221,65 @@ describe("getGcpServiceAccountAccessToken", () => {
 	it("does not expose token endpoint response bodies", async () => {
 		redisGetMock.mockResolvedValue(null);
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			new Response("untrusted response details", { status: 400 }),
+			Response.json(
+				{ error: "untrusted response details", error_description: "secret" },
+				{ status: 400 },
+			),
+		);
+
+		const result = getGcpServiceAccountAccessToken(
+			serviceAccount("error@example.com"),
+		);
+		await expect(result).rejects.toBeInstanceOf(GcpCredentialError);
+		await expect(result).rejects.toThrow(
+			/^GCP rejected the service account key: check/,
+		);
+	});
+
+	it("reports an allowlisted OAuth error code as a credential error", async () => {
+		redisGetMock.mockResolvedValue(null);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			Response.json(
+				{ error: "invalid_grant", error_description: "Invalid JWT Signature." },
+				{ status: 400 },
+			),
 		);
 
 		await expect(
-			getGcpServiceAccountAccessToken(serviceAccount("error@example.com")),
-		).rejects.toThrow(/^Failed to exchange JWT for GCP access token: 400$/);
+			getGcpServiceAccountAccessToken(serviceAccount("revoked@example.com")),
+		).rejects.toMatchObject({
+			name: "GcpCredentialError",
+			status: 400,
+			message: expect.stringContaining("(invalid_grant)"),
+		});
+	});
+
+	it("keeps token endpoint server errors as generic failures", async () => {
+		redisGetMock.mockResolvedValue(null);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("unavailable", { status: 503 }),
+		);
+
+		const result = getGcpServiceAccountAccessToken(
+			serviceAccount("upstream-down@example.com"),
+		);
+		await expect(result).rejects.not.toBeInstanceOf(GcpCredentialError);
+		await expect(result).rejects.toThrow(
+			/^Failed to exchange JWT for GCP access token: 503$/,
+		);
+	});
+
+	it("rejects an unusable private_key as a credential error", async () => {
+		redisGetMock.mockResolvedValue(null);
+		await expect(
+			getGcpServiceAccountAccessToken(
+				JSON.stringify({
+					client_email: "bad-key@example.com",
+					private_key: "not a pem",
+					project_id: "test-project",
+				}),
+			),
+		).rejects.toBeInstanceOf(GcpCredentialError);
 	});
 
 	it("ignores a user-supplied token_uri", async () => {

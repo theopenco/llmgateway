@@ -728,13 +728,15 @@ export default function FleetPage() {
 												</span>
 											) : null}
 											<span className="font-mono">
-												{model.apiFormat === "openai-chat-completions"
-													? "Chat Completions"
-													: model.apiFormat === "openai-responses"
-														? "Responses API"
-														: model.apiFormat === "google-vertex"
-															? "Vertex API"
-															: "Carrier default"}
+												{model.decisions
+													? "Decisions API"
+													: model.apiFormat === "openai-chat-completions"
+														? "Chat Completions"
+														: model.apiFormat === "openai-responses"
+															? "Responses API"
+															: model.apiFormat === "google-vertex"
+																? "Vertex API"
+																: "Carrier default"}
 											</span>
 											{model.quantization ? (
 												<span className="font-mono">

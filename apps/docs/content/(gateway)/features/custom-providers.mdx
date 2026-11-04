@@ -160,6 +160,29 @@ undefined models are rejected with `400`. This guarantees that every request has
 known cost attribution and enforced limits. When disabled, undefined models
 still work but remain unbilled, as before.
 
+## Prompt caching
+
+Each custom provider key has a **Forward prompt-cache markers** switch
+(`forwardCacheControl` in the API). It is on by default for new keys; keys
+created before the switch existed keep it off and strip markers until you turn
+it on. Turn it off for a provider whose strict OpenAI-compatible API rejects
+unknown fields. Set it when creating the key, or toggle it later from the key's
+menu on the provider keys page or on the
+[custom models](#custom-model-catalog) page.
+
+With the switch on, the gateway forwards your markers on text content parts, and a
+`tool_result` marker from `/v1/messages` (or `tool_result_cache_control` on an
+OpenAI-format `tool` message) is moved onto the tool message's last text part,
+turning a string tool result into a one-part array. Markers are normalized to
+`{"type": "ephemeral"}` with an optional `5m` or `1h` `ttl`; malformed markers,
+markers on images and other non-text parts, and markers on tool definitions are
+dropped.
+
+The switch only forwards markers your client sends; the gateway adds none of
+its own for custom providers. A project whose
+[provider cache-write mode](/features/caching/provider-cache-control) is
+**Disabled** still strips every marker.
+
 ### Routing bare model ids
 
 A catalog entry whose model id equals a built-in model id and has a price joins

@@ -11,6 +11,7 @@ import {
 	REALTIME_MODEL_COOKIE,
 	REALTIME_TRANSCRIPTION_MODEL_COOKIE,
 } from "@/lib/model-preferences";
+import { pageTitle } from "@/lib/page-title";
 import { catalogueTranscriptionDefaults } from "@/lib/realtime-transcription";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -20,7 +21,7 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Voice Calls — Realtime Speech to Speech",
+	title: pageTitle("AI Voice Calls — Realtime Speech to Speech"),
 	description:
 		"Have live voice conversations with realtime speech-to-speech models. Pick a model and voice, talk naturally, interrupt mid-sentence, and read both transcripts.",
 	alternates: { canonical: "/realtime" },
@@ -145,7 +146,14 @@ export default async function RealtimePage({
 				/>
 			) : null}
 			<RealtimePageClient
-				models={models}
+				// Pre-filtered server-side (superset of the client's session
+				// restriction) so the multi-MB catalogue never crosses the RSC
+				// boundary.
+				models={models.filter((m) =>
+					m.mappings.some(
+						(mapping) => mapping.realtime || mapping.realtimeTranscription,
+					),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { REASONING_EFFORTS, TOOL_CHOICE_MODES } from "@llmgateway/models";
+import {
+	REASONING_EFFORTS,
+	TOOL_CHOICE_MODES,
+	WEB_SEARCH_FORMATS,
+} from "@llmgateway/models";
 
 import type { AirsideModelMetadataChanges, tables } from "@llmgateway/db";
 
@@ -13,6 +17,10 @@ export const reasoningEffortsValue = z
 export const supportedToolChoicesValue = z
 	.array(z.enum(TOOL_CHOICE_MODES))
 	.max(TOOL_CHOICE_MODES.length);
+
+/** How the endpoint takes web search over Chat Completions; null leaves the
+ *  provider's built-in translation, if any. */
+export const webSearchFormatValue = z.enum(WEB_SEARCH_FORMATS);
 
 export const quantizationValue = z.enum([
 	"int4",
@@ -42,6 +50,9 @@ export const airsideModelMetadataSchema = z.object({
 	// reasoningMaxTokens/webSearch, which stay out of this schema because a
 	// carrier may not raise them without a verification proving them.
 	supportedToolChoices: supportedToolChoicesValue.nullish(),
+	// Changes what is sent upstream, so a change on a listing with web search
+	// needs a passing preflight in the new format.
+	webSearchFormat: webSearchFormatValue.nullish(),
 	jsonOutput: z.boolean().optional(),
 	reasoning: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),

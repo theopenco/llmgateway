@@ -239,6 +239,26 @@ describe("validateProviderKey error reporting", () => {
 		expect(warnSpy).toHaveBeenCalled();
 	});
 
+	it("returns malformed key settings at warn level without calling upstream", async () => {
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const result = await validateProviderKey(
+			"cloudflare",
+			"cf-test",
+			undefined,
+			false,
+			{ cloudflare_account_id: "not-an-account-id" },
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.error).toContain("Cloudflare account ID is invalid");
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalled();
+	});
+
 	it("falls back to status text when the body carries no message", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response("not json", { status: 401, statusText: "Unauthorized" }),
@@ -368,12 +388,12 @@ describe("validateProviderKey model-specific probes", () => {
 
 		const result = await validateProviderKey("typesafe", "ts-test");
 
-		expect(result).toEqual({ valid: true, model: "jev-1.13.0" });
+		expect(result).toEqual({ valid: true, model: "jev-1.14.0" });
 		expect(fetchMock.mock.calls[0][0]).toBe(
 			"https://api.typesafe.ai/v1/systemone",
 		);
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
-			model: "jev-1.13.0",
+			model: "jev-1.14.0",
 			state: "Hello",
 			questions: {
 				greeting: { type: "noul", instructions: "Is this a greeting?" },

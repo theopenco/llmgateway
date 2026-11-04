@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 export interface VideoPricing {
 	perSecondPrice?: Record<string, string> | null;
 	requestPrice?: string | null;
@@ -30,8 +32,9 @@ export function estimateVideoCostUsd(
 	resolution: string,
 	durationSeconds: number,
 	inputImageCount: number,
+	inputVideoDurationSeconds = 0,
 ): number {
-	let outputCost = 0;
+	let outputCost = new Decimal(0);
 	const perSecondPrice = pricing.perSecondPrice;
 	if (perSecondPrice) {
 		const candidates = [
@@ -42,28 +45,37 @@ export function estimateVideoCostUsd(
 			"default_video",
 			"default",
 		];
-		let perSecond = candidates
-			.map((key) => Number(perSecondPrice[key]))
-			.find((value) => Number.isFinite(value));
-		if (perSecond === undefined) {
-			perSecond = Math.max(
-				0,
-				...Object.values(perSecondPrice)
-					.map(Number)
-					.filter((value) => Number.isFinite(value)),
-			);
-		}
-		outputCost = durationSeconds * perSecond;
+		const rate = candidates
+			.map((key) => perSecondPrice[key])
+			.find((value) => value !== undefined && Number.isFinite(Number(value)));
+		const perSecond =
+			rate !== undefined
+				? new Decimal(rate)
+				: Decimal.max(
+						0,
+						...Object.values(perSecondPrice)
+							.filter((value) => Number.isFinite(Number(value)))
+							.map((value) => new Decimal(value)),
+					);
+		outputCost = new Decimal(durationSeconds)
+			.plus(Math.max(0, inputVideoDurationSeconds))
+			.mul(perSecond);
 	} else if (
 		pricing.requestPrice !== undefined &&
 		pricing.requestPrice !== null
 	) {
-		const requestPrice = Number(pricing.requestPrice);
-		outputCost = Number.isFinite(requestPrice) ? requestPrice : 0;
+		outputCost = new Decimal(
+			Number.isFinite(Number(pricing.requestPrice)) ? pricing.requestPrice : 0,
+		);
 	}
-	const perImage = Number(pricing.imageInputPrice ?? 0);
-	const imageCost = Number.isFinite(perImage) ? inputImageCount * perImage : 0;
-	return Number((outputCost + imageCost).toFixed(6));
+	const perImage = pricing.imageInputPrice ?? "0";
+	const imageCost = Number.isFinite(Number(perImage))
+		? new Decimal(inputImageCount).mul(perImage)
+		: new Decimal(0);
+	return outputCost
+		.plus(imageCost)
+		.toDecimalPlaces(6, Decimal.ROUND_CEIL)
+		.toNumber();
 }
 
 export interface VideoCatalogModel {
@@ -85,6 +97,8 @@ export function isMinimaxV2VideoModel(externalId: string): boolean {
 }
 
 export type VideoSize =
+	| "640x360"
+	| "360x640"
 	| "848x480"
 	| "854x480"
 	| "480x854"
@@ -101,11 +115,12 @@ export type VideoSize =
 	| "2160x3840";
 
 export type VideoResolution =
-	"480p" | "720p" | "768p" | "960p" | "hd" | "1080p" | "4k";
+	"360p" | "480p" | "720p" | "768p" | "960p" | "hd" | "1080p" | "4k";
 
 export type VideoOrientation = "landscape" | "portrait";
 
 export type VideoDuration =
+	| 3
 	| 4
 	| 5
 	| 6
@@ -188,8 +203,8 @@ export interface VideoGalleryItem {
 export type VideoInputMode = "none" | "frames" | "reference";
 
 const VIDEO_DURATIONS: VideoDuration[] = [
-	4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-	25, 26, 27, 28, 29, 30,
+	3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+	24, 25, 26, 27, 28, 29, 30,
 ];
 
 interface VideoSizeSpec {
@@ -202,6 +217,18 @@ interface VideoSizeSpec {
 // Insertion order is the preference order when several sizes share a
 // resolution and orientation (848x480 over 854x480).
 const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
+	"640x360": {
+		resolution: "360p",
+		orientation: "landscape",
+		width: 640,
+		height: 360,
+	},
+	"360x640": {
+		resolution: "360p",
+		orientation: "portrait",
+		width: 360,
+		height: 640,
+	},
 	"848x480": {
 		resolution: "480p",
 		orientation: "landscape",
@@ -289,6 +316,7 @@ const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
 };
 
 const VIDEO_RESOLUTIONS: VideoResolution[] = [
+	"360p",
 	"480p",
 	"720p",
 	"768p",
@@ -299,6 +327,7 @@ const VIDEO_RESOLUTIONS: VideoResolution[] = [
 ];
 
 const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
+	"360p": "360p",
 	"480p": "480p",
 	"720p": "720p",
 	"768p": "768p",
@@ -388,8 +417,30 @@ export function getVideoDurations(): VideoDuration[] {
 	return VIDEO_DURATIONS;
 }
 
+function isGeminiOmniVideoModel(canonicalModelId: string): boolean {
+	return canonicalModelId === "gemini-omni-1.1-flash";
+}
+
+export type VideoReasoningEffort = "low" | "high";
+
+export function supportsVideoReasoningEffort(modelId: string): boolean {
+	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+	return (
+		canonicalModelId === "flux-3-max" &&
+		(providerId === undefined || providerId === "fal-ai")
+	);
+}
+
 export function supportsVideoFrameInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (canonicalModelId === "flux-3-max") {
+		return providerId === undefined || providerId === "fal-ai";
+	}
+
+	if (isGeminiOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "google-ai-studio";
+	}
 
 	if (isSeedance2ReferenceModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "bytedance";
@@ -448,12 +499,34 @@ function isGrokImagineVideoModel(canonicalModelId: string): boolean {
 
 function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 	return (
-		canonicalModelId === "kling-v3-0" || canonicalModelId === "kling-v3-0-turbo"
+		canonicalModelId === "kling-v3-0" ||
+		canonicalModelId === "kling-v3-0-pro" ||
+		canonicalModelId === "kling-v3-0-turbo"
 	);
+}
+
+function isVeedFabricVideoModel(canonicalModelId: string): boolean {
+	return (
+		canonicalModelId === "veed-fabric-1-0" ||
+		canonicalModelId === "veed-fabric-1-0-fast"
+	);
+}
+
+/** Lip-sync models need exactly one reference image and one reference audio clip. */
+export function requiresVideoLipSyncInputs(modelId: string): boolean {
+	return isVeedFabricVideoModel(parseVideoModel(modelId).canonicalModelId);
 }
 
 export function supportsVideoReferenceInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (isGeminiOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "google-ai-studio";
+	}
+
+	if (isVeedFabricVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
+	}
 
 	if (providerId === "bytedance") {
 		return isSeedance2ReferenceModel(canonicalModelId);
@@ -472,6 +545,10 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
 
+	if (isGeminiOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "google-ai-studio";
+	}
+
 	if (providerId !== undefined && providerId !== "bytedance") {
 		return false;
 	}
@@ -481,6 +558,10 @@ export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 
 export function supportsVideoReferenceAudioInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (isVeedFabricVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
+	}
 
 	if (providerId !== undefined && providerId !== "bytedance") {
 		return false;
@@ -539,12 +620,23 @@ function mappingSupportsVideoRequest(
 
 	if (inputMode === "frames") {
 		// Match by canonical model id — never by the upstream externalId.
+		if (isVeedFabricVideoModel(mapping.modelId)) {
+			return false;
+		}
+
+		if (mapping.providerId === "fal-ai" || mapping.modelId === "flux-3-max") {
+			return (
+				mapping.providerId === "fal-ai" && mapping.modelId === "flux-3-max"
+			);
+		}
+
 		if (mapping.providerId === "bytedance") {
 			return isSeedance2ReferenceModel(mapping.modelId);
 		}
 
 		if (
 			mapping.providerId !== "google-vertex" &&
+			mapping.providerId !== "google-ai-studio" &&
 			mapping.providerId !== "minimax" &&
 			mapping.providerId !== "xai" &&
 			mapping.providerId !== "atlascloud"
@@ -557,6 +649,14 @@ function mappingSupportsVideoRequest(
 		// Match by canonical model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
 			return isSeedance2ReferenceModel(mapping.modelId);
+		}
+
+		if (mapping.providerId === "google-ai-studio") {
+			return isGeminiOmniVideoModel(mapping.modelId);
+		}
+
+		if (mapping.providerId === "atlascloud") {
+			return isVeedFabricVideoModel(mapping.modelId);
 		}
 
 		// Veo reference images are only supported on the veo-3.1 family.
@@ -716,12 +816,13 @@ export function estimateVideoSelectionCostUsd(
 	size: VideoSize,
 	duration: VideoDuration,
 	inputImageCount: number,
+	inputVideoCount = 0,
 ): number | null {
 	if (selectedModels.length === 0) {
 		return null;
 	}
 	const resolution = getVideoResolution(size);
-	let total = 0;
+	let total = new Decimal(0);
 	for (const modelId of selectedModels) {
 		const estimates = getSelectedVideoMappings(models, modelId)
 			.filter((mapping) =>
@@ -733,14 +834,20 @@ export function estimateVideoSelectionCostUsd(
 					(mapping.requestPrice !== undefined && mapping.requestPrice !== null),
 			)
 			.map((mapping) =>
-				estimateVideoCostUsd(mapping, resolution, duration, inputImageCount),
+				estimateVideoCostUsd(
+					mapping,
+					resolution,
+					duration,
+					inputImageCount,
+					estimateVideoInputDurationSeconds(mapping, inputVideoCount > 0),
+				),
 			);
 		if (estimates.length === 0) {
 			return null;
 		}
-		total += Math.max(...estimates);
+		total = total.plus(Decimal.max(...estimates));
 	}
-	return Number(total.toFixed(6));
+	return total.toDecimalPlaces(6, Decimal.ROUND_CEIL).toNumber();
 }
 
 export interface VideoModelResultSnapshot {
@@ -777,4 +884,55 @@ export function mergeVideoModelResults<T extends VideoModelResultSnapshot>(
 			? current
 			: next;
 	});
+}
+const GOOGLE_AI_STUDIO_FILE_NAME_PATTERN = /^files\/[A-Za-z0-9_-]+$/;
+
+/**
+ * Files API name ("files/<id>") of a Google AI Studio video output, stored by
+ * the worker on the job's status payload. Downloading it requires the
+ * provider credential, so content is always proxied through the gateway.
+ */
+export function getGoogleAiStudioVideoFileName(
+	bodies: readonly unknown[],
+): string | null {
+	for (const body of bodies) {
+		if (!body || typeof body !== "object" || Array.isArray(body)) {
+			continue;
+		}
+		const fileName = (body as Record<string, unknown>)
+			.google_ai_studio_file_name;
+		if (
+			typeof fileName === "string" &&
+			GOOGLE_AI_STUDIO_FILE_NAME_PATTERN.test(fileName)
+		) {
+			return fileName;
+		}
+	}
+	return null;
+}
+
+/**
+ * Files API name from an output file URI such as
+ * `https://generativelanguage.googleapis.com/v1beta/files/<id>:download?alt=media`.
+ */
+export function parseGoogleAiStudioFileName(uri: string): string | null {
+	const match = /\/(files\/[A-Za-z0-9_-]+)(?::download)?(?:[?#]|$)/.exec(uri);
+	return match ? match[1] : null;
+}
+export function estimateVideoInputDurationSeconds(
+	mapping: {
+		providerId: string;
+		supportedVideoDurationsSeconds?: readonly number[] | null;
+	},
+	hasVideoInput: boolean,
+	maxVideoDurationSeconds = 0,
+): number {
+	if (mapping.providerId !== "bytedance" || !hasVideoInput) {
+		return 0;
+	}
+	const durations = [
+		maxVideoDurationSeconds,
+		...(mapping.supportedVideoDurationsSeconds ?? []),
+	].filter((duration) => Number.isFinite(duration) && duration > 0);
+	return durations.length > 0 ? Math.max(...durations) : 30;
 }

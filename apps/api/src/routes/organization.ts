@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -12,6 +12,7 @@ import {
 	ORGANIZATION_DELETE_IDLE_DAYS,
 	ORGANIZATION_DELETE_MAX_CREDITS,
 } from "@/lib/organization-deletion.js";
+import { providerCompliancePolicySchema } from "@/lib/provider-compliance-policy.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -23,6 +24,7 @@ import {
 	getAdminOrganizationIds,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
+import { createRoute } from "@/utils/create-route.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -66,10 +68,9 @@ import {
 	projectHourlyStats,
 	getEffectiveProviders,
 } from "@llmgateway/db";
-import { getProviderCountries, models, providers } from "@llmgateway/models";
+import { getProviderCountries } from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
-	CUSTOM_PROVIDER_NAME_REGEX,
 	getBaseLimit,
 	getNextSpendTier,
 	getOrgSpendTier,
@@ -93,65 +94,9 @@ import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const organization = new OpenAPIHono<ServerTypes>();
 
-// Closed sets for the compliance policy's fine-grained restriction lists.
-// Custom providers are addressed as `custom:<name>` and their models as
-// `<name>/<model>`; the names are only format-validated because provider keys
-// can be created/renamed independently of the stored policy.
-const catalogueProviderIds = new Set<string>(
-	providers.map((provider) => provider.id),
-);
-const catalogueModelIds = new Set<string>(models.map((model) => model.id));
-const customProviderRefRegex = new RegExp(
-	`^custom:${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}$`,
-);
-const customModelRefRegex = new RegExp(
-	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
-);
-
 const zdrRetentionConflictMessage =
 	"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.";
-
-const complianceProviderRefSchema = z
-	.string()
-	.max(256)
-	.refine(
-		(ref) => catalogueProviderIds.has(ref) || customProviderRefRegex.test(ref),
-		{ message: "Unknown provider" },
-	);
-
-const complianceModelRefSchema = z
-	.string()
-	.max(256)
-	.refine(
-		(ref) => catalogueModelIds.has(ref) || customModelRefRegex.test(ref),
-		{
-			message: "Unknown model",
-		},
-	);
-
 // Define schemas directly with Zod instead of using createSelectSchema
-const providerCompliancePolicySchema = z.object({
-	enabled: z.boolean(),
-	requireSoc2: z.boolean().optional(),
-	requireSoc2Type2: z.boolean().optional(),
-	requireIso27001: z.boolean().optional(),
-	requireSoc2OrIso27001: z.boolean().optional(),
-	requireGdpr: z.boolean().optional(),
-	blockApiTraining: z.boolean().optional(),
-	blockPromptLogging: z.boolean().optional(),
-	zeroDataRetention: z.boolean().optional(),
-	blockStealthProviders: z.boolean().optional(),
-	allowedCountries: z
-		.array(
-			z.string().regex(/^[A-Z]{2}$/, "Use an ISO 3166-1 alpha-2 country code"),
-		)
-		.optional(),
-	blockedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
-	allowedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
-	blockedModels: z.array(complianceModelRefSchema).max(500).optional(),
-	allowedModels: z.array(complianceModelRefSchema).max(500).optional(),
-});
-
 const organizationSchema = z
 	.object({
 		id: z.string(),

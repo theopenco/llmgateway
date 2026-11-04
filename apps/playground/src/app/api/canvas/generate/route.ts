@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { readJsonBody } from "@/lib/read-json-body";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { catalog } from "@llmgateway/canvas/catalog";
@@ -18,6 +19,7 @@ interface CanvasGenerateBody {
 }
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody<CanvasGenerateBody>(req);
 	const user = await getUser();
 
 	if (!user) {
@@ -26,14 +28,13 @@ export async function POST(req: Request) {
 		});
 	}
 
-	let body: CanvasGenerateBody;
-	try {
-		body = (await req.json()) as CanvasGenerateBody;
-	} catch {
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
 		return new Response(JSON.stringify({ error: "Invalid JSON" }), {
 			status: 400,
 		});
 	}
+	const body = bodyResult.body;
 	const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
 	const model = typeof body.model === "string" ? body.model.trim() : undefined;
 	const systemPrompt = catalog.prompt();

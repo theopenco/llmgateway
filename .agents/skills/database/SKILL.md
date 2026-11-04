@@ -34,7 +34,7 @@ full `pnpm build`.
 - The gateway request path reads no `log` rows at all; hot-path signals come from Redis counters maintained on the write path or small cached rows.
 - `used_model` stores `provider/model[:region]`. Compare with catalogue ids after `split_part(split_part(used_model, '/', 2), ':', 1)` (as in `stats-calculator.ts`), and use the same shape in seeds and fixtures.
 - Cost columns are `real`, and `SUM(real)` accumulates in float4. Sum as `SUM(CAST(col AS DOUBLE PRECISION))`; for exact reads `SUM(CAST(CAST(col AS DOUBLE PRECISION) AS NUMERIC))`. `real::numeric` rounds to 6 digits.
-- Coordinate settings updates by validating state at each write boundary; advisory locks such as `pg_advisory_xact_lock` are not used.
+- Coordinate settings updates by validating state at each write boundary; advisory locks such as `pg_advisory_xact_lock` are not used (the migration runner's advisory lock is the only one).
 
 ## Cached client
 

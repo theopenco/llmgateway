@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -17,6 +17,11 @@ import {
 } from "@/lib/iam-rules.js";
 import { getOrgProjectIds } from "@/lib/org-projects.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import {
+	providerCompliancePolicySchema,
+	assertCanManageCompliancePolicy,
+	assertApiKeyComplianceWritesEnabled,
+} from "@/lib/provider-compliance-policy.js";
 import {
 	getUsageReport,
 	USAGE_DIMENSIONS,
@@ -56,6 +61,7 @@ import {
 } from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
+import { createRoute } from "@/utils/create-route.js";
 import {
 	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
@@ -88,6 +94,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
 export const v1Master = new OpenAPIHono<ServerTypes>();
 
@@ -195,6 +202,7 @@ interface SerializableApiKey {
 	createdAt: Date;
 	updatedAt: Date;
 	description: string;
+	providerCompliancePolicy: ProviderCompliancePolicy | null;
 	kind: "regular" | "playground";
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
@@ -228,6 +236,7 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		createdAt: apiKey.createdAt,
 		updatedAt: apiKey.updatedAt,
 		description: apiKey.description,
+		providerCompliancePolicy: apiKey.providerCompliancePolicy,
 		kind: apiKey.kind,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
@@ -361,6 +370,9 @@ const createApiKeyBody = z.object({
 	description: z.string().min(1).max(255),
 	usageLimit: nonNegativeDecimal.nullable().optional(),
 	periodUsageLimit: nonNegativeDecimal.nullable().optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional(),
 	periodUsageDurationValue: z.number().int().positive().nullable().optional(),
 	periodUsageDurationUnit: apiKeyPeriodUnit.nullable().optional(),
 });
@@ -371,6 +383,7 @@ const apiKeyResponseSchema = z.object({
 	updatedAt: z.date(),
 	token: z.string(),
 	description: z.string(),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
 	createdBy: z.string(),
@@ -440,6 +453,7 @@ v1Master.openapi(createApiKey, async (c) => {
 				updatedAt: apiKey.updatedAt,
 				token,
 				description: apiKey.description,
+				providerCompliancePolicy: apiKey.providerCompliancePolicy,
 				status: apiKey.status,
 				projectId: apiKey.projectId,
 				createdBy: apiKey.createdBy,
@@ -650,6 +664,7 @@ const apiKeyDetailSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	description: z.string(),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	kind: z.enum(["regular", "playground"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
@@ -676,6 +691,9 @@ const updateApiKeyBody = z
 		status: z.enum(["active", "inactive"]).optional(),
 		usageLimit: nonNegativeDecimal.nullable().optional(),
 		periodUsageLimit: nonNegativeDecimal.nullable().optional(),
+		providerCompliancePolicy: providerCompliancePolicySchema
+			.nullable()
+			.optional(),
 		periodUsageDurationValue: z.number().int().positive().nullable().optional(),
 		periodUsageDurationUnit: apiKeyPeriodUnit.nullable().optional(),
 	})
@@ -753,6 +771,21 @@ v1Master.openapi(updateApiKey, async (c) => {
 		hasPeriodConfigChanged(existing, nextLimitConfig);
 
 	const setPayload: Record<string, unknown> = {};
+	if (updates.providerCompliancePolicy !== undefined) {
+		const issuer = await db.query.userOrganization.findFirst({
+			where: {
+				userId: masterKey.createdBy,
+				organizationId: masterKey.organizationId,
+			},
+			columns: { role: true },
+		});
+		assertCanManageCompliancePolicy(
+			updates.providerCompliancePolicy,
+			issuer?.role,
+		);
+		assertApiKeyComplianceWritesEnabled(updates.providerCompliancePolicy);
+		setPayload.providerCompliancePolicy = updates.providerCompliancePolicy;
+	}
 	if (updates.description !== undefined) {
 		setPayload.description = updates.description;
 	}
@@ -788,10 +821,25 @@ v1Master.openapi(updateApiKey, async (c) => {
 		: {};
 	const limitChanged = Object.keys(limitChanges).length > 0;
 
-	if (limitChanged || descriptionChanged || statusChanged) {
+	const compliancePolicyChanged =
+		updates.providerCompliancePolicy !== undefined &&
+		JSON.stringify(existing.providerCompliancePolicy) !==
+			JSON.stringify(updates.providerCompliancePolicy);
+	if (
+		limitChanged ||
+		descriptionChanged ||
+		statusChanged ||
+		compliancePolicyChanged
+	) {
 		const changes: Record<string, { old: unknown; new: unknown }> = {
 			...limitChanges,
 		};
+		if (compliancePolicyChanged) {
+			changes.providerCompliancePolicy = {
+				old: existing.providerCompliancePolicy,
+				new: updates.providerCompliancePolicy,
+			};
+		}
 		if (descriptionChanged) {
 			changes.description = {
 				old: existing.description,
@@ -1604,6 +1652,7 @@ const createCustomProviderBody = z.object({
 	baseUrl: z.string().url(),
 	token: providerTokenField,
 	customModelsOnly: z.boolean().optional(),
+	forwardCacheControl: z.boolean().optional(),
 	complianceAttestation: complianceAttestationSchema.optional(),
 });
 
@@ -1613,6 +1662,7 @@ const updateCustomProviderBody = z
 		token: providerTokenField.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
 		customModelsOnly: z.boolean().optional(),
+		forwardCacheControl: z.boolean().optional(),
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 	})
 	.refine((v) => Object.keys(v).length > 0, {
@@ -1651,8 +1701,14 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { name, baseUrl, token, customModelsOnly, complianceAttestation } =
-		c.req.valid("json");
+	const {
+		name,
+		baseUrl,
+		token,
+		customModelsOnly,
+		forwardCacheControl,
+		complianceAttestation,
+	} = c.req.valid("json");
 
 	await assertProviderBaseUrlAllowed(baseUrl);
 	await assertCustomProviderNameAvailable(masterKey.organizationId, name);
@@ -1676,6 +1732,9 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			tokenMasked: maskToken(token),
 			tokenHash: getApiKeyFingerprint(token),
 			customModelsOnly: customModelsOnly ?? false,
+			// New keys forward by default; the column default (false) keeps keys
+			// created before this setting existed on the old behaviour.
+			forwardCacheControl: forwardCacheControl ?? true,
 			complianceAttestation: complianceAttestation
 				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
 				: null,
@@ -1688,7 +1747,11 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		action: "provider_key.create",
 		resourceType: "provider_key",
 		resourceId: providerKey.id,
-		metadata: { provider: "custom", resourceName: name },
+		metadata: {
+			provider: "custom",
+			resourceName: name,
+			forwardCacheControl: providerKey.forwardCacheControl,
+		},
 	});
 
 	return c.json({ customProvider: toPublicProviderKey(providerKey) }, 201);
@@ -1800,8 +1863,14 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { baseUrl, token, status, customModelsOnly, complianceAttestation } =
-		c.req.valid("json");
+	const {
+		baseUrl,
+		token,
+		status,
+		customModelsOnly,
+		forwardCacheControl,
+		complianceAttestation,
+	} = c.req.valid("json");
 
 	const existing = await loadCustomProviderKeyForOrg(
 		id,
@@ -1830,6 +1899,9 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
+	}
+	if (forwardCacheControl !== undefined) {
+		updates.forwardCacheControl = forwardCacheControl;
 	}
 	if (complianceAttestation !== undefined) {
 		updates.complianceAttestation = stampComplianceAttestation(
@@ -1864,6 +1936,15 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		changes.customModelsOnly = {
 			old: existing.customModelsOnly,
 			new: customModelsOnly,
+		};
+	}
+	if (
+		forwardCacheControl !== undefined &&
+		existing.forwardCacheControl !== forwardCacheControl
+	) {
+		changes.forwardCacheControl = {
+			old: existing.forwardCacheControl,
+			new: forwardCacheControl,
 		};
 	}
 	if (complianceAttestation !== undefined) {

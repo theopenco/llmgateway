@@ -179,3 +179,114 @@ export function resolveBenchmarkTargets({
 		now,
 	});
 }
+
+/** A provider mapping as published by the gateway's `GET /v1/models`. */
+export interface GatewayModelsProviderMapping {
+	providerId: string;
+	externalId: string;
+	deactivated_at?: string | null;
+	quantization?: string | null;
+	stability?: string | null;
+	pricing?: { prompt?: string; completion?: string; request?: string };
+	context_length?: number | null;
+	max_output?: number | null;
+	regions?: Array<{
+		id: string;
+		pricing?: { prompt?: string; completion?: string; request?: string };
+		context_length?: number | null;
+		max_output?: number | null;
+	}>;
+}
+
+export interface GatewayModelsEntry {
+	id: string;
+	name?: string;
+	providers?: GatewayModelsProviderMapping[];
+}
+
+/**
+ * Descriptors for one model from the gateway's live catalogue, which merges
+ * Airside listings into the static one. A pair absent from the static
+ * catalogue is an Airside listing.
+ */
+export function gatewayMappingDescriptors(
+	model: GatewayModelsEntry,
+): BenchmarkMappingDescriptor[] {
+	const staticModel = models.find((candidate) => candidate.id === model.id);
+	return (model.providers ?? []).flatMap((mapping) => {
+		const base: BenchmarkMappingDescriptor = {
+			modelId: model.id,
+			modelName: model.name ?? model.id,
+			providerId: mapping.providerId,
+			region: null,
+			externalId: mapping.externalId,
+			deactivatedAt: mapping.deactivated_at
+				? new Date(mapping.deactivated_at)
+				: null,
+			quantization: mapping.quantization ?? null,
+			stability: mapping.stability ?? null,
+			inputPrice: mapping.pricing?.prompt ?? null,
+			outputPrice: mapping.pricing?.completion ?? null,
+			requestPrice: mapping.pricing?.request ?? "0",
+			contextSize: mapping.context_length ?? null,
+			maxOutput: mapping.max_output ?? null,
+			source: staticModel?.providers.some(
+				(candidate) => candidate.providerId === mapping.providerId,
+			)
+				? "catalogue"
+				: "airside",
+		};
+		return [
+			base,
+			...(mapping.regions ?? []).map((region) => ({
+				...base,
+				region: region.id,
+				inputPrice: region.pricing?.prompt ?? base.inputPrice,
+				outputPrice: region.pricing?.completion ?? base.outputPrice,
+				requestPrice: region.pricing?.request ?? base.requestPrice,
+				contextSize: region.context_length ?? base.contextSize,
+				maxOutput: region.max_output ?? base.maxOutput,
+			})),
+		];
+	});
+}
+
+/** The `/v1/models` URL served next to a chat-completions endpoint. */
+export function gatewayModelsUrl(chatCompletionsUrl: string): string {
+	const url = new URL(chatCompletionsUrl);
+	url.pathname = url.pathname.replace(/\/chat\/completions\/?$/, "/models");
+	url.search = "";
+	url.searchParams.set("include_deactivated", "true");
+	return url.toString();
+}
+
+export interface FetchGatewayMappingDescriptorsOptions {
+	modelIds: string[];
+	modelsUrl: string;
+	fetch?: typeof fetch;
+}
+
+/** Load descriptors from the gateway, so Airside listings are benchmarkable. */
+export async function fetchGatewayMappingDescriptors({
+	modelIds,
+	modelsUrl,
+	fetch: fetchImplementation = fetch,
+}: FetchGatewayMappingDescriptorsOptions): Promise<
+	BenchmarkMappingDescriptor[]
+> {
+	if (modelIds.length === 0) {
+		throw new Error("At least one model is required");
+	}
+	const response = await fetchImplementation(modelsUrl);
+	if (!response.ok) {
+		throw new Error(`GET ${modelsUrl} failed with HTTP ${response.status}`);
+	}
+	const body = (await response.json()) as { data?: GatewayModelsEntry[] };
+	return modelIds.flatMap((modelId) => {
+		const model = body.data?.find((candidate) => candidate.id === modelId);
+		if (!model) {
+			throw new Error(`Unknown model: ${modelId}`);
+		}
+		return gatewayMappingDescriptors(model);
+	});
+}

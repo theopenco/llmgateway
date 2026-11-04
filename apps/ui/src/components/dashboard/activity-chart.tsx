@@ -15,6 +15,11 @@ import {
 
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useUsageMode } from "@/components/shared/usage-mode-selector";
+import {
+	toApiGroupBy,
+	toCanonicalModelBreakdown,
+	type ModelUsageGroupBy,
+} from "@/components/usage/group-by";
 import { PromptCacheRatePanel } from "@/components/usage/prompt-cache-rate-panel";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
@@ -46,7 +51,6 @@ import {
 } from "@llmgateway/shared/number-format";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
-import type { GroupBy } from "@/components/usage/group-by";
 import type {
 	ActivitT,
 	ActivityApiKeyUsage,
@@ -73,7 +77,7 @@ interface BreakdownItem {
 // display field (model id / key description / member name) into `label`.
 function pickBreakdown(
 	day: BreakdownSource,
-	groupBy: GroupBy,
+	groupBy: ModelUsageGroupBy,
 ): BreakdownItem[] {
 	switch (groupBy) {
 		case "apiKey":
@@ -83,17 +87,24 @@ function pickBreakdown(
 			}));
 		case "user":
 			return day.userBreakdown.map((item) => ({ ...item, label: item.name }));
+		case "mapping":
+			return day.modelBreakdown;
 		case "model":
 		default:
-			return day.modelBreakdown;
+			return toCanonicalModelBreakdown(day.modelBreakdown);
 	}
 }
 
 const DIMENSION_LABELS: Record<
-	GroupBy,
+	ModelUsageGroupBy,
 	{ noun: string; entity: string; cardTitle: string }
 > = {
 	model: { noun: "model", entity: "Model", cardTitle: "Model Usage Overview" },
+	mapping: {
+		noun: "model mapping",
+		entity: "Model mapping",
+		cardTitle: "Model Mapping Usage Overview",
+	},
 	apiKey: {
 		noun: "API key",
 		entity: "API key",
@@ -103,7 +114,10 @@ const DIMENSION_LABELS: Record<
 };
 
 // Helper function to get all unique series (model, api key or member ids) from the data
-function getUniqueSeries(data: BreakdownSource[], groupBy: GroupBy): string[] {
+function getUniqueSeries(
+	data: BreakdownSource[],
+	groupBy: ModelUsageGroupBy,
+): string[] {
 	if (!data || data.length === 0) {
 		return [];
 	}
@@ -177,7 +191,7 @@ interface CustomTooltipProps extends TooltipProps<number, string> {
 	label?: string;
 	breakdownField?: "requests" | "cost" | "tokens";
 	hourly?: boolean;
-	groupBy?: GroupBy;
+	groupBy?: ModelUsageGroupBy;
 }
 
 const CustomTooltip = ({
@@ -281,7 +295,7 @@ interface ActivityChartProps {
 	initialData?: ActivitT;
 	apiKeyId?: string;
 	timeRange?: TimeRangeValue;
-	groupBy?: GroupBy;
+	groupBy?: ModelUsageGroupBy;
 }
 
 export function ActivityChart({
@@ -302,7 +316,9 @@ export function ActivityChart({
 
 	// Build query params based on whether we're using timeRange or date range
 	const queryParams = useMemo(() => {
-		const breakdownParam = groupBy === "model" ? {} : { groupBy };
+		const apiGroupBy = toApiGroupBy(groupBy);
+		const breakdownParam =
+			apiGroupBy === "model" ? {} : { groupBy: apiGroupBy };
 		const timezone = displayTimeZone;
 		if (timeRange) {
 			return {
