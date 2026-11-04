@@ -451,8 +451,10 @@ async function runRealtimePreflightInner(
 
 	// Only the official provider endpoint is supported for realtime v1: a BYOK
 	// custom base URL (proxy) would silently bypass the metering-critical event
-	// contract this service depends on.
-	if (providerKey?.baseUrl) {
+	// contract this service depends on. An Azure base URL is the alternative to
+	// a resource name for addressing the customer's own Azure endpoint, so it is
+	// allowed there.
+	if (providerKey?.baseUrl && match.mapping.providerId !== "azure") {
 		throw new RealtimeConnectError(
 			400,
 			"custom_base_url_unsupported",
