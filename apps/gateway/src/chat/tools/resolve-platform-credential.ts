@@ -12,7 +12,7 @@ import {
 	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import { getAzureOpenAiBaseUrl, readProviderKey } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue, providers } from "@llmgateway/models";
 
@@ -270,4 +270,31 @@ export function getCredentialSetting(
 		options.defaultValue,
 		options.variant,
 	);
+}
+
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL: its explicit base URL, else its resource's OpenAI host
+ * (a BYOK key's `azure_resource` option, the managed config, or the env var).
+ */
+export function getAzureCredentialBaseUrl(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	options: {
+		configIndex?: number;
+		variant?: EnvVarVariant;
+	} = {},
+): string | undefined {
+	const baseUrl =
+		credential.providerKey?.baseUrl ??
+		getCredentialSetting("azure", "baseUrl", credential, options);
+	if (baseUrl) {
+		return baseUrl.replace(/\/+$/, "");
+	}
+	const resource =
+		credential.providerKey?.options?.azure_resource ??
+		getCredentialSetting("azure", "resource", credential, options);
+	return resource ? getAzureOpenAiBaseUrl(resource) : undefined;
 }

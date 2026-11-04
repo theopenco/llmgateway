@@ -217,10 +217,9 @@ newly priced knob isn't forwarded by
 | `ocr`               | `ocrPagePrice`                                               | `ocr.e2e.ts`            |
 | `rerank`            | token prices                                                 | `rerank.e2e.ts`         |
 
-`realtime` has no e2e file — it is covered by `apps/gateway/src/realtime/*.spec.ts`
-plus `realtime-models.spec.ts`, which fails any realtime mapping missing its
-per-modality token prices. `realtimeTranscription` only on token-metered ASR
-mappings.
+`realtime` and `realtimeTranscription` mappings run in `realtime.e2e.ts` and
+`realtime-transcription.e2e.ts`; `realtime-models.spec.ts` fails any realtime
+mapping missing its per-modality token prices.
 
 Image and video are the one docs exception to never enumerating models: update
 `apps/docs/content/(gateway)/features/{image,video}-generation.mdx`.

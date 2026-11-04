@@ -608,6 +608,8 @@ function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
 }
 mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
 mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/embeddings", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/audio/speech", stripAzureOpenaiPrefix);
 
 // The legacy Azure deployment-based surface, where the model lives in the path
 // and the api-version in the query string. Rewrite it to the plain handler so

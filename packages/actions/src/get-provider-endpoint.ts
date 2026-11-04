@@ -284,6 +284,24 @@ export function getAzureFoundryBaseUrl(resource: string): string {
 	return `https://${resource}.services.ai.azure.com`;
 }
 
+/** OpenAI-compatible host of an Azure resource; see getOpenAiV1Prefix. */
+export function getAzureOpenAiBaseUrl(resource: string): string {
+	if (!isProviderHostnameLabel(resource)) {
+		throw new ProviderConfigError(
+			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
+		);
+	}
+	return `https://${resource}.openai.azure.com`;
+}
+
+/**
+ * Path prefix of the OpenAI v1 API on a provider's base URL, for endpoints
+ * that build their own URL. Azure serves it under /openai/v1.
+ */
+export function getOpenAiV1Prefix(provider: ProviderId): string {
+	return provider === "azure" ? "/openai/v1" : "/v1";
+}
+
 /** Workers AI's OpenAI-compatible base URL is scoped to the account. */
 export function getCloudflareWorkersAiBaseUrl(
 	accountId: string | undefined,

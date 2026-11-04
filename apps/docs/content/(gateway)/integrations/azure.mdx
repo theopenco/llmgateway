@@ -142,6 +142,8 @@ Browse the [Azure models page](https://llmgateway.io/models?provider=azure) for 
 
 Azure availability varies by model and resource region, even for Global Standard deployments. If the portal reports an unsupported region, deploy in a supported region and configure that resource's provider key. A catalogue mapping alone does not create a deployment or make Azure available for automatic fallback.
 
+The same key also serves embeddings (`/v1/embeddings`), text-to-speech (`/v1/audio/speech`), and realtime speech and transcription sessions (`/v1/realtime`) for Azure-mapped models. The gateway calls the resource's v1 API (`https://<resource>.openai.azure.com/openai/v1`) for these endpoints regardless of the key's deployment type.
+
 ## Migrate from Azure AI Foundry
 
 The legacy `azure-ai-foundry` provider uses the Azure Model Inference API. Its

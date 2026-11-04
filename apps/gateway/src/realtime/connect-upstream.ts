@@ -1,6 +1,9 @@
 import { WebSocket } from "ws";
 
-import { getCredentialSetting } from "@/chat/tools/resolve-platform-credential.js";
+import {
+	getAzureCredentialBaseUrl,
+	getCredentialSetting,
+} from "@/chat/tools/resolve-platform-credential.js";
 
 import { RealtimeConnectError } from "./errors.js";
 
@@ -68,13 +71,34 @@ export function resolveUpstreamTarget(
 		};
 	}
 
-	const baseUrl = credentialBaseUrl ?? "https://api.openai.com";
 	// A transcription session has no session model in the URL: the ASR model
 	// is applied by the gateway's control session.update once connected.
 	const query =
 		preflight.sessionType === "transcription"
 			? "intent=transcription"
 			: `model=${encodeURIComponent(preflight.match.mapping.externalId)}`;
+
+	if (providerId === "azure") {
+		// Azure serves the OpenAI realtime protocol on the resource's v1 API,
+		// addressing the deployment by name through the same model parameter.
+		const baseUrl = getAzureCredentialBaseUrl(
+			{ providerKey: preflight.providerKey, managedKey: preflight.managedKey },
+			{ configIndex: preflight.configIndex, variant: preflight.envVariant },
+		);
+		if (!baseUrl) {
+			throw new RealtimeConnectError(
+				500,
+				"upstream_config_missing",
+				"Azure requires a resource or a base URL for realtime sessions.",
+			);
+		}
+		return {
+			url: `${baseUrl.replace(/^http/, "ws")}/openai/v1/realtime?${query}`,
+			headers: { "api-key": preflight.upstreamToken },
+		};
+	}
+
+	const baseUrl = credentialBaseUrl ?? "https://api.openai.com";
 	return {
 		url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?${query}`,
 		headers: {

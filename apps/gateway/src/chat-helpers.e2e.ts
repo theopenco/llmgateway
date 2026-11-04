@@ -220,12 +220,15 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
-	// Filter out realtime models (they are served only by the /v1/realtime
-	// WebSocket and are covered by realtime.e2e.ts)
+	// Filter out realtime and realtime transcription models (they are served
+	// only by the /v1/realtime WebSocket and are covered by realtime.e2e.ts and
+	// realtime-transcription.e2e.ts)
 	.filter(
 		(model) =>
 			!model.providers.some(
-				(p) => (p as ProviderModelMapping).realtime === true,
+				(p) =>
+					(p as ProviderModelMapping).realtime === true ||
+					(p as ProviderModelMapping).realtimeTranscription === true,
 			),
 	)
 	// Filter out typed-decision models (they use the dedicated /v1/decisions

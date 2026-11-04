@@ -6,6 +6,7 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import {
+	getAzureCredentialBaseUrl,
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
@@ -65,6 +66,7 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
 	getGoogleVertexPublisherModelPath,
+	getOpenAiV1Prefix,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
 	managedCredentialOptions,
@@ -777,12 +779,17 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
-			providerKey?.baseUrl ??
-			getCredentialSetting(providerId, "baseUrl", credential, {
-				configIndex,
-				variant: envVariant,
-			}) ??
-			getProviderDefaultBaseUrl(providerId);
+			providerId === "azure"
+				? getAzureCredentialBaseUrl(credential, {
+						configIndex,
+						variant: envVariant,
+					})
+				: (providerKey?.baseUrl ??
+					getCredentialSetting(providerId, "baseUrl", credential, {
+						configIndex,
+						variant: envVariant,
+					}) ??
+					getProviderDefaultBaseUrl(providerId));
 		if (!resolvedBaseUrl) {
 			throw new HTTPException(500, {
 				message: `No base URL set for provider: ${providerId}`,
@@ -904,7 +911,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				requestBody.dimensions = dimensions;
 			}
 		} else {
-			upstreamUrl = `${resolvedBaseUrl}/v1/embeddings`;
+			upstreamUrl = `${resolvedBaseUrl}${getOpenAiV1Prefix(providerId)}/embeddings`;
 			requestBody = {
 				input,
 				model: upstreamModel,

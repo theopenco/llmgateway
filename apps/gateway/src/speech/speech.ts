@@ -8,6 +8,7 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import {
+	getAzureCredentialBaseUrl,
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
@@ -72,6 +73,7 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { RedirectError } from "@llmgateway/actions";
 import {
 	getGoogleVertexPublisherModelPath,
+	getOpenAiV1Prefix,
 	getProviderHeaders,
 	managedCredentialOptions,
 	providerKeyLabel,
@@ -216,6 +218,7 @@ const SUPPORTED_PROVIDERS = new Set([
 	"google-ai-studio",
 	"google-vertex",
 	"openai",
+	"azure",
 	"elevenlabs",
 	"alibaba",
 ]);
@@ -541,7 +544,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
-	const isOpenAI = providerId === "openai";
+	// Azure serves OpenAI's speech API unchanged.
+	const isOpenAI = providerId === "openai" || providerId === "azure";
 	const isElevenLabs = providerId === "elevenlabs";
 	const isAlibaba = providerId === "alibaba";
 	const isGoogleVertex = providerId === "google-vertex";
@@ -915,12 +919,17 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
-			providerKey?.baseUrl ??
-			getCredentialSetting(providerId, "baseUrl", credential, {
-				configIndex,
-				variant: envVariant,
-			}) ??
-			PROVIDER_BASE_URL_DEFAULTS[providerId];
+			providerId === "azure"
+				? getAzureCredentialBaseUrl(credential, {
+						configIndex,
+						variant: envVariant,
+					})
+				: (providerKey?.baseUrl ??
+					getCredentialSetting(providerId, "baseUrl", credential, {
+						configIndex,
+						variant: envVariant,
+					}) ??
+					PROVIDER_BASE_URL_DEFAULTS[providerId]);
 		if (!resolvedBaseUrl) {
 			throw new HTTPException(500, {
 				message: `No base URL set for provider: ${providerId}`,
@@ -937,7 +946,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		let upstreamUrl: string;
 		let vertexTokenType: VertexTokenType | undefined;
 		if (isOpenAI) {
-			upstreamUrl = `${resolvedBaseUrl}/v1/audio/speech`;
+			upstreamUrl = `${resolvedBaseUrl}${getOpenAiV1Prefix(providerId)}/audio/speech`;
 		} else if (isElevenLabs) {
 			upstreamUrl = `${resolvedBaseUrl}/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}?output_format=${elevenLabsOutputFormat}`;
 		} else if (isAlibaba) {

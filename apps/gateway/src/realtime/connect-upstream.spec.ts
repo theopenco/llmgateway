@@ -25,6 +25,8 @@ function buildPreflight(
 afterEach(() => {
 	delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 	delete process.env.LLM_OPENAI_BASE_URL;
+	delete process.env.LLM_AZURE_RESOURCE;
+	delete process.env.LLM_AZURE_BASE_URL;
 });
 
 describe("resolveUpstreamTarget", () => {
@@ -133,6 +135,49 @@ describe("resolveUpstreamTarget", () => {
 			Authorization: "Bearer upstream-secret",
 			"OpenAI-Safety-Identifier": "safety-hash",
 		});
+	});
+
+	it("builds the Azure v1 realtime URL from the env resource with api-key auth", () => {
+		process.env.LLM_AZURE_RESOURCE = "my-resource";
+		const target = resolveUpstreamTarget(
+			buildPreflight("azure", "gpt-realtime-2.1-mini"),
+		);
+		expect(target.url).toBe(
+			"wss://my-resource.openai.azure.com/openai/v1/realtime?model=gpt-realtime-2.1-mini",
+		);
+		expect(target.headers).toEqual({ "api-key": "upstream-secret" });
+	});
+
+	it("connects Azure transcription sessions with intent=transcription", () => {
+		process.env.LLM_AZURE_RESOURCE = "my-resource";
+		const target = resolveUpstreamTarget({
+			...buildPreflight("azure", "gpt-live-transcribe"),
+			sessionType: "transcription",
+		} as unknown as RealtimePreflightResult);
+		expect(target.url).toBe(
+			"wss://my-resource.openai.azure.com/openai/v1/realtime?intent=transcription",
+		);
+	});
+
+	it("uses an Azure BYOK key's own resource, not the env resource", () => {
+		process.env.LLM_AZURE_RESOURCE = "platform-resource";
+		const target = resolveUpstreamTarget({
+			...buildPreflight("azure", "gpt-realtime-2.1"),
+			providerKey: {
+				id: "byok-key",
+				baseUrl: null,
+				options: { azure_resource: "org-resource" },
+			},
+		} as unknown as RealtimePreflightResult);
+		expect(target.url).toBe(
+			"wss://org-resource.openai.azure.com/openai/v1/realtime?model=gpt-realtime-2.1",
+		);
+	});
+
+	it("rejects an Azure session without a resource or base URL", () => {
+		expect(() =>
+			resolveUpstreamTarget(buildPreflight("azure", "gpt-realtime-2.1")),
+		).toThrow(/resource or a base URL/);
 	});
 
 	it("omits the safety identifier header when forwarding is off", () => {
