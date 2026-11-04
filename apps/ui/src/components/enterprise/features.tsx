@@ -1,6 +1,7 @@
 import {
 	BarChart3,
 	Database,
+	Gauge,
 	Headphones,
 	Key,
 	LayoutDashboard,
@@ -26,6 +27,12 @@ const features = [
 		title: "Volume-Discounted Fees",
 		description:
 			"Custom volume pricing cuts the standard 5% platform fee on credits as your usage scales.",
+	},
+	{
+		icon: Gauge,
+		title: "No Platform Rate Limits",
+		description:
+			"No per-organization requests-per-minute, spend, or top-up caps. Your request rate is limited only by your credit balance and upstream provider limits.",
 	},
 	{
 		icon: BarChart3,
