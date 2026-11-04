@@ -184,10 +184,12 @@ export async function legacyPass(
 			(original.stripePaymentIntentId !== null &&
 				original.stripePaymentIntentId !== row.stripePaymentIntentId) ||
 			original.organizationId !== row.organizationId ||
-			(original.currency ?? "USD").toLowerCase() !==
-				(row.currency ?? "USD").toLowerCase() ||
+			!original.currency ||
+			!row.currency ||
+			original.currency.toLowerCase() !== row.currency.toLowerCase() ||
 			original.status !== "completed" ||
 			row.status !== "completed" ||
+			!new Decimal(original.amount ?? 0).isFinite() ||
 			!new Decimal(original.amount ?? 0).gt(0) ||
 			!new Decimal(row.creditAmount ?? 0).isZero()
 		) {
@@ -274,6 +276,8 @@ export async function legacyPass(
 	for (const [pi, rows] of byPI) {
 		console.log(`=== ${pi} (${rows.length} legacy row(s)) ===`);
 		if (
+			legacyRows.filter((row) => row.stripePaymentIntentId === pi).length !==
+				rows.length ||
 			rows.some(
 				(row) =>
 					row.organizationId !== rows[0].organizationId ||
@@ -282,7 +286,7 @@ export async function legacyPass(
 		) {
 			totalSkippedPI += 1;
 			console.warn(
-				"  Conflicting original payments for this payment intent — review manually",
+				"  Unverified legacy rows or conflicting original payments for this payment intent — review manually",
 			);
 			continue;
 		}
@@ -351,10 +355,33 @@ export async function legacyPass(
 			.div(100);
 		const purchaseAmount =
 			originalAmountByRefundId.get(rows[0].id) ?? new Decimal(0);
-		if (!refundsFitPurchase(refunds, purchaseAmount, rows[0].currency)) {
+		if (
+			new Set(refunds.map((refund) => refund.id)).size !== refunds.length ||
+			refunds.some(
+				(refund) =>
+					!refund.id ||
+					(typeof refund.payment_intent === "string"
+						? refund.payment_intent
+						: refund.payment_intent?.id) !== pi,
+			) ||
+			!refundsFitPurchase(refunds, purchaseAmount, rows[0].currency)
+		) {
 			totalSkippedPI += 1;
 			console.warn(
 				"  Refund amounts or currency do not match the original payment — review manually",
+			);
+			continue;
+		}
+		// Legacy rows may be cumulative snapshots; compare each to its own PI, not their sum.
+		if (
+			rows.some((row) => {
+				const amount = new Decimal(row.amount ?? 0);
+				return !amount.isFinite() || !amount.gt(0) || amount.gt(stripeTotal);
+			})
+		) {
+			totalSkippedPI += 1;
+			console.warn(
+				"  Succeeded Stripe evidence does not cover every legacy row for this payment intent — leaving all rows in place",
 			);
 			continue;
 		}
@@ -411,9 +438,19 @@ export async function legacyPass(
 					.select()
 					.from(tables.transaction)
 					.where(
-						inArray(
-							tables.transaction.id,
-							rows.map((row) => row.id),
+						or(
+							inArray(
+								tables.transaction.id,
+								rows.map((row) => row.id),
+							),
+							and(
+								eq(tables.transaction.stripePaymentIntentId, pi),
+								inArray(tables.transaction.type, [
+									"credit_refund",
+									"subscription_refund",
+								]),
+								isNull(tables.transaction.stripeRefundId),
+							),
 						),
 					)
 					.for("update");
@@ -423,14 +460,17 @@ export async function legacyPass(
 				if (
 					locked.length !== rows.length ||
 					locked.some((row) => {
-						const before = rows.find((r) => r.id === row.id)!;
+						const before = rows.find((r) => r.id === row.id);
 						return (
+							!before ||
 							row.type !== before.type ||
 							row.stripeRefundId !== null ||
 							row.organizationId !== before.organizationId ||
 							row.relatedTransactionId !== before.relatedTransactionId ||
 							row.amount !== before.amount ||
 							row.creditAmount !== before.creditAmount ||
+							row.currency !== before.currency ||
+							row.status !== before.status ||
 							row.stripePaymentIntentId !== pi
 						);
 					})
@@ -447,6 +487,9 @@ export async function legacyPass(
 						existing &&
 						(existing.organizationId !== sample.organizationId ||
 							existing.relatedTransactionId !== sample.relatedTransactionId ||
+							existing.stripePaymentIntentId !== pi ||
+							existing.currency?.toLowerCase() !==
+								sample.currency?.toLowerCase() ||
 							!new Decimal(existing.amount ?? 0).eq(
 								new Decimal(refund.amount).div(100),
 							) ||
@@ -492,6 +535,9 @@ export async function legacyPass(
 						!recorded ||
 						recorded.organizationId !== sample.organizationId ||
 						recorded.relatedTransactionId !== sample.relatedTransactionId ||
+						recorded.stripePaymentIntentId !== pi ||
+						recorded.currency?.toLowerCase() !==
+							sample.currency?.toLowerCase() ||
 						!new Decimal(recorded.amount ?? 0).eq(
 							new Decimal(refund.amount).div(100),
 						) ||

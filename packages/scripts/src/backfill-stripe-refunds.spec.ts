@@ -1,5 +1,8 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
 
 import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -52,7 +55,7 @@ beforeEach(async () => {
 			res.end(
 				JSON.stringify({
 					object: "list",
-					data: rows.slice(start, start + 1),
+					data: refundPage(rows, start),
 					has_more: start + 1 < rows.length,
 					url: "/v1/refunds",
 				}),
@@ -203,6 +206,13 @@ async function checkLegacy() {
 		amount: "20.02",
 		creditAmount: "0",
 	});
+	await payment("earlier-legacy", {
+		type: "credit_refund",
+		relatedTransactionId: original.id,
+		stripePaymentIntentId: original.stripePaymentIntentId,
+		amount: "10.01",
+		creditAmount: "0",
+	});
 	addRefund("one", original.stripePaymentIntentId!);
 	addRefund("two", original.stripePaymentIntentId!);
 	await legacyPass(stripe, true, original.stripePaymentIntentId!);
@@ -295,7 +305,7 @@ async function checkConflictingLegacy() {
 		amount: "20.02",
 		creditAmount: "0",
 	});
-	addRefund("conflict", original.stripePaymentIntentId!);
+	addRefund("conflict", original.stripePaymentIntentId!, 2002);
 	await payment("existing-conflict", {
 		type: "credit_refund",
 		stripeRefundId: `${org}-conflict`,
@@ -380,3 +390,277 @@ test(
 	"rejects aggregate over-refunds and mismatched Stripe currency",
 	checkSweepSourceAmounts,
 );
+async function runBackfillCLI(pi: string, commit: boolean) {
+	const address = server.address();
+	if (!address || typeof address === "string") {
+		throw new Error("No fixture port");
+	}
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		STRIPE_SECRET_KEY: ["sk", "test", "fixture"].join("_"),
+	};
+	delete env.TEST_DATABASE_URL;
+	return await promisify(execFile)(
+		process.execPath,
+		[
+			"--import",
+			"tsx",
+			"--eval",
+			`import Stripe from "stripe";
+		import { pathToFileURL } from "node:url";
+		const original = Stripe.prototype._getPropsFromConfig;
+		Stripe.prototype._getPropsFromConfig = function(config) {
+			return { ...original.call(this, config), host: "127.0.0.1", port: ${address.port}, protocol: "http", maxNetworkRetries: 0 };
+		};
+		await import(pathToFileURL(process.argv[1]).href);`,
+			resolve("packages/scripts/src/backfill-stripe-refunds.ts"),
+			`--payment-intent=${pi}`,
+			...(commit ? ["--commit"] : []),
+		],
+		{ cwd: resolve("packages/scripts"), env, timeout: 20000 },
+	);
+}
+async function ledgerSnapshot() {
+	return {
+		organization: await db.query.organization.findFirst({
+			where: { id: { eq: org } },
+		}),
+		transactions: await db.query.transaction.findMany({
+			where: { organizationId: { eq: org } },
+			orderBy: { id: "asc" },
+		}),
+	};
+}
+
+test.each([false, true])(
+	"actual CLI preserves a singly undercovered legacy row (commit=%s)",
+	async (commit) => {
+		const original = await payment("undercovered-original", { amount: "100" });
+		await payment("undercovered-legacy", {
+			type: "credit_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount: "60",
+			creditAmount: "0",
+		});
+		addRefund("undercovered", original.stripePaymentIntentId!, 1000);
+		const before = await ledgerSnapshot();
+		const result = await runBackfillCLI(
+			original.stripePaymentIntentId!,
+			commit,
+		);
+		expect(await ledgerSnapshot()).toEqual(before);
+		expect(result.stderr).toContain("does not cover every legacy row");
+		expect(result.stdout).toContain("0 legacy row(s) planned for deletion");
+		expect(requests.every((request) => request.startsWith("GET "))).toBe(true);
+	},
+);
+
+test.each([false, true])(
+	"actual CLI cannot borrow another PI's refund evidence (commit=%s)",
+	async (commit) => {
+		const originals = [];
+		for (const [id, cents] of [
+			["first", 1000],
+			["second", 5000],
+		] as const) {
+			const original = await payment(`${id}-original`, { amount: "100" });
+			originals.push(original);
+			await payment(`${id}-legacy`, {
+				type: "credit_refund",
+				relatedTransactionId: original.id,
+				stripePaymentIntentId: original.stripePaymentIntentId,
+				amount: "60",
+				creditAmount: "0",
+			});
+			addRefund(id, original.stripePaymentIntentId!, cents);
+		}
+		const before = await ledgerSnapshot();
+		for (const original of originals) {
+			const result = await runBackfillCLI(
+				original.stripePaymentIntentId!,
+				commit,
+			);
+			expect(await ledgerSnapshot()).toEqual(before);
+			expect(result.stderr).toContain("does not cover every legacy row");
+			expect(result.stdout).toContain("0 legacy row(s) planned for deletion");
+		}
+		expect(requests.every((request) => request.startsWith("GET "))).toBe(true);
+	},
+);
+
+test.each([false, true])(
+	"actual CLI preserves the entire PI with an unverifiable legacy sibling (commit=%s)",
+	async (commit) => {
+		const original = await payment("sibling-original");
+		await payment("safe-sibling", {
+			type: "credit_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount: "10.01",
+			creditAmount: "0",
+		});
+		await payment("unsafe-sibling", {
+			type: "credit_refund",
+			relatedTransactionId: null,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount: "20.02",
+			creditAmount: "0",
+		});
+		addRefund("sibling", original.stripePaymentIntentId!);
+		const before = await ledgerSnapshot();
+		const result = await runBackfillCLI(
+			original.stripePaymentIntentId!,
+			commit,
+		);
+		expect(await ledgerSnapshot()).toEqual(before);
+		expect(result.stderr).toContain("Unverified legacy rows");
+	},
+);
+
+test.each([null, "NaN", "Infinity", "0", "-1"])(
+	"preserves invalid legacy amounts (%s)",
+	async (amount) => {
+		const original = await payment("invalid-original");
+		await payment("invalid-legacy", {
+			type: "credit_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount,
+			creditAmount: "0",
+		});
+		addRefund("invalid", original.stripePaymentIntentId!);
+		const before = await ledgerSnapshot();
+		for (const commit of [false, true]) {
+			await legacyPass(stripe, commit, original.stripePaymentIntentId!);
+			await sweepPass(stripe, commit, original.stripePaymentIntentId!);
+			expect(await ledgerSnapshot()).toEqual(before);
+		}
+	},
+);
+
+test.each([false, true])(
+	"preserves unknown original currency (commit=%s)",
+	async (commit) => {
+		const original = await payment("unknown-currency", { currency: "" });
+		await payment("currency-legacy", {
+			type: "credit_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount: "10.01",
+			creditAmount: "0",
+		});
+		addRefund("currency-refund", original.stripePaymentIntentId!);
+		const before = await ledgerSnapshot();
+		await runBackfillCLI(original.stripePaymentIntentId!, commit);
+		expect(await ledgerSnapshot()).toEqual(before);
+	},
+);
+
+test("duplicate Stripe IDs cannot overstate succeeded coverage", async () => {
+	const original = await payment("duplicate-original");
+	await payment("duplicate-legacy", {
+		type: "credit_refund",
+		relatedTransactionId: original.id,
+		stripePaymentIntentId: original.stripePaymentIntentId,
+		amount: "20.02",
+		creditAmount: "0",
+	});
+	addRefund("duplicate", original.stripePaymentIntentId!);
+	addRefund("duplicate", original.stripePaymentIntentId!);
+	const before = await ledgerSnapshot();
+	for (const commit of [false, true]) {
+		await legacyPass(stripe, commit, original.stripePaymentIntentId!);
+		await sweepPass(stripe, commit, original.stripePaymentIntentId!);
+		expect(await ledgerSnapshot()).toEqual(before);
+	}
+});
+
+test.each(["currency", "paymentIntent"] as const)(
+	"canonical refund %s conflicts retain legacy history",
+	async (field) => {
+		const original = await payment("canonical-original");
+		await payment("canonical-legacy", {
+			type: "credit_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount: "10.01",
+			creditAmount: "0",
+		});
+		await payment("canonical-refund", {
+			type: "subscription_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId:
+				field === "paymentIntent"
+					? `${org}-other-pi`
+					: original.stripePaymentIntentId,
+			stripeRefundId: `${org}-canonical`,
+			currency: field === "currency" ? "EUR" : "USD",
+			amount: "10.01",
+			creditAmount: "0",
+		});
+		addRefund("canonical", original.stripePaymentIntentId!);
+		const before = await ledgerSnapshot();
+		await expect(
+			legacyPass(stripe, true, original.stripePaymentIntentId!),
+		).rejects.toThrow("Conflicting existing refund");
+		expect(await ledgerSnapshot()).toEqual(before);
+	},
+);
+let refundPaymentIntentOverride: string | undefined;
+function refundPage(rows: typeof refunds, start: number) {
+	return rows.slice(start, start + 1).map((row) => ({
+		...row,
+		payment_intent: refundPaymentIntentOverride ?? row.payment_intent,
+	}));
+}
+
+test.each([false, true])(
+	"actual CLI rejects succeeded evidence belonging to another PI (commit=%s)",
+	async (commit) => {
+		const original = await payment("wrong-evidence-original");
+		await payment("wrong-evidence-legacy", {
+			type: "credit_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount: "10.01",
+			creditAmount: "0",
+		});
+		addRefund("wrong-evidence", original.stripePaymentIntentId!);
+		const before = await ledgerSnapshot();
+		refundPaymentIntentOverride = `${org}-other-pi`;
+		try {
+			const result = await runBackfillCLI(
+				original.stripePaymentIntentId!,
+				commit,
+			);
+			expect(await ledgerSnapshot()).toEqual(before);
+			expect(result.stdout).toContain("0 legacy row(s) planned for deletion");
+		} finally {
+			refundPaymentIntentOverride = undefined;
+		}
+	},
+);
+
+test("unscoped passes cannot combine evidence from different payment intents", async () => {
+	for (const [id, cents] of [
+		["first", 1000],
+		["second", 5000],
+	] as const) {
+		const original = await payment(`${id}-original`, { amount: "100" });
+		await payment(`${id}-legacy`, {
+			type: "credit_refund",
+			relatedTransactionId: original.id,
+			stripePaymentIntentId: original.stripePaymentIntentId,
+			amount: "60",
+			creditAmount: "0",
+		});
+		addRefund(id, original.stripePaymentIntentId!, cents);
+	}
+	const before = await ledgerSnapshot();
+	for (const commit of [false, true]) {
+		await legacyPass(stripe, commit, undefined);
+		await sweepPass(stripe, commit, undefined);
+		expect(await ledgerSnapshot()).toEqual(before);
+	}
+});
