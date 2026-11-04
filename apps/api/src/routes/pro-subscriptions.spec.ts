@@ -4,6 +4,7 @@ import { Decimal } from "decimal.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { posthog } from "@/posthog.js";
 import {
 	handleSubscriptionCreated,
@@ -12,9 +13,15 @@ import {
 } from "@/stripe.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type Stripe from "stripe";
+
+vi.mock("@llmgateway/audit", () => ({ logAuditEvent: vi.fn() }));
+vi.mock("@/lib/three-d-secure.js", () => ({
+	forcedThreeDSecureOptions: vi.fn(async () => ({})),
+}));
 
 const stripe = vi.hoisted(() => ({
 	subscriptions: { retrieve: vi.fn(), update: vi.fn() },
@@ -85,9 +92,25 @@ describe("Pro subscription changes", () => {
 			.insert(tables.userOrganization)
 			.values({ organizationId: orgId, userId: "test-user-id", role: "owner" });
 		checkoutSessions = new Map();
+		const replays = new Map<
+			string,
+			{ parameters: string; session: Stripe.Checkout.Session }
+		>();
 		stripe.customers.update.mockResolvedValue({ id: "cus_test_pro" });
 		stripe.checkout.sessions.create.mockImplementation(
-			async (params: Stripe.Checkout.SessionCreateParams) => {
+			async (
+				params: Stripe.Checkout.SessionCreateParams,
+				options?: Stripe.RequestOptions,
+			) => {
+				const key = options?.idempotencyKey;
+				const parameters = JSON.stringify(params);
+				const cached = key ? replays.get(key) : undefined;
+				if (cached) {
+					if (cached.parameters !== parameters) {
+						throw new Error("Idempotency parameters changed");
+					}
+					return structuredClone(cached.session);
+				}
 				const id = `cs_test_${checkoutSessions.size + 1}`;
 				const session = {
 					id,
@@ -98,7 +121,10 @@ describe("Pro subscription changes", () => {
 					subscription: null,
 				} as unknown as Stripe.Checkout.Session;
 				checkoutSessions.set(id, session);
-				return session;
+				if (key) {
+					replays.set(key, { parameters, session: structuredClone(session) });
+				}
+				return structuredClone(session);
 			},
 		);
 		stripe.checkout.sessions.retrieve.mockImplementation(async (id: string) => {
@@ -462,6 +488,66 @@ describe("Pro subscription changes", () => {
 		completed.subscription = "sub_test_pro";
 		expect((await checkout(4)).status).toBe(409);
 		expect(stripe.checkout.sessions.create).toHaveBeenCalledTimes(2);
+	});
+	it.each(["open", "expired"] as const)(
+		"recovers a %s Stripe replay after local rollback",
+		async (status) => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "free", proSeats: null, stripeSubscriptionId: null })
+				.where(eq(tables.organization.id, orgId));
+			const checkout = () =>
+				app.request(
+					`/subscriptions/create-pro-subscription?organizationId=${orgId}`,
+					{
+						method: "POST",
+						headers: { Cookie: cookie, "Content-Type": "application/json" },
+						body: JSON.stringify({ seats: 3 }),
+					},
+				);
+			vi.mocked(logAuditEvent).mockRejectedValueOnce(
+				new Error("Test local rollback"),
+			);
+			expect((await checkout()).status).toBe(500);
+			checkoutSessions.get("cs_test_1")!.status = status;
+			const retry = await checkout();
+			expect(retry.status).toBe(200);
+			const { checkoutUrl } = (await retry.json()) as { checkoutUrl: string };
+			const id = checkoutUrl.split("/").at(-1)!;
+			expect(checkoutSessions.get(id)?.status).toBe("open");
+			if (status === "expired") {
+				expect(id).not.toBe("cs_test_1");
+			}
+		},
+	);
+	it("replaces open checkout when the required 3DS policy changes", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "free", proSeats: null, stripeSubscriptionId: null })
+			.where(eq(tables.organization.id, orgId));
+		const checkout = () =>
+			app.request(
+				`/subscriptions/create-pro-subscription?organizationId=${orgId}`,
+				{
+					method: "POST",
+					headers: { Cookie: cookie, "Content-Type": "application/json" },
+					body: JSON.stringify({ seats: 3 }),
+				},
+			);
+		expect((await checkout()).status).toBe(200);
+		vi.mocked(forcedThreeDSecureOptions).mockResolvedValueOnce({
+			payment_method_options: { card: { request_three_d_secure: "challenge" } },
+		});
+		expect((await checkout()).status).toBe(200);
+		expect(checkoutSessions.get("cs_test_1")?.status).toBe("expired");
+		expect(stripe.checkout.sessions.create).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				payment_method_options: {
+					card: { request_three_d_secure: "challenge" },
+				},
+			}),
+			expect.anything(),
+		);
 	});
 	it("does not revive an ended plan when an old created event arrives late", async () => {
 		await db

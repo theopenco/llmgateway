@@ -20,7 +20,6 @@ import {
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
-import { notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import {
@@ -1153,7 +1152,7 @@ export async function createApiKeyForProject(
 
 	const apiKey = await withOrganizationCapacity(
 		project.organization.id,
-		async (tx, organization) => {
+		async (tx, organization, deferAlert) => {
 			assertOrgAllowsManualApiKeys(organization);
 			assertEnterpriseForCompliancePolicy(
 				input.providerCompliancePolicy,
@@ -1176,7 +1175,7 @@ export async function createApiKeyForProject(
 				columns: { id: true },
 			});
 			if (orgActiveApiKeys.length >= maxApiKeys) {
-				await notifyOrgLimit(organization.id, {
+				deferAlert({
 					limit: "api_keys",
 					projectId: project.id,
 					maxApiKeys,
@@ -1776,7 +1775,7 @@ keysApi.openapi(bulkAction, async (c) => {
 			allowed.push(
 				...(await withOrganizationCapacity(
 					organizationId,
-					async (tx, organization) => {
+					async (tx, organization, deferAlert) => {
 						const maxApiKeys = resolveApiKeyLimit(organization);
 						const currentKeys = await tx.query.apiKey.findMany({
 							where: { id: { in: entries.map((entry) => entry.apiKey.id) } },
@@ -1806,7 +1805,7 @@ keysApi.openapi(bulkAction, async (c) => {
 							fail(entry.apiKey.id, "limit_reached");
 						}
 						if (inactive.length > admitted.length) {
-							await notifyOrgLimit(organizationId, {
+							deferAlert({
 								limit: "api_keys",
 								projectId: inactive[admitted.length].apiKey.projectId,
 								maxApiKeys,

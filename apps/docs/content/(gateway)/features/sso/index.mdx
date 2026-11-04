@@ -59,7 +59,7 @@ New SAML connections cannot authenticate users until their domains are verified.
 
 An IdP may only assert identities within its verified domains. Add and verify every email domain it sends, including domains that differ from the sign-in name. For a generic SAML provider, enter its **IdP entity ID / issuer** from its metadata; standard Entra and Okta URLs can derive this value.
 
-On Pro, SCIM tokens are bound to a verified connection in the same organization and cannot provision identities outside that connection’s verified domains. Invite external users normally instead. Google Workspace domain auto-join remains Enterprise-only; the Pro add-on provides SAML SSO.
+On Pro, SCIM tokens are bound to a verified connection in the same organization. User creation, shared-profile changes, and activation require identities within that connection’s verified domains; group membership and removal operations manage existing organization members. Invite external users normally instead. Google Workspace domain auto-join remains Enterprise-only; the Pro add-on provides SAML SSO.
 
 ## SCIM authentication
 

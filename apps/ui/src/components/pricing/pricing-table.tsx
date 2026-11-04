@@ -28,9 +28,7 @@ interface PricingFeature {
 	enterprise: FeatureValue;
 }
 
-// Pro has the exact same product features as Free — it raises the seat and
-// API-key limits and unlocks the SSO & SCIM add-on. Keep the Pro column
-// identical to Free everywhere except limits, add-ons, and enterprise rows.
+// Pro keeps Free’s core features, with configurable allowances and identity add-ons.
 const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Platform Fees",
@@ -207,6 +205,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/dynamic-routes",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -224,6 +223,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/zero-data-retention",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -232,6 +232,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/data-streams",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -249,6 +250,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/organization-teams",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -257,6 +259,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/master-keys",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -265,6 +268,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/organization-skills",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{

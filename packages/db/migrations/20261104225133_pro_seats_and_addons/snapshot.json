@@ -2,11 +2,32 @@
   "type": "diff",
   "version": "9",
   "dialect": "postgres",
-  "id": "fc186026-97d1-43f6-ac32-6452df48b140",
+  "id": "b30e229b-0999-4681-b2d7-d5021243a772",
   "prevIds": [
-    "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
+    "76884d58-0fd7-4778-bd7d-f42aab0ca074",
+    "43b80ca5-b397-41f5-82fe-771ce81d59db",
+    "32c42d20-233a-4cc5-96ce-800ed23b8758"
   ],
   "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "organization_billing_operation"
+      ],
+      "writes": [
+        "s|tbl|public.organization_billing_operation",
+        "n|tbl|public.organization_billing_operation",
+        "e|tbl|public.organization_billing_operation",
+        "n|rel|public.organization_billing_operation",
+        "n|type|public.organization_billing_operation",
+        "n|rel|public.organization_billing_operation_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
     {
       "statementType": "add_column",
       "statementTarget": [
@@ -114,9 +135,41 @@
         "n|tbl|public.transaction",
         "n|sch|public"
       ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "organization_billing_operation"
+      ],
+      "writes": [
+        "s|fk|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey",
+        "n|fk|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey",
+        "e|fk|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey",
+        "n|con|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.organization_billing_operation",
+        "n|sch|public",
+        "n|tbl|public.organization",
+        "n|sch|public",
+        "n|col|public.organization_billing_operation.organization_id",
+        "n|col|public.organization.id",
+        "e|uniqueness|public.organization.id"
+      ]
     }
   ],
   "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "organization_billing_operation",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
     {
       "op": "create",
       "row": {
@@ -201,6 +254,54 @@
       "op": "create",
       "row": {
         "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "organization_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "checkout_session_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "checkout_configuration",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
         "table": "transaction",
         "name": "amount_breakdown",
         "type": "json",
@@ -211,6 +312,39 @@
         "generated": null,
         "identity": null,
         "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "organization_billing_operation_On4mS2o8scuz_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "organization_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "organization",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "organization_billing_operation_pkey",
+        "columns": [
+          "organization_id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
       }
     }
   ]

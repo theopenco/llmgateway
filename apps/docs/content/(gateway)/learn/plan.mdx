@@ -8,7 +8,7 @@ The Plan page (**Organization → Settings → Plan**) is where you upgrade to t
 
 ## Free vs Pro
 
-Pro has the **same product features as Free** — it raises your limits. The Free plan includes 5 team seats, 5 API keys, and 10 projects per organization. Pro scales those up:
+Pro keeps the **same core product features as Free**, with configurable allowances and optional paid add-ons. Free includes 5 team seats, 5 API keys, and 10 projects per organization. The minimum Pro configuration includes 3 seats and 3 API keys, below Free’s allowances; choose enough seats and extra keys for your team:
 
 |                       | Free | Pro                                          |
 | --------------------- | ---- | -------------------------------------------- |
@@ -46,6 +46,6 @@ Cancelling keeps your seats, keys, projects, and add-ons active until the end of
 
 ## Identity setup and payment recovery
 
-The Pro SSO add-on provides SAML, not Google Workspace domain auto-join. Every new connection must prove ownership of all its email domains through DNS TXT records before sign-in or enforcement. Pro SCIM uses a token bound to that verified connection and only provisions identities within those domains. See [SSO setup](/features/sso#verify-domain-ownership).
+The Pro SSO add-on provides SAML, not Google Workspace domain auto-join. Every new connection must prove ownership of all its email domains through DNS TXT records before sign-in or enforcement. Pro SCIM uses a token bound to that verified connection. Creating users, changing shared profiles, and activating users require identities within its verified domains. Group membership and removal operations manage existing organization members. See [SSO setup](/features/sso#verify-domain-ownership).
 
 Initial payment failure is recorded without granting unpaid SSO/SCIM add-ons. During payment recovery, previously granted allowances are retained; an unpaid increase does not grant additional seats or add-ons until the subscription becomes active.

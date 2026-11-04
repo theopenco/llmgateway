@@ -1,8 +1,7 @@
 import { Decimal } from "decimal.js";
 
-// Pro plan pricing. The Pro plan has no feature differences from Free — it
-// raises the team-seat and API-key limits and unlocks paid add-ons. All
-// billing is monthly, per seat.
+// Monthly Pro pricing: configurable allowances and optional paid add-ons.
+// The minimum seat/key allowances can be below Free.
 export const PRO_PLAN_PRICES = {
 	// USD per seat per month. Every seat includes one API key.
 	seat: 15,

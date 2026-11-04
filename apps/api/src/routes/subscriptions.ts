@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
@@ -6,6 +6,10 @@ import { z } from "zod";
 
 import { withBillingOperation } from "@/lib/billing-operation.js";
 import { getBillingOrganization } from "@/lib/billing-organization.js";
+import {
+	proCheckoutContextHash,
+	proCheckoutIdempotencyKey,
+} from "@/lib/pro-checkout-key.js";
 import { extractProQuantities } from "@/lib/pro-plan.js";
 import {
 	recordProCancellationTransition,
@@ -26,7 +30,6 @@ import {
 	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_SSO_MAX_SEATS,
 } from "@llmgateway/shared";
-import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
 import { getStripe } from "./payments.js";
 
@@ -295,13 +298,33 @@ subscriptions.openapi(createProSubscription, async (c) => {
 			extraProjects,
 			tx,
 		);
+		const threeDSecure = await forcedThreeDSecureOptions();
+		const successUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?success=true`;
+		const cancelUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?canceled=true`;
+		const context = JSON.stringify({
+			organizationId: organization.id,
+			email: user.email,
+			successUrl,
+			cancelUrl,
+			threeDSecure,
+		});
+		const prices = getProPriceIds();
+		const publicParts = [
+			seats,
+			extraApiKeys,
+			extraProjects,
+			ssoAddon,
+			scimAddon,
+			...Object.values(prices),
+		];
 		const configuration = JSON.stringify({
 			seats,
 			extraApiKeys,
 			extraProjects,
 			ssoAddon,
 			scimAddon,
-			prices: getProPriceIds(),
+			prices,
+			requestContext: proCheckoutContextHash(context),
 		});
 		const [pending] = await tx
 			.select()
@@ -377,9 +400,10 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				}
 				cursor = page.data[page.data.length - 1].id;
 			}
-			const session =
-				reusable ??
-				(await stripe.checkout.sessions.create(
+			let session = reusable;
+			let generation = pending.checkoutSessionId ?? "initial";
+			for (let attempt = 0; !session && attempt < 3; attempt++) {
+				const created = await stripe.checkout.sessions.create(
 					{
 						customer: stripeCustomerId,
 						mode: "subscription",
@@ -391,9 +415,9 @@ subscriptions.openapi(createProSubscription, async (c) => {
 							scimAddon,
 						}),
 						allow_promotion_codes: true,
-						...(await forcedThreeDSecureOptions()),
-						success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?success=true`,
-						cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?canceled=true`,
+						...threeDSecure,
+						success_url: successUrl,
+						cancel_url: cancelUrl,
 						metadata: {
 							organizationId: organization.id,
 							plan: "pro",
@@ -410,16 +434,35 @@ subscriptions.openapi(createProSubscription, async (c) => {
 						},
 					},
 					{
-						idempotencyKey: `pro-checkout-${createHmac(
-							"sha256",
-							getApiKeyHashSecret(),
-						)
-							.update(
-								`pro-checkout:${organization.id}:${configuration}:${pending.checkoutSessionId ?? "initial"}`,
-							)
-							.digest("hex")}`,
+						idempotencyKey: proCheckoutIdempotencyKey(
+							context,
+							generation,
+							publicParts,
+						),
 					},
-				));
+				);
+				const current = await stripe.checkout.sessions.retrieve(created.id);
+				if (current.metadata?.organizationId !== organization.id) {
+					throw new Error("Created checkout organization mismatch");
+				}
+				if (current.status === "complete") {
+					throw new HTTPException(409, {
+						message:
+							"Checkout is being finalized; refresh your subscription status",
+					});
+				}
+				if (current.status === "open") {
+					session = current;
+				} else {
+					generation =
+						attempt === 1 ? `${current.id}:${randomUUID()}` : current.id;
+				}
+			}
+			if (!session) {
+				throw new HTTPException(409, {
+					message: "Checkout expired; retry your request",
+				});
+			}
 			if (!session.url) {
 				throw new HTTPException(500, {
 					message: "Failed to generate checkout URL",
