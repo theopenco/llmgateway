@@ -5851,6 +5851,16 @@ describe("airside provider portal", () => {
 			}),
 		).toHaveLength(0);
 
+		let releaseInitial: (() => void) | undefined;
+		const initialPending = new Promise<void>((resolve) => {
+			releaseInitial = resolve;
+		});
+		vi.mocked(discordUtils.notifyAirsideFiling)
+			.mockImplementationOnce(() => initialPending)
+			.mockImplementationOnce(() => {
+				releaseInitial?.();
+				return Promise.resolve();
+			});
 		const first = await createModel(
 			cookie,
 			company.id,

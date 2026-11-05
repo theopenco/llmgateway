@@ -3398,19 +3398,21 @@ airside.openapi(createModel, async (c) => {
 			throw err;
 		});
 
-	await notifyAirsideFiling({
-		kind: "initial",
-		id: created.priceFilings[0].id,
-		providerId: created.providerId,
-		modelName: created.modelName,
-	});
-	if (firstProviderKey) {
-		await notifyAirsideFiling({
-			kind: "provider-key",
-			id: claim.id,
-			providerId: claim.providerId,
-		});
-	}
+	await Promise.all([
+		notifyAirsideFiling({
+			kind: "initial",
+			id: created.priceFilings[0].id,
+			providerId: created.providerId,
+			modelName: created.modelName,
+		}),
+		firstProviderKey
+			? notifyAirsideFiling({
+					kind: "provider-key",
+					id: claim.id,
+					providerId: claim.providerId,
+				})
+			: undefined,
+	]);
 	return c.json({ model: serializeModel(created) }, 201);
 });
 
