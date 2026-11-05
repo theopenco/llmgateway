@@ -105,7 +105,10 @@ import {
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { createRoute } from "@/utils/create-route.js";
-import { notifyAirsideCrewInvite } from "@/utils/discord.js";
+import {
+	notifyAirsideCrewInvite,
+	notifyAirsideFiling,
+} from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import {
@@ -2183,6 +2186,7 @@ airside.openapi(createClaim, async (c) => {
 		match.matchedDomain,
 		user.email,
 	);
+	await notifyAirsideFiling({ kind: "claim", id: claim.id, providerId });
 	const providerNames = providerNamesById;
 	return c.json({ claim: serializeClaim(claim, providerNames) }, 201);
 });
@@ -2365,6 +2369,7 @@ airside.openapi(registerCarrier, async (c) => {
 		matchedDomain,
 		user.email,
 	);
+	await notifyAirsideFiling({ kind: "claim", id: claim.id, providerId });
 	return c.json({ claim: serializeClaim(claim, providerNamesById) }, 201);
 });
 
@@ -2448,6 +2453,11 @@ airside.openapi(updateClaimBranding, async (c) => {
 	if (!updated) {
 		throw new HTTPException(404, { message: "Claim not found" });
 	}
+	await notifyAirsideFiling({
+		kind: "branding",
+		id: claim.id,
+		providerId: claim.providerId,
+	});
 	return c.json({ claim: serializeClaim(updated, providerNamesById) });
 });
 
@@ -2665,6 +2675,11 @@ airside.openapi(submitProviderKey, async (c) => {
 	const pendingProviderKey = await cdb.transaction(
 		async (tx) => await fileProviderKey(tx, claim, apiKey),
 	);
+	await notifyAirsideFiling({
+		kind: "provider-key",
+		id: claim.id,
+		providerId: claim.providerId,
+	});
 	return c.json({ pendingProviderKey });
 });
 
@@ -3383,6 +3398,21 @@ airside.openapi(createModel, async (c) => {
 			throw err;
 		});
 
+	await Promise.all([
+		notifyAirsideFiling({
+			kind: "initial",
+			id: created.priceFilings[0].id,
+			providerId: created.providerId,
+			modelName: created.modelName,
+		}),
+		firstProviderKey
+			? notifyAirsideFiling({
+					kind: "provider-key",
+					id: claim.id,
+					providerId: claim.providerId,
+				})
+			: undefined,
+	]);
 	return c.json({ model: serializeModel(created) }, 201);
 });
 
@@ -3684,6 +3714,12 @@ airside.openapi(updateModel, async (c) => {
 						"The pending change was reviewed in the meantime — reload and edit again.",
 				});
 			}
+			await notifyAirsideFiling({
+				kind: "metadata",
+				id: replaced.id,
+				providerId: model.providerId,
+				modelName: model.modelName,
+			});
 			return c.json({
 				model: serializeModel({
 					...model,
@@ -3716,6 +3752,12 @@ airside.openapi(updateModel, async (c) => {
 				}
 				throw err;
 			});
+		await notifyAirsideFiling({
+			kind: "metadata",
+			id: filing[0].id,
+			providerId: model.providerId,
+			modelName: model.modelName,
+		});
 		return c.json({
 			model: serializeModel({
 				...model,
@@ -3889,6 +3931,12 @@ airside.openapi(relistModel, async (c) => {
 			.where(eq(tables.providerDraftModel.id, id))
 			.returning();
 		return requested;
+	});
+	await notifyAirsideFiling({
+		kind: "relist",
+		id: row.id,
+		providerId: row.providerId,
+		modelName: row.modelName,
 	});
 	return c.json({ model: await serializeModelById(row) });
 });
@@ -4218,6 +4266,12 @@ airside.openapi(createPriceFiling, async (c) => {
 			})
 			.returning();
 		return created;
+	});
+	await notifyAirsideFiling({
+		kind: filing.kind,
+		id: filing.id,
+		providerId: model.providerId,
+		modelName: model.modelName,
 	});
 	return c.json({ filing: serializeFiling(filing) }, 201);
 });
@@ -4886,6 +4940,12 @@ airside.openapi(updateRoutingSettings, async (c) => {
 				requestedBy: user.id,
 			})
 			.returning();
+		await notifyAirsideFiling({
+			kind: "routing",
+			id: filing.id,
+			providerId,
+			modelName: modelId,
+		});
 		return c.json({ filing: serializeRoutingFiling(filing) }, 201);
 	} catch (err) {
 		if (isUniqueViolation(err)) {
