@@ -229,6 +229,14 @@ export default function ImagePageClient({
 		[comparisonMode, selectedModels, modelSupportsFlex],
 	);
 
+	const supportsSvgOutput = useMemo(
+		() =>
+			(comparisonMode ? selectedModels : selectedModels.slice(0, 1)).some(
+				(model) => getModelImageConfig(model).supportsSvgOutput,
+			),
+		[comparisonMode, selectedModels],
+	);
+
 	// Detect if all selected models support image input (editing)
 	const isEditModel = useMemo(() => {
 		return (
@@ -286,7 +294,13 @@ export default function ImagePageClient({
 					images:
 						inline?.models[modelIndex]?.images ??
 						Array.from({ length: m.imageCount }, (_, index) =>
-							historyImage(config.apiUrl, item.id, modelIndex, index),
+							historyImage(
+								config.apiUrl,
+								item.id,
+								modelIndex,
+								index,
+								m.imageMediaTypes?.[index],
+							),
 						),
 					error: m.error,
 					isLoading: false,
@@ -518,11 +532,15 @@ export default function ImagePageClient({
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-		if (!config.supportsSvgOutput) {
-			setImageFormatState("image");
-		}
+
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude size/quality values to avoid clobbering the user's explicit selection
 	}, [selectedModels, isEditModel]);
+
+	useEffect(() => {
+		if (!supportsSvgOutput) {
+			setImageFormatState("image");
+		}
+	}, [supportsSvgOutput]);
 
 	// SVG output returns one image and takes no reference images upstream.
 	const setImageFormat = useCallback((value: ImageOutputFormat) => {
@@ -882,6 +900,7 @@ export default function ImagePageClient({
 				// Saved images are fetched at full resolution on demand.
 				const generated = await toGeneratedImage(image);
 				handleNewChat();
+				setImageFormatState("image");
 				setInputImages([
 					{ dataUrl: toDataUrl(generated), mediaType: generated.mediaType },
 				]);
@@ -990,6 +1009,7 @@ export default function ImagePageClient({
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						imageFormat={imageFormat}
+						supportsSvgOutput={supportsSvgOutput}
 						setImageFormat={setImageFormat}
 						serviceTier={imageServiceTier}
 						setServiceTier={handleServiceTierChange}
