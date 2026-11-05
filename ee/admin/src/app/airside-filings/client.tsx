@@ -1030,9 +1030,7 @@ export function AirsideFilingsClient() {
 														filing.currentPricing?.cachedInputPrice ? (
 															<div>
 																cached:{" "}
-																{filing.currentPricing &&
-																filing.currentPricing.cachedInputPrice !==
-																	filing.cachedInputPrice
+																{filing.currentPricing
 																	? `${filing.currentPricing.cachedInputPrice ? formatPerMillion(filing.currentPricing.cachedInputPrice) : "none"} → `
 																	: ""}
 																{filing.cachedInputPrice
