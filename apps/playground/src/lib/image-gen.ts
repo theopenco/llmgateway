@@ -16,7 +16,7 @@ export interface GeneratedImage {
 // the original is zoomed, downloaded or reused as a reference.
 export type GalleryImage =
 	| { kind: "inline"; base64: string; mediaType: string }
-	| { kind: "remote"; previewUrl: string; fullUrl: string };
+	| { kind: "remote"; previewUrl: string; fullUrl: string; mediaType?: string };
 
 export function inlineImage(image: GeneratedImage): GalleryImage {
 	return { kind: "inline", base64: image.base64, mediaType: image.mediaType };
@@ -39,13 +39,21 @@ export function historyImage(
 	itemId: string,
 	modelIndex: number,
 	imageIndex: number,
+	mediaType?: string,
 ): GalleryImage {
 	const base = `${apiUrl}/playground/image-history/${itemId}/images/${modelIndex}/${imageIndex}`;
 	return {
 		kind: "remote",
-		previewUrl: `${base}?variant=preview`,
+		// An SVG stays vector, so the grid shows the original instead of a
+		// rasterized preview.
+		previewUrl: isSvgMediaType(mediaType) ? base : `${base}?variant=preview`,
 		fullUrl: base,
+		...(mediaType && { mediaType }),
 	};
+}
+
+export function isSvgMediaType(mediaType: string | undefined): boolean {
+	return mediaType === "image/svg+xml";
 }
 
 export function historyInputImage(

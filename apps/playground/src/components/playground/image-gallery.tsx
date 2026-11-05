@@ -30,6 +30,7 @@ import {
 	imageFileStem,
 	type ZipEntry,
 } from "@/lib/image-download";
+import { isSvgMediaType } from "@/lib/image-gen";
 
 import type { GalleryImage, GalleryItem } from "@/lib/image-gen";
 
@@ -61,8 +62,7 @@ const GalleryImageTile = memo(
 	}) => {
 		const resolved = useGalleryImage(image);
 		const [isDownloading, setIsDownloading] = useState(false);
-		const isSvg =
-			image.kind === "inline" && image.mediaType === "image/svg+xml";
+		const isSvg = isSvgMediaType(image.mediaType);
 		const details =
 			resolved?.width && resolved.height
 				? `${resolved.width}×${resolved.height}${

@@ -38,6 +38,7 @@ import {
 	ImageGenerationError,
 	inlineImage,
 	inlineImageFromDataUrl,
+	isSvgMediaType,
 	readImageGenerationResponse,
 	toDataUrl,
 } from "@/lib/image-gen";
@@ -286,7 +287,13 @@ export default function ImagePageClient({
 					images:
 						inline?.models[modelIndex]?.images ??
 						Array.from({ length: m.imageCount }, (_, index) =>
-							historyImage(config.apiUrl, item.id, modelIndex, index),
+							historyImage(
+								config.apiUrl,
+								item.id,
+								modelIndex,
+								index,
+								m.mediaTypes[index],
+							),
 						),
 					error: m.error,
 					isLoading: false,
@@ -881,7 +888,13 @@ export default function ImagePageClient({
 			try {
 				// Saved images are fetched at full resolution on demand.
 				const generated = await toGeneratedImage(image);
+				if (isSvgMediaType(generated.mediaType)) {
+					toast.error("SVG images can't be used as a reference image.");
+					return;
+				}
 				handleNewChat();
+				// A reference image means an edit, which returns a raster image.
+				setImageFormatState("image");
 				setInputImages([
 					{ dataUrl: toDataUrl(generated), mediaType: generated.mediaType },
 				]);

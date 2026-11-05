@@ -199,6 +199,8 @@ const imageHistoryListModelSchema = z.object({
 	modelId: z.string(),
 	modelName: z.string(),
 	imageCount: z.number(),
+	// One media type per image, so saved SVGs can be shown as vectors.
+	mediaTypes: z.array(z.string()),
 	error: z.string().optional(),
 });
 
@@ -382,6 +384,7 @@ playground.openapi(listImageHistory, async (c) => {
 					modelId: string;
 					modelName: string;
 					imageCount: number;
+					mediaTypes: string[];
 					error: string | null;
 				}[]
 			>`(
@@ -391,6 +394,10 @@ playground.openapi(listImageHistory, async (c) => {
 							'modelId', m.value ->> 'modelId',
 							'modelName', m.value ->> 'modelName',
 							'imageCount', coalesce(jsonb_array_length(m.value -> 'images'), 0),
+							'mediaTypes', (
+								select coalesce(jsonb_agg(i.value ->> 'mediaType' order by i.ord), '[]'::jsonb)
+								from jsonb_array_elements(coalesce(m.value -> 'images', '[]'::jsonb)) with ordinality as i(value, ord)
+							),
 							'error', m.value ->> 'error'
 						)
 						order by m.ord
@@ -414,6 +421,7 @@ playground.openapi(listImageHistory, async (c) => {
 				modelId: m.modelId,
 				modelName: m.modelName,
 				imageCount: m.imageCount,
+				mediaTypes: m.mediaTypes,
 				...(m.error ? { error: m.error } : {}),
 			})),
 		})),
@@ -503,10 +511,15 @@ playground.get("/image-history/:id/thumbnail", async (c) => {
 // Stored images never change, but a cached copy must still pass the ownership
 // check above on every use, so the browser revalidates and gets a 304 instead
 // of a re-rendered variant.
+// Bump when the response headers change: a 304 keeps a cached copy's old
+// headers, so older ETags must miss and get a fresh 200.
+const STORED_IMAGE_ETAG_VERSION = "v2";
+
 function notModified(c: Context, etag: string): boolean {
+	const versioned = `"${STORED_IMAGE_ETAG_VERSION}:${etag.replace(/^"/, "")}`;
 	c.header("Cache-Control", "private, no-cache");
-	c.header("ETag", etag);
-	return c.req.header("if-none-match") === etag;
+	c.header("ETag", versioned);
+	return c.req.header("if-none-match") === versioned;
 }
 
 // Stored images are served from the API origin with a client-supplied media
@@ -688,6 +701,7 @@ playground.openapi(saveImageHistory, async (c) => {
 					modelId: m.modelId,
 					modelName: m.modelName,
 					imageCount: m.images.length,
+					mediaTypes: m.images.map((image) => image.mediaType),
 					...(m.error ? { error: m.error } : {}),
 				})),
 			},

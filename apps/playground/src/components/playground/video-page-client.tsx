@@ -240,7 +240,9 @@ export default function VideoPageClient({
 			(item) => {
 				const inputPreviews: { src: string; label: string }[] = [];
 				const inputImageUrl = (index: number) =>
-					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}`;
+					// `v` changes the URL whenever the response headers change, since
+					// these responses are cached as immutable.
+					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}?v=2`;
 				if (item.hasStartFrame) {
 					inputPreviews.push({
 						src: inputImageUrl(inputPreviews.length),

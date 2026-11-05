@@ -72,7 +72,13 @@ describe("playground image history binary routes", () => {
 		expect(json.items[0]).toMatchObject({
 			id: itemId,
 			inputImageCount: 1,
-			models: [{ modelId: "gemini-3-pro-image", imageCount: 1 }],
+			models: [
+				{
+					modelId: "gemini-3-pro-image",
+					imageCount: 1,
+					mediaTypes: ["image/png"],
+				},
+			],
 		});
 		expect(JSON.stringify(json)).not.toContain(
 			original.toString("base64").slice(0, 64),
@@ -94,7 +100,7 @@ describe("playground image history binary routes", () => {
 	test("revalidates cached copies through the ownership check", async () => {
 		const first = await get("/images/0/0?variant=preview");
 		const etag = first.headers.get("etag");
-		expect(etag).toBeTruthy();
+		expect(etag).toMatch(/^"v2:/);
 		expect(first.headers.get("cache-control")).toBe("private, no-cache");
 
 		const revalidated = await app.request(
@@ -155,7 +161,9 @@ describe("playground image history binary routes", () => {
 			}),
 		});
 		expect(saved.status).toBe(201);
-		const svgItemId = (await saved.json()).item.id;
+		const savedItem = (await saved.json()).item;
+		expect(savedItem.models[0].mediaTypes).toEqual(["image/svg+xml"]);
+		const svgItemId = savedItem.id;
 		const getSvg = (path: string) =>
 			app.request(`/playground/image-history/${svgItemId}${path}`, {
 				headers: { Cookie: authCookie },
