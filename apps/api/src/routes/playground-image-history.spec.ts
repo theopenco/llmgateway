@@ -96,6 +96,17 @@ describe("playground image history binary routes", () => {
 		const etag = first.headers.get("etag");
 		expect(etag).toBeTruthy();
 		expect(first.headers.get("cache-control")).toBe("private, no-cache");
+		const legacy = await app.request(
+			`/playground/image-history/${itemId}/images/0/0?variant=preview`,
+			{
+				headers: {
+					Cookie: authCookie,
+					"If-None-Match": `"${itemId}:0:0:preview"`,
+				},
+			},
+		);
+		expect(legacy.status).toBe(200);
+		expect(legacy.headers.get("content-security-policy")).toContain("sandbox");
 
 		const revalidated = await app.request(
 			`/playground/image-history/${itemId}/images/0/0?variant=preview`,
@@ -183,4 +194,38 @@ describe("playground image history binary routes", () => {
 		);
 		expect(res.status).toBe(401);
 	});
+});
+
+test("preserves image media types in history metadata", async () => {
+	const cookie = await createTestUser();
+	try {
+		const mediaTypes = ["image/svg+xml", "image/png"];
+		const saved = await app.request("/playground/image-history", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: cookie },
+			body: JSON.stringify({
+				prompt: "Mixed image formats",
+				models: [
+					{
+						modelId: "gpt-image-2.6-flare",
+						modelName: "Image model",
+						images: mediaTypes.map((mediaType) => ({ base64: "", mediaType })),
+					},
+				],
+			}),
+		});
+		expect(saved.status).toBe(201);
+		expect((await saved.json()).item.models[0].imageMediaTypes).toEqual(
+			mediaTypes,
+		);
+		const listed = await app.request("/playground/image-history", {
+			headers: { Cookie: cookie },
+		});
+		expect(listed.status).toBe(200);
+		expect((await listed.json()).items[0].models[0].imageMediaTypes).toEqual(
+			mediaTypes,
+		);
+	} finally {
+		await deleteAll();
+	}
 });

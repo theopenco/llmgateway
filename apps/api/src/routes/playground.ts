@@ -199,6 +199,7 @@ const imageHistoryListModelSchema = z.object({
 	modelId: z.string(),
 	modelName: z.string(),
 	imageCount: z.number(),
+	imageMediaTypes: z.array(z.string()),
 	error: z.string().optional(),
 });
 
@@ -382,6 +383,7 @@ playground.openapi(listImageHistory, async (c) => {
 					modelId: string;
 					modelName: string;
 					imageCount: number;
+					imageMediaTypes: string[];
 					error: string | null;
 				}[]
 			>`(
@@ -391,6 +393,10 @@ playground.openapi(listImageHistory, async (c) => {
 							'modelId', m.value ->> 'modelId',
 							'modelName', m.value ->> 'modelName',
 							'imageCount', coalesce(jsonb_array_length(m.value -> 'images'), 0),
+							'imageMediaTypes', (
+								select coalesce(jsonb_agg(i.value ->> 'mediaType' order by i.ord), '[]'::jsonb)
+								from jsonb_array_elements(m.value -> 'images') with ordinality as i(value, ord)
+							),
 							'error', m.value ->> 'error'
 						)
 						order by m.ord
@@ -414,6 +420,7 @@ playground.openapi(listImageHistory, async (c) => {
 				modelId: m.modelId,
 				modelName: m.modelName,
 				imageCount: m.imageCount,
+				imageMediaTypes: m.imageMediaTypes,
 				...(m.error ? { error: m.error } : {}),
 			})),
 		})),
@@ -504,9 +511,11 @@ playground.get("/image-history/:id/thumbnail", async (c) => {
 // check above on every use, so the browser revalidates and gets a 304 instead
 // of a re-rendered variant.
 function notModified(c: Context, etag: string): boolean {
+	// Invalidate validators issued before stored images were sandboxed.
+	const sandboxedEtag = `"sandbox-v1:${etag.slice(1)}`;
 	c.header("Cache-Control", "private, no-cache");
-	c.header("ETag", etag);
-	return c.req.header("if-none-match") === etag;
+	c.header("ETag", sandboxedEtag);
+	return c.req.header("if-none-match") === sandboxedEtag;
 }
 
 // Stored images are served from the API origin with a client-supplied media
@@ -688,6 +697,7 @@ playground.openapi(saveImageHistory, async (c) => {
 					modelId: m.modelId,
 					modelName: m.modelName,
 					imageCount: m.images.length,
+					imageMediaTypes: m.images.map((image) => image.mediaType),
 					...(m.error ? { error: m.error } : {}),
 				})),
 			},
