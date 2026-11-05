@@ -145,7 +145,7 @@ Listed prices are what developers are billed, so pricing never changes silently:
 
 A filing covers input, output, optional cached-input, and optional per-request prices (token prices in USD per million tokens, the per-request price in USD), plus a note for the reviewer. It can also carry **regional fares** — per-region price overrides developers reach with `<provider>/<model>:<region>`, while all other traffic pays the default fares. Each approved filing's regional set fully replaces the previous one, and while no filing is pending a region can be dropped from the Fleet page — removing an offering changes no price, so it applies immediately without review. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
 
-Reviewers see current → filed input, output, and cached-input rates on update filings, including unchanged rates. Adding or removing a cached-input rate shows `none` on the corresponding side.
+Reviewers see current → filed only for input, output, or cached-input rates that change. Unchanged rates show a single value. Adding or removing a cached-input rate shows `none` on the corresponding side.
 
 ## Routing and billing
 
