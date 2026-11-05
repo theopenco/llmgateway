@@ -444,6 +444,31 @@ describe("image generation upstream streaming", () => {
 			});
 		});
 
+		test.each([
+			["background", "transparent"],
+			["output_format", "png"],
+			["output_compression", 0],
+		] as const)("records %s=%s on the log", async (field, value) => {
+			const requestId = randomUUID();
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: {
+					...headers,
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model,
+					prompt: "A blue circle",
+					images: [{ image_url: inputImage }],
+					[field]: value,
+				}),
+			});
+			expect(res.status).toBe(200);
+			const log = await waitForLogByRequestId(requestId);
+			expect(log.params).toMatchObject({ image_config: { [field]: value } });
+		});
+
 		test("omits the options when not requested", async () => {
 			const res = await app.request("/v1/images/edits", {
 				method: "POST",
