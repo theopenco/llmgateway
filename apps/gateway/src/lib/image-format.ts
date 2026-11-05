@@ -29,9 +29,17 @@ export function imageFormatFromBase64(b64: string): ImageFormat | undefined {
 	) {
 		return "webp";
 	}
-	const text = header.toString("utf8").trimStart();
-	if (text.startsWith("<svg") || text.startsWith("<?xml")) {
-		return "svg";
-	}
-	return undefined;
+	return isSvgDocument(b64) ? "svg" : undefined;
+}
+
+const SVG_PREFIX_BASE64_CHARS = 2048;
+const SVG_PROLOG = /^(?:\s+|<\?xml[^>]*\?>|<!--[\s\S]*?-->|<!DOCTYPE[^>]*>)*/i;
+
+// An SVG document may open with a byte order mark, whitespace, an XML
+// declaration, comments, or a doctype before its root <svg> element.
+function isSvgDocument(b64: string): boolean {
+	const text = Buffer.from(b64.slice(0, SVG_PREFIX_BASE64_CHARS), "base64")
+		.toString("utf8")
+		.replace(/^\uFEFF/, "");
+	return /^<svg[\s/>]/i.test(text.replace(SVG_PROLOG, ""));
 }
