@@ -19,7 +19,7 @@ Studio** in Lounge now asks for the vector file directly, at
 
 ## Generate an SVG
 
-1. Pick GPT Image 2.6 Sunburst or Flare in the model menu.
+1. Pick a model with SVG output support. See the [models page](https://llmgateway.io/models) for the current catalogue.
 2. Switch the new format menu from **Image** to **SVG**.
 3. Describe the graphic and click **Generate**.
 

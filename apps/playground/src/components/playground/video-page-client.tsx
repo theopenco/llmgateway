@@ -240,7 +240,7 @@ export default function VideoPageClient({
 			(item) => {
 				const inputPreviews: { src: string; label: string }[] = [];
 				const inputImageUrl = (index: number) =>
-					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}`;
+					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}?sandbox=1`;
 				if (item.hasStartFrame) {
 					inputPreviews.push({
 						src: inputImageUrl(inputPreviews.length),
