@@ -105,6 +105,7 @@ export function CostByModelTimeseriesChart({
 	description,
 	fetchData,
 	externalWindow,
+	showUsageMode = true,
 	groupBy,
 	onGroupByChange,
 	groupByOptions = ["model", "source"],
@@ -112,6 +113,7 @@ export function CostByModelTimeseriesChart({
 	onModelViewChange,
 }: {
 	title: string;
+	showUsageMode?: boolean;
 	description?: string;
 	fetchData: (
 		window: TokenWindow,
@@ -280,7 +282,7 @@ export function CostByModelTimeseriesChart({
 						))}
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<UsageModeSelector />
+						{showUsageMode && <UsageModeSelector />}
 						<div
 							className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
 							role="group"
