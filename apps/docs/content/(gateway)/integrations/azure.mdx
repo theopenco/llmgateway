@@ -144,6 +144,10 @@ Azure availability varies by model and resource region, even for Global Standard
 
 The same key also serves embeddings (`/v1/embeddings`), text-to-speech (`/v1/audio/speech`), and realtime speech and transcription sessions (`/v1/realtime`) for Azure-mapped models. The gateway calls the resource's v1 API (`https://<resource>.openai.azure.com/openai/v1`) for these endpoints regardless of the key's deployment type. A key with a base URL instead of a resource uses that base URL for every Azure endpoint, including these.
 
+Azure uses the same gateway parameters for speech formats, speed, delivery instructions, realtime voices, audio codecs, turn detection, noise reduction, input transcription, and function calling as OpenAI. Availability still depends on the upstream model: some Azure speech deployments expose fewer voices. Use the provider mapping's `supported_voices` from `GET /v1/models` rather than assuming OpenAI's voice list applies.
+
+This is gateway-level parity, not every native OpenAI API feature. [Speech responses](/features/speech-generation#streaming) are buffered, and [realtime sessions](/features/realtime#current-limitations) use WebSockets without image input, hosted tools, or stored prompt references. Those restrictions apply to OpenAI and Azure alike.
+
 ## Migrate from Azure AI Foundry
 
 The legacy `azure-ai-foundry` provider uses the Azure Model Inference API. Its
