@@ -73,6 +73,9 @@ const empryoConfig = {
 	instructionFiles: [],
 };
 
+const redactPaths = (text) =>
+	text.replaceAll(workRoot, "$BENCH_HOME").replaceAll(homedir(), "~");
+
 const sh = (cmd, args, cwd) =>
 	execFileSync(cmd, args, {
 		cwd,
@@ -315,7 +318,7 @@ function grade(task, workdir, runDir) {
 			],
 			workdir,
 		);
-	writeFileSync(join(runDir, "patch.diff"), patch);
+	writeFileSync(join(runDir, "patch.diff"), redactPaths(patch));
 	for (const file of task.hiddenTests) {
 		cpSync(join(workRoot, "hidden", task.id, file), join(workdir, file));
 	}
@@ -337,7 +340,7 @@ function grade(task, workdir, runDir) {
 	} catch (err) {
 		output = (err.stdout?.toString() ?? "") + (err.stderr?.toString() ?? "");
 	}
-	writeFileSync(join(runDir, "grade.log"), output);
+	writeFileSync(join(runDir, "grade.log"), redactPaths(output));
 	const tests =
 		/Tests\s+(.+?)\s*\(/.exec(output.replace(/\x1b\[[0-9;]*m/g, ""))?.[1] ??
 		null;
@@ -435,7 +438,10 @@ async function runOne({ task, agent, modelKey, rep }) {
 		agentConfig: command.config,
 	};
 	const stdout = readFileSync(join(scratch, "agent.stdout"), "utf8");
-	writeFileSync(join(runDir, "agent-output.tail.txt"), stdout.slice(-20_000));
+	writeFileSync(
+		join(runDir, "agent-output.tail.txt"),
+		redactPaths(stdout.slice(-20_000)),
+	);
 	writeFileSync(join(runDir, "result.json"), JSON.stringify(result, null, 2));
 	console.log(
 		`done ${runId} pass=${result.passed} wall=${Math.round(proc.wallMs / 1000)}s code=${proc.code}${proc.timedOut ? " TIMEOUT" : ""}`,

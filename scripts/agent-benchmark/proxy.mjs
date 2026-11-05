@@ -221,13 +221,13 @@ function normalizeUsage(format, u) {
 	};
 }
 
-const decoders = {
-	gzip: gunzipSync,
-	"x-gzip": gunzipSync,
-	deflate: inflateSync,
-	br: brotliDecompressSync,
-	zstd: zstdDecompressSync,
-};
+const decoders = new Map([
+	["gzip", gunzipSync],
+	["x-gzip", gunzipSync],
+	["deflate", inflateSync],
+	["br", brotliDecompressSync],
+	["zstd", zstdDecompressSync],
+]);
 
 function decodeBody(body, encoding) {
 	return String(encoding ?? "")
@@ -235,7 +235,13 @@ function decodeBody(body, encoding) {
 		.map((e) => e.trim().toLowerCase())
 		.filter((e) => e && e !== "identity")
 		.reverse()
-		.reduce((buf, e) => decoders[e](buf), body);
+		.reduce((buf, e) => {
+			const decode = decoders.get(e);
+			if (!decode) {
+				throw new Error(`unsupported content-encoding ${e}`);
+			}
+			return decode(buf);
+		}, body);
 }
 
 const server = createServer(async (req, res) => {
@@ -302,9 +308,7 @@ const server = createServer(async (req, res) => {
 			res.writeHead(502, { "content-type": "application/json" });
 		}
 		res.end(
-			JSON.stringify({
-				error: { message: "benchmark proxy upstream error", detail: error },
-			}),
+			JSON.stringify({ error: { message: "benchmark proxy upstream error" } }),
 		);
 	}
 	const isModelCall = /\/(messages|chat\/completions|responses)$/.test(
