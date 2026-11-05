@@ -72,8 +72,7 @@ function renderPrices(
 					cachedInputPrice: current,
 				};
 	state.cachedInputPrice = filed;
-	const markup = renderToStaticMarkup(createElement(AirsideFilingsClient));
-	return markup.replace(/<[^>]*>/g, "");
+	return renderToStaticMarkup(createElement(AirsideFilingsClient));
 }
 
 describe("filing cached-input prices", () => {
