@@ -1,3 +1,7 @@
+import { models } from "@llmgateway/models";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
+
 export type AspectRatio =
 	| "auto"
 	| "1:1"
@@ -147,6 +151,8 @@ export function getModelImageConfig(model: string) {
 
 	const maxInputImages = getMaxInputImages(lower);
 
+	const supportsSvgOutput = modelSupportsSvgOutput(model);
+
 	const supportedAspectRatios: AspectRatio[] | undefined = isReve
 		? REVE_ASPECT_RATIOS
 		: undefined;
@@ -169,7 +175,26 @@ export function getModelImageConfig(model: string) {
 		defaultModeration,
 		maxInputImages,
 		supportedAspectRatios,
+		supportsSvgOutput,
 	};
+}
+
+// Mirrors the gateway's check: a bare model id needs SVG output on every active
+// mapping, a "provider/model" id only on that provider's mapping.
+function modelSupportsSvgOutput(model: string): boolean {
+	const slash = model.indexOf("/");
+	const providerId = slash > 0 ? model.slice(0, slash) : undefined;
+	const modelId = slash > 0 ? model.slice(slash + 1) : model;
+	const now = new Date();
+	const mappings = (
+		(models.find((m) => m.id === modelId)?.providers ??
+			[]) as ProviderModelMapping[]
+	).filter(
+		(p) =>
+			(!providerId || p.providerId === providerId) &&
+			(!p.deactivatedAt || p.deactivatedAt > now),
+	);
+	return mappings.length > 0 && mappings.every((p) => p.svgOutput === true);
 }
 
 function getMaxInputImages(lowerModel: string): number {

@@ -199,6 +199,8 @@ const imageHistoryListModelSchema = z.object({
 	modelId: z.string(),
 	modelName: z.string(),
 	imageCount: z.number(),
+	// One media type per image, so saved SVGs can be shown as vectors.
+	mediaTypes: z.array(z.string()),
 	error: z.string().optional(),
 });
 
@@ -382,6 +384,7 @@ playground.openapi(listImageHistory, async (c) => {
 					modelId: string;
 					modelName: string;
 					imageCount: number;
+					mediaTypes: string[];
 					error: string | null;
 				}[]
 			>`(
@@ -391,6 +394,10 @@ playground.openapi(listImageHistory, async (c) => {
 							'modelId', m.value ->> 'modelId',
 							'modelName', m.value ->> 'modelName',
 							'imageCount', coalesce(jsonb_array_length(m.value -> 'images'), 0),
+							'mediaTypes', (
+								select coalesce(jsonb_agg(i.value ->> 'mediaType' order by i.ord), '[]'::jsonb)
+								from jsonb_array_elements(coalesce(m.value -> 'images', '[]'::jsonb)) with ordinality as i(value, ord)
+							),
 							'error', m.value ->> 'error'
 						)
 						order by m.ord
@@ -414,6 +421,7 @@ playground.openapi(listImageHistory, async (c) => {
 				modelId: m.modelId,
 				modelName: m.modelName,
 				imageCount: m.imageCount,
+				mediaTypes: m.mediaTypes,
 				...(m.error ? { error: m.error } : {}),
 			})),
 		})),
@@ -496,17 +504,34 @@ playground.get("/image-history/:id/thumbnail", async (c) => {
 		return c.body(null, 304);
 	}
 	const rendered = await renderImageVariant(image, "thumbnail");
-	c.header("Content-Type", rendered.mediaType);
+	setStoredImageHeaders(c, rendered.mediaType);
 	return c.body(rendered.body);
 });
 
 // Stored images never change, but a cached copy must still pass the ownership
 // check above on every use, so the browser revalidates and gets a 304 instead
 // of a re-rendered variant.
+// Bump when the response headers change: a 304 keeps a cached copy's old
+// headers, so older ETags must miss and get a fresh 200.
+const STORED_IMAGE_ETAG_VERSION = "v2";
+
 function notModified(c: Context, etag: string): boolean {
+	const versioned = `"${STORED_IMAGE_ETAG_VERSION}:${etag.replace(/^"/, "")}`;
 	c.header("Cache-Control", "private, no-cache");
-	c.header("ETag", etag);
-	return c.req.header("if-none-match") === etag;
+	c.header("ETag", versioned);
+	return c.req.header("if-none-match") === versioned;
+}
+
+// Stored images are served from the API origin with a client-supplied media
+// type, so an SVG (or anything else) opened directly can neither run scripts
+// nor load resources.
+function setStoredImageHeaders(c: Context, mediaType: string) {
+	c.header("Content-Type", mediaType);
+	c.header("X-Content-Type-Options", "nosniff");
+	c.header(
+		"Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; sandbox",
+	);
 }
 
 function parseImageIndex(value: string): number {
@@ -562,7 +587,7 @@ playground.get(
 			return c.body(null, 304);
 		}
 		const rendered = await renderImageVariant(image, variant);
-		c.header("Content-Type", rendered.mediaType);
+		setStoredImageHeaders(c, rendered.mediaType);
 		return c.body(rendered.body);
 	},
 );
@@ -601,7 +626,7 @@ playground.get("/image-history/:id/input-images/:index", async (c) => {
 		{ base64: input.dataUrl.split(",")[1] ?? "", mediaType: input.mediaType },
 		variant,
 	);
-	c.header("Content-Type", rendered.mediaType);
+	setStoredImageHeaders(c, rendered.mediaType);
 	return c.body(rendered.body);
 });
 
@@ -676,6 +701,7 @@ playground.openapi(saveImageHistory, async (c) => {
 					modelId: m.modelId,
 					modelName: m.modelName,
 					imageCount: m.images.length,
+					mediaTypes: m.images.map((image) => image.mediaType),
 					...(m.error ? { error: m.error } : {}),
 				})),
 			},
@@ -1451,7 +1477,7 @@ playground.get("/video-history/:id/input-image/:index", async (c) => {
 	}
 
 	const base64 = input.dataUrl.split(",")[1] ?? "";
-	c.header("Content-Type", input.mediaType);
+	setStoredImageHeaders(c, input.mediaType);
 	c.header("Cache-Control", "private, max-age=31536000, immutable");
 	return c.body(Buffer.from(base64, "base64"));
 });
