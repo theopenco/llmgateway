@@ -1,7 +1,7 @@
 "use client";
 
 import { addMonths, addYears, formatDistanceToNowStrict } from "date-fns";
-import { Activity, Coins, Cpu, Gem, Timer, TrendingUp } from "lucide-react";
+import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
@@ -22,6 +22,7 @@ import {
 } from "@llmgateway/shared/number-format";
 
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
+import { DailyAllowanceMeter } from "./DailyAllowanceMeter";
 import PayAsYouGoCard from "./PayAsYouGoCard";
 import ResetPassCard from "./ResetPassCard";
 import { UsageBar } from "./UsageBar";
@@ -173,8 +174,8 @@ function WeeklyAllowanceMeter({
 			</div>
 			{isLow && !isExhausted && (
 				<p className="text-xs text-yellow-700 dark:text-yellow-400">
-					Above 80% of your weekly premium allowance. Standard models stay
-					available.
+					Above 80% of your weekly premium allowance. Standard models do not use
+					this weekly allowance.
 				</p>
 			)}
 			{isExhausted &&
@@ -186,79 +187,8 @@ function WeeklyAllowanceMeter({
 				) : (
 					<p className="text-xs text-destructive">
 						{resetPassAvailable
-							? "Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
+							? "Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or use standard models within your daily and monthly allowances."
 							: "Weekly premium allowance reached for this window."}
-					</p>
-				))}
-		</div>
-	);
-}
-
-// Daily pacing meter: the rolling 24-hour share of the monthly allowance.
-// Compact on purpose — it sits directly under the monthly bar and only
-// grows a message once the window is spent.
-function DailyPacingMeter({
-	used,
-	limit,
-	resetsAt,
-	paygEnabled,
-	overflowCovering,
-}: {
-	used: number;
-	limit: number;
-	resetsAt: string | null;
-	paygEnabled: boolean;
-	overflowCovering: boolean;
-}) {
-	const percentage = limit > 0 ? (used / limit) * 100 : 0;
-	const clamped = Math.min(100, percentage);
-	const isExhausted = percentage >= 100;
-	const resetsIn = resetsAt
-		? formatDistanceToNowStrict(new Date(resetsAt))
-		: null;
-
-	return (
-		<div className="mt-4 space-y-2">
-			<div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-				<div className="flex w-44 shrink-0 items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground/70">
-					<Timer className="h-3.5 w-3.5 shrink-0" />
-					Daily pace
-				</div>
-				<div
-					role="progressbar"
-					aria-label="Daily pacing allowance used"
-					aria-valuenow={Math.round(clamped)}
-					aria-valuemin={0}
-					aria-valuemax={100}
-					className="relative h-1.5 min-w-24 flex-1 overflow-hidden rounded-full border border-border/60 bg-muted"
-				>
-					<div
-						className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-							isExhausted
-								? overflowCovering
-									? "bg-amber-500"
-									: "bg-destructive"
-								: "bg-foreground/70"
-						}`}
-						style={{ width: `${clamped}%` }}
-					/>
-				</div>
-				<span className="text-xs text-muted-foreground tabular-nums">
-					${used.toFixed(2)} of ${limit.toFixed(2)} today
-					{resetsIn ? ` · resets in ${resetsIn}` : ""}
-				</span>
-			</div>
-			{isExhausted &&
-				(overflowCovering ? (
-					<p className="text-xs text-amber-600 dark:text-amber-400">
-						Past today&apos;s pace — pay-as-you-go overflow is covering the rest
-						at provider rates.
-					</p>
-				) : (
-					<p className="text-xs text-destructive">
-						{paygEnabled
-							? "Daily pace reached — top up your credits balance below to keep going today."
-							: "Daily pace reached for this window. Enable pay-as-you-go overflow below, or upgrade for a higher daily allowance."}
 					</p>
 				))}
 		</div>
@@ -461,6 +391,13 @@ export default function UsageOverview({
 
 			{/* Usage progress */}
 			<div className="rounded-xl border bg-card p-6">
+				<DailyAllowanceMeter
+					used={dailyCreditsUsed}
+					limit={dailyLimit}
+					resetsAt={dayResetsAt}
+					paygEnabled={paygEnabled}
+					overflowCovering={paygAvailable}
+				/>
 				<UsageBar
 					used={creditsUsed}
 					limit={creditsLimit}
@@ -472,15 +409,7 @@ export default function UsageOverview({
 								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding."
 					}
 				/>
-				{dailyLimit > 0 && (
-					<DailyPacingMeter
-						used={dailyCreditsUsed}
-						limit={dailyLimit}
-						resetsAt={dayResetsAt}
-						paygEnabled={paygEnabled}
-						overflowCovering={paygAvailable}
-					/>
-				)}
+
 				{/* PAYG overflow lives directly under the monthly meter: it extends
 				    the monthly pool, not the weekly premium allowance below. */}
 				{monthlyExhausted && !paygEnabled && (

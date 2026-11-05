@@ -3,6 +3,7 @@
 import { ArrowRight, Wallet } from "lucide-react";
 import Link from "next/link";
 
+import { DailyAllowanceMeter } from "./DailyAllowanceMeter";
 import { UsageBar } from "./UsageBar";
 
 interface UsageSummaryCardProps {
@@ -10,6 +11,9 @@ interface UsageSummaryCardProps {
 	planPrice?: number;
 	creditsUsed: number;
 	creditsLimit: number;
+	dailyCreditsUsed: number;
+	dailyLimit: number;
+	dayResetsAt: string | null;
 	paygEnabled: boolean;
 	regularCredits: number;
 }
@@ -21,6 +25,9 @@ export default function UsageSummaryCard({
 	planPrice,
 	creditsUsed,
 	creditsLimit,
+	dailyCreditsUsed,
+	dailyLimit,
+	dayResetsAt,
 	paygEnabled,
 	regularCredits,
 }: UsageSummaryCardProps) {
@@ -51,6 +58,13 @@ export default function UsageSummaryCard({
 					<ArrowRight className="h-3.5 w-3.5" />
 				</Link>
 			</div>
+			<DailyAllowanceMeter
+				used={dailyCreditsUsed}
+				limit={dailyLimit}
+				resetsAt={dayResetsAt}
+				paygEnabled={paygEnabled}
+				overflowCovering={paygAvailable}
+			/>
 			<UsageBar
 				used={creditsUsed}
 				limit={creditsLimit}

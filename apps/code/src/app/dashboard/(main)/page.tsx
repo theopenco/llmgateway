@@ -130,6 +130,11 @@ export default function OverviewPage() {
 				planPrice={currentPlanData?.price}
 				creditsUsed={creditsUsed}
 				creditsLimit={creditsLimit}
+				dailyCreditsUsed={parseFloat(
+					devPlanStatus.devPlanDailyCreditsUsed ?? "0",
+				)}
+				dailyLimit={parseFloat(devPlanStatus.devPlanDailyLimit ?? "0")}
+				dayResetsAt={devPlanStatus.devPlanDayResetsAt ?? null}
 				paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
 				regularCredits={parseFloat(devPlanStatus.regularCredits ?? "0")}
 			/>
