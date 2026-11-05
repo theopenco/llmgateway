@@ -12,6 +12,10 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
 const inputImage = "data:image/png;base64,aGVsbG8=";
+const pngBytes = Buffer.from([
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+]);
+const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const usage = {
 	input_tokens: 10,
 	output_tokens: 400,
@@ -494,8 +498,8 @@ describe("image generation upstream streaming", () => {
 		});
 
 		test.each([
-			[1, "UklGR", "webp"],
-			[2, "UklGR", "webp"],
+			[1, "UklGRgAAAABXRUJQ", "webp"],
+			[2, "UklGRgAAAABXRUJQ", "webp"],
 			[1, "/9j/", "jpeg"],
 			[2, "/9j/", "jpeg"],
 			[1, "iVBORw0KGgo", "png"],
@@ -653,10 +657,12 @@ describe("image service tiers", () => {
 	const harness = createGatewayApiTestHarness();
 	const upstreamBodies: Array<Record<string, unknown>> = [];
 	let textOnly = false;
+	let imageBytes = pngBytes;
 
 	beforeEach(async () => {
 		upstreamBodies.length = 0;
 		textOnly = false;
+		imageBytes = pngBytes;
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("test-token"),
@@ -695,7 +701,7 @@ describe("image service tiers", () => {
 											{
 												inlineData: {
 													mimeType: "image/png",
-													data: Buffer.from("image").toString("base64"),
+													data: imageBytes.toString("base64"),
 												},
 											},
 										],
@@ -815,5 +821,27 @@ describe("image service tiers", () => {
 		expect(JSON.stringify(upstreamBodies[0])).toContain(
 			"Background: transparent.",
 		);
+	});
+
+	test("reports the format of the returned bytes, not the declared type", async () => {
+		imageBytes = jpegBytes;
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer test-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3-pro-image",
+				prompt: "A blue circle",
+				images: [{ image_url: inputImage }],
+				background: "transparent",
+				output_format: "webp",
+			}),
+		});
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.output_format).toBe("jpeg");
 	});
 });

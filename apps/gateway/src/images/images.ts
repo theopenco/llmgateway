@@ -18,6 +18,7 @@ import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { ExpectedHTTPException } from "@/lib/expected-http-exception.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { imageFormatFromBase64 } from "@/lib/image-format.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
@@ -30,6 +31,7 @@ import { parseDynamicRouteModel } from "@llmgateway/shared/dynamic-route";
 
 import { isValidBase64ImageDataUrl } from "./data-url.js";
 
+import type { ImageFormat } from "@/lib/image-format.js";
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -307,16 +309,6 @@ function buildImagePrompt(request: ImageGenerationsRequest): string {
 	return prompt;
 }
 
-interface ExtractedImage {
-	b64_json: string;
-	revised_prompt?: string;
-	mimeType?: string;
-}
-
-function toImageData({ b64_json, revised_prompt }: ExtractedImage) {
-	return { b64_json, revised_prompt };
-}
-
 /**
  * Extract images from a chat completions response.
  * Images can be in:
@@ -328,8 +320,11 @@ async function extractImagesFromChatResponse(
 	prompt: string,
 	model: string,
 	retainPayloadLogs: boolean,
-): Promise<ExtractedImage[]> {
-	const imageObjects: ExtractedImage[] = [];
+): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
+	const imageObjects: Array<{
+		b64_json: string;
+		revised_prompt?: string;
+	}> = [];
 
 	const messageImages = chatResponse.choices?.[0]?.message?.images;
 	if (
@@ -346,7 +341,6 @@ async function extractImagesFromChatResponse(
 					imageObjects.push({
 						b64_json: parsedDataUrl.data,
 						revised_prompt: prompt,
-						mimeType: parsedDataUrl.mediaType,
 					});
 				} else if (
 					imageUrl.startsWith("https://") ||
@@ -358,7 +352,6 @@ async function extractImagesFromChatResponse(
 						imageObjects.push({
 							b64_json: result.data,
 							revised_prompt: prompt,
-							mimeType: result.mimeType,
 						});
 					} catch (error) {
 						logger.warn("Images API - failed to fetch image from URL", {
@@ -407,7 +400,6 @@ async function extractImagesFromChatResponse(
 					imageObjects.push({
 						b64_json: b64,
 						revised_prompt: prompt,
-						mimeType: `image/${part.slice(0, markerIndex)}`,
 					});
 				}
 			}
@@ -943,7 +935,7 @@ images.openapi(generations, async (c): Promise<any> => {
 	);
 
 	// Truncate to the requested number of images
-	const truncatedImages = imageObjects.slice(0, request.n).map(toImageData);
+	const truncatedImages = imageObjects.slice(0, request.n);
 
 	// Build the OpenAI-compatible images response
 	const usage = buildImagesUsage(chatResponse);
@@ -1109,29 +1101,11 @@ async function fileToDataUri(file: File): Promise<string> {
 
 const nativeOutputOptionProviders = new Set(["openai", "azure"]);
 
-function outputImageFormat(
-	mediaType: string,
-): "png" | "jpeg" | "webp" | undefined {
-	switch (mediaType.toLowerCase()) {
-		case "image/png":
-			return "png";
-		case "image/jpeg":
-		case "image/jpg":
-			return "jpeg";
-		case "image/webp":
-			return "webp";
-		default:
-			return undefined;
-	}
-}
-
 function deliveredImageFormat(
-	images: ExtractedImage[],
-): "png" | "jpeg" | "webp" | undefined {
+	images: Array<{ b64_json: string }>,
+): ImageFormat | undefined {
 	const formats = new Set(
-		images.map((img) =>
-			img.mimeType ? outputImageFormat(img.mimeType) : undefined,
-		),
+		images.map((img) => imageFormatFromBase64(img.b64_json)),
 	);
 	const [format] = formats;
 	return formats.size === 1 ? format : undefined;
@@ -1442,7 +1416,7 @@ async function processImageEdit(
 	const usage = buildImagesUsage(chatResponse);
 	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {
 		created: Math.floor(Date.now() / 1000),
-		data: imageObjects.map(toImageData),
+		data: imageObjects,
 		...(usage && { usage }),
 	};
 
