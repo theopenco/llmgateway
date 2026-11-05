@@ -5287,11 +5287,7 @@ export async function prepareRequestBody(
 				} else if (
 					providerMappingForOptions?.reasoningEfforts?.includes("none")
 				) {
-					if (providerMappingForOptions.requiresDisableThinkingParam) {
-						requestBody.thinking = { type: "disabled" };
-					} else {
-						requestBody.reasoning_effort = "none";
-					}
+					requestBody.reasoning_effort = "none";
 				}
 			}
 			break;
@@ -5665,6 +5661,16 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+	}
+
+	if (
+		supportsReasoning &&
+		reasoning_effort === "none" &&
+		providerMappingForOptions?.requiresDisableThinkingParam &&
+		providerMappingForOptions.reasoningEfforts?.includes("none")
+	) {
+		delete requestBody.reasoning_effort;
+		requestBody.thinking = { type: "disabled" };
 	}
 
 	// A declared format replaces the provider's own search translation on every
