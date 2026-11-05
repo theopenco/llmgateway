@@ -823,6 +823,12 @@ export interface ProviderModelMapping {
 	 */
 	imageGenerations?: boolean;
 	/**
+	 * Whether the image generation endpoint accepts `output_format: "svg"` and
+	 * returns a base64-encoded SVG document. Requests for SVG output are
+	 * rejected up front for mappings without this flag.
+	 */
+	svgOutput?: boolean;
+	/**
 	 * Whether this model uses a dedicated embeddings API.
 	 * When true, requests are routed to a provider-specific /v1/embeddings endpoint
 	 * and pricing is computed against input tokens only (no completion tokens).
