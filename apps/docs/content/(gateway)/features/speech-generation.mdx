@@ -122,6 +122,10 @@ Disconnecting never extends that deadline. If usage cannot be recovered, the log
 accounting rather than a successful zero-usage request. Character-billed models
 remain billed on accepted input after audio generation starts.
 
+Token-billed streams queue at most 1 MiB or 1,024 chunks for a slow client.
+Exceeding either limit fails delivery and discards subsequent audio while final
+usage is collected within the original request deadline.
+
 Errors before audio starts return an HTTP error. Errors or deadlines after output
 starts interrupt the stream; clients must detect truncated output and handle
 stream read errors.

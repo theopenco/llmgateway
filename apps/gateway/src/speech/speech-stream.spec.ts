@@ -240,6 +240,162 @@ function speechStreamTests() {
 			expect.objectContaining({ responseBytes: 5, canceled: true }),
 		);
 	});
+	test.each([false, true])(
+		"collects native usage when a connected consumer stops pulling (SSE %s)",
+		async (clientSse) => {
+			const source = upstream();
+			source.controller.enqueue(encode(delta()));
+			source.controller.enqueue(encode(delta("SECOND")));
+			source.controller.enqueue(encode(delta("THIRD")));
+			source.controller.enqueue(encode(done));
+			const stream = setup(source, { clientSse });
+			const reader = (await stream.result).getReader();
+			await reader.read();
+			try {
+				await vi.waitFor(() => expect(source.cancel).toHaveBeenCalledTimes(1), {
+					timeout: 200,
+				});
+				stream.abort.abort(new DOMException("Timed out", "TimeoutError"));
+				expect(await drainPendingWork(1000)).toBe(0);
+				expect(stream.onSettled).toHaveBeenCalledExactlyOnceWith(
+					expect.objectContaining({
+						inputTokens: 7,
+						outputTokens: 42,
+						audioBytes: 16,
+						responseBytes: clientSse ? encode(delta()).length : 5,
+						canceled: false,
+						error: expect.objectContaining({ name: "TimeoutError" }),
+					}),
+				);
+				await expect(reader.read()).rejects.toThrow("Timed out");
+			} finally {
+				stream.abort.abort();
+			}
+		},
+	);
+	test.each([false, true])(
+		"retains bounded audio until a connected consumer resumes (SSE %s)",
+		async (clientSse) => {
+			const source = upstream();
+			for (const text of ["FIRST", "SECOND", "THIRD"]) {
+				source.controller.enqueue(encode(delta(text)));
+			}
+			source.controller.enqueue(encode(done));
+			const stream = setup(source, { clientSse });
+			const reader = (await stream.result).getReader();
+			await reader.read();
+			await vi.waitFor(() => expect(source.cancel).toHaveBeenCalledTimes(1));
+			expect(stream.onSettled).not.toHaveBeenCalled();
+			let rest = "";
+			for (;;) {
+				const chunk = await reader.read();
+				if (chunk.done) {
+					break;
+				}
+				rest += Buffer.from(chunk.value).toString();
+			}
+			expect(rest).toBe(
+				clientSse ? delta("SECOND") + delta("THIRD") + done : "SECONDTHIRD",
+			);
+			expect(await drainPendingWork(1000)).toBe(0);
+			expect(stream.onSettled).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					inputTokens: 7,
+					outputTokens: 42,
+					responseBytes: clientSse
+						? encode(delta() + delta("SECOND") + delta("THIRD") + done).length
+						: 16,
+					canceled: false,
+					error: null,
+				}),
+			);
+		},
+	);
+
+	test.each([false, true])(
+		"bounds stalled delivery memory while draining exact native usage (SSE %s)",
+		async (clientSse) => {
+			const source = upstream();
+			source.controller.enqueue(encode(delta()));
+			const stream = setup(source, { clientSse });
+			const reader = (await stream.result).getReader();
+			await reader.read();
+			const generatedAudioBytes = 6 * 256 * 1024;
+			for (let index = 0; index < 6; index++) {
+				source.controller.enqueue(encode(delta("a".repeat(256 * 1024))));
+			}
+			source.controller.enqueue(encode(done));
+			await vi.waitFor(() => expect(stream.onSettled).toHaveBeenCalledTimes(1));
+			await expect(reader.read()).rejects.toThrow("downstream buffer limit");
+			expect(await drainPendingWork(1000)).toBe(0);
+			expect(stream.abort.signal.aborted).toBe(false);
+			expect(stream.onSettled).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					canceled: true,
+					error: expect.any(Error),
+					inputTokens: 7,
+					outputTokens: 42,
+					audioBytes: 5 + generatedAudioBytes,
+					responseBytes: clientSse ? encode(delta()).length : 5,
+				}),
+			);
+		},
+	);
+
+	test.each(["abort", "cancel"])(
+		"unblocks a pending consumer read while draining usage (%s)",
+		async (action) => {
+			const source = upstream();
+			source.controller.enqueue(encode(delta()));
+			const stream = setup(source);
+			const reader = (await stream.result).getReader();
+			await reader.read();
+			const read = reader.read();
+			const assertion =
+				action === "abort"
+					? expect(read).rejects.toThrow("canceled")
+					: expect(read).resolves.toMatchObject({ done: true });
+			if (action === "abort") {
+				stream.client.abort();
+			} else {
+				await reader.cancel();
+			}
+			await assertion;
+			source.controller.enqueue(encode(done));
+			expect(await drainPendingWork(1000)).toBe(0);
+			expect(stream.onSettled).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					inputTokens: 7,
+					outputTokens: 42,
+					canceled: true,
+					error: null,
+				}),
+			);
+		},
+	);
+
+	test("bounds bookkeeping for many tiny stalled speech chunks", async () => {
+		const source = upstream();
+		source.controller.enqueue(encode(delta()));
+		const stream = setup(source);
+		const reader = (await stream.result).getReader();
+		await reader.read();
+		for (let index = 0; index < 1026; index++) {
+			source.controller.enqueue(encode(delta("x")));
+		}
+		source.controller.enqueue(encode(done));
+		await vi.waitFor(() => expect(stream.onSettled).toHaveBeenCalledTimes(1));
+		await expect(reader.read()).rejects.toThrow("downstream buffer limit");
+		expect(stream.onSettled).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				inputTokens: 7,
+				outputTokens: 42,
+				canceled: true,
+				audioBytes: 1031,
+				responseBytes: 5,
+			}),
+		);
+	});
 }
 
 describe("speech stream lifecycle", speechStreamTests);

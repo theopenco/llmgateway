@@ -135,9 +135,17 @@ export async function prepareSpeechStream(options: {
 	};
 	const reader = options.response.body?.getReader();
 	const parser = new SpeechEventParser(stats);
-
+	const buffered: Uint8Array[] = [];
+	let bufferedBytes = 0;
+	let sourceDone = false;
+	let outputClosed = false;
+	let output: ReadableStreamDefaultController<Uint8Array> | undefined;
 	let wake = () => {};
 	let delivered: (() => void) | undefined;
+	let finishDelivery!: () => void;
+	const deliveryDone = new Promise<void>((resolve) => {
+		finishDelivery = resolve;
+	});
 	let settled: Promise<void> | undefined;
 	let finishLifetime!: () => void;
 	void trackPendingWork(
@@ -154,8 +162,42 @@ export async function prepareSpeechStream(options: {
 			);
 		}
 	};
+	function stopDelivery(error: Error) {
+		buffered.length = 0;
+		bufferedBytes = 0;
+		outputClosed = true;
+		output?.error(error);
+		delivered?.();
+		delivered = undefined;
+		finishDelivery();
+	}
+	function flush() {
+		if (!output || outputClosed) {
+			return;
+		}
+		if (delivered && buffered.length) {
+			const chunk = buffered.shift()!;
+			bufferedBytes -= chunk.length;
+			stats.responseBytes += chunk.length;
+			output.enqueue(chunk);
+			delivered();
+			delivered = undefined;
+		}
+		if (sourceDone && !buffered.length) {
+			outputClosed = true;
+			output.close();
+			delivered?.();
+			delivered = undefined;
+			finishDelivery();
+		}
+	}
 	const onAbort = () => {
+		stats.error =
+			options.signal.reason instanceof Error
+				? options.signal.reason
+				: new DOMException("Speech request canceled", "AbortError");
 		cancelReader();
+		stopDelivery(stats.error);
 		wake();
 	};
 	const cancelDownstream = () => {
@@ -163,6 +205,7 @@ export async function prepareSpeechStream(options: {
 			return;
 		}
 		stats.canceled = true;
+		stopDelivery(new DOMException("Speech request canceled", "AbortError"));
 		// Recover exact usage within the original request deadline. A disconnect
 		// must not grant free generated audio.
 		if (!options.upstreamSse) {
@@ -254,16 +297,24 @@ export async function prepareSpeechStream(options: {
 		await settle();
 		throw error;
 	}
-	let output!: ReadableStreamDefaultController<Uint8Array>;
 	const body = new ReadableStream<Uint8Array>(
 		{
 			start(controller) {
 				output = controller;
+				if (outputClosed) {
+					controller.error(
+						new DOMException("Speech request canceled", "AbortError"),
+					);
+				}
 			},
 			pull() {
 				return new Promise<void>((resolve) => {
 					delivered = resolve;
-					wake();
+					if (options.upstreamSse) {
+						flush();
+					} else {
+						wake();
+					}
 				});
 			},
 			cancel() {
@@ -276,28 +327,54 @@ export async function prepareSpeechStream(options: {
 		try {
 			let chunk = first;
 			while (!chunk.done) {
-				if (!delivered && !stats.canceled && !options.signal.aborted) {
-					await new Promise<void>((resolve) => {
-						wake = resolve;
-					});
+				if (options.upstreamSse) {
+					// Parse billing events independently of delivery. Bound both payload
+					// bytes and queue bookkeeping, then error delivery and drain usage.
+					if (!outputClosed) {
+						if (
+							bufferedBytes + chunk.value.length > 1024 * 1024 ||
+							buffered.length >= 1024
+						) {
+							stats.canceled = true;
+							stats.error = new SpeechStreamError(
+								"Speech response exceeded the downstream buffer limit",
+							);
+							stopDelivery(stats.error);
+						} else {
+							buffered.push(chunk.value);
+							bufferedBytes += chunk.value.length;
+							flush();
+						}
+					}
+				} else {
+					if (!delivered && !stats.canceled && !options.signal.aborted) {
+						await new Promise<void>((resolve) => {
+							wake = resolve;
+						});
+					}
+					checkAbort();
+					if (!stats.canceled) {
+						stats.responseBytes += chunk.value.length;
+						output!.enqueue(chunk.value);
+					}
+					delivered?.();
+					delivered = undefined;
 				}
-				checkAbort();
-				if (!stats.canceled) {
-					stats.responseBytes += chunk.value.length;
-					output.enqueue(chunk.value);
-				}
-				delivered?.();
-				delivered = undefined;
 				chunk = await source.next();
 			}
-			if (!stats.canceled) {
-				output.close();
+			sourceDone = true;
+			cancelReader();
+			if (options.upstreamSse) {
+				flush();
+				await deliveryDone;
+				checkAbort();
+			} else if (!outputClosed) {
+				outputClosed = true;
+				output!.close();
 			}
 		} catch (error) {
 			stats.error = toError(error);
-			if (!stats.canceled) {
-				output.error(error);
-			}
+			stopDelivery(stats.error);
 		} finally {
 			delivered?.();
 			try {
