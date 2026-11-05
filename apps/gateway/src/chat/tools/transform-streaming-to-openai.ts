@@ -13,7 +13,7 @@ import { logger } from "@llmgateway/logger";
 import { getProviderDefinition } from "@llmgateway/models";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
-import { extractImages } from "./extract-images.js";
+import { extractImages, isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
@@ -768,7 +768,7 @@ export function transformStreamingToOpenai(
 				const thoughtParts = parts.filter(
 					(part) => part.thought && typeof part.text === "string",
 				);
-				const hasImages = parts.some((part) => part.inlineData);
+				const hasImages = parts.some(isGoogleOutputImagePart);
 				const hasFunctionCalls = parts.some((part) => part.functionCall);
 
 				const hasThoughtSignature = parts.some(

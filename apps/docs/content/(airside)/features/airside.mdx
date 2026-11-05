@@ -18,6 +18,10 @@ Every claim is reviewed by the LLM Gateway team before the carrier goes live; a 
 
 Listing on llmgateway.io carries a one-time **$2,500 listing fee** per provider company, paid during onboarding. Providers we already work with receive an **invite code** that waives it — entered in the same onboarding step instead of paying. See the [pricing summary](https://airside.llmgateway.io/pricing.md) for the full economics.
 
+## Review notifications
+
+Self-hosted operators can set `DISCORD_AIRSIDE_NOTIFICATION_URL` on the API to send pending carrier claims, branding and provider-key submissions, model listings and relist requests, price and metadata changes, and fare filings to a dedicated Discord channel. Set `ADMIN_URL` to your admin origin to include a review-queue link; without it, notifications omit the link. Delivery is best-effort: a Discord outage does not prevent filing.
+
 ## Crew
 
 A listing covers your whole team. Under **Crew**, company owners invite teammates by email — up to **10 members** per company, pending invites included. Invites are limited to your team's domains (the ones that prove your claims); a teammate with an existing account joins instantly, anyone else joins the first time they sign in with the invited address.
@@ -144,6 +148,8 @@ Listed prices are what developers are billed, so pricing never changes silently:
 - Every later price change is an **update** filing — drafted by you, approved by the LLM Gateway team, and only then in effect.
 
 A filing covers input, output, optional cached-input, and optional per-request prices (token prices in USD per million tokens, the per-request price in USD), plus a note for the reviewer. It can also carry **regional fares** — per-region price overrides developers reach with `<provider>/<model>:<region>`, while all other traffic pays the default fares. Each approved filing's regional set fully replaces the previous one, and while no filing is pending a region can be dropped from the Fleet page — removing an offering changes no price, so it applies immediately without review. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
+
+Reviewers see current → filed only for input, output, or cached-input rates that change. Unchanged rates show a single value. Adding or removing a cached-input rate shows `none` on the corresponding side.
 
 ## Routing and billing
 

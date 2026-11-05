@@ -529,6 +529,52 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("google thought images", () => {
+		it("drops Vertex interim thought images from the output", () => {
+			const result = parseProviderResponse(
+				"google-vertex",
+				"gemini-3-pro-image-preview",
+				{
+					candidates: [
+						{
+							content: {
+								role: "model",
+								parts: [
+									{ text: "**Designing**", thought: true },
+									{
+										inlineData: { mimeType: "image/png", data: "aW50ZXJpbQ==" },
+										thought: true,
+									},
+									{
+										inlineData: { mimeType: "image/png", data: "ZmluYWw=" },
+										thoughtSignature: "sig",
+									},
+								],
+							},
+							finishReason: "STOP",
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 13,
+						candidatesTokenCount: 1120,
+						totalTokenCount: 1351,
+						candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }],
+						thoughtsTokenCount: 218,
+					},
+				},
+			);
+
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,ZmluYWw=" },
+				},
+			]);
+			expect(result.reasoningContent).toBe("**Designing**");
+			expect(result.imageOutputTokens).toBe(1120);
+		});
+	});
+
 	describe("google blocked responses", () => {
 		it("retains the original block reason when candidates are missing", () => {
 			const result = parseProviderResponse(
