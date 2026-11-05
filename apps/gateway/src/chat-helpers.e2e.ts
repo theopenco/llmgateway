@@ -942,7 +942,12 @@ function realtimeTestCases(
 				if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 					continue;
 				}
-				if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				if (
+					!specifiedModels &&
+					!specifiedProviders &&
+					provider.deprecatedAt &&
+					new Date() > provider.deprecatedAt
+				) {
 					continue;
 				}
 				if (specifiedModels || specifiedProviders) {

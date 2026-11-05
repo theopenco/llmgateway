@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { createAdaptorServer } from "@hono/node-server";
 import {
 	afterAll,
@@ -25,6 +27,7 @@ import type { AddressInfo } from "node:net";
 interface CapabilityCase {
 	capability: string;
 	session: Record<string, unknown>;
+	imageUrl?: string;
 }
 
 const capabilityModels =
@@ -36,6 +39,51 @@ const capabilityModels =
 		: [];
 const capabilityCases = capabilityModels.flatMap((entry) => {
 	const settings: CapabilityCase[] = [
+		{
+			capability: "hosted MCP",
+			session: {
+				instructions:
+					"Call microsoft_docs_search once before answering. Then reply briefly.",
+				output_modalities: ["text"],
+				audio: { input: { turn_detection: null } },
+				tools: [
+					{
+						type: "mcp",
+						server_label: "documentation",
+						server_url: "https://learn.microsoft.com/api/mcp",
+						allowed_tools: ["microsoft_docs_search"],
+						require_approval: "never",
+					},
+				],
+				tool_choice: "auto",
+				max_output_tokens: 512,
+			},
+		},
+		...(entry.provider.vision
+			? [
+					{
+						capability: "inline image input",
+						imageUrl:
+							"data:image/png;base64," +
+							readFileSync(
+								new URL("./test-fixtures/test-image.png", import.meta.url),
+							).toString("base64"),
+						session: {
+							output_modalities: ["text"],
+							instructions: "Describe the image briefly.",
+						},
+					},
+					{
+						capability: "remote image input",
+						imageUrl:
+							"https://raw.githubusercontent.com/theopenco/llmgateway/main/apps/gateway/src/test-fixtures/test-image.png",
+						session: {
+							output_modalities: ["text"],
+							instructions: "Describe the image briefly.",
+						},
+					},
+				]
+			: []),
 		...(entry.provider.supportedVoices ?? []).map((voice) => ({
 			capability: "voice " + voice,
 			session: { audio: { output: { voice } } },
@@ -129,10 +177,14 @@ function configureSession(
 	port: number,
 	model: string,
 	settings: Record<string, unknown>,
+	imageUrl?: string,
 ): Promise<{
 	session: Record<string, unknown>;
 	responses: Record<string, unknown>[];
 	audioBytes: number;
+	imageTokens: number;
+	mcpCalls: number;
+	mcpCompleted: number;
 	toolOutputAcknowledged: boolean;
 }> {
 	return new Promise((resolve, reject) => {
@@ -143,6 +195,17 @@ function configureSession(
 		let session: Record<string, unknown> = {};
 		const responses: Record<string, unknown>[] = [];
 		let audioBytes = 0;
+		let imageTokens = 0;
+		const usesMcp =
+			Array.isArray(settings.tools) &&
+			settings.tools.some(
+				(tool: Record<string, unknown>) => tool.type === "mcp",
+			);
+		let sessionConfigured = false;
+		let toolListReady = !usesMcp;
+		let inputSent = false;
+		const mcpCalls = new Set<string>();
+		const mcpCompleted = new Set<string>();
 		let toolOutputAcknowledged = false;
 		let settled = false;
 		const timer = setTimeout(
@@ -159,7 +222,52 @@ function configureSession(
 			if (error) {
 				reject(error);
 			} else {
-				resolve({ session, responses, audioBytes, toolOutputAcknowledged });
+				resolve({
+					session,
+					responses,
+					audioBytes,
+					imageTokens,
+					mcpCalls: mcpCalls.size,
+					mcpCompleted: mcpCompleted.size,
+					toolOutputAcknowledged,
+				});
+			}
+		}
+		function maybeStartResponse() {
+			if (inputSent || !sessionConfigured || !toolListReady) {
+				return;
+			}
+			inputSent = true;
+			ws.send(
+				JSON.stringify({
+					type: "conversation.item.create",
+					item: {
+						type: "message",
+						role: "user",
+						content: [
+							{
+								type: "input_text",
+								text: usesMcp
+									? "Call microsoft_docs_search once for Azure realtime image input. Then respond in five words."
+									: imageUrl
+										? "Describe the image."
+										: "Say hi.",
+							},
+							...(imageUrl
+								? [{ type: "input_image", image_url: imageUrl }]
+								: []),
+						],
+					},
+				}),
+			);
+			ws.send(JSON.stringify({ type: "response.create" }));
+		}
+		function maybeFinishMcp() {
+			if (
+				mcpCalls.size > 0 &&
+				[...mcpCalls].every((id) => mcpCompleted.has(id))
+			) {
+				finish();
 			}
 		}
 		ws.on("unexpected-response", (_req, res) => {
@@ -194,21 +302,25 @@ function configureSession(
 			if (item?.type === "function_call_output" && item.output === "PONG") {
 				toolOutputAcknowledged = true;
 			}
-			if (event.type === "error") {
+			if (event.type === "mcp_list_tools.completed") {
+				toolListReady = true;
+				maybeStartResponse();
+			} else if (event.type === "response.mcp_call.completed") {
+				if (typeof event.item_id === "string") {
+					mcpCompleted.add(event.item_id);
+				}
+				maybeFinishMcp();
+			} else if (
+				event.type === "mcp_list_tools.failed" ||
+				event.type === "response.mcp_call.failed"
+			) {
+				finish(new Error(JSON.stringify(event)));
+			} else if (event.type === "error") {
 				finish(new Error(JSON.stringify(event)));
 			} else if (event.type === "session.updated") {
 				session = event.session as Record<string, unknown>;
-				ws.send(
-					JSON.stringify({
-						type: "conversation.item.create",
-						item: {
-							type: "message",
-							role: "user",
-							content: [{ type: "input_text", text: "Say hi." }],
-						},
-					}),
-				);
-				ws.send(JSON.stringify({ type: "response.create" }));
+				sessionConfigured = true;
+				maybeStartResponse();
 			} else if (
 				event.type === "response.output_audio.delta" &&
 				typeof event.delta === "string"
@@ -217,13 +329,21 @@ function configureSession(
 			} else if (event.type === "response.done") {
 				const response = event.response as Record<string, unknown>;
 				responses.push(response);
+				const usage = response.usage as Record<string, unknown> | undefined;
+				const inputDetails = usage?.input_token_details as
+					Record<string, unknown> | undefined;
+				if (typeof inputDetails?.image_tokens === "number") {
+					imageTokens += inputDetails.image_tokens;
+				}
 				const details = response.status_details as
 					Record<string, unknown> | undefined;
 				if (
 					response.status !== "completed" &&
 					!(
 						response.status === "incomplete" &&
-						details?.reason === "content_filter" &&
+						["content_filter", "max_output_tokens"].includes(
+							String(details?.reason),
+						) &&
 						audioBytes > 0 &&
 						!settings.tools
 					)
@@ -231,7 +351,19 @@ function configureSession(
 					finish(new Error(JSON.stringify(response)));
 					return;
 				}
-				if (settings.tools && responses.length === 1) {
+				if (usesMcp) {
+					const output = response.output as Record<string, unknown>[];
+					for (const call of output) {
+						if (call.type === "mcp_call" && typeof call.id === "string") {
+							mcpCalls.add(call.id);
+						}
+					}
+					if (mcpCalls.size === 0) {
+						finish(new Error("Response did not call the configured MCP tool"));
+						return;
+					}
+					maybeFinishMcp();
+				} else if (settings.tools && responses.length === 1) {
 					const output = response.output as Record<string, unknown>[];
 					const call = output.find(
 						(item) => item.type === "function_call" && item.name === "ping",
@@ -290,10 +422,17 @@ describe("e2e realtime capability parity", () => {
 	test.each(capabilityCases)(
 		"$model $capability",
 		getTestOptions(),
-		async ({ model, session }) => {
-			const updated = await configureSession(port, model, session);
+		async ({ model, session, imageUrl }) => {
+			const updated = await configureSession(port, model, session, imageUrl);
 			expect(updated.session).toMatchObject(session);
-			if (session.tools) {
+			if (updated.mcpCalls > 0) {
+				expect(updated.responses).toHaveLength(1);
+				expect(updated.mcpCompleted).toBe(updated.mcpCalls);
+				expect(updated.responses[0]?.usage).toMatchObject({
+					input_tokens: expect.any(Number),
+					output_tokens: expect.any(Number),
+				});
+			} else if (session.tools) {
 				expect(updated.responses).toHaveLength(2);
 				expect(updated.toolOutputAcknowledged).toBe(true);
 				const last = updated.responses[1]!;
@@ -312,7 +451,11 @@ describe("e2e realtime capability parity", () => {
 				);
 			} else {
 				expect(updated.responses).toHaveLength(1);
-				expect(updated.audioBytes).toBeGreaterThan(0);
+				if (imageUrl) {
+					expect(updated.imageTokens).toBeGreaterThan(0);
+				} else {
+					expect(updated.audioBytes).toBeGreaterThan(0);
+				}
 			}
 		},
 	);
