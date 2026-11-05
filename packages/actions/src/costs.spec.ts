@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@llmgateway/logger";
@@ -1639,7 +1640,11 @@ describe("calculateCosts", () => {
 	];
 
 	describe("SVG author usage", () => {
-		async function svgCosts(model: string | null) {
+		async function svgCosts(
+			model: string | null,
+			organizationId: string | null = null,
+			effectiveDiscount?: { discount: string; source: "org_provider_model" },
+		) {
 			return await calculateCosts(
 				"gpt-image-2.6-flare",
 				"openai",
@@ -1653,11 +1658,12 @@ describe("calculateCosts", () => {
 				undefined,
 				0,
 				null,
-				null,
+				organizationId,
 				"medium",
 				0,
 				400,
 				{
+					effectiveDiscount,
 					svgAuthorUsage: {
 						model,
 						inputTokens: 1000,
@@ -1700,6 +1706,54 @@ describe("calculateCosts", () => {
 				expect(error).toHaveBeenCalledWith(
 					"Unknown SVG author model, authoring cost omitted for reconciliation",
 					{ authorModel: author },
+				);
+			},
+		);
+		it.each([
+			["0.2", "0", false],
+			["0", "0.5", false],
+			["0.2", "0.5", false],
+			["0.2", "0.5", true],
+		] as const)(
+			"applies image discount %s and author discount %s independently (pre-resolved %s)",
+			async (imageDiscount, authorDiscount, preResolved) => {
+				mockGetEffectiveDiscount.mockImplementation(
+					async (
+						_organizationId: string | null,
+						_provider: string,
+						model: string,
+					) => ({
+						discount: model === "gpt-5.4-mini" ? authorDiscount : imageDiscount,
+						source: "org_provider_model",
+					}),
+				);
+				const result = await svgCosts(
+					"gpt-5.4-mini-2026-03-17",
+					"test-org",
+					preResolved
+						? { discount: imageDiscount, source: "org_provider_model" }
+						: undefined,
+				);
+				const imageMultiplier = new Decimal(1).minus(imageDiscount);
+				const authorMultiplier = new Decimal(1).minus(authorDiscount);
+				expect(result.inputCost).toBeCloseTo(
+					new Decimal("0.00005")
+						.times(imageMultiplier)
+						.plus(new Decimal("0.00075").times(authorMultiplier))
+						.toNumber(),
+					10,
+				);
+				expect(result.outputCost).toBeCloseTo(
+					new Decimal("0.012")
+						.times(imageMultiplier)
+						.plus(new Decimal("0.009").times(authorMultiplier))
+						.toNumber(),
+					10,
+				);
+				expect(mockGetEffectiveDiscount).toHaveBeenCalledWith(
+					"test-org",
+					"openai",
+					"gpt-5.4-mini",
 				);
 			},
 		);

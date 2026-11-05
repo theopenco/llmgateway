@@ -66,7 +66,7 @@ export interface SvgAuthorUsage {
 /** Resolve the reported SVG author; never substitute image rates for text tokens. */
 function resolveSvgAuthorPrices(
 	authorModel: string | null,
-): { inputPrice: Decimal; outputPrice: Decimal } | null {
+): { modelId: string; inputPrice: Decimal; outputPrice: Decimal } | null {
 	const candidates = authorModel
 		? [authorModel, authorModel.replace(/-\d{4}-\d{2}-\d{2}$/, "")]
 		: [];
@@ -76,6 +76,7 @@ function resolveSvgAuthorPrices(
 		const mapping = providers?.find((p) => p.providerId === "openai");
 		if (mapping?.inputPrice && mapping.outputPrice) {
 			return {
+				modelId: id,
 				inputPrice: new Decimal(mapping.inputPrice),
 				outputPrice: new Decimal(mapping.outputPrice),
 			};
@@ -345,7 +346,7 @@ export async function calculateCosts(
 		rejectionWithoutUsage?: boolean;
 		/**
 		 * An already-resolved `getEffectiveDiscount` result for this
-		 * organization, provider and model, so the call does no I/O.
+		 * organization, provider and primary model; skips that lookup.
 		 */
 		effectiveDiscount?: EffectiveDiscount;
 		/**
@@ -811,17 +812,27 @@ export async function calculateCosts(
 	const svgAuthorPrices = svgAuthorUsage
 		? resolveSvgAuthorPrices(svgAuthorUsage.model)
 		: null;
+	const svgAuthorDiscount = svgAuthorPrices
+		? await getEffectiveDiscount(
+				organizationId,
+				"openai",
+				svgAuthorPrices.modelId,
+			)
+		: null;
+	const svgAuthorMultiplier = new Decimal(1).minus(
+		svgAuthorDiscount?.discount ?? "0",
+	);
 	const svgAuthorInputCost =
 		svgAuthorUsage && svgAuthorPrices
 			? new Decimal(svgAuthorUsage.inputTokens)
 					.times(svgAuthorPrices.inputPrice)
-					.times(tokenDiscountMultiplier)
+					.times(svgAuthorMultiplier)
 			: new Decimal(0);
 	const svgAuthorOutputCost =
 		svgAuthorUsage && svgAuthorPrices
 			? new Decimal(svgAuthorUsage.outputTokens)
 					.times(svgAuthorPrices.outputPrice)
-					.times(tokenDiscountMultiplier)
+					.times(svgAuthorMultiplier)
 			: new Decimal(0);
 
 	// inputCost includes text, image, audio, and SVG-author input costs when
