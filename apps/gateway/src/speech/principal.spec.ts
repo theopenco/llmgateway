@@ -214,17 +214,21 @@ describe("speech principals", () => {
 		async (mode) => {
 			state.project.mode = mode;
 			state.organization.credits = "0";
-			expect((await request("https://allowed.example")).status).toBe(200);
+			const response = await request("https://allowed.example");
+			expect(response.status).toBe(200);
+			await response.arrayBuffer();
 			expect(state.byok).not.toHaveBeenCalled();
 			expect(state.platform).toHaveBeenCalled();
 			expect(state.spend).not.toHaveBeenCalled();
-			expect(state.log).toHaveBeenCalledWith(
-				expect.objectContaining({
-					endCustomerWalletId: "wallet",
-					endUserSessionId: "session",
-					usedMode: "credits",
-				}),
-				expect.anything(),
+			await vi.waitFor(() =>
+				expect(state.log).toHaveBeenCalledWith(
+					expect.objectContaining({
+						endCustomerWalletId: "wallet",
+						endUserSessionId: "session",
+						usedMode: "credits",
+					}),
+					expect.anything(),
+				),
 			);
 		},
 	);

@@ -11,7 +11,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const MODERATION_URL = "https://api.openai.com/v1/moderations";
 
-describe("speech gateway content filter", () => {
+function speechContentFilterTests() {
 	const harness = createGatewayApiTestHarness();
 	let previousOpenAIKey: string | undefined;
 	let previousContentFilterMode: string | undefined;
@@ -110,6 +110,7 @@ describe("speech gateway content filter", () => {
 		expect(res.status).toBe(200);
 		expect(moderationCalls).toBe(0);
 
+		await res.arrayBuffer();
 		const log = await waitForLogByRequestId("speech-tier-provider-off");
 		expect(log.finishReason).toBe("stop");
 		expect(log.gatewayContentFilterEvaluation).toBeNull();
@@ -147,6 +148,7 @@ describe("speech gateway content filter", () => {
 		const res = await speak("speech-tier-instructions", "Whisper menacingly");
 		expect(res.status).toBe(200);
 
+		await res.arrayBuffer();
 		await waitForLogByRequestId("speech-tier-instructions");
 		expect(moderationCalls).toBe(1);
 		expect(moderationBodies[0]).toContain("Whisper menacingly");
@@ -181,4 +183,6 @@ describe("speech gateway content filter", () => {
 			enforced: true,
 		});
 	});
-});
+}
+
+describe("speech gateway content filter", speechContentFilterTests);

@@ -10,6 +10,7 @@ import {
 	logMode,
 	speechModels,
 } from "@/chat-helpers.e2e.js";
+import { waitForLogByRequestId } from "@/test-utils/test-helpers.js";
 
 import { app } from "./app.js";
 
@@ -134,6 +135,107 @@ describe(
 				} else if (params.response_format === "opus") {
 					expect(bytes.toString("ascii", 0, 4)).toBe("OggS");
 				}
+			},
+		);
+	},
+);
+
+const speechStreamingCases =
+	process.env.FULL_MODE === "true"
+		? openaiSpeechModels
+				.filter(({ provider }) => provider.inputCharacterPrice === undefined)
+				.flatMap((entry) =>
+					["mp3", "opus", "aac", "flac", "wav", "pcm"].map(
+						(response_format) => ({ ...entry, response_format }),
+					),
+				)
+		: [];
+
+describe.skipIf(speechStreamingCases.length === 0)(
+	"e2e native speech SSE",
+	getConcurrentTestOptions(),
+	() => {
+		beforeAll(beforeAllHook);
+		beforeEach(beforeEachHook);
+		test.each(speechStreamingCases)(
+			"speech SSE $model $response_format",
+			getTestOptions(),
+			async ({ model, response_format }) => {
+				const requestId = generateTestRequestId();
+				const response = await app.request("/v1/audio/speech", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model,
+						input:
+							"Hello from the streaming speech test. Audio arrives as it is generated.",
+						response_format,
+						stream_format: "sse",
+					}),
+				});
+				if (response.status !== 200) {
+					expect(response.status, await response.text()).toBe(200);
+				}
+				expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+				expect(response.headers.has("Content-Length")).toBe(false);
+				const reader = response.body!.getReader();
+				let text = "";
+				let chunks = 0;
+				const decoder = new TextDecoder();
+				for (;;) {
+					const chunk = await reader.read();
+					if (chunk.done) {
+						break;
+					}
+					chunks++;
+					text += decoder.decode(chunk.value, { stream: true });
+				}
+				text += decoder.decode();
+				const events = text
+					.replaceAll("\r\n", "\n")
+					.split("\n\n")
+					.map((frame) =>
+						frame
+							.split("\n")
+							.filter((line) => line.startsWith("data:"))
+							.map((line) => line.slice(5).trimStart())
+							.join("\n"),
+					)
+					.filter((data) => data && data !== "[DONE]")
+					.map(
+						(data) =>
+							JSON.parse(data) as {
+								type: string;
+								audio?: string;
+								usage?: { input_tokens: number; output_tokens: number };
+							},
+					);
+				expect(chunks).toBeGreaterThan(0);
+				expect(
+					events.some(
+						(event) =>
+							event.type === "speech.audio.delta" &&
+							Buffer.from(event.audio ?? "", "base64").length > 0,
+					),
+				).toBe(true);
+				const usage = events.find(
+					(event) => event.type === "speech.audio.done",
+				)?.usage;
+				expect(usage?.input_tokens).toBeGreaterThan(0);
+				expect(usage?.output_tokens).toBeGreaterThan(0);
+				const log = await waitForLogByRequestId(requestId);
+				expect(log).toMatchObject({
+					streamed: true,
+					hasError: false,
+					canceled: false,
+					estimatedCost: false,
+					promptTokens: String(usage?.input_tokens),
+					completionTokens: String(usage?.output_tokens),
+				});
 			},
 		);
 	},

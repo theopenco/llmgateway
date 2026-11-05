@@ -70,6 +70,7 @@ import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { prepareSpeechStream } from "@/speech/speech-stream.js";
 
 import { RedirectError } from "@llmgateway/actions";
 import {
@@ -111,6 +112,10 @@ const speechRequestSchema = z.object({
 	input: z.string().min(1).openapi({
 		description: "The text to synthesize into speech.",
 		example: "Hello, welcome to LLM Gateway!",
+	}),
+	stream_format: z.enum(["audio", "sse"]).optional().openapi({
+		description:
+			"Stream binary audio (default) or native speech events where supported.",
 	}),
 	voice: z.string().optional().openapi({
 		description:
@@ -164,14 +169,6 @@ interface GeminiResponse {
 		promptTokenCount?: number;
 		candidatesTokenCount?: number;
 	};
-	error?: { message?: string };
-}
-
-/** Minimal shape of an OpenAI `/v1/audio/speech` SSE event. */
-interface SpeechSseEvent {
-	type?: string;
-	audio?: string;
-	usage?: { input_tokens?: number; output_tokens?: number };
 	error?: { message?: string };
 }
 
@@ -453,6 +450,7 @@ const createSpeech = createRoute({
 				"audio/wav": { schema: z.any() },
 				"audio/mpeg": { schema: z.any() },
 				"application/octet-stream": { schema: z.any() },
+				"text/event-stream": { schema: z.any() },
 			},
 			description: "Generated audio.",
 		},
@@ -460,7 +458,7 @@ const createSpeech = createRoute({
 	},
 });
 
-speech.openapi(createSpeech, async (c): Promise<Response> => {
+async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
 
@@ -560,6 +558,23 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const billByCharacters =
 		isOpenAI && mapping.inputCharacterPrice !== undefined;
 	const useSse = isOpenAI && !billByCharacters;
+	const clientSse = request.stream_format === "sse";
+	if (
+		request.stream_format !== undefined &&
+		(!isOpenAI || (clientSse && billByCharacters))
+	) {
+		return c.json(
+			{
+				error: {
+					message: "This model does not support the requested stream_format.",
+					type: "invalid_request_error",
+					param: "stream_format",
+					code: "unsupported_stream_format",
+				},
+			} satisfies SpeechErrorBody,
+			400,
+		);
+	}
 
 	if (!SUPPORTED_PROVIDERS.has(providerId)) {
 		return c.json(
@@ -1224,9 +1239,12 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
 	}
 
+	let streamingResponse = false;
 	const controller = new AbortController();
 	const onAbort = () => {
-		controller.abort();
+		if (!streamingResponse || !useSse) {
+			controller.abort();
+		}
 	};
 	// The client may have hung up while an enforced check was awaited.
 	if (c.req.raw.signal.aborted) {
@@ -1247,9 +1265,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			} = describeAttempt(attempt);
 
 			let upstreamResponse: Response;
+			const fetchSignal = createCombinedSignal(controller);
 			let fetchError: Error | null = null;
 			try {
-				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetchProvider(
 					attempt.upstreamUrl,
 					{
@@ -1591,259 +1609,175 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			// requested format. ElevenLabs bills by input characters, matching the
 			// binary (non-SSE) OpenAI path below.
 			if (isEncodedPassthrough) {
-				let out: Buffer;
-				let contentType: string;
-				let inputCost: number;
-				let outputCost = 0;
-				let promptTokens: number | null = null;
-				let completionTokens: number | null = null;
-				const requestCost = Number(mapping.requestPrice ?? "0");
-
-				if (useSse) {
-					// gpt-4o-mini-tts: parse the SSE stream, concatenating the base64
-					// audio deltas and reading exact token usage from the done event.
-					const sseText = await upstreamResponse.text();
-					const chunks: Buffer[] = [];
-					let inputTokens: number | null = null;
-					let outputTokens: number | null = null;
-					let sseErrorMessage: string | null = null;
-					for (const line of sseText.split("\n")) {
-						const trimmed = line.trim();
-						if (!trimmed.startsWith("data:")) {
-							continue;
-						}
-						const payload = trimmed.slice(5).trim();
-						if (!payload || payload === "[DONE]") {
-							continue;
-						}
-						let event: SpeechSseEvent;
-						try {
-							event = JSON.parse(payload) as SpeechSseEvent;
-						} catch {
-							continue;
-						}
-						if (event.type === "speech.audio.delta" && event.audio) {
-							chunks.push(Buffer.from(event.audio, "base64"));
-						} else if (event.type === "speech.audio.done" && event.usage) {
-							inputTokens =
-								typeof event.usage.input_tokens === "number"
-									? event.usage.input_tokens
+				const contentType = clientSse
+					? "text/event-stream"
+					: useSse
+						? (OPENAI_CONTENT_TYPES[responseFormat] ?? "audio/mpeg")
+						: (upstreamResponse.headers.get("content-type") ??
+							OPENAI_CONTENT_TYPES[responseFormat] ??
+							"audio/mpeg");
+				streamingResponse = true;
+				try {
+					const body = await prepareSpeechStream({
+						response: upstreamResponse,
+						upstreamSse: useSse,
+						clientSse,
+						signal: fetchSignal,
+						clientSignal: c.req.raw.signal,
+						abort: () => controller.abort(),
+						onSettled: async (stats) => {
+							c.req.raw.signal.removeEventListener("abort", onAbort);
+							const timedOut =
+								stats.error !== null && isTimeoutError(stats.error);
+							const hasError =
+								stats.error !== null &&
+								(!stats.canceled ||
+									(useSse &&
+										(stats.inputTokens === null ||
+											stats.outputTokens === null)));
+							const finishReason = stats.canceled
+								? "canceled"
+								: timedOut
+									? "timeout"
+									: hasError
+										? "upstream_error"
+										: "stop";
+							const billable =
+								stats.audioBytes > 0 ||
+								stats.inputTokens !== null ||
+								stats.outputTokens !== null;
+							const inputCost = !billable
+								? new Decimal(0)
+								: useSse
+									? new Decimal(
+											stats.inputTokens ?? Math.ceil(request.input.length / 4),
+										).mul(mapping.inputPrice ?? "0")
+									: new Decimal(request.input.length).mul(
+											mapping.inputCharacterPrice ?? "0",
+										);
+							const outputCost = new Decimal(stats.outputTokens ?? 0).mul(
+								mapping.outputAudioPrice ?? mapping.outputPrice ?? "0",
+							);
+							const requestCost = new Decimal(
+								billable ? (mapping.requestPrice ?? "0") : "0",
+							);
+							const totalTokens =
+								stats.inputTokens !== null || stats.outputTokens !== null
+									? (stats.inputTokens ?? 0) + (stats.outputTokens ?? 0)
 									: null;
-							outputTokens =
-								typeof event.usage.output_tokens === "number"
-									? event.usage.output_tokens
-									: null;
-						} else if (event.type === "error") {
-							sseErrorMessage = event.error?.message ?? "Speech stream error";
-						}
-					}
-
-					// A 200 SSE stream can still carry an error frame or yield no audio;
-					// surface that as a failure instead of returning an empty 200.
-					if (sseErrorMessage !== null || chunks.length === 0) {
-						logger.warn("Speech API - no audio in SSE stream", {
-							requestId,
-							model: upstreamModel,
-							...(retentionLevel === "retain" && {
-								sseError: sseErrorMessage,
-							}),
-						});
-						routingAttempts.push(
-							buildRoutingAttempt(
-								providerId,
-								modelDefId,
-								upstreamResponse.status,
-								"upstream_error",
-								false,
+							if (hasError) {
+								logger.warn("Speech API - no audio in SSE stream", {
+									requestId,
+									model: upstreamModel,
+									...(retentionLevel === "retain" && {
+										sseError: stats.error?.message,
+									}),
+								});
+							}
+							routingAttempts.push(
+								buildRoutingAttempt(
+									providerId,
+									modelDefId,
+									timedOut ? 504 : hasError ? 502 : upstreamResponse.status,
+									hasError ? "upstream_error" : "none",
+									!hasError,
+									{
+										apiKeyHash: usedApiKeyHash,
+										credentialSource,
+										providerKeyId,
+										providerKeyLabel: keyLabel,
+										logId: finalLogId,
+									},
+								),
+							);
+							await insertLog(
 								{
-									apiKeyHash: usedApiKeyHash,
-									credentialSource,
-									providerKeyId,
-									providerKeyLabel: keyLabel,
-									logId: finalLogId,
+									...baseLogEntry,
+									id: finalLogId,
+									routingMetadata: buildSpeechRoutingMetadata(
+										usedApiKeyHash,
+										credentialSource,
+										usedProviderKey,
+									),
+									duration: Date.now() - startedAt,
+									timeToFirstToken:
+										stats.firstAudioAt === null
+											? null
+											: stats.firstAudioAt - startedAt,
+									timeToFirstReasoningToken: null,
+									responseSize: stats.responseBytes,
+									content: stats.audioBytes
+										? "[audio: " +
+											stats.audioBytes +
+											" bytes, " +
+											contentType +
+											"]"
+										: null,
+									reasoningContent: null,
+									finishReason,
+									promptTokens: stats.inputTokens?.toString() ?? null,
+									completionTokens: stats.outputTokens?.toString() ?? null,
+									totalTokens: totalTokens?.toString() ?? null,
+									reasoningTokens: null,
+									cachedTokens: null,
+									hasError,
+									streamed: true,
+									canceled: stats.canceled,
+									errorDetails: stats.error
+										? {
+												statusCode: timedOut ? 504 : stats.canceled ? 499 : 502,
+												statusText: finishReason,
+												responseText: stats.error.message.slice(0, 2000),
+											}
+										: null,
+									inputCost: inputCost.toNumber(),
+									outputCost: outputCost.toNumber(),
+									cachedInputCost: 0,
+									requestCost: requestCost.toNumber(),
+									webSearchCost: 0,
+									imageInputTokens: null,
+									imageOutputTokens: null,
+									imageInputCost: null,
+									imageOutputCost: null,
+									cost: inputCost.plus(outputCost).plus(requestCost).toNumber(),
+									estimatedCost:
+										useSse &&
+										(stats.inputTokens === null || stats.outputTokens === null),
+									discount: null,
+									pricingTier: null,
+									dataStorageCost: calculateDataStorageCost(
+										stats.inputTokens,
+										null,
+										stats.outputTokens,
+										null,
+										retentionLevel,
+									),
+									cached: false,
+									toolResults: null,
 								},
-							),
-						);
-						await insertLog(
-							{
-								...baseLogEntry,
-								id: finalLogId,
-								routingMetadata: buildSpeechRoutingMetadata(
-									usedApiKeyHash,
-									credentialSource,
-									usedProviderKey,
-								),
-								duration,
-								timeToFirstToken: null,
-								timeToFirstReasoningToken: null,
-								responseSize: sseText.length,
-								content: null,
-								reasoningContent: null,
-								finishReason: "upstream_error",
-								promptTokens: null,
-								completionTokens: null,
-								totalTokens: null,
-								reasoningTokens: null,
-								cachedTokens: null,
-								hasError: true,
-								streamed: false,
-								canceled: false,
-								errorDetails: {
-									statusCode: upstreamResponse.status,
-									statusText: "no_audio",
-									responseText: (sseErrorMessage ?? sseText).slice(0, 2000),
-								},
-								inputCost: 0,
-								outputCost: 0,
-								cachedInputCost: 0,
-								requestCost: 0,
-								webSearchCost: 0,
-								imageInputTokens: null,
-								imageOutputTokens: null,
-								imageInputCost: null,
-								imageOutputCost: null,
-								cost: 0,
-								estimatedCost: false,
-								discount: null,
-								pricingTier: null,
-								dataStorageCost: calculateDataStorageCost(
-									null,
-									null,
-									null,
-									null,
-									retentionLevel,
-								),
-								cached: false,
-								toolResults: null,
-							},
-							{ retentionLevel },
-						);
-						return c.json(
-							{
-								error: {
-									message:
-										sseErrorMessage ??
-										"The model did not return any audio. The content may have been filtered.",
-									type: "upstream_error",
-									param: null,
-									code: "no_audio",
-								},
-							} satisfies SpeechErrorBody,
-							502,
-						);
-					}
-
-					out = Buffer.concat(chunks);
-					contentType = OPENAI_CONTENT_TYPES[responseFormat] ?? "audio/mpeg";
-					promptTokens = inputTokens;
-					completionTokens = outputTokens;
-					const inputPrice = Number(mapping.inputPrice ?? "0");
-					const outputAudioPrice = Number(
-						mapping.outputAudioPrice ?? mapping.outputPrice ?? "0",
-					);
-					inputCost = inputTokens !== null ? inputTokens * inputPrice : 0;
-					outputCost =
-						outputTokens !== null ? outputTokens * outputAudioPrice : 0;
-				} else {
-					// tts-1 / tts-1-hd and all ElevenLabs models: binary passthrough
-					// billed by input characters.
-					out = Buffer.from(await upstreamResponse.arrayBuffer());
-					contentType =
-						upstreamResponse.headers.get("content-type") ??
-						OPENAI_CONTENT_TYPES[responseFormat] ??
-						"audio/mpeg";
-					const characters = request.input.length;
-					const inputCharacterPrice = Number(
-						mapping.inputCharacterPrice ?? "0",
-					);
-					inputCost = characters * inputCharacterPrice;
-				}
-
-				const cost = inputCost + outputCost + requestCost;
-				const totalTokens =
-					promptTokens !== null || completionTokens !== null
-						? (promptTokens ?? 0) + (completionTokens ?? 0)
-						: null;
-				// SSE bills on reported usage; flag estimated if the done event is
-				// missing usage (character-billed models are always exact).
-				const estimatedCost =
-					useSse && (promptTokens === null || completionTokens === null);
-
-				routingAttempts.push(
-					buildRoutingAttempt(
-						providerId,
-						modelDefId,
-						upstreamResponse.status,
-						"none",
-						true,
-						{
-							apiKeyHash: usedApiKeyHash,
-							credentialSource,
-							providerKeyId,
-							providerKeyLabel: keyLabel,
-							logId: finalLogId,
+								{ retentionLevel },
+							);
 						},
-					),
-				);
-
-				await insertLog(
-					{
-						...baseLogEntry,
-						id: finalLogId,
-						routingMetadata: buildSpeechRoutingMetadata(
-							usedApiKeyHash,
-							credentialSource,
-							usedProviderKey,
-						),
-						duration,
-						timeToFirstToken: null,
-						timeToFirstReasoningToken: null,
-						responseSize: out.length,
-						content: `[audio: ${out.length} bytes, ${contentType}]`,
-						reasoningContent: null,
-						finishReason: "stop",
-						promptTokens:
-							promptTokens !== null ? promptTokens.toString() : null,
-						completionTokens:
-							completionTokens !== null ? completionTokens.toString() : null,
-						totalTokens: totalTokens !== null ? totalTokens.toString() : null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: false,
-						streamed: false,
-						canceled: false,
-						errorDetails: null,
-						inputCost,
-						outputCost,
-						cachedInputCost: 0,
-						requestCost,
-						webSearchCost: 0,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						cost,
-						estimatedCost,
-						discount: null,
-						pricingTier: null,
-						dataStorageCost: calculateDataStorageCost(
-							promptTokens,
-							null,
-							completionTokens,
-							null,
-							retentionLevel,
-						),
-						cached: false,
-						toolResults: null,
-					},
-					{ retentionLevel },
-				);
-
-				return c.body(toArrayBuffer(out), 200, {
-					"Content-Type": contentType,
-					"Content-Length": String(out.length),
-					"x-request-id": requestId,
-				});
+					});
+					return c.newResponse(body, 200, {
+						"Content-Type": contentType,
+						"Cache-Control": "no-store",
+						"X-Accel-Buffering": "no",
+						"x-request-id": requestId,
+					});
+				} catch (error) {
+					return c.json(
+						{
+							error: {
+								message: toError(error).message,
+								type: "upstream_error",
+								param: null,
+								code: "no_audio",
+							},
+						} satisfies SpeechErrorBody,
+						isTimeoutError(error) ? 504 : 502,
+					);
+				}
 			}
 
 			// Alibaba (DashScope): the non-streaming TTS response carries a
@@ -2280,6 +2214,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			});
 		}
 	} finally {
-		c.req.raw.signal.removeEventListener("abort", onAbort);
+		if (!streamingResponse) {
+			c.req.raw.signal.removeEventListener("abort", onAbort);
+		}
 	}
-});
+}
+
+speech.openapi(createSpeech, handleSpeech);
