@@ -249,7 +249,8 @@ export const minimaxModels = [
 				],
 				vision: true,
 				tools: true,
-				jsonOutput: true,
+				// json_object can return {} with thinking enabled; json_schema works.
+				jsonOutput: false,
 				jsonOutputSchema: true,
 			},
 			{
