@@ -28,14 +28,22 @@ describe("image generation upstream streaming", () => {
 		n: number;
 		stream: unknown;
 		partialImages: unknown;
+		size?: unknown;
 		quality?: unknown;
 		moderation?: unknown;
+		background?: unknown;
+		outputFormat?: unknown;
+		outputCompression?: unknown;
 	}> = [];
 	let failOpenai = false;
+	let outputFormatResponse: string | undefined;
+	let rejectWith: string | undefined;
 
 	beforeEach(async () => {
 		upstreamRequests.length = 0;
 		failOpenai = false;
+		outputFormatResponse = undefined;
+		rejectWith = undefined;
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("test-token"),
@@ -80,8 +88,12 @@ describe("image generation upstream streaming", () => {
 				n,
 				stream: body.stream,
 				partialImages: body.partial_images,
+				size: body.size,
 				quality: body.quality,
 				moderation: body.moderation,
+				background: body.background,
+				outputFormat: body.output_format,
+				outputCompression: body.output_compression,
 			});
 			if (endpoint === "edits") {
 				expect(multipart).toBe(true);
@@ -91,6 +103,18 @@ describe("image generation upstream streaming", () => {
 				return Response.json(
 					{ error: { message: "Service unavailable" } },
 					{ status: 503 },
+				);
+			}
+			if (rejectWith) {
+				return Response.json(
+					{
+						error: {
+							message: rejectWith,
+							type: "image_generation_user_error",
+							code: "invalid_value",
+						},
+					},
+					{ status: 400 },
 				);
 			}
 			if (stream && n > 1) {
@@ -106,11 +130,16 @@ describe("image generation upstream streaming", () => {
 				const event = endpoint === "edits" ? "image_edit" : "image_generation";
 				return new Response(
 					`data: ${JSON.stringify({ type: `${event}.partial_image`, b64_json: "cGFydGlhbA==" })}\n\n` +
-						`data: ${JSON.stringify({ type: `${event}.completed`, ...data[0], created_at: 1, usage })}\n\n`,
+						`data: ${JSON.stringify({ type: `${event}.completed`, ...data[0], created_at: 1, usage, output_format: outputFormatResponse })}\n\n`,
 					{ headers: { "Content-Type": "text/event-stream" } },
 				);
 			}
-			return Response.json({ created: 1, data, usage });
+			return Response.json({
+				created: 1,
+				data,
+				usage,
+				output_format: outputFormatResponse,
+			});
 		});
 	});
 
@@ -250,6 +279,215 @@ describe("image generation upstream streaming", () => {
 			});
 		},
 	);
+
+	describe.each(["openai", "azure"])("%s image output options", (provider) => {
+		const model = `${provider}/gpt-image-2.5-sunburst`;
+		const headers = {
+			Authorization: "Bearer test-token",
+			"x-no-fallback": "true",
+		};
+		const forwarded = {
+			background: "transparent",
+			outputFormat: "webp",
+			outputCompression: "80",
+		};
+
+		test("forwards JSON edit options upstream", async () => {
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model,
+					prompt: "A blue circle",
+					images: [{ image_url: inputImage }],
+					background: "transparent",
+					output_format: "webp",
+					output_compression: 80,
+				}),
+			});
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(upstreamRequests[0]).toMatchObject(forwarded);
+		});
+
+		test("forwards multipart edit options upstream", async () => {
+			const form = new FormData();
+			form.append("model", model);
+			form.append("prompt", "A blue circle");
+			form.append(
+				"image",
+				new File([Buffer.from("hello")], "in.png", { type: "image/png" }),
+			);
+			form.append("background", "transparent");
+			form.append("output_format", "webp");
+			form.append("output_compression", "80");
+			form.append("size", "1024x1024");
+			form.append("quality", "low");
+			form.append("moderation", "low");
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers,
+				body: form,
+			});
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(upstreamRequests[0]).toMatchObject({
+				...forwarded,
+				size: "1024x1024",
+				quality: "low",
+				moderation: "low",
+			});
+		});
+
+		test("returns the provider's rejection to the client", async () => {
+			const message = "Transparent background is not supported for this model.";
+			rejectWith = message;
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model,
+					prompt: "A blue circle",
+					images: [{ image_url: inputImage }],
+					background: "transparent",
+				}),
+			});
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(400);
+			expect(JSON.stringify(json)).toContain(message);
+			expect(upstreamRequests).toHaveLength(1);
+		});
+
+		test("leaves chat image_config values for the provider to judge", async () => {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model,
+					messages: [{ role: "user", content: "A blue circle" }],
+					image_config: {
+						background: "white",
+						output_format: "jpg",
+						output_compression: 85.5,
+					},
+				}),
+			});
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(upstreamRequests[0]).toMatchObject({
+				background: "white",
+				outputFormat: "jpg",
+				outputCompression: 85.5,
+			});
+		});
+
+		test("rejects an invalid multipart output_compression", async () => {
+			const form = new FormData();
+			form.append("model", model);
+			form.append("prompt", "A blue circle");
+			form.append(
+				"image",
+				new File([Buffer.from("hello")], "in.png", { type: "image/png" }),
+			);
+			form.append("output_compression", "high");
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers,
+				body: form,
+			});
+			expect(res.status).toBe(400);
+			expect(upstreamRequests).toHaveLength(0);
+		});
+
+		test.each([
+			["background", "transparent", "background", "transparent"],
+			["output_format", "webp", "outputFormat", "webp"],
+			["output_compression", 0, "outputCompression", "0"],
+		] as const)(
+			"forwards %s=%s as the only option",
+			async (field, value, captured, expected) => {
+				const res = await app.request("/v1/images/edits", {
+					method: "POST",
+					headers: { ...headers, "Content-Type": "application/json" },
+					body: JSON.stringify({
+						model,
+						prompt: "A blue circle",
+						images: [{ image_url: inputImage }],
+						[field]: value,
+					}),
+				});
+				expect(res.status).toBe(200);
+				expect(upstreamRequests[0][captured]).toBe(expected);
+			},
+		);
+
+		test("forwards chat image_config options on generations", async () => {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model,
+					messages: [{ role: "user", content: "A blue circle" }],
+					image_config: {
+						background: "transparent",
+						output_format: "webp",
+						output_compression: 80,
+					},
+				}),
+			});
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(upstreamRequests[0]).toMatchObject({
+				background: "transparent",
+				outputFormat: "webp",
+				outputCompression: 80,
+			});
+		});
+
+		test("omits the options when not requested", async () => {
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model,
+					prompt: "A blue circle",
+					images: [{ image_url: inputImage }],
+					quality: "low",
+				}),
+			});
+			expect(res.status).toBe(200);
+			expect(upstreamRequests[0].quality).toBe("low");
+			expect(upstreamRequests[0].background).toBeUndefined();
+			expect(upstreamRequests[0].outputFormat).toBeUndefined();
+			expect(upstreamRequests[0].outputCompression).toBeUndefined();
+		});
+
+		test.each([
+			[1, "webp", "webp"],
+			[2, "jpeg", "jpeg"],
+			[1, undefined, "png"],
+			[1, "unexpected", "png"],
+		])(
+			"with n=%s labels upstream format %s as image/%s",
+			async (n, format, subtype) => {
+				outputFormatResponse = format;
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: { ...headers, "Content-Type": "application/json" },
+					body: JSON.stringify({
+						model,
+						messages: [{ role: "user", content: "A blue circle" }],
+						image_config: { n },
+					}),
+				});
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(json.choices[0].message.images[0].image_url.url).toMatch(
+					new RegExp(`^data:image/${subtype};base64,`),
+				);
+			},
+		);
+	});
 
 	describe.each(["openai", "azure"])("%s moderation", (provider) => {
 		describe.each(["generations", "edits", "chat"])("%s", (endpoint) => {
