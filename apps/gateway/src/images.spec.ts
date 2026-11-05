@@ -38,9 +38,11 @@ describe("image generation upstream streaming", () => {
 	let failOpenai = false;
 	let outputFormatResponse: string | undefined;
 	let rejectWith: string | undefined;
+	let upstreamPrompt: unknown;
 
 	beforeEach(async () => {
 		upstreamRequests.length = 0;
+		upstreamPrompt = undefined;
 		failOpenai = false;
 		outputFormatResponse = undefined;
 		rejectWith = undefined;
@@ -82,6 +84,7 @@ describe("image generation upstream streaming", () => {
 			const endpoint = url.pathname.includes("/images/edits")
 				? "edits"
 				: "generations";
+			upstreamPrompt = body.prompt;
 			upstreamRequests.push({
 				provider,
 				endpoint,
@@ -308,6 +311,13 @@ describe("image generation upstream streaming", () => {
 			const json = await res.json();
 			expect(res.status, JSON.stringify(json)).toBe(200);
 			expect(upstreamRequests[0]).toMatchObject(forwarded);
+			expect(upstreamPrompt).not.toContain("Background:");
+			expect(upstreamPrompt).not.toContain("Output format:");
+			expect(upstreamPrompt).not.toContain("Output compression:");
+			expect(json).toMatchObject({
+				background: "transparent",
+				output_format: "webp",
+			});
 		});
 
 		test("forwards multipart edit options upstream", async () => {
@@ -778,5 +788,30 @@ describe("image service tiers", () => {
 			);
 			expect(upstreamBodies).toHaveLength(0);
 		});
+	});
+
+	test("reports the delivered format when the provider ignores output options", async () => {
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer test-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3-pro-image",
+				prompt: "A blue circle",
+				images: [{ image_url: inputImage }],
+				background: "transparent",
+				output_format: "webp",
+			}),
+		});
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.background).toBeUndefined();
+		expect(json.output_format).toBe("png");
+		expect(JSON.stringify(upstreamBodies[0])).toContain(
+			"Background: transparent.",
+		);
 	});
 });

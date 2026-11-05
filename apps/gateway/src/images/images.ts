@@ -1097,12 +1097,65 @@ async function fileToDataUri(file: File): Promise<string> {
 	return `data:${mimeType};base64,${base64}`;
 }
 
-function buildEditPrompt(request: ImageEditsRequest): string {
+const nativeOutputOptionProviders = new Set(["openai", "azure"]);
+
+function outputImageFormat(
+	mediaType: string,
+): "png" | "jpeg" | "webp" | undefined {
+	switch (mediaType.toLowerCase()) {
+		case "image/png":
+			return "png";
+		case "image/jpeg":
+		case "image/jpg":
+			return "jpeg";
+		case "image/webp":
+			return "webp";
+		default:
+			return undefined;
+	}
+}
+
+function chatResponseImageFormat(
+	chatResponse: any,
+): "png" | "jpeg" | "webp" | undefined {
+	const images = chatResponse.choices?.[0]?.message?.images;
+	if (!Array.isArray(images) || images.length === 0) {
+		return undefined;
+	}
+	const formats = new Set(
+		images.map((img: any) => {
+			const url = img?.image_url?.url;
+			const parsed = typeof url === "string" ? parseDataUrl(url) : null;
+			return parsed ? outputImageFormat(parsed.mediaType) : undefined;
+		}),
+	);
+	const [format] = formats;
+	return formats.size === 1 ? format : undefined;
+}
+
+function routesOnlyToNativeOutputOptionProviders(model: string): boolean {
+	const slashIdx = model.indexOf("/");
+	if (slashIdx > 0) {
+		return nativeOutputOptionProviders.has(model.slice(0, slashIdx));
+	}
+	const modelInfo = models.find((m) => m.id === model);
+	return (
+		modelInfo !== undefined &&
+		modelInfo.providers.every((p) =>
+			nativeOutputOptionProviders.has(p.providerId),
+		)
+	);
+}
+
+function buildEditPrompt(
+	request: ImageEditsRequest,
+	nativeOutputOptions: boolean,
+): string {
 	let prompt = `Edit the provided image(s) based on the following description: ${request.prompt}`;
 
-	if (request.background === "transparent") {
+	if (!nativeOutputOptions && request.background === "transparent") {
 		prompt += "\n\nBackground: transparent.";
-	} else if (request.background === "opaque") {
+	} else if (!nativeOutputOptions && request.background === "opaque") {
 		prompt += "\n\nBackground: opaque.";
 	}
 
@@ -1116,11 +1169,11 @@ function buildEditPrompt(request: ImageEditsRequest): string {
 		prompt += "\n\nQuality: prioritize speed over detail.";
 	}
 
-	if (request.output_format) {
+	if (!nativeOutputOptions && request.output_format) {
 		prompt += `\n\nOutput format: ${request.output_format}.`;
 	}
 
-	if (request.output_compression !== undefined) {
+	if (!nativeOutputOptions && request.output_compression !== undefined) {
 		prompt += `\n\nOutput compression: ${request.output_compression}.`;
 	}
 
@@ -1302,7 +1355,10 @@ async function processImageEdit(
 		});
 	}
 
-	const chatPrompt = buildEditPrompt(request);
+	const chatPrompt = buildEditPrompt(
+		request,
+		routesOnlyToNativeOutputOptionProviders(model),
+	);
 	contentParts.push({
 		type: "text",
 		text: chatPrompt,
@@ -1386,11 +1442,18 @@ async function processImageEdit(
 		...(usage && { usage }),
 	};
 
-	if (request.background && request.background !== "auto") {
-		imagesResponse.background = request.background;
-	}
-	if (request.output_format) {
-		imagesResponse.output_format = request.output_format;
+	if (nativeOutputOptionProviders.has(chatResponse.metadata?.used_provider)) {
+		if (request.background && request.background !== "auto") {
+			imagesResponse.background = request.background;
+		}
+		if (request.output_format) {
+			imagesResponse.output_format = request.output_format;
+		}
+	} else if (request.output_format) {
+		const deliveredFormat = chatResponseImageFormat(chatResponse);
+		if (deliveredFormat) {
+			imagesResponse.output_format = deliveredFormat;
+		}
 	}
 	if (request.quality && request.quality !== "auto") {
 		imagesResponse.quality = request.quality;
