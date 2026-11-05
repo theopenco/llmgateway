@@ -7,6 +7,7 @@ import type { ModelDefinition, ProviderModelMapping } from "./models.js";
 function capabilities(mapping: ProviderModelMapping) {
 	return {
 		audio: mapping.audio,
+		vision: mapping.vision,
 		tools: mapping.tools,
 		realtime: mapping.realtime,
 		realtimeTranscription: mapping.realtimeTranscription,
@@ -38,6 +39,23 @@ describe("Azure audio capability coverage", () => {
 		expect(capabilities(azure!)).toEqual(capabilities(openai));
 		if (model.id !== "tts-1" && model.id !== "tts-1-hd") {
 			expect(azure!.supportedVoices).toEqual(openai.supportedVoices);
+		}
+	});
+
+	it.each(
+		audioModels.filter((model) =>
+			model.providers.some(
+				(mapping) => mapping.providerId === "openai" && mapping.realtime,
+			),
+		),
+	)("prices realtime image input for $id", (model) => {
+		for (const mapping of model.providers.filter(
+			(provider) =>
+				provider.providerId === "azure" || provider.providerId === "openai",
+		)) {
+			expect(mapping.vision).toBe(true);
+			expect(mapping.imageInputPrice).toBeDefined();
+			expect(mapping.cachedImageInputPrice).toBeDefined();
 		}
 	});
 
