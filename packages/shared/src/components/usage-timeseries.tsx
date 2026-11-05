@@ -103,6 +103,7 @@ export function OrganizationUsageTimeseries({
 	timeZone = "UTC",
 	mode = "total",
 	modelViewControl,
+	modelLabel = "Model",
 	lineStyle = false,
 }: {
 	data?: UsageTimeseries;
@@ -115,6 +116,7 @@ export function OrganizationUsageTimeseries({
 	timeZone?: string;
 	mode?: "total" | "credits" | "api-keys";
 	modelViewControl?: ReactNode;
+	modelLabel?: "Model" | "Provider" | "Family";
 	lineStyle?: boolean;
 }) {
 	const { metric, setMetric } = controls;
@@ -128,7 +130,8 @@ export function OrganizationUsageTimeseries({
 			<div className="space-y-4 p-6 pb-3">
 				<div>
 					<h3 className="text-base font-semibold">
-						{metricLabel} by {groupNames[groupBy]} Over Time
+						{metricLabel} by{" "}
+						{groupBy === "model" ? modelLabel : groupNames[groupBy]} Over Time
 					</h3>
 					<p className="mt-1 text-sm text-muted-foreground">
 						{cache
@@ -201,12 +204,17 @@ export function OrganizationUsageTimeseries({
 						Filter this chart:
 					</span>
 					<select
-						aria-label="Filter model"
+						aria-label={`Filter ${modelLabel.toLowerCase()}`}
 						className={`${controlClass} max-w-72`}
 						value={controls.model}
 						onChange={(e) => controls.setModel(e.target.value)}
 					>
-						<option value="">All models</option>
+						<option value="">
+							All{" "}
+							{modelLabel === "Family"
+								? "families"
+								: `${modelLabel.toLowerCase()}s`}
+						</option>
 						{data?.filters.models.map((option) => (
 							<option key={option.key} value={option.key}>
 								{option.label}

@@ -11,6 +11,10 @@ import {
 } from "@/lib/account-deletion.js";
 import { approveHighRiskUser } from "@/lib/account-risk.js";
 import {
+	modelBreakdownKey,
+	modelBreakdownSql,
+} from "@/lib/admin-model-breakdown.js";
+import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
 	executeAdminRefund,
@@ -2755,17 +2759,6 @@ admin.openapi(getGlobalStatsProviderKeys, async (c) => {
 		})),
 	});
 });
-
-// `used_model` in global_model_stats is stored as `<provider>/<canonical-model>[:<region>]`
-// (e.g. `google-ai-studio/gemini-embedding-2`, `alibaba/deepseek-v4-flash:singapore`).
-// The canonical id is the segment between the first `/` and the optional `:`.
-function extractCanonicalModelId(usedModel: string): string {
-	const slashIdx = usedModel.indexOf("/");
-	const withoutProvider =
-		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
-	const colonIdx = withoutProvider.indexOf(":");
-	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
-}
 
 const GLOBAL_STATS_MODE_LABELS: Record<string, string> = {
 	credits: "Credits",
@@ -11831,7 +11824,12 @@ const costByModelResponseSchema = z.object({
 	totalApiKeysCost: z.number(),
 });
 
-const costByModelViewSchema = z.enum(["mapping", "canonical"]);
+const costByModelViewSchema = z.enum([
+	"mapping",
+	"canonical",
+	"provider",
+	"family",
+]);
 const organizationCostGroupBySchema = z.enum([
 	"model",
 	"project",
@@ -12132,6 +12130,7 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
+			usedProvider: projectHourlyModelStats.usedProvider,
 			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
 				"cost",
 			),
@@ -12152,14 +12151,14 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				gte(projectHourlyModelStats.hourTimestamp, startDate),
 			),
 		)
-		.groupBy(projectHourlyModelStats.usedModel);
+		.groupBy(
+			projectHourlyModelStats.usedModel,
+			projectHourlyModelStats.usedProvider,
+		);
 
 	const byModel = new Map<string, CostBreakdownRow>();
 	for (const row of rows) {
-		const model =
-			modelView === "canonical"
-				? extractCanonicalModelId(row.usedModel)
-				: row.usedModel;
+		const model = modelBreakdownKey(row.usedModel, row.usedProvider, modelView);
 		const current = byModel.get(model) ?? {
 			model,
 			cost: 0,
@@ -12711,84 +12710,50 @@ async function buildCostByModelTimeseries({
 	models: string[];
 	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
 }> {
-	const keyOf = (usedModel: string) =>
-		modelView === "canonical" ? extractCanonicalModelId(usedModel) : usedModel;
-
+	const dimension = modelBreakdownSql(projectHourlyModelStats, modelView);
 	const modelTotals = await db
 		.select({
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
 		})
 		.from(projectHourlyModelStats)
 		.where(baseFilter)
-		.groupBy(projectHourlyModelStats.usedModel);
-
-	const totalByKey = new Map<string, number>();
-	const usedModelsByKey = new Map<string, string[]>();
-	for (const row of modelTotals) {
-		const key = keyOf(row.usedModel);
-		totalByKey.set(key, (totalByKey.get(key) ?? 0) + Number(row.cost));
-		const list = usedModelsByKey.get(key) ?? [];
-		list.push(row.usedModel);
-		usedModelsByKey.set(key, list);
-	}
-
-	const topKeys = [...totalByKey.entries()]
-		.sort((a, b) => b[1] - a[1])
+		.groupBy(sql`1`);
+	const topKeys = modelTotals
+		.sort(
+			(a, b) => Number(b.cost) - Number(a.cost) || a.key.localeCompare(b.key),
+		)
 		.slice(0, TOP_TIMESERIES_SERIES)
-		.map(([k]) => k);
-
-	if (topKeys.length === 0) {
+		.map((row) => row.key);
+	if (!topKeys.length) {
 		return { models: [], data: [] };
 	}
-
 	const allBuckets = generateBucketTimestamps(
 		startDate,
 		new Date(),
 		bucketUnit,
 	);
-	const usedModelsToFetch = topKeys.flatMap(
-		(k) => usedModelsByKey.get(k) ?? [],
-	);
-
-	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
-
+	const bucketExpr = sql<string>`to_char(date_trunc(${bucketUnit}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 	const rows = await db
 		.select({
 			bucket: bucketExpr.as("bucket"),
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
-			requestCount:
-				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
-					"request_count",
-				),
-			totalTokens:
-				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
-					"total_tokens",
-				),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
+			requestCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`,
+			totalTokens: sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`,
 			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
-		.where(
-			and(
-				baseFilter,
-				inArray(projectHourlyModelStats.usedModel, usedModelsToFetch),
-			),
-		)
-		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
-		.orderBy(asc(bucketExpr));
-
+		.where(and(baseFilter, inArray(dimension, topKeys)))
+		.groupBy(sql`1, 2`)
+		.orderBy(sql`1`);
 	return {
 		models: topKeys,
 		data: assembleCostTimeseriesPoints({
 			allBuckets,
 			rows: rows.map((row) => ({
 				bucket: row.bucket,
-				key: keyOf(row.usedModel),
+				key: row.key,
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),

@@ -1,17 +1,13 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
 import { CostByModelChart } from "@/components/cost-by-model-chart";
 import { useHistoryClient } from "@/lib/history-client";
+import { parseUsageBreakdown } from "@/lib/usage-breakdown";
 
-import type {
-	GlobalStatsModelView,
-	ModelView,
-	OrganizationCostGroupBy,
-	TokenWindow,
-} from "@/lib/types";
+import type { OrganizationCostGroupBy, TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -41,80 +37,32 @@ function parseWindow(value: string | null): TokenWindow {
 	return "1d";
 }
 
-function parseGroupBy(value: string | null): OrganizationCostGroupBy {
-	return value === "project" || value === "api-key" || value === "user"
-		? value
-		: "model";
-}
-
-function parseModelView(value: string | null): ModelView {
-	return value === "canonical" ? "canonical" : "mapping";
-}
-
 export function OrgCostByModel({ orgId }: { orgId: string }) {
 	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
 	const window = parseWindow(searchParams.get("window"));
-	const groupBy = parseGroupBy(searchParams.get("breakdown"));
-	const modelView = parseModelView(searchParams.get("modelView"));
-	const breakdownNoun = breakdownNouns[groupBy];
+	const { groupBy, modelView } = parseUsageBreakdown(
+		searchParams,
+		"organization",
+	);
+	const noun =
+		groupBy === "model" && modelView === "provider"
+			? { singular: "Provider", plural: "providers" }
+			: groupBy === "model" && modelView === "family"
+				? { singular: "Family", plural: "families" }
+				: breakdownNouns[groupBy];
 	const history = useHistoryClient();
-
 	const fetchData = useCallback(
-		async (
-			w: TokenWindow,
-			view: GlobalStatsModelView,
-			group: OrganizationCostGroupBy,
-		) => {
-			return await history.orgCostByModel(
-				orgId,
-				w,
-				view === "canonical" ? "canonical" : "mapping",
-				group,
-			);
-		},
-		[history, orgId],
+		async (w: TokenWindow) =>
+			await history.orgCostByModel(orgId, w, modelView, groupBy),
+		[history, orgId, modelView, groupBy],
 	);
-
-	const updateView = useCallback(
-		(updates: { groupBy?: OrganizationCostGroupBy; modelView?: ModelView }) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (updates.groupBy) {
-				if (updates.groupBy === "model") {
-					params.delete("breakdown");
-				} else {
-					params.set("breakdown", updates.groupBy);
-				}
-			}
-			if (updates.modelView) {
-				if (updates.modelView === "mapping") {
-					params.delete("modelView");
-				} else {
-					params.set("modelView", updates.modelView);
-				}
-			}
-			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
-		},
-		[pathname, router, searchParams],
-	);
-
 	return (
 		<CostByModelChart
-			title={`Cost by ${breakdownNoun.singular}`}
-			description={`Top 20 ${breakdownNoun.plural} by cost for this organization`}
+			title={`Cost by ${noun.singular}`}
+			description={`Top 20 ${noun.plural} by cost for this organization`}
 			fetchData={fetchData}
 			externalWindow={window}
-			showModelView
-			modelView={modelView}
-			onModelViewChange={(view) =>
-				updateView({ modelView: view === "canonical" ? view : "mapping" })
-			}
-			allowedModelViews={["mapping", "canonical"]}
-			showGroupBy
-			groupBy={groupBy}
-			onGroupByChange={(value) => updateView({ groupBy: value })}
+			showUsageMode={false}
 		/>
 	);
 }

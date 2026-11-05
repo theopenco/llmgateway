@@ -76,6 +76,12 @@ Token counts always include credits and BYOK traffic. The billing-mode selector 
 
 For budget warnings, upcoming model retirements, and provider issues, enable [notifications](/features/notifications) from the bell in the dashboard header.
 
+## Admin usage views
+
+In the admin console, organization and project detail pages share **Traffic**, **Window**, and **Breakdown by** controls in **Usage Metrics**. Choose mappings, canonical models, providers, or model families; the charts inherit that selection. Organization views also support project breakdowns, and project views support source breakdowns; both support API keys and users.
+
+On **Global Stats**, **Breakdown by** and **Measure** live in the top filter bar and apply to the share chart, daily time series, breakdown table, and exports. Card-level display controls change chart presentation, not the selected breakdown or measure.
+
 ## How the data is computed
 
 These charts derive from the same activity data the rest of the dashboard already reads — there is no separate analytics pipeline to wait on. Aggregation happens per time bucket and is timezone-correct, so totals line up with the Activity and Usage pages for the same range.
