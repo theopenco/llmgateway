@@ -4,6 +4,16 @@ import { getModelImageConfig } from "@/lib/image-gen";
 
 describe("getModelImageConfig", () => {
 	it.each([
+		["gpt-image-2.6-flare", true],
+		["openai/gpt-image-2.6-sunburst", true],
+		["azure/gpt-image-2.6-flare", false],
+		["gpt-image-2.5-flare", false],
+		["gemini-3-pro-image", false],
+	])("reports SVG output for %s as %s", (model, expected) => {
+		expect(getModelImageConfig(model).supportsSvgOutput).toBe(expected);
+	});
+
+	it.each([
 		"gpt-image-2.5-sunburst",
 		"gpt-image-2.5-flare",
 		"gpt-image-2.6-sunburst",

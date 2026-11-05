@@ -61,6 +61,8 @@ const GalleryImageTile = memo(
 	}) => {
 		const resolved = useGalleryImage(image);
 		const [isDownloading, setIsDownloading] = useState(false);
+		const isSvg =
+			image.kind === "inline" && image.mediaType === "image/svg+xml";
 		const details =
 			resolved?.width && resolved.height
 				? `${resolved.width}×${resolved.height}${
@@ -91,11 +93,23 @@ const GalleryImageTile = memo(
 							alt="Generated image"
 							loading="lazy"
 							decoding="async"
-							className="h-full w-full object-cover"
+							className={
+								isSvg
+									? "h-full w-full object-contain p-6"
+									: "h-full w-full object-cover"
+							}
 						/>
 					</ImageZoom>
 				) : (
 					<Skeleton className="h-full w-full rounded-none" />
+				)}
+				{isSvg && (
+					<Badge
+						variant="secondary"
+						className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm text-xs"
+					>
+						SVG
+					</Badge>
 				)}
 				<div className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
 					<Button

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import {
 	ImageControls,
+	type ImageOutputFormat,
 	type ImageServiceTier,
 } from "@/components/playground/image-controls";
 import { ImageGallery } from "@/components/playground/image-gallery";
@@ -177,6 +178,8 @@ export default function ImagePageClient({
 		return config.defaultModeration ?? "auto";
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
+	const [imageFormat, setImageFormatState] =
+		useState<ImageOutputFormat>("image");
 	// Read server-side from the cookie so the toggle hydrates in its saved state.
 	const [imageServiceTier, setImageServiceTier] = useState<ImageServiceTier>(
 		initialServiceTierPreference === "flex" ? "flex" : "default",
@@ -515,8 +518,20 @@ export default function ImagePageClient({
 		if (!isEditModel) {
 			setInputImages([]);
 		}
+		if (!config.supportsSvgOutput) {
+			setImageFormatState("image");
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude size/quality values to avoid clobbering the user's explicit selection
 	}, [selectedModels, isEditModel]);
+
+	// SVG output returns one image and takes no reference images upstream.
+	const setImageFormat = useCallback((value: ImageOutputFormat) => {
+		setImageFormatState(value);
+		if (value === "svg") {
+			setImageCount(1);
+			setInputImages([]);
+		}
+	}, []);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -568,6 +583,7 @@ export default function ImagePageClient({
 				image_count: imageCount,
 				has_input_images: inputImages.length > 0,
 				service_tier: imageServiceTier,
+				output_format: imageFormat,
 			});
 
 			const itemId = crypto.randomUUID();
@@ -642,6 +658,11 @@ export default function ImagePageClient({
 				const noFallback = shouldDisableFallback(modelId);
 				const useFlex =
 					imageServiceTier === "flex" && modelSupportsFlex(modelId);
+				// An edit request (reference images attached) always returns a raster.
+				const useSvg =
+					imageFormat === "svg" &&
+					inputImages.length === 0 &&
+					getModelImageConfig(modelId).supportsSvgOutput;
 				void (async () => {
 					try {
 						const response = await fetch("/api/image", {
@@ -653,7 +674,9 @@ export default function ImagePageClient({
 							body: JSON.stringify({
 								prompt: currentPrompt,
 								model: modelId,
-								image_config: imageConfigBody,
+								image_config: useSvg
+									? { ...imageConfigBody, output_format: "svg", n: 1 }
+									: imageConfigBody,
 								...(useFlex ? { service_tier: "flex" } : {}),
 								...(inputImages.length > 0
 									? {
@@ -758,6 +781,7 @@ export default function ImagePageClient({
 			imageQuality,
 			imageModeration,
 			imageCount,
+			imageFormat,
 			imageServiceTier,
 			modelSupportsFlex,
 			inputImages,
@@ -965,6 +989,8 @@ export default function ImagePageClient({
 						setImageModeration={setImageModeration}
 						imageCount={imageCount}
 						setImageCount={setImageCount}
+						imageFormat={imageFormat}
+						setImageFormat={setImageFormat}
 						serviceTier={imageServiceTier}
 						setServiceTier={handleServiceTierChange}
 						supportsFlex={supportsFlex}
