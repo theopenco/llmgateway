@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+import * as discordUtils from "@/utils/discord.js";
 import * as emailUtils from "@/utils/email.js";
 
 import {
@@ -299,6 +300,117 @@ async function createModel(
 describe("airside provider portal", () => {
 	let cookie: string;
 
+	it("notifies committed review filings without notifying rejected or no-op submissions", async () => {
+		const company = await createCompany(cookie);
+		await setUserEmail("ops@mistral.ai");
+		const claim = await claimProvider(cookie, company.id);
+		const notify = vi.mocked(discordUtils.notifyAirsideFiling);
+		expect(notify).toHaveBeenLastCalledWith({
+			kind: "claim",
+			id: claim.id,
+			providerId: "mistral",
+		});
+		await activateClaim();
+		const branding = await app.request(
+			`/airside/claims/${claim.id}`,
+			json(cookie, { name: "Test Carrier" }, "PATCH"),
+		);
+		expect(branding.status).toBe(200);
+		expect(notify).toHaveBeenLastCalledWith({
+			kind: "branding",
+			id: claim.id,
+			providerId: "mistral",
+		});
+		const created = await createModel(cookie, company.id);
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(notify).toHaveBeenLastCalledWith({
+			kind: "initial",
+			id: model.pendingFiling.id,
+			providerId: "mistral",
+			modelName: "mistral-large-3",
+		});
+		expect(
+			await db.query.providerPriceFiling.findFirst({
+				where: { id: { eq: model.pendingFiling.id } },
+			}),
+		).toBeDefined();
+		const calls = notify.mock.calls.length;
+		const duplicate = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "3e-6", outputPrice: "7e-6" }),
+		);
+		expect(duplicate.status).toBe(409);
+		expect(notify).toHaveBeenCalledTimes(calls);
+		await db
+			.update(tables.providerPriceFiling)
+			.set({ status: "approved" })
+			.where(eq(tables.providerPriceFiling.id, model.pendingFiling.id));
+		await db
+			.update(tables.providerDraftModel)
+			.set({ status: "active" })
+			.where(eq(tables.providerDraftModel.id, model.id));
+		await passPreflight(model.id);
+		const changed = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: false }, "PATCH"),
+		);
+		expect(changed.status).toBe(200);
+		const metadata = (await changed.json()).model.pendingFiling;
+		expect(notify).toHaveBeenLastCalledWith({
+			kind: "metadata",
+			id: metadata.id,
+			providerId: "mistral",
+			modelName: "mistral-large-3",
+		});
+		const replacement = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: false, maxOutput: 4096 }, "PATCH"),
+		);
+		expect(replacement.status).toBe(200);
+		expect(notify).toHaveBeenCalledTimes(calls + 2);
+		await db
+			.update(tables.providerPriceFiling)
+			.set({ status: "rejected" })
+			.where(eq(tables.providerPriceFiling.id, metadata.id));
+		const unchanged = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: true }, "PATCH"),
+		);
+		expect(unchanged.status).toBe(200);
+		expect(notify).toHaveBeenCalledTimes(calls + 2);
+		const price = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "3e-6", outputPrice: "7e-6" }),
+		);
+		expect(price.status).toBe(201);
+		expect(notify).toHaveBeenLastCalledWith({
+			kind: "update",
+			id: (await price.json()).filing.id,
+			providerId: "mistral",
+			modelName: "mistral-large-3",
+		});
+		const routing = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.05,
+					marginPercent: 0.3,
+				},
+				"PUT",
+			),
+		);
+		expect(routing.status).toBe(201);
+		expect(notify).toHaveBeenLastCalledWith({
+			kind: "routing",
+			id: (await routing.json()).filing.id,
+			providerId: "mistral",
+			modelName: null,
+		});
+	});
+
 	it("offers canonical identities without flattening tiered or retired rates", async () => {
 		const response = await app.request(
 			"/airside/catalogue",
@@ -376,6 +488,7 @@ describe("airside provider portal", () => {
 
 	beforeEach(async () => {
 		vi.spyOn(emailUtils, "sendTransactionalEmail").mockResolvedValue(undefined);
+		vi.spyOn(discordUtils, "notifyAirsideFiling").mockResolvedValue(undefined);
 		cookie = await createTestUser();
 	});
 

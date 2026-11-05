@@ -818,3 +818,64 @@ export async function notifyOrgLimitReached(args: {
 		DISCORD_ALERT_TIMEOUT_MS,
 	);
 }
+
+export async function notifyAirsideFiling(args: {
+	kind:
+		| "claim"
+		| "branding"
+		| "provider-key"
+		| "initial"
+		| "update"
+		| "metadata"
+		| "routing"
+		| "relist";
+	id: string;
+	providerId: string;
+	modelName?: string | null;
+}): Promise<void> {
+	const webhookUrl = process.env.DISCORD_AIRSIDE_NOTIFICATION_URL;
+	if (!webhookUrl) {
+		return;
+	}
+	const labels = {
+		claim: "Carrier claim",
+		branding: "Branding change",
+		"provider-key": "Provider key",
+		initial: "New listing",
+		update: "Price change",
+		metadata: "Listing change",
+		routing: "Fare change",
+		relist: "Relist request",
+	};
+	await sendDiscordNotification(
+		{
+			embeds: [
+				{
+					title: `Airside filing: ${labels[args.kind]}`,
+					url: `${process.env.ADMIN_URL?.replace(/\/$/, "") || "https://admin.llmgateway.io"}/airside-filings`,
+					color: 0xf5a623,
+					fields: [
+						{
+							name: "Carrier",
+							value: args.providerId.slice(0, 1024),
+							inline: true,
+						},
+						...(args.modelName
+							? [
+									{
+										name: "Model",
+										value: args.modelName.slice(0, 1024),
+										inline: true,
+									},
+								]
+							: []),
+						{ name: "Filing", value: args.id.slice(0, 1024) },
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		webhookUrl,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
+}
