@@ -1,5 +1,7 @@
 import { describeGatewayError } from "@/lib/gateway-error";
 
+import { getModelImageConfig } from "@llmgateway/shared";
+
 export {
 	getModelImageConfig,
 	GPT_IMAGE_SIZES,
@@ -343,4 +345,13 @@ export async function readImageGenerationResponse(
 		);
 	}
 	return result.images;
+}
+export function selectionSupportsSvgOutput(
+	modelIds: readonly string[],
+	comparisonMode: boolean,
+): boolean {
+	const effectiveModels = comparisonMode ? modelIds : modelIds.slice(0, 1);
+	return effectiveModels.some(
+		(model) => getModelImageConfig(model).supportsSvgOutput,
+	);
 }
