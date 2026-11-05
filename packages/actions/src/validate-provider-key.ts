@@ -452,7 +452,12 @@ export async function validateProviderKey(
 			);
 			if (provider === "azure") {
 				endpoint = appendPath(resolvedBaseUrl, "openai/v1/embeddings");
-				payload = { input: "Hello", model: validationModel.externalId };
+				payload = {
+					input: "Hello",
+					model:
+						providerKeyOptions?.azure_deployment_name ||
+						validationModel.externalId,
+				};
 			} else if (provider === "google-ai-studio") {
 				endpoint = `${resolvedBaseUrl}/v1beta/models/${validationModel.externalId}:embedContent?key=${encodeURIComponent(token)}`;
 				payload = { content: { parts: [{ text: "Hello" }] } };
