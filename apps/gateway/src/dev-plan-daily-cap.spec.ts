@@ -5,7 +5,34 @@ import { DEV_PLAN_DAY_LENGTH_MS } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import { assertDevPlanDailyCapNotExceeded } from "./chat/tools/resolve-provider-context.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+
+test("daily cap errors identify the limit, affected models, and exact reset", () => {
+	const dayStart = new Date();
+	const reject = () =>
+		assertDevPlanDailyCapNotExceeded({
+			id: "org-id",
+			devPlan: "pro",
+			credits: "0",
+			devPlanPaygEnabled: false,
+			devPlanCreditsLimit: "158",
+			devPlanCreditsUsed: "20",
+			devPlanDailyCreditsUsed: "14.22",
+			devPlanDayStart: dayStart,
+			chatPlan: "none",
+			chatPlanCreditsLimit: "0",
+			chatPlanCreditsUsed: "0",
+		});
+	expect(reject).toThrow("daily usage cap: $14.22 per rolling 24 hours");
+	expect(reject).toThrow("applies to all models");
+	expect(reject).toThrow(
+		"independently of your monthly and weekly premium allowances",
+	);
+	expect(reject).toThrow(
+		new Date(dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS).toISOString(),
+	);
+});
 
 // Daily pacing allowance for DevPass orgs: a rolling 24-hour share of the
 // monthly pool, enforced for every model. It follows the same PAYG overflow

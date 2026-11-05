@@ -56,6 +56,7 @@ import {
 	getRemainingDailyAllowance,
 	type DevPlanTier,
 	getRemainingPremiumWeeklyAllowance,
+	getDevPlanDailyLimit,
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
@@ -502,11 +503,16 @@ export function assertDevPlanDailyCapNotExceeded(
 			// Telemetry must never turn this billing gate into a 500.
 		}
 	}
+	const dailyLimit = getDevPlanDailyLimit(
+		tier,
+		organization.devPlanCreditsLimit,
+	);
+	const resetsAt = new Date(dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS);
 	const paygHint = organization.devPlanPaygEnabled
 		? " Pay-as-you-go overflow is enabled but your credits balance is empty — top up from your DevPass dashboard to keep going."
-		: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily pace.";
+		: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily usage cap.";
 	throw new HTTPException(402, {
-		message: `You've reached the daily pacing allowance on the ${tier} plan. Upgrade for a higher daily allowance, or wait for the window to roll over — resets in ${formatTimeUntilReset(msUntilReset)}.${paygHint}`,
+		message: `You've reached the daily pacing allowance on the ${tier} plan (daily usage cap: $${dailyLimit.toFixed(2)} per rolling 24 hours). This cap applies to all models, independently of your monthly and weekly premium allowances. Daily allowance resets at ${resetsAt.toISOString()} — resets in ${formatTimeUntilReset(msUntilReset)}. Upgrade for a higher daily allowance.${paygHint}`,
 	});
 }
 
