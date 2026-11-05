@@ -496,7 +496,7 @@ playground.get("/image-history/:id/thumbnail", async (c) => {
 		return c.body(null, 304);
 	}
 	const rendered = await renderImageVariant(image, "thumbnail");
-	c.header("Content-Type", rendered.mediaType);
+	setStoredImageHeaders(c, rendered.mediaType);
 	return c.body(rendered.body);
 });
 
@@ -507,6 +507,18 @@ function notModified(c: Context, etag: string): boolean {
 	c.header("Cache-Control", "private, no-cache");
 	c.header("ETag", etag);
 	return c.req.header("if-none-match") === etag;
+}
+
+// Stored images are served from the API origin with a client-supplied media
+// type, so an SVG (or anything else) opened directly can neither run scripts
+// nor load resources.
+function setStoredImageHeaders(c: Context, mediaType: string) {
+	c.header("Content-Type", mediaType);
+	c.header("X-Content-Type-Options", "nosniff");
+	c.header(
+		"Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; sandbox",
+	);
 }
 
 function parseImageIndex(value: string): number {
@@ -562,7 +574,7 @@ playground.get(
 			return c.body(null, 304);
 		}
 		const rendered = await renderImageVariant(image, variant);
-		c.header("Content-Type", rendered.mediaType);
+		setStoredImageHeaders(c, rendered.mediaType);
 		return c.body(rendered.body);
 	},
 );
@@ -601,7 +613,7 @@ playground.get("/image-history/:id/input-images/:index", async (c) => {
 		{ base64: input.dataUrl.split(",")[1] ?? "", mediaType: input.mediaType },
 		variant,
 	);
-	c.header("Content-Type", rendered.mediaType);
+	setStoredImageHeaders(c, rendered.mediaType);
 	return c.body(rendered.body);
 });
 
@@ -1451,7 +1463,7 @@ playground.get("/video-history/:id/input-image/:index", async (c) => {
 	}
 
 	const base64 = input.dataUrl.split(",")[1] ?? "";
-	c.header("Content-Type", input.mediaType);
+	setStoredImageHeaders(c, input.mediaType);
 	c.header("Cache-Control", "private, max-age=31536000, immutable");
 	return c.body(Buffer.from(base64, "base64"));
 });

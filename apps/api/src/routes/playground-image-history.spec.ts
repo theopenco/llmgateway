@@ -132,6 +132,51 @@ describe("playground image history binary routes", () => {
 		expect((await get("/input-images/1")).status).toBe(404);
 	});
 
+	test("serves stored SVG output as an inert document", async () => {
+		const svg =
+			'<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#3366ff"/></svg>';
+		const saved = await app.request("/playground/image-history", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: authCookie },
+			body: JSON.stringify({
+				prompt: "A blue rectangle as SVG",
+				models: [
+					{
+						modelId: "openai/gpt-image-2.6-flare",
+						modelName: "GPT Image 2.6 Flare",
+						images: [
+							{
+								base64: Buffer.from(svg).toString("base64"),
+								mediaType: "image/svg+xml",
+							},
+						],
+					},
+				],
+			}),
+		});
+		expect(saved.status).toBe(201);
+		const svgItemId = (await saved.json()).item.id;
+		const getSvg = (path: string) =>
+			app.request(`/playground/image-history/${svgItemId}${path}`, {
+				headers: { Cookie: authCookie },
+			});
+
+		const full = await getSvg("/images/0/0");
+		expect(full.status).toBe(200);
+		expect(full.headers.get("content-type")).toBe("image/svg+xml");
+		expect(full.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(full.headers.get("content-security-policy")).toContain("sandbox");
+		expect(full.headers.get("content-security-policy")).toContain(
+			"default-src 'none'",
+		);
+		expect(await full.text()).toBe(svg);
+
+		const preview = await getSvg("/images/0/0?variant=preview");
+		expect(preview.status).toBe(200);
+		expect(preview.headers.get("content-type")).toBe("image/webp");
+		expect(await dimensionsOf(preview)).toEqual({ width: 40, height: 20 });
+	});
+
 	test("requires authentication", async () => {
 		const res = await app.request(
 			`/playground/image-history/${itemId}/images/0/0`,
