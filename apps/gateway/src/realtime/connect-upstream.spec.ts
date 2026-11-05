@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import * as credentialHelpers from "@/chat/tools/resolve-platform-credential.js";
 
 import { resolveUpstreamTarget } from "./connect-upstream.js";
 
@@ -240,3 +242,39 @@ it("omits the gateway safety identifier on BYOK realtime sessions", () => {
 		resolveUpstreamTarget(preflight).headers["OpenAI-Safety-Identifier"],
 	).toBeUndefined();
 });
+function azureSkipsGenericNormalization() {
+	const generic = vi
+		.spyOn(credentialHelpers, "getCredentialSetting")
+		.mockImplementation(() => {
+			throw new Error("Generic provider URL lookup");
+		});
+	try {
+		process.env.LLM_AZURE_BASE_URL = "https://azure.example.com/";
+		expect(
+			resolveUpstreamTarget(buildPreflight("azure", "gpt-realtime")).url,
+		).toBe("wss://azure.example.com/openai/v1/realtime?model=gpt-realtime");
+	} finally {
+		generic.mockRestore();
+	}
+}
+
+it(
+	"keeps Azure URL normalization out of the generic provider path",
+	azureSkipsGenericNormalization,
+);
+function longAzureEndpoint() {
+	const baseUrl = "https://azure.example.com/" + "/".repeat(100_000) + "path";
+	const preflight = {
+		...buildPreflight("azure", "gpt-realtime"),
+		providerKey: { id: "byok-key", baseUrl: baseUrl + "///", options: {} },
+	} as unknown as RealtimePreflightResult;
+	const expected =
+		baseUrl.replace("https:", "wss:") +
+		"/openai/v1/realtime?model=gpt-realtime";
+	expect(resolveUpstreamTarget(preflight).url === expected).toBe(true);
+}
+
+it(
+	"preserves long embedded Azure slash runs without redundant trimming",
+	longAzureEndpoint,
+);

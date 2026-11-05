@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import * as actions from "@llmgateway/actions";
 
 import {
 	getAzureCredentialBaseUrl,
@@ -159,3 +161,26 @@ describe("getAzureUpstreamModel", () => {
 		);
 	});
 });
+function sharedAzureNormalizer() {
+	const normalize = vi.spyOn(actions, "resolveAzureBaseUrl");
+	const baseUrl = "https://byok.example.com/azure///";
+	try {
+		expect(
+			getAzureCredentialBaseUrl({ providerKey: { ...azureKey({}), baseUrl } }),
+		).toBe("https://byok.example.com/azure");
+		expect(
+			normalize.mock.calls.some(
+				([options]) =>
+					options.skipEnvVars === true &&
+					options.providerKeyOptions?.env_config?.baseUrl === baseUrl,
+			),
+		).toBe(true);
+	} finally {
+		normalize.mockRestore();
+	}
+}
+
+it(
+	"uses the shared Azure normalizer for a BYOK base URL",
+	sharedAzureNormalizer,
+);
