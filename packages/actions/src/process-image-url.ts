@@ -10,6 +10,9 @@ import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
 
+const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
+const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
+
 /**
  * Thrown when an image exceeds the caller's size limit. A `RequestError` so the
  * gateway maps it to a 400 and writes a client_error log row: the chat path
@@ -23,10 +26,7 @@ export class ImageSizeLimitError extends RequestError {
 	}
 }
 
-/**
- * Host only: the path and query of a user-supplied URL can carry a signed
- * token, and a truncated prefix still contains a short one in full.
- */
+/** Host only: signed paths and query tokens must not reach logs. */
 function urlHostForLog(url: string): string {
 	return URL.canParse(url) ? new URL(url).host : "invalid";
 }
@@ -66,16 +66,13 @@ function getImageSizeErrorMessage(
 	return message;
 }
 
-/**
- * Reads a response body into a buffer, aborting as soon as it exceeds
- * `maxSizeBytes` so an unbounded (or misdeclared) body cannot be buffered in
- * full before the size check runs.
- */
+/** Read an image body with a byte cap and explicit reader cancellation. */
 async function readBodyWithLimit(
 	response: Response,
 	maxSizeBytes: number,
 	maxSizeMB: number,
 	userPlan: "free" | "pro" | "enterprise" | null,
+	signal: AbortSignal,
 ): Promise<Buffer> {
 	if (!response.body) {
 		return Buffer.alloc(0);
@@ -84,10 +81,15 @@ async function readBodyWithLimit(
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let received = 0;
+	const cancel = () => cancelImageBody(reader, signal.reason);
+	// Some fetch runtimes lose body abort propagation under GC.
+	signal.addEventListener("abort", cancel, { once: true });
 
 	try {
 		for (;;) {
+			signal.throwIfAborted();
 			const { done, value } = await reader.read();
+			signal.throwIfAborted();
 			if (done) {
 				break;
 			}
@@ -112,6 +114,7 @@ async function readBodyWithLimit(
 			chunks.push(value);
 		}
 	} finally {
+		signal.removeEventListener("abort", cancel);
 		reader.releaseLock();
 	}
 
@@ -128,7 +131,7 @@ export async function processImageUrl(
 	isProd = false,
 	maxSizeMB = 20,
 	userPlan: "free" | "pro" | "enterprise" | null = null,
-	signal?: AbortSignal,
+	callerSignal?: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
 	if (url.slice(0, 5).toLowerCase() === "data:") {
@@ -203,20 +206,15 @@ export async function processImageUrl(
 
 	// SSRF: remote content must not resolve to an internal host. This also
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
-	try {
-		await assertSafeUserContentUrl(url);
-	} catch (error) {
-		if (isTransientHostResolutionError(error)) {
-			throw error;
-		}
-		throw new RequestError(
-			"Image URL is invalid or points to a disallowed host",
-		);
-	}
-	signal?.throwIfAborted();
-
+	callerSignal?.throwIfAborted();
+	const deadline = createImageFetchDeadline(callerSignal);
+	const { signal } = deadline;
 	let response: Response | undefined;
+	let urlValidated = false;
 	try {
+		await validateImageUrl(url, signal);
+		signal.throwIfAborted();
+		urlValidated = true;
 		// Validate the socket's DNS result too: it can change after preflight.
 		const init = signal ? { signal } : undefined;
 		response = await fetchNoRedirect(
@@ -275,6 +273,7 @@ export async function processImageUrl(
 			maxSizeBytes,
 			maxSizeMB,
 			userPlan,
+			signal,
 		);
 
 		return {
@@ -282,6 +281,10 @@ export async function processImageUrl(
 			mimeType: contentType,
 		};
 	} catch (error) {
+		// Preserve preflight DNS errors and their transient/non-transient classification.
+		if (!urlValidated && !signal.aborted) {
+			throw error;
+		}
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
@@ -297,8 +300,15 @@ export async function processImageUrl(
 			);
 		}
 		// The caller cancelled or timed out the download; it decides how to report it.
-		if (signal?.aborted) {
-			throw signal.reason;
+		if (callerSignal?.aborted) {
+			throw callerSignal.reason;
+		}
+		if (signal.aborted && signal.reason === deadline.timeoutReason) {
+			logger.warn("Timed out fetching image from URL", {
+				timeoutMs: deadline.timeoutMs,
+				host: urlHostForLog(url),
+			});
+			throw new RequestError("Timed out fetching image from URL");
 		}
 
 		// Log the full error internally but sanitize the thrown error
@@ -313,14 +323,82 @@ export async function processImageUrl(
 		if (response?.body && !response.bodyUsed) {
 			cancelImageBody(response.body);
 		}
+		deadline.dispose();
 	}
 }
+
 function cancelImageBody(
 	body: ReadableStream<Uint8Array> | ReadableStreamDefaultReader<Uint8Array>,
+	reason?: unknown,
 ): void {
-	void body.cancel().catch((error: unknown) => {
+	void body.cancel(reason).catch((error: unknown) => {
+		if (error === reason) {
+			return;
+		}
 		logger.warn("Could not cancel image response body", {
 			err: error instanceof Error ? error : new Error(String(error)),
 		});
+	});
+}
+/** Resolve a positive Node timer delay; invalid values use the default. */
+export function resolveImageFetchTimeoutMs(): number {
+	const value = process.env.IMAGE_FETCH_TIMEOUT_MS?.trim();
+	if (!value) {
+		return DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+	}
+	const raw = Number(value);
+	return Number.isInteger(raw) && raw >= 1 && raw <= MAX_IMAGE_FETCH_TIMEOUT_MS
+		? raw
+		: DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+}
+function createImageFetchDeadline(callerSignal?: AbortSignal) {
+	const timeoutMs = resolveImageFetchTimeoutMs();
+	const controller = new AbortController();
+	const timeoutReason = new DOMException(
+		"Image download deadline exceeded",
+		"TimeoutError",
+	);
+	const timer = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
+	timer.unref();
+	return {
+		timeoutMs,
+		timeoutReason,
+		signal: callerSignal
+			? AbortSignal.any([callerSignal, controller.signal])
+			: controller.signal,
+		dispose() {
+			clearTimeout(timer);
+			controller.abort();
+		},
+	};
+}
+function validateImageUrl(url: string, signal: AbortSignal): Promise<void> {
+	// Native DNS cannot be cancelled; stop waiting without allowing a late fetch.
+	return new Promise<void>((resolve, reject) => {
+		const onAbort = () => {
+			signal.removeEventListener("abort", onAbort);
+			reject(signal.reason as Error);
+		};
+		if (signal.aborted) {
+			onAbort();
+			return;
+		}
+		signal.addEventListener("abort", onAbort, { once: true });
+		assertSafeUserContentUrl(url).then(
+			() => {
+				signal.removeEventListener("abort", onAbort);
+				resolve();
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(
+					isTransientHostResolutionError(error)
+						? (error as Error)
+						: new RequestError(
+								"Image URL is invalid or points to a disallowed host",
+							),
+				);
+			},
+		);
 	});
 }
