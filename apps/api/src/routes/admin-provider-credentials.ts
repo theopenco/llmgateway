@@ -564,6 +564,7 @@ async function probeCredentialToken(
 	allowedModels: string[] | null | undefined,
 	incomingHeaders?: HeadersInit,
 	providerKeyId?: string,
+	region?: string | null,
 ): Promise<ProviderValidationResult | undefined> {
 	const airsideResult = await validateAirsideKey(
 		provider,
@@ -574,6 +575,7 @@ async function probeCredentialToken(
 			providerKeyOptions: validationOptions,
 			skipEnvVars: true,
 			useGateway: true,
+			region,
 			incomingHeaders,
 			providerKeyId,
 			abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
@@ -666,6 +668,7 @@ async function validateCredentialToken(
 		allowedModels,
 		incomingHeaders,
 		providerKeyId,
+		region,
 	);
 	if (!result || result.valid) {
 		return;
@@ -2529,6 +2532,7 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 				skipEnvVars: true,
 				useGateway: true,
 				providerKeyId: target.providerKeyId,
+				region: target.region,
 				incomingHeaders: c.req.raw.headers,
 				abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 			},
@@ -2625,8 +2629,13 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 	const airsideModelIds = new Set(
 		target.customCarrier
 			? []
-			: ((await listAirsideModelIds([target.provider])).get(target.provider) ??
-					[]),
+			: ((
+					await listAirsideModelIds(
+						[target.provider],
+						new Date(),
+						target.region,
+					)
+				).get(target.provider) ?? []),
 	);
 
 	type VerifyResult = z.infer<typeof verifyModelsResultSchema>;
@@ -2655,6 +2664,7 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 					skipEnvVars: true,
 					useGateway: true,
 					providerKeyId: target.providerKeyId,
+					region: target.region,
 					incomingHeaders: c.req.raw.headers,
 					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 				},
@@ -2688,6 +2698,7 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 					skipEnvVars: true,
 					useGateway: true,
 					providerKeyId: target.providerKeyId,
+					region: target.region,
 					incomingHeaders: c.req.raw.headers,
 					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 				},
@@ -2709,7 +2720,22 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			modelId,
 			validationOptions,
 			skipLiveProbe: isCredentialTestEnv(),
-			validate: validateProviderKey,
+			validate: async (...args: Parameters<typeof validateProviderKey>) =>
+				(await validateAirsideKey(
+					target.provider,
+					target.token,
+					args[2],
+					[modelId],
+					{
+						providerKeyOptions: validationOptions,
+						skipEnvVars: true,
+						useGateway: true,
+						providerKeyId: target.providerKeyId,
+						region: target.region,
+						incomingHeaders: c.req.raw.headers,
+						abortSignal: args[6] ?? AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+					},
+				)) ?? (await validateProviderKey(...args)),
 		});
 	};
 

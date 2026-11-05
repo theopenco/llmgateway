@@ -87,5 +87,6 @@ export function airsideInferencePricing(
 		cachedInputAudioPrice: catalogue?.cachedInputAudioPrice,
 		imageInputPrice: catalogue?.imageInputPrice,
 		cachedImageInputPrice: catalogue?.cachedImageInputPrice,
+		imageInputTokensByResolution: catalogue?.imageInputTokensByResolution,
 	};
 }

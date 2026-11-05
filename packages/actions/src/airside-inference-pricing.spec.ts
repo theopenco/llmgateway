@@ -92,6 +92,7 @@ describe("Airside inference pricing snapshots", () => {
 			cachedInputAudioPrice: undefined,
 			imageInputPrice: undefined,
 			cachedImageInputPrice: undefined,
+			imageInputTokensByResolution: undefined,
 			pricingTiers: undefined,
 			peakPricing: undefined,
 		});
@@ -159,6 +160,7 @@ it.each([
 	"cachedInputAudioPrice",
 	"imageInputPrice",
 	"cachedImageInputPrice",
+	"imageInputTokensByResolution",
 ] as const)(
 	"preserves exact catalogue %s without claimant-dependent defaults",
 	(field) => {
@@ -185,5 +187,42 @@ it.each([
 		expect(airsideInferencePricing(target)).toMatchObject({
 			[field]: mapping[field],
 		});
+		const flat = {
+			source: "airside",
+			providerId: target.providerId,
+			modelId: target.modelName,
+			externalId: target.externalId,
+			region: target.region ?? null,
+			inputPrice: "0",
+			outputPrice: "0",
+		} as typeof tables.modelProviderMapping.$inferSelect;
+		expect(airsideInferencePricing(target, flat)[field]).toBeUndefined();
 	},
 );
+
+it("retains static tiers for an explicitly selected catalogue mapping", () => {
+	const model = models.find((candidate) =>
+		candidate.providers.some((mapping) => mapping.pricingTiers?.length),
+	)!;
+	const mapping = expandAllProviderRegions(model.providers).find(
+		(candidate) => candidate.pricingTiers?.length,
+	)!;
+	const target = buildVerificationTarget({
+		providerId: mapping.providerId,
+		modelName: model.id,
+		externalId: mapping.externalId,
+		region: mapping.region,
+	});
+	const row = {
+		source: "catalogue",
+		providerId: target.providerId,
+		modelId: target.modelName,
+		externalId: target.externalId,
+		region: target.region ?? null,
+		inputPrice: mapping.inputPrice ?? null,
+		outputPrice: mapping.outputPrice ?? null,
+	} as typeof tables.modelProviderMapping.$inferSelect;
+	expect(airsideInferencePricing(target, row).pricingTiers).toEqual(
+		mapping.pricingTiers,
+	);
+});

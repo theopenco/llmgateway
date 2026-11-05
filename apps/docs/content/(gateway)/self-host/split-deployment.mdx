@@ -68,7 +68,7 @@ benchmarks retain `BENCHMARK_GATEWAY_API_KEY`. The gateway logs and bills the
 operator project, pins the exact deployment and provider key, and disables
 fallback and response caching. Carriers do not need a separate testing key.
 
-Deploy the compatible gateway, then worker, then API and frontends before\nenabling these calls. Missing credentials
+Deploy the compatible gateway, then worker, then API and frontends before enabling these calls. Missing credentials
 or gateway authorization failures fail closed as operator configuration errors,
 not evidence of missing carrier capabilities. Daily scheduling still requires
 `AIRSIDE_DAILY_VERIFICATION_ENABLED=true`; notification flags are unchanged.

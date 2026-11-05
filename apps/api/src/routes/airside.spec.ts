@@ -1283,6 +1283,102 @@ describe("airside provider portal", () => {
 		expect(JSON.stringify(listed)).not.toContain("obsolete-");
 	});
 
+	it("approves descriptive and narrowing metadata after credential rotation without a new proof", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (
+			await createModel(cookie, company.id, {
+				pricing: {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					cachedInputPrice: "5e-7",
+				},
+			})
+		).json();
+		const initial = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(initial.status).toBe(200);
+		const linked = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		const id = linked!.providerKeyId!;
+		await db
+			.update(tables.providerKey)
+			.set(encryptProviderKeyForStorage("rotated-provider-key", id, null))
+			.where(eq(tables.providerKey.id, id));
+		for (const changes of [
+			{ displayName: "Updated description", description: "Descriptive update" },
+			{ tools: false, supportedToolChoices: ["auto"], contextSize: 128000 },
+		]) {
+			const changed = await app.request(
+				`/airside/models/${model.id}`,
+				json(cookie, changes, "PATCH"),
+			);
+			expect(changed.status).toBe(200);
+			const { model: updated } = await changed.json();
+			expect(updated.pendingFiling.kind).toBe("metadata");
+			const approved = await app.request(
+				`/admin/airside/filings/${updated.pendingFiling.id}/approve`,
+				json(cookie),
+			);
+			expect(approved.status).toBe(200);
+			const stored = await db.query.providerDraftModel.findFirst({
+				where: { id: { eq: model.id } },
+			});
+			expect(stored).toMatchObject(changes);
+		}
+		expect(
+			await db.query.providerModelVerification.findMany({
+				where: { draftModelId: { eq: model.id } },
+			}),
+		).toHaveLength(1);
+	});
+
+	it("rejects widening metadata approval after its bound verification credential rotates", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+		expect(
+			(
+				await app.request(
+					`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		await passPreflight(model.id);
+		const changed = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { vision: true }, "PATCH"),
+		);
+		expect(changed.status).toBe(200);
+		const { model: updated } = await changed.json();
+		const linked = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		const id = linked!.providerKeyId!;
+		await db
+			.update(tables.providerKey)
+			.set(encryptProviderKeyForStorage("rotated-provider-key", id, null))
+			.where(eq(tables.providerKey.id, id));
+		const approve = async () =>
+			await app.request(
+				`/admin/airside/filings/${updated.pendingFiling.id}/approve`,
+				json(cookie),
+			);
+		expect((await approve()).status).toBe(409);
+		await passPreflight(model.id);
+		expect((await approve()).status).toBe(200);
+	});
+
 	it("requires a fresh proof after rotating the linked credential in place", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -5378,7 +5474,6 @@ describe("airside provider portal", () => {
 				)?.quantization;
 		};
 		expect(await publicQuantization()).toBe(listing!.quantization);
-		await passPreflight(listing!.id);
 		const changed = await app.request(
 			`/airside/models/${listing!.id}`,
 			json(cookie, { quantization: null }, "PATCH"),

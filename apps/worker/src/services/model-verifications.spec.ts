@@ -17,6 +17,10 @@ import {
 } from "./model-verifications.js";
 
 import type {
+	AirsideInferencePricing,
+	RunModelVerificationOptions,
+} from "@llmgateway/actions";
+import type {
 	AirsideModelMetadataChanges,
 	ProviderModelVerificationCheck,
 	ProviderModelVerificationTarget,
@@ -1132,3 +1136,160 @@ it("does not certify a passed legacy runner without verified gateway execution",
 	expect(job.target.credentialFingerprint).toBeDefined();
 	expect(job.target.gatewayExecutionVersion).toBeUndefined();
 });
+function captureGatewayPricing() {
+	vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", "test-token");
+	vi.stubEnv("GATEWAY_URL", "http://localhost:6801");
+	const prices: AirsideInferencePricing[] = [];
+	const gatewayFetch = vi.fn<typeof fetch>(async (_input, init) => {
+		const { payload, envelope } = openAirsideInference(
+			JSON.parse(String(init?.body)),
+			"test-token",
+		);
+		prices.push(payload.pricing);
+		return Response.json(
+			{ choices: [] },
+			{
+				headers: {
+					"x-airside-inference": signAirsideInferenceResponse(envelope, 200),
+				},
+			},
+		);
+	});
+	vi.stubGlobal("fetch", gatewayFetch);
+	return { prices, gatewayFetch };
+}
+async function completeThroughGateway(options: RunModelVerificationOptions) {
+	await options.fetchImplementation!(options.baseUrl + "/chat/completions", {
+		method: "POST",
+		headers: { Authorization: "Bearer " + options.token },
+		body: JSON.stringify({ model: options.target.externalId, messages: [] }),
+	});
+	return { passed: true, checks: [], summary: "Passed" };
+}
+async function insertCatalogueBeforeAirside(providerId: string) {
+	const airside = (await db.query.modelProviderMapping.findFirst({
+		where: { providerId: { eq: providerId }, source: { eq: "airside" } },
+	}))!;
+	await db
+		.delete(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.id, airside.id));
+	await db.insert(tables.modelProviderMapping).values([
+		{
+			...airside,
+			id: randomUUID(),
+			source: "catalogue",
+			inputPrice: "0.1",
+			outputPrice: "0.2",
+			cacheReadInputPrice: "0.05",
+		},
+		airside,
+	]);
+	return airside;
+}
+
+it.each(["mapping-id", "draft"])(
+	"keeps %s verification on Airside flat pricing despite a same-external NULL-region catalogue row",
+	async (anchor) => {
+		const { verificationId, providerId } = await seedActiveListing();
+		const airside = await insertCatalogueBeforeAirside(providerId);
+		if (anchor === "mapping-id") {
+			await db
+				.update(tables.providerModelVerification)
+				.set({ modelProviderMappingId: airside.id })
+				.where(eq(tables.providerModelVerification.id, verificationId));
+		}
+		const { prices, gatewayFetch } = captureGatewayPricing();
+		try {
+			await processNextModelVerification(completeThroughGateway);
+			expect(gatewayFetch).toHaveBeenCalledOnce();
+			expect(prices).toEqual([
+				{ inputPrice: airside.inputPrice, outputPrice: airside.outputPrice },
+			]);
+			expect(
+				(
+					await db.query.providerModelVerification.findFirst({
+						where: { id: { eq: verificationId } },
+					})
+				)?.status,
+			).toBe("passed");
+		} finally {
+			vi.unstubAllGlobals();
+			vi.unstubAllEnvs();
+		}
+	},
+);
+it("rejects a detached explicit mapping anchor instead of borrowing a same-tuple catalogue row", async () => {
+	const { verificationId, providerId } = await seedActiveListing();
+	const airside = await insertCatalogueBeforeAirside(providerId);
+	await db
+		.update(tables.providerModelVerification)
+		.set({ modelProviderMappingId: airside.id })
+		.where(eq(tables.providerModelVerification.id, verificationId));
+	await db
+		.update(tables.modelProviderMapping)
+		.set({ externalId: "changed-upstream" })
+		.where(eq(tables.modelProviderMapping.id, airside.id));
+	const runner = vi.fn();
+	await processNextModelVerification(runner);
+	expect(runner).not.toHaveBeenCalled();
+	const job = (await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: verificationId } },
+	}))!;
+	expect(job.checks.every((check) => check.status === "skipped")).toBe(true);
+	expect(job.target.gatewayExecutionVersion).toBeUndefined();
+});
+it.each([true, false])(
+	"requires an unfiled pricing snapshot instead of an unanchored catalogue row (present: %s)",
+	async (hasSnapshot) => {
+		const id = await enqueueVerification({ credentialSource: "carrier" });
+		const job = (await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: id } },
+		}))!;
+		const modelName = "unfiled-" + randomUUID();
+		catalogueProviderIds.push(job.target.providerId);
+		catalogueModelIds.push(modelName);
+		await db.insert(tables.provider).values({
+			id: job.target.providerId,
+			name: "Verification Provider",
+			description: "test",
+		});
+		await db
+			.insert(tables.model)
+			.values({ id: modelName, name: modelName, family: "verification" });
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: modelName,
+			providerId: job.target.providerId,
+			externalId: job.target.externalId,
+			source: "catalogue",
+			inputPrice: "0.1",
+			outputPrice: "0.2",
+			cacheReadInputPrice: "0.05",
+		});
+		const pricing = hasSnapshot
+			? { inputPrice: "0.000001", outputPrice: "0.000002" }
+			: undefined;
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target: { ...job.target, modelName, pricing } })
+			.where(eq(tables.providerModelVerification.id, id));
+		const { prices, gatewayFetch } = captureGatewayPricing();
+		try {
+			await processNextModelVerification(completeThroughGateway);
+			if (hasSnapshot) {
+				expect(prices).toEqual([pricing]);
+			} else {
+				expect(gatewayFetch).not.toHaveBeenCalled();
+				expect(
+					(
+						await db.query.providerModelVerification.findFirst({
+							where: { id: { eq: id } },
+						})
+					)?.checks.every((check) => check.status === "skipped"),
+				).toBe(true);
+			}
+		} finally {
+			vi.unstubAllGlobals();
+			vi.unstubAllEnvs();
+		}
+	},
+);

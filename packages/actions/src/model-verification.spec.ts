@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ProviderConfigError } from "./get-provider-endpoint.js";
 import {
 	createQueuedModelVerificationChecks,
 	disprovedCapabilities,
@@ -11,6 +12,7 @@ import {
 } from "./model-verification.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
+
 // Capability fixtures isolate their checks; the content baseline has its own suite.
 vi.mock("./model-verification-compatibility.js", () => ({
 	requiresMessageContentVerification: (target: {
@@ -127,6 +129,90 @@ it.each([
 		} finally {
 			vi.unstubAllEnvs();
 		}
+	},
+);
+
+it("treats an unregistered provider without a base URL as a permanent configuration failure", async () => {
+	const fetchImplementation = vi.fn<typeof fetch>();
+	const options = {
+		target: { ...target, providerId: "unregistered-provider-fixture" },
+		token: "verification-key-fixture",
+		skipEnvVars: true,
+		fetchImplementation,
+	};
+	await expect(
+		prepareProviderModelVerificationRequest(
+			{
+				model: options.target.modelName,
+				messages: [{ role: "user", content: "fixture" }],
+			},
+			options,
+		),
+	).rejects.toBeInstanceOf(ProviderConfigError);
+	const result = await runProviderModelVerification(options);
+	expect(result.passed).toBe(false);
+	expect(result.checks[0]).toMatchObject({
+		id: "basic",
+		status: "failed",
+		feedback:
+			"Provider unregistered-provider-fixture has no registered endpoint.",
+	});
+	expect(
+		result.checks
+			.slice(1)
+			.every(
+				(check) =>
+					check.status === "skipped" &&
+					check.feedback ===
+						"Skipped because provider configuration is incomplete.",
+			),
+	).toBe(true);
+	expect(result.unsupportedToolChoices).toBeUndefined();
+	expect(result.unsupportedReasoningEfforts).toBeUndefined();
+	expect(fetchImplementation).not.toHaveBeenCalled();
+});
+
+it.each(["configuration", "network"])(
+	"does not confuse %s failures with unsupported tool modes",
+	async (kind) => {
+		const error =
+			kind === "configuration"
+				? new ProviderConfigError("Missing provider workspace.")
+				: new TypeError("fetch failed");
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockRejectedValue(error)
+			.mockResolvedValueOnce(Response.json(chatBody({ content: "OK" })));
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "openai",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				reasoningEfforts: null,
+				webSearch: false,
+			},
+			token: "provider-fixture",
+			fetchImplementation,
+		});
+		expect(result.passed).toBe(false);
+		expect(result.checks.find((check) => check.id === "tools")).toMatchObject({
+			status: "failed",
+			feedback: error.message,
+		});
+		expect(result.unsupportedToolChoices).toBeUndefined();
+		expect(
+			result.checks.find((check) => check.id === "json_output")?.status,
+		).toBe(kind === "configuration" ? "skipped" : "failed");
+		expect(fetchImplementation).toHaveBeenCalledTimes(
+			kind === "configuration" ? 2 : 3,
+		);
 	},
 );
 

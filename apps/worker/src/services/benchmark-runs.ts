@@ -378,6 +378,10 @@ function benchmarkGatewayFetch(
 		}
 		const providerId = selected.metadata.provider;
 		const region = selected.metadata.region;
+		const externalId = selected.metadata.externalId;
+		if (typeof externalId !== "string" || !externalId) {
+			rejectConfiguration("Benchmark upstream model is unavailable.");
+		}
 		if (typeof providerId !== "string") {
 			rejectConfiguration("Benchmark provider is unavailable.");
 		}
@@ -387,6 +391,8 @@ function benchmarkGatewayFetch(
 					where: {
 						modelId: { eq: run.modelId },
 						providerId: { eq: providerId },
+						source: { eq: "airside" },
+						externalId: { eq: externalId },
 						region:
 							typeof region === "string" ? { eq: region } : { isNull: true },
 						status: { eq: "active" },
@@ -402,6 +408,16 @@ function benchmarkGatewayFetch(
 			: null;
 		if (!live) {
 			rejectConfiguration("Benchmark listing is no longer active.");
+		}
+		if (
+			live.mapping.source !== "airside" ||
+			live.target.providerId !== providerId ||
+			live.target.modelName !== run.modelId ||
+			live.target.externalId !== externalId ||
+			(live.target.region ?? null) !==
+				(typeof region === "string" ? region : null)
+		) {
+			rejectConfiguration("Benchmark listing changed during execution.");
 		}
 		const credentialSource = await configuration(
 			() => currentCredentialSource(live),

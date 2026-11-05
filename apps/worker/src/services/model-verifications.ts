@@ -658,14 +658,28 @@ function resolvedProviderKey(
 	};
 }
 async function verificationPricing(job: VerificationRow) {
+	if (!job.modelProviderMappingId && !job.draftModelId) {
+		if (!job.target.pricing) {
+			throw new Error(
+				"Verification inference pricing snapshot is unavailable.",
+			);
+		}
+		return airsideInferencePricing(job.target);
+	}
 	const mapping = await db.query.modelProviderMapping.findFirst({
 		where: {
+			...(job.modelProviderMappingId
+				? { id: { eq: job.modelProviderMappingId } }
+				: { source: { eq: "airside" as const } }),
 			providerId: { eq: job.target.providerId },
 			modelId: { eq: job.target.modelName },
 			externalId: { eq: job.target.externalId },
 			region: job.target.region ? { eq: job.target.region } : { isNull: true },
 		},
 	});
+	if (job.modelProviderMappingId && !mapping) {
+		throw new Error("Verification inference mapping changed.");
+	}
 	const filing =
 		job.draftModelId && !isDailyModelVerification(job)
 			? await db.query.providerPriceFiling.findFirst({
@@ -676,6 +690,9 @@ async function verificationPricing(job: VerificationRow) {
 					orderBy: { createdAt: "desc", id: "desc" },
 				})
 			: undefined;
+	if (!mapping && !filing && !job.target.pricing) {
+		throw new Error("Verification inference pricing snapshot is unavailable.");
+	}
 	return airsideInferencePricing(job.target, mapping, filing);
 }
 type CredentialJob = Pick<

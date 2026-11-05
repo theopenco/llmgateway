@@ -113,7 +113,7 @@ async function clearFixtures() {
 		.where(eq(tables.benchmarkRun.modelId, MODEL_ID));
 	await db
 		.delete(tables.modelProviderMapping)
-		.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+		.where(eq(tables.modelProviderMapping.modelId, MODEL_ID));
 	await db
 		.delete(tables.providerCompany)
 		.where(eq(tables.providerCompany.id, "worker-benchmark-company"));
@@ -416,6 +416,91 @@ describe("benchmark run worker", () => {
 			).toBe("completed");
 		},
 	);
+	test("pins the Airside deployment when a catalogue NULL-region mapping was inserted first", async () => {
+		await seedCarrierDeployment("openai-chat-completions");
+		const airside = (await db.query.modelProviderMapping.findFirst({
+			where: { id: { eq: MAPPING_ID } },
+		}))!;
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				...airside,
+				id: MAPPING_ID + "-catalogue",
+				source: "catalogue",
+				externalId: "catalogue-upstream",
+				inputPrice: "0.1",
+				outputPrice: "0.2",
+			},
+			airside,
+		]);
+		const run = await queueRun();
+		const signedResponse = signedGatewayResponse();
+		const gatewayFetch = vi.fn<typeof fetch>(async (input, init) => {
+			const { payload } = openAirsideInference(
+				JSON.parse(String(init?.body)),
+				"test-token",
+			);
+			expect(payload.target.externalId).toBe(airside.externalId);
+			expect(payload.pricing).toMatchObject({
+				inputPrice: airside.inputPrice,
+				outputPrice: airside.outputPrice,
+			});
+			return await signedResponse(input, init);
+		});
+		vi.stubGlobal("fetch", gatewayFetch);
+		await processNextBenchmarkRun(async (options) => {
+			await options.fetch!(options.client.url, {
+				method: "POST",
+				body: JSON.stringify({
+					model: options.targets[0].model,
+					messages: [{ role: "user", content: "hello" }],
+					stream: true,
+				}),
+			});
+			return fakeResult();
+		});
+		expect(gatewayFetch).toHaveBeenCalledOnce();
+		expect(
+			(await db.query.benchmarkRun.findFirst({ where: { id: { eq: run.id } } }))
+				?.status,
+		).toBe("completed");
+	});
+	test("rejects an upstream deployment changed after benchmark target selection", async () => {
+		await seedCarrierDeployment("openai-chat-completions");
+		const run = await queueRun();
+		const gatewayFetch = signedGatewayResponse();
+		vi.stubGlobal("fetch", gatewayFetch);
+		await processNextBenchmarkRun(async (options) => {
+			await db
+				.update(tables.modelProviderMapping)
+				.set({ externalId: "replacement-upstream" })
+				.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+			await db
+				.update(tables.providerDraftModel)
+				.set({ externalId: "replacement-upstream" })
+				.where(eq(tables.providerDraftModel.providerId, CARRIER_ID));
+			try {
+				await options.fetch!(options.client.url, {
+					method: "POST",
+					body: JSON.stringify({
+						model: options.targets[0].model,
+						messages: [{ role: "user", content: "hello" }],
+						stream: true,
+					}),
+				});
+			} catch (error) {
+				expect(error).toBeInstanceOf(Error);
+			}
+			return fakeResult();
+		});
+		expect(gatewayFetch).not.toHaveBeenCalled();
+		expect(
+			(await db.query.benchmarkRun.findFirst({ where: { id: { eq: run.id } } }))
+				?.status,
+		).toBe("failed");
+	});
 	test("fails operator configuration when the runner catches a removed listing", async () => {
 		await seedCarrierDeployment("openai-chat-completions");
 		const run = await queueRun();

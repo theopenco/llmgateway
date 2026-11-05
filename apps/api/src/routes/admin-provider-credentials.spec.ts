@@ -11,6 +11,8 @@ import {
 	encryptProviderKeyForStorage,
 	encryptClaimVerificationKey,
 	readProviderKey,
+	openAirsideInference,
+	signAirsideInferenceResponse,
 } from "@llmgateway/actions";
 import {
 	decryptProviderKey,
@@ -3405,6 +3407,7 @@ describe("managed credential Airside listings", () => {
 
 	afterEach(async () => {
 		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
 		validateProviderKeyMock.mockClear();
 		runProviderKeySmokeTestMock.mockClear();
 		await db
@@ -3595,6 +3598,345 @@ describe("managed credential Airside listings", () => {
 		}
 	});
 
+	test("verify-models sends a claimed catalogue-only mapping through the signed gateway validator", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		const catalog = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		const [staticModel] = (
+			(await catalog.json()) as {
+				providers: { id: string; modelsByKind: { text: string[] } }[];
+			}
+		).providers.find((provider) => provider.id === "openai")!.modelsByKind.text;
+		expect(staticModel).toBeDefined();
+		await createListing("openai");
+		const insertedModel = await db
+			.insert(tables.model)
+			.values({ id: staticModel, family: "test" })
+			.onConflictDoNothing()
+			.returning({ id: tables.model.id });
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: modelId }, providerId: { eq: "openai" } },
+		});
+		await db
+			.update(tables.modelProviderMapping)
+			.set({
+				modelId: staticModel,
+				source: "catalogue",
+				externalId: "claimed-catalogue-native",
+				inputPrice: "5e-6",
+				outputPrice: "7e-6",
+			})
+			.where(eq(tables.modelProviderMapping.id, mapping!.id));
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Catalogue Carrier" })
+			.returning();
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "openai",
+			kind: "catalogue",
+			matchedDomain: "openai.com",
+			status: "active",
+		});
+		const probe = captureManagedGatewayProbe();
+		try {
+			expect(
+				await db.query.modelProviderMapping.findMany({
+					where: { providerId: { eq: "openai" }, source: { eq: "airside" } },
+				}),
+			).toHaveLength(0);
+			const response = await post("/admin/provider-credentials/verify-models", {
+				provider: "openai",
+				token: "claimed-provider-token",
+				models: [staticModel],
+			});
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({
+				allValid: true,
+				results: [{ model: staticModel, inCatalog: true, valid: true }],
+			});
+			expect(validateProviderKeyMock).not.toHaveBeenCalled();
+			expect(probe.payloads).toHaveLength(1);
+			expect(probe.payloads[0]?.target).toMatchObject({
+				providerId: "openai",
+				modelName: staticModel,
+				externalId: "claimed-catalogue-native",
+				region: null,
+			});
+			expect(probe.payloads[0]?.pricing).toMatchObject({
+				inputPrice: "0.000005",
+				outputPrice: "0.000007",
+			});
+			expect(JSON.parse(probe.payloads[0]!.body).model).toBe(
+				"claimed-catalogue-native",
+			);
+		} finally {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.id, mapping!.id));
+			if (insertedModel.length > 0) {
+				await db.delete(tables.model).where(eq(tables.model.id, staticModel));
+			}
+		}
+	});
+
+	test("verify-models recognizes a regional-only Airside model without a default or static mapping", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		await createListing("aws-bedrock");
+		await db
+			.update(tables.modelProviderMapping)
+			.set({
+				region: "eu-central-1",
+				externalId: "regional-only-native",
+				inputPrice: "7e-6",
+				outputPrice: "9e-6",
+			})
+			.where(eq(tables.modelProviderMapping.modelId, modelId));
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Regional Carrier" })
+			.returning();
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "aws-bedrock",
+			kind: "catalogue",
+			matchedDomain: "amazon.com",
+			status: "active",
+		});
+		expect(getPinnedValidationModel("aws-bedrock", modelId)).toBeNull();
+		expect(
+			await db.query.modelProviderMapping.findMany({
+				where: { modelId: { eq: modelId }, region: { isNull: true } },
+			}),
+		).toHaveLength(0);
+		const probe = captureManagedGatewayProbe();
+		const response = await post("/admin/provider-credentials/verify-models", {
+			provider: "aws-bedrock",
+			token: "regional-provider-token",
+			region: "eu-central-1",
+			models: [modelId],
+		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			allValid: true,
+			results: [{ model: modelId, inCatalog: true, valid: true }],
+		});
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(probe.payloads).toHaveLength(1);
+		expect(probe.payloads[0]?.target).toMatchObject({
+			providerId: "aws-bedrock",
+			modelName: modelId,
+			externalId: "regional-only-native",
+			region: "eu-central-1",
+		});
+		expect(probe.payloads[0]?.pricing).toMatchObject({
+			inputPrice: "0.000007",
+			outputPrice: "0.000009",
+		});
+		expect(JSON.parse(probe.payloads[0]!.body).model).toBe(
+			"regional-only-native",
+		);
+	});
+
+	test("probes the Airside override when a catalogue NULL-region row was inserted first", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		await createListing("openai");
+		await db
+			.update(tables.modelProviderMapping)
+			.set({
+				source: "catalogue",
+				externalId: "catalogue-default",
+				inputPrice: "1e-6",
+				outputPrice: "2e-6",
+			})
+			.where(eq(tables.modelProviderMapping.modelId, modelId));
+		await db.insert(tables.modelProviderMapping).values({
+			providerId: "openai",
+			modelId,
+			externalId: "airside-override",
+			inputPrice: "7e-6",
+			outputPrice: "9e-6",
+			source: "airside",
+			status: "active",
+		});
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Catalogue Carrier" })
+			.returning();
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "openai",
+			kind: "catalogue",
+			matchedDomain: "openai.com",
+			status: "active",
+		});
+		const probe = captureManagedGatewayProbe();
+		const response = await post("/admin/provider-credentials/self-test", {
+			provider: "openai",
+			token: "claimed-provider-token",
+		});
+		expect(response.status).toBe(200);
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(probe.payloads).toHaveLength(1);
+		expect(probe.payloads[0]?.target).toMatchObject({
+			modelName: modelId,
+			externalId: "airside-override",
+			region: null,
+		});
+		expect(probe.payloads[0]?.pricing).toMatchObject({
+			inputPrice: "0.000007",
+			outputPrice: "0.000009",
+		});
+		expect(JSON.parse(probe.payloads[0]!.body).model).toBe("airside-override");
+		expect(probe.upstream).toHaveBeenCalledTimes(1);
+		expect(String(probe.upstream.mock.calls[0]?.[0])).toBe(
+			"https://gateway.example.com/v1/internal/airside/inference",
+		);
+	});
+
+	test.each([
+		"self-test",
+		"stored-self-test",
+		"verify-models",
+		"create",
+		"patch",
+	])(
+		"pins managed %s probes to the requested regional Airside deployment",
+		async (operation) => {
+			vi.stubEnv("E2E_TEST", "true");
+			await createListing("aws-bedrock");
+			await db.insert(tables.modelProviderMapping).values([
+				{
+					providerId: "aws-bedrock",
+					modelId,
+					externalId: "airside-us",
+					region: "us-east-1",
+					source: "airside",
+					inputPrice: "3e-6",
+					outputPrice: "4e-6",
+				},
+				{
+					providerId: "aws-bedrock",
+					modelId,
+					externalId: "airside-eu",
+					region: "eu-central-1",
+					source: "airside",
+					inputPrice: "7e-6",
+					outputPrice: "9e-6",
+				},
+			]);
+			const [company] = await db
+				.insert(tables.providerCompany)
+				.values({ name: "Test Regional Carrier" })
+				.returning();
+			await db.insert(tables.providerClaim).values({
+				providerCompanyId: company.id,
+				providerId: "aws-bedrock",
+				kind: "catalogue",
+				matchedDomain: "amazon.com",
+				status: "active",
+			});
+			let credentialId: string | undefined;
+			if (operation === "stored-self-test" || operation === "patch") {
+				const saved = await post("/admin/provider-credentials", {
+					provider: "aws-bedrock",
+					token: "regional-provider-token",
+					region: operation === "patch" ? "us-east-1" : "eu-central-1",
+					skipValidation: true,
+				});
+				expect(saved.status).toBe(201);
+				credentialId = (await saved.json()).credential.id;
+			}
+			const probe = captureManagedGatewayProbe();
+			const body = {
+				provider: "aws-bedrock",
+				token: "regional-provider-token",
+				region: "eu-central-1",
+			};
+			const response =
+				operation === "patch"
+					? await app.request(`/admin/provider-credentials/${credentialId}`, {
+							method: "PATCH",
+							headers: { Cookie: cookie, "Content-Type": "application/json" },
+							body: JSON.stringify({ region: "eu-central-1" }),
+						})
+					: operation === "stored-self-test"
+						? await post("/admin/provider-credentials/self-test", {
+								credentialId,
+							})
+						: operation === "create"
+							? await post("/admin/provider-credentials", {
+									...body,
+									allowedModels: [modelId],
+								})
+							: await post("/admin/provider-credentials/" + operation, {
+									...body,
+									...(operation === "verify-models"
+										? { models: [modelId] }
+										: {}),
+								});
+			expect(response.status).toBe(operation === "create" ? 201 : 200);
+			expect(validateProviderKeyMock).not.toHaveBeenCalled();
+			expect(runProviderKeySmokeTestMock).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					target: expect.objectContaining({
+						modelName: modelId,
+						externalId: "airside-eu",
+						region: "eu-central-1",
+					}),
+				}),
+			);
+			expect(probe.payloads).toHaveLength(1);
+			expect(probe.payloads[0]?.target).toMatchObject({
+				modelName: modelId,
+				externalId: "airside-eu",
+				region: "eu-central-1",
+			});
+			expect(probe.payloads[0]?.pricing).toMatchObject({
+				inputPrice: "0.000007",
+				outputPrice: "0.000009",
+			});
+			expect(JSON.parse(probe.payloads[0]!.body).model).toBe("airside-eu");
+		},
+	);
+
+	test("does not fall back to a default or catalogue sibling when the requested Airside region is absent", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		await createListing("aws-bedrock");
+		await db.insert(tables.modelProviderMapping).values({
+			providerId: "aws-bedrock",
+			modelId,
+			externalId: "catalogue-eu",
+			region: "eu-central-1",
+			source: "catalogue",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+		});
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Regional Carrier" })
+			.returning();
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "aws-bedrock",
+			kind: "catalogue",
+			matchedDomain: "amazon.com",
+			status: "active",
+		});
+		const upstream = vi.fn();
+		vi.stubGlobal("fetch", upstream);
+		const response = await post("/admin/provider-credentials/self-test", {
+			provider: "aws-bedrock",
+			token: "regional-provider-token",
+			region: "eu-central-1",
+		});
+		expect(response.status).toBe(503);
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).not.toHaveBeenCalled();
+		expect(upstream).not.toHaveBeenCalled();
+	});
+
 	test("fails closed for an active catalogue claim without a priced deployment", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 		await createListing("openai");
@@ -3687,3 +4029,50 @@ describe("managed credential Airside listings", () => {
 		);
 	});
 });
+function captureManagedGatewayProbe() {
+	const token = "fixture-operator-token";
+	vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", token);
+	vi.stubEnv("GATEWAY_URL", "https://gateway.example.com");
+	const payloads: LlmGatewayActions.AirsideInferencePayload[] = [];
+	const upstream = vi.fn(
+		async (_url: string | URL | Request, init?: RequestInit) => {
+			const { envelope, payload } = openAirsideInference(
+				JSON.parse(String(init?.body)),
+				token,
+			);
+			payloads.push(payload);
+			return Response.json(
+				{},
+				{
+					headers: {
+						"x-airside-inference": signAirsideInferenceResponse(envelope, 200),
+					},
+				},
+			);
+		},
+	);
+	vi.stubGlobal("fetch", upstream);
+	runProviderKeySmokeTestMock.mockImplementationOnce(
+		async (
+			options: Parameters<typeof LlmGatewayActions.runProviderKeySmokeTest>[0],
+		) => {
+			if (!options.fetchImplementation) {
+				throw new Error("Managed probes must use gateway transport");
+			}
+			const response = await options.fetchImplementation(
+				"https://provider.example.com/v1/chat/completions",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						model: options.target.externalId,
+						messages: [],
+					}),
+				},
+			);
+			expect(response.ok).toBe(true);
+			return null;
+		},
+	);
+	return { payloads, upstream };
+}

@@ -25,6 +25,7 @@ import type { ProviderKeyOptions } from "@llmgateway/db";
 export async function listAirsideModelIds(
 	providerIds: readonly string[],
 	now: Date = new Date(),
+	region: string | null = null,
 ): Promise<Map<string, string[]>> {
 	const byProvider = new Map<string, string[]>();
 	if (providerIds.length === 0) {
@@ -35,7 +36,7 @@ export async function listAirsideModelIds(
 			providerId: { in: [...providerIds] },
 			source: "airside",
 			status: "active",
-			region: { isNull: true },
+			region: region ? { eq: region } : { isNull: true },
 		},
 		columns: { providerId: true, modelId: true, deactivatedAt: true },
 	});
@@ -59,6 +60,7 @@ export interface AirsideKeyProbeOptions {
 	/** Operator-managed probes only; customer BYOK validation stays separate. */
 	useGateway?: boolean;
 	providerKeyId?: string;
+	region?: string | null;
 	incomingHeaders?: HeadersInit;
 }
 
@@ -87,18 +89,28 @@ export async function validateAirsideKey(
 		db.query.modelProviderMapping.findMany({
 			where: {
 				providerId: provider,
-				...(!options.useGateway ? { source: "airside" as const } : {}),
-				region: { isNull: true },
+				...(!options.useGateway
+					? { source: "airside" as const, region: { isNull: true as const } }
+					: {}),
 			},
 		}),
 	]);
 	const now = new Date();
+	const ownedModelIds = new Set(
+		mappings
+			.filter((row) => row.source === "airside")
+			.map((row) => row.modelId),
+	);
 	const scopedMappings =
 		options.useGateway && claim
-			? mappings
+			? mappings.filter(
+					(row) => row.source === "airside" || !ownedModelIds.has(row.modelId),
+				)
 			: mappings.filter((row) => row.source === "airside");
+	const region = options.useGateway ? (options.region ?? null) : null;
 	const live = scopedMappings.filter(
 		(row) =>
+			row.region === region &&
 			row.status === "active" &&
 			(!row.deactivatedAt || row.deactivatedAt > now),
 	);
@@ -123,7 +135,7 @@ export async function validateAirsideKey(
 			);
 		mapping = hasStaticModel ? undefined : live[0];
 	}
-	const carrierBaseUrl = isCatalogueProvider ? undefined : claim?.customBaseUrl;
+	const carrierBaseUrl = claim?.customBaseUrl;
 	if (!mapping || (!isCatalogueProvider && !carrierBaseUrl)) {
 		if (options.useGateway && (claim || !isCatalogueProvider)) {
 			throw new HTTPException(503, {

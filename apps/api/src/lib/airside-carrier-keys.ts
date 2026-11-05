@@ -144,6 +144,7 @@ export async function assertProviderKeyServes(
 ): Promise<void> {
 	const mapping = await db.query.modelProviderMapping.findFirst({
 		where: {
+			source: { eq: "airside" },
 			providerId: { eq: target.providerId },
 			modelId: { eq: target.modelName },
 			externalId: { eq: target.externalId },

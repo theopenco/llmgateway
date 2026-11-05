@@ -569,16 +569,25 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const user = c.get("user");
 	const { id } = c.req.valid("param");
 	const filing = await getPendingFiling(id);
-	if (filing.kind === "initial" || filing.kind === "metadata") {
+	const proposed = buildVerificationTarget({
+		...filing.draftModel,
+		...pickCapabilities(filing.metadata ?? {}),
+	});
+	const metadataWidening =
+		filing.kind === "metadata" &&
+		!verificationTargetCovers(
+			buildVerificationTarget(filing.draftModel),
+			proposed,
+		);
+	if (filing.kind === "initial" || metadataWidening) {
 		const proof = await db.query.providerModelVerification.findFirst({
 			where: { draftModelId: { eq: filing.draftModelId } },
 			orderBy: { createdAt: "desc" },
 		});
-		const required = buildVerificationTarget({
-			...filing.draftModel,
-			...pickCapabilities(filing.metadata ?? {}),
+		const required = {
+			...proposed,
 			promptCaching: declaresPromptCaching(filing),
-		});
+		};
 		if (
 			!proof ||
 			proof.status !== "passed" ||

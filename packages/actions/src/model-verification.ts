@@ -19,7 +19,10 @@ import {
 	runDecisionVerification,
 } from "./decision-verification.js";
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
-import { getProviderEndpoint } from "./get-provider-endpoint.js";
+import {
+	getProviderEndpoint,
+	ProviderConfigError,
+} from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { requiresMessageContentVerification } from "./model-verification-compatibility.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -1353,6 +1356,8 @@ interface CheckFailure {
 	rejected: boolean;
 	/** Not the upstream's verdict (timeout, 5xx, auth): never narrows a listing. */
 	transient?: boolean;
+	/** A local configuration defect cannot be fixed by another probe. */
+	configuration?: boolean;
 	/**
 	 * The response was served but carries a protocol defect no other probe
 	 * variant would fix, so a ladder stops instead of narrowing the listing.
@@ -1399,6 +1404,7 @@ async function attemptCheck(
 			return await executeCheck(definition, options, context);
 		} catch (error) {
 			const timedOut = isTimeoutError(error);
+			const configuration = error instanceof ProviderConfigError;
 			if (timedOut && attempt < CHECK_TIMEOUT_ATTEMPTS) {
 				await onTimeout?.(attempt);
 				continue;
@@ -1415,7 +1421,8 @@ async function attemptCheck(
 					? `${message} (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts)`
 					: message,
 				rejected: false,
-				transient: true,
+				transient: !configuration,
+				...(configuration ? { configuration: true } : {}),
 			};
 		}
 	}
@@ -1750,7 +1757,7 @@ async function runCheck(
 		if (!failure) {
 			return { failure: null, unsupportedToolChoices, probes };
 		}
-		if (failure.transient) {
+		if (failure.transient || failure.configuration) {
 			return { failure, probes };
 		}
 		if (failure.conclusive) {
@@ -1946,13 +1953,19 @@ export async function runProviderModelVerification(
 		await options.onCheck?.(completed);
 		// A missed optional check means the endpoint served the request, so the
 		// capability checks still have something to verify.
-		if (definition.id === "basic" && failure && !failure.conclusive) {
+		if (
+			failure &&
+			(failure.configuration ||
+				(definition.id === "basic" && !failure.conclusive))
+		) {
 			for (let rest = index + 1; rest < definitions.length; rest++) {
 				const skipped: ProviderModelVerificationCheck = {
 					id: definitions[rest].id,
 					label: definitions[rest].label,
 					status: "skipped",
-					feedback: "Skipped because the basic completion failed.",
+					feedback: failure.configuration
+						? "Skipped because provider configuration is incomplete."
+						: "Skipped because the basic completion failed.",
 				};
 				checks[rest] = skipped;
 				await options.onCheck?.(skipped);
@@ -2129,7 +2142,7 @@ async function runMessageContentCheck(
 					...failure,
 					message: `${label}: ${failure.message}`,
 				};
-				if (failure.transient) {
+				if (failure.transient || failure.configuration) {
 					return { failure: firstFailure, probes };
 				}
 			}
@@ -2157,7 +2170,7 @@ export async function prepareProviderModelVerificationRequest(
 		(provider) => provider.id === options.target.providerId,
 	);
 	if (!knownProvider && !options.baseUrl) {
-		throw new Error(
+		throw new ProviderConfigError(
 			`Provider ${options.target.providerId} has no registered endpoint.`,
 		);
 	}
