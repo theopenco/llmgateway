@@ -36,7 +36,7 @@ describe("image generation upstream streaming", () => {
 		outputCompression?: unknown;
 	}> = [];
 	let failOpenai = false;
-	let outputFormatResponse: string | undefined;
+	let imageBase64Prefix = "";
 	let rejectWith: string | undefined;
 	let upstreamPrompt: unknown;
 
@@ -44,7 +44,7 @@ describe("image generation upstream streaming", () => {
 		upstreamRequests.length = 0;
 		upstreamPrompt = undefined;
 		failOpenai = false;
-		outputFormatResponse = undefined;
+		imageBase64Prefix = "";
 		rejectWith = undefined;
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -127,22 +127,18 @@ describe("image generation upstream streaming", () => {
 				);
 			}
 			const data = Array.from({ length: n }, (_, i) => ({
-				b64_json: Buffer.from(`image-${i}`).toString("base64"),
+				b64_json:
+					imageBase64Prefix + Buffer.from(`image-${i}`).toString("base64"),
 			}));
 			if (stream) {
 				const event = endpoint === "edits" ? "image_edit" : "image_generation";
 				return new Response(
 					`data: ${JSON.stringify({ type: `${event}.partial_image`, b64_json: "cGFydGlhbA==" })}\n\n` +
-						`data: ${JSON.stringify({ type: `${event}.completed`, ...data[0], created_at: 1, usage, output_format: outputFormatResponse })}\n\n`,
+						`data: ${JSON.stringify({ type: `${event}.completed`, ...data[0], created_at: 1, usage })}\n\n`,
 					{ headers: { "Content-Type": "text/event-stream" } },
 				);
 			}
-			return Response.json({
-				created: 1,
-				data,
-				usage,
-				output_format: outputFormatResponse,
-			});
+			return Response.json({ created: 1, data, usage });
 		});
 	});
 
@@ -498,14 +494,16 @@ describe("image generation upstream streaming", () => {
 		});
 
 		test.each([
-			[1, "webp", "webp"],
-			[2, "jpeg", "jpeg"],
-			[1, undefined, "png"],
-			[1, "unexpected", "png"],
+			[1, "UklGR", "webp"],
+			[2, "UklGR", "webp"],
+			[1, "/9j/", "jpeg"],
+			[2, "/9j/", "jpeg"],
+			[1, "iVBORw0KGgo", "png"],
+			[1, "", "png"],
 		])(
-			"with n=%s labels upstream format %s as image/%s",
-			async (n, format, subtype) => {
-				outputFormatResponse = format;
+			"with n=%s labels bytes starting %s as image/%s",
+			async (n, prefix, subtype) => {
+				imageBase64Prefix = prefix;
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: { ...headers, "Content-Type": "application/json" },
