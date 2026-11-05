@@ -15,6 +15,7 @@ import { isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
+	getGoogleImageOutputTokens,
 	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
@@ -632,6 +633,7 @@ export function parseProviderResponse(
 					}
 				}
 			}
+			imageOutputTokens = getGoogleImageOutputTokens(json.usageMetadata);
 			if (Array.isArray(json.usageMetadata?.cacheTokensDetails)) {
 				for (const detail of json.usageMetadata.cacheTokensDetails) {
 					if (detail?.modality === "AUDIO" && detail.tokenCount) {

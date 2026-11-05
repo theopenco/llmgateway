@@ -11110,6 +11110,7 @@ chat.openapi(completions, async (c) => {
 				let audioInputTokens: number | null = null;
 				let cachedAudioInputTokens: number | null = null;
 				let imageInputTokens: number | null = null;
+				let imageOutputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -11619,7 +11620,7 @@ chat.openapi(completions, async (c) => {
 										project.organizationId,
 										image_config?.image_quality,
 										imageInputTokens,
-										null,
+										imageOutputTokens,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -12664,6 +12665,9 @@ chat.openapi(completions, async (c) => {
 								if (usage.imageInputTokens !== null) {
 									imageInputTokens = usage.imageInputTokens;
 								}
+								if (usage.imageOutputTokens !== null) {
+									imageOutputTokens = usage.imageOutputTokens;
+								}
 								if (
 									usage.totalTokens === null &&
 									promptTokens !== null &&
@@ -13312,7 +13316,7 @@ chat.openapi(completions, async (c) => {
 										project.organizationId,
 										image_config?.image_quality,
 										imageInputTokens,
-										null,
+										imageOutputTokens,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -13441,6 +13445,7 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens: calculatedReasoningTokens,
 										imageInputTokens:
 											imageInputTokens ?? streamingCostsEarly.imageInputTokens,
+										imageOutputTokens: streamingCostsEarly.imageOutputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -13662,7 +13667,7 @@ chat.openapi(completions, async (c) => {
 									project.organizationId,
 									image_config?.image_quality,
 									imageInputTokens,
-									null,
+									imageOutputTokens,
 									{
 										cacheWriteTokens: cacheCreationTokens,
 										cacheWrite1hTokens: cacheCreation1hTokens,

@@ -571,6 +571,7 @@ describe("parseProviderResponse", () => {
 				},
 			]);
 			expect(result.reasoningContent).toBe("**Designing**");
+			expect(result.imageOutputTokens).toBe(1120);
 		});
 	});
 
