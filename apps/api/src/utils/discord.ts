@@ -852,7 +852,9 @@ export async function notifyAirsideFiling(args: {
 			embeds: [
 				{
 					title: `Airside filing: ${labels[args.kind]}`,
-					url: `${process.env.ADMIN_URL?.replace(/\/$/, "") || "https://admin.llmgateway.io"}/airside-filings`,
+					url: process.env.ADMIN_URL
+						? `${process.env.ADMIN_URL.replace(/\/$/, "")}/airside-filings`
+						: undefined,
 					color: 0xf5a623,
 					fields: [
 						{

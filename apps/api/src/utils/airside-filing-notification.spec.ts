@@ -96,6 +96,20 @@ describe("Airside filing notifications", () => {
 			).resolves.toBeUndefined();
 		},
 	);
+	it.each([undefined, ""])(
+		"omits the review link when ADMIN_URL is %j",
+		async (adminUrl) => {
+			vi.stubEnv("ADMIN_URL", adminUrl);
+			await notifyAirsideFiling({
+				kind: "claim",
+				id: "claim-test",
+				providerId: "test-carrier",
+			});
+			expect(
+				vi.mocked(postDiscordWebhook).mock.calls[0][1].embeds?.[0].url,
+			).toBeUndefined();
+		},
+	);
 	it("bounds user-controlled embed fields", async () => {
 		await notifyAirsideFiling({
 			kind: "initial",

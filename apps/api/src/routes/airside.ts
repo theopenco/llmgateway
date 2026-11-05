@@ -3404,6 +3404,13 @@ airside.openapi(createModel, async (c) => {
 		providerId: created.providerId,
 		modelName: created.modelName,
 	});
+	if (firstProviderKey) {
+		await notifyAirsideFiling({
+			kind: "provider-key",
+			id: claim.id,
+			providerId: claim.providerId,
+		});
+	}
 	return c.json({ model: serializeModel(created) }, 201);
 });
 

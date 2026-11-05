@@ -5857,6 +5857,11 @@ describe("airside provider portal", () => {
 			sky("sky-large", "sk-acme-sky-serving-key"),
 		);
 		expect(first.status).toBe(201);
+		expect(discordUtils.notifyAirsideFiling).toHaveBeenCalledWith({
+			kind: "provider-key",
+			id: claim.id,
+			providerId: "acme-sky",
+		});
 		const [url] = upstream.mock.calls.at(-1)!;
 		expect(String(url)).toBe("https://api.acme-sky.ai/v1/chat/completions");
 		const [key] = await db.query.providerKey.findMany({

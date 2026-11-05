@@ -20,7 +20,7 @@ Listing on llmgateway.io carries a one-time **$2,500 listing fee** per provider 
 
 ## Review notifications
 
-Self-hosted operators can set `DISCORD_AIRSIDE_NOTIFICATION_URL` on the API to send pending carrier claims, branding and provider-key submissions, model listings and relist requests, price and metadata changes, and fare filings to a dedicated Discord channel. Notifications link to the admin review queue. Delivery is best-effort: a Discord outage does not prevent filing.
+Self-hosted operators can set `DISCORD_AIRSIDE_NOTIFICATION_URL` on the API to send pending carrier claims, branding and provider-key submissions, model listings and relist requests, price and metadata changes, and fare filings to a dedicated Discord channel. Set `ADMIN_URL` to your admin origin to include a review-queue link; without it, notifications omit the link. Delivery is best-effort: a Discord outage does not prevent filing.
 
 ## Crew
 
