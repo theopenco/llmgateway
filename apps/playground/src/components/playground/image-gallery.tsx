@@ -95,7 +95,7 @@ const GalleryImageTile = memo(
 							decoding="async"
 							className={
 								isSvg
-									? "h-full w-full object-contain p-6"
+									? "h-64 w-full object-contain p-6"
 									: "h-full w-full object-cover"
 							}
 						/>
@@ -333,14 +333,16 @@ function ItemActions({
 					)}
 				</Action>
 			)}
-			{firstImage && onUseAsReference && (
-				<Action
-					tooltip="Use as image reference"
-					onClick={() => onUseAsReference(firstImage)}
-				>
-					<ImagePlus className="h-4 w-4" />
-				</Action>
-			)}
+			{firstImage &&
+				!isSvgMediaType(firstImage.mediaType) &&
+				onUseAsReference && (
+					<Action
+						tooltip="Use as image reference"
+						onClick={() => onUseAsReference(firstImage)}
+					>
+						<ImagePlus className="h-4 w-4" />
+					</Action>
+				)}
 			{onInsertPrompt && (
 				<Action
 					tooltip="Insert prompt"
