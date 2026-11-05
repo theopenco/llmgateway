@@ -970,7 +970,8 @@ const imageEditsRequestSchema = z.object({
 		example: "Add a watercolor effect to this image",
 	}),
 	background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
-		description: "Background behavior for generated image output.",
+		description:
+			"Background behavior for generated image output. OpenAI and Azure GPT Image models apply it natively and reject it when unsupported; `transparent` requires `png` or `webp` output. Other providers only receive it as a prompt hint.",
 		example: "transparent",
 	}),
 	input_fidelity: z.enum(["high", "low"]).optional().openapi({
@@ -1182,24 +1183,25 @@ async function parseMultipartEditsRequest(
 			rawRequest.n = n;
 		}
 	}
-	const sizeField = body["size"];
-	const sizeValue = Array.isArray(sizeField) ? sizeField[0] : sizeField;
-	if (typeof sizeValue === "string" && sizeValue) {
-		rawRequest.size = sizeValue;
+	for (const name of [
+		"size",
+		"quality",
+		"moderation",
+		"background",
+		"output_format",
+	]) {
+		const field = body[name];
+		const value = Array.isArray(field) ? field[0] : field;
+		if (typeof value === "string" && value) {
+			rawRequest[name] = value;
+		}
 	}
-	const qualityField = body["quality"];
-	const qualityValue = Array.isArray(qualityField)
-		? qualityField[0]
-		: qualityField;
-	if (typeof qualityValue === "string" && qualityValue) {
-		rawRequest.quality = qualityValue;
-	}
-	const moderationField = body["moderation"];
-	const moderationValue = Array.isArray(moderationField)
-		? moderationField[0]
-		: moderationField;
-	if (typeof moderationValue === "string" && moderationValue) {
-		rawRequest.moderation = moderationValue;
+	const compressionField = body["output_compression"];
+	const compressionValue = Array.isArray(compressionField)
+		? compressionField[0]
+		: compressionField;
+	if (typeof compressionValue === "string" && compressionValue) {
+		rawRequest.output_compression = Number(compressionValue);
 	}
 
 	const validationResult = imageEditsRequestSchema.safeParse(rawRequest);
@@ -1333,6 +1335,8 @@ async function processImageEdit(
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
 		request.output_format ||
+		request.output_compression !== undefined ||
+		request.background ||
 		normalizedEditQuality ||
 		request.moderation
 	) {
@@ -1341,6 +1345,7 @@ async function processImageEdit(
 			...(requestedSize && { image_size: requestedSize }),
 			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.background && { background: request.background }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {

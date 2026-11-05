@@ -243,6 +243,9 @@ interface OpenAIImageRequest {
 	size?: string;
 	quality?: OpenAIImageQuality;
 	moderation?: OpenAIImageModeration;
+	background?: string;
+	output_format?: string;
+	output_compression?: number;
 	n?: number;
 	image?: string | string[];
 }
@@ -1750,6 +1753,9 @@ export async function prepareRequestBody(
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		background?: string;
+		output_format?: string;
+		output_compression?: number;
 		n?: number;
 		seed?: number;
 	},
@@ -1998,6 +2004,13 @@ export async function prepareRequestBody(
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(openaiModeration && { moderation: openaiModeration }),
+			...(image_config?.background && { background: image_config.background }),
+			...(image_config?.output_format && {
+				output_format: image_config.output_format,
+			}),
+			...(image_config?.output_compression !== undefined && {
+				output_compression: image_config.output_compression,
+			}),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -2018,6 +2031,18 @@ export async function prepareRequestBody(
 			}
 			if (openaiImageRequest.moderation) {
 				formData.append("moderation", openaiImageRequest.moderation);
+			}
+			if (openaiImageRequest.background) {
+				formData.append("background", openaiImageRequest.background);
+			}
+			if (openaiImageRequest.output_format) {
+				formData.append("output_format", openaiImageRequest.output_format);
+			}
+			if (openaiImageRequest.output_compression !== undefined) {
+				formData.append(
+					"output_compression",
+					String(openaiImageRequest.output_compression),
+				);
 			}
 			if (openaiImageRequest.n !== undefined) {
 				formData.append("n", String(openaiImageRequest.n));

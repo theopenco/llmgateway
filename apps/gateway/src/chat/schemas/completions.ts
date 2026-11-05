@@ -562,6 +562,9 @@ export const completionsRequestSchema = z.object({
 				.enum(["low", "medium", "high", "xhigh", "max", "auto"])
 				.optional(),
 			moderation: z.enum(["auto", "low"]).optional(),
+			background: z.string().optional(),
+			output_format: z.string().optional(),
+			output_compression: z.number().optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})

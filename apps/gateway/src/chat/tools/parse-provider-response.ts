@@ -959,10 +959,14 @@ export function parseProviderResponse(
 				(json.data[0]?.b64_json || json.data[0]?.url)
 			) {
 				const imageData = json.data;
+				const imageSubtype =
+					json.output_format === "jpeg" || json.output_format === "webp"
+						? json.output_format
+						: "png";
 				images = imageData.map((item: any): ImageObject => {
 					let url: string;
 					if (item.b64_json) {
-						url = `data:image/png;base64,${item.b64_json}`;
+						url = `data:image/${imageSubtype};base64,${item.b64_json}`;
 					} else {
 						url = item.url;
 					}

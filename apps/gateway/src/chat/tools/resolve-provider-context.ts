@@ -188,6 +188,9 @@ export interface ProviderContextOptions {
 				image_size?: string;
 				image_quality?: string;
 				moderation?: string;
+				background?: string;
+				output_format?: string;
+				output_compression?: number;
 				n?: number;
 				seed?: number;
 		  }
