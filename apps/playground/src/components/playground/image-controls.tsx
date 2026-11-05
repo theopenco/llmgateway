@@ -56,6 +56,7 @@ interface ImageControlsProps {
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	imageFormat: ImageOutputFormat;
+	supportsSvgOutput: boolean;
 	setImageFormat: (value: ImageOutputFormat) => void;
 	serviceTier: ImageServiceTier;
 	setServiceTier: (value: ImageServiceTier) => void;
@@ -104,6 +105,7 @@ export function ImageControls({
 	imageCount,
 	setImageCount,
 	imageFormat,
+	supportsSvgOutput,
 	setImageFormat,
 	serviceTier,
 	setServiceTier,
@@ -123,7 +125,8 @@ export function ImageControls({
 	// Derive config from first selected model (settings apply globally)
 	const primaryModel = selectedModels[0] ?? "";
 	const config = getModelImageConfig(primaryModel);
-	const svgSelected = config.supportsSvgOutput && imageFormat === "svg";
+
+	const svgSelected = supportsSvgOutput && imageFormat === "svg";
 	// SVG output takes no reference images, so attachments are off while it is on.
 	const acceptsImages = isEditModel && !svgSelected;
 	const maxInputImages = config.maxInputImages;
@@ -459,7 +462,7 @@ export function ImageControls({
 							</SelectContent>
 						</Select>
 					)}
-					{config.supportsSvgOutput && (
+					{supportsSvgOutput && (
 						<Select
 							value={imageFormat}
 							onValueChange={(val) => setImageFormat(val as ImageOutputFormat)}
