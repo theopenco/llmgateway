@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getModelImageConfig } from "@/lib/image-gen";
+import { getModelImageConfig, historyImage } from "@/lib/image-gen";
 
 describe("getModelImageConfig", () => {
 	it.each([
@@ -120,5 +120,30 @@ describe("getModelImageConfig", () => {
 		expect(config.availableSizes).toEqual(["1K", "1.5K", "2K"]);
 		expect(config.defaultSize).toBe("2K");
 		expect(config.maxInputImages).toBe(10);
+	});
+});
+
+it("keeps saved SVGs vector with their media type", () => {
+	const image = historyImage(
+		"https://api.test",
+		"svg-item",
+		0,
+		0,
+		"image/svg+xml",
+	);
+	expect(image).toEqual({
+		kind: "remote",
+		mediaType: "image/svg+xml",
+		fullUrl: "https://api.test/playground/image-history/svg-item/images/0/0",
+		previewUrl: "https://api.test/playground/image-history/svg-item/images/0/0",
+	});
+});
+
+it("keeps raster history previews downscaled", () => {
+	const image = historyImage("https://api.test", "png-item", 0, 0, "image/png");
+	expect(image).toMatchObject({
+		mediaType: "image/png",
+		previewUrl:
+			"https://api.test/playground/image-history/png-item/images/0/0?variant=preview",
 	});
 });
