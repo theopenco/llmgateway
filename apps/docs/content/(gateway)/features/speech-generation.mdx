@@ -7,8 +7,8 @@ icon: Volume2
 import { Callout } from "fumadocs-ui/components/callout";
 
 LLMGateway supports text-to-speech (TTS) through the OpenAI-compatible
-**`/v1/audio/speech`** endpoint, powered by ElevenLabs, Google Gemini, OpenAI,
-and Alibaba Qwen speech models.
+**`/v1/audio/speech`** endpoint, powered by ElevenLabs, Google Gemini, OpenAI
+(also served through Azure), and Alibaba Qwen speech models.
 
 <Callout type="info">
 	Want to hear the voices before writing code? The [Audio
@@ -39,6 +39,7 @@ Browse all speech generation models, with up-to-date pricing, on the
 | `input`           | string | required | The text to synthesize into speech                                                                                                                                              |
 | `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini), `alloy` (OpenAI), `Sarah` (ElevenLabs), or the model's first voice on Qwen (`longanlingxin` on Plus, `longanhuan_v3.6` on Flash) |
 | `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. ElevenLabs: `mp3` (default), `wav`, `pcm`, `opus`. Gemini: `wav` (default), `pcm`. Qwen: `wav`      |
+| `stream_format`   | string | `audio`  | Binary `audio` or native `sse` events where supported; see Streaming below                                                                                                      |
 | `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                                                                                              |
 | `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                                                                                      |
 
@@ -90,11 +91,44 @@ writeFileSync("speech.wav", buffer);
 
 ## Streaming
 
-<Callout type="info">
-	Streaming speech responses (chunked audio or `stream_format: "sse"`) are not
-	supported yet. The endpoint always returns the complete audio file in a single
-	response, so there is no low-latency, play-as-you-go output for now.
-</Callout>
+OpenAI-compatible speech responses, including Azure, stream audio as the provider
+produces it. Omit `stream_format` or use `"audio"` for binary audio; existing clients
+can still read the complete response with `arrayBuffer()`. Playback latency also
+depends on the selected audio format and your player.
+
+Use `stream_format: "sse"` on token-billed speech models that support native speech
+events. The gateway forwards `speech.audio.delta` events with base64 audio and
+`speech.audio.done` with provider usage without buffering the complete generation.
+SSE is not available on legacy character-billed speech models. Unsupported
+`stream_format` combinations return `400` rather than silently ignoring the field.
+Other provider-specific speech endpoints retain their existing response behavior.
+
+```bash
+curl -N "https://api.llmgateway.io/v1/audio/speech" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "<provider>/<speech-model>",
+    "input": "Hello, welcome to LLM Gateway!",
+    "response_format": "pcm",
+    "stream_format": "sse"
+  }'
+```
+
+Billing completes when generation finishes, including provider-reported usage.
+Disconnecting does not undo accepted generation: the gateway discards subsequent
+SSE audio until final usage arrives or the original request deadline expires.
+Disconnecting never extends that deadline. If usage cannot be recovered, the log records incomplete, estimated
+accounting rather than a successful zero-usage request. Character-billed models
+remain billed on accepted input after audio generation starts.
+
+Token-billed streams queue at most 1 MiB or 1,024 chunks for a slow client.
+Exceeding either limit fails delivery and discards subsequent audio while final
+usage is collected within the original request deadline.
+
+Errors before audio starts return an HTTP error. Errors or deadlines after output
+starts interrupt the stream; clients must detect truncated output and handle
+stream read errors.
 
 ## Voices
 

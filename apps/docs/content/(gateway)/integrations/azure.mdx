@@ -142,6 +142,12 @@ Browse the [Azure models page](https://llmgateway.io/models?provider=azure) for 
 
 Azure availability varies by model and resource region, even for Global Standard deployments. If the portal reports an unsupported region, deploy in a supported region and configure that resource's provider key. A catalogue mapping alone does not create a deployment or make Azure available for automatic fallback.
 
+The same key also serves embeddings (`/v1/embeddings`), text-to-speech (`/v1/audio/speech`), and realtime speech and transcription sessions (`/v1/realtime`) for Azure-mapped models. The gateway calls the resource's v1 API (`https://<resource>.openai.azure.com/openai/v1`) for these endpoints regardless of the key's deployment type. A key with a base URL instead of a resource uses that base URL for every Azure endpoint, including these.
+
+Azure uses the same gateway parameters for speech formats, speed, delivery instructions, realtime voices, audio codecs, turn detection, noise reduction, input transcription, and function calling as OpenAI. Availability still depends on the upstream model: some Azure speech deployments expose fewer voices. Use the provider mapping's `supported_voices` from `GET /v1/models` rather than assuming OpenAI's voice list applies.
+
+[Speech generation](/features/speech-generation#streaming) streams audio as it arrives and supports SSE on compatible mappings. [Realtime sessions](/features/realtime) support image input and native MCP tools with authorization and usage accounting. Stored provider prompt references and native WebRTC/SIP remain outside the gateway's supported API for both providers.
+
 ## Migrate from Azure AI Foundry
 
 The legacy `azure-ai-foundry` provider uses the Azure Model Inference API. Its

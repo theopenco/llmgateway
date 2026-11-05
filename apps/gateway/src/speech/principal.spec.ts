@@ -105,6 +105,7 @@ vi.mock("@/chat/tools/retry-with-fallback.js", () => ({
 vi.mock("@llmgateway/actions", () => ({
 	RedirectError: class extends Error {},
 	getGoogleVertexPublisherModelPath: vi.fn(),
+	getOpenAiV1Prefix: vi.fn(() => "/v1"),
 	getProviderHeaders: vi.fn(() => ({})),
 	managedCredentialOptions: vi.fn(),
 	providerKeyLabel: vi.fn(),
@@ -213,17 +214,21 @@ describe("speech principals", () => {
 		async (mode) => {
 			state.project.mode = mode;
 			state.organization.credits = "0";
-			expect((await request("https://allowed.example")).status).toBe(200);
+			const response = await request("https://allowed.example");
+			expect(response.status).toBe(200);
+			await response.arrayBuffer();
 			expect(state.byok).not.toHaveBeenCalled();
 			expect(state.platform).toHaveBeenCalled();
 			expect(state.spend).not.toHaveBeenCalled();
-			expect(state.log).toHaveBeenCalledWith(
-				expect.objectContaining({
-					endCustomerWalletId: "wallet",
-					endUserSessionId: "session",
-					usedMode: "credits",
-				}),
-				expect.anything(),
+			await vi.waitFor(() =>
+				expect(state.log).toHaveBeenCalledWith(
+					expect.objectContaining({
+						endCustomerWalletId: "wallet",
+						endUserSessionId: "session",
+						usedMode: "credits",
+					}),
+					expect.anything(),
+				),
 			);
 		},
 	);

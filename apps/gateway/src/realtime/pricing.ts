@@ -511,3 +511,26 @@ export function priceDurationRealtimeUsage(
 		},
 	};
 }
+export function supportsRealtimeImageInput(
+	mapping: ProviderModelMapping,
+): boolean {
+	if (
+		!mapping.realtime ||
+		!mapping.vision ||
+		isDurationBilledRealtime(mapping)
+	) {
+		return false;
+	}
+	try {
+		return (
+			[mapping.imageInputPrice, mapping.cachedImageInputPrice].every(
+				(price) =>
+					price !== undefined &&
+					new Decimal(price).isFinite() &&
+					!new Decimal(price).isNegative(),
+			) && new Decimal(mapping.requestPrice ?? "0").isZero()
+		);
+	} catch {
+		return false;
+	}
+}
