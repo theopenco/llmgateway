@@ -48,6 +48,8 @@ external resources, or embedded raster images.
 - `n` must be `1`; `output_compression` and streaming are not available for SVG.
 - SVG is a generation format. `/v1/images/edits` returns raster images.
 - A model without SVG output gets a `400` before any provider is called.
+- DevPass coding plans cover text models only, so image requests from them
+  return a `403`.
 
 `/v1/images/generations` also accepts `png`, `jpeg`, and `webp` through
 `output_format`, plus `output_compression` for the last two.
@@ -57,8 +59,9 @@ external resources, or embedded raster images.
 GPT Image 2.6 uses the same token rates as GPT Image 2 and 2.5. For SVG output,
 OpenAI first renders a reference image, then an authoring model writes the
 vectors. Both are billed from the reported usage: image tokens at the image
-model's rates and the authoring tokens at the authoring model's rates, shown in
-`usage.cost`. See the
+model's rates and the authoring tokens at the authoring model's catalogue
+rates (or the image model's rates when the authoring model is not in the
+catalogue), shown in `usage.cost`. See the
 [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for
 current prices.
 

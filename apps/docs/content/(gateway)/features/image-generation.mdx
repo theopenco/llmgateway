@@ -89,11 +89,11 @@ curl -X POST "https://api.llmgateway.io/v1/images/generations" \
 `data[0].b64_json` holds the base64-encoded SVG document (UTF-8 XML), and the response echoes `"output_format": "svg"`. The document contains static vector content only: no scripts, external resources, or embedded raster images.
 
 - `n` must be `1`, and `output_compression` is not accepted.
-- Only `/v1/images/generations` returns SVG. `/v1/images/edits` and streaming do not.
+- SVG is a generation format: `/v1/images/edits` does not return it, and an SVG is not accepted as an edit input. The gateway requests SVG from OpenAI without streaming.
 - `quality` controls the reference image the SVG is drawn from.
-- Requesting `svg` from a model without SVG output, or from `auto`, returns a `400` before any provider is called.
+- On `/v1/images/generations`, requesting `svg` from a model without SVG output, or from `auto`, returns a `400` before any provider is called. In chat completions, the provider judges the value.
 
-OpenAI draws a reference image with the image model, then a separate authoring model writes the SVG. The request is billed for both: the image tokens at the image model's rates, and the authoring model's tokens at that model's rates, included in `input_cost` and `output_cost`.
+OpenAI draws a reference image with the image model, then a separate authoring model writes the SVG. The request is billed for both: the image tokens at the image model's rates, and the authoring model's tokens at that model's catalogue rates, included in `input_cost` and `output_cost`. If the authoring model is not in the catalogue, its tokens are billed at the image model's text input and image output rates.
 
 In chat completions, set `image_config.output_format` to `"svg"`; the image arrives as a `data:image/svg+xml;base64,...` URL.
 

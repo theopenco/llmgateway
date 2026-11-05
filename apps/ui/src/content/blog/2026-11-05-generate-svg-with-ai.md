@@ -11,7 +11,7 @@ faqs:
   - question: "Which models can generate SVG on LLM Gateway?"
     answer: "openai/gpt-image-2.6-sunburst for detailed work and openai/gpt-image-2.6-flare for fast iteration. Requesting svg from another model returns a 400 before any provider is called."
   - question: "How much does AI SVG generation cost?"
-    answer: "Each SVG request bills the image tokens of the reference image at GPT Image 2.6 rates ($5 per million text input tokens and $30 per million image output tokens) plus the authoring model's tokens at that model's rates. The response's usage.cost shows the total for every request."
+    answer: "Each SVG request bills the image tokens of the reference image at GPT Image 2.6 rates ($5 per million text input tokens and $30 per million image output tokens) plus the authoring model's tokens at that model's catalogue rates (or the image model's rates when the author is not in the catalogue). The response's usage.cost shows the total for every request."
   - question: "Can I edit an existing SVG with AI?"
     answer: "Not through the image edit endpoint: OpenAI does not accept SVG as an edit input or return SVG from edits. Generate a new SVG with a revised prompt, or edit the returned file by hand, since it is plain XML."
 image:
@@ -30,7 +30,9 @@ messy paths.
 
 You can now **generate SVGs with AI** in one request. OpenAI's GPT Image 2.6
 returns vector output natively, and **LLM Gateway** exposes it on the same
-`/v1/images/generations` endpoint and API key you already use.
+`/v1/images/generations` endpoint and API key you already use. DevPass
+coding plans cover text models only, so image requests from them return a
+`403`.
 
 ## Generate an SVG with AI in one request
 
@@ -84,7 +86,11 @@ const result = await client.images.generate({
   output_format: "svg",
 });
 
-await writeFile("logo.svg", Buffer.from(result.data[0].b64_json!, "base64"));
+const svg = result.data?.[0]?.b64_json;
+if (!svg) {
+  throw new Error("No SVG returned");
+}
+await writeFile("logo.svg", Buffer.from(svg, "base64"));
 ```
 
 ## Sunburst or Flare
@@ -139,14 +145,16 @@ from the usage OpenAI reports:
 
 - the reference image at GPT Image 2.6 rates: $5 per million text input tokens
   and $30 per million image output tokens;
-- the authoring model's input and output tokens at that model's published
-  rates.
+- the authoring model's input and output tokens at that model's catalogue
+  rates, or at the image model's text input and image output rates when the
+  authoring model is not in the catalogue.
 
 Both are included in `usage.cost` on the response and in the request log, so
 you can see what each icon cost. The
 [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) lists
-current prices, and per-key budgets cap a batch job that generates more icons
-than planned.
+current prices, and per-key usage limits stop new requests once a batch job has
+spent more than planned. Requests already in flight can still finish past the
+limit.
 
 ## Why run it through LLM Gateway
 
@@ -154,8 +162,8 @@ than planned.
   Seedream for photos, and switch with the `model` field.
 - **Cost on every response.** `usage.cost` and the request log show what each
   generation billed, including the SVG authoring tokens.
-- **Limits that hold.** Budgets per organization, project, and API key stop a
-  runaway loop.
+- **Usage limits.** Limits per organization, project, and API key stop sending
+  new requests from a runaway loop.
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)**
 - **[Read the SVG output docs](https://docs.llmgateway.io/features/image-generation#svg-output)**
