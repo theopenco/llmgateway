@@ -23,7 +23,11 @@ export function Providers({ children, config }: ProvidersProps) {
 			return;
 		}
 		posthog.init(config.posthogKey, {
-			api_host: config.posthogHost ?? "https://us.i.posthog.com",
+			// Ingest through our own origin (see the /ingest rewrites in
+			// next.config.ts) so ad blockers that block *.posthog.com don't
+			// silently drop pageviews.
+			api_host: "/ingest",
+			ui_host: config.posthogHost,
 			capture_pageview: "history_change",
 			autocapture: false,
 			disable_session_recording: true,
