@@ -62,37 +62,85 @@ vi.mock("@/lib/fetch-client", () => ({
 function renderPrices(
 	current: string | null | undefined,
 	filed: string | null,
+	currentRates: { inputPrice?: string; outputPrice?: string } = {},
 ) {
 	state.currentPricing =
 		current === undefined
 			? null
 			: {
-					inputPrice: "0.000001",
-					outputPrice: "0.000002",
+					inputPrice: currentRates.inputPrice ?? "0.000001",
+					outputPrice: currentRates.outputPrice ?? "0.000002",
 					cachedInputPrice: current,
 				};
 	state.cachedInputPrice = filed;
 	return renderToStaticMarkup(createElement(AirsideFilingsClient));
 }
 
-describe("filing cached-input prices", () => {
+describe("filing price comparisons", () => {
 	it.each([
-		["unchanged", "0.0000001", "0.0000001", "cached: $0.1/M → $0.1/M"],
-		["changed", "0.0000001", "0.0000002", "cached: $0.1/M → $0.2/M"],
-		["added", null, "0.0000001", "cached: none → $0.1/M"],
-		["removed", "0.0000001", null, "cached: $0.1/M → none"],
-		["zero", "0", "0", "cached: $0/M → $0/M"],
-	])("shows current → filed when %s", (_label, current, filed, expected) => {
-		const text = renderPrices(current, filed);
-		expect(text).toContain("in: $1/M → $1/M");
-		expect(text).toContain("out: $2/M → $2/M");
-		expect(text).toContain(expected);
+		["unchanged", "0.0000001", "0.0000001", "cached: $0.1/M", 0],
+		["equivalent", "0.00000010", "1e-7", "cached: $0.1/M", 0],
+		["changed", "0.0000001", "0.0000002", "cached: $0.1/M → $0.2/M", 1],
+		["added", null, "0.0000001", "cached: none → $0.1/M", 1],
+		["removed", "0.0000001", null, "cached: $0.1/M → none", 1],
+		["zero unchanged", "0", "0", "cached: $0/M", 0],
+		["zero added", null, "0", "cached: none → $0/M", 1],
+		["zero removed", "0", null, "cached: $0/M → none", 1],
+	])(
+		"renders cached pricing when %s",
+		(_label, current, filed, expected, arrows) => {
+			const markup = renderPrices(current, filed);
+			expect(markup).toContain("in: $1/M</div>");
+			expect(markup).toContain("out: $2/M</div>");
+			expect(markup).toContain(expected + "</div>");
+			expect(markup.match(/(?:in|out|cached): [^<]* → /g) ?? []).toHaveLength(
+				arrows,
+			);
+		},
+	);
+
+	it.each([
+		["input", { inputPrice: "0.000003" }, "in: $3/M → $1/M", "out: $2/M"],
+		["output", { outputPrice: "0.000004" }, "out: $4/M → $2/M", "in: $1/M"],
+	])(
+		"shows an arrow only for changed %s pricing",
+		(_label, current, changed, unchanged) => {
+			const markup = renderPrices("0.0000001", "0.0000001", current);
+			expect(markup).toContain(changed + "</div>");
+			expect(markup).toContain(unchanged + "</div>");
+			expect(markup).toContain("cached: $0.1/M</div>");
+			expect(markup.match(/(?:in|out|cached): [^<]* → /g) ?? []).toHaveLength(
+				1,
+			);
+		},
+	);
+
+	it("does not mark equivalent input/output decimal representations as changes", () => {
+		const markup = renderPrices(null, null, {
+			inputPrice: "1e-6",
+			outputPrice: "0.00000200",
+		});
+		expect(markup).toContain("in: $1/M</div>");
+		expect(markup).toContain("out: $2/M</div>");
+		expect(markup).not.toMatch(/(?:in|out|cached): [^<]* → /);
 	});
 
-	it("shows only the filed price for an initial filing", () => {
-		const text = renderPrices(undefined, "0.0000001");
-		expect(text).toContain("cached: $0.1/M");
-		expect(text).not.toContain("→ $0.1/M");
+	it("marks each rate when all rates change", () => {
+		const markup = renderPrices("0.0000003", "0.0000001", {
+			inputPrice: "0.000003",
+			outputPrice: "0.000004",
+		});
+		expect(markup).toContain("in: $3/M → $1/M</div>");
+		expect(markup).toContain("out: $4/M → $2/M</div>");
+		expect(markup).toContain("cached: $0.3/M → $0.1/M</div>");
+	});
+
+	it("shows only the filed prices for an initial filing", () => {
+		const markup = renderPrices(undefined, "0.0000001");
+		expect(markup).toContain("in: $1/M</div>");
+		expect(markup).toContain("out: $2/M</div>");
+		expect(markup).toContain("cached: $0.1/M</div>");
+		expect(markup).not.toMatch(/(?:in|out|cached): [^<]* → /);
 	});
 
 	it("omits cached pricing when neither price is set", () => {
