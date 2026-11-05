@@ -54,6 +54,51 @@ function getServiceTierMultiplier(
 	return tier?.multiplier ?? 1;
 }
 
+export interface SvgAuthorUsage {
+	/** Model OpenAI reports as the SVG author (`svg_usage.model`). */
+	model: string | null;
+	inputTokens: number;
+	/** Includes `reasoningTokens`, which are reported as a detail. */
+	outputTokens: number;
+	reasoningTokens: number;
+}
+
+/**
+ * Per-token rates for the model that authored an SVG. OpenAI reports the
+ * author by its model id, optionally with a dated snapshot suffix; it is
+ * matched against canonical catalogue ids only. An unknown author falls back to
+ * the image mapping's text input and image output rates, so a missing
+ * catalogue entry can only overcharge, never bill the authoring tokens at $0.
+ */
+function resolveSvgAuthorPrices(
+	authorModel: string | null,
+	imageMapping: ProviderModelMapping,
+): { inputPrice: Decimal; outputPrice: Decimal } {
+	const candidates = authorModel
+		? [authorModel, authorModel.replace(/-\d{4}-\d{2}-\d{2}$/, "")]
+		: [];
+	for (const id of candidates) {
+		const providers = models.find((m) => m.id === id)?.providers as
+			ProviderModelMapping[] | undefined;
+		const mapping = providers?.find((p) => p.providerId === "openai");
+		if (mapping?.inputPrice && mapping.outputPrice) {
+			return {
+				inputPrice: new Decimal(mapping.inputPrice),
+				outputPrice: new Decimal(mapping.outputPrice),
+			};
+		}
+	}
+	logger.warn("Unknown SVG author model, billing at fallback rates", {
+		authorModel,
+	});
+	return {
+		inputPrice: new Decimal(imageMapping.inputPrice ?? 0),
+		outputPrice: new Decimal(
+			imageMapping.imageOutputPrice ?? imageMapping.outputPrice ?? 0,
+		),
+	};
+}
+
 interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
 	content: string;
@@ -314,6 +359,12 @@ export async function calculateCosts(
 		 * organization, provider and model, so the call does no I/O.
 		 */
 		effectiveDiscount?: EffectiveDiscount;
+		/**
+		 * Token usage of the model that authored an SVG image (OpenAI
+		 * `svg_usage`), reported separately from the image model's usage and
+		 * billed at the authoring model's rates on top of it.
+		 */
+		svgAuthorUsage?: SvgAuthorUsage | null;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -767,12 +818,31 @@ export async function calculateCosts(
 			? uncachedPromptTokens - uncachedImageTokens
 			: uncachedPromptTokens) - billableAudioInputTokens,
 	);
-	// inputCost includes text, image, and audio input costs when applicable
+	const svgAuthorUsage = options?.svgAuthorUsage;
+	const svgAuthorPrices = svgAuthorUsage
+		? resolveSvgAuthorPrices(svgAuthorUsage.model, providerInfo)
+		: null;
+	const svgAuthorInputCost =
+		svgAuthorUsage && svgAuthorPrices
+			? new Decimal(svgAuthorUsage.inputTokens)
+					.times(svgAuthorPrices.inputPrice)
+					.times(tokenDiscountMultiplier)
+			: new Decimal(0);
+	const svgAuthorOutputCost =
+		svgAuthorUsage && svgAuthorPrices
+			? new Decimal(svgAuthorUsage.outputTokens)
+					.times(svgAuthorPrices.outputPrice)
+					.times(tokenDiscountMultiplier)
+			: new Decimal(0);
+
+	// inputCost includes text, image, audio, and SVG-author input costs when
+	// applicable
 	const inputCost = new Decimal(billableTextPromptTokens)
 		.times(inputPrice)
 		.times(tokenDiscountMultiplier)
 		.plus(imageInputCost ?? 0)
-		.plus(audioInputCost ?? 0);
+		.plus(audioInputCost ?? 0)
+		.plus(svgAuthorInputCost);
 
 	const totalOutputTokens = calculatedCompletionTokens;
 
@@ -847,6 +917,7 @@ export async function calculateCosts(
 			.times(outputPrice)
 			.times(tokenDiscountMultiplier);
 	}
+	outputCost = outputCost.plus(svgAuthorOutputCost);
 	const cachedImageInputPriceDecimal =
 		cachedImageInputPricePerToken !== undefined
 			? new Decimal(cachedImageInputPricePerToken)

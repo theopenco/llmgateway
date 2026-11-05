@@ -83,7 +83,11 @@ const imageTestCases = filteredModels
 		return cases;
 	});
 
-const testImageMode = process.env.TEST_IMAGE_MODE === "true";
+// Image cases bill per image, so they run on request or when TEST_MODELS names
+// image mappings explicitly (as the e2e workflow's test_models input does).
+const testImageMode =
+	process.env.TEST_IMAGE_MODE === "true" ||
+	(specifiedModels !== null && imageTestCases.length > 0);
 
 const ALLOWED_QUALITIES = [
 	"low",
@@ -258,6 +262,45 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 					? `data:image/png;base64,${first.b64_json}`
 					: first.url;
 				expectValidImageUrl(url);
+			},
+		);
+
+		test.each(imageTestCases.filter(({ provider }) => provider.svgOutput))(
+			"/v1/images/generations returns SVG for $model",
+			{ ...getTestOptions(), timeout: 300_000 },
+			async ({ model }) => {
+				const res = await app.request("/v1/images/generations", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${IMAGE_API_KEY_TOKEN}`,
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model,
+						prompt: "A flat icon of an orange cat face, two colors.",
+						output_format: "svg",
+						quality: qualityOverride ?? "low",
+					}),
+				});
+
+				const json = await res.json();
+				if (logMode) {
+					console.log(
+						"images.generations SVG response",
+						model,
+						JSON.stringify({ ...json, data: undefined }),
+					);
+				}
+				expect(res.status).toBe(200);
+				expect(json.output_format).toBe("svg");
+				expect(json.data).toHaveLength(1);
+				const svg = Buffer.from(json.data[0].b64_json, "base64").toString(
+					"utf8",
+				);
+				expect(svg).toContain("<svg");
+				expect(svg.trimEnd()).toMatch(/<\/svg>$/);
+				expect(json.usage.cost).toBeGreaterThan(0);
 			},
 		);
 

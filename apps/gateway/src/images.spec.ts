@@ -16,6 +16,16 @@ const pngBytes = Buffer.from([
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
 ]);
 const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+const svgBase64 = Buffer.from(
+	'<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>',
+).toString("base64");
+const svgUsage = {
+	model: "gpt-5.4-mini-2026-03-17",
+	input_tokens: 1000,
+	output_tokens: 2000,
+	reasoning_tokens: 500,
+	total_tokens: 3000,
+};
 const usage = {
 	input_tokens: 10,
 	output_tokens: 400,
@@ -130,6 +140,15 @@ describe("image generation upstream streaming", () => {
 					{ status: 400 },
 				);
 			}
+			if (body.output_format === "svg") {
+				return Response.json({
+					created: 1,
+					data: [{ b64_json: svgBase64 }],
+					output_format: "svg",
+					usage,
+					svg_usage: svgUsage,
+				});
+			}
 			const data = Array.from({ length: n }, (_, i) => ({
 				b64_json:
 					imageBase64Prefix + Buffer.from(`image-${i}`).toString("base64"),
@@ -235,53 +254,55 @@ describe("image generation upstream streaming", () => {
 		expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
 	}
 
-	describe.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
-		"%s quality",
-		(model) => {
-			describe.each(["generations", "edits", "chat"])("%s", (endpoint) => {
-				test.each(["xhigh", "max"])("forwards %s upstream", async (quality) => {
-					const requestId = randomUUID();
-					const res = await app.request(
-						endpoint === "chat"
-							? "/v1/chat/completions"
-							: `/v1/images/${endpoint}`,
-						{
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								Authorization: "Bearer test-token",
-								"x-request-id": requestId,
-								"x-no-fallback": "true",
-							},
-							body: JSON.stringify({
-								model: `openai/${model}`,
-								...(endpoint === "chat"
-									? {
-											messages: [{ role: "user", content: "A blue circle" }],
-											image_config: { image_quality: quality },
-										}
-									: { prompt: "A blue circle", quality }),
-								...(endpoint === "edits" && {
-									images: [{ image_url: inputImage }],
-								}),
-							}),
+	describe.each([
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.6-sunburst",
+		"gpt-image-2.6-flare",
+	])("%s quality", (model) => {
+		describe.each(["generations", "edits", "chat"])("%s", (endpoint) => {
+			test.each(["xhigh", "max"])("forwards %s upstream", async (quality) => {
+				const requestId = randomUUID();
+				const res = await app.request(
+					endpoint === "chat"
+						? "/v1/chat/completions"
+						: `/v1/images/${endpoint}`,
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer test-token",
+							"x-request-id": requestId,
+							"x-no-fallback": "true",
 						},
-					);
-					const json = await res.json();
-					expect(res.status, JSON.stringify(json)).toBe(200);
-					expect(upstreamRequests).toHaveLength(1);
-					expect(upstreamRequests[0]).toMatchObject({
-						provider: "openai",
-						endpoint: endpoint === "edits" ? "edits" : "generations",
-						quality,
-					});
-					const log = await waitForLogByRequestId(requestId);
-					expect(log.hasError).toBe(false);
-					expect(Number(log.cost)).toBeCloseTo(0.01205, 10);
+						body: JSON.stringify({
+							model: `openai/${model}`,
+							...(endpoint === "chat"
+								? {
+										messages: [{ role: "user", content: "A blue circle" }],
+										image_config: { image_quality: quality },
+									}
+								: { prompt: "A blue circle", quality }),
+							...(endpoint === "edits" && {
+								images: [{ image_url: inputImage }],
+							}),
+						}),
+					},
+				);
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(upstreamRequests).toHaveLength(1);
+				expect(upstreamRequests[0]).toMatchObject({
+					provider: "openai",
+					endpoint: endpoint === "edits" ? "edits" : "generations",
+					quality,
 				});
+				const log = await waitForLogByRequestId(requestId);
+				expect(log.hasError).toBe(false);
+				expect(Number(log.cost)).toBeCloseTo(0.01205, 10);
 			});
-		},
-	);
+		});
+	});
 
 	describe.each(["openai", "azure"])("%s image output options", (provider) => {
 		const model = `${provider}/gpt-image-2.5-sunburst`;
@@ -524,6 +545,145 @@ describe("image generation upstream streaming", () => {
 				);
 			},
 		);
+	});
+
+	describe.each(["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"])(
+		"%s SVG output",
+		(model) => {
+			test("returns the SVG document and bills the SVG author", async () => {
+				const requestId = randomUUID();
+				const res = await app.request("/v1/images/generations", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer test-token",
+						"x-request-id": requestId,
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: `openai/${model}`,
+						prompt: "A bakery logo",
+						output_format: "svg",
+					}),
+				});
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(upstreamRequests).toEqual([
+					expect.objectContaining({
+						provider: "openai",
+						endpoint: "generations",
+						n: 1,
+						stream: undefined,
+						partialImages: undefined,
+						outputFormat: "svg",
+						outputCompression: undefined,
+					}),
+				]);
+				expect(json.output_format).toBe("svg");
+				expect(json.data).toEqual([
+					expect.objectContaining({ b64_json: svgBase64 }),
+				]);
+				const log = await waitForLogByRequestId(requestId);
+				expect(log.hasError).toBe(false);
+				const imageInputCost = 10 * 5e-6;
+				const authorInputCost = 1000 * 0.75e-6;
+				const imageOutputCost = 400 * 30e-6;
+				const authorOutputCost = 2000 * 4.5e-6;
+				expect(Number(log.inputCost)).toBeCloseTo(
+					imageInputCost + authorInputCost,
+					10,
+				);
+				expect(Number(log.outputCost)).toBeCloseTo(
+					imageOutputCost + authorOutputCost,
+					10,
+				);
+				expect(Number(log.cost)).toBeCloseTo(0.0218, 10);
+				expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
+			});
+
+			test("returns an SVG data URL through chat completions", async () => {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer test-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: `openai/${model}`,
+						messages: [{ role: "user", content: "A bakery logo" }],
+						image_config: { output_format: "svg" },
+					}),
+				});
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(json.choices[0].message.images[0].image_url.url).toBe(
+					`data:image/svg+xml;base64,${svgBase64}`,
+				);
+			});
+		},
+	);
+
+	test.each([
+		[
+			"a model without SVG output",
+			{ model: "openai/gpt-image-2.5-flare" },
+			"does not support SVG output",
+		],
+		["the default model", {}, "does not support SVG output"],
+		[
+			"n above 1",
+			{ model: "openai/gpt-image-2.6-flare", n: 2 },
+			"SVG output supports only n=1.",
+		],
+		[
+			"output_compression",
+			{ model: "openai/gpt-image-2.6-flare", output_compression: 50 },
+			"output_compression is not supported with SVG output.",
+		],
+	])("rejects SVG output with %s", async (_case, params, message) => {
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer test-token",
+			},
+			body: JSON.stringify({
+				prompt: "A bakery logo",
+				output_format: "svg",
+				...params,
+			}),
+		});
+		expect(res.status).toBe(400);
+		expect(JSON.stringify(await res.json())).toContain(message);
+		expect(upstreamRequests).toHaveLength(0);
+	});
+
+	test("forwards raster output_format and output_compression on generations", async () => {
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer test-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-image-2",
+				prompt: "A blue circle",
+				output_format: "webp",
+				output_compression: 60,
+			}),
+		});
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(upstreamRequests).toEqual([
+			expect.objectContaining({
+				endpoint: "generations",
+				outputFormat: "webp",
+				outputCompression: 60,
+			}),
+		]);
+		expect(json.output_format).toBe("webp");
 	});
 
 	describe.each(["openai", "azure"])("%s moderation", (provider) => {

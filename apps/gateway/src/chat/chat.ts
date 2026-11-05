@@ -510,6 +510,13 @@ function injectImageStreamParams(
 	} as unknown as ProviderRequestBody;
 }
 
+// OpenAI does not stream SVG output, so those requests run synchronously.
+function supportsImageStreamUpstream(
+	outputFormat: string | undefined,
+): boolean {
+	return outputFormat !== "svg";
+}
+
 function toDataStorageCostNumber(
 	promptTokens: number | string | null | undefined,
 	cachedTokens: number | string | null | undefined,
@@ -8567,6 +8574,7 @@ chat.openapi(completions, async (c) => {
 	let forceImageStreamUpstream =
 		isImageGeneration &&
 		(image_config?.n ?? 1) === 1 &&
+		supportsImageStreamUpstream(image_config?.output_format) &&
 		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
@@ -9136,6 +9144,7 @@ chat.openapi(completions, async (c) => {
 		forceImageStreamUpstream =
 			isImageGeneration &&
 			(image_config?.n ?? 1) === 1 &&
+			supportsImageStreamUpstream(image_config?.output_format) &&
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);
@@ -15969,6 +15978,7 @@ chat.openapi(completions, async (c) => {
 			explicitCacheUsed,
 			servedServiceTier,
 			customPricing: customPricingMapping,
+			svgAuthorUsage: parsedResponse.svgAuthorUsage,
 		},
 		finishReason === "content_filter",
 	);

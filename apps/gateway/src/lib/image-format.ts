@@ -1,4 +1,8 @@
-export type ImageFormat = "png" | "jpeg" | "webp";
+export type ImageFormat = "png" | "jpeg" | "webp" | "svg";
+
+export function imageMimeType(format: ImageFormat): string {
+	return format === "svg" ? "image/svg+xml" : `image/${format}`;
+}
 
 export function imageFormatFromBase64(b64: string): ImageFormat | undefined {
 	const header = Buffer.from(b64.slice(0, 16), "base64");
@@ -24,6 +28,10 @@ export function imageFormatFromBase64(b64: string): ImageFormat | undefined {
 		header.toString("latin1", 8, 12) === "WEBP"
 	) {
 		return "webp";
+	}
+	const text = header.toString("utf8").trimStart();
+	if (text.startsWith("<svg") || text.startsWith("<?xml")) {
+		return "svg";
 	}
 	return undefined;
 }
