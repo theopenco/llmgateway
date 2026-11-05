@@ -1,3 +1,5 @@
+import { imageFormatFromBase64 } from "@/lib/image-format.js";
+
 import {
 	billedServerToolUseCount,
 	fromConverseReasoningContent,
@@ -962,7 +964,7 @@ export function parseProviderResponse(
 				images = imageData.map((item: any): ImageObject => {
 					let url: string;
 					if (item.b64_json) {
-						url = `data:image/png;base64,${item.b64_json}`;
+						url = `data:image/${imageFormatFromBase64(item.b64_json) ?? "png"};base64,${item.b64_json}`;
 					} else {
 						url = item.url;
 					}

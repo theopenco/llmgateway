@@ -18,6 +18,7 @@ import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { ExpectedHTTPException } from "@/lib/expected-http-exception.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { imageFormatFromBase64 } from "@/lib/image-format.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
@@ -30,6 +31,7 @@ import { parseDynamicRouteModel } from "@llmgateway/shared/dynamic-route";
 
 import { isValidBase64ImageDataUrl } from "./data-url.js";
 
+import type { ImageFormat } from "@/lib/image-format.js";
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -970,7 +972,8 @@ const imageEditsRequestSchema = z.object({
 		example: "Add a watercolor effect to this image",
 	}),
 	background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
-		description: "Background behavior for generated image output.",
+		description:
+			"Background behavior for generated image output. OpenAI and Azure GPT Image models apply it natively and reject it when unsupported; `transparent` requires `png` or `webp` output. Other providers only receive it as a prompt hint.",
 		example: "transparent",
 	}),
 	input_fidelity: z.enum(["high", "low"]).optional().openapi({
@@ -1096,12 +1099,41 @@ async function fileToDataUri(file: File): Promise<string> {
 	return `data:${mimeType};base64,${base64}`;
 }
 
-function buildEditPrompt(request: ImageEditsRequest): string {
+const nativeOutputOptionProviders = new Set(["openai", "azure"]);
+
+function deliveredImageFormat(
+	images: Array<{ b64_json: string }>,
+): ImageFormat | undefined {
+	const formats = new Set(
+		images.map((img) => imageFormatFromBase64(img.b64_json)),
+	);
+	const [format] = formats;
+	return formats.size === 1 ? format : undefined;
+}
+
+function routesOnlyToNativeOutputOptionProviders(model: string): boolean {
+	const slashIdx = model.indexOf("/");
+	if (slashIdx > 0) {
+		return nativeOutputOptionProviders.has(model.slice(0, slashIdx));
+	}
+	const modelInfo = models.find((m) => m.id === model);
+	return (
+		modelInfo !== undefined &&
+		modelInfo.providers.every((p) =>
+			nativeOutputOptionProviders.has(p.providerId),
+		)
+	);
+}
+
+function buildEditPrompt(
+	request: ImageEditsRequest,
+	nativeOutputOptions: boolean,
+): string {
 	let prompt = `Edit the provided image(s) based on the following description: ${request.prompt}`;
 
-	if (request.background === "transparent") {
+	if (!nativeOutputOptions && request.background === "transparent") {
 		prompt += "\n\nBackground: transparent.";
-	} else if (request.background === "opaque") {
+	} else if (!nativeOutputOptions && request.background === "opaque") {
 		prompt += "\n\nBackground: opaque.";
 	}
 
@@ -1115,11 +1147,11 @@ function buildEditPrompt(request: ImageEditsRequest): string {
 		prompt += "\n\nQuality: prioritize speed over detail.";
 	}
 
-	if (request.output_format) {
+	if (!nativeOutputOptions && request.output_format) {
 		prompt += `\n\nOutput format: ${request.output_format}.`;
 	}
 
-	if (request.output_compression !== undefined) {
+	if (!nativeOutputOptions && request.output_compression !== undefined) {
 		prompt += `\n\nOutput compression: ${request.output_compression}.`;
 	}
 
@@ -1182,24 +1214,25 @@ async function parseMultipartEditsRequest(
 			rawRequest.n = n;
 		}
 	}
-	const sizeField = body["size"];
-	const sizeValue = Array.isArray(sizeField) ? sizeField[0] : sizeField;
-	if (typeof sizeValue === "string" && sizeValue) {
-		rawRequest.size = sizeValue;
+	for (const name of [
+		"size",
+		"quality",
+		"moderation",
+		"background",
+		"output_format",
+	]) {
+		const field = body[name];
+		const value = Array.isArray(field) ? field[0] : field;
+		if (typeof value === "string" && value) {
+			rawRequest[name] = value;
+		}
 	}
-	const qualityField = body["quality"];
-	const qualityValue = Array.isArray(qualityField)
-		? qualityField[0]
-		: qualityField;
-	if (typeof qualityValue === "string" && qualityValue) {
-		rawRequest.quality = qualityValue;
-	}
-	const moderationField = body["moderation"];
-	const moderationValue = Array.isArray(moderationField)
-		? moderationField[0]
-		: moderationField;
-	if (typeof moderationValue === "string" && moderationValue) {
-		rawRequest.moderation = moderationValue;
+	const compressionField = body["output_compression"];
+	const compressionValue = Array.isArray(compressionField)
+		? compressionField[0]
+		: compressionField;
+	if (typeof compressionValue === "string" && compressionValue) {
+		rawRequest.output_compression = Number(compressionValue);
 	}
 
 	const validationResult = imageEditsRequestSchema.safeParse(rawRequest);
@@ -1300,7 +1333,10 @@ async function processImageEdit(
 		});
 	}
 
-	const chatPrompt = buildEditPrompt(request);
+	const chatPrompt = buildEditPrompt(
+		request,
+		routesOnlyToNativeOutputOptionProviders(model),
+	);
 	contentParts.push({
 		type: "text",
 		text: chatPrompt,
@@ -1333,6 +1369,8 @@ async function processImageEdit(
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
 		request.output_format ||
+		request.output_compression !== undefined ||
+		request.background ||
 		normalizedEditQuality ||
 		request.moderation
 	) {
@@ -1341,6 +1379,7 @@ async function processImageEdit(
 			...(requestedSize && { image_size: requestedSize }),
 			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.background && { background: request.background }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {
@@ -1381,11 +1420,18 @@ async function processImageEdit(
 		...(usage && { usage }),
 	};
 
-	if (request.background && request.background !== "auto") {
-		imagesResponse.background = request.background;
-	}
-	if (request.output_format) {
-		imagesResponse.output_format = request.output_format;
+	if (nativeOutputOptionProviders.has(chatResponse.metadata?.used_provider)) {
+		if (request.background && request.background !== "auto") {
+			imagesResponse.background = request.background;
+		}
+		if (request.output_format) {
+			imagesResponse.output_format = request.output_format;
+		}
+	} else if (request.output_format) {
+		const deliveredFormat = deliveredImageFormat(imageObjects);
+		if (deliveredFormat) {
+			imagesResponse.output_format = deliveredFormat;
+		}
 	}
 	if (request.quality && request.quality !== "auto") {
 		imagesResponse.quality = request.quality;

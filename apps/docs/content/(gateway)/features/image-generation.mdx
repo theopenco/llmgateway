@@ -145,7 +145,7 @@ When `/v1/chat/completions` is converted to an OpenAI-compatible multipart image
 | `images`             | array of `{ image_url }` | yes      | Input images. `image_url` supports HTTPS URLs and base64 data URLs                |
 | `prompt`             | string                   | yes      | A text description of the desired image edit                                      |
 | `model`              | string                   | no       | Image editing model                                                               |
-| `background`         | enum                     | no       | `transparent`, `opaque`, or `auto`                                                |
+| `background`         | enum                     | no       | `transparent`, `opaque`, or `auto` — see [Transparency](#transparency)            |
 | `input_fidelity`     | enum                     | no       | `high` or `low`                                                                   |
 | `n`                  | integer                  | no       | Number of edited images to generate                                               |
 | `output_format`      | enum                     | no       | `png`, `jpeg`, or `webp`                                                          |
@@ -159,6 +159,14 @@ When `/v1/chat/completions` is converted to an OpenAI-compatible multipart image
 <Callout type="warning">
 	`mask` is not supported yet on `/v1/images/edits`.
 </Callout>
+
+`multipart/form-data` requests upload one `image` file instead of `images`. `input_fidelity`, `aspect_ratio`, and `service_tier` are JSON-only.
+
+### Transparency
+
+On `/v1/images/edits` and in chat `image_config`, `background`, `output_format`, and `output_compression` are sent to OpenAI and Azure, which return a `4xx` for values the model does not support. `/v1/images/generations` does not accept them. For a transparent image, use `openai/gpt-image-2.5-sunburst` or `openai/gpt-image-2.5-flare` with `background: "transparent"` and `output_format: "png"` or `"webp"`.
+
+Other providers do not receive these as parameters. `/v1/images/edits` adds them to the prompt instead, so their output can be opaque. When a request sets `output_format`, the response reports the format the provider returned if the gateway can detect it, and otherwise omits the field.
 
 ### curl (HTTPS image URL)
 
@@ -797,11 +805,14 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter       | Type   | Description                                                                                                                       |
-| --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `image_size`    | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.                                                   |
-| `image_quality` | string | `"low"`, `"medium"`, `"high"`, or `"auto"`; GPT Image 2.5 also supports `"xhigh"` and `"max"`. Defaults to `"auto"` when omitted. |
-| `moderation`    | string | `"auto"` or `"low"` — see [Moderation](#moderation). Defaults to `"auto"` when omitted.                                           |
+| Parameter            | Type   | Description                                                                                                                       |
+| -------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `image_size`         | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.                                                   |
+| `image_quality`      | string | `"low"`, `"medium"`, `"high"`, or `"auto"`; GPT Image 2.5 also supports `"xhigh"` and `"max"`. Defaults to `"auto"` when omitted. |
+| `moderation`         | string | `"auto"` or `"low"` — see [Moderation](#moderation). Defaults to `"auto"` when omitted.                                           |
+| `background`         | string | `"transparent"`, `"opaque"`, or `"auto"` — see [Transparency](#transparency).                                                     |
+| `output_format`      | string | `"png"`, `"jpeg"`, or `"webp"`.                                                                                                   |
+| `output_compression` | number | `0`–`100`, for `jpeg` and `webp` output.                                                                                          |
 
 <Callout type="warning">
 	OpenAI image models do **not** accept `aspect_ratio`. Always specify

@@ -72,6 +72,9 @@ export interface CreateLogEntryOptions {
 				image_size?: string;
 				image_quality?: string;
 				moderation?: string;
+				background?: string;
+				output_format?: string;
+				output_compression?: number;
 		  }
 		| undefined;
 	routingMetadata?: RoutingMetadata;
@@ -138,6 +141,9 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 			options.imageConfig?.image_size ||
 			options.imageConfig?.image_quality ||
 			options.imageConfig?.moderation ||
+			options.imageConfig?.background ||
+			options.imageConfig?.output_format ||
+			options.imageConfig?.output_compression !== undefined ||
 			clientSafetyParams.safety_identifier !== undefined
 				? {
 						...(options.imageConfig && { image_config: options.imageConfig }),
