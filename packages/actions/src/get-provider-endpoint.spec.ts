@@ -1804,3 +1804,19 @@ it.each([
 		`https://proxy.example.com/runpod/v2/${endpoint}/openai/v1/chat/completions`,
 	);
 });
+function azureSlashRuns() {
+	const path = "https://proxy.example.com/" + "/".repeat(20_000) + "path";
+	for (const baseUrl of [path, path + "/".repeat(20_000)]) {
+		expect(
+			resolveAzureBaseUrl({
+				providerKeyOptions: { env_config: { baseUrl } },
+				skipEnvVars: true,
+			}),
+		).toBe(path);
+	}
+}
+
+it(
+	"preserves embedded slash runs while trimming only the Azure URL suffix",
+	azureSlashRuns,
+);

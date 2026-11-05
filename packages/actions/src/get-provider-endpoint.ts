@@ -328,7 +328,11 @@ export function resolveAzureBaseUrl(options: {
 
 	const baseUrl = credentialConfig?.baseUrl ?? envValue("baseUrl");
 	if (baseUrl) {
-		return baseUrl.replace(/\/+$/, "");
+		let end = baseUrl.length;
+		while (end > 0 && baseUrl[end - 1] === "/") {
+			end--;
+		}
+		return baseUrl.slice(0, end);
 	}
 
 	const resource =
