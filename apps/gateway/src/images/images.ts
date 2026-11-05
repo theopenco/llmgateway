@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { svgOptionsSchema } from "@/chat/schemas/completions.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import {
 	extractCustomHeaders,
@@ -33,6 +34,7 @@ import { isValidBase64ImageDataUrl } from "./data-url.js";
 
 import type { ImageFormat } from "@/lib/image-format.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderModelMapping } from "@llmgateway/models";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
@@ -85,6 +87,20 @@ const imageGenerationsRequestSchema = z.object({
 		description:
 			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
 		example: "low",
+	}),
+	output_format: z.enum(["png", "jpeg", "webp", "svg"]).optional().openapi({
+		description:
+			"The file format of the generated image for GPT Image models. `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
+		example: "svg",
+	}),
+	svg: svgOptionsSchema.nullable().optional().openapi({
+		description:
+			"SVG author model and reasoning settings. Required when the OpenAI account has SVG model selection enabled; otherwise omit it.",
+	}),
+	output_compression: z.number().int().min(0).max(100).optional().openapi({
+		description:
+			"Compression level (0-100) for `jpeg` and `webp` output on GPT Image models.",
+		example: 80,
 	}),
 	service_tier: z
 		.enum(["auto", "default", "flex", "priority"])
@@ -154,6 +170,7 @@ const imageGenerationsResponseSchema = z.object({
 			revised_prompt: z.string().optional(),
 		}),
 	),
+	output_format: z.enum(["png", "jpeg", "webp", "svg"]).optional(),
 	usage: imagesUsageSchema.optional(),
 });
 
@@ -696,6 +713,65 @@ async function logImageClientError(
 	}
 }
 
+function parseImageModelRef(model: string): {
+	providerId: string | undefined;
+	modelId: string;
+} {
+	const slashIdx = model.indexOf("/");
+	if (slashIdx <= 0) {
+		return { providerId: undefined, modelId: model };
+	}
+	const modelKey = model.slice(slashIdx + 1);
+	return {
+		providerId: model.slice(0, slashIdx),
+		modelId: modelKey.includes(":")
+			? modelKey.slice(0, modelKey.lastIndexOf(":"))
+			: modelKey,
+	};
+}
+
+function providerMappings(modelId: string): ProviderModelMapping[] {
+	return (models.find((m) => m.id === modelId)?.providers ??
+		[]) as ProviderModelMapping[];
+}
+
+const svgOutputModelIds = models
+	.filter((m) => providerMappings(m.id).some((p) => p.svgOutput === true))
+	.map((m) => m.id);
+
+// SVG output is only served by mappings declaring `svgOutput`. A model
+// requested without a provider prefix must declare it on every active mapping,
+// so routing cannot land on one that rejects the format.
+function modelSupportsSvgOutput(model: string): boolean {
+	const { providerId, modelId } = parseImageModelRef(model);
+	const now = new Date();
+	const mappings = providerMappings(modelId).filter(
+		(p) =>
+			(!providerId || p.providerId === providerId) &&
+			(!p.deactivatedAt || p.deactivatedAt > now),
+	);
+	return mappings.length > 0 && mappings.every((p) => p.svgOutput === true);
+}
+
+function getSvgOutputError(
+	request: ImageGenerationsRequest,
+	model: string,
+): string | undefined {
+	if (request.output_format !== "svg") {
+		return request.svg ? "svg requires output_format=svg." : undefined;
+	}
+	if (!modelSupportsSvgOutput(model)) {
+		return `Model ${model} does not support SVG output. Use one of: ${svgOutputModelIds.join(", ")}.`;
+	}
+	if (request.n !== 1) {
+		return "SVG output supports only n=1.";
+	}
+	if (request.output_compression !== undefined) {
+		return "output_compression is not supported with SVG output.";
+	}
+	return undefined;
+}
+
 // Reject non-image models up front. Image generation forwards to
 // /v1/chat/completions (which accepts text and image models), so without this
 // guard a text-only model would be forwarded and produce a chat completion the
@@ -871,6 +947,19 @@ images.openapi(generations, async (c): Promise<any> => {
 
 	assertImageModel(model);
 
+	const svgOutputError = getSvgOutputError(request, model);
+	if (svgOutputError) {
+		await logImageClientError(
+			c,
+			getLogContext,
+			buildImageClientErrorLogRequest("images.generations", rawBody),
+			400,
+			svgOutputError,
+			startedAt,
+		);
+		throw new HTTPException(400, { message: svgOutputError });
+	}
+
 	// Build the chat completions request
 	const chatPrompt = buildImagePrompt(request);
 	const aspectRatio =
@@ -901,6 +990,8 @@ images.openapi(generations, async (c): Promise<any> => {
 		request.size ||
 		normalizedQuality ||
 		request.moderation ||
+		request.output_format ||
+		request.output_compression !== undefined ||
 		request.n > 1
 	) {
 		chatRequest.image_config = {
@@ -908,6 +999,11 @@ images.openapi(generations, async (c): Promise<any> => {
 			...(request.size && { image_size: request.size }),
 			...(normalizedQuality && { image_quality: normalizedQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.output_format && { output_format: request.output_format }),
+			...(request.svg && { svg: request.svg }),
+			...(request.output_compression !== undefined && {
+				output_compression: request.output_compression,
+			}),
 			n: request.n,
 		};
 	}
@@ -944,6 +1040,16 @@ images.openapi(generations, async (c): Promise<any> => {
 		data: truncatedImages,
 		...(usage && { usage }),
 	};
+	if (request.output_format) {
+		const outputFormat = nativeOutputOptionProviders.has(
+			chatResponse.metadata?.used_provider,
+		)
+			? request.output_format
+			: deliveredImageFormat(imageObjects);
+		if (outputFormat) {
+			imagesResponse.output_format = outputFormat;
+		}
+	}
 
 	logger.debug("Images API - returning response", {
 		imageCount: truncatedImages.length,
@@ -1429,7 +1535,7 @@ async function processImageEdit(
 		}
 	} else if (request.output_format) {
 		const deliveredFormat = deliveredImageFormat(imageObjects);
-		if (deliveredFormat) {
+		if (deliveredFormat && deliveredFormat !== "svg") {
 			imagesResponse.output_format = deliveredFormat;
 		}
 	}

@@ -10,6 +10,18 @@ export const reasoningDetailsSchema = z.array(
 		.passthrough(),
 );
 
+export const svgOptionsSchema = z.object({
+	model: z.string().min(1),
+	reasoning: z
+		.object({
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+				.nullable()
+				.optional(),
+		})
+		.nullable()
+		.optional(),
+});
 export const completionsRequestSchema = z.object({
 	model: z.string().openapi({
 		example: "gpt-5",
@@ -564,6 +576,7 @@ export const completionsRequestSchema = z.object({
 			moderation: z.enum(["auto", "low"]).optional(),
 			background: z.string().optional(),
 			output_format: z.string().optional(),
+			svg: svgOptionsSchema.nullable().optional(),
 			output_compression: z.number().optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),

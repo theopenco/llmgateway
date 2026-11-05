@@ -1,4 +1,4 @@
-import { imageFormatFromBase64 } from "@/lib/image-format.js";
+import { imageFormatFromBase64, imageMimeType } from "@/lib/image-format.js";
 
 import {
 	billedServerToolUseCount,
@@ -7,6 +7,7 @@ import {
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
+	type SvgAuthorUsage,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
@@ -58,6 +59,30 @@ function sealedThinkingDetails(
 	return details.length > 0 ? details : null;
 }
 
+// OpenAI reports the tokens of the model that authors an SVG separately from
+// the image model's `usage`; they are billed at the authoring model's rates.
+function parseSvgAuthorUsage(svgUsage: unknown): SvgAuthorUsage | null {
+	if (!svgUsage || typeof svgUsage !== "object") {
+		return null;
+	}
+	const usage = svgUsage as Record<string, unknown>;
+	const count = (value: unknown) =>
+		typeof value === "number" && Number.isFinite(value) && value > 0
+			? value
+			: 0;
+	const inputTokens = count(usage.input_tokens);
+	const outputTokens = count(usage.output_tokens);
+	if (inputTokens === 0 && outputTokens === 0) {
+		return null;
+	}
+	return {
+		model: typeof usage.model === "string" ? usage.model : null,
+		inputTokens,
+		outputTokens,
+		reasoningTokens: count(usage.reasoning_tokens),
+	};
+}
+
 /**
  * Parses response content and metadata from different providers
  */
@@ -104,6 +129,7 @@ export function parseProviderResponse(
 	let imageOutputTokens: number | null = null;
 	let audioInputTokens: number | null = null;
 	let cachedAudioInputTokens: number | null = null;
+	let svgAuthorUsage: SvgAuthorUsage | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
 	let anthropicContent: AnthropicNativeBlock[] | null = null;
@@ -964,7 +990,7 @@ export function parseProviderResponse(
 				images = imageData.map((item: any): ImageObject => {
 					let url: string;
 					if (item.b64_json) {
-						url = `data:image/${imageFormatFromBase64(item.b64_json) ?? "png"};base64,${item.b64_json}`;
+						url = `data:${imageMimeType(imageFormatFromBase64(item.b64_json) ?? "png")};base64,${item.b64_json}`;
 					} else {
 						url = item.url;
 					}
@@ -986,6 +1012,7 @@ export function parseProviderResponse(
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens ?? 0) + (completionTokens ?? 0);
+				svgAuthorUsage = parseSvgAuthorUsage(json.svg_usage);
 				break;
 			}
 			// Check if this is an xAI Grok Imagine image generation response
@@ -1578,6 +1605,7 @@ export function parseProviderResponse(
 		imageOutputTokens,
 		audioInputTokens,
 		cachedAudioInputTokens,
+		svgAuthorUsage,
 		toolResults,
 		anthropicNativeBlocks,
 		anthropicContent,

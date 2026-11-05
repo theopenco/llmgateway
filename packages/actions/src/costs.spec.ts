@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@llmgateway/logger";
@@ -1630,7 +1631,135 @@ describe("calculateCosts", () => {
 		});
 	});
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	const gptImageTokenModels = [
+		"gpt-image-2",
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.6-sunburst",
+		"gpt-image-2.6-flare",
+	];
+
+	describe("SVG author usage", () => {
+		async function svgCosts(
+			model: string | null,
+			organizationId: string | null = null,
+			effectiveDiscount?: { discount: string; source: "org_provider_model" },
+		) {
+			return await calculateCosts(
+				"gpt-image-2.6-flare",
+				"openai",
+				null,
+				10,
+				400,
+				null,
+				undefined,
+				null,
+				1,
+				undefined,
+				0,
+				null,
+				organizationId,
+				"medium",
+				0,
+				400,
+				{
+					effectiveDiscount,
+					svgAuthorUsage: {
+						model,
+						inputTokens: 1000,
+						outputTokens: 2000,
+						reasoningTokens: 500,
+					},
+				},
+			);
+		}
+
+		it.each(["gpt-5.4-mini", "gpt-5.4-mini-2026-03-17"])(
+			"bills %s authoring tokens at the author's rates",
+			async (author) => {
+				const result = await svgCosts(author);
+
+				const imageInputCost = 10 * 5e-6;
+				const authorInputCost = 1000 * 0.75e-6;
+				const imageOutputCost = 400 * 30e-6;
+				const authorOutputCost = 2000 * 4.5e-6;
+				expect(result.inputCost).toBeCloseTo(
+					imageInputCost + authorInputCost,
+					10,
+				);
+				expect(result.outputCost).toBeCloseTo(
+					imageOutputCost + authorOutputCost,
+					10,
+				);
+				expect(result.imageOutputCost).toBeCloseTo(400 * 30e-6, 10);
+				expect(result.totalCost).toBeCloseTo(0.0218, 10);
+			},
+		);
+
+		it.each([null, "unlisted-svg-author"])(
+			"does not invent a rate for an unknown author (%s)",
+			async (author) => {
+				const error = vi.spyOn(logger, "error");
+				const result = await svgCosts(author);
+				expect(result.inputCost).toBeCloseTo(10 * 5e-6, 10);
+				expect(result.outputCost).toBeCloseTo(400 * 30e-6, 10);
+				expect(error).toHaveBeenCalledWith(
+					"Unknown SVG author model, authoring cost omitted for reconciliation",
+					{ authorModel: author },
+				);
+			},
+		);
+		it.each([
+			["0.2", "0", false],
+			["0", "0.5", false],
+			["0.2", "0.5", false],
+			["0.2", "0.5", true],
+		] as const)(
+			"applies image discount %s and author discount %s independently (pre-resolved %s)",
+			async (imageDiscount, authorDiscount, preResolved) => {
+				mockGetEffectiveDiscount.mockImplementation(
+					async (
+						_organizationId: string | null,
+						_provider: string,
+						model: string,
+					) => ({
+						discount: model === "gpt-5.4-mini" ? authorDiscount : imageDiscount,
+						source: "org_provider_model",
+					}),
+				);
+				const result = await svgCosts(
+					"gpt-5.4-mini-2026-03-17",
+					"test-org",
+					preResolved
+						? { discount: imageDiscount, source: "org_provider_model" }
+						: undefined,
+				);
+				const imageMultiplier = new Decimal(1).minus(imageDiscount);
+				const authorMultiplier = new Decimal(1).minus(authorDiscount);
+				expect(result.inputCost).toBeCloseTo(
+					new Decimal("0.00005")
+						.times(imageMultiplier)
+						.plus(new Decimal("0.00075").times(authorMultiplier))
+						.toNumber(),
+					10,
+				);
+				expect(result.outputCost).toBeCloseTo(
+					new Decimal("0.012")
+						.times(imageMultiplier)
+						.plus(new Decimal("0.009").times(authorMultiplier))
+						.toNumber(),
+					10,
+				);
+				expect(mockGetEffectiveDiscount).toHaveBeenCalledWith(
+					"test-org",
+					"openai",
+					"gpt-5.4-mini",
+				);
+			},
+		);
+	});
+
+	it.each(gptImageTokenModels)(
 		"should use reported image output tokens for %s",
 		async (model) => {
 			const result = await calculateCosts(
@@ -1663,7 +1792,7 @@ describe("calculateCosts", () => {
 		},
 	);
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	it.each(gptImageTokenModels)(
 		"should bill reported image input tokens at imageInputPrice for %s edits",
 		async (model) => {
 			// /v1/images/edits sends input images as part of the prompt. OpenAI's
@@ -1795,7 +1924,7 @@ describe("calculateCosts", () => {
 		},
 	);
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	it.each(gptImageTokenModels)(
 		"should split cached tokens between text and image rates for %s",
 		async (model) => {
 			// OpenAI returns a single cached_tokens count without splitting text/image,
@@ -1850,7 +1979,7 @@ describe("calculateCosts", () => {
 		},
 	);
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	it.each(gptImageTokenModels)(
 		"should bill cached image tokens for %s even when fully cached",
 		async (model) => {
 			// Edge case: cached_tokens equals image_tokens. All image is cached, all

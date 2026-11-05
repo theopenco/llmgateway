@@ -248,6 +248,7 @@ interface OpenAIImageRequest {
 	output_compression?: number;
 	n?: number;
 	image?: string | string[];
+	svg?: SvgImageOptions | null;
 }
 
 /**
@@ -1755,6 +1756,7 @@ export async function prepareRequestBody(
 		moderation?: string;
 		background?: string;
 		output_format?: string;
+		svg?: SvgImageOptions | null;
 		output_compression?: number;
 		n?: number;
 		seed?: number;
@@ -2007,6 +2009,7 @@ export async function prepareRequestBody(
 			...(image_config?.background && { background: image_config.background }),
 			...(image_config?.output_format && {
 				output_format: image_config.output_format,
+				...(image_config.svg && { svg: image_config.svg }),
 			}),
 			...(image_config?.output_compression !== undefined && {
 				output_compression: image_config.output_compression,
@@ -5748,4 +5751,11 @@ function foldSingleMemberAllOf(schema: any): any {
 		return { ...member, ...result };
 	}
 	return result;
+}
+export interface SvgImageOptions {
+	model: string;
+	reasoning?: {
+		effort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
+	} | null;
 }
