@@ -76,25 +76,31 @@ async function readBodyWithLimit(
 	maxSizeBytes: number,
 	maxSizeMB: number,
 	userPlan: "free" | "pro" | "enterprise" | null,
+	signal?: AbortSignal,
 ): Promise<Buffer> {
+	signal?.throwIfAborted();
 	if (!response.body) {
 		return Buffer.alloc(0);
 	}
-
 	const reader = response.body.getReader();
+	const cancelOnAbort = () => cancelImageBody(reader);
+	signal?.addEventListener("abort", cancelOnAbort, { once: true });
+	if (signal?.aborted) {
+		cancelOnAbort();
+	}
 	const chunks: Uint8Array[] = [];
 	let received = 0;
-
 	try {
 		for (;;) {
+			signal?.throwIfAborted();
 			const { done, value } = await reader.read();
+			signal?.throwIfAborted();
 			if (done) {
 				break;
 			}
 			if (!value) {
 				continue;
 			}
-
 			received += value.byteLength;
 			if (received > maxSizeBytes) {
 				cancelImageBody(reader);
@@ -108,13 +114,12 @@ async function readBodyWithLimit(
 					getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 				);
 			}
-
 			chunks.push(value);
 		}
 	} finally {
+		signal?.removeEventListener("abort", cancelOnAbort);
 		reader.releaseLock();
 	}
-
 	return Buffer.concat(chunks);
 }
 
@@ -130,6 +135,7 @@ export async function processImageUrl(
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 	signal?: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
+	signal?.throwIfAborted();
 	// Handle data URLs directly without network fetch
 	if (url.slice(0, 5).toLowerCase() === "data:") {
 		const parsed = parseDataUrl(url);
@@ -275,6 +281,7 @@ export async function processImageUrl(
 			maxSizeBytes,
 			maxSizeMB,
 			userPlan,
+			signal,
 		);
 
 		return {
