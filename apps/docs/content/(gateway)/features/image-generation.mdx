@@ -166,7 +166,7 @@ When `/v1/chat/completions` is converted to an OpenAI-compatible multipart image
 
 On `/v1/images/edits` and in chat `image_config`, `background`, `output_format`, and `output_compression` are sent to OpenAI and Azure, which return a `4xx` for values the model does not support. `/v1/images/generations` does not accept them. For a transparent image, use `openai/gpt-image-2.5-sunburst` or `openai/gpt-image-2.5-flare` with `background: "transparent"` and `output_format: "png"` or `"webp"`.
 
-Other providers do not receive these as parameters. `/v1/images/edits` adds them to the prompt instead, so their output can be opaque, and the response's `output_format` reports the format the provider returned.
+Other providers do not receive these as parameters. `/v1/images/edits` adds them to the prompt instead, so their output can be opaque. When a request sets `output_format`, the response reports the format the provider returned if the gateway can detect it, and otherwise omits the field.
 
 ### curl (HTTPS image URL)
 
