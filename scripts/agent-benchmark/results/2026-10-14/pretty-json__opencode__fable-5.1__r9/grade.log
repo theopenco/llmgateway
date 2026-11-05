@@ -1,5 +1,5 @@
 
-[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo[39m
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo[39m
 
  [31m❯[39m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts [2m([22m[2m12 tests[22m[2m | [22m[31m6 failed[39m[2m)[22m[32m 29[2mms[22m[39m
      [32m✓[39m Should return pretty JSON output[32m 15[2mms[22m[39m
@@ -27,11 +27,11 @@
 [90m    at successSteps (node:internal/deps/undici/undici:6967:27)[39m
 [90m    at consumeBody (node:internal/deps/undici/undici:6973:9)[39m
 [90m    at _Response.json (node:internal/deps/undici/undici:6912:18)[39m
-    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
+    at prettyJSON [90m($BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
 [90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
-    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/compose.ts:51:17[90m)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/hono-base.ts:456:25
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.test.ts:131:17
+    at dispatch [90m($BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/hono-base.ts:456:25
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.test.ts:131:17
 
 [90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould not break 304 responses with a JSON content-type
 [22m[39mSyntaxError: Unexpected end of JSON input
@@ -40,11 +40,11 @@
 [90m    at successSteps (node:internal/deps/undici/undici:6967:27)[39m
 [90m    at consumeBody (node:internal/deps/undici/undici:6973:9)[39m
 [90m    at _Response.json (node:internal/deps/undici/undici:6912:18)[39m
-    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
+    at prettyJSON [90m($BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
 [90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
-    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/compose.ts:51:17[90m)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/hono-base.ts:456:25
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.test.ts:144:17
+    at dispatch [90m($BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/hono-base.ts:456:25
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.test.ts:144:17
 
 [90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould not break empty responses with a JSON content-type
 [22m[39mSyntaxError: Unexpected end of JSON input
@@ -66,12 +66,12 @@
 [22m[39mTypeError: Body is unusable: Body has already been read
 [90m    at consumeBody (node:internal/deps/undici/undici:6961:31)[39m
 [90m    at _Response.json (node:internal/deps/undici/undici:6912:18)[39m
-    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
+    at prettyJSON [90m($BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.ts:55:31[90m)[39m
 [90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
-    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/compose.ts:51:17[90m)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/hono-base.ts:456:25
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.test.ts:195:17
-    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
+    at dispatch [90m($BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/hono-base.ts:456:25
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39msrc/middleware/pretty-json/index.test.ts:195:17
+    at [90mfile://$BENCH_HOME/runs/2026-10-14/pretty-json__opencode__fable-5.1__r9/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
 
 
 [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 6 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m

@@ -1,5 +1,5 @@
 
-[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo[39m
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m$BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo[39m
 
  [31m❯[39m [30m[45m main [49m[39m src/middleware/pretty-json/index.test.ts [2m([22m[2m12 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[32m 27[2mms[22m[39m
      [32m✓[39m Should return pretty JSON output[32m 14[2mms[22m[39m
@@ -25,24 +25,24 @@
 [90m    at Object.webidl.errors.exception (node:internal/deps/undici/undici:4784:14)[39m
 [90m    at initializeResponse (node:internal/deps/undici/undici:11653:31)[39m
 [90m    at new Response (node:internal/deps/undici/undici:11393:9)[39m
-    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.ts:67:17[90m)[39m
+    at prettyJSON [90m($BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.ts:67:17[90m)[39m
 [90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
-    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/compose.ts:51:17[90m)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/hono-base.ts:456:25
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.test.ts:131:17
-    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
+    at dispatch [90m($BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/hono-base.ts:456:25
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.test.ts:131:17
+    at [90mfile://$BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
 
 [90mstderr[2m | src/middleware/pretty-json/index.test.ts[2m > [22m[2mJSON pretty by Middleware[2m > [22m[2mShould not break 304 responses with a JSON content-type
 [22m[39mTypeError: Response constructor: Invalid response status code 304
 [90m    at Object.webidl.errors.exception (node:internal/deps/undici/undici:4784:14)[39m
 [90m    at initializeResponse (node:internal/deps/undici/undici:11653:31)[39m
 [90m    at new Response (node:internal/deps/undici/undici:11393:9)[39m
-    at prettyJSON [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.ts:67:17[90m)[39m
+    at prettyJSON [90m($BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.ts:67:17[90m)[39m
 [90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
-    at dispatch [90m(/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/compose.ts:51:17[90m)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/hono-base.ts:456:25
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.test.ts:144:17
-    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
+    at dispatch [90m($BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/compose.ts:51:17[90m)[39m
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/hono-base.ts:456:25
+    at [90m$BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39msrc/middleware/pretty-json/index.test.ts:144:17
+    at [90mfile://$BENCH_HOME/runs/2026-10-14/pretty-json__claude-code__glm-5.3-flash__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
 
 
 [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m

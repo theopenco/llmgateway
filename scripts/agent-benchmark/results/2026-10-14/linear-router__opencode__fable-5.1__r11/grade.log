@@ -1,5 +1,5 @@
 
-[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/linear-router__opencode__fable-5.1__r11/repo[39m
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m$BENCH_HOME/runs/2026-10-14/linear-router__opencode__fable-5.1__r11/repo[39m
 
 [90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mComplex[2m > [22m[2mParameter with {.*} regexp
 [22m[39mSkip: UnsupportedPath

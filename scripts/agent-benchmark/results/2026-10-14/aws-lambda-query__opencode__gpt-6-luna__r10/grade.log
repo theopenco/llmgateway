@@ -1,5 +1,5 @@
 
-[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-10-14/aws-lambda-query__opencode__gpt-6-luna__r10/repo[39m
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m$BENCH_HOME/runs/2026-10-14/aws-lambda-query__opencode__gpt-6-luna__r10/repo[39m
 
  [32m✓[39m [30m[45m main [49m[39m src/adapter/aws-lambda/handler.test.ts [2m([22m[2m46 tests[22m[2m)[22m[32m 35[2mms[22m[39m
 

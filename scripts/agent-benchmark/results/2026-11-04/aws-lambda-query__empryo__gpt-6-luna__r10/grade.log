@@ -1,5 +1,5 @@
 
-[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo[39m
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo[39m
 
  [31m❯[39m [30m[45m main [49m[39m src/adapter/aws-lambda/handler.test.ts [2m([22m[2m46 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 44[2mms[22m[39m
      [32m✓[39m Should determine whether image/png it is binary[32m 1[2mms[22m[39m
@@ -59,13 +59,13 @@
 [90m    at Object.webidl.errors.exception (node:internal/deps/undici/undici:4898:14)[39m
 [90m    at Object.webidl.errors.invalidArgument (node:internal/deps/undici/undici:4909:28)[39m
 [90m    at _Headers.set (node:internal/deps/undici/undici:11529:31)[39m
-    at EventV2Processor.getHeaders [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:437:19[90m)[39m
-    at EventV2Processor.createRequest [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:329:26[90m)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:261:23
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.test.ts:509:26
-    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
-    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
-    at [90mfile:///Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at EventV2Processor.getHeaders [90m($BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:437:19[90m)[39m
+    at EventV2Processor.createRequest [90m($BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:329:26[90m)[39m
+    at [90m$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:261:23
+    at [90m$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.test.ts:509:26
+    at [90mfile://$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at [90mfile://$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at [90mfile://$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
 
 [90mstderr[2m | src/adapter/aws-lambda/handler.test.ts[2m > [22m[2mhandle[2m > [22m[2mShould return 400 when request contains invalid header names (v1)
 [22m[39mError processing request: TypeError: Headers.append: "a"a" is an invalid header name.
@@ -73,12 +73,12 @@
 [90m    at Object.webidl.errors.invalidArgument (node:internal/deps/undici/undici:4909:28)[39m
 [90m    at appendHeader (node:internal/deps/undici/undici:11216:29)[39m
 [90m    at _Headers.append (node:internal/deps/undici/undici:11467:16)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:484:41
+    at [90m$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:484:41
     at Array.forEach (<anonymous>)
-    at EventV1Processor.getHeaders [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:484:18[90m)[39m
-    at EventV1Processor.createRequest [90m(/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:329:26[90m)[39m
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:261:23
-    at [90m/Users/smakosh/agent-benchmark-work/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.test.ts:586:26
+    at EventV1Processor.getHeaders [90m($BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:484:18[90m)[39m
+    at EventV1Processor.createRequest [90m($BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:329:26[90m)[39m
+    at [90m$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.ts:261:23
+    at [90m$BENCH_HOME/runs/2026-11-04/aws-lambda-query__empryo__gpt-6-luna__r10/repo/[39msrc/adapter/aws-lambda/handler.test.ts:586:26
 
 
 [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
