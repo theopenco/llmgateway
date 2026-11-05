@@ -2021,13 +2021,14 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const body = c.req.valid("json");
 	const config = normalizeConfig(body.config);
 	const allowedModels = normalizeAllowedModels(body.allowedModels);
+	const region = body.region?.trim() || null;
 
 	await validateConfig(body.provider, config);
-	validateRegion(body.provider, body.region?.trim() || null);
+	validateRegion(body.provider, region);
 	await validateManagedAllowedModels(
 		body.provider,
 		allowedModels,
-		managedCredentialValidationOptions(body.provider, config, body.region),
+		managedCredentialValidationOptions(body.provider, config, region),
 	);
 
 	if (!body.skipValidation) {
@@ -2035,7 +2036,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			body.provider,
 			body.token,
 			config,
-			body.region,
+			region,
 			allowedModels,
 			c.req.raw.headers,
 		);
@@ -2066,7 +2067,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				comment: body.comment?.trim() || null,
 				variant: body.variant ?? "default",
 				selectionStrategy: body.selectionStrategy ?? "ordered",
-				region: body.region?.trim() || null,
+				region,
 				config,
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
@@ -2165,6 +2166,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
+	const region =
+		body.region !== undefined ? body.region?.trim() || null : existing.region;
+
 	// Soft-deleted credentials stay editable (e.g. renamed for the history they
 	// are kept for), but never move back into rotation.
 	const wasDeleted = isRemovedProviderKeyStatus(existing.status);
@@ -2200,7 +2204,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.region !== undefined) {
-		validateRegion(existing.provider, body.region?.trim() || null);
+		validateRegion(existing.provider, region);
 	}
 
 	if (body.allowedModels !== undefined) {
@@ -2225,7 +2229,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			managedCredentialValidationOptions(
 				existing.provider,
 				updates.config ?? existing.config ?? {},
-				body.region !== undefined ? body.region : existing.region,
+				region,
 			),
 		);
 		updates.allowedModels = allowedModels;
@@ -2258,7 +2262,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			existing.provider,
 			body.token ?? readProviderKey(existing),
 			updates.config ?? existing.config ?? {},
-			body.region !== undefined ? body.region : existing.region,
+			region,
 			body.allowedModels !== undefined
 				? (updates.allowedModels ?? null)
 				: existing.allowedModels,
@@ -2287,7 +2291,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		updates.selectionStrategy = body.selectionStrategy;
 	}
 	if (body.region !== undefined) {
-		updates.region = body.region?.trim() || null;
+		updates.region = region;
 	}
 	if (body.status !== undefined) {
 		updates.status = body.status;

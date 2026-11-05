@@ -681,7 +681,7 @@ async function verificationPricing(job: VerificationRow) {
 		throw new Error("Verification inference mapping changed.");
 	}
 	const filing =
-		job.draftModelId && !isDailyModelVerification(job)
+		job.draftModelId && !mapping && !isDailyModelVerification(job)
 			? await db.query.providerPriceFiling.findFirst({
 					where: {
 						draftModelId: { eq: job.draftModelId },

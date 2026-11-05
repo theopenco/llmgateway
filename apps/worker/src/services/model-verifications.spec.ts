@@ -1293,3 +1293,79 @@ it.each([true, false])(
 		}
 	},
 );
+
+it.each(["pending filing", "target snapshot", "both"])(
+	"bills the mapped approved price instead of %s",
+	async (proposal) => {
+		const { verificationId, providerId } = await seedActiveListing({
+			pendingMetadata:
+				proposal === "target snapshot" ? undefined : { tools: true },
+		});
+		const mapping = (await db.query.modelProviderMapping.findFirst({
+			where: { providerId: { eq: providerId }, source: { eq: "airside" } },
+		}))!;
+		if (proposal !== "pending filing") {
+			const job = (await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: verificationId } },
+			}))!;
+			await db
+				.update(tables.providerModelVerification)
+				.set({
+					target: {
+						...job.target,
+						pricing: {
+							inputPrice: "11",
+							outputPrice: "12",
+							cachedInputPrice: "13",
+							requestPrice: "14",
+						},
+					},
+				})
+				.where(eq(tables.providerModelVerification.id, verificationId));
+		}
+		const { prices, gatewayFetch } = captureGatewayPricing();
+		const filingQuery = vi.spyOn(db.query.providerPriceFiling, "findFirst");
+		try {
+			await processNextModelVerification(completeThroughGateway);
+			expect(gatewayFetch).toHaveBeenCalledOnce();
+			expect(filingQuery).not.toHaveBeenCalled();
+			expect(prices).toEqual([
+				{ inputPrice: mapping.inputPrice, outputPrice: mapping.outputPrice },
+			]);
+		} finally {
+			filingQuery.mockRestore();
+			vi.unstubAllGlobals();
+			vi.unstubAllEnvs();
+		}
+	},
+);
+it("uses the pending initial filing when the draft has no materialized mapping", async () => {
+	const { verificationId, providerId, draftModelId } = await seedActiveListing({
+		pendingMetadata: { tools: true },
+	});
+	const filing = (await db.query.providerPriceFiling.findFirst({
+		where: { draftModelId: { eq: draftModelId } },
+		orderBy: { createdAt: "desc", id: "desc" },
+	}))!;
+	await db
+		.delete(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.providerId, providerId));
+	const { prices, gatewayFetch } = captureGatewayPricing();
+	try {
+		await processNextModelVerification(completeThroughGateway);
+		expect(gatewayFetch).toHaveBeenCalledOnce();
+		expect(prices).toEqual([
+			{ inputPrice: filing.inputPrice, outputPrice: filing.outputPrice },
+		]);
+		expect(
+			(
+				await db.query.providerModelVerification.findFirst({
+					where: { id: { eq: verificationId } },
+				})
+			)?.status,
+		).toBe("passed");
+	} finally {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	}
+});

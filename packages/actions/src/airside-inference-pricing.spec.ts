@@ -8,7 +8,7 @@ import {
 import { airsideInferencePricing } from "./airside-inference-pricing.js";
 import { buildVerificationTarget } from "./model-verification-target.js";
 
-import type { tables } from "@llmgateway/db";
+import type { tables, ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ModelDefinition } from "@llmgateway/models";
 
 const models: readonly ModelDefinition[] = catalogueDefinitions;
@@ -226,3 +226,149 @@ it("retains static tiers for an explicitly selected catalogue mapping", () => {
 		mapping.pricingTiers,
 	);
 });
+function proposedPrices(region: string) {
+	return {
+		inputPrice: "1",
+		outputPrice: "2",
+		cachedInputPrice: "3",
+		requestPrice: "4",
+		regionPrices: [
+			{
+				region,
+				inputPrice: "5",
+				outputPrice: "6",
+				cachedInputPrice: "7",
+				requestPrice: "8",
+			},
+		],
+	} as typeof tables.providerPriceFiling.$inferSelect;
+}
+
+it("keeps authoritative flat mapping prices and nullable rates over every proposed price source", () => {
+	const target = quotedTarget({
+		providerId: "approved-provider",
+		modelName: "approved-model",
+		externalId: "approved-upstream",
+		region: "approved-region",
+		pricing: {
+			inputPrice: "11",
+			outputPrice: "12",
+			cachedInputPrice: "13",
+			requestPrice: "14",
+		},
+	});
+	const row = {
+		source: "airside",
+		providerId: target.providerId,
+		modelId: target.modelName,
+		externalId: target.externalId,
+		region: target.region,
+		inputPrice: "0.000001",
+		outputPrice: "0.000002",
+		cachedInputPrice: null,
+		requestPrice: null,
+	} as typeof tables.modelProviderMapping.$inferSelect;
+	expect(
+		airsideInferencePricing(target, row, proposedPrices(target.region!)),
+	).toMatchObject({
+		inputPrice: row.inputPrice,
+		outputPrice: row.outputPrice,
+		cachedInputPrice: undefined,
+		requestPrice: undefined,
+	});
+});
+it("retains exact catalogue static metadata despite unrelated pending quotes", () => {
+	const model = models.find((candidate) =>
+		candidate.providers.some((mapping) => mapping.pricingTiers?.length),
+	)!;
+	const mapping = expandAllProviderRegions(model.providers).find(
+		(candidate) => candidate.pricingTiers?.length,
+	)!;
+	const target = quotedTarget({
+		providerId: mapping.providerId,
+		modelName: model.id,
+		externalId: mapping.externalId,
+		region: mapping.region,
+		pricing: {
+			inputPrice: "11",
+			outputPrice: "12",
+			cachedInputPrice: "13",
+			requestPrice: "14",
+		},
+	});
+	const row = {
+		source: "catalogue",
+		providerId: target.providerId,
+		modelId: target.modelName,
+		externalId: target.externalId,
+		region: target.region ?? null,
+		inputPrice: mapping.inputPrice ?? null,
+		outputPrice: mapping.outputPrice ?? null,
+		cachedInputPrice: null,
+		requestPrice: null,
+	} as typeof tables.modelProviderMapping.$inferSelect;
+	const prices = airsideInferencePricing(
+		target,
+		row,
+		proposedPrices(target.region ?? "other-region"),
+	);
+	expect(prices.inputPrice).toBe(
+		mapping.inputPrice ?? mapping.pricingTiers![0].inputPrice,
+	);
+	expect(prices.outputPrice).toBe(
+		mapping.outputPrice ?? mapping.pricingTiers![0].outputPrice,
+	);
+	expect(prices.cachedInputPrice).toBe(mapping.cachedInputPrice);
+	expect(prices.requestPrice).toBe(mapping.requestPrice);
+	expect(prices.pricingTiers).toEqual(mapping.pricingTiers);
+	expect(prices.peakPricing).toEqual(mapping.peakPricing);
+});
+it("still uses initial regional filing prices when no authoritative mapping exists", () => {
+	const target = quotedTarget({
+		providerId: "initial-provider",
+		modelName: "initial-model",
+		region: "initial-region",
+		pricing: {
+			inputPrice: "11",
+			outputPrice: "12",
+			cachedInputPrice: "13",
+			requestPrice: "14",
+		},
+	});
+	expect(
+		airsideInferencePricing(target, undefined, proposedPrices(target.region!)),
+	).toMatchObject({
+		inputPrice: "5",
+		outputPrice: "6",
+		cachedInputPrice: "7",
+		requestPrice: "8",
+	});
+});
+it("does not fill unknown authoritative flat base rates from proposals", () => {
+	const target = quotedTarget({
+		providerId: "unknown-rate-provider",
+		modelName: "unknown-rate-model",
+		externalId: "unknown-upstream",
+		pricing: { inputPrice: "11", outputPrice: "12" },
+	});
+	const row = {
+		source: "airside",
+		providerId: target.providerId,
+		modelId: target.modelName,
+		externalId: target.externalId,
+		region: null,
+		inputPrice: null,
+		outputPrice: null,
+	} as typeof tables.modelProviderMapping.$inferSelect;
+	expect(() =>
+		airsideInferencePricing(target, row, proposedPrices("other-region")),
+	).toThrow("pricing is unavailable");
+});
+function quotedTarget(
+	input: Parameters<typeof buildVerificationTarget>[0] & {
+		pricing: NonNullable<ProviderModelVerificationTarget["pricing"]>;
+	},
+) {
+	const { pricing, ...declaration } = input;
+	return { ...buildVerificationTarget(declaration), pricing };
+}

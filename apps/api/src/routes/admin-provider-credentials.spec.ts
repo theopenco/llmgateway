@@ -3406,6 +3406,8 @@ describe("managed credential Airside listings", () => {
 	});
 
 	afterEach(async () => {
+		restoreManagedGatewayProbe?.();
+		restoreManagedGatewayProbe = undefined;
 		vi.unstubAllEnvs();
 		vi.unstubAllGlobals();
 		validateProviderKeyMock.mockClear();
@@ -3597,6 +3599,157 @@ describe("managed credential Airside listings", () => {
 			}
 		}
 	});
+
+	async function createRegionNormalizationFixture() {
+		await createListing("aws-bedrock");
+		await db.insert(tables.modelProviderMapping).values({
+			providerId: "aws-bedrock",
+			modelId,
+			externalId: "airside-eu",
+			region: "eu-central-1",
+			source: "airside",
+			inputPrice: "7e-6",
+			outputPrice: "9e-6",
+		});
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Regional Carrier" })
+			.returning();
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "aws-bedrock",
+			kind: "catalogue",
+			matchedDomain: "amazon.com",
+			status: "active",
+		});
+	}
+
+	test.each([
+		{ operation: "create", input: " eu-central-1 ", expected: "eu-central-1" },
+		{ operation: "create", input: "", expected: null },
+		{ operation: "create", input: "   ", expected: null },
+		{ operation: "patch", input: " eu-central-1 ", expected: "eu-central-1" },
+		{ operation: "patch", input: "", expected: null },
+		{ operation: "patch", input: "   ", expected: null },
+	])(
+		"normalizes managed $operation region '$input' for signed validation and storage",
+		async ({ operation, input, expected }) => {
+			vi.stubEnv("E2E_TEST", "true");
+			await createRegionNormalizationFixture();
+			let credentialId: string | undefined;
+			if (operation === "patch") {
+				const saved = await post("/admin/provider-credentials", {
+					provider: "aws-bedrock",
+					token: "regional-provider-token",
+					region: "eu-central-1",
+					skipValidation: true,
+				});
+				expect(saved.status).toBe(201);
+				credentialId = (await saved.json()).credential.id;
+			}
+			const probe = captureManagedGatewayProbe();
+			const response =
+				operation === "create"
+					? await post("/admin/provider-credentials", {
+							provider: "aws-bedrock",
+							token: "regional-provider-token",
+							region: input,
+							allowedModels: [modelId],
+						})
+					: await app.request(`/admin/provider-credentials/${credentialId}`, {
+							method: "PATCH",
+							headers: { Cookie: cookie, "Content-Type": "application/json" },
+							body: JSON.stringify({ region: input, allowedModels: [modelId] }),
+						});
+			expect(response.status).toBe(operation === "create" ? 201 : 200);
+			const { credential } = await response.json();
+			expect(credential.region).toBe(expected);
+			const stored = await db.query.providerKey.findFirst({
+				where: { id: { eq: credential.id } },
+			});
+			expect(stored?.region).toBe(expected);
+			expect(probe.payloads).toHaveLength(1);
+			expect(probe.payloads[0]?.target).toMatchObject({
+				region: expected,
+				externalId: expected ? "airside-eu" : "upstream-airside-chat",
+			});
+			expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		},
+	);
+
+	test("preserves an omitted managed PATCH region during token validation", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		await createRegionNormalizationFixture();
+		const saved = await post("/admin/provider-credentials", {
+			provider: "aws-bedrock",
+			token: "regional-provider-token",
+			region: "eu-central-1",
+			skipValidation: true,
+		});
+		expect(saved.status).toBe(201);
+		const { credential } = await saved.json();
+		const probe = captureManagedGatewayProbe();
+		const response = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ token: "rotated-regional-token" }),
+			},
+		);
+		expect(response.status).toBe(200);
+		expect((await response.json()).credential.region).toBe("eu-central-1");
+		expect(
+			(
+				await db.query.providerKey.findFirst({
+					where: { id: { eq: credential.id } },
+				})
+			)?.region,
+		).toBe("eu-central-1");
+		expect(probe.payloads).toHaveLength(1);
+		expect(probe.payloads[0]?.target).toMatchObject({
+			region: "eu-central-1",
+			externalId: "airside-eu",
+		});
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+	});
+
+	test.each(["create", "patch"])(
+		"rejects unknown padded managed %s regions without probing",
+		async (operation) => {
+			vi.stubEnv("E2E_TEST", "true");
+			await createRegionNormalizationFixture();
+			let credentialId: string | undefined;
+			if (operation === "patch") {
+				const saved = await post("/admin/provider-credentials", {
+					provider: "aws-bedrock",
+					token: "regional-provider-token",
+					region: "eu-central-1",
+					skipValidation: true,
+				});
+				expect(saved.status).toBe(201);
+				credentialId = (await saved.json()).credential.id;
+			}
+			const upstream = vi.fn();
+			vi.stubGlobal("fetch", upstream);
+			const response =
+				operation === "create"
+					? await post("/admin/provider-credentials", {
+							provider: "aws-bedrock",
+							token: "regional-provider-token",
+							region: " de ",
+						})
+					: await app.request(`/admin/provider-credentials/${credentialId}`, {
+							method: "PATCH",
+							headers: { Cookie: cookie, "Content-Type": "application/json" },
+							body: JSON.stringify({ region: " de " }),
+						});
+			expect(response.status).toBe(400);
+			expect(validateProviderKeyMock).not.toHaveBeenCalled();
+			expect(runProviderKeySmokeTestMock).not.toHaveBeenCalled();
+			expect(upstream).not.toHaveBeenCalled();
+		},
+	);
 
 	test("verify-models sends a claimed catalogue-only mapping through the signed gateway validator", async () => {
 		vi.stubEnv("E2E_TEST", "true");
@@ -4030,6 +4183,14 @@ describe("managed credential Airside listings", () => {
 	});
 });
 function captureManagedGatewayProbe() {
+	const previousImplementation =
+		runProviderKeySmokeTestMock.getMockImplementation();
+	restoreManagedGatewayProbe = () => {
+		runProviderKeySmokeTestMock.mockReset();
+		if (previousImplementation) {
+			runProviderKeySmokeTestMock.mockImplementation(previousImplementation);
+		}
+	};
 	const token = "fixture-operator-token";
 	vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", token);
 	vi.stubEnv("GATEWAY_URL", "https://gateway.example.com");
@@ -4076,3 +4237,4 @@ function captureManagedGatewayProbe() {
 	);
 	return { payloads, upstream };
 }
+let restoreManagedGatewayProbe: (() => void) | undefined;

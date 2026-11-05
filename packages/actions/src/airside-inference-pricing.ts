@@ -17,9 +17,11 @@ export function airsideInferencePricing(
 	) {
 		throw new Error("Verification inference mapping changed.");
 	}
+	const pendingFiling = mapping ? undefined : filing;
+	const quotedPricing = mapping ? undefined : target.pricing;
 	const catalogue =
-		!filing &&
-		(mapping?.source === "catalogue" || (!mapping && !target.pricing))
+		mapping?.source === "catalogue" ||
+		(!mapping && !pendingFiling && !quotedPricing)
 			? expandAllProviderRegions(
 					models.find((model) => model.id === target.modelName)?.providers ??
 						[],
@@ -30,21 +32,21 @@ export function airsideInferencePricing(
 						(candidate.region ?? null) === (target.region ?? null),
 				)
 			: undefined;
-	const regional = filing?.regionPrices?.find(
+	const regional = pendingFiling?.regionPrices?.find(
 		(price) => price.region === target.region,
 	);
 	const inputPrice =
 		regional?.inputPrice ??
-		filing?.inputPrice ??
+		pendingFiling?.inputPrice ??
 		mapping?.inputPrice ??
-		target.pricing?.inputPrice ??
+		quotedPricing?.inputPrice ??
 		catalogue?.inputPrice ??
 		catalogue?.pricingTiers?.[0]?.inputPrice;
 	const outputPrice =
 		regional?.outputPrice ??
-		filing?.outputPrice ??
+		pendingFiling?.outputPrice ??
 		mapping?.outputPrice ??
-		target.pricing?.outputPrice ??
+		quotedPricing?.outputPrice ??
 		catalogue?.outputPrice ??
 		catalogue?.pricingTiers?.[0]?.outputPrice;
 	if (inputPrice === undefined || outputPrice === undefined) {
@@ -55,16 +57,16 @@ export function airsideInferencePricing(
 		outputPrice,
 		cachedInputPrice:
 			regional?.cachedInputPrice ??
-			filing?.cachedInputPrice ??
+			pendingFiling?.cachedInputPrice ??
 			mapping?.cachedInputPrice ??
-			target.pricing?.cachedInputPrice ??
+			quotedPricing?.cachedInputPrice ??
 			catalogue?.cachedInputPrice ??
 			undefined,
 		requestPrice:
 			regional?.requestPrice ??
-			filing?.requestPrice ??
+			pendingFiling?.requestPrice ??
 			mapping?.requestPrice ??
-			target.pricing?.requestPrice ??
+			quotedPricing?.requestPrice ??
 			catalogue?.requestPrice ??
 			undefined,
 		cacheReadInputPrice:
