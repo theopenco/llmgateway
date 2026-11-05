@@ -808,6 +808,10 @@ describe("image service tiers", () => {
 		expect(res.status, JSON.stringify(json)).toBe(200);
 		expect(json.background).toBeUndefined();
 		expect(json.output_format).toBe("png");
+		expect(Object.keys(json.data[0]).sort()).toEqual([
+			"b64_json",
+			"revised_prompt",
+		]);
 		expect(JSON.stringify(upstreamBodies[0])).toContain(
 			"Background: transparent.",
 		);

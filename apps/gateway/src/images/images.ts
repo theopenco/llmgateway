@@ -307,6 +307,16 @@ function buildImagePrompt(request: ImageGenerationsRequest): string {
 	return prompt;
 }
 
+interface ExtractedImage {
+	b64_json: string;
+	revised_prompt?: string;
+	mimeType?: string;
+}
+
+function toImageData({ b64_json, revised_prompt }: ExtractedImage) {
+	return { b64_json, revised_prompt };
+}
+
 /**
  * Extract images from a chat completions response.
  * Images can be in:
@@ -318,11 +328,8 @@ async function extractImagesFromChatResponse(
 	prompt: string,
 	model: string,
 	retainPayloadLogs: boolean,
-): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
-	const imageObjects: Array<{
-		b64_json: string;
-		revised_prompt?: string;
-	}> = [];
+): Promise<ExtractedImage[]> {
+	const imageObjects: ExtractedImage[] = [];
 
 	const messageImages = chatResponse.choices?.[0]?.message?.images;
 	if (
@@ -339,6 +346,7 @@ async function extractImagesFromChatResponse(
 					imageObjects.push({
 						b64_json: parsedDataUrl.data,
 						revised_prompt: prompt,
+						mimeType: parsedDataUrl.mediaType,
 					});
 				} else if (
 					imageUrl.startsWith("https://") ||
@@ -350,6 +358,7 @@ async function extractImagesFromChatResponse(
 						imageObjects.push({
 							b64_json: result.data,
 							revised_prompt: prompt,
+							mimeType: result.mimeType,
 						});
 					} catch (error) {
 						logger.warn("Images API - failed to fetch image from URL", {
@@ -398,6 +407,7 @@ async function extractImagesFromChatResponse(
 					imageObjects.push({
 						b64_json: b64,
 						revised_prompt: prompt,
+						mimeType: `image/${part.slice(0, markerIndex)}`,
 					});
 				}
 			}
@@ -933,7 +943,7 @@ images.openapi(generations, async (c): Promise<any> => {
 	);
 
 	// Truncate to the requested number of images
-	const truncatedImages = imageObjects.slice(0, request.n);
+	const truncatedImages = imageObjects.slice(0, request.n).map(toImageData);
 
 	// Build the OpenAI-compatible images response
 	const usage = buildImagesUsage(chatResponse);
@@ -1115,19 +1125,13 @@ function outputImageFormat(
 	}
 }
 
-function chatResponseImageFormat(
-	chatResponse: any,
+function deliveredImageFormat(
+	images: ExtractedImage[],
 ): "png" | "jpeg" | "webp" | undefined {
-	const images = chatResponse.choices?.[0]?.message?.images;
-	if (!Array.isArray(images) || images.length === 0) {
-		return undefined;
-	}
 	const formats = new Set(
-		images.map((img: any) => {
-			const url = img?.image_url?.url;
-			const parsed = typeof url === "string" ? parseDataUrl(url) : null;
-			return parsed ? outputImageFormat(parsed.mediaType) : undefined;
-		}),
+		images.map((img) =>
+			img.mimeType ? outputImageFormat(img.mimeType) : undefined,
+		),
 	);
 	const [format] = formats;
 	return formats.size === 1 ? format : undefined;
@@ -1438,7 +1442,7 @@ async function processImageEdit(
 	const usage = buildImagesUsage(chatResponse);
 	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {
 		created: Math.floor(Date.now() / 1000),
-		data: imageObjects,
+		data: imageObjects.map(toImageData),
 		...(usage && { usage }),
 	};
 
@@ -1450,7 +1454,7 @@ async function processImageEdit(
 			imagesResponse.output_format = request.output_format;
 		}
 	} else if (request.output_format) {
-		const deliveredFormat = chatResponseImageFormat(chatResponse);
+		const deliveredFormat = deliveredImageFormat(imageObjects);
 		if (deliveredFormat) {
 			imagesResponse.output_format = deliveredFormat;
 		}
