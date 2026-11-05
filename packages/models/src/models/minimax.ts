@@ -262,7 +262,7 @@ export const minimaxModels = [
 				pricingTiers: [
 					{
 						name: "Up to 512K",
-						upToTokens: 524288,
+						upToTokens: 524287,
 						inputPrice: "0.3e-6",
 						outputPrice: "1.2e-6",
 						cachedInputPrice: "0.06e-6",
