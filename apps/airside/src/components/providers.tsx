@@ -27,7 +27,9 @@ export function Providers({ children, config }: ProvidersProps) {
 			// next.config.ts) so ad blockers that block *.posthog.com don't
 			// silently drop pageviews.
 			api_host: "/ingest",
-			ui_host: config.posthogHost,
+			ui_host:
+				config.posthogHost?.replace(".i.posthog.com", ".posthog.com") ??
+				"https://us.posthog.com",
 			capture_pageview: "history_change",
 			autocapture: false,
 			disable_session_recording: true,
