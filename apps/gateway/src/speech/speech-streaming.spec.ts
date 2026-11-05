@@ -222,6 +222,36 @@ function speechStreamingTests() {
 	});
 	test("records truncated native usage as failed, estimated accounting", async () => {
 		await seed();
+		let source!: ReadableStreamDefaultController<Uint8Array>;
+		upstream(
+			new ReadableStream({
+				start(controller) {
+					source = controller;
+					controller.enqueue(encode(delta("FIRST")));
+				},
+			}),
+			true,
+		);
+		const response = await speak();
+		expect(response.status).toBe(200);
+		const reader = response.body!.getReader();
+		expect(Buffer.from((await reader.read()).value!).toString()).toBe("FIRST");
+		source.close();
+		await expect(reader.read()).rejects.toThrow("before completion");
+		const [log] = await waitForLogs(1);
+		expect(log).toMatchObject({
+			hasError: true,
+			finishReason: "upstream_error",
+			estimatedCost: true,
+			promptTokens: null,
+			completionTokens: null,
+			responseSize: 5,
+		});
+		expect(Number(log.inputCost)).toBeGreaterThan(0);
+	});
+
+	test("records zero delivered bytes when native usage truncates before consumption", async () => {
+		await seed();
 		upstream(
 			new ReadableStream({
 				start(controller) {
@@ -233,15 +263,15 @@ function speechStreamingTests() {
 		);
 		const response = await speak();
 		expect(response.status).toBe(200);
-		await expect(response.arrayBuffer()).rejects.toThrow("before completion");
 		const [log] = await waitForLogs(1);
+		await expect(response.arrayBuffer()).rejects.toThrow("before completion");
 		expect(log).toMatchObject({
 			hasError: true,
 			finishReason: "upstream_error",
 			estimatedCost: true,
 			promptTokens: null,
 			completionTokens: null,
-			responseSize: 5,
+			responseSize: 0,
 		});
 		expect(Number(log.inputCost)).toBeGreaterThan(0);
 	});
