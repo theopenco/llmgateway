@@ -11,9 +11,11 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
+import { isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
+	getGoogleImageOutputTokens,
 	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
@@ -492,7 +494,7 @@ export function parseProviderResponse(
 			reasoningContent = thoughtContent.length > 0 ? thoughtContent : null;
 
 			// Extract images from Google response parts
-			const imageParts = parts.filter((part: any) => part.inlineData);
+			const imageParts = parts.filter(isGoogleOutputImagePart);
 			images = imageParts.map((part: any): ImageObject => ({
 				type: "image_url",
 				image_url: {
@@ -631,6 +633,7 @@ export function parseProviderResponse(
 					}
 				}
 			}
+			imageOutputTokens = getGoogleImageOutputTokens(json.usageMetadata);
 			if (Array.isArray(json.usageMetadata?.cacheTokensDetails)) {
 				for (const detail of json.usageMetadata.cacheTokensDetails) {
 					if (detail?.modality === "AUDIO" && detail.tokenCount) {

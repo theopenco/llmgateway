@@ -331,6 +331,7 @@ import {
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
 import { extractErrorCause } from "./tools/extract-error-cause.js";
+import { isGoogleOutputImagePart } from "./tools/extract-images.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
@@ -11109,6 +11110,7 @@ chat.openapi(completions, async (c) => {
 				let audioInputTokens: number | null = null;
 				let cachedAudioInputTokens: number | null = null;
 				let imageInputTokens: number | null = null;
+				let imageOutputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -11618,7 +11620,7 @@ chat.openapi(completions, async (c) => {
 										project.organizationId,
 										image_config?.image_quality,
 										imageInputTokens,
-										null,
+										imageOutputTokens,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -12413,7 +12415,7 @@ chat.openapi(completions, async (c) => {
 								if (isGoogleCompatibleProvider(transportProvider)) {
 									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
-										if (part.inlineData?.data) {
+										if (isGoogleOutputImagePart(part) && part.inlineData.data) {
 											// Base64 string length * 0.75 ≈ actual byte size
 											imageByteSize += Math.ceil(
 												part.inlineData.data.length * 0.75,
@@ -12662,6 +12664,9 @@ chat.openapi(completions, async (c) => {
 								}
 								if (usage.imageInputTokens !== null) {
 									imageInputTokens = usage.imageInputTokens;
+								}
+								if (usage.imageOutputTokens !== null) {
+									imageOutputTokens = usage.imageOutputTokens;
 								}
 								if (
 									usage.totalTokens === null &&
@@ -13311,7 +13316,7 @@ chat.openapi(completions, async (c) => {
 										project.organizationId,
 										image_config?.image_quality,
 										imageInputTokens,
-										null,
+										imageOutputTokens,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -13440,6 +13445,7 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens: calculatedReasoningTokens,
 										imageInputTokens:
 											imageInputTokens ?? streamingCostsEarly.imageInputTokens,
+										imageOutputTokens: streamingCostsEarly.imageOutputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -13661,7 +13667,7 @@ chat.openapi(completions, async (c) => {
 									project.organizationId,
 									image_config?.image_quality,
 									imageInputTokens,
-									null,
+									imageOutputTokens,
 									{
 										cacheWriteTokens: cacheCreationTokens,
 										cacheWrite1hTokens: cacheCreation1hTokens,

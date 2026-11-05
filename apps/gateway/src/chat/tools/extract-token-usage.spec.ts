@@ -6,6 +6,41 @@ import {
 } from "./extract-token-usage.js";
 
 describe("extractTokenUsage", () => {
+	describe("google image output tokens", () => {
+		it("reads IMAGE tokens from candidatesTokensDetails", () => {
+			const usage = extractTokenUsage(
+				{
+					usageMetadata: {
+						promptTokenCount: 13,
+						candidatesTokenCount: 1130,
+						thoughtsTokenCount: 218,
+						totalTokenCount: 1361,
+						candidatesTokensDetails: [
+							{ modality: "TEXT", tokenCount: 10 },
+							{ modality: "IMAGE", tokenCount: 1120 },
+						],
+					},
+				},
+				"google-vertex",
+			);
+			expect(usage.imageOutputTokens).toBe(1120);
+		});
+
+		it("returns null without an IMAGE entry", () => {
+			const usage = extractTokenUsage(
+				{
+					usageMetadata: {
+						promptTokenCount: 5,
+						candidatesTokenCount: 10,
+						candidatesTokensDetails: [{ modality: "TEXT", tokenCount: 10 }],
+					},
+				},
+				"google-ai-studio",
+			);
+			expect(usage.imageOutputTokens).toBeNull();
+		});
+	});
+
 	describe("aws-bedrock", () => {
 		it("returns cachedTokens as 0 when cacheReadInputTokens is 0", () => {
 			const data = {

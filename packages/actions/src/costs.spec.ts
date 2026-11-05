@@ -1716,6 +1716,43 @@ describe("calculateCosts", () => {
 		},
 	);
 
+	it("bills Google's reported image output tokens over the image count", async () => {
+		const reported = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-vertex",
+			null,
+			13,
+			1338, // 1120 image + 218 thinking
+			null,
+			undefined,
+			218,
+			2, // miscounted: interim thought image included
+			"1K",
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			1120,
+		);
+		const counted = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-vertex",
+			null,
+			13,
+			1338,
+			null,
+			undefined,
+			218,
+			1,
+			"1K",
+		);
+
+		expect(reported.imageOutputTokens).toBe(1120);
+		expect(reported.imageOutputCost).toBeCloseTo(counted.imageOutputCost!);
+		expect(reported.outputCost).toBeCloseTo(counted.outputCost!);
+	});
+
 	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
 		"should split azure image/text input pricing for %s",
 		async (model) => {
