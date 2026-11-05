@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { resolveVerificationCredential } from "@/lib/model-verification.js";
 import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as discordUtils from "@/utils/discord.js";
@@ -9,6 +10,8 @@ import * as emailUtils from "@/utils/email.js";
 import {
 	encryptProviderKeyForStorage,
 	readProviderKey,
+	openAirsideInference,
+	signAirsideInferenceResponse,
 } from "@llmgateway/actions";
 import {
 	db,
@@ -100,7 +103,9 @@ async function claimProvider(
 		json(cookie, { providerCompanyId, providerId }),
 	);
 	expect(res.status).toBe(201);
-	return (await res.json()).claim as {
+	const { claim } = await res.json();
+	await seedCarrierKey(claim.id, providerId);
+	return claim as {
 		id: string;
 		providerId: string;
 		status: string;
@@ -122,6 +127,8 @@ async function passPreflight(
 		draftModelId: modelId,
 		requestedBy: "test-user-id",
 		target: {
+			gatewayExecutionVersion: 1,
+			...(await verificationIdentity(model!.providerId, model!.modelName)),
 			providerId: model!.providerId,
 			modelName: model!.modelName,
 			externalId: model!.externalId,
@@ -221,6 +228,7 @@ async function createModel(
 	overrides: Record<string, unknown> = {},
 	verifiedPromptCaching?: boolean,
 ) {
+	const { providerApiKey, ...metadata } = overrides;
 	const body: Record<string, unknown> = {
 		providerCompanyId,
 		providerId: "mistral",
@@ -231,14 +239,19 @@ async function createModel(
 		streaming: true,
 		tools: true,
 		pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
-		...overrides,
+		...metadata,
 	};
-	const verificationId = `verification-${crypto.randomUUID()}`;
-	await db.insert(tables.providerModelVerification).values({
+	let verificationId = `verification-${crypto.randomUUID()}`;
+	const proof = {
 		id: verificationId,
 		providerCompanyId,
 		requestedBy: "test-user-id",
 		target: {
+			gatewayExecutionVersion: 1 as const,
+			...(await verificationIdentity(
+				String(body.providerId),
+				String(body.modelName),
+			)),
 			providerId: String(body.providerId),
 			modelName: String(body.modelName),
 			externalId: String(body.externalId ?? body.modelName),
@@ -277,16 +290,51 @@ async function createModel(
 			...(body.decisions === true ? { decisions: true } : {}),
 		},
 		checks: [
-			{ id: "basic", label: "Basic completion", status: "passed" },
+			{ id: "basic", label: "Basic completion", status: "passed" as const },
 			{
 				id: "message_content",
 				label: "Message content compatibility",
-				status: "passed",
+				status: "passed" as const,
 			},
 		],
-		status: "passed",
+		status: "passed" as const,
 		completedAt: new Date(),
-	});
+	};
+	if (body.providerId === "acme-sky") {
+		const {
+			providerKeyId: _providerKeyId,
+			credentialFingerprint: _credentialFingerprint,
+			gatewayExecutionVersion: _gatewayExecutionVersion,
+			...target
+		} = proof.target;
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				...target,
+				providerCompanyId,
+				pricing: body.pricing,
+				...(typeof providerApiKey === "string" ? { providerApiKey } : {}),
+			}),
+		);
+		if (queued.status !== 202) {
+			return queued;
+		}
+		verificationId = (await queued.json()).verification.id;
+		const queuedRow = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				target: { ...queuedRow!.target, gatewayExecutionVersion: 1 },
+				checks: proof.checks,
+				status: "passed",
+				completedAt: new Date(),
+			})
+			.where(eq(tables.providerModelVerification.id, verificationId));
+	} else {
+		await db.insert(tables.providerModelVerification).values(proof);
+	}
 	const res = await app.request(
 		"/airside/models",
 		json(cookie, {
@@ -496,6 +544,7 @@ describe("airside provider portal", () => {
 		resetModelSearchRowsMemo();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
 		if (originalAdminEmails === undefined) {
 			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
@@ -817,6 +866,7 @@ describe("airside provider portal", () => {
 				providerCompanyId: company.id,
 				providerId: "mistral",
 				modelName: "Mistral Large 3",
+				pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
 			}),
 		);
 		expect(queued.status).toBe(400);
@@ -976,6 +1026,7 @@ describe("airside provider portal", () => {
 			providerCompanyId: company.id,
 			providerId: "mistral",
 			modelName: "mistral-verified-x",
+			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
 			externalId: "mistral-verified-upstream",
 			streaming: true,
 			tools: true,
@@ -988,12 +1039,14 @@ describe("airside provider portal", () => {
 			contextSize: 128000,
 			maxOutput: 4096,
 		};
+		const forgedCompletion = await app.request(
+			"/airside/model-verifications",
+			json(cookie, { ...mapping, gatewayExecutionVersion: 1 }),
+		);
+		expect(forgedCompletion.status).toBe(400);
 		const queueAttempts = await Promise.all(
 			Array.from({ length: 4 }, () =>
-				app.request(
-					"/airside/model-verifications",
-					json(cookie, { ...mapping, apiKey: "provider-secret-for-test" }),
-				),
+				app.request("/airside/model-verifications", json(cookie, mapping)),
 			),
 		);
 		const queued = queueAttempts.find((response) => response.status === 202);
@@ -1028,10 +1081,9 @@ describe("airside provider portal", () => {
 		const stored = await db.query.providerModelVerification.findFirst({
 			where: { id: { eq: queuedBody.verification.id } },
 		});
-		expect(stored?.credentialCiphertext).toMatch(/^llmgw:v2:/);
-		expect(stored?.credentialCiphertext).not.toContain(
-			"provider-secret-for-test",
-		);
+		expect(stored?.credentialCiphertext).toBeNull();
+		expect(stored?.target).not.toHaveProperty("gatewayExecutionVersion");
+		expect(stored?.credentialSource).toBe("carrier");
 		const activeVerifications =
 			await db.query.providerModelVerification.findMany({
 				where: {
@@ -1045,7 +1097,6 @@ describe("airside provider portal", () => {
 			json(cookie, {
 				...mapping,
 				modelName: "mistral-verified-y",
-				apiKey: "provider-secret-for-test",
 			}),
 		);
 		expect(otherTarget.status).toBe(202);
@@ -1106,6 +1157,15 @@ describe("airside provider portal", () => {
 				})),
 			})
 			.where(eq(tables.providerModelVerification.id, stored!.id));
+		const legacyPassed = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(legacyPassed.status).toBe(409);
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target: { ...stored!.target, gatewayExecutionVersion: 1 } })
+			.where(eq(tables.providerModelVerification.id, stored!.id));
 		const created = await app.request(
 			"/airside/models",
 			json(cookie, submission),
@@ -1137,7 +1197,15 @@ describe("airside provider portal", () => {
 	it("never spends a platform credential on a carrier's verification", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
-		await claimProvider(cookie, company.id);
+		const claim = await claimProvider(cookie, company.id);
+		await db
+			.update(tables.providerClaim)
+			.set({
+				providerKeyId: null,
+				kind: "custom",
+				customBaseUrl: "https://api.mistral.ai",
+			})
+			.where(eq(tables.providerClaim.id, claim.id));
 		await activateClaim();
 		// A managed key that could serve this model exists — and still must not
 		// run a carrier's preflight, because that traffic is neither logged nor
@@ -1161,6 +1229,7 @@ describe("airside provider portal", () => {
 				providerCompanyId: company.id,
 				providerId: "mistral",
 				modelName: "mistral-public-id",
+				pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
 				externalId: "mistral-upstream-id",
 			}),
 		);
@@ -1169,109 +1238,239 @@ describe("airside provider portal", () => {
 		expect((await queued.json()).message).toContain("provider API key");
 	});
 
-	it("saves the carrier's key on the claim and reuses it", async () => {
+	it("reuses the linked provider key without copying a verification credential", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
 		await activateClaim();
-
-		const first = await app.request(
-			"/airside/model-verifications",
-			json(cookie, {
-				providerCompanyId: company.id,
-				providerId: "mistral",
-				modelName: "mistral-saves-key",
-				apiKey: "carrier-saved-key",
-			}),
-		);
-		expect(first.status).toBe(202);
-		expect((await first.json()).verification).toBeDefined();
-
-		const savedClaim = await db.query.providerClaim.findFirst({
-			where: { id: { eq: claim.id } },
-		});
-		expect(savedClaim?.verificationKeyCiphertext).toMatch(/^llmgw:v2:/);
-		expect(savedClaim?.verificationKeyCiphertext).not.toContain(
-			"carrier-saved-key",
-		);
-		expect(savedClaim?.verificationKeyMasked).toContain("•");
-		expect(savedClaim?.verificationKeyMasked).not.toBe("carrier-saved-key");
-		expect(savedClaim?.verificationKeyUpdatedAt).toBeInstanceOf(Date);
-
-		// A later run needs no key: the claim holds one.
-		const second = await app.request(
-			"/airside/model-verifications",
-			json(cookie, {
-				providerCompanyId: company.id,
-				providerId: "mistral",
-				modelName: "mistral-reuses-key",
-			}),
-		);
-		expect(second.status).toBe(202);
-		const reused = await db.query.providerModelVerification.findFirst({
-			where: { id: { eq: (await second.json()).verification.id } },
-		});
-		expect(reused?.credentialSource).toBe("carrier");
-		expect(reused?.credentialCiphertext).toMatch(/^llmgw:v2:/);
-
-		// The carrier sees it masked, never the plaintext or the ciphertext.
-		const companies = await app.request("/airside/companies", {
-			headers: { Cookie: cookie },
-		});
-		const listed = await companies.json();
-		expect(JSON.stringify(listed)).not.toContain("carrier-saved-key");
-		expect(listed.companies[0].claims[0].verificationKeyMasked).toBe(
-			savedClaim?.verificationKeyMasked,
-		);
-		expect(listed.companies[0].claims[0].verificationKeySetAt).toBeTruthy();
+		await db
+			.update(tables.providerClaim)
+			.set({
+				verificationKeyCiphertext: "obsolete-ciphertext",
+				verificationKeyMasked: "obsolete-mask",
+				verificationKeyUpdatedAt: new Date(),
+			})
+			.where(eq(tables.providerClaim.id, claim.id));
+		for (const modelName of ["mistral-first", "mistral-second"]) {
+			const res = await app.request(
+				"/airside/model-verifications",
+				json(cookie, {
+					providerCompanyId: company.id,
+					providerId: "mistral",
+					modelName,
+					pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+				}),
+			);
+			expect(res.status).toBe(202);
+			const row = await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: (await res.json()).verification.id } },
+			});
+			expect(row?.credentialSource).toBe("carrier");
+			expect(row?.credentialCiphertext).toBeNull();
+		}
+		const listed = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		const serialized = listed.companies[0].claims[0];
+		for (const field of [
+			"verificationKeyCiphertext",
+			"verificationKeyMasked",
+			"verificationKeyUpdatedAt",
+			"verificationKeySetAt",
+		]) {
+			expect(serialized).not.toHaveProperty(field);
+		}
+		expect(JSON.stringify(listed)).not.toContain("obsolete-");
 	});
 
-	it("manages the saved verification key from settings", async () => {
+	it("requires a fresh proof after rotating the linked credential in place", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
 		await activateClaim();
-
-		const saved = await app.request(
-			`/airside/claims/${claim.id}/verification-key`,
-			json(cookie, { apiKey: "settings-saved-key" }, "PUT"),
-		);
-		expect(saved.status).toBe(200);
-		const savedBody = await saved.json();
-		expect(savedBody.verificationKeyMasked).not.toBe("settings-saved-key");
-		expect(savedBody.verificationKeySetAt).toBeTruthy();
-
-		// A non-member gets the same 404 every company-scoped route returns, so
-		// the claim's existence stays hidden.
-		const outsider = await createSecondUser("stranger@example.com");
-		const forbidden = await app.request(
-			`/airside/claims/${claim.id}/verification-key`,
-			json(outsider, { apiKey: "not-yours" }, "PUT"),
-		);
-		expect(forbidden.status).toBe(404);
-
-		const removed = await app.request(
-			`/airside/claims/${claim.id}/verification-key`,
-			json(cookie, undefined, "DELETE"),
-		);
-		expect(removed.status).toBe(200);
-		const cleared = await db.query.providerClaim.findFirst({
+		const created = await createModel(cookie, company.id);
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		const linked = await db.query.providerClaim.findFirst({
 			where: { id: { eq: claim.id } },
 		});
-		expect(cleared?.verificationKeyCiphertext).toBeNull();
-		expect(cleared?.verificationKeyMasked).toBeNull();
-		expect(cleared?.verificationKeyUpdatedAt).toBeNull();
+		const id = linked!.providerKeyId!;
+		await db
+			.update(tables.providerKey)
+			.set(encryptProviderKeyForStorage("rotated-provider-key", id, null))
+			.where(eq(tables.providerKey.id, id));
+		const approve = async () =>
+			await app.request(
+				`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+				json(cookie),
+			);
+		expect((await approve()).status).toBe(409);
+		await passPreflight(model.id);
+		const narrow = await db.query.providerModelVerification.findFirst({
+			where: { draftModelId: { eq: model.id } },
+			orderBy: { createdAt: "desc" },
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target: { ...narrow!.target, tools: false } })
+			.where(eq(tables.providerModelVerification.id, narrow!.id));
+		expect((await approve()).status).toBe(409);
+		await passPreflight(model.id);
+		expect((await approve()).status).toBe(200);
+	});
 
-		// With the key gone, preflight asks for one again.
-		const queued = await app.request(
-			"/airside/model-verifications",
-			json(cookie, {
-				providerCompanyId: company.id,
-				providerId: "mistral",
-				modelName: "mistral-needs-key-again",
-			}),
+	it("rejects legacy completed proofs with matching credentials until gateway execution is attested", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id);
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		const proof = await db.query.providerModelVerification.findFirst({
+			where: { draftModelId: { eq: model.id } },
+		});
+		const { gatewayExecutionVersion: _version, ...legacyTarget } =
+			proof!.target;
+		expect(legacyTarget.credentialFingerprint).toEqual(expect.any(String));
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target: legacyTarget })
+			.where(eq(tables.providerModelVerification.id, proof!.id));
+		const approve = async () =>
+			await app.request(
+				`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+				json(cookie),
+			);
+		expect((await approve()).status).toBe(409);
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target: proof!.target })
+			.where(eq(tables.providerModelVerification.id, proof!.id));
+		expect((await approve()).status).toBe(200);
+		const delisted = await app.request(`/airside/models/${model.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(delisted.status).toBe(200);
+		await passPreflight(model.id);
+		const fresh = await db.query.providerModelVerification.findFirst({
+			where: { draftModelId: { eq: model.id } },
+			orderBy: { createdAt: "desc" },
+		});
+		const { gatewayExecutionVersion: _freshVersion, ...legacyRelistTarget } =
+			fresh!.target;
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target: legacyRelistTarget })
+			.where(eq(tables.providerModelVerification.id, fresh!.id));
+		const relist = async () =>
+			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
+		expect((await relist()).status).toBe(409);
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target: fresh!.target })
+			.where(eq(tables.providerModelVerification.id, fresh!.id));
+		expect((await relist()).status).toBe(200);
+	});
+
+	it("rejects an environment proof after token or endpoint rotation and accepts fresh gateway verification", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+		await db
+			.update(tables.providerClaim)
+			.set({ providerKeyId: null })
+			.where(eq(tables.providerClaim.id, claim.id));
+		await db
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.provider, "mistral"));
+		vi.stubEnv(
+			"LLM_MISTRAL_API_KEY",
+			["fixture", "environment", "initial"].join("-"),
 		);
-		expect(queued.status).toBe(400);
+		vi.stubEnv("LLM_MISTRAL_BASE_URL", "https://api.mistral.ai");
+		const target = {
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			modelName: "mistral-env-proof",
+			externalId: "native-env-proof",
+			streaming: true,
+			tools: false,
+			contextSize: 128000,
+			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+		};
+		let previousFingerprint: string | undefined;
+		for (const attempt of [0, 1, 2]) {
+			const queued = await app.request(
+				"/airside/model-verifications",
+				json(cookie, target),
+			);
+			expect(queued.status).toBe(202);
+			const id = (await queued.json()).verification.id as string;
+			const row = await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: id } },
+			});
+			expect(row?.credentialSource).toBe("environment");
+			expect(row?.target).not.toHaveProperty("gatewayExecutionVersion");
+			expect(row?.target.credentialFingerprint).toEqual(expect.any(String));
+			if (attempt > 0) {
+				expect(row?.target.credentialFingerprint === previousFingerprint).toBe(
+					false,
+				);
+			}
+			previousFingerprint = row!.target.credentialFingerprint;
+			await db
+				.update(tables.providerModelVerification)
+				.set({
+					target: { ...row!.target, gatewayExecutionVersion: 1 },
+					status: "passed",
+					completedAt: new Date(),
+					checks: row!.checks.map((check) => ({
+						...check,
+						status: "passed" as const,
+					})),
+				})
+				.where(eq(tables.providerModelVerification.id, id));
+			if (attempt === 0) {
+				vi.stubEnv(
+					"LLM_MISTRAL_API_KEY",
+					["fixture", "environment", "rotated"].join("-"),
+				);
+			}
+			if (attempt === 1) {
+				vi.stubEnv("LLM_MISTRAL_BASE_URL", "https://mistral-api.example.com");
+			}
+			const submitted = await app.request(
+				"/airside/models",
+				json(cookie, { ...target, family: "mistral", verificationId: id }),
+			);
+			expect(submitted.status).toBe(attempt < 2 ? 409 : 201);
+		}
+	});
+
+	it("returns 404 for removed claim verification-key endpoints", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		for (const prefix of ["/airside", "/admin/airside"]) {
+			for (const method of ["PUT", "DELETE"]) {
+				const response = await app.request(
+					`${prefix}/claims/${claim.id}/verification-key`,
+					json(
+						cookie,
+						method === "PUT" ? { apiKey: "removed-key" } : undefined,
+						method,
+					),
+				);
+				expect(response.status).toBe(404);
+			}
+		}
 	});
 
 	it("carries a carrier's tool_choice narrowing and preflights an edit", async () => {
@@ -1299,7 +1498,6 @@ describe("airside provider portal", () => {
 		const queued = await app.request(
 			`/airside/models/${model.id}/verifications`,
 			json(cookie, {
-				apiKey: "carrier-preflight-key",
 				proposed: { supportedToolChoices: ["auto"], vision: true },
 			}),
 		);
@@ -1410,7 +1608,7 @@ describe("airside provider portal", () => {
 
 		const carrierRun = await app.request(
 			`/airside/models/${model.id}/verifications`,
-			json(cookie, { apiKey: "carrier-history-key" }),
+			json(cookie, {}),
 		);
 		expect(carrierRun.status).toBe(202);
 		const carrierRunId = (await carrierRun.json()).verification.id;
@@ -1505,7 +1703,7 @@ describe("airside provider portal", () => {
 
 		const queued = await app.request(
 			`/airside/models/${model.id}/verifications`,
-			json(cookie, { apiKey: "carrier-preflight-key" }),
+			json(cookie, {}),
 		);
 		expect(queued.status).toBe(202);
 		const stored = await db.query.providerModelVerification.findFirst({
@@ -4532,9 +4730,9 @@ describe("airside provider portal", () => {
 				providerCompanyId: company.id,
 				providerId: "mistral",
 				...decisionListing,
+				pricing: { inputPrice: "0", outputPrice: "0", requestPrice: "0.001" },
 				tools: true,
 				reasoning: true,
-				apiKey: "provider-secret-for-test",
 			}),
 		);
 		expect(queued.status).toBe(202);
@@ -5180,6 +5378,7 @@ describe("airside provider portal", () => {
 				)?.quantization;
 		};
 		expect(await publicQuantization()).toBe(listing!.quantization);
+		await passPreflight(listing!.id);
 		const changed = await app.request(
 			`/airside/models/${listing!.id}`,
 			json(cookie, { quantization: null }, "PATCH"),
@@ -5767,26 +5966,46 @@ describe("airside provider portal", () => {
 	function stubCarrierUpstream(workingKeys: Set<string>) {
 		const upstream = vi.fn(
 			async (_url: string | URL | Request, init?: RequestInit) => {
-				const token = new Headers(init?.headers).get("authorization");
-				return token && workingKeys.has(token.replace("Bearer ", ""))
-					? Response.json({
-							id: "chatcmpl-1",
-							object: "chat.completion",
-							model: "sky",
-							choices: [
-								{
-									index: 0,
-									message: { role: "assistant", content: "OK" },
-									finish_reason: "stop",
-								},
-							],
-						})
-					: Response.json(
-							{ error: { message: "Invalid API key" } },
-							{ status: 401 },
-						);
+				const headers = String(_url).endsWith("/v1/internal/airside/inference")
+					? openAirsideInference(
+							JSON.parse(String(init?.body)),
+							"fixture-operator-token",
+						).payload.headers
+					: init?.headers;
+				const token = new Headers(headers).get("authorization");
+				const response =
+					token && workingKeys.has(token.replace("Bearer ", ""))
+						? Response.json({
+								id: "chatcmpl-1",
+								object: "chat.completion",
+								model: "sky",
+								choices: [
+									{
+										index: 0,
+										message: { role: "assistant", content: "OK" },
+										finish_reason: "stop",
+									},
+								],
+							})
+						: Response.json(
+								{ error: { message: "Invalid API key" } },
+								{ status: 401 },
+							);
+				if (String(_url).endsWith("/v1/internal/airside/inference")) {
+					const { envelope } = openAirsideInference(
+						JSON.parse(String(init?.body)),
+						"fixture-operator-token",
+					);
+					response.headers.set(
+						"x-airside-inference",
+						signAirsideInferenceResponse(envelope, response.status),
+					);
+				}
+				return response;
 			},
 		);
+		vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", "fixture-operator-token");
+		vi.stubEnv("GATEWAY_URL", "https://gateway.example.com");
 		vi.stubGlobal("fetch", upstream);
 		return upstream;
 	}
@@ -5800,80 +6019,200 @@ describe("airside provider portal", () => {
 			`/admin/airside/claims/${claim.id}/approve`,
 			json(cookie),
 		);
-		// The testing key preflight runs on, saved like any pasted one.
-		await app.request(
-			`/airside/claims/${claim.id}/verification-key`,
-			json(cookie, { apiKey: "sk-acme-sky-testing-key" }, "PUT"),
-		);
+
 		return { company, claim: claim as { id: string } };
 	}
 
-	const sky = (modelName: string, providerKey?: string) => ({
+	const sky = (modelName: string, providerApiKey?: string) => ({
 		providerId: "acme-sky",
 		modelName,
-		...(providerKey ? { providerKey } : {}),
+		...(providerApiKey ? { providerApiKey } : {}),
 	});
 
-	it("files the provider key with the first model and serves it once approved", async () => {
+	it("rotates an initial pending key and rejects credential overrides and stale proofs", async () => {
 		const { company, claim } = await approvedCarrier();
-		// Registration and approval collect no provider key.
+		const pricing = { inputPrice: "2e-6", outputPrice: "6e-6" };
+		const target = {
+			providerCompanyId: company.id,
+			providerId: "acme-sky",
+			modelName: "sky-initial",
+			externalId: "sky-native",
+			contextSize: 256000,
+			streaming: true,
+			tools: true,
+			pricing,
+		};
+		const queue = async (body: Record<string, unknown>) =>
+			await app.request("/airside/model-verifications", json(cookie, body));
+		const { pricing: _pricing, ...unpriced } = target;
 		expect(
-			await db.query.providerKey.findMany({
-				where: { provider: { eq: "acme-sky" } },
+			(await queue({ ...unpriced, providerApiKey: "initial-key" })).status,
+		).toBe(400);
+		expect((await queue(target)).status).toBe(400);
+		expect(
+			(await queue({ ...target, apiKey: "obsolete-override" })).status,
+		).toBe(400);
+		const first = await queue({ ...target, providerApiKey: "initial-key" });
+		expect(first.status).toBe(202);
+		const firstId = (await first.json()).verification.id as string;
+		const old = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		const pending = await db.query.providerKey.findFirst({
+			where: { id: { eq: old!.pendingProviderKeyId! } },
+		});
+		expect(pending).toMatchObject({
+			managed: true,
+			status: "inactive",
+			carrierSubmitted: true,
+		});
+		expect(readProviderKey(pending!) === "initial-key").toBe(true);
+		const proof = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: firstId } },
+		});
+		expect(proof?.credentialCiphertext).toBeNull();
+		expect(proof?.target).not.toHaveProperty("gatewayExecutionVersion");
+		expect(proof?.target).toMatchObject({
+			pricing,
+			providerKeyId: pending!.id,
+			credentialFingerprint: expect.any(String),
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				target: { ...proof!.target, gatewayExecutionVersion: 1 },
+				status: "passed",
+				checks: [
+					{ id: "basic", label: "Basic", status: "passed" },
+					{ id: "message_content", label: "Message content", status: "passed" },
+				],
+				completedAt: new Date(),
+			})
+			.where(eq(tables.providerModelVerification.id, firstId));
+		const second = await queue({
+			...target,
+			providerApiKey: "replacement-key",
+		});
+		expect(second.status).toBe(202);
+		const current = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(current?.pendingProviderKeyId === pending!.id).toBe(false);
+		expect(
+			(
+				await db.query.providerKey.findFirst({
+					where: { id: { eq: pending!.id } },
+				})
+			)?.status,
+		).toBe("deleted");
+		const submission = {
+			...target,
+			verificationId: firstId,
+			family: "mistral",
+		};
+		for (const field of ["apiKey", "providerKey", "providerApiKey"]) {
+			const rejected = await app.request(
+				"/airside/models",
+				json(cookie, { ...submission, [field]: "forbidden-override" }),
+			);
+			expect(rejected.status).toBe(400);
+		}
+		const stale = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(stale.status).toBe(409);
+		expect(
+			await db.query.providerDraftModel.findMany({
+				where: { providerId: { eq: "acme-sky" } },
 			}),
 		).toHaveLength(0);
-		const upstream = stubCarrierUpstream(new Set(["sk-acme-sky-serving-key"]));
+	});
 
+	it("checks provider model restrictions against the public id rather than upstream id", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+		const linked = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		const target = {
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			modelName: "mistral-public-only",
+			externalId: "native-upstream-only",
+			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+		};
+		await db
+			.update(tables.providerKey)
+			.set({ allowedModels: [target.externalId] })
+			.where(eq(tables.providerKey.id, linked!.providerKeyId!));
+		expect(
+			(await app.request("/airside/model-verifications", json(cookie, target)))
+				.status,
+		).toBe(400);
+		await db
+			.update(tables.providerKey)
+			.set({ allowedModels: [target.modelName] })
+			.where(eq(tables.providerKey.id, linked!.providerKeyId!));
+		expect(
+			(await app.request("/airside/model-verifications", json(cookie, target)))
+				.status,
+		).toBe(202);
+	});
+
+	it("does not accept an initial credential override when a linked provider key exists", async () => {
+		const { company, claim } = await approvedCarrier();
+		await seedCarrierKey(claim.id, "acme-sky");
+		const target = {
+			providerCompanyId: company.id,
+			...sky("sky-no-override"),
+			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+		};
+		const rejected = await app.request(
+			"/airside/model-verifications",
+			json(cookie, { ...target, providerApiKey: "forbidden-override" }),
+		);
+		expect(rejected.status).toBe(400);
+		expect(
+			(await app.request("/airside/model-verifications", json(cookie, target)))
+				.status,
+		).toBe(202);
+	});
+
+	it("rejects supplied keys on existing listing verification", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+		for (const field of ["apiKey", "providerApiKey", "providerKey"]) {
+			const response = await app.request(
+				`/airside/models/${model.id}/verifications`,
+				json(cookie, { [field]: "forbidden-override" }),
+			);
+			expect(response.status).toBe(400);
+		}
+		const valid = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, {}),
+		);
+		expect(valid.status).toBe(202);
+	});
+
+	it("files one provider key during preflight and serves it after listing approval", async () => {
+		const { company, claim } = await approvedCarrier();
+		const upstream = stubCarrierUpstream(new Set(["sk-acme-sky-serving-key"]));
 		const missing = await createModel(cookie, company.id, sky("sky-large"));
 		expect(missing.status).toBe(400);
-		expect((await missing.json()).message).toContain("Add your provider key");
-		const sameAsTesting = await createModel(
-			cookie,
-			company.id,
-			sky("sky-large", "sk-acme-sky-testing-key"),
-		);
-		expect(sameAsTesting.status).toBe(400);
-		expect((await sameAsTesting.json()).message).toContain(
-			"two different keys",
-		);
-		const broken = await createModel(
-			cookie,
-			company.id,
-			sky("sky-large", "sk-acme-sky-broken"),
-		);
-		expect(broken.status).toBe(400);
-		const brokenBody = await broken.json();
-		expect(brokenBody.message).toContain("smoke test against sky-large");
-		expect(brokenBody.message).not.toContain("sk-acme-sky-broken");
-		expect(
-			await db.query.providerKey.findMany({
-				where: { provider: { eq: "acme-sky" } },
-			}),
-		).toHaveLength(0);
-
-		let releaseInitial: (() => void) | undefined;
-		const initialPending = new Promise<void>((resolve) => {
-			releaseInitial = resolve;
-		});
-		vi.mocked(discordUtils.notifyAirsideFiling)
-			.mockImplementationOnce(() => initialPending)
-			.mockImplementationOnce(() => {
-				releaseInitial?.();
-				return Promise.resolve();
-			});
 		const first = await createModel(
 			cookie,
 			company.id,
 			sky("sky-large", "sk-acme-sky-serving-key"),
 		);
 		expect(first.status).toBe(201);
-		expect(discordUtils.notifyAirsideFiling).toHaveBeenCalledWith({
-			kind: "provider-key",
-			id: claim.id,
-			providerId: "acme-sky",
-		});
-		const [url] = upstream.mock.calls.at(-1)!;
-		expect(String(url)).toBe("https://api.acme-sky.ai/v1/chat/completions");
+		expect(upstream).not.toHaveBeenCalled();
 		const [key] = await db.query.providerKey.findMany({
 			where: { provider: { eq: "acme-sky" } },
 		});
@@ -5881,69 +6220,28 @@ describe("airside provider portal", () => {
 			managed: true,
 			organizationId: null,
 			status: "inactive",
+			carrierSubmitted: true,
 		});
-		expect(key.tokenCiphertext).not.toContain("sk-acme-sky-serving-key");
-		expect(readProviderKey(key)).toBe("sk-acme-sky-serving-key");
-
-		// The first key is reviewed with the first model: it cannot be dropped.
-		expect(
-			(
-				await app.request(
-					`/airside/claims/${claim.id}/provider-key`,
-					json(cookie, undefined, "DELETE"),
-				)
-			).status,
-		).toBe(409);
-		expect(
-			(
-				await app.request(
-					`/admin/airside/claims/${claim.id}/provider-key/reject`,
-					json(cookie),
-				)
-			).status,
-		).toBe(409);
-
-		// Later models probe the key on file instead of taking another one.
-		const extraKey = await createModel(
-			cookie,
-			company.id,
-			sky("sky-small", "sk-acme-sky-other"),
-		);
-		expect(extraKey.status).toBe(400);
-		expect((await extraKey.json()).message).toContain("already on file");
-		expect(
-			(await createModel(cookie, company.id, sky("sky-small"))).status,
-		).toBe(201);
-
-		// Approving the first model puts its provider key into service.
+		expect(readProviderKey(key) === "sk-acme-sky-serving-key").toBe(true);
+		const extra = await createModel(cookie, company.id, sky("sky-small"));
+		expect(extra.status).toBe(201);
 		const { model } = await first.json();
 		const approved = await app.request(
 			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
 			json(cookie),
 		);
 		expect(approved.status).toBe(200);
-		const live = await db.query.providerKey.findFirst({
-			where: { id: { eq: key.id } },
-		});
-		expect(live?.status).toBe("active");
-		const liveClaim = await db.query.providerClaim.findFirst({
+		const savedClaim = await db.query.providerClaim.findFirst({
 			where: { id: { eq: claim.id } },
 		});
-		expect(liveClaim).toMatchObject({
+		expect(savedClaim).toMatchObject({
 			providerKeyId: key.id,
 			pendingProviderKeyId: null,
 		});
-
-		// Revoking the carrier retires its key.
-		const revoked = await app.request(
-			`/admin/airside/claims/${claim.id}/revoke`,
-			json(cookie, {}),
-		);
-		expect(revoked.status).toBe(200);
-		const retired = await db.query.providerKey.findFirst({
+		const active = await db.query.providerKey.findFirst({
 			where: { id: { eq: key.id } },
 		});
-		expect(retired?.status).toBe("deleted");
+		expect(active?.status).toBe("active");
 	});
 
 	it("replaces the provider key only after a smoke test and admin approval", async () => {
@@ -5975,15 +6273,8 @@ describe("airside provider portal", () => {
 			where: { provider: { eq: "acme-sky" } },
 		});
 
-		// The testing key and the live key are not valid replacements.
-		expect((await submit("sk-acme-sky-testing-key")).status).toBe(400);
+		// Reusing the current provider key is not a replacement.
 		expect((await submit("sk-acme-sky-serving-key")).status).toBe(400);
-		// Nor can the testing key become the provider key the other way round.
-		const sameTestingKey = await app.request(
-			`/airside/claims/${claim.id}/verification-key`,
-			json(cookie, { apiKey: "sk-acme-sky-serving-key" }, "PUT"),
-		);
-		expect(sameTestingKey.status).toBe(400);
 		// A key that fails the smoke test never reaches review.
 		const broken = await submit("sk-acme-sky-broken");
 		expect(broken.status).toBe(400);
@@ -5999,7 +6290,7 @@ describe("airside provider portal", () => {
 			where: { provider: { eq: "acme-sky" } },
 		});
 		const byToken = new Map(keys.map((k) => [readProviderKey(k), k]));
-		expect(byToken.get("sk-acme-sky-broken")).toBeUndefined();
+		expect(byToken.get("sk-acme-sky-broken")?.status).toBe("deleted");
 		expect(byToken.get("sk-acme-sky-rotated-1")?.status).toBe("deleted");
 		const pending = byToken.get("sk-acme-sky-rotated-2")!;
 		expect(pending.status).toBe("inactive");
@@ -6083,20 +6374,12 @@ describe("airside provider portal", () => {
 				})
 			)?.providerKeyId;
 
-		// The testing key never serves traffic, from admin either.
-		const reused = await app.request(
-			"/admin/provider-credentials",
-			json(cookie, { provider: "acme-sky", token: "sk-acme-sky-testing-key" }),
-		);
-		expect(reused.status).toBe(400);
-
-		// A carrier without a key gets the admin's credential linked.
 		const set = await create("sk-admin-set");
-		const rotatedToTesting = await app.request(
+		const rotatedToLegacy = await app.request(
 			`/admin/provider-credentials/${set.id}`,
 			json(cookie, { token: "sk-acme-sky-testing-key" }, "PATCH"),
 		);
-		expect(rotatedToTesting.status).toBe(400);
+		expect(rotatedToLegacy.status).toBe(200);
 		expect(set.carrierKey).toBe(true);
 		expect(await linkedKeyId()).toBe(set.id);
 		// The carrier no longer has to file one with its first model.
@@ -6126,32 +6409,22 @@ describe("airside provider portal", () => {
 		expect(await linkedKeyId()).toBeNull();
 	});
 
-	it("smoke-tests the serving key against every new listing", async () => {
+	it("does not repeat verification or accept a key override when submitting a listing", async () => {
 		const { company } = await approvedCarrier();
-		const workingKeys = new Set(["sk-acme-sky-serving-key"]);
-		stubCarrierUpstream(workingKeys);
-		const first = await createModel(
-			cookie,
-			company.id,
-			sky("sky-large", "sk-acme-sky-serving-key"),
-		);
-		const { model } = await first.json();
-		await app.request(
-			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
-			json(cookie),
-		);
-
-		// The account behind the serving key lost access upstream.
-		workingKeys.clear();
-		const blocked = await createModel(cookie, company.id, sky("sky-small"));
-		expect(blocked.status).toBe(400);
-		expect((await blocked.json()).message).toContain(
-			"smoke test against sky-small",
-		);
-		workingKeys.add("sk-acme-sky-serving-key");
+		const upstream = stubCarrierUpstream(new Set(["sk-acme-sky-serving-key"]));
+		expect(
+			(
+				await createModel(
+					cookie,
+					company.id,
+					sky("sky-large", "sk-acme-sky-serving-key"),
+				)
+			).status,
+		).toBe(201);
 		expect(
 			(await createModel(cookie, company.id, sky("sky-small"))).status,
 		).toBe(201);
+		expect(upstream).not.toHaveBeenCalled();
 	});
 
 	it("records an email-matched domain without granting it to the company", async () => {
@@ -6605,3 +6878,43 @@ describe("airside provider portal", () => {
 		expect((await afterRemoval.json()).companies).toHaveLength(0);
 	});
 });
+async function seedCarrierKey(
+	claimId: string,
+	providerId: string,
+	token = "carrier-provider-key",
+) {
+	const id = `carrier-key-${crypto.randomUUID()}`;
+	await db.insert(tables.providerKey).values({
+		id,
+		provider: providerId,
+		managed: true,
+		carrierSubmitted: true,
+		...encryptProviderKeyForStorage(token, id, null),
+	});
+	await db
+		.update(tables.providerClaim)
+		.set({ providerKeyId: id })
+		.where(eq(tables.providerClaim.id, claimId));
+	return id;
+}
+async function verificationIdentity(
+	providerId: string,
+	modelName = "fixture-model",
+) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { providerId: { eq: providerId }, status: { eq: "active" } },
+	});
+	if (!claim?.providerKeyId && !claim?.pendingProviderKeyId) {
+		return {};
+	}
+	const credential = await resolveVerificationCredential(
+		{ providerId, modelName } as Parameters<
+			typeof resolveVerificationCredential
+		>[0],
+		claim,
+	);
+	return {
+		providerKeyId: credential.providerKeyId,
+		credentialFingerprint: credential.credentialFingerprint,
+	};
+}

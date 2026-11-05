@@ -597,6 +597,9 @@ export function getBaseLimit(
  * not rate limited (e.g. `/`, `/metrics`, `/docs`, `/mcp`).
  */
 export function resolvePathRateLimit(path: string): PathRateLimitConfig | null {
+	if (path === "/v1/internal/airside/inference") {
+		return resolvePathRateLimit("/v1/chat/completions");
+	}
 	for (const config of PATH_RATE_LIMITS) {
 		if (path === config.prefix || path.startsWith(`${config.prefix}/`)) {
 			return config;

@@ -20,6 +20,8 @@ import {
 	sameVerificationDeployment,
 	currentCredentialSource,
 	sameVerificationDeclaration,
+	currentVerificationTarget,
+	sameVerificationCredential,
 } from "./daily-model-verifications.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -197,6 +199,10 @@ export async function deliverModelVerificationRegressions(
 			if (
 				!live ||
 				!sameVerificationDeclaration(job.target, live.target) ||
+				!sameVerificationCredential(
+					job.target,
+					await currentVerificationTarget(live, tx),
+				) ||
 				!(await currentCredentialSource(live, tx))
 			) {
 				await finish();

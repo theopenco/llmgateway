@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	encryptModelVerificationCredential,
 	encryptProviderKeyForStorage,
+	openAirsideInference,
+	signAirsideInferenceResponse,
+	providerVerificationCredentialFingerprint,
 } from "@llmgateway/actions";
 import { db, eq, inArray, tables } from "@llmgateway/db";
 
@@ -19,6 +22,8 @@ import type {
 	ProviderModelVerificationTarget,
 } from "@llmgateway/db";
 import type { ToolChoiceMode } from "@llmgateway/models";
+
+const organizationIds: string[] = [];
 
 const originalHashSecret = process.env.GATEWAY_API_KEY_HASH_SECRET;
 const STALE_AGE_MS = 60 * 60 * 1000;
@@ -39,6 +44,9 @@ beforeEach(async () => {
 afterEach(async () => {
 	for (const id of providerKeyIds.splice(0)) {
 		await db.delete(tables.providerKey).where(eq(tables.providerKey.id, id));
+	}
+	for (const id of organizationIds.splice(0)) {
+		await db.delete(tables.organization).where(eq(tables.organization.id, id));
 	}
 	for (const id of companyIds.splice(0)) {
 		await db
@@ -95,25 +103,33 @@ async function enqueueVerification(
 		status: "active",
 		claimedBy: userId,
 	});
-	if (credentialSource === "managed") {
+	{
 		const providerKeyId = `verification-key-${suffix}`;
 		providerKeyIds.push(providerKeyId);
 		await db.insert(tables.providerKey).values({
 			id: providerKeyId,
 			provider: providerId,
 			...encryptProviderKeyForStorage(
-				"managed-provider-key",
+				credentialSource === "managed"
+					? "managed-provider-key"
+					: "single-use-provider-key",
 				providerKeyId,
 				null,
 			),
 			managed: true,
 			allowedModels: options.allowedModels,
+			baseUrl: "https://provider.example.com/v1",
 		});
+		await db
+			.update(tables.providerClaim)
+			.set({ providerKeyId })
+			.where(eq(tables.providerClaim.providerCompanyId, companyId));
 	}
 	const target: ProviderModelVerificationTarget = {
 		providerId,
 		modelName: "model-x",
 		externalId: "upstream-model-x",
+		pricing: { inputPrice: "0", outputPrice: "0" },
 		streaming: false,
 		vision: false,
 		audio: false,
@@ -224,6 +240,8 @@ async function seedActiveListing(
 		providerId,
 		externalId: "upstream-model-x",
 		source: "airside",
+		inputPrice: "0",
+		outputPrice: "0",
 		...listingValues,
 	});
 	if (pendingMetadata) {
@@ -238,6 +256,19 @@ async function seedActiveListing(
 		});
 	}
 	process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
+	const keyId = randomUUID();
+	providerKeyIds.push(keyId);
+	await db.insert(tables.providerKey).values({
+		id: keyId,
+		provider: providerId,
+		managed: true,
+		baseUrl: "https://provider.example.com/v1",
+		...encryptProviderKeyForStorage("single-use-provider-key", keyId, null),
+	});
+	await db
+		.update(tables.providerClaim)
+		.set({ providerKeyId: keyId })
+		.where(eq(tables.providerClaim.providerCompanyId, companyId));
 	await db.insert(tables.providerModelVerification).values({
 		id: verificationId,
 		providerCompanyId: companyId,
@@ -371,6 +402,7 @@ describe("model verification worker", () => {
 				providerId,
 				modelName: "model-x",
 				externalId: "upstream-model-x",
+				pricing: { inputPrice: "0", outputPrice: "0" },
 				streaming: false,
 				vision: false,
 				audio: false,
@@ -401,10 +433,10 @@ describe("model verification worker", () => {
 		expect(stored?.status).toBe("passed");
 	});
 
-	it("selects managed credentials by upstream model ID", async () => {
+	it("selects managed credentials by canonical model ID", async () => {
 		const verificationId = await enqueueVerification({
 			credentialSource: "managed",
-			allowedModels: ["upstream-model-x"],
+			allowedModels: ["model-x"],
 		});
 		await processNextModelVerification(async (options) => {
 			expect(options.token).toBe("managed-provider-key");
@@ -748,4 +780,355 @@ describe("model verification worker", () => {
 		});
 		expect(stored?.completedAt).toBeInstanceOf(Date);
 	});
+});
+
+it("pins first-deployment verification to its pending key through the operator gateway", async () => {
+	const id = await enqueueVerification({ credentialSource: "carrier" });
+	const job = (await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: id } },
+	}))!;
+	const pendingId = randomUUID();
+	providerKeyIds.push(pendingId);
+	await db.insert(tables.providerKey).values({
+		id: pendingId,
+		provider: job.target.providerId,
+		managed: true,
+		status: "inactive",
+		baseUrl: "https://replacement.example.com/v1",
+		...encryptProviderKeyForStorage("pending-provider-key", pendingId, null),
+	});
+	await db
+		.update(tables.providerClaim)
+		.set({
+			providerKeyId: null,
+			pendingProviderKeyId: pendingId,
+			customBaseUrl: "https://replacement.example.com/v1",
+		})
+		.where(eq(tables.providerClaim.providerCompanyId, job.providerCompanyId!));
+	await db
+		.update(tables.providerModelVerification)
+		.set({
+			target: {
+				...job.target,
+				pricing: { inputPrice: "0.000001", outputPrice: "0.000002" },
+			},
+		})
+		.where(eq(tables.providerModelVerification.id, id));
+	vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", "test-token");
+	vi.stubEnv("GATEWAY_URL", "http://localhost:6801");
+	const gatewayFetch = vi.fn<typeof fetch>(async (input, init) => {
+		expect(String(input)).toBe(
+			"http://localhost:6801/v1/internal/airside/inference",
+		);
+		expect(
+			new Headers(init?.headers).get("Authorization") === "Bearer test-token",
+		).toBe(true);
+		expect(String(init?.body).includes("pending-provider-key")).toBe(false);
+		const { payload, envelope } = openAirsideInference(
+			JSON.parse(String(init?.body)),
+			"test-token",
+		);
+		expect(payload.providerKeyId).toBe(pendingId);
+		expect(payload.runId).toBe(id);
+		expect(payload.target.externalId).toBe(job.target.externalId);
+		expect(payload.pricing).toEqual({
+			inputPrice: "0.000001",
+			outputPrice: "0.000002",
+		});
+		expect(payload.endpoint).toBe(
+			"https://replacement.example.com/v1/chat/completions",
+		);
+		return Response.json(
+			{ choices: [] },
+			{
+				headers: {
+					"x-airside-inference": signAirsideInferenceResponse(envelope, 200),
+				},
+			},
+		);
+	});
+	vi.stubGlobal("fetch", gatewayFetch);
+	try {
+		await processNextModelVerification(async (options) => {
+			expect(options.token === "pending-provider-key").toBe(true);
+			expect(options.baseUrl).toBe("https://replacement.example.com/v1");
+			await options.fetchImplementation!(
+				options.baseUrl + "/chat/completions",
+				{
+					method: "POST",
+					headers: { Authorization: "Bearer " + options.token },
+					body: JSON.stringify({
+						model: options.target.externalId,
+						messages: [],
+					}),
+				},
+			);
+			return { passed: true, checks: [], summary: "Passed" };
+		});
+		expect(gatewayFetch).toHaveBeenCalledOnce();
+		expect(
+			(
+				await db.query.providerModelVerification.findFirst({
+					where: { id: { eq: id } },
+				})
+			)?.target.gatewayExecutionVersion,
+		).toBe(1);
+	} finally {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	}
+});
+it.each(["missing", "inactive", "deleted", "unmanaged", "wrong-provider"])(
+	"rejects %s linked carrier credentials instead of using legacy run ciphertext",
+	async (kind) => {
+		const id = await enqueueVerification({ credentialSource: "carrier" });
+		const job = (await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: id } },
+		}))!;
+		const claim = (await db.query.providerClaim.findFirst({
+			where: { providerCompanyId: { eq: job.providerCompanyId! } },
+		}))!;
+		const organizationId = kind === "unmanaged" ? randomUUID() : null;
+		if (organizationId) {
+			organizationIds.push(organizationId);
+			await db.insert(tables.organization).values({
+				id: organizationId,
+				name: "Test Organization",
+				billingEmail: "test@example.com",
+			});
+		}
+		if (kind === "missing") {
+			await db
+				.update(tables.providerClaim)
+				.set({ providerKeyId: null })
+				.where(eq(tables.providerClaim.id, claim.id));
+		} else {
+			await db
+				.update(tables.providerKey)
+				.set(
+					kind === "unmanaged"
+						? { managed: false, organizationId }
+						: kind === "wrong-provider"
+							? { provider: "another-provider" }
+							: { status: kind === "deleted" ? "deleted" : "inactive" },
+				)
+				.where(eq(tables.providerKey.id, claim.providerKeyId!));
+		}
+		const runner = vi.fn();
+		await processNextModelVerification(runner);
+		expect(runner).not.toHaveBeenCalled();
+		expect(
+			(
+				await db.query.providerModelVerification.findFirst({
+					where: { id: { eq: id } },
+				})
+			)?.status,
+		).toBe("failed");
+	},
+);
+it("retains platform managed resolution for a catalogue claim with no linked credential", async () => {
+	const id = await enqueueVerification({
+		credentialSource: "managed",
+		claimKind: "catalogue",
+	});
+	const job = (await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: id } },
+	}))!;
+	await db
+		.update(tables.providerClaim)
+		.set({ providerKeyId: null })
+		.where(eq(tables.providerClaim.providerCompanyId, job.providerCompanyId!));
+	const runner = vi.fn(async () => ({
+		passed: true,
+		checks: [],
+		summary: "Passed",
+	}));
+	await processNextModelVerification(runner);
+	expect(runner).toHaveBeenCalledOnce();
+});
+it("rejects an arbitrary legacy credential for a non-carrier admin job", async () => {
+	const id = await enqueueVerification();
+	await db
+		.update(tables.providerModelVerification)
+		.set({ providerCompanyId: null })
+		.where(eq(tables.providerModelVerification.id, id));
+	const runner = vi.fn();
+	await processNextModelVerification(runner);
+	expect(runner).not.toHaveBeenCalled();
+});
+
+it.each([401, 402, 404])(
+	"treats operator gateway %s as unavailable without narrowing capabilities",
+	async (status) => {
+		const { verificationId, draftModelId } = await seedActiveListing();
+		vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", "test-token");
+		vi.stubEnv("GATEWAY_URL", "http://localhost:6801");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({ error: "operator rejection" }, { status }),
+			),
+		);
+		try {
+			await processNextModelVerification(async (options) => {
+				await expect(
+					options.fetchImplementation!(
+						"https://provider.example.com/v1/chat/completions",
+						{ method: "POST", body: JSON.stringify({ messages: [] }) },
+					),
+				).rejects.toThrow("Airside gateway inference is unavailable");
+				return {
+					passed: false,
+					summary: "Failed",
+					checks: [
+						{ id: "basic", label: "Basic completion", status: "failed" },
+					],
+					unsupportedToolChoices: ["required"],
+					unsupportedReasoningEfforts: ["high"],
+				};
+			});
+			const job = (await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: verificationId } },
+			}))!;
+			expect(job.status).toBe("failed");
+			expect(job.checks.every((check) => check.status === "skipped")).toBe(
+				true,
+			);
+			expect(job.summary).toBe("Airside gateway inference is unavailable");
+			const draft = (await db.query.providerDraftModel.findFirst({
+				where: { id: { eq: draftModelId } },
+			}))!;
+			expect(draft.supportedToolChoices).toBeNull();
+			expect(draft.reasoningEfforts).toEqual(["low", "high"]);
+		} finally {
+			vi.unstubAllGlobals();
+			vi.unstubAllEnvs();
+		}
+	},
+);
+it("invalidates an in-flight credential rotation before certifying or narrowing the listing", async () => {
+	const { verificationId, draftModelId, providerId } =
+		await seedActiveListing();
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: providerId } },
+	}))!;
+	await processNextModelVerification(async () => {
+		await db
+			.update(tables.providerKey)
+			.set(encryptProviderKeyForStorage("rotated-provider-key", key.id, null))
+			.where(eq(tables.providerKey.id, key.id));
+		return {
+			passed: true,
+			summary: "Passed",
+			checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+			unsupportedToolChoices: ["required"],
+			unsupportedReasoningEfforts: ["high"],
+		};
+	});
+	const job = (await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: verificationId } },
+	}))!;
+	expect(job.status).toBe("failed");
+	expect(job.checks.every((check) => check.status === "skipped")).toBe(true);
+	expect(job.summary).toContain("configuration changed");
+	const draft = (await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: draftModelId } },
+	}))!;
+	expect(draft.supportedToolChoices).toBeNull();
+	expect(draft.reasoningEfforts).toEqual(["low", "high"]);
+});
+
+it("accepts an exact platform-managed proof using the key endpoint default", async () => {
+	const id = await enqueueVerification({
+		credentialSource: "managed",
+		claimKind: "catalogue",
+	});
+	const job = (await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: id } },
+	}))!;
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: job.target.providerId } },
+	}))!;
+	await db
+		.update(tables.providerModelVerification)
+		.set({
+			providerCompanyId: null,
+			target: {
+				...job.target,
+				providerKeyId: key.id,
+				credentialFingerprint: providerVerificationCredentialFingerprint(key),
+			},
+		})
+		.where(eq(tables.providerModelVerification.id, id));
+	const runner = vi.fn(async () => ({
+		passed: true,
+		checks: [],
+		summary: "Passed",
+	}));
+	await processNextModelVerification(runner);
+	expect(runner).toHaveBeenCalledOnce();
+	expect(
+		(
+			await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: id } },
+			})
+		)?.status,
+	).toBe("passed");
+});
+
+it("binds carrier proof and inference to the claim endpoint override", async () => {
+	const id = await enqueueVerification({ credentialSource: "carrier" });
+	const job = (await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: id } },
+	}))!;
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: job.target.providerId } },
+	}))!;
+	const baseUrl = "https://override.example.com/v1";
+	await db
+		.update(tables.providerClaim)
+		.set({ customBaseUrl: baseUrl })
+		.where(eq(tables.providerClaim.providerCompanyId, job.providerCompanyId!));
+	await db
+		.update(tables.providerModelVerification)
+		.set({
+			target: {
+				...job.target,
+				providerKeyId: key.id,
+				credentialFingerprint: providerVerificationCredentialFingerprint(
+					key,
+					baseUrl,
+				),
+			},
+		})
+		.where(eq(tables.providerModelVerification.id, id));
+	const runner = vi.fn(async (options) => {
+		expect(options.baseUrl).toBe(baseUrl);
+		return { passed: true, checks: [], summary: "Passed" };
+	});
+	await processNextModelVerification(runner);
+	expect(runner).toHaveBeenCalledOnce();
+	expect(
+		(
+			await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: id } },
+			})
+		)?.status,
+	).toBe("passed");
+});
+
+it("does not certify a passed legacy runner without verified gateway execution", async () => {
+	const id = await enqueueVerification({ credentialSource: "carrier" });
+	await processNextModelVerification(async () => ({
+		passed: true,
+		checks: [],
+		summary: "Passed",
+	}));
+	const job = (await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: id } },
+	}))!;
+	expect(job.status).toBe("passed");
+	expect(job.target.providerKeyId).toBeDefined();
+	expect(job.target.credentialFingerprint).toBeDefined();
+	expect(job.target.gatewayExecutionVersion).toBeUndefined();
 });

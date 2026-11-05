@@ -61,25 +61,20 @@ export default function ListingGuide() {
 					organizations or applies separately to each one.
 				</p>
 				<p className="mt-3">
-					Paste a provider API key that can call this model and run preflight
-					verification. Preflight checks each declared capability, fills most of
-					the declared context window and requests the full output limit. Some
-					checks are optional for now: a miss shows as a warning marked Optional
-					instead of failing, and may become required later. We store the key
-					encrypted as this carrier's test key, so later runs reuse it — change
-					or remove it under Settings at any time. Use a key separate from the
-					one behind your live integration: preflight traffic is billed by your
-					own platform and is not tracked in LLMGateway usage or billing.
-					Resolve failed checks before submitting the model. Changing the
-					verified mapping requires a new verification, and so does an edit that
-					adds a capability or raises a limit — narrowing one never does.
+					Preflight uses your carrier's saved provider key, managed by you or
+					LLM Gateway. It checks each declared capability, fills most of the
+					declared context window and requests the full output limit. Optional
+					checks show warnings instead of failing and may become required later.
+					Preflight consumes real upstream resources and is logged and billed to
+					an operator-controlled benchmark project. Resolve failed checks before
+					submitting. Changing the verified mapping, adding capabilities or
+					raising limits requires a new verification; narrowing them does not.
 				</p>
 				<p className="mt-3">
-					A registered carrier files its provider key — the separate key we
-					serve live traffic with — together with its first model. We smoke-test
-					it against that model when you file, and it goes live once the model
-					is approved. Replacing it later under Settings is smoke-tested the
-					same way and reviewed by our team.
+					A newly registered carrier supplies one provider key with its first
+					preflight. Stored encrypted, the same key serves live traffic once the
+					model is approved. Replacements under Settings are smoke-tested and
+					reviewed by our team.
 				</p>
 				<p className="mt-3">
 					Every preflight stays on the record. The Verify dialog lists past runs

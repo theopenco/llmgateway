@@ -336,6 +336,7 @@ export {
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	estimateTokensFromTextLength,
 	type TokenEstimateFallback,
 } from "./token-estimate.js";
 

@@ -2733,7 +2733,8 @@ export async function prepareRequestBody(
 	// incomplete prior turn replayed for the Responses API) becomes empty here,
 	// so drop it.
 	const replaysAnthropicThinking =
-		modelDef?.family === "anthropic" &&
+		(modelDef?.family === "anthropic" ||
+			resolvedProviderMapping?.reasoning === true) &&
 		(usesAnthropicMessagesApi(usedProvider) ||
 			(usedProvider === "aws-bedrock" &&
 				providerMappingForOptions?.apiFormat !== "openai-chat-completions"));

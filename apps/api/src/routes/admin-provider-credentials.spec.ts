@@ -7,7 +7,11 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	encryptProviderKeyForStorage,
+	encryptClaimVerificationKey,
+	readProviderKey,
+} from "@llmgateway/actions";
 import {
 	decryptProviderKey,
 	deleteProviderEnvInventory,
@@ -2603,6 +2607,11 @@ describe("managed credential allowed models", () => {
 	afterEach(async () => {
 		vi.unstubAllEnvs();
 		validateProviderKeyMock.mockClear();
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.modelId, "carrier-chat"));
+		await db.delete(tables.model).where(eq(tables.model.id, "carrier-chat"));
+		runProviderKeySmokeTestMock.mockClear();
 		await deleteAll();
 	});
 
@@ -2651,6 +2660,21 @@ describe("managed credential allowed models", () => {
 			modelName: "carrier-chat",
 			externalId: "upstream-chat-v1",
 			status: "active",
+		});
+		await db
+			.insert(tables.provider)
+			.values({ id: providerId, name: "Test Carrier", description: "Test" })
+			.onConflictDoNothing();
+		await db
+			.insert(tables.model)
+			.values({ id: "carrier-chat", family: "test" });
+		await db.insert(tables.modelProviderMapping).values({
+			providerId,
+			modelId: "carrier-chat",
+			externalId: "upstream-chat-v1",
+			source: "airside",
+			inputPrice: "2e-6",
+			outputPrice: "6e-6",
 		});
 		return { providerId, modelId: "carrier-chat" };
 	}
@@ -2769,9 +2793,81 @@ describe("managed credential allowed models", () => {
 		},
 	);
 
+	test("fails closed without a priced deployment instead of probing a custom carrier directly", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		const carrier = await createCustomCarrier();
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.modelId, carrier.modelId));
+		const response = await post("/admin/provider-credentials/self-test", {
+			provider: carrier.providerId,
+			token: "unpriced-key",
+		});
+		expect(response.status).toBe(503);
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).not.toHaveBeenCalled();
+	});
+
+	test("fails closed on missing deployment prices without testing the credential", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		const carrier = await createCustomCarrier();
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ inputPrice: null, outputPrice: null })
+			.where(eq(tables.modelProviderMapping.modelId, carrier.modelId));
+		const response = await post("/admin/provider-credentials/self-test", {
+			provider: carrier.providerId,
+			token: "unpriced-key",
+		});
+		expect(response.status).toBe(503);
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).not.toHaveBeenCalled();
+	});
+
+	test("links a provider credential even when it equals an obsolete verification key", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		runProviderKeySmokeTestMock
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce(null);
+		const carrier = await createCustomCarrier();
+		const claim = await db.query.providerClaim.findFirst({
+			where: { providerId: { eq: carrier.providerId } },
+		});
+		const token = ["fixture", "legacy", "credential"].join("-");
+		await db
+			.update(tables.providerClaim)
+			.set({
+				verificationKeyCiphertext: encryptClaimVerificationKey(
+					token,
+					claim!.id,
+					claim!.providerCompanyId,
+				),
+				verificationKeyMasked: "obsolete-mask",
+				verificationKeyUpdatedAt: new Date(),
+			})
+			.where(eq(tables.providerClaim.id, claim!.id));
+		const created = await create({ provider: carrier.providerId, token });
+		expect(created.status).toBe(201);
+		const { credential } = (await created.json()) as {
+			credential: { id: string; carrierKey: boolean };
+		};
+		expect(credential.carrierKey).toBe(true);
+		const updated = await patch(credential.id, { token });
+		expect(updated.status).toBe(200);
+		const linked = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim!.id } },
+		});
+		expect(linked?.providerKeyId).toBe(credential.id);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row && readProviderKey(row) === token).toBe(true);
+		expect(JSON.stringify(await updated.json())).not.toContain("obsolete-mask");
+	});
+
 	test("stores model restrictions for custom carriers", async () => {
 		vi.stubEnv("E2E_TEST", "true");
-		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		runProviderKeySmokeTestMock.mockResolvedValueOnce(null);
 		const carrier = await createCustomCarrier();
 
 		const res = await create({
@@ -2785,14 +2881,18 @@ describe("managed credential allowed models", () => {
 			((await res.json()) as { credential: { allowedModels: string[] } })
 				.credential.allowedModels,
 		).toEqual([carrier.modelId]);
-		expect(validateProviderKeyMock).toHaveBeenCalledWith(
-			"custom",
-			"carrier-token",
-			"https://carrier.example.com",
-			false,
-			expect.anything(),
-			"upstream-chat-v1",
-			expect.any(AbortSignal),
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				target: expect.objectContaining({
+					providerId: carrier.providerId,
+					modelName: carrier.modelId,
+					externalId: "upstream-chat-v1",
+				}),
+				token: "carrier-token",
+				baseUrl: "https://carrier.example.com",
+				fetchImplementation: expect.any(Function),
+			}),
 		);
 	});
 
@@ -2904,7 +3004,7 @@ describe("managed credential allowed models", () => {
 
 	test("self-test probes custom carriers with their upstream model", async () => {
 		vi.stubEnv("E2E_TEST", "true");
-		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		runProviderKeySmokeTestMock.mockResolvedValueOnce(null);
 		const carrier = await createCustomCarrier();
 
 		const res = await post("/admin/provider-credentials/self-test", {
@@ -2917,14 +3017,18 @@ describe("managed credential allowed models", () => {
 			valid: true,
 			model: carrier.modelId,
 		});
-		expect(validateProviderKeyMock).toHaveBeenCalledWith(
-			"custom",
-			"carrier-token",
-			"https://carrier.example.com",
-			false,
-			expect.anything(),
-			"upstream-chat-v1",
-			expect.any(AbortSignal),
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				target: expect.objectContaining({
+					providerId: carrier.providerId,
+					modelName: carrier.modelId,
+					externalId: "upstream-chat-v1",
+				}),
+				token: "carrier-token",
+				baseUrl: "https://carrier.example.com",
+				fetchImplementation: expect.any(Function),
+			}),
 		);
 	});
 
@@ -2991,7 +3095,7 @@ describe("managed credential allowed models", () => {
 
 	test("verify-models probes custom carrier mappings", async () => {
 		vi.stubEnv("E2E_TEST", "true");
-		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		runProviderKeySmokeTestMock.mockResolvedValueOnce(null);
 		const carrier = await createCustomCarrier();
 
 		const res = await post("/admin/provider-credentials/verify-models", {
@@ -3011,14 +3115,18 @@ describe("managed credential allowed models", () => {
 			],
 			allValid: true,
 		});
-		expect(validateProviderKeyMock).toHaveBeenCalledWith(
-			"custom",
-			"carrier-token",
-			"https://carrier.example.com",
-			false,
-			undefined,
-			"upstream-chat-v1",
-			expect.any(AbortSignal),
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				target: expect.objectContaining({
+					providerId: carrier.providerId,
+					modelName: carrier.modelId,
+					externalId: "upstream-chat-v1",
+				}),
+				token: "carrier-token",
+				baseUrl: "https://carrier.example.com",
+				fetchImplementation: expect.any(Function),
+			}),
 		);
 	});
 
@@ -3343,6 +3451,8 @@ describe("managed credential Airside listings", () => {
 			providerId,
 			modelId,
 			externalId: "upstream-airside-chat",
+			inputPrice: "2e-6",
+			outputPrice: "6e-6",
 			source: "airside",
 			apiFormat: "openai-chat-completions",
 			status: "active",
@@ -3447,6 +3557,8 @@ describe("managed credential Airside listings", () => {
 			providerId: "openai",
 			modelId: staticModel,
 			externalId: "airside-owned-upstream",
+			inputPrice: "2e-6",
+			outputPrice: "6e-6",
 			source: "airside",
 			apiFormat: "openai-chat-completions",
 			status: "active",
@@ -3481,6 +3593,78 @@ describe("managed credential Airside listings", () => {
 				await db.delete(tables.model).where(eq(tables.model.id, staticModel));
 			}
 		}
+	});
+
+	test("fails closed for an active catalogue claim without a priced deployment", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		await createListing("openai");
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.modelId, modelId));
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Catalogue Carrier" })
+			.returning();
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "openai",
+			kind: "catalogue",
+			matchedDomain: "openai.com",
+			status: "active",
+		});
+		const upstream = vi.fn();
+		vi.stubGlobal("fetch", upstream);
+		try {
+			const response = await post("/admin/provider-credentials/self-test", {
+				provider: "openai",
+				token: "claimed-provider-token",
+			});
+			expect(response.status).toBe(503);
+			expect(validateProviderKeyMock).not.toHaveBeenCalled();
+			expect(runProviderKeySmokeTestMock).not.toHaveBeenCalled();
+			expect(upstream).not.toHaveBeenCalled();
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	test("probes a claimed catalogue deployment through the operator gateway", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		runProviderKeySmokeTestMock.mockResolvedValueOnce(null);
+		await createListing("openai");
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ source: "catalogue" })
+			.where(eq(tables.modelProviderMapping.modelId, modelId));
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Catalogue Carrier" })
+			.returning();
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "openai",
+			kind: "catalogue",
+			matchedDomain: "openai.com",
+			status: "active",
+		});
+		const response = await post("/admin/provider-credentials/self-test", {
+			provider: "openai",
+			token: "claimed-provider-token",
+		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ valid: true, model: modelId });
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+		expect(runProviderKeySmokeTestMock).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				target: expect.objectContaining({
+					providerId: "openai",
+					modelName: modelId,
+					externalId: "upstream-airside-chat",
+				}),
+				token: "claimed-provider-token",
+				fetchImplementation: expect.any(Function),
+			}),
+		);
 	});
 
 	test("save-time validation probes an allowed Airside listing", async () => {

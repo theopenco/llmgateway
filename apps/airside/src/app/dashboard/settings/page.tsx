@@ -138,99 +138,6 @@ function KeyForm({
 	);
 }
 
-function TestingKeySection({ claim }: { claim: Claim }) {
-	const api = useApi();
-	const invalidate = useInvalidateCompanies();
-	const onError = (fallback: string) => (error: unknown) => {
-		toast.error((error as { message?: string })?.message ?? fallback);
-	};
-	const saveKey = api.useMutation(
-		"put",
-		"/airside/claims/{id}/verification-key",
-		{
-			onSuccess: async () => {
-				await invalidate();
-				toast.success("Testing key saved.");
-			},
-			onError: onError("Failed to save the key"),
-		},
-	);
-	const removeKey = api.useMutation(
-		"delete",
-		"/airside/claims/{id}/verification-key",
-		{
-			onSuccess: async () => {
-				await invalidate();
-				toast.success("Testing key removed.");
-			},
-			onError: onError("Failed to remove the key"),
-		},
-	);
-
-	return (
-		<KeySection
-			title="Testing key"
-			description="Runs preflight and verification — yours from Fleet and ours against your listings. Billed by your own platform; not tracked in LLM Gateway usage."
-			testId={`verification-key-${claim.providerId}`}
-		>
-			{claim.verificationKeyMasked ? (
-				<KeyStatusRow
-					label="Saved"
-					masked={claim.verificationKeyMasked}
-					maskedTestId={`verification-key-masked-${claim.providerId}`}
-					meta={<RelativeDate date={claim.verificationKeySetAt} />}
-					action={
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							data-testid={`verification-key-remove-${claim.providerId}`}
-							disabled={removeKey.isPending}
-							onClick={() =>
-								removeKey.mutate({ params: { path: { id: claim.id } } })
-							}
-						>
-							{removeKey.isPending ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<Trash2 className="size-4" />
-							)}
-							Remove
-						</Button>
-					}
-				/>
-			) : (
-				<p className="text-muted-foreground text-sm">
-					No test key saved — preflight asks for one on every run.
-				</p>
-			)}
-			<KeyForm
-				inputId={`verification-key-input-${claim.providerId}`}
-				label={`Testing key for ${claim.providerName}`}
-				placeholder={
-					claim.verificationKeyMasked
-						? "Paste a new key to replace it"
-						: "A key that can call your models"
-				}
-				submitLabel={
-					saveKey.isPending
-						? "Saving…"
-						: claim.verificationKeyMasked
-							? "Replace"
-							: "Save"
-				}
-				pending={saveKey.isPending}
-				onSubmit={(apiKey, reset) =>
-					saveKey.mutate(
-						{ params: { path: { id: claim.id } }, body: { apiKey } },
-						{ onSuccess: reset },
-					)
-				}
-			/>
-		</KeySection>
-	);
-}
-
 function ProviderKeySection({ claim }: { claim: Claim }) {
 	const api = useApi();
 	const invalidate = useInvalidateCompanies();
@@ -263,7 +170,7 @@ function ProviderKeySection({ claim }: { claim: Claim }) {
 	return (
 		<KeySection
 			title="Provider key"
-			description="Serves your live LLM Gateway traffic. Filed with your first model; a replacement is smoke-tested against one of your listings and takes over once we approve it."
+			description="Runs preflight and serves live LLM Gateway traffic. Filed with your first model; a replacement is smoke-tested and takes over once we approve it."
 			testId={`provider-key-${claim.providerId}`}
 		>
 			{claim.providerKey ? (
@@ -368,14 +275,13 @@ function CarrierKeysCard({ claim }: { claim: Claim }) {
 				</CardTitle>
 				<CardDescription>
 					{claim.kind === "custom"
-						? "Two separate keys, so test traffic bills apart from live traffic. Both are stored encrypted and only ever shown back to you masked."
-						: "We serve this carrier's traffic with our own credentials; you only supply the key preflight runs on. Stored encrypted and only ever shown back to you masked."}
+						? "One provider key runs preflight and serves live traffic. Stored encrypted and only shown masked."
+						: "Preflight and live traffic use this carrier's provider key managed by LLM Gateway."}
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="divide-border divide-y">
 				<BillingSection claim={claim} />
 				{claim.kind === "custom" ? <ProviderKeySection claim={claim} /> : null}
-				<TestingKeySection claim={claim} />
 			</CardContent>
 		</Card>
 	);

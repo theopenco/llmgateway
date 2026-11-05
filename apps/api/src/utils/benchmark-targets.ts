@@ -28,7 +28,10 @@ export interface BenchmarkModelOption {
 }
 
 export function benchmarkGatewayKeyConfigured(): boolean {
-	return Boolean(process.env.BENCHMARK_GATEWAY_API_KEY?.trim());
+	return Boolean(
+		process.env.BENCHMARK_GATEWAY_API_KEY?.trim() ||
+		process.env.AIRSIDE_GATEWAY_API_KEY?.trim(),
+	);
 }
 
 interface MappingRow {
@@ -115,22 +118,28 @@ function rowToDescriptor(row: MappingRow): BenchmarkMappingDescriptor {
 	};
 }
 
-/**
- * Catalogue definitions win for the mappings they declare — they carry the
- * regional expansion and the reviewed prices — and database rows contribute
- * everything the catalogue does not know about, which is what makes an Airside
- * listing benchmarkable.
- */
+/** Airside listings replace their catalogue deployment; other catalogue mappings retain their definitions. */
 function mergeDescriptors(
 	catalogue: BenchmarkMappingDescriptor[],
 	rows: MappingRow[],
 ): BenchmarkMappingDescriptor[] {
+	const airsideProviders = new Set(
+		rows.filter((row) => row.source === "airside").map((row) => row.providerId),
+	);
 	const merged = new Map<string, BenchmarkMappingDescriptor>(
-		catalogue.map((descriptor) => [descriptorKey(descriptor), descriptor]),
+		catalogue
+			.filter((descriptor) => !airsideProviders.has(descriptor.providerId))
+			.map((descriptor) => [descriptorKey(descriptor), descriptor]),
 	);
 	for (const row of rows) {
+		if (row.source !== "airside" && airsideProviders.has(row.providerId)) {
+			continue;
+		}
 		const descriptor = rowToDescriptor(row);
-		if (!merged.has(descriptorKey(descriptor))) {
+		if (
+			!merged.has(descriptorKey(descriptor)) ||
+			descriptor.source === "airside"
+		) {
 			merged.set(descriptorKey(descriptor), descriptor);
 		}
 	}
@@ -241,4 +250,16 @@ export async function listBenchmarkModelOptions(): Promise<
 	return options.sort((left, right) =>
 		left.modelName.localeCompare(right.modelName),
 	);
+}
+export function missingBenchmarkGatewayKeys(
+	targets: BenchmarkTarget[],
+): string[] {
+	const required = new Set(
+		targets.map((target) =>
+			target.metadata?.source === "airside"
+				? "AIRSIDE_GATEWAY_API_KEY"
+				: "BENCHMARK_GATEWAY_API_KEY",
+		),
+	);
+	return [...required].filter((name) => !process.env[name]?.trim());
 }

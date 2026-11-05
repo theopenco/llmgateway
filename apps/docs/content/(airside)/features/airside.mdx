@@ -81,7 +81,9 @@ OpenAI Chat Completions listings, including custom carriers using their default 
 
 A stream must already contain assistant text and a finish reason, or the **streaming** check fails. The **tool calls** check is required too: on Chat Completions, a response with `tool_calls` must finish with `finish_reason: "tool_calls"` (a named `tool_choice` may finish with `stop`), or the check fails, because clients stop instead of running the tool. Since no other `tool_choice` mode fixes this, it never narrows your modes.
 
-The context check is billed like any other large prompt. You supply a provider API key that can call the model, saved as this carrier's **test key** under Settings so later runs — yours and ours — reuse it. Use a key separate from the one behind your live integration: preflight traffic is billed by your own platform and is not tracked in LLMGateway usage or billing. You can replace or remove it at any time. Editing the model, its limits included, invalidates the run, so a listing never ships with checks made against different settings.
+The context check is billed like any other large prompt. Preflight uses the carrier's saved **provider key**, managed by the carrier or LLM Gateway. A newly registered carrier supplies this single key with its first preflight; it is stored encrypted and also serves live traffic after approval. Before approval, leave the key field blank to reuse it or enter a replacement and rerun preflight. Preflight consumes real upstream resources and is logged and billed to an operator-controlled benchmark project. Editing the model, its limits included, invalidates the run, so a listing never ships with checks made against different settings.
+
+Only a completed gateway-accounted run can authorize a new listing or capability claim. Changing the provider key or endpoint invalidates earlier proof; historical direct-upstream runs must be repeated.
 
 Re-verifying a live listing reports, it does not rewrite: a failed check names the capability your endpoint refused and leaves the listing exactly as you declared it, because one refused request is as easily a transient fault as a missing capability. Fix the endpoint and verify again, or switch the capability off yourself if the deployment genuinely does not do it. Fleet marks the listing **In service · unverified** until a run passes again.
 
@@ -99,7 +101,7 @@ The worker scans on startup and every five minutes, queuing at most one schedule
 
 Only active providers, models, and mappings qualify. Deactivated mappings and paused, draft, rejected, or delisted Airside listings are excluded. Eligibility and the current declaration are checked again before execution and alert delivery. If the declaration changed or a usable key disappeared, the run is retained as failed with skipped checks, not reported as a capability regression. Completed runs remain in the existing verification history. Daily runs never delist models or change capabilities, prices, tool-choice modes, or reasoning tiers.
 
-Claimed providers use their current saved **test key**, never their managed serving key. Unclaimed catalogue mappings use an active managed key allowed for the model, or the provider credential configured on the worker. Terminal history ciphertext is never reused; rotating or removing a test key takes effect on the next execution. Providers without a usable credential are skipped. Verification requests consume upstream resources, including large context-window probes, without appearing in gateway usage or billing.
+Claimed providers use their current saved **provider key**, whether managed by the carrier or LLM Gateway. Unclaimed catalogue mappings use an active managed key allowed for the model, or the provider credential configured on the worker. Terminal history ciphertext is never reused; key changes take effect on the next execution. Providers without a usable credential are skipped. Verification requests consume real upstream resources, including large context-window probes, and are logged and billed to an operator-controlled benchmark project, not the carrier account.
 
 For self-hosting, configure these worker environment variables:
 
@@ -199,7 +201,7 @@ Accepting more than the baseline margin or offering a discount makes your traffi
 
 ## Settings
 
-**Settings** holds the preflight **test key** for each claimed carrier, shown masked. Replace or remove it at any time; without one, preflight asks for a key on every run.
+**Settings** shows each carrier's key-management arrangement. For a registered carrier, its encrypted **provider key** is shown masked and runs both preflight and live traffic. Submit a replacement for review; the current key stays in use until approval. Catalogue carrier credentials are managed by LLM Gateway.
 
 Settings also shows each carrier's **billing mode**. It is view-only: the mode is agreed with the LLM Gateway team and set up before your carrier goes live (see [Getting paid](#getting-paid)). Contact the LLM Gateway team to change it.
 

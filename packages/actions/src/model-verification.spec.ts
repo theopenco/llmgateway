@@ -7,6 +7,7 @@ import {
 	encryptModelVerificationCredential,
 	runProviderKeySmokeTest,
 	runProviderModelVerification,
+	prepareProviderModelVerificationRequest,
 } from "./model-verification.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -52,6 +53,83 @@ const chatStream = (usage: Record<string, unknown> | null = chatUsage) =>
 		.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
 		.join("") + "data: [DONE]\n\n";
 const responsesUsage = { input_tokens: 20, output_tokens: 2, total_tokens: 22 };
+
+it.each([
+	{ provider: "anthropic", reasoning: true },
+	{ provider: "anthropic", reasoning: false },
+	{ provider: "openai", reasoning: true },
+])(
+	"replays unpublished snapshot thinking only on its declared native protocol ($provider, $reasoning)",
+	async ({ provider, reasoning }) => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		try {
+			const native = await prepareProviderModelVerificationRequest(
+				{
+					model: "unpublished-replay-fixture",
+					messages: [
+						{ role: "user", content: "start" },
+						{
+							role: "assistant",
+							content: "",
+							reasoning_details: [
+								{
+									type: "reasoning.text",
+									format: "anthropic-claude-v1",
+									text: "thinking fixture",
+									signature: "anthropic:anthropic-signature-fixture",
+									block_index: 0,
+								},
+							],
+							tool_calls: [
+								{
+									id: "call-fixture",
+									type: "function",
+									function: { name: "ping", arguments: "{}" },
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call-fixture", content: "pong" },
+					],
+				},
+				{
+					target: {
+						...target,
+						providerId: provider,
+						modelName: "unpublished-replay-fixture",
+						reasoning,
+						apiFormat: "provider-native",
+					},
+					token: "provider-fixture",
+					baseUrl: "https://provider.example",
+					skipEnvVars: true,
+				},
+			);
+			const serialized = JSON.stringify(native.payload);
+			if (provider === "anthropic" && reasoning) {
+				expect(serialized).toContain("anthropic-signature-fixture");
+				expect(native.payload).toMatchObject({
+					messages: expect.arrayContaining([
+						expect.objectContaining({
+							role: "assistant",
+							content: expect.arrayContaining([
+								{
+									type: "thinking",
+									thinking: "thinking fixture",
+									signature: "anthropic-signature-fixture",
+								},
+							]),
+						}),
+					]),
+				});
+			} else {
+				expect(serialized).not.toContain("anthropic-signature-fixture");
+			}
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	},
+);
+
 const googleUsage = {
 	promptTokenCount: 20,
 	candidatesTokenCount: 2,

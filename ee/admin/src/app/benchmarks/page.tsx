@@ -43,8 +43,9 @@ export default async function BenchmarksPage() {
 
 			{!isAdmin || options.data.gatewayKeyConfigured ? null : (
 				<p className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-					<code>BENCHMARK_GATEWAY_API_KEY</code> is not configured, so runs
-					cannot reach the gateway. Set it on the API and the worker.
+					Configure <code>BENCHMARK_GATEWAY_API_KEY</code> for catalogue runs
+					and <code>AIRSIDE_GATEWAY_API_KEY</code> for Airside runs on the API
+					and worker.
 				</p>
 			)}
 

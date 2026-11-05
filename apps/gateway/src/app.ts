@@ -35,6 +35,7 @@ import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js
 import { decisionsRoute } from "./decisions/route.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
+import { airsideInference } from "./internal/airside-inference.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
@@ -416,6 +417,7 @@ const v1 = new OpenAPIHono<ServerTypes>();
 v1.route("/video-assets", videoAssets);
 
 v1.route("/chat", chat);
+
 v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
 v1.route("/key", keyRoute);
@@ -433,6 +435,8 @@ v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
 v1.route("/credits", creditsRoute);
+
+v1.route("/", airsideInference);
 
 app.route("/v1", v1);
 

@@ -21,6 +21,7 @@ import {
 	useCatalogue,
 } from "@/components/dashboard/CatalogueFields";
 import { useCompany } from "@/components/dashboard/company-context";
+import { useInvalidateCompanies } from "@/components/dashboard/useInvalidateCompanies";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -59,33 +60,11 @@ import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
 
 /**
- * The key a carrier saved in settings for this provider, masked. When one
- * exists preflight no longer needs the key pasted — the server reads it off
- * the claim.
- */
-function useSavedVerificationKey(
-	providerCompanyId: string,
-	providerId: string,
-): string | null {
-	const { companies } = useCompany();
-	const claim = companies
-		.find((company) => company.id === providerCompanyId)
-		?.claims.find(
-			(candidate) =>
-				candidate.providerId === providerId && candidate.status === "active",
-		);
-	return claim?.verificationKeyMasked ?? null;
-}
-
-/**
  * A registered carrier with no provider key on file files one with its first
  * model: the server smoke-tests it against that model and it goes live once
  * the model is approved.
  */
-function useNeedsFirstProviderKey(
-	providerCompanyId: string,
-	providerId: string,
-): boolean {
+function useProviderKeySetup(providerCompanyId: string, providerId: string) {
 	const { companies } = useCompany();
 	const claim = companies
 		.find((company) => company.id === providerCompanyId)
@@ -93,31 +72,24 @@ function useNeedsFirstProviderKey(
 			(candidate) =>
 				candidate.providerId === providerId && candidate.status === "active",
 		);
-	return (
-		claim?.kind === "custom" && !claim.providerKey && !claim.pendingProviderKey
-	);
+	const canFileProviderKey = claim?.kind === "custom" && !claim.providerKey;
+	return {
+		canFileProviderKey,
+		needsProviderKey: canFileProviderKey && !claim.pendingProviderKey,
+	};
 }
 
-function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
-	return savedKey ? (
+function ProviderKeyHint() {
+	return (
 		<>
-			Leave blank to use the encrypted test key saved in{" "}
-			<Link href="/dashboard/settings" className="underline">
-				settings
-			</Link>{" "}
-			(<span className="font-mono">{savedKey}</span>). A key pasted here
-			replaces it.
-		</>
-	) : (
-		<>
-			The preflight calls your endpoint with this key. We store it encrypted as
-			this carrier's test key so later runs reuse it — replace or remove it any
-			time in{" "}
+			Preflight uses the carrier's saved provider key, managed by you or LLM
+			Gateway. Preflight consumes real upstream resources and is logged and
+			billed to an operator-controlled benchmark project. Manage your key in
+			{"\u00a0"}
 			<Link href="/dashboard/settings" className="underline">
 				settings
 			</Link>
-			. Use a key separate from your live integration: this traffic is billed by
-			your own platform and is not tracked in LLMGateway usage or billing.
+			.
 		</>
 	);
 }
@@ -890,6 +862,7 @@ export function RegisterModelDialog({
 	children: ReactNode;
 }) {
 	const api = useApi();
+	const invalidateCompanies = useInvalidateCompanies();
 	const invalidate = useInvalidateModels(providerCompanyId);
 	const [open, setOpen] = useState(false);
 	const catalogue = useCatalogue(open);
@@ -930,7 +903,7 @@ export function RegisterModelDialog({
 	const [requestPrice, setRequestPrice] = useState("");
 	const [regionFares, setRegionFares] = useState<RegionFareRow[]>([]);
 	const [note, setNote] = useState("");
-	const [apiKey, setApiKey] = useState("");
+
 	const [verificationId, setVerificationId] = useState("");
 	const [maxRpm, setMaxRpm] = useState("");
 	const [maxRpd, setMaxRpd] = useState("");
@@ -963,11 +936,8 @@ export function RegisterModelDialog({
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
 		? providerId
 		: (sortedProviderIds[0] ?? "");
-	const savedVerificationKey = useSavedVerificationKey(
-		providerCompanyId,
-		effectiveProviderId,
-	);
-	const needsProviderKey = useNeedsFirstProviderKey(
+
+	const { canFileProviderKey, needsProviderKey } = useProviderKeySetup(
 		providerCompanyId,
 		effectiveProviderId,
 	);
@@ -996,9 +966,10 @@ export function RegisterModelDialog({
 		"post",
 		"/airside/model-verifications",
 		{
+			onSettled: invalidateCompanies,
 			onSuccess: (data) => {
 				setVerificationId(data.verification.id);
-				setApiKey("");
+				setProviderKey("");
 				toast.success("Preflight queued. Results will update here.");
 			},
 			onError: (error) => {
@@ -1030,7 +1001,7 @@ export function RegisterModelDialog({
 			setOutputPrice("");
 			setRegionFares([]);
 			setNote("");
-			setApiKey("");
+
 			setProviderKey("");
 			setVerificationId("");
 		},
@@ -1061,7 +1032,23 @@ export function RegisterModelDialog({
 						: undefined,
 				webSearchFormat: capabilities.webSearch ? webSearchFormat : undefined,
 			};
+	const pricing = decisions
+		? {
+				inputPrice: perMillionToPerToken(inputPrice),
+				outputPrice: "0",
+				requestPrice: requestPrice || undefined,
+			}
+		: {
+				inputPrice: perMillionToPerToken(inputPrice),
+				outputPrice: perMillionToPerToken(outputPrice),
+				cachedInputPrice: cachedInputPrice
+					? perMillionToPerToken(cachedInputPrice)
+					: undefined,
+				requestPrice: requestPrice || undefined,
+				regionPrices: regionFaresToBody(regionFares),
+			};
 	const verificationMapping = {
+		pricing,
 		providerCompanyId,
 		providerId: effectiveProviderId,
 		modelName: modelName.trim(),
@@ -1131,7 +1118,10 @@ export function RegisterModelDialog({
 							queueVerification.mutate({
 								body: {
 									...verificationMapping,
-									apiKey: apiKey || undefined,
+									providerApiKey:
+										canFileProviderKey && providerKey.trim()
+											? providerKey
+											: undefined,
 								},
 							});
 							return;
@@ -1139,7 +1129,7 @@ export function RegisterModelDialog({
 						createModel.mutate({
 							body: {
 								verificationId: verification.id,
-								providerKey: needsProviderKey ? providerKey : undefined,
+
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName: modelName.trim(),
@@ -1158,21 +1148,7 @@ export function RegisterModelDialog({
 								maxRpd: Number(maxRpd) || undefined,
 								rateLimitScope,
 								rateLimitMode,
-								pricing: decisions
-									? {
-											inputPrice: perMillionToPerToken(inputPrice),
-											outputPrice: "0",
-											requestPrice: requestPrice || undefined,
-										}
-									: {
-											inputPrice: perMillionToPerToken(inputPrice),
-											outputPrice: perMillionToPerToken(outputPrice),
-											cachedInputPrice: cachedInputPrice
-												? perMillionToPerToken(cachedInputPrice)
-												: undefined,
-											requestPrice: requestPrice || undefined,
-											regionPrices: regionFaresToBody(regionFares),
-										},
+								pricing,
 								note: note || undefined,
 							},
 						});
@@ -1680,46 +1656,33 @@ export function RegisterModelDialog({
 						</div>
 					</div>
 
-					<div className="border-border space-y-2 rounded-lg border p-3">
-						<Label htmlFor="verification-api-key">Provider test key</Label>
-						<Input
-							id="verification-api-key"
-							type="password"
-							autoComplete="off"
-							value={apiKey}
-							onChange={(event) => {
-								setApiKey(event.target.value);
-								setVerificationId("");
-							}}
-							placeholder={
-								savedVerificationKey
-									? "Paste a key to replace the saved one"
-									: "A key that can call this model"
-							}
-							disabled={verificationInProgress}
-						/>
-						<p className="text-muted-foreground text-xs">
-							<VerificationKeyHint savedKey={savedVerificationKey} />
-						</p>
-					</div>
-
-					{needsProviderKey ? (
+					<p className="text-muted-foreground text-xs">
+						<ProviderKeyHint />
+					</p>
+					{canFileProviderKey ? (
 						<div className="border-border space-y-2 rounded-lg border p-3">
 							<Label htmlFor="first-provider-key">Provider key</Label>
 							<Input
 								id="first-provider-key"
 								data-testid="first-provider-key-input"
+								disabled={queueVerification.isPending || verificationInProgress}
 								type="password"
 								autoComplete="off"
 								value={providerKey}
-								onChange={(event) => setProviderKey(event.target.value)}
-								placeholder="The key we serve your traffic with"
+								onChange={(event) => {
+									setProviderKey(event.target.value);
+									setVerificationId("");
+								}}
+								placeholder={
+									needsProviderKey
+										? "The key for preflight and live traffic"
+										: "Leave blank to reuse the saved key"
+								}
 							/>
 							<p className="text-muted-foreground text-xs">
-								Your first model brings the key LLM Gateway serves your live
-								traffic with. It must differ from the test key: we smoke-test it
-								against this model when you file, and it goes live once the
-								model is approved. Stored encrypted.
+								One encrypted provider key runs preflight and serves live
+								traffic. It goes live once your first model is approved. Until
+								then, leave blank to reuse the saved key or enter a replacement.
 							</p>
 						</div>
 					) : null}
@@ -1737,12 +1700,7 @@ export function RegisterModelDialog({
 								verificationInProgress ||
 								!effectiveProviderId ||
 								!modelIdValid ||
-								(verification?.status !== "passed" &&
-									!apiKey.trim() &&
-									!savedVerificationKey) ||
-								(verification?.status === "passed" &&
-									needsProviderKey &&
-									!providerKey.trim())
+								(needsProviderKey && !providerKey.trim())
 							}
 							data-testid="register-model-submit"
 							className="font-semibold"
@@ -1773,12 +1731,9 @@ export function VerifyModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
-	const savedVerificationKey = useSavedVerificationKey(
-		model.providerCompanyId,
-		model.providerId,
-	);
+
 	const [open, setOpen] = useState(false);
-	const [apiKey, setApiKey] = useState("");
+
 	const [verificationId, setVerificationId] = useState(
 		model.latestVerification?.id ?? "",
 	);
@@ -1817,7 +1772,6 @@ export function VerifyModelDialog({
 		{
 			onSuccess: async (data) => {
 				setVerificationId(data.verification.id);
-				setApiKey("");
 				await invalidate();
 				void historyQuery.refetch();
 				toast.success("Mapping verification queued.");
@@ -1859,29 +1813,9 @@ export function VerifyModelDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor={`verify-api-key-${model.id}`}>
-							Provider test key
-						</Label>
-						<Input
-							id={`verify-api-key-${model.id}`}
-							type="password"
-							autoComplete="off"
-							value={apiKey}
-							onChange={(event) => {
-								setApiKey(event.target.value);
-								setVerificationId("");
-							}}
-							placeholder={
-								savedVerificationKey
-									? "Paste a key to replace the saved one"
-									: "A key that can call this model"
-							}
-						/>
-						<p className="text-muted-foreground text-xs">
-							<VerificationKeyHint savedKey={savedVerificationKey} />
-						</p>
-					</div>
+					<p className="text-muted-foreground text-xs">
+						<ProviderKeyHint />
+					</p>
 					{verification ? (
 						<VerificationResults verification={verification} />
 					) : verificationId === (model.latestVerification?.id ?? "") &&
@@ -1899,14 +1833,13 @@ export function VerifyModelDialog({
 						type="button"
 						disabled={
 							queueVerification.isPending ||
-							(!apiKey.trim() && !savedVerificationKey) ||
 							verification?.status === "queued" ||
 							verification?.status === "running"
 						}
 						onClick={() =>
 							queueVerification.mutate({
 								params: { path: { id: model.id } },
-								body: { apiKey: apiKey || undefined },
+								body: {},
 							})
 						}
 					>
@@ -1928,10 +1861,7 @@ export function EditModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
-	const savedVerificationKey = useSavedVerificationKey(
-		model.providerCompanyId,
-		model.providerId,
-	);
+
 	const [open, setOpen] = useState(false);
 	// A pending change is what the listing becomes once approved, so the form
 	// starts from it; saving replaces that filing.
@@ -2034,7 +1964,7 @@ export function EditModelDialog({
 			? (webSearchFormat ?? undefined)
 			: undefined,
 	};
-	const [apiKey, setApiKey] = useState("");
+
 	const [verificationId, setVerificationId] = useState("");
 	const verificationQuery = api.useQuery(
 		"get",
@@ -2057,7 +1987,6 @@ export function EditModelDialog({
 		{
 			onSuccess: async (data) => {
 				setVerificationId(data.verification.id);
-				setApiKey("");
 				await invalidate();
 			},
 			onError: (error) => {
@@ -2424,47 +2353,25 @@ export function EditModelDialog({
 						) : null}
 					</div>
 					<div className="border-border space-y-2 rounded-lg border p-3">
-						<Label htmlFor={`edit-verify-api-key-${model.id}`}>
-							Preflight these capabilities (optional)
-						</Label>
-						<Input
-							id={`edit-verify-api-key-${model.id}`}
-							data-testid="edit-verify-api-key"
-							type="password"
-							autoComplete="off"
-							value={apiKey}
-							onChange={(event) => {
-								setApiKey(event.target.value);
-								setVerificationId("");
-							}}
-							placeholder={
-								savedVerificationKey
-									? "Paste a key to replace the saved one"
-									: "A key that can call this model"
-							}
-							disabled={verificationInProgress}
-						/>
+						<p className="text-sm font-semibold">
+							Preflight these capabilities
+						</p>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
 							you file them. Required before saving when you add a capability or
 							raise a limit; a failed check reports what the endpoint refused.{" "}
-							<VerificationKeyHint savedKey={savedVerificationKey} />
+							<ProviderKeyHint />
 						</p>
 						<Button
 							type="button"
 							variant="outline"
 							size="sm"
 							data-testid="edit-run-preflight"
-							disabled={
-								queueVerification.isPending ||
-								verificationInProgress ||
-								(!apiKey.trim() && !savedVerificationKey)
-							}
+							disabled={queueVerification.isPending || verificationInProgress}
 							onClick={() =>
 								queueVerification.mutate({
 									params: { path: { id: model.id } },
 									body: {
-										apiKey: apiKey || undefined,
 										proposed: proposedCapabilities,
 									},
 								})

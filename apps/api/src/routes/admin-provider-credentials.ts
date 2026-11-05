@@ -3,7 +3,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { assertNotTestingKey } from "@/lib/airside-carrier-keys.js";
+import {} from "@/lib/airside-carrier-keys.js";
 import {
 	listAirsideModelIds,
 	validateAirsideKey,
@@ -562,27 +562,30 @@ async function probeCredentialToken(
 	token: string,
 	validationOptions: ReturnType<typeof managedCredentialValidationOptions>,
 	allowedModels: string[] | null | undefined,
+	incomingHeaders?: HeadersInit,
+	providerKeyId?: string,
 ): Promise<ProviderValidationResult | undefined> {
+	const airsideResult = await validateAirsideKey(
+		provider,
+		token,
+		undefined,
+		allowedModels,
+		{
+			providerKeyOptions: validationOptions,
+			skipEnvVars: true,
+			useGateway: true,
+			incomingHeaders,
+			providerKeyId,
+			abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
+		},
+	);
+	if (airsideResult) {
+		return airsideResult;
+	}
 	let validationProvider = provider as ProviderId;
 	let validationBaseUrl: string | undefined;
 	let pinnedModelId: string | undefined;
 	if (providers.some((entry) => entry.id === provider)) {
-		// Airside listings exist only in the DB catalogue, so the static
-		// validation-model lookup below cannot probe them.
-		const airsideResult = await validateAirsideKey(
-			provider,
-			token,
-			undefined,
-			allowedModels,
-			{
-				providerKeyOptions: validationOptions,
-				skipEnvVars: true,
-				abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
-			},
-		);
-		if (airsideResult) {
-			return airsideResult;
-		}
 		pinnedModelId = pickAllowedValidationModel(
 			provider,
 			allowedModels ?? null,
@@ -642,6 +645,8 @@ async function validateCredentialToken(
 	config: Record<string, string>,
 	region: string | null | undefined,
 	allowedModels?: string[] | null,
+	incomingHeaders?: HeadersInit,
+	providerKeyId?: string,
 ): Promise<void> {
 	// Provider keys in unit tests are fixtures, not live credentials; e2e runs
 	// opt back in so the real upstream path stays covered.
@@ -659,6 +664,8 @@ async function validateCredentialToken(
 		token,
 		validationOptions,
 		allowedModels,
+		incomingHeaders,
+		providerKeyId,
 	);
 	if (!result || result.valid) {
 		return;
@@ -2027,6 +2034,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			config,
 			body.region,
 			allowedModels,
+			c.req.raw.headers,
 		);
 	}
 
@@ -2037,10 +2045,6 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 		body.provider === "custom"
 			? undefined
 			: await findActiveCustomCarrier(body.provider);
-	// The carrier's testing key runs preflights; it never serves traffic.
-	if (carrier) {
-		assertNotTestingKey(carrier, body.token);
-	}
 	const created = await cdb.transaction(async (tx) => {
 		const [row] = await tx
 			.insert(tables.providerKey)
@@ -2182,12 +2186,6 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 				"A credential pending deletion cannot change its token, config, region, variant or allowed models.",
 		});
 	}
-	if (body.token !== undefined && existing.provider !== "custom") {
-		const carrier = await findActiveCustomCarrier(existing.provider);
-		if (carrier) {
-			assertNotTestingKey(carrier, body.token);
-		}
-	}
 
 	const updates: Partial<typeof tables.providerKey.$inferInsert> =
 		providerKeyRateLimitUpdates(body);
@@ -2261,6 +2259,8 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			body.allowedModels !== undefined
 				? (updates.allowedModels ?? null)
 				: existing.allowedModels,
+			c.req.raw.headers,
+			body.token === undefined ? existing.id : undefined,
 		);
 	}
 
@@ -2378,6 +2378,7 @@ const credentialUnderTestSchema = z.object({
 
 interface CredentialUnderTest {
 	provider: string;
+	providerKeyId?: string;
 	token: string;
 	config: Record<string, string>;
 	region: string | null;
@@ -2446,6 +2447,7 @@ async function resolveCredentialUnderTest(
 
 	return {
 		provider,
+		providerKeyId: explicitToken ? undefined : credential?.id,
 		token,
 		config,
 		region,
@@ -2517,19 +2519,20 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 	// A provider served only through Airside listings has no static
 	// validation model, so probe one of its listings instead.
 	const result =
-		(target.customCarrier
-			? undefined
-			: await validateAirsideKey(
-					target.provider,
-					target.token,
-					undefined,
-					null,
-					{
-						providerKeyOptions: validationOptions,
-						skipEnvVars: true,
-						abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
-					},
-				)) ??
+		(await validateAirsideKey(
+			target.provider,
+			target.token,
+			undefined,
+			customCarrierModel ? [customCarrierModel[0]] : null,
+			{
+				providerKeyOptions: validationOptions,
+				skipEnvVars: true,
+				useGateway: true,
+				providerKeyId: target.providerKeyId,
+				incomingHeaders: c.req.raw.headers,
+				abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+			},
+		)) ??
 		(await validateProviderKey(
 			target.customCarrier ? "custom" : (target.provider as ProviderId),
 			target.token,
@@ -2642,15 +2645,25 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			if (isCredentialTestEnv()) {
 				return { model: modelId, inCatalog: true, valid: true };
 			}
-			const result = await validateProviderKey(
-				"custom",
+			const result = await validateAirsideKey(
+				target.provider,
 				target.token,
-				target.customCarrier.baseUrl,
-				false,
 				undefined,
-				externalId,
-				AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				[modelId],
+				{
+					providerKeyOptions: validationOptions,
+					skipEnvVars: true,
+					useGateway: true,
+					providerKeyId: target.providerKeyId,
+					incomingHeaders: c.req.raw.headers,
+					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				},
 			);
+			if (!result) {
+				throw new HTTPException(503, {
+					message: "The carrier deployment is unavailable for verification.",
+				});
+			}
 			return {
 				model: modelId,
 				inCatalog: true,
@@ -2673,6 +2686,9 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 				{
 					providerKeyOptions: validationOptions,
 					skipEnvVars: true,
+					useGateway: true,
+					providerKeyId: target.providerKeyId,
+					incomingHeaders: c.req.raw.headers,
 					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 				},
 			);

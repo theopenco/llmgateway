@@ -16,6 +16,9 @@ import {
 import {
 	liveVerificationMapping,
 	sameVerificationDeclaration,
+	currentCredentialSource,
+	currentVerificationTarget,
+	sameVerificationCredential,
 } from "./daily-model-verifications.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -106,7 +109,10 @@ function observation(
 	job?: Verification,
 ): AirsideVerificationObservation {
 	const expected = createQueuedModelVerificationChecks(target);
-	const compatible = job && sameVerificationDeclaration(target, job.target);
+	const compatible =
+		job &&
+		sameVerificationDeclaration(target, job.target) &&
+		sameVerificationCredential(job.target, target);
 	const failedChecks =
 		compatible &&
 		job.completedAt &&
@@ -147,9 +153,6 @@ async function observations(companyId: string, now: Date, tx: Transaction) {
 	});
 	const result: AirsideVerificationObservation[] = [];
 	for (const claim of claims) {
-		if (!claim.verificationKeyCiphertext) {
-			continue;
-		}
 		const mappings = await tx.query.modelProviderMapping.findMany({
 			where: { providerId: { eq: claim.providerId }, status: { eq: "active" } },
 		});
@@ -158,7 +161,7 @@ async function observations(companyId: string, now: Date, tx: Transaction) {
 			if (
 				!live ||
 				live.claim?.providerCompanyId !== companyId ||
-				!live.claim.verificationKeyCiphertext
+				!(await currentCredentialSource(live, tx))
 			) {
 				continue;
 			}
@@ -181,7 +184,9 @@ async function observations(companyId: string, now: Date, tx: Transaction) {
 				)
 				.orderBy(desc(jobs.createdAt), desc(jobs.id))
 				.limit(1);
-			result.push(observation(mapping.id, live.target, job));
+			result.push(
+				observation(mapping.id, await currentVerificationTarget(live, tx), job),
+			);
 		}
 	}
 	return result.sort((a, b) => a.mappingId.localeCompare(b.mappingId));

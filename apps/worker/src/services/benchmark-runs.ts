@@ -1,6 +1,11 @@
 import { getStopSignal } from "@/shutdown.js";
 
 import {
+	createAirsideGatewayFetch,
+	prepareProviderModelVerificationRequest,
+	airsideInferencePricing,
+} from "@llmgateway/actions";
+import {
 	buildBenchmarkTargets,
 	catalogueMappingDescriptors,
 	getBuiltInProfile,
@@ -12,6 +17,14 @@ import {
 import { and, asc, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
+
+import {
+	liveVerificationMapping,
+	currentCredentialSource,
+} from "./daily-model-verifications.js";
+import { resolveCredential } from "./model-verifications.js";
+
+import type { ModelVerificationRequest } from "@llmgateway/actions";
 
 type BenchmarkRunRow = typeof tables.benchmarkRun.$inferSelect;
 
@@ -144,19 +157,32 @@ export async function resolveRunTargets(
 		catalogue = [];
 	}
 
+	const airsideProviders = new Set(
+		rows
+			.filter((row) => row.mapping.source === "airside")
+			.map((row) => row.mapping.providerId),
+	);
 	const merged = new Map<string, BenchmarkMappingDescriptor>(
-		catalogue.map((descriptor) => [
-			`${descriptor.providerId}:${descriptor.region ?? ""}`,
-			descriptor,
-		]),
+		catalogue
+			.filter((descriptor) => !airsideProviders.has(descriptor.providerId))
+			.map((descriptor) => [
+				`${descriptor.providerId}:${descriptor.region ?? ""}`,
+				descriptor,
+			]),
 	);
 	for (const row of rows) {
+		if (
+			row.mapping.source !== "airside" &&
+			airsideProviders.has(row.mapping.providerId)
+		) {
+			continue;
+		}
 		const descriptor = rowDescriptor({
 			...row.mapping,
 			modelName: row.modelName,
 		});
 		const key = `${descriptor.providerId}:${descriptor.region ?? ""}`;
-		if (!merged.has(key)) {
+		if (!merged.has(key) || descriptor.source === "airside") {
 			merged.set(key, descriptor);
 		}
 	}
@@ -179,19 +205,6 @@ export async function processNextBenchmarkRun(
 	const run = await claimNextBenchmarkRun();
 	if (!run) {
 		return false;
-	}
-
-	const apiKey = process.env.BENCHMARK_GATEWAY_API_KEY?.trim();
-	if (!apiKey) {
-		await db
-			.update(tables.benchmarkRun)
-			.set({
-				status: "failed",
-				error: "BENCHMARK_GATEWAY_API_KEY is not configured.",
-				completedAt: new Date(),
-			})
-			.where(eq(tables.benchmarkRun.id, run.id));
-		return true;
 	}
 
 	let heartbeat: Promise<void> | undefined;
@@ -233,6 +246,28 @@ export async function processNextBenchmarkRun(
 
 	try {
 		const targets = await resolveRunTargets(run);
+		const requiredEnvironments = new Set(
+			targets.map((target) =>
+				target.metadata?.source === "airside"
+					? "AIRSIDE_GATEWAY_API_KEY"
+					: "BENCHMARK_GATEWAY_API_KEY",
+			),
+		);
+		for (const environment of requiredEnvironments) {
+			if (!process.env[environment]?.trim()) {
+				throw new Error(`${environment} is not configured.`);
+			}
+		}
+		const keyEnvironment = targets.some(
+			(target) => target.metadata?.source === "airside",
+		)
+			? "AIRSIDE_GATEWAY_API_KEY"
+			: "BENCHMARK_GATEWAY_API_KEY";
+		const apiKey = process.env[keyEnvironment]?.trim();
+		if (!apiKey) {
+			throw new Error(`${keyEnvironment} is not configured.`);
+		}
+		let infrastructureError: Error | undefined;
 		const profile = getBuiltInProfile(run.profile);
 		const result = await execute({
 			client: {
@@ -240,6 +275,9 @@ export async function processNextBenchmarkRun(
 				apiKey,
 			},
 			targets,
+			fetch: benchmarkGatewayFetch(run, targets, (error) => {
+				infrastructureError = error;
+			}),
 			cases: profile.cases,
 			budgetMs: run.budgetMs,
 			timeoutMs: run.timeoutMs,
@@ -251,6 +289,9 @@ export async function processNextBenchmarkRun(
 			includeResponses: false,
 		});
 
+		if (infrastructureError) {
+			throw infrastructureError;
+		}
 		await db
 			.update(tables.benchmarkRun)
 			.set({
@@ -292,4 +333,140 @@ export async function processNextBenchmarkRun(
 		await heartbeat;
 	}
 	return true;
+}
+function benchmarkGatewayFetch(
+	run: BenchmarkRunRow,
+	targets: BenchmarkTarget[],
+	onInfrastructureError: (error: Error) => void,
+): typeof fetch {
+	const identities = new Map<string, string>();
+	const rejectConfiguration: (message: string) => never = (message) => {
+		const error = new Error(message);
+		onInfrastructureError(error);
+		throw error;
+	};
+	const configuration = async <T>(
+		operation: () => T | Promise<T>,
+		message: string,
+	): Promise<T> => {
+		try {
+			return await operation();
+		} catch {
+			return rejectConfiguration(message);
+		}
+	};
+	return async (input, init) => {
+		if (typeof init?.body !== "string") {
+			rejectConfiguration("Benchmark request body is unavailable.");
+		}
+		const request = await configuration(
+			() => JSON.parse(String(init.body)) as ModelVerificationRequest,
+			"Benchmark request body is unavailable.",
+		);
+		const selected = targets.find((target) => target.model === request.model);
+		if (!selected) {
+			rejectConfiguration("Benchmark target is unavailable.");
+		}
+		if (selected.metadata?.source !== "airside") {
+			const key = process.env.BENCHMARK_GATEWAY_API_KEY?.trim();
+			if (!key) {
+				rejectConfiguration("BENCHMARK_GATEWAY_API_KEY is not configured.");
+			}
+			const headers = new Headers(init.headers);
+			headers.set("Authorization", `Bearer ${key}`);
+			return await fetch(input, { ...init, headers });
+		}
+		const providerId = selected.metadata.provider;
+		const region = selected.metadata.region;
+		if (typeof providerId !== "string") {
+			rejectConfiguration("Benchmark provider is unavailable.");
+		}
+		const mapping = await configuration(
+			() =>
+				db.query.modelProviderMapping.findFirst({
+					where: {
+						modelId: { eq: run.modelId },
+						providerId: { eq: providerId },
+						region:
+							typeof region === "string" ? { eq: region } : { isNull: true },
+						status: { eq: "active" },
+					},
+				}),
+			"Benchmark mapping is unavailable.",
+		);
+		const live = mapping
+			? await configuration(
+					() => liveVerificationMapping(mapping.id),
+					"Benchmark listing is unavailable.",
+				)
+			: null;
+		if (!live) {
+			rejectConfiguration("Benchmark listing is no longer active.");
+		}
+		const credentialSource = await configuration(
+			() => currentCredentialSource(live),
+			"Benchmark credential is unavailable.",
+		);
+		if (!credentialSource) {
+			rejectConfiguration("Benchmark credential is unavailable.");
+		}
+		const credential = await configuration(
+			() =>
+				resolveCredential(
+					{
+						id: run.id,
+						modelProviderMappingId: mapping!.id,
+						providerCompanyId: live.claim?.providerCompanyId ?? null,
+						credentialSource,
+						target: live.target,
+					},
+					false,
+				),
+			"Benchmark credential is unavailable.",
+		);
+		const identity = JSON.stringify([
+			credential.providerKeyId,
+			credential.credentialFingerprint,
+			credential.baseUrl,
+			credential.providerKeyOptions,
+			live.target,
+		]);
+		if (
+			identities.has(selected.id) &&
+			identities.get(selected.id) !== identity
+		) {
+			rejectConfiguration("Benchmark credential changed during execution.");
+		}
+		identities.set(selected.id, identity);
+		const native = await configuration(
+			() =>
+				prepareProviderModelVerificationRequest(request, {
+					target: live.target,
+					token: credential.providerKey,
+					baseUrl: credential.baseUrl,
+					providerKeyOptions: credential.providerKeyOptions,
+					skipEnvVars: credential.skipEnvVars,
+				}),
+			"Benchmark inference configuration is unavailable.",
+		);
+		if (native.payload instanceof FormData) {
+			rejectConfiguration("Benchmark requires a JSON inference request.");
+		}
+		const pricing = await configuration(
+			() => airsideInferencePricing(live.target, live.mapping),
+			"Benchmark pricing is unavailable.",
+		);
+		return await createAirsideGatewayFetch({
+			runId: run.id,
+			providerKeyId: credential.providerKeyId,
+			target: live.target,
+			pricing,
+			responseFormat: "openai-chat-completions",
+			onInfrastructureError,
+		})(native.endpoint, {
+			...init,
+			headers: native.headers,
+			body: JSON.stringify(native.payload),
+		});
+	};
 }

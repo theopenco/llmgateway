@@ -442,6 +442,16 @@ The selection reason in routing metadata shows `session-sticky` when a request w
 	the weighted smart-routing algorithm.
 </Callout>
 
+### Airside verification routing
+
+Operator-run Airside preflight, daily verification when enabled, and Airside
+benchmarks use an authenticated internal gateway path. They pin the exact
+deployment, declared capabilities, and provider credential without fallback or
+response caching, including listings not yet public. Usage is logged and billed
+to the operator benchmark project. Public inference requests cannot override
+provider credentials or access unpublished listings through this path. Regular
+session and DevPass routing is unchanged.
+
 ### Provider-Specific Routing
 
 To use a specific provider without any fallbacks, prefix the model name with the provider name followed by a slash. This also reaches deployments with a smaller context window than the model's largest, which routing by model ID skips:
