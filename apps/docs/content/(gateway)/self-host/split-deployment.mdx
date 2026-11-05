@@ -168,8 +168,8 @@ browser can send it.
    The admin dashboard additionally requires an authorized, verified account.
 4. Before entering a key in the docs API explorer, confirm its selected server
    and browser network destination match the testing gateway; generated schemas
-   may contain hosted server URLs. Run inference with a testing key and check the
-   observed client IP. Never reuse a production key.
+   may contain hosted server URLs. Run inference with an API key from an isolated gateway test project and
+   check the observed client IP. Never reuse a production key.
 5. Inspect runtime CPU-limit errors separately from connection, CORS, and auth
    errors. Build memory and build-machine size do not determine request CPU
    budgets; confirm the hosting runtime's effective request limit.

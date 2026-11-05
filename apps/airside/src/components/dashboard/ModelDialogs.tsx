@@ -82,9 +82,10 @@ function useProviderKeySetup(providerCompanyId: string, providerId: string) {
 function ProviderKeyHint() {
 	return (
 		<>
-			Preflight uses the carrier's saved provider key, managed by you or LLM
-			Gateway. Preflight consumes real upstream resources and is logged and
-			billed to an operator-controlled benchmark project. Manage your key in
+			Preflight uses your carrier's saved provider key, managed by you or LLM
+			Gateway. These requests consume provider usage and are logged and billed
+			to our gateway project for reconciliation. Previously saved test keys are
+			no longer used; you do not need to remove them. Manage your key in
 			{"\u00a0"}
 			<Link href="/dashboard/settings" className="underline">
 				settings
@@ -1680,8 +1681,8 @@ export function RegisterModelDialog({
 								}
 							/>
 							<p className="text-muted-foreground text-xs">
-								One encrypted provider key runs preflight and serves live
-								traffic. It goes live once your first model is approved. Until
+								One encrypted provider key is used for live traffic and Airside
+								tests. It goes live once your first model is approved. Until
 								then, leave blank to reuse the saved key or enter a replacement.
 							</p>
 						</div>

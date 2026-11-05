@@ -62,6 +62,12 @@ LLM Gateway. A newly registered carrier supplies one provider key with its first
 preflight; that same key serves live traffic after approval. Importing catalogue
 models refreshes both the fleet and filings history.
 
+Previously saved test keys are no longer used; you do not need to remove them
+or resubmit your provider key. Preflight, benchmarks/load tests and enabled
+scheduled checks consume usage on this same provider-key account. Their
+inferences are logged and billed to LLM Gateway's operator project for
+[accounting and reconciliation](/features/airside#provider-key-and-test-usage).
+
 The **Incidents** link on a listing includes its regional mappings as well as the base mapping.
 
 ## Changing a price

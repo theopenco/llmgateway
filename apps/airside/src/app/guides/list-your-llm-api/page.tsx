@@ -55,26 +55,30 @@ export default function ListingGuide() {
 				<h2>3. Declare and verify the deployment</h2>
 				<p>
 					Keep Carrier default selected unless this deployment needs a different
-					upstream API format. Enter the context window, output limit and
-					capabilities your endpoint actually supports. Choose rate limits that
-					your infrastructure can sustain, including whether a limit covers all
-					organizations or applies separately to each one.
+					upstream API format. Enter the context window, output limit,
+					capabilities and proposed prices before running preflight. Choose rate
+					limits that your infrastructure can sustain, including whether a limit
+					covers all organizations or applies separately to each one.
 				</p>
 				<p className="mt-3">
 					Preflight uses your carrier's saved provider key, managed by you or
 					LLM Gateway. It checks each declared capability, fills most of the
 					declared context window and requests the full output limit. Optional
 					checks show warnings instead of failing and may become required later.
-					Preflight consumes real upstream resources and is logged and billed to
-					an operator-controlled benchmark project. Resolve failed checks before
-					submitting. Changing the verified mapping, adding capabilities or
-					raising limits requires a new verification; narrowing them does not.
+					Preflight, benchmarks, load tests and enabled scheduled checks consume
+					real usage on the same provider-key account. We record those requests
+					as gateway inference and bill our operator project, so usage is
+					included on both sides for accounting, billing and reconciliation.
+					Resolve failed checks before submitting. Changing the verified
+					mapping, adding capabilities or raising limits requires a new
+					verification; narrowing them does not.
 				</p>
 				<p className="mt-3">
 					A newly registered carrier supplies one provider key with its first
 					preflight. Stored encrypted, the same key serves live traffic once the
 					model is approved. Replacements under Settings are smoke-tested and
-					reviewed by our team.
+					reviewed by our team. Previously saved test keys are no longer used;
+					you do not need to remove them or resubmit your provider key.
 				</p>
 				<p className="mt-3">
 					Every preflight stays on the record. The Verify dialog lists past runs
@@ -83,7 +87,7 @@ export default function ListingGuide() {
 				</p>
 			</section>
 			<section>
-				<h2>4. Submit prices for review</h2>
+				<h2>4. Review and file prices</h2>
 				<p>
 					Enter input, output and cached-input prices per million tokens; a
 					per-request charge uses a flat amount. For an existing canonical

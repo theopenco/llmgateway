@@ -170,7 +170,7 @@ function ProviderKeySection({ claim }: { claim: Claim }) {
 	return (
 		<KeySection
 			title="Provider key"
-			description="Runs preflight and serves live LLM Gateway traffic. Filed with your first model; a replacement is smoke-tested and takes over once we approve it."
+			description="Used for live traffic, preflight and automated tests. Filed with your first model; replacements are smoke-tested and reviewed before taking over."
 			testId={`provider-key-${claim.providerId}`}
 		>
 			{claim.providerKey ? (
@@ -259,6 +259,11 @@ function BillingSection({ claim }: { claim: Claim }) {
 			<p className="text-muted-foreground text-sm">
 				{AIRSIDE_BILLING_MODE_DESCRIPTIONS[claim.billingMode]}
 			</p>
+			<p className="text-muted-foreground text-sm">
+				Airside test requests consume usage on the same provider-key account. We
+				log and bill them to our gateway project for reconciliation; your agreed
+				billing mode stays the same.
+			</p>
 		</KeySection>
 	);
 }
@@ -275,8 +280,10 @@ function CarrierKeysCard({ claim }: { claim: Claim }) {
 				</CardTitle>
 				<CardDescription>
 					{claim.kind === "custom"
-						? "One provider key runs preflight and serves live traffic. Stored encrypted and only shown masked."
-						: "Preflight and live traffic use this carrier's provider key managed by LLM Gateway."}
+						? "One provider key is used for live traffic and Airside testing. Stored encrypted and only shown masked."
+						: "Airside tests and live traffic use this carrier's provider key managed by LLM Gateway."}{" "}
+					Previously saved test keys are no longer used; you do not need to
+					remove them.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="divide-border divide-y">
