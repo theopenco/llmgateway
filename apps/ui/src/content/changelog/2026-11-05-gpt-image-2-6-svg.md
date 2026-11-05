@@ -37,7 +37,8 @@ curl https://api.llmgateway.io/v1/images/generations \
   -d '{
     "model": "openai/gpt-image-2.6-flare",
     "prompt": "A flat two-color sticker of a smiling cactus",
-    "output_format": "svg"
+    "output_format": "svg",
+    "svg": { "model": "gpt-5.4-mini", "reasoning": { "effort": "low" } }
   }' | jq -r '.data[0].b64_json' | base64 --decode > cactus.svg
 ```
 
@@ -45,6 +46,8 @@ curl https://api.llmgateway.io/v1/images/generations \
 `"output_format": "svg"`. The document is static vector content: no scripts,
 external resources, or embedded raster images.
 
+- When your OpenAI account has SVG model selection enabled, supply `svg.model`
+  as above; otherwise omit `svg`. Author reasoning effort is optional.
 - `n` must be `1`; `output_compression` and streaming are not available for SVG.
 - SVG is a generation format. `/v1/images/edits` returns raster images.
 - A model without SVG output gets a `400` before any provider is called.
@@ -60,8 +63,8 @@ GPT Image 2.6 uses the same token rates as GPT Image 2 and 2.5. For SVG output,
 OpenAI first renders a reference image, then an authoring model writes the
 vectors. Both are billed from the reported usage: image tokens at the image
 model's rates and the authoring tokens at the authoring model's catalogue
-rates (or the image model's rates when the authoring model is not in the
-catalogue), shown in `usage.cost`. See the
+rates, shown in `usage.cost`. Unpriced authoring cost is omitted and logged for
+reconciliation; the reference image is still billed. See the
 [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for
 current prices.
 

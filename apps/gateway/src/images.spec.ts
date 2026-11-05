@@ -48,6 +48,7 @@ describe("image generation upstream streaming", () => {
 		background?: unknown;
 		outputFormat?: unknown;
 		outputCompression?: unknown;
+		svg?: unknown;
 	}> = [];
 	let failOpenai = false;
 	let imageBase64Prefix = "";
@@ -111,6 +112,7 @@ describe("image generation upstream streaming", () => {
 				background: body.background,
 				outputFormat: body.output_format,
 				outputCompression: body.output_compression,
+				svg: body.svg,
 			});
 			if (endpoint === "edits") {
 				expect(multipart).toBe(true);
@@ -564,6 +566,7 @@ describe("image generation upstream streaming", () => {
 						model: `openai/${model}`,
 						prompt: "A bakery logo",
 						output_format: "svg",
+						svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
 					}),
 				});
 				const json = await res.json();
@@ -576,6 +579,7 @@ describe("image generation upstream streaming", () => {
 						stream: undefined,
 						partialImages: undefined,
 						outputFormat: "svg",
+						svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
 						outputCompression: undefined,
 					}),
 				]);
@@ -612,11 +616,18 @@ describe("image generation upstream streaming", () => {
 					body: JSON.stringify({
 						model: `openai/${model}`,
 						messages: [{ role: "user", content: "A bakery logo" }],
-						image_config: { output_format: "svg" },
+						image_config: {
+							output_format: "svg",
+							svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
+						},
 					}),
 				});
 				const json = await res.json();
 				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(upstreamRequests[0].svg).toEqual({
+					model: "gpt-5.4-mini",
+					reasoning: { effort: "low" },
+				});
 				expect(json.choices[0].message.images[0].image_url.url).toBe(
 					`data:image/svg+xml;base64,${svgBase64}`,
 				);
@@ -631,6 +642,15 @@ describe("image generation upstream streaming", () => {
 			"does not support SVG output",
 		],
 		["the default model", {}, "does not support SVG output"],
+		[
+			"author settings on raster output",
+			{
+				model: "openai/gpt-image-2.6-flare",
+				output_format: "png",
+				svg: { model: "gpt-5.4-mini" },
+			},
+			"svg requires output_format=svg.",
+		],
 		[
 			"n above 1",
 			{ model: "openai/gpt-image-2.6-flare", n: 2 },

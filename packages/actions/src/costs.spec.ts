@@ -1691,12 +1691,16 @@ describe("calculateCosts", () => {
 		);
 
 		it.each([null, "unlisted-svg-author"])(
-			"bills an unknown author (%s) at the image mapping's fallback rates",
+			"does not invent a rate for an unknown author (%s)",
 			async (author) => {
+				const error = vi.spyOn(logger, "error");
 				const result = await svgCosts(author);
-
-				expect(result.inputCost).toBeCloseTo(1010 * 5e-6, 10);
-				expect(result.outputCost).toBeCloseTo(2400 * 30e-6, 10);
+				expect(result.inputCost).toBeCloseTo(10 * 5e-6, 10);
+				expect(result.outputCost).toBeCloseTo(400 * 30e-6, 10);
+				expect(error).toHaveBeenCalledWith(
+					"Unknown SVG author model, authoring cost omitted for reconciliation",
+					{ authorModel: author },
+				);
 			},
 		);
 	});

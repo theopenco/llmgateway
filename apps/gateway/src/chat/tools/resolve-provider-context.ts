@@ -69,6 +69,7 @@ import {
 } from "./service-tier.js";
 
 import type { ProviderKeyRateLimitExemption } from "@/lib/provider-key-rate-limit.js";
+import type { SvgImageOptions } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
@@ -190,6 +191,7 @@ export interface ProviderContextOptions {
 				moderation?: string;
 				background?: string;
 				output_format?: string;
+				svg?: SvgImageOptions | null;
 				output_compression?: number;
 				n?: number;
 				seed?: number;

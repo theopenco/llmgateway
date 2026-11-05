@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { svgOptionsSchema } from "@/chat/schemas/completions.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import {
 	extractCustomHeaders,
@@ -91,6 +92,10 @@ const imageGenerationsRequestSchema = z.object({
 		description:
 			"The file format of the generated image for GPT Image models. `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
 		example: "svg",
+	}),
+	svg: svgOptionsSchema.nullable().optional().openapi({
+		description:
+			"SVG author model and reasoning settings. Required when the OpenAI account has SVG model selection enabled; otherwise omit it.",
 	}),
 	output_compression: z.number().int().min(0).max(100).optional().openapi({
 		description:
@@ -753,7 +758,7 @@ function getSvgOutputError(
 	model: string,
 ): string | undefined {
 	if (request.output_format !== "svg") {
-		return undefined;
+		return request.svg ? "svg requires output_format=svg." : undefined;
 	}
 	if (!modelSupportsSvgOutput(model)) {
 		return `Model ${model} does not support SVG output. Use one of: ${svgOutputModelIds.join(", ")}.`;
@@ -995,6 +1000,7 @@ images.openapi(generations, async (c): Promise<any> => {
 			...(normalizedQuality && { image_quality: normalizedQuality }),
 			...(request.moderation && { moderation: request.moderation }),
 			...(request.output_format && { output_format: request.output_format }),
+			...(request.svg && { svg: request.svg }),
 			...(request.output_compression !== undefined && {
 				output_compression: request.output_compression,
 			}),

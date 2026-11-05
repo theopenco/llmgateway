@@ -11,7 +11,7 @@ faqs:
   - question: "Which models can generate SVG on LLM Gateway?"
     answer: "openai/gpt-image-2.6-sunburst for detailed work and openai/gpt-image-2.6-flare for fast iteration. Requesting svg from another model returns a 400 before any provider is called."
   - question: "How much does AI SVG generation cost?"
-    answer: "Each SVG request bills the image tokens of the reference image at GPT Image 2.6 rates ($5 per million text input tokens and $30 per million image output tokens) plus the authoring model's tokens at that model's catalogue rates (or the image model's rates when the author is not in the catalogue). The response's usage.cost shows the total for every request."
+    answer: "Each SVG request bills the image tokens of the reference image at GPT Image 2.6 rates ($5 per million text input tokens and $30 per million image output tokens) plus the authoring model's tokens at that model's catalogue rates (unpriced authoring tokens are omitted and logged for reconciliation). The response's usage.cost shows the total for every request."
   - question: "Can I edit an existing SVG with AI?"
     answer: "Not through the image edit endpoint: OpenAI does not accept SVG as an edit input or return SVG from edits. Generate a new SVG with a revised prompt, or edit the returned file by hand, since it is plain XML."
 image:
@@ -36,7 +36,9 @@ coding plans cover text models only, so image requests from them return a
 
 ## Generate an SVG with AI in one request
 
-Set `output_format` to `svg`:
+Set `output_format` to `svg`. Accounts with OpenAI SVG model selection enabled
+require `svg.model`; accounts without it must omit `svg`. The optional reasoning
+effort controls the author independently of image quality:
 
 ```bash
 curl https://api.llmgateway.io/v1/images/generations \
@@ -46,6 +48,7 @@ curl https://api.llmgateway.io/v1/images/generations \
     "model": "openai/gpt-image-2.6-flare",
     "prompt": "A minimal line icon of a paper airplane, single stroke color, no background",
     "output_format": "svg",
+    "svg": { "model": "gpt-5.4-mini", "reasoning": { "effort": "low" } },
     "quality": "medium"
   }' | jq -r '.data[0].b64_json' | base64 --decode > paper-airplane.svg
 ```
@@ -84,6 +87,7 @@ const result = await client.images.generate({
   model: "openai/gpt-image-2.6-sunburst",
   prompt: "A flat bakery logo: a golden loaf above the words Field & Flour",
   output_format: "svg",
+  svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
 });
 
 const svg = result.data?.[0]?.b64_json;
@@ -146,8 +150,8 @@ from the usage OpenAI reports:
 - the reference image at GPT Image 2.6 rates: $5 per million text input tokens
   and $30 per million image output tokens;
 - the authoring model's input and output tokens at that model's catalogue
-  rates, or at the image model's text input and image output rates when the
-  authoring model is not in the catalogue.
+  rates. When those rates are unknown, authoring cost is omitted and logged for
+  reconciliation; the reference image is still billed.
 
 Both are included in `usage.cost` on the response and in the request log, so
 you can see what each icon cost. The

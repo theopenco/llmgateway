@@ -63,17 +63,10 @@ export interface SvgAuthorUsage {
 	reasoningTokens: number;
 }
 
-/**
- * Per-token rates for the model that authored an SVG. OpenAI reports the
- * author by its model id, optionally with a dated snapshot suffix; it is
- * matched against canonical catalogue ids only. An unknown author falls back to
- * the image mapping's text input and image output rates, so a missing
- * catalogue entry can only overcharge, never bill the authoring tokens at $0.
- */
+/** Resolve the reported SVG author; never substitute image rates for text tokens. */
 function resolveSvgAuthorPrices(
 	authorModel: string | null,
-	imageMapping: ProviderModelMapping,
-): { inputPrice: Decimal; outputPrice: Decimal } {
+): { inputPrice: Decimal; outputPrice: Decimal } | null {
 	const candidates = authorModel
 		? [authorModel, authorModel.replace(/-\d{4}-\d{2}-\d{2}$/, "")]
 		: [];
@@ -88,15 +81,11 @@ function resolveSvgAuthorPrices(
 			};
 		}
 	}
-	logger.warn("Unknown SVG author model, billing at fallback rates", {
-		authorModel,
-	});
-	return {
-		inputPrice: new Decimal(imageMapping.inputPrice ?? 0),
-		outputPrice: new Decimal(
-			imageMapping.imageOutputPrice ?? imageMapping.outputPrice ?? 0,
-		),
-	};
+	logger.error(
+		"Unknown SVG author model, authoring cost omitted for reconciliation",
+		{ authorModel },
+	);
+	return null;
 }
 
 interface ChatMessage {
@@ -820,7 +809,7 @@ export async function calculateCosts(
 	);
 	const svgAuthorUsage = options?.svgAuthorUsage;
 	const svgAuthorPrices = svgAuthorUsage
-		? resolveSvgAuthorPrices(svgAuthorUsage.model, providerInfo)
+		? resolveSvgAuthorPrices(svgAuthorUsage.model)
 		: null;
 	const svgAuthorInputCost =
 		svgAuthorUsage && svgAuthorPrices
