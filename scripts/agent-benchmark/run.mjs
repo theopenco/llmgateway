@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
+import { redactPaths, workRoot } from "./redact.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { values: opts } = parseArgs({
@@ -32,8 +33,6 @@ const apiKey = process.env.LLM_GATEWAY_API_KEY;
 if (!apiKey) {
 	throw new Error("Set LLM_GATEWAY_API_KEY");
 }
-const workRoot =
-	process.env.BENCH_HOME ?? join(homedir(), "agent-benchmark-work");
 const certs = join(workRoot, "certs");
 const taskConfig = JSON.parse(readFileSync(join(here, "tasks.json"), "utf8"));
 const modelConfig = JSON.parse(
@@ -72,9 +71,6 @@ const empryoConfig = {
 	soulstack: { autoUpdate: false },
 	instructionFiles: [],
 };
-
-const redactPaths = (text) =>
-	text.replaceAll(workRoot, "$BENCH_HOME").replaceAll(homedir(), "~");
 
 const sh = (cmd, args, cwd) =>
 	execFileSync(cmd, args, {
