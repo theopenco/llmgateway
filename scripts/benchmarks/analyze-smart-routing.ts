@@ -1,6 +1,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { Decimal } from "decimal.js";
+
+import { SAINA_ARM } from "./saina-routing.js";
+
+import type { SainaBilling, SainaDecision } from "./saina-routing.js";
 import type {
 	BenchmarkEvaluation,
 	BenchmarkResponse,
@@ -15,6 +20,7 @@ interface Trial {
 	storageCost: number;
 	response: BenchmarkResponse;
 	evaluation: BenchmarkEvaluation;
+	routing?: SainaDecision;
 }
 interface Decision {
 	classifier: string;
@@ -55,6 +61,33 @@ interface Billing {
 const directory = resolve(
 	process.env.BENCHMARK_DIR ?? ".context/benchmarks/smart-routing",
 );
+const sainaCosts: SainaBilling[] = readSainaBilling();
+function readSainaBilling(): SainaBilling[] {
+	const protocol = JSON.parse(
+		readFileSync(`${directory}/protocol.json`, "utf8"),
+	) as { arms: string[] };
+	if (!protocol.arms.includes(SAINA_ARM)) {
+		return [];
+	}
+	const rows = JSON.parse(
+		readFileSync(`${directory}/saina-billing.json`, "utf8"),
+	) as SainaBilling[];
+	if (
+		!Array.isArray(rows) ||
+		rows.some(
+			(r) =>
+				!r ||
+				typeof r.cost !== "string" ||
+				!/^\d+(\.\d+)?$/.test(r.cost) ||
+				!Number.isFinite(Number(r.cost)) ||
+				!["billed", "estimated"].includes(r.basis),
+		) ||
+		new Set(rows.map((r) => r.caseId)).size !== rows.length
+	) {
+		throw new Error("Invalid or duplicate Saina billing rows");
+	}
+	return rows;
+}
 const trials = readFileSync(`${directory}/trials.jsonl`, "utf8")
 	.trim()
 	.split("\n")
@@ -67,6 +100,12 @@ const protocol = JSON.parse(
 ) as {
 	arms: string[];
 	maximumOutputTokens: number;
+	saina?: {
+		model: string;
+		revision: string;
+		adapterSha256: string;
+		candidates: { model: string }[];
+	};
 	fixtures: {
 		id: string;
 		category: string;
@@ -95,6 +134,66 @@ const observations = trials.map((row) => {
 		throw new Error(`Missing billing for ${key}`);
 	}
 	const main = logs.filter((log) => log.usedModel !== "typesafe/jev-1.13.0");
+	let classifierCostBasis: "billed" | "estimated" = "billed";
+	if (row.arm === SAINA_ARM) {
+		const routing = row.routing;
+		const charge = sainaCosts.find((entry) => entry.caseId === row.caseId);
+		if (
+			!routing ||
+			!charge ||
+			routing.model !== protocol.saina?.model ||
+			routing.revision !== protocol.saina.revision
+		) {
+			throw new Error(
+				`Missing Saina decision or reconciled overhead for ${key}`,
+			);
+		}
+		classifierCost = Number(charge.cost);
+		classifierCostBasis = charge.basis;
+		decision = {
+			classifier: routing.model,
+			rubricVersion: 1,
+			eligibleModels: protocol.saina.candidates.map((c) => c.model),
+			candidateModels: protocol.saina.candidates.map((c) => c.model),
+			selectedModel: routing.selectedModel ?? "",
+			classifierCost,
+			classifierLatencyMs: routing.latencyMs,
+			classifierFailed: routing.error !== null,
+		};
+		if (!routing.selectedModel) {
+			if (
+				logs.length !== 0 ||
+				!row.response.error ||
+				row.evaluation.passed ||
+				!routing.error
+			) {
+				throw new Error(`Invalid failed Saina trial for ${key}`);
+			}
+			main.push({
+				usedModel: "",
+				cost: 0,
+				dataStorageCost: "0",
+				estimatedCost: false,
+				cached: false,
+				usedMode: "credits",
+				hasError: true,
+				maxTokens: null,
+				reasoningEffort: null,
+				duration: 0,
+				finishReason: null,
+				promptTokens: "0",
+				completionTokens: "0",
+				reasoningTokens: "0",
+				cachedTokens: "0",
+				routingMetadata: null,
+			});
+		} else if (
+			routing.error ||
+			!protocol.saina.candidates.some((c) => c.model === routing.selectedModel)
+		) {
+			throw new Error(`Invalid Saina selection for ${key}`);
+		}
+	}
 	if (main.length !== 1) {
 		throw new Error(`Expected one inference row for ${key}`);
 	}
@@ -168,8 +267,13 @@ const observations = trials.map((row) => {
 		},
 		classifierCost,
 		classifierStorageCost,
+		classifierCostBasis,
 		decision,
-		totalCost: cost + storageCost + classifierCost + classifierStorageCost,
+		totalCost: new Decimal(cost)
+			.plus(storageCost)
+			.plus(classifierCost)
+			.plus(classifierStorageCost)
+			.toNumber(),
 		sensitivePassed,
 		sensitivityIncluded: row.caseId !== "ifeval-3369",
 	};
@@ -217,6 +321,30 @@ const summaries = protocol.arms.map((arm) => {
 						).length)) *
 				100
 			: null,
+		...(arm === "smart" || arm === SAINA_ARM
+			? {
+					routeShare: Object.fromEntries(
+						[
+							...new Set(
+								rows.map(
+									(row) => row.decision?.selectedModel || "router_failure",
+								),
+							),
+						].map((model) => [
+							model,
+							rows.filter(
+								(row) =>
+									(row.decision?.selectedModel || "router_failure") === model,
+							).length / rows.length,
+						]),
+					),
+				}
+			: {}),
+		classifierCostBasis: rows.some(
+			(row) => row.classifierCostBasis === "estimated",
+		)
+			? "includes estimates"
+			: "billed",
 		classifierCostShare:
 			sum(rows.map((row) => row.classifierCost + row.classifierStorageCost)) /
 			total,
@@ -285,50 +413,58 @@ const lookup = new Map(
 	observations.map((row) => [`${row.caseId}/${row.arm}`, row]),
 );
 const comparisons = protocol.arms
-	.filter((arm) => arm !== "smart")
-	.map((arm) => {
-		const smart = summaries.find((row) => row.arm === "smart")!;
-		const baseline = summaries.find((row) => row.arm === arm)!;
-		const costSamples: number[] = [];
-		const scoreSamples: number[] = [];
-		for (let repeat = 0; repeat < 10000; repeat++) {
-			const ids = strata.flatMap((stratum) =>
-				stratum.map(() => stratum[Math.floor(random() * stratum.length)]),
-			);
-			const pairs = ids.map((id) => [
-				lookup.get(`${id}/smart`)!,
-				lookup.get(`${id}/${arm}`)!,
-			]);
-			const costRatio =
-				sum(pairs.map(([a]) => a.totalCost)) /
-				sum(pairs.map(([, b]) => b.totalCost));
-			costSamples.push(100 * (1 - costRatio));
-			scoreSamples.push(
-				(100 *
-					sum(
-						pairs.map(
-							([a, b]) =>
-								Number(a.evaluation.passed) - Number(b.evaluation.passed),
-						),
-					)) /
-					ids.length,
-			);
-		}
-		const costRatio = smart.totalCost / baseline.totalCost;
-		return {
-			arm,
-			savingPercent: 100 * (1 - costRatio),
-			savingCI95: [quantile(costSamples, 0.025), quantile(costSamples, 0.975)],
-			scoreDifferencePoints: 100 * (smart.accuracy - baseline.accuracy),
-			scoreDifferenceCI95: [
-				quantile(scoreSamples, 0.025),
-				quantile(scoreSamples, 0.975),
-			],
-		};
-	});
+	.filter((arm) => arm === "smart" || arm === SAINA_ARM)
+	.flatMap((router) =>
+		protocol.arms
+			.filter((arm) => arm !== router)
+			.map((arm) => {
+				const smart = summaries.find((row) => row.arm === router)!;
+				const baseline = summaries.find((row) => row.arm === arm)!;
+				const costSamples: number[] = [];
+				const scoreSamples: number[] = [];
+				for (let repeat = 0; repeat < 10000; repeat++) {
+					const ids = strata.flatMap((stratum) =>
+						stratum.map(() => stratum[Math.floor(random() * stratum.length)]),
+					);
+					const pairs = ids.map((id) => [
+						lookup.get(`${id}/${router}`)!,
+						lookup.get(`${id}/${arm}`)!,
+					]);
+					const costRatio =
+						sum(pairs.map(([a]) => a.totalCost)) /
+						sum(pairs.map(([, b]) => b.totalCost));
+					costSamples.push(100 * (1 - costRatio));
+					scoreSamples.push(
+						(100 *
+							sum(
+								pairs.map(
+									([a, b]) =>
+										Number(a.evaluation.passed) - Number(b.evaluation.passed),
+								),
+							)) /
+							ids.length,
+					);
+				}
+				const costRatio = smart.totalCost / baseline.totalCost;
+				return {
+					arm,
+					...(protocol.saina ? { router } : {}),
+					savingPercent: 100 * (1 - costRatio),
+					savingCI95: [
+						quantile(costSamples, 0.025),
+						quantile(costSamples, 0.975),
+					],
+					scoreDifferencePoints: 100 * (smart.accuracy - baseline.accuracy),
+					scoreDifferenceCI95: [
+						quantile(scoreSamples, 0.025),
+						quantile(scoreSamples, 0.975),
+					],
+				};
+			}),
+	);
 const routing = observations
-	.filter((row) => row.arm === "smart")
-	.map((row) => ({ caseId: row.caseId, ...row.decision }));
+	.filter((row) => row.arm === "smart" || row.arm === SAINA_ARM)
+	.map((row) => ({ caseId: row.caseId, arm: row.arm, ...row.decision }));
 const report = {
 	maximumOutputTokens: protocol.maximumOutputTokens,
 	measuredRequests: observations.length,
@@ -353,6 +489,20 @@ const publicReport = {
 	firstRequest: report.firstRequest,
 	lastRequest: report.lastRequest,
 	methodology: {
+		...(protocol.saina
+			? {
+					saina: {
+						model: protocol.saina.model,
+						revision: protocol.saina.revision,
+						adapterSha256: protocol.saina.adapterSha256,
+						candidateModels: protocol.saina.candidates.map(
+							(candidate) => candidate.model,
+						),
+					},
+					externalRouterCost:
+						"Reconciled separately; estimated self-hosted costs are labeled in summaries",
+				}
+			: {}),
 		pairedBootstrapReplicates: 10000,
 		bootstrapSeed: 20260926,
 		strata: [25, 15, 40],
@@ -387,6 +537,7 @@ const publicReport = {
 		sensitivityPassed: row.sensitivePassed,
 		sensitivityIncluded: row.sensitivityIncluded,
 		costIndex: (row.totalCost / referenceCost) * 100,
+		classifierCostBasis: row.classifierCostBasis,
 		classifierCostIndex:
 			((row.classifierCost + row.classifierStorageCost) / referenceCost) * 100,
 		promptTokens: row.response.usage.promptTokens,

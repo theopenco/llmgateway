@@ -57,6 +57,7 @@
 		"@types/pg": "^8.15.6",
 		"commitlint": "21.2.4",
 		"concurrently": "^10.0.4",
+		"decimal.js": "10.5.0",
 		"dotenv": "17.4.2",
 		"drizzle-kit": "1.0.0-rc.5",
 		"drizzle-orm": "1.0.0-rc.5",
