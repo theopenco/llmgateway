@@ -82,3 +82,5 @@ would end in a 402 mid-task and skew the token counts, so the guard stops cleanl
 
 Each run directory keeps `result.json`, `requests.jsonl` (one line per model call, no
 prompt bodies), the agent's `patch.diff`, the grading log and the tail of the agent's output.
+Local paths in those files are written as `$BENCH_HOME` and `~`; `node scripts/agent-benchmark/redact.mjs <suite>`
+applies the same redaction to an existing suite.
