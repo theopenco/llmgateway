@@ -45,12 +45,18 @@ export function resolveUpstreamTarget(
 	// own config when one is active, the provider's env var on the env path. A
 	// BYOK key never inherits an env or managed proxy. Azure may use its own
 	// resource or public HTTPS base URL, guarded again when the socket opens.
-	const credentialBaseUrl = getCredentialSetting(
-		providerId,
-		"baseUrl",
-		{ providerKey: preflight.providerKey, managedKey: preflight.managedKey },
-		{ configIndex: preflight.configIndex, variant: preflight.envVariant },
-	)?.replace(/\/+$/, "");
+	const credentialBaseUrl =
+		providerId === "azure"
+			? undefined
+			: getCredentialSetting(
+					providerId,
+					"baseUrl",
+					{
+						providerKey: preflight.providerKey,
+						managedKey: preflight.managedKey,
+					},
+					{ configIndex: preflight.configIndex, variant: preflight.envVariant },
+				)?.replace(/\/+$/, "");
 
 	if (providerId === "google-ai-studio") {
 		const baseUrl =

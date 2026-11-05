@@ -298,7 +298,12 @@ export function getAzureCredentialBaseUrl(
 	} = {},
 ): string | undefined {
 	if (credential.providerKey?.baseUrl) {
-		return credential.providerKey.baseUrl.replace(/\/+$/, "");
+		return resolveAzureBaseUrl({
+			providerKeyOptions: {
+				env_config: { baseUrl: credential.providerKey.baseUrl },
+			},
+			skipEnvVars: true,
+		});
 	}
 	return resolveAzureBaseUrl({
 		providerKeyOptions: credential.providerKey
