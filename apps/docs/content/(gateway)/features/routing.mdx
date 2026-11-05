@@ -45,6 +45,8 @@ When a deployment enables `REQUIRE_PROVIDER_DPA_FOR_GDPR`, either enabled scope 
 
 This is a guard on new gateway inference/content submissions and realtime setup. Server-proxied realtime uses its existing account-gate rechecks for new content. Existing job polling, retrieval, cancellation/settlement and already-issued client-direct credentials retain their prior lifecycle behavior; this flag is not retroactive revocation of remote work. Public catalogue metadata and previews are not additional DPA guarantees.
 
+An organization can also carry a provider access restriction set by LLM Gateway. Requests pinned to a restricted provider or model return `403`. Unpinned and `auto` requests, including DevPass, route to an unrestricted provider when one serves the model, and return `403` when none does; the log's routing metadata lists each skipped provider under filtered providers with the reason `provider access is restricted for this organization`.
+
 ## Reasoning-effort compatibility
 
 Automatic provider selection checks `reasoning_effort` (or `reasoning.effort`)

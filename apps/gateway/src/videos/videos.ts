@@ -102,6 +102,7 @@ import {
 	UnifiedFinishReason,
 	type GatewayContentFilterEvaluation,
 	type InferSelectModel,
+	or,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -137,11 +138,13 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 import {
 	buildSignedGatewayVideoLogContentUrl,
 	verifyVideoContentAccessToken,
+	verifyVideoJobContentAccessToken,
 } from "@llmgateway/shared/video-access";
 import {
 	estimateVideoCostUsd,
 	isMinimaxV2VideoModel,
 	getGoogleAiStudioVideoFileName,
+	estimateVideoInputDurationSeconds,
 } from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
@@ -930,12 +933,14 @@ function estimateVideoSpendUsd(
 	resolution: string,
 	durationSeconds: number,
 	inputImageCount: number,
+	inputVideoDurationSeconds = 0,
 ): number {
 	return estimateVideoCostUsd(
 		mapping,
 		resolution,
 		durationSeconds,
 		inputImageCount,
+		inputVideoDurationSeconds,
 	);
 }
 
@@ -959,9 +964,18 @@ async function getPendingVideoReservationUsd(
 				eq(tables.videoJob.usedMode, "credits"),
 				isNull(tables.videoJob.logId),
 				isNull(tables.videoJob.endCustomerWalletId),
-				gt(
-					tables.videoJob.createdAt,
-					new Date(Date.now() - PENDING_VIDEO_RESERVATION_WINDOW_MS),
+				or(
+					gt(
+						tables.videoJob.createdAt,
+						new Date(Date.now() - PENDING_VIDEO_RESERVATION_WINDOW_MS),
+					),
+					and(
+						eq(tables.videoJob.usedProvider, "bytedance"),
+						or(
+							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_pending' = 'true'`,
+							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_quarantined' = 'true'`,
+						),
+					),
 				),
 			),
 		);
@@ -4027,8 +4041,6 @@ async function createBytedanceVideoJob(
 		});
 	}
 
-	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
-
 	const videoRatio = getBytedanceVideoAspectRatio(videoSize);
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
@@ -4036,16 +4048,8 @@ async function createBytedanceVideoJob(
 		duration: durationSeconds,
 		ratio: videoRatio,
 		generate_audio: includeAudio,
+		resolution: videoSize.resolution,
 	};
-
-	if (isDreaminaModel) {
-		upstreamRequest.resolution =
-			videoSize.resolution === "1080p"
-				? "1080p"
-				: videoSize.resolution === "480p"
-					? "480p"
-					: "720p";
-	}
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -4072,6 +4076,11 @@ async function createBytedanceVideoJob(
 			status: rawResponse.status ?? "queued",
 			duration: durationSeconds,
 			aspect_ratio: videoRatio,
+			llmgateway_video_token_pricing: {
+				resolution: upstreamRequest.resolution,
+				includeAudio: upstreamRequest.generate_audio,
+				hasVideoInput: content.some((entry) => entry.type === "video_url"),
+			},
 		},
 		videoSize,
 	);
@@ -4966,6 +4975,24 @@ async function insertVideoClientErrorLog(options: {
 	markRequestLogged();
 }
 
+export const videoAssets = new OpenAPIHono<ServerTypes>();
+videoAssets.get("/jobs/:video_id/content", async (c) => {
+	const videoId = c.req.param("video_id");
+	const token = c.req.query("token");
+	if (!token || !verifyVideoJobContentAccessToken(token, videoId)) {
+		throw new HTTPException(401, {
+			message: "Unauthorized: Invalid or expired video access token.",
+		});
+	}
+	const job = await db.query.videoJob.findFirst({
+		where: { id: { eq: videoId } },
+	});
+	if (!job) {
+		throw new HTTPException(404, { message: "Video content is not available" });
+	}
+	return await streamVideoJobContent(job, c.req.raw.headers);
+});
+
 videos.openapi(createVideo, async (c): Promise<any> => {
 	const startedAt = Date.now();
 	const { rawBody, request } = await parseJsonBody(c);
@@ -5284,6 +5311,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			videoSize.resolution,
 			estimatedDurationSeconds,
 			inputImageCount,
+			getVideoInputDurationUpperBound(
+				mapping,
+				modelInfo,
+				referenceVideoInputs.length,
+			),
 		);
 		await releaseInFlightVideoReservation();
 		const inFlightTotalUsd = await reserveVideoSubmission(
@@ -5617,6 +5649,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 						videoSize.resolution,
 						estimatedDurationSeconds,
 						inputImageCount,
+						getVideoInputDurationUpperBound(
+							selectedProviderMapping,
+							modelInfo,
+							referenceVideoInputs.length,
+						),
 					)
 				: 0;
 		const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
@@ -5837,68 +5874,7 @@ videos.openapi(getVideoContent, async (c) => {
 	const context = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
 	const job = await requireVideoJobForProject(context, videoId);
-
-	if (job.status !== "completed") {
-		throw new HTTPException(409, {
-			message: `Video is not ready yet. Current status: ${job.status}`,
-		});
-	}
-
-	if (!job.contentUrl && !job.storageUri) {
-		if (shouldProxyDirectUpstreamVideoContent(job)) {
-			const logId = job.logId;
-			const response = await streamDirectUpstreamVideoContent(
-				job,
-				c.req.raw.headers,
-			);
-			if (logId && response.ok) {
-				await markVideoDownloaded(logId);
-			}
-			return response;
-		}
-
-		const inlineVideo = getGoogleVertexInlineVideo(job);
-		if (!inlineVideo) {
-			throw new HTTPException(404, {
-				message: "Video content is not available",
-			});
-		}
-
-		const bytes = Uint8Array.from(
-			Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
-		);
-		return inlineVideoResponse(bytes, inlineVideo.mimeType, c.req.raw.headers);
-	}
-
-	const contentUrl = job.contentUrl ?? (await getExternalVideoContentUrl(job));
-	if (!contentUrl) {
-		const inlineVideo = getGoogleVertexInlineVideo(job);
-		if (inlineVideo) {
-			const bytes = Uint8Array.from(
-				Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
-			);
-			return inlineVideoResponse(
-				bytes,
-				inlineVideo.mimeType,
-				c.req.raw.headers,
-			);
-		}
-
-		throw new HTTPException(404, {
-			message: "Video content is not available",
-		});
-	}
-
-	const logId = job.logId;
-	const response = await streamVideoFromUrl(
-		contentUrl,
-		c.req.raw.headers,
-		job.contentType,
-	);
-	if (logId && response.ok) {
-		await markVideoDownloaded(logId);
-	}
-	return response;
+	return await streamVideoJobContent(job, c.req.raw.headers);
 });
 function getGoogleAiStudioVideoResolution(
 	videoSize: VideoSizeConfig,
@@ -6077,4 +6053,74 @@ function getVideoSourceInput(
 }
 function isGoogleAiStudioVideoProvider(providerId: string): boolean {
 	return providerId === "google-ai-studio";
+}
+function getVideoInputDurationUpperBound(
+	mapping: ProviderModelMapping,
+	modelInfo: ModelDefinition,
+	referenceVideoCount: number,
+): number {
+	return estimateVideoInputDurationSeconds(
+		mapping,
+		referenceVideoCount > 0,
+		modelInfo.maxVideoDurationSeconds,
+	);
+}
+async function streamVideoJobContent(
+	job: VideoJobRecord,
+	headers: Headers,
+): Promise<Response> {
+	if (job.status !== "completed") {
+		throw new HTTPException(409, {
+			message: `Video is not ready yet. Current status: ${job.status}`,
+		});
+	}
+
+	if (!job.contentUrl && !job.storageUri) {
+		if (shouldProxyDirectUpstreamVideoContent(job)) {
+			const logId = job.logId;
+			const response = await streamDirectUpstreamVideoContent(job, headers);
+			if (logId && response.ok) {
+				await markVideoDownloaded(logId);
+			}
+			return response;
+		}
+
+		const inlineVideo = getGoogleVertexInlineVideo(job);
+		if (!inlineVideo) {
+			throw new HTTPException(404, {
+				message: "Video content is not available",
+			});
+		}
+
+		const bytes = Uint8Array.from(
+			Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
+		);
+		return inlineVideoResponse(bytes, inlineVideo.mimeType, headers);
+	}
+
+	const contentUrl = job.contentUrl ?? (await getExternalVideoContentUrl(job));
+	if (!contentUrl) {
+		const inlineVideo = getGoogleVertexInlineVideo(job);
+		if (inlineVideo) {
+			const bytes = Uint8Array.from(
+				Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
+			);
+			return inlineVideoResponse(bytes, inlineVideo.mimeType, headers);
+		}
+
+		throw new HTTPException(404, {
+			message: "Video content is not available",
+		});
+	}
+
+	const logId = job.logId;
+	const response = await streamVideoFromUrl(
+		contentUrl,
+		headers,
+		job.contentType,
+	);
+	if (logId && response.ok) {
+		await markVideoDownloaded(logId);
+	}
+	return response;
 }

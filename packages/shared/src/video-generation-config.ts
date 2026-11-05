@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 export interface VideoPricing {
 	perSecondPrice?: Record<string, string> | null;
 	requestPrice?: string | null;
@@ -30,8 +32,9 @@ export function estimateVideoCostUsd(
 	resolution: string,
 	durationSeconds: number,
 	inputImageCount: number,
+	inputVideoDurationSeconds = 0,
 ): number {
-	let outputCost = 0;
+	let outputCost = new Decimal(0);
 	const perSecondPrice = pricing.perSecondPrice;
 	if (perSecondPrice) {
 		const candidates = [
@@ -42,28 +45,37 @@ export function estimateVideoCostUsd(
 			"default_video",
 			"default",
 		];
-		let perSecond = candidates
-			.map((key) => Number(perSecondPrice[key]))
-			.find((value) => Number.isFinite(value));
-		if (perSecond === undefined) {
-			perSecond = Math.max(
-				0,
-				...Object.values(perSecondPrice)
-					.map(Number)
-					.filter((value) => Number.isFinite(value)),
-			);
-		}
-		outputCost = durationSeconds * perSecond;
+		const rate = candidates
+			.map((key) => perSecondPrice[key])
+			.find((value) => value !== undefined && Number.isFinite(Number(value)));
+		const perSecond =
+			rate !== undefined
+				? new Decimal(rate)
+				: Decimal.max(
+						0,
+						...Object.values(perSecondPrice)
+							.filter((value) => Number.isFinite(Number(value)))
+							.map((value) => new Decimal(value)),
+					);
+		outputCost = new Decimal(durationSeconds)
+			.plus(Math.max(0, inputVideoDurationSeconds))
+			.mul(perSecond);
 	} else if (
 		pricing.requestPrice !== undefined &&
 		pricing.requestPrice !== null
 	) {
-		const requestPrice = Number(pricing.requestPrice);
-		outputCost = Number.isFinite(requestPrice) ? requestPrice : 0;
+		outputCost = new Decimal(
+			Number.isFinite(Number(pricing.requestPrice)) ? pricing.requestPrice : 0,
+		);
 	}
-	const perImage = Number(pricing.imageInputPrice ?? 0);
-	const imageCost = Number.isFinite(perImage) ? inputImageCount * perImage : 0;
-	return Number((outputCost + imageCost).toFixed(6));
+	const perImage = pricing.imageInputPrice ?? "0";
+	const imageCost = Number.isFinite(Number(perImage))
+		? new Decimal(inputImageCount).mul(perImage)
+		: new Decimal(0);
+	return outputCost
+		.plus(imageCost)
+		.toDecimalPlaces(6, Decimal.ROUND_CEIL)
+		.toNumber();
 }
 
 export interface VideoCatalogModel {
@@ -804,12 +816,13 @@ export function estimateVideoSelectionCostUsd(
 	size: VideoSize,
 	duration: VideoDuration,
 	inputImageCount: number,
+	inputVideoCount = 0,
 ): number | null {
 	if (selectedModels.length === 0) {
 		return null;
 	}
 	const resolution = getVideoResolution(size);
-	let total = 0;
+	let total = new Decimal(0);
 	for (const modelId of selectedModels) {
 		const estimates = getSelectedVideoMappings(models, modelId)
 			.filter((mapping) =>
@@ -821,14 +834,20 @@ export function estimateVideoSelectionCostUsd(
 					(mapping.requestPrice !== undefined && mapping.requestPrice !== null),
 			)
 			.map((mapping) =>
-				estimateVideoCostUsd(mapping, resolution, duration, inputImageCount),
+				estimateVideoCostUsd(
+					mapping,
+					resolution,
+					duration,
+					inputImageCount,
+					estimateVideoInputDurationSeconds(mapping, inputVideoCount > 0),
+				),
 			);
 		if (estimates.length === 0) {
 			return null;
 		}
-		total += Math.max(...estimates);
+		total = total.plus(Decimal.max(...estimates));
 	}
-	return Number(total.toFixed(6));
+	return total.toDecimalPlaces(6, Decimal.ROUND_CEIL).toNumber();
 }
 
 export interface VideoModelResultSnapshot {
@@ -899,4 +918,21 @@ export function getGoogleAiStudioVideoFileName(
 export function parseGoogleAiStudioFileName(uri: string): string | null {
 	const match = /\/(files\/[A-Za-z0-9_-]+)(?::download)?(?:[?#]|$)/.exec(uri);
 	return match ? match[1] : null;
+}
+export function estimateVideoInputDurationSeconds(
+	mapping: {
+		providerId: string;
+		supportedVideoDurationsSeconds?: readonly number[] | null;
+	},
+	hasVideoInput: boolean,
+	maxVideoDurationSeconds = 0,
+): number {
+	if (mapping.providerId !== "bytedance" || !hasVideoInput) {
+		return 0;
+	}
+	const durations = [
+		maxVideoDurationSeconds,
+		...(mapping.supportedVideoDurationsSeconds ?? []),
+	].filter((duration) => Number.isFinite(duration) && duration > 0);
+	return durations.length > 0 ? Math.max(...durations) : 30;
 }
