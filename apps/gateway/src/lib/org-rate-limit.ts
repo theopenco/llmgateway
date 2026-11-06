@@ -7,10 +7,12 @@ import {
 	cdb,
 	eq,
 	getTableName,
+	inArray,
 	sql,
 	project as projectTable,
 	projectHourlyStats,
 	transaction as transactionTable,
+	REFUND_TRANSACTION_TYPES,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -155,7 +157,10 @@ export async function getOrganizationLifetimeSpend(
 							autoInvalidate: false,
 							config: { ex: ttl },
 						}),
-					// `credit_refund.amount` is the positive gross USD given back.
+					// Refund `amount` is the positive gross USD given back. Both refund
+					// types count: plan usage is served on platform credentials, so it
+					// lands in `creditsCost` above and raises the tier just like a
+					// top-up — a refunded plan must give that tier back.
 					cdb
 						.select({
 							total: sql<string>`COALESCE(SUM(CAST(${transactionTable.amount} AS NUMERIC)), 0)`,
@@ -164,7 +169,7 @@ export async function getOrganizationLifetimeSpend(
 						.where(
 							and(
 								eq(transactionTable.organizationId, organizationId),
-								eq(transactionTable.type, "credit_refund"),
+								inArray(transactionTable.type, [...REFUND_TRANSACTION_TYPES]),
 								eq(transactionTable.status, "completed"),
 							),
 						)

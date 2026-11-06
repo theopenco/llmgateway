@@ -8,6 +8,7 @@ description: Organizations, plans, credits, and billing in LLM Gateway — org k
 ## Money
 
 - Do all money, credit, and usage-threshold math with `Decimal` from `decimal.js`; convert DB decimal strings with `new Decimal(value ?? 0)`.
+- Refund-history replacement must cover each individual cumulative legacy row with verified succeeded Stripe refunds on its own payment intent. Never sum legacy snapshots or borrow another payment's evidence; preserve the entire payment on incomplete evidence.
 - Token extraction (`apps/gateway/src/chat/tools/extract-token-usage.ts`) normalizes completion tokens to include reasoning; `calculateCosts` (`packages/actions/src/costs.ts`) bills the completion count and reports `reasoningTokens` as a detail. Verify a new reasoning provider's usage semantics live.
 
 ## Organization kinds and plans

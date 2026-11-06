@@ -202,6 +202,59 @@ describe("top-up velocity limits", () => {
 		expect(blocked.status).toBe(429);
 	});
 
+	test("a refunded plan payment does not keep the trust tier", async () => {
+		// Same as above, but the money came back as a plan refund
+		// (`subscription_refund`) rather than a top-up refund. Plan usage is
+		// served on platform credentials, so it lands in `creditsCost` and
+		// raises the tier exactly like a top-up — the refund must take it back.
+		await db.insert(tables.project).values({
+			id: "velocity-plan-refund-project",
+			name: "Velocity Plan Refund Project",
+			organizationId: "test-org-id",
+		});
+		await db.insert(tables.projectHourlyStats).values({
+			projectId: "velocity-plan-refund-project",
+			hourTimestamp: new Date(),
+			cost: 150,
+			creditsCost: 150,
+		});
+
+		const allowed = await app.request("/payments/create-payment-intent", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
+		});
+		expect(allowed.status).not.toBe(429);
+		await redisClient.del(topUpVelocityKey("test-org-id"));
+
+		await db.insert(tables.transaction).values({
+			id: "refunded-plan-charge",
+			organizationId: "test-org-id",
+			type: "dev_plan_start",
+			amount: "150",
+			creditAmount: "0",
+			currency: "USD",
+			status: "completed",
+		});
+		// Plan refunds never touch organization.credits, so creditAmount is 0.
+		await db.insert(tables.transaction).values({
+			organizationId: "test-org-id",
+			type: "subscription_refund",
+			amount: "150",
+			creditAmount: "0",
+			currency: "USD",
+			status: "completed",
+			relatedTransactionId: "refunded-plan-charge",
+		});
+
+		const blocked = await app.request("/payments/create-payment-intent", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
+		});
+		expect(blocked.status).toBe(429);
+	});
+
 	test("spend alone does not raise the tier for a day-one org", async () => {
 		// A brand-new org with the same $150 of billed usage that promotes the
 		// 3-day-old fixture must stay Tier 0: the min-age floor gates the spend

@@ -2092,6 +2092,9 @@ importers:
       '@llmgateway/shared':
         specifier: workspace:*
         version: link:../shared
+      decimal.js:
+        specifier: 10.5.0
+        version: 10.5.0
       nanoid:
         specifier: 5.1.16
         version: 5.1.16
