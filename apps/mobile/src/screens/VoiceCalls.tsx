@@ -71,6 +71,7 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const [voice, setVoice] = useState("");
 	const transcriptionPreference = useCallTranscriptionModel();
 	const transcription = transcriptionPreference.data || null;
+	const preferenceLoading = transcriptionPreference.isPending;
 	const setTranscription = (value: string) =>
 		transcriptionPreference.save.mutate(value);
 	const [selectedId, setSelectedId] = useState<string>();
@@ -271,7 +272,13 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 				) : (
 					<Button
 						title="Start voice call"
-						disabled={locked || !resolved || asrUnavailable || !focused}
+						disabled={
+							locked ||
+							!resolved ||
+							asrUnavailable ||
+							preferenceLoading ||
+							!focused
+						}
 						onPress={() => {
 							try {
 								const selection = voiceSelection(
@@ -350,7 +357,11 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 								title="Continue this call"
 								secondary
 								disabled={
-									locked || !savedModel || savedAsrUnavailable || !focused
+									locked ||
+									!savedModel ||
+									savedAsrUnavailable ||
+									preferenceLoading ||
+									!focused
 								}
 								onPress={() => {
 									try {

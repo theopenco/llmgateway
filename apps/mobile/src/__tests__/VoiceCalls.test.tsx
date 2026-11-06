@@ -266,6 +266,32 @@ test("starts calls with the chosen transcription model", async () => {
 	queries.clear();
 });
 
+test("waits for the saved transcription model before calling", async () => {
+	let resolve: (value: false) => void = () => undefined;
+	jest.mocked(Keychain.getGenericPassword).mockImplementationOnce(
+		() =>
+			new Promise((done) => {
+				resolve = done;
+			}),
+	);
+	const queries = new QueryClient();
+	const view = await render(tree(queries));
+	const user = userEvent.setup();
+	await user.press(screen.getByRole("button", { name: "Model: Choose" }));
+	await user.press(screen.getByRole("button", { name: "Choose Voice model" }));
+	expect(
+		screen.getByRole("button", { name: "Start voice call" }),
+	).toBeDisabled();
+	await act(() => resolve(false));
+	await waitFor(() =>
+		expect(
+			screen.getByRole("button", { name: "Start voice call" }),
+		).toBeEnabled(),
+	);
+	await view.unmount();
+	queries.clear();
+});
+
 test("restores the saved transcription model", async () => {
 	jest.mocked(Keychain.getGenericPassword).mockResolvedValueOnce({
 		username: "model",
