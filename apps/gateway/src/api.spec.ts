@@ -44,16 +44,13 @@ describe("api", () => {
 		mockServerUrl = harness.mockServerUrl;
 	});
 
-	test("/", async () => {
+	test("/ answers without touching dependencies", async () => {
 		const res = await app.request("/");
 		expect(res.status).toBe(200);
 		const data = await res.json();
 		expect(data).toHaveProperty("message", "OK");
 		expect(data).toHaveProperty("version");
-		expect(data).toHaveProperty("health");
-		expect(data.health).toHaveProperty("status");
-		expect(data.health).toHaveProperty("redis");
-		expect(data.health).toHaveProperty("database");
+		expect(data).not.toHaveProperty("health");
 	});
 
 	test("/livez answers without touching dependencies", async () => {
