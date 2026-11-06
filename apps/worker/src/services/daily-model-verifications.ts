@@ -3,13 +3,23 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
 	createQueuedModelVerificationChecks,
-	decryptClaimVerificationKey,
 	mappingTarget,
 	buildVerificationTarget,
 	modelVerificationEnvironmentToken,
 	narrowManagedKeysToRegion,
+	providerVerificationCredentialFingerprint,
+	environmentVerificationCredentialFingerprint,
 } from "@llmgateway/actions";
-import { and, db, eq, gt, isNull, or, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	gt,
+	isNull,
+	or,
+	tables,
+	providerKeyAllowsModel,
+} from "@llmgateway/db";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 
@@ -104,27 +114,18 @@ export async function currentCredentialSource(
 	client: Transaction | typeof db = db,
 ): Promise<Verification["credentialSource"] | null> {
 	if (live.claim) {
-		return live.claim.verificationKeyCiphertext ? "carrier" : null;
+		if (await claimVerificationProviderKey(live.claim, live.target, client)) {
+			return "carrier";
+		}
+		if (
+			live.claim.kind !== "catalogue" ||
+			live.claim.providerKeyId ||
+			live.claim.pendingProviderKeyId
+		) {
+			return null;
+		}
 	}
-	const keys = await client.query.providerKey.findMany({
-		where: {
-			provider: { eq: live.mapping.providerId },
-			managed: { eq: true },
-			status: { eq: "active" },
-		},
-		columns: { allowedModels: true, region: true },
-	});
-	if (
-		narrowManagedKeysToRegion(
-			keys.filter(
-				(key) =>
-					!key.allowedModels?.length ||
-					key.allowedModels.includes(live.mapping.externalId),
-			),
-			live.mapping.providerId,
-			live.target.region ?? undefined,
-		).length > 0
-	) {
+	if (await managedVerificationProviderKey(live.target, client)) {
 		return "managed";
 	}
 	return modelVerificationEnvironmentToken(live.target) ? "environment" : null;
@@ -184,7 +185,10 @@ export async function scheduleDailyModelVerifications(
 						draftModelId: live.draftModelId,
 						providerCompanyId: live.claim?.providerCompanyId ?? null,
 						initiatedBy: "admin",
-						target: live.target,
+						target: {
+							...(await currentVerificationTarget(live, tx)),
+							gatewayExecutionVersion: undefined,
+						},
 						checks: createQueuedModelVerificationChecks(live.target),
 						credentialSource,
 					})
@@ -198,7 +202,9 @@ export async function scheduleDailyModelVerifications(
 }
 
 /** Scheduled runs never reuse the terminal history's erased ciphertext. */
-export async function resolveDailyVerificationCredential(job: Verification) {
+export async function resolveDailyVerificationCredential(
+	job: Pick<Verification, "modelProviderMappingId" | "target">,
+) {
 	if (!job.modelProviderMappingId) {
 		throw new Error("Scheduled mapping is unavailable.");
 	}
@@ -213,17 +219,17 @@ export async function resolveDailyVerificationCredential(job: Verification) {
 		throw new Error("No current verification credential is available.");
 	}
 	if (live.claim && credentialSource === "carrier") {
+		const key = await claimVerificationProviderKey(live.claim, live.target);
+		if (!key) {
+			throw new Error("No current verification credential is available.");
+		}
 		return {
 			credentialSource,
-			providerKey: decryptClaimVerificationKey(
-				live.claim.verificationKeyCiphertext!,
-				live.claim.id,
-				live.claim.providerCompanyId,
-			),
-			baseUrl: live.claim.customBaseUrl ?? undefined,
+			key,
+			baseUrl: live.claim.customBaseUrl ?? key.baseUrl,
 		};
 	}
-	return { credentialSource, providerKey: undefined, baseUrl: undefined };
+	return { credentialSource, key: undefined, baseUrl: undefined };
 }
 export function sameVerificationDeclaration(
 	left: ProviderModelVerificationTarget,
@@ -239,4 +245,107 @@ export function modelVerificationConcurrency(): number {
 	return Number.isInteger(configured) && configured >= 1 && configured <= 16
 		? configured
 		: 4;
+}
+export async function claimVerificationProviderKey(
+	claim: typeof tables.providerClaim.$inferSelect,
+	target: ProviderModelVerificationTarget,
+	client: Transaction | typeof db = db,
+	preferPending = false,
+) {
+	const keyId = preferPending
+		? (claim.providerKeyId ?? claim.pendingProviderKeyId)
+		: claim.providerKeyId;
+	if (!keyId) {
+		return null;
+	}
+	const key = await client.query.providerKey.findFirst({
+		where: {
+			id: { eq: keyId },
+			provider: { eq: claim.providerId },
+			managed: { eq: true },
+			organizationId: { isNull: true },
+		},
+	});
+	const pending = preferPending && keyId === claim.pendingProviderKeyId;
+	if (
+		!key ||
+		(key.status !== "active" && !(pending && key.status === "inactive")) ||
+		!providerKeyAllowsModel(key.allowedModels, target.modelName) ||
+		!narrowManagedKeysToRegion(
+			[key],
+			target.providerId,
+			target.region ?? undefined,
+		).length
+	) {
+		return null;
+	}
+	return key;
+}
+export async function currentVerificationTarget(
+	live: NonNullable<Awaited<ReturnType<typeof liveVerificationMapping>>>,
+	client: Transaction | typeof db,
+) {
+	const key =
+		live.claim &&
+		(live.claim.providerKeyId ||
+			live.claim.pendingProviderKeyId ||
+			live.claim.kind !== "catalogue")
+			? await claimVerificationProviderKey(live.claim, live.target, client)
+			: await managedVerificationProviderKey(live.target, client);
+	if (key) {
+		return {
+			...live.target,
+			providerKeyId: key.id,
+			credentialFingerprint: providerVerificationCredentialFingerprint(
+				key,
+				live.claim?.customBaseUrl,
+			),
+		};
+	}
+	const token = modelVerificationEnvironmentToken(live.target);
+	return token
+		? {
+				...live.target,
+				credentialFingerprint: environmentVerificationCredentialFingerprint(
+					live.target,
+					token,
+				),
+			}
+		: live.target;
+}
+export async function managedVerificationProviderKey(
+	target: ProviderModelVerificationTarget,
+	client: Transaction | typeof db = db,
+) {
+	const keys = await client.query.providerKey.findMany({
+		where: {
+			...(target.providerKeyId ? { id: { eq: target.providerKeyId } } : {}),
+			provider: { eq: target.providerId },
+			managed: { eq: true },
+			organizationId: { isNull: true },
+			status: { eq: "active" },
+		},
+		orderBy: { sortOrder: "asc", createdAt: "asc", id: "asc" },
+	});
+	return (
+		narrowManagedKeysToRegion(
+			keys.filter((key) =>
+				providerKeyAllowsModel(key.allowedModels, target.modelName),
+			),
+			target.providerId,
+			target.region ?? undefined,
+		)[0] ?? null
+	);
+}
+export function sameVerificationCredential(
+	proof: ProviderModelVerificationTarget,
+	current: ProviderModelVerificationTarget,
+): boolean {
+	// Only completed gateway proofs can describe the current credential.
+	return (
+		proof.gatewayExecutionVersion === 1 &&
+		(proof.providerKeyId ?? null) === (current.providerKeyId ?? null) &&
+		(proof.credentialFingerprint ?? null) ===
+			(current.credentialFingerprint ?? null)
+	);
 }

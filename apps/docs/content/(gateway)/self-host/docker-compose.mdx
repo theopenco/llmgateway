@@ -73,6 +73,14 @@ LLM_OPENAI_API_KEY=sk-...
 LLM_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Airside verification
+
+Configure `AIRSIDE_GATEWAY_API_KEY` with a dedicated operator project API key and
+set `GATEWAY_URL` to your gateway origin on the API and worker. These calls use
+the carrier provider key, with inference logged and billed to the operator
+project. See [split deployment configuration](/self-host/split-deployment#airside-inference-credentials)
+for credential isolation, daily scheduling, and Helm Secret references.
+
 ## Enterprise license
 
 Add the signed license supplied with your Enterprise agreement to `.env`:

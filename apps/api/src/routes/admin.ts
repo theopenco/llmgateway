@@ -11081,8 +11081,7 @@ const providerDetailSchema = z.object({
 				logoUrl: z.string().nullable(),
 				iconUrl: z.string().nullable(),
 				hasPendingBranding: z.boolean(),
-				verificationKeyMasked: z.string().nullable(),
-				verificationKeyUpdatedAt: z.string().nullable(),
+
 				claimedAt: z.string(),
 				approvedAt: z.string().nullable(),
 				companyWebsite: z.string().nullable(),
@@ -11259,9 +11258,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					logoUrl: tables.providerClaim.logoUrl,
 					iconUrl: tables.providerClaim.iconUrl,
 					pendingBranding: tables.providerClaim.pendingBranding,
-					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
-					verificationKeyUpdatedAt:
-						tables.providerClaim.verificationKeyUpdatedAt,
+
 					billingMode: tables.providerClaim.billingMode,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
@@ -11501,9 +11498,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						logoUrl: carrier.claim.logoUrl,
 						iconUrl: carrier.claim.iconUrl,
 						hasPendingBranding: carrier.claim.pendingBranding !== null,
-						verificationKeyMasked: carrier.claim.verificationKeyMasked,
-						verificationKeyUpdatedAt:
-							carrier.claim.verificationKeyUpdatedAt?.toISOString() ?? null,
+
 						claimedAt: carrier.claim.createdAt.toISOString(),
 						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
 						companyWebsite: carrier.companyWebsite,

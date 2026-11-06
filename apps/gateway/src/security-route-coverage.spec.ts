@@ -74,11 +74,12 @@ describe("complete gateway route inventory", () => {
 		const classified = [
 			...publicRoutes,
 			...readRoutes,
+			...internalInferenceRoutes,
 			...inferencePaths.map((route) => `POST ${route.path}`),
 			"ALL /mcp",
 		].sort();
 		expect(actual).toEqual(classified);
-		expect(actual).toHaveLength(49);
+		expect(actual).toHaveLength(50);
 	});
 
 	test("tracks the separate realtime upgrade and internal-only metrics router", () => {
@@ -333,3 +334,7 @@ async function installIamRule(
 			.values({ id: "coverage-rule", teamId: "coverage-team", ...rule });
 	}
 }
+const internalInferenceRoutes = [
+	// Signed snapshots have dedicated IAM, credits, replay and IP request tests.
+	"POST /v1/internal/airside/inference",
+];

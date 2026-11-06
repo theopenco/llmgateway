@@ -6120,6 +6120,11 @@ export interface ProviderModelVerificationCheck {
 
 export interface ProviderModelVerificationTarget {
 	providerId: string;
+	/** Carrier credential used to prove this snapshot; absent on legacy runs. */
+	providerKeyId?: string;
+	credentialFingerprint?: string;
+	/** Set only by the worker after gateway-accounted execution. */
+	gatewayExecutionVersion?: 1;
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
@@ -6146,6 +6151,13 @@ export interface ProviderModelVerificationTarget {
 	maxOutput?: number | null;
 	/** The listing declares a cached input price, so repeats must report cache hits. */
 	promptCaching?: boolean;
+	/** Proposed prices before a new listing has a filing. */
+	pricing?: {
+		inputPrice: string;
+		outputPrice: string;
+		cachedInputPrice?: string | null;
+		requestPrice?: string | null;
+	};
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The

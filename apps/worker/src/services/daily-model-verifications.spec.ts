@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-	encryptClaimVerificationKey,
 	encryptProviderKeyForStorage,
 	mappingTarget,
 	modelVerificationEnvironmentToken,
@@ -23,6 +22,7 @@ import {
 import {
 	claimNextModelVerification,
 	processNextModelVerification,
+	resolveCredential,
 } from "./model-verifications.js";
 
 import type { ProviderModelVerificationCheck } from "@llmgateway/db";
@@ -85,6 +85,7 @@ async function seed(
 			id: keyId,
 			provider: providerId,
 			managed: true,
+			baseUrl: "https://provider.example.com",
 			...encryptProviderKeyForStorage("test-provider-key", keyId, null),
 		});
 	}
@@ -97,7 +98,14 @@ async function seed(
 	});
 	const [mapping] = await db
 		.insert(tables.modelProviderMapping)
-		.values({ modelId, providerId, externalId: modelId, source })
+		.values({
+			modelId,
+			providerId,
+			externalId: modelId,
+			source,
+			inputPrice: "0",
+			outputPrice: "0",
+		})
 		.returning();
 	let draftId: string | undefined;
 	let claimId: string | undefined;
@@ -124,11 +132,9 @@ async function seed(
 			customBaseUrl: "https://provider.example.com",
 			status: "active",
 			claimedBy: userId,
-			verificationKeyCiphertext: encryptClaimVerificationKey(
-				"test-carrier-key",
-				claimId,
-				companyId,
-			),
+			providerKeyId: (await db.query.providerKey.findFirst({
+				where: { provider: { eq: providerId } },
+			}))!.id,
 		});
 		const [draft] = await db
 			.insert(tables.providerDraftModel)
@@ -164,9 +170,16 @@ const check = (
 	status,
 });
 async function complete(id: string, status: "passed" | "failed", at = now) {
+	const current = await job(id);
 	await db
 		.update(tables.providerModelVerification)
-		.set({ status, checks: [check(status)], createdAt: at, completedAt: at })
+		.set({
+			status,
+			target: { ...current.target, gatewayExecutionVersion: 1 },
+			checks: [check(status)],
+			createdAt: at,
+			completedAt: at,
+		})
 		.where(eq(tables.providerModelVerification.id, id));
 }
 async function baseline(current: Verification, draftId?: string) {
@@ -176,7 +189,7 @@ async function baseline(current: Verification, draftId?: string) {
 		draftModelId: draftId,
 		providerCompanyId: current.providerCompanyId,
 		initiatedBy: "admin",
-		target: current.target,
+		target: { ...current.target, gatewayExecutionVersion: 1 },
 		checks: [check("passed")],
 		status: "passed",
 		credentialSource: "managed",
@@ -263,7 +276,7 @@ describe("daily model verification scheduling", () => {
 		expect(await scheduleDailyModelVerifications(now)).toBe(0);
 	});
 
-	it.each(["paused", "delisted", "draft", "revoked", "missing-test-key"])(
+	it.each(["paused", "delisted", "draft", "revoked", "missing-serving-key"])(
 		"ignores %s Airside listings without falling back to managed serving keys",
 		async (kind) => {
 			const { draftId, claimId } = await seed("airside");
@@ -285,10 +298,10 @@ describe("daily model verification scheduling", () => {
 					.set({ status: "revoked" })
 					.where(eq(tables.providerClaim.id, claimId!));
 			}
-			if (kind === "missing-test-key") {
+			if (kind === "missing-serving-key") {
 				await db
 					.update(tables.providerClaim)
-					.set({ verificationKeyCiphertext: null })
+					.set({ providerKeyId: null })
 					.where(eq(tables.providerClaim.id, claimId!));
 			}
 			expect(await scheduleDailyModelVerifications(now)).toBe(0);
@@ -310,7 +323,7 @@ describe("daily model verification scheduling", () => {
 		).toBe(true);
 	});
 
-	it("uses current carrier credentials after rotation, not erased history ciphertext", async () => {
+	it("invalidates queued carrier proof after rotation and snapshots the next daily run", async () => {
 		const { id, claimId } = await seed("airside");
 		expect(await scheduleDailyModelVerifications(now)).toBe(1);
 		const queued = await job(id);
@@ -319,22 +332,30 @@ describe("daily model verification scheduling", () => {
 			where: { id: { eq: claimId! } },
 		}))!;
 		await db
-			.update(tables.providerClaim)
-			.set({
-				verificationKeyCiphertext: encryptClaimVerificationKey(
+			.update(tables.providerKey)
+			.set(
+				encryptProviderKeyForStorage(
 					"rotated-test-key",
-					claim.id,
-					claim.providerCompanyId,
+					claim.providerKeyId!,
+					null,
 				),
-			})
-			.where(eq(tables.providerClaim.id, claim.id));
+			)
+			.where(eq(tables.providerKey.id, claim.providerKeyId!));
 		const runner = vi.fn(async (options) => {
 			expect(options.token === "rotated-test-key").toBe(true);
 			expect(options.baseUrl).toBe("https://provider.example.com");
 			return { passed: true, summary: "Passed", checks: [check("passed")] };
 		});
 		await processNextModelVerification(runner);
-		expect(runner).toHaveBeenCalledTimes(1);
+		expect(runner).not.toHaveBeenCalled();
+		expect(
+			(await job(id)).checks.every((check) => check.status === "skipped"),
+		).toBe(true);
+		expect(
+			await scheduleDailyModelVerifications(new Date(now.getTime() + day)),
+		).toBe(1);
+		await processNextModelVerification(runner);
+		expect(runner).toHaveBeenCalledOnce();
 		expect((await job(id)).credentialCiphertext).toBeNull();
 	});
 
@@ -855,3 +876,164 @@ function daysAfterNow(days: number): Date {
 	const delay = days * day;
 	return new Date(now.getTime() + delay);
 }
+
+it("schedules and executes a carrier using only its linked serving key", async () => {
+	const { id, claimId, mapping } = await seed("airside");
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: mapping.providerId } },
+	}))!;
+	await db
+		.update(tables.providerClaim)
+		.set({ providerKeyId: key.id })
+		.where(eq(tables.providerClaim.id, claimId!));
+	expect(await scheduleDailyModelVerifications(now)).toBe(1);
+	const runner = vi.fn(async (options) => {
+		expect(options.token === "test-provider-key").toBe(true);
+		expect(options.fetchImplementation).toBeTypeOf("function");
+		return { passed: true, summary: "Passed", checks: [check("passed")] };
+	});
+	await processNextModelVerification(runner);
+	expect(runner).toHaveBeenCalledOnce();
+	expect((await job(id)).status).toBe("passed");
+});
+
+it("keeps daily health pinned to the serving key while an inactive replacement awaits review", async () => {
+	const { id, claimId, mapping } = await seed("airside");
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: mapping.providerId } },
+	}))!;
+	const pendingId = randomUUID();
+	await db.insert(tables.providerKey).values({
+		id: pendingId,
+		provider: mapping.providerId,
+		managed: true,
+		status: "inactive",
+		...encryptProviderKeyForStorage("pending-provider-key", pendingId, null),
+	});
+	await db
+		.update(tables.providerClaim)
+		.set({ pendingProviderKeyId: pendingId })
+		.where(eq(tables.providerClaim.id, claimId!));
+	expect(await scheduleDailyModelVerifications(now)).toBe(1);
+	expect((await job(id)).target.providerKeyId).toBe(key.id);
+	const runner = vi.fn(async (options) => {
+		expect(options.token === "test-provider-key").toBe(true);
+		return { passed: true, checks: [check("passed")], summary: "Passed" };
+	});
+	await processNextModelVerification(runner);
+	expect(runner).toHaveBeenCalledOnce();
+	await db
+		.update(tables.providerClaim)
+		.set({ providerKeyId: null })
+		.where(eq(tables.providerClaim.id, claimId!));
+	expect(
+		await scheduleDailyModelVerifications(new Date(now.getTime() + day)),
+	).toBe(0);
+});
+
+it("does not deliver a Discord regression from a rotated credential", async () => {
+	const { id, mapping, draftId } = await seed("airside");
+	await scheduleDailyModelVerifications(now);
+	await baseline(await job(id), draftId);
+	await complete(id, "failed");
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: mapping.providerId } },
+	}))!;
+	await db
+		.update(tables.providerKey)
+		.set(encryptProviderKeyForStorage("rotated-carrier-key", key.id, null))
+		.where(eq(tables.providerKey.id, key.id));
+	const fetcher = vi.fn<typeof fetch>();
+	expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+	expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("does not deliver legacy unbound Discord failure proof for a current serving credential", async () => {
+	const { id, draftId } = await seed("airside");
+	await scheduleDailyModelVerifications(now);
+	const current = await job(id);
+	await baseline(current, draftId);
+	await complete(id, "failed");
+	const target = { ...current.target };
+	delete target.providerKeyId;
+	delete target.credentialFingerprint;
+	await db
+		.update(tables.providerModelVerification)
+		.set({ target })
+		.where(eq(tables.providerModelVerification.id, id));
+	const fetcher = vi.fn<typeof fetch>();
+	expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+	expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("does not deliver a matching credential proof completed by a legacy direct worker", async () => {
+	const { id, draftId } = await seed("airside");
+	await scheduleDailyModelVerifications(now);
+	const current = await job(id);
+	expect(current.target.gatewayExecutionVersion).toBeUndefined();
+	await baseline(current, draftId);
+	await complete(id, "failed");
+	await db
+		.update(tables.providerModelVerification)
+		.set({ target: current.target })
+		.where(eq(tables.providerModelVerification.id, id));
+	const fetcher = vi.fn<typeof fetch>();
+	expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+	expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each(["token", "configuration"])(
+	"invalidates queued environment proof after %s rotation",
+	async (kind) => {
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "");
+		vi.stubEnv("LLM_ALIBABA_API_KEY__US_VIRGINIA", "regional-env-test-key");
+		vi.stubEnv("LLM_ALIBABA_BASE_URL", "https://example.com/v1");
+		const { id, mapping } = await seed("catalogue", "alibaba");
+		await db
+			.delete(tables.providerKey)
+			.where(eq(tables.providerKey.provider, mapping.providerId));
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ region: "us-virginia" })
+			.where(eq(tables.modelProviderMapping.id, mapping.id));
+		expect(await scheduleDailyModelVerifications(now)).toBe(1);
+		expect((await job(id)).target.credentialFingerprint).toBeDefined();
+		vi.stubEnv(
+			kind === "token"
+				? "LLM_ALIBABA_API_KEY__US_VIRGINIA"
+				: "LLM_ALIBABA_BASE_URL",
+			kind === "token"
+				? "rotated-regional-env-test-key"
+				: "https://replacement.example.com/v1",
+		);
+		const runner = vi.fn();
+		await processNextModelVerification(runner);
+		expect(runner).not.toHaveBeenCalled();
+		expect(
+			(await job(id)).checks.every((check) => check.status === "skipped"),
+		).toBe(true);
+		expect((await job(id)).target.gatewayExecutionVersion).toBeUndefined();
+	},
+);
+it("uses the same regional environment token and fingerprint for manual and daily verification", async () => {
+	vi.stubEnv("LLM_ALIBABA_API_KEY", "");
+	vi.stubEnv("LLM_ALIBABA_API_KEY__US_VIRGINIA", "regional-env-test-key");
+	const { id, mapping } = await seed("catalogue", "alibaba");
+	await db
+		.delete(tables.providerKey)
+		.where(eq(tables.providerKey.provider, mapping.providerId));
+	await db
+		.update(tables.modelProviderMapping)
+		.set({ region: "us-virginia" })
+		.where(eq(tables.modelProviderMapping.id, mapping.id));
+	expect(await scheduleDailyModelVerifications(now)).toBe(1);
+	const scheduled = await job(id);
+	const manual = await resolveCredential({
+		...scheduled,
+		id: "manual-" + randomUUID(),
+	});
+	expect(manual.providerKey === "regional-env-test-key").toBe(true);
+	expect(manual.credentialFingerprint).toBe(
+		scheduled.target.credentialFingerprint,
+	);
+});

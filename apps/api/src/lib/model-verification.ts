@@ -1,17 +1,18 @@
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { assertTestingKeyIsSeparate } from "@/lib/airside-carrier-keys.js";
+import {} from "@/lib/airside-carrier-keys.js";
 
 import {
 	createQueuedModelVerificationChecks,
-	decryptClaimVerificationKey,
-	encryptClaimVerificationKey,
-	encryptModelVerificationCredential,
+	narrowManagedKeysToRegion,
+	providerVerificationCredentialFingerprint,
+	environmentVerificationCredentialFingerprint,
+	modelVerificationEnvironmentToken,
 } from "@llmgateway/actions";
-import { cdb, db, eq, shortid, tables } from "@llmgateway/db";
-import { hasProviderEnvironmentToken } from "@llmgateway/models";
-import { maskToken } from "@llmgateway/shared/mask-token";
+import { db, shortid, tables, providerKeyAllowsModel } from "@llmgateway/db";
+import {} from "@llmgateway/models";
+import {} from "@llmgateway/shared/mask-token";
 
 import type { VerificationTargetInput } from "@llmgateway/actions";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -259,118 +260,91 @@ export type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 
 export interface ResolvedVerificationCredential {
 	credentialSource: ModelVerificationRow["credentialSource"];
-	apiKey?: string;
+	providerKeyId?: string;
+	credentialFingerprint?: string;
 }
 
-/**
- * Stores the carrier's verification key on its claim so later runs — theirs and
- * ours — no longer need it pasted. Replaces any previous key.
- */
-export async function saveClaimVerificationKey(
-	claim: ProviderClaimRow,
-	apiKey: string,
-): Promise<{ verificationKeyMasked: string; verificationKeySetAt: string }> {
-	await assertTestingKeyIsSeparate(claim, apiKey);
-	const verificationKeyMasked = maskToken(apiKey, 6, 4);
-	const verificationKeyUpdatedAt = new Date();
-	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
-	await cdb
-		.update(tables.providerClaim)
-		.set({
-			verificationKeyCiphertext: encryptClaimVerificationKey(
-				apiKey,
-				claim.id,
-				claim.providerCompanyId,
-			),
-			verificationKeyMasked,
-			verificationKeyUpdatedAt,
-		})
-		.where(eq(tables.providerClaim.id, claim.id));
-	return {
-		verificationKeyMasked,
-		verificationKeySetAt: verificationKeyUpdatedAt.toISOString(),
-	};
-}
-
-export async function clearClaimVerificationKey(claimId: string) {
-	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
-	await cdb
-		.update(tables.providerClaim)
-		.set({
-			verificationKeyCiphertext: null,
-			verificationKeyMasked: null,
-			verificationKeyUpdatedAt: null,
-		})
-		.where(eq(tables.providerClaim.id, claimId));
-}
-
-/**
- * Picks the credential the worker will run the checks with.
- *
- * A claimed provider always runs on the carrier's own key — pasted now, or the
- * one saved on its claim. Verification traffic is never logged or billed by us,
- * so spending a managed or environment credential on it would put a carrier's
- * testing on our bill with nothing in the accounting to show for it.
- *
- * Unclaimed catalogue mappings (admin runs) keep the platform credentials:
- * pasted key, then a managed key that may serve this model, then the provider's
- * environment credential.
- *
- * Only credentials the worker can actually read count. `LLM_*` variables live
- * on the gateway deployment, so the snapshot it publishes describes a process
- * that never runs a verification: picking a source off it queues a run the
- * worker then fails with "no environment credential", instead of asking for
- * the key the carrier could have pasted. This process shares the worker's
- * deployment environment, so its own `process.env` is the honest signal.
- */
+/** Selects the linked carrier provider key or an available platform credential. */
 export async function resolveVerificationCredential(
 	target: ProviderModelVerificationTarget,
-	apiKey: string | undefined,
 	claim: ProviderClaimRow | null,
 ): Promise<ResolvedVerificationCredential> {
-	if (claim) {
-		if (apiKey) {
-			return { credentialSource: "supplied", apiKey };
-		}
-		if (claim.verificationKeyCiphertext) {
+	if (claim?.providerKeyId || claim?.pendingProviderKeyId) {
+		const keyId = claim.providerKeyId ?? claim.pendingProviderKeyId;
+		const key = await db.query.providerKey.findFirst({
+			where: {
+				id: { eq: keyId! },
+				provider: { eq: target.providerId },
+				managed: { eq: true },
+				organizationId: { isNull: true },
+				status: { in: ["active", "inactive"] },
+			},
+		});
+		if (
+			key &&
+			(key.status === "active" ||
+				(!claim.providerKeyId && claim.pendingProviderKeyId === key.id)) &&
+			providerKeyAllowsModel(key.allowedModels, target.modelName) &&
+			narrowManagedKeysToRegion(
+				[key],
+				target.providerId,
+				target.region ?? undefined,
+			).length > 0
+		) {
 			return {
 				credentialSource: "carrier",
-				apiKey: decryptClaimVerificationKey(
-					claim.verificationKeyCiphertext,
-					claim.id,
-					claim.providerCompanyId,
+				providerKeyId: key.id,
+				credentialFingerprint: providerVerificationCredentialFingerprint(
+					key,
+					claim.customBaseUrl,
 				),
 			};
 		}
 		throw new HTTPException(400, {
-			message: "Enter a provider API key to run this verification.",
+			message: "The carrier provider key is unavailable for this deployment.",
 		});
 	}
-	if (apiKey) {
-		return { credentialSource: "supplied", apiKey };
+	if (claim?.kind === "custom" || claim?.customBaseUrl) {
+		throw new HTTPException(400, {
+			message: "Add a provider API key before running verification.",
+		});
 	}
 	const managedKeys = await db.query.providerKey.findMany({
 		where: {
 			provider: { eq: target.providerId },
 			managed: { eq: true },
+			organizationId: { isNull: true },
 			status: { eq: "active" },
 		},
-		columns: { allowedModels: true },
+		orderBy: { createdAt: "asc", id: "asc" },
 	});
-	if (
-		managedKeys.some(
-			(key) =>
-				!key.allowedModels?.length ||
-				key.allowedModels.includes(target.externalId),
-		)
-	) {
-		return { credentialSource: "managed" };
+	const managedKey = narrowManagedKeysToRegion(
+		managedKeys.filter((key) =>
+			providerKeyAllowsModel(key.allowedModels, target.modelName),
+		),
+		target.providerId,
+		target.region ?? undefined,
+	)[0];
+	if (managedKey) {
+		return {
+			credentialSource: "managed",
+			providerKeyId: managedKey.id,
+			credentialFingerprint:
+				providerVerificationCredentialFingerprint(managedKey),
+		};
 	}
-	if (hasProviderEnvironmentToken(target.providerId)) {
-		return { credentialSource: "environment" };
+	const environmentToken = modelVerificationEnvironmentToken(target);
+	if (environmentToken) {
+		return {
+			credentialSource: "environment",
+			credentialFingerprint: environmentVerificationCredentialFingerprint(
+				target,
+				environmentToken,
+			),
+		};
 	}
 	throw new HTTPException(400, {
-		message: "Enter a provider API key to run this verification.",
+		message: "Configure a provider credential before running verification.",
 	});
 }
 
@@ -394,12 +368,22 @@ export async function enqueueModelVerification(
 		draftModelId?: string | null;
 		modelProviderMappingId?: string | null;
 		target: ProviderModelVerificationTarget;
-		apiKey?: string;
+
 		requestedBy: string | null;
 		credentialSource: ModelVerificationRow["credentialSource"];
 	},
 	transaction?: DbTransaction,
 ): Promise<ModelVerificationRow> {
+	const credential = await resolveVerificationCredential(
+		input.target,
+		await activeProviderClaim(input.target.providerId),
+	);
+	const target = {
+		...input.target,
+		gatewayExecutionVersion: undefined,
+		providerKeyId: credential.providerKeyId,
+		credentialFingerprint: credential.credentialFingerprint,
+	};
 	const id = shortid();
 	const providerCompanyId = input.providerCompanyId ?? null;
 	const [created] = await (transaction ?? db)
@@ -411,16 +395,10 @@ export async function enqueueModelVerification(
 			draftModelId: input.draftModelId ?? null,
 			modelProviderMappingId: input.modelProviderMappingId ?? null,
 			requestedBy: input.requestedBy,
-			target: input.target,
+			target,
 			checks: createQueuedModelVerificationChecks(input.target),
-			credentialSource: input.credentialSource,
-			credentialCiphertext: input.apiKey
-				? encryptModelVerificationCredential(
-						input.apiKey,
-						id,
-						providerCompanyId,
-					)
-				: null,
+			credentialSource: credential.credentialSource,
+			credentialCiphertext: null,
 		})
 		.returning();
 	return created;
@@ -502,3 +480,26 @@ export function serializeVerificationHistoryEntry(
 	};
 }
 export { buildVerificationTarget } from "@llmgateway/actions";
+
+export async function assertVerificationCredentialCurrent(
+	target: ProviderModelVerificationTarget,
+): Promise<void> {
+	if (target.gatewayExecutionVersion !== 1) {
+		throw new HTTPException(409, {
+			message: "Run verification through the gateway before using this proof.",
+		});
+	}
+	const current = await resolveVerificationCredential(
+		target,
+		await activeProviderClaim(target.providerId),
+	);
+	if (
+		current.providerKeyId !== target.providerKeyId ||
+		current.credentialFingerprint !== target.credentialFingerprint
+	) {
+		throw new HTTPException(409, {
+			message:
+				"The provider credential changed after verification. Run verification again.",
+		});
+	}
+}
