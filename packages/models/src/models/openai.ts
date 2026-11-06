@@ -92,12 +92,9 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
-				// Azure OpenAI supports structured outputs for gpt-4o-mini.
-				// Mapping is deprecated 2026-01-09 / deactivated 2026-03-31 —
-				// flag kept for data truthfulness (never served post-deactivation).
 				jsonOutputSchema: true,
 				deprecatedAt: new Date("2026-01-09"),
-				deactivatedAt: new Date("2026-03-31"),
+				deactivatedAt: new Date("2027-04-14"),
 			},
 		],
 	},
