@@ -2186,7 +2186,7 @@ describe("managed credential reorder cache invalidation", () => {
 		test.each([
 			["4h", 4, 60 * 60 * 1000],
 			["1d", 24, 60 * 60 * 1000],
-			["7d", 7, 24 * 60 * 60 * 1000],
+			["7d", 8, 24 * 60 * 60 * 1000],
 		])(
 			"returns a zero-filled %s error series ending in the current bucket",
 			async (errorWindow, length, stepMs) => {
@@ -2243,10 +2243,10 @@ describe("managed credential reorder cache invalidation", () => {
 			},
 		);
 
-		test("defaults the error series to 24 hourly buckets", async () => {
+		test("defaults the error series to the rolling 7d daily buckets", async () => {
 			await seedTraffic([]);
 
-			expect((await listCredential())?.errorSeries).toHaveLength(24);
+			expect((await listCredential())?.errorSeries).toHaveLength(8);
 		});
 
 		test("rejects an unknown error window", async () => {

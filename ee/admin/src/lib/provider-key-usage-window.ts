@@ -1,21 +1,31 @@
-export type UsageWindow = "all" | "1d" | "7d" | "30d";
+import {
+	ERROR_WINDOW_OPTIONS,
+	DEFAULT_ERROR_WINDOW,
+} from "./provider-key-error-window";
 
-export const USAGE_WINDOW_OPTIONS: { value: UsageWindow; label: string }[] = [
-	{ value: "all", label: "All time" },
-	{ value: "1d", label: "24h" },
-	{ value: "7d", label: "7d" },
-	{ value: "30d", label: "30d" },
-];
+import type { ErrorWindow } from "./provider-key-error-window";
+
+export type UsageWindow = ErrorWindow;
+
+export const USAGE_WINDOW_OPTIONS: { value: UsageWindow; label: string }[] =
+	ERROR_WINDOW_OPTIONS.map(({ value, short }) => ({ value, label: short }));
 
 export function parseUsageWindow(
 	value: string | null | undefined,
 ): UsageWindow {
 	return (
 		USAGE_WINDOW_OPTIONS.find((option) => option.value === value)?.value ??
-		"all"
+		DEFAULT_ERROR_WINDOW
 	);
 }
 
 export function usageWindowLabel(window: UsageWindow): string {
 	return USAGE_WINDOW_OPTIONS.find((option) => option.value === window)!.label;
+}
+export function resolveCredentialPeriod(params: {
+	period?: string | null;
+	usage?: string | null;
+	errors?: string | null;
+}): UsageWindow {
+	return parseUsageWindow(params.period ?? params.usage ?? params.errors);
 }
