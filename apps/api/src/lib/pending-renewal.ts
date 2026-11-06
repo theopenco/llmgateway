@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 import { getStripe } from "@/routes/payments.js";
 
 import { logger } from "@llmgateway/logger";
@@ -114,5 +116,166 @@ async function voidSubscriptionInvoices(
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		}
+	}
+}
+
+async function listDraftInvoiceLines(
+	draft: Stripe.Invoice,
+): Promise<Stripe.InvoiceLineItem[]> {
+	const lines = [...draft.lines.data];
+	if (!draft.lines.has_more || !draft.id) {
+		return lines;
+	}
+	let startingAfter = lines.at(-1)?.id;
+	while (true) {
+		const page = await getStripe().invoices.listLineItems(draft.id, {
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		lines.push(...page.data);
+		if (!page.has_more) {
+			return lines;
+		}
+		const lastId = page.data.at(-1)?.id;
+		if (!lastId || lastId === startingAfter) {
+			throw new Error("Stripe invoice line pagination did not advance");
+		}
+		startingAfter = lastId;
+	}
+}
+
+function resolveCustomerId(
+	customer: string | { id?: string } | null | undefined,
+): string | null {
+	if (!customer) {
+		return null;
+	}
+	return typeof customer === "string" ? customer : (customer.id ?? null);
+}
+
+// Best-effort correction of an already drafted renewal after a scheduled price
+// swap. Adjustment and billed-tier metadata are atomic; finalized invoices keep
+// their billed tier and leave the change pending for a later cycle. Callers hold
+// the tier-change lease so different targets cannot apply overlapping deltas.
+export async function repriceDraftRenewalInvoice(params: {
+	subscriptionId: string;
+	customer: string | { id?: string } | null | undefined;
+	newPriceId: string;
+	newTier: string;
+}): Promise<void> {
+	const stripe = getStripe();
+	try {
+		const customerId = resolveCustomerId(params.customer);
+		if (!customerId) {
+			logger.warn(
+				"Skipping draft renewal invoice re-price: subscription customer not found",
+				{ subscriptionId: params.subscriptionId },
+			);
+			return;
+		}
+
+		const drafts = await listInvoicesByStatus(params.subscriptionId, "draft");
+		const draft = drafts.find(
+			(invoice) =>
+				invoice.billing_reason === "subscription_cycle" &&
+				invoice.status === "draft" &&
+				resolveCustomerId(invoice.customer) === customerId,
+		);
+		if (!draft?.id) {
+			return;
+		}
+
+		const newPrice = await stripe.prices.retrieve(params.newPriceId);
+		if (
+			typeof newPrice.unit_amount !== "number" ||
+			newPrice.currency !== draft.currency
+		) {
+			logger.warn(
+				"Skipping draft renewal invoice re-price: new price has no unit_amount",
+				{ subscriptionId: params.subscriptionId, priceId: params.newPriceId },
+			);
+			return;
+		}
+
+		// The invoice object only embeds the first page of its lines; repeated
+		// changes inside the window can push earlier adjustments past it, so read
+		// every line before netting.
+		const lines = await listDraftInvoiceLines(draft);
+		const planLines = lines.filter(
+			(line) => line.parent?.type === "subscription_item_details",
+		);
+		if (
+			planLines.length !== 1 ||
+			planLines.some(
+				(line) =>
+					line.parent?.subscription_item_details?.proration ||
+					(line.quantity ?? 1) !== 1,
+			) ||
+			draft.discounts?.length ||
+			draft.automatic_tax?.enabled ||
+			draft.default_tax_rates?.length ||
+			lines.some((line) => line.discount_amounts?.length || line.taxes?.length)
+		) {
+			logger.warn(
+				"Skipping draft renewal re-price with unsupported pricing adjustments",
+			);
+			return;
+		}
+
+		let adjustmentLineCount = 0;
+		const billedCents = lines.reduce((sum, line) => {
+			if (line.parent?.type === "subscription_item_details") {
+				return sum.plus(line.amount);
+			}
+			if (
+				line.parent?.type === "invoice_item_details" &&
+				line.metadata?.devPlanRenewalReprice === "true"
+			) {
+				adjustmentLineCount++;
+				return sum.plus(line.amount);
+			}
+			return sum;
+		}, new Decimal(0));
+
+		const adjustmentCents = new Decimal(newPrice.unit_amount)
+			.minus(billedCents)
+			.toNumber();
+		if (adjustmentCents === 0) {
+			return;
+		}
+
+		// Two concurrent tier-change requests (e.g. a double-clicked confirm) can
+		// both read the draft before either adjustment lands and would each add the
+		// full difference. Key the create on the draft state they observed so Stripe
+		// collapses such duplicates, while a later change in the same window (which
+		// sees one more adjustment line) still gets its own adjustment.
+		await stripe.invoices.addLines(
+			draft.id,
+			{
+				invoice_metadata: { devPlanRenewalPriceId: params.newPriceId },
+				lines: [
+					{
+						amount: adjustmentCents,
+						description: `Dev Plan renewal adjusted to ${params.newTier.toUpperCase()} pricing`,
+						metadata: {
+							subscriptionType: "dev_plan",
+							devPlanRenewalReprice: "true",
+						},
+					},
+				],
+			},
+			{
+				idempotencyKey: `dev-plan-renewal-reprice-v2:${draft.id}:${adjustmentLineCount}:${billedCents.toFixed(0)}:${params.newPriceId}`,
+			},
+		);
+
+		logger.info(
+			`Re-priced draft renewal invoice ${draft.id} for subscription ${params.subscriptionId}: ${adjustmentCents} cent adjustment to ${params.newTier}`,
+		);
+	} catch (error) {
+		logger.error(
+			"Failed to re-price draft renewal invoice after dev plan tier change",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 	}
 }

@@ -50,6 +50,12 @@ View your current plan:
 - **Enterprise** — shows your agreement or trial term; managed by contract
 - Organizations with a legacy Pro subscription see **Pro (Legacy)** with the subscription's current billing date and status (upcoming renewal, expiry after cancellation, or a due or processing payment); the owner can cancel or resume it. The dashboard offers no self-serve plan upgrade or downgrade controls.
 
+### DevPass scheduled tier changes
+
+Downgrades and upgrades scheduled for renewal keep the current billing cadence. If the upcoming renewal is still a draft, eligible full-price invoices are adjusted to the scheduled tier; cancelling the change restores the current tier's price. Concurrent plan changes return a conflict: refresh and retry after the first change finishes.
+
+Finalized invoices are not repriced. If adjustment fails, or the draft has discounts, taxes, proration, or multiple subscription lines, the renewal grants the tier actually billed and keeps any unapplied change pending for the next cycle. Reverting a scheduled change does not refund an already paid invoice.
+
 ## Payment Methods
 
 Manage your saved payment methods:

@@ -43,6 +43,13 @@ function getDevPlanTierFromPriceId(priceId: string): DevPlanTier | null {
 export function getDevPlanTierFromInvoice(
 	invoice: Stripe.Invoice,
 ): DevPlanTier | null {
+	const repricedPriceId = invoice.metadata?.devPlanRenewalPriceId;
+	if (repricedPriceId) {
+		const repricedTier = getDevPlanTierFromPriceId(repricedPriceId);
+		if (repricedTier) {
+			return repricedTier;
+		}
+	}
 	for (const line of invoice.lines?.data ?? []) {
 		const priceId = line.pricing?.price_details?.price;
 		if (!priceId) {
