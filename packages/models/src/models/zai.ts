@@ -1265,6 +1265,7 @@ export const zaiModels = [
 			{
 				providerId: "bytedance",
 				externalId: "glm-4-7-251222",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",

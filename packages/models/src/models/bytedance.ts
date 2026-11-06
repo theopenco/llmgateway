@@ -12,6 +12,7 @@ export const bytedanceModels = [
 			{
 				providerId: "bytedance",
 				externalId: "seed-1-6-250615",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.05e-6",
@@ -38,6 +39,7 @@ export const bytedanceModels = [
 			{
 				providerId: "bytedance",
 				externalId: "seed-1-6-250915",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				inputPrice: "0.25e-6",
 				cachedInputPrice: "0.05e-6",
 				outputPrice: "2e-6",
@@ -64,6 +66,7 @@ export const bytedanceModels = [
 			{
 				providerId: "bytedance",
 				externalId: "seed-1-6-flash-250715",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				inputPrice: "0.07e-6",
 				cachedInputPrice: "0.015e-6",
 				outputPrice: "0.3e-6",
@@ -90,6 +93,7 @@ export const bytedanceModels = [
 			{
 				providerId: "bytedance",
 				externalId: "seed-1-8-251228",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				inputPrice: "0.25e-6",
 				cachedInputPrice: "0.05e-6",
 				outputPrice: "2e-6",
@@ -343,7 +347,7 @@ export const bytedanceModels = [
 				test: "skip",
 				providerId: "bytedance",
 				externalId: "seedance-1-5-pro-251215",
-				deactivatedAt: new Date("2026-11-11"),
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				videoOutputPrice: {
 					default_audio: "2.4e-6",
 					default_video: "1.2e-6",
