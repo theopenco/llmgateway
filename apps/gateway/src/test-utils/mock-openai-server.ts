@@ -3158,6 +3158,31 @@ mockOpenAIServer.get("/v1/videos/:id/content", async (c) => {
 	});
 });
 
+mockOpenAIServer.get("/contents/generations/tasks/:id", async (c) => {
+	const id = c.req.param("id");
+	const statusResponse = videoStatusResponses.get(id);
+	if (statusResponse) {
+		c.status(statusResponse.status as Parameters<typeof c.status>[0]);
+		return c.json(statusResponse.body);
+	}
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(404);
+		return c.json({ error: { message: "Task not found" } });
+	}
+
+	return c.json({
+		id,
+		model: job.model,
+		status: job.status === "completed" ? "succeeded" : job.status,
+		...(job.status === "completed"
+			? {
+					content: { video_url: `${currentMockServerUrl}/mock-assets/${id}` },
+				}
+			: {}),
+	});
+});
+
 mockOpenAIServer.get("/mock-gcs/:bucket/*", async (c) => {
 	const bucket = c.req.param("bucket");
 	const objectPath = c.req.path.replace(`/mock-gcs/${bucket}/`, "");

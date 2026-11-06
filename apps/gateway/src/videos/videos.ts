@@ -5711,6 +5711,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					llmgateway_requested_resolution: videoSize.resolution,
 					llmgateway_requested_duration_seconds: videoDurationSeconds,
 					llmgateway_input_image_count: inputImageCount,
+					llmgateway_input_reference_video_count: referenceVideoInputs.length,
 					llmgateway_reserved_spend_usd: reservedSpendUsd,
 					// Carried onto the job's log row by the worker at finalization.
 					...(storedContentFilterEvaluation

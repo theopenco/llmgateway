@@ -448,6 +448,15 @@ export interface ProviderModelMapping {
 	 */
 	videoOutputPrice?: Price | Record<string, Price>;
 	/**
+	 * Per-token price in USD for a video request with reference videos, keyed by
+	 * requested resolution ("480p", "720p", "1080p") with a "default" fallback,
+	 * for providers that bill such a request on the reference videos' duration
+	 * as well as the output's and report the total as `usage.completion_tokens`
+	 * (ByteDance ModelArk). Finalization bills those tokens at this rate instead
+	 * of output seconds at `perSecondPrice`.
+	 */
+	referenceVideoTokenPrice?: Record<string, Price>;
+	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
 	 * provider bills a flat per-image rate that varies with the served
