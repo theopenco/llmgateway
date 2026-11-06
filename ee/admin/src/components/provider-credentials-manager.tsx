@@ -91,6 +91,11 @@ import {
 	providerKeySelectionOrder,
 } from "@/lib/provider-key-selection";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
+import {
+	parseUsageWindow,
+	USAGE_WINDOW_OPTIONS,
+	usageWindowLabel,
+} from "@/lib/provider-key-usage-window";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
@@ -119,6 +124,7 @@ import type {
 	ProviderCredentialSelfTestResult,
 } from "@/lib/admin-provider-credentials";
 import type { ErrorWindow } from "@/lib/provider-key-error-window";
+import type { UsageWindow } from "@/lib/provider-key-usage-window";
 import type { ProviderModelKind } from "@llmgateway/shared";
 
 type Variant = "default" | "enterprise" | "plans";
@@ -381,7 +387,7 @@ type CredentialSort = "order" | "usage" | "spend7d" | "requests24h";
 
 const SORT_OPTIONS: { value: CredentialSort; label: string }[] = [
 	{ value: "order", label: "Rotation order" },
-	{ value: "usage", label: "Lifetime spend" },
+	{ value: "usage", label: "Spend (selected window)" },
 	{ value: "spend7d", label: "Spend (7d)" },
 	{ value: "requests24h", label: "Requests (24h)" },
 ];
@@ -399,7 +405,7 @@ function usageMetric(
 ): number {
 	switch (sort) {
 		case "usage":
-			return Number(credential.usage);
+			return Number(credential.windowUsage);
 		case "spend7d":
 			return credential.last7dDaily.reduce((total, day) => total + day.cost, 0);
 		case "requests24h":
@@ -457,12 +463,14 @@ function RotationPosition({
 function ManagedCredentialCells({
 	credential,
 	errorWindow,
+	usageWindow,
 	isAdmin,
 	onEdit,
 	onDelete,
 }: {
 	credential: ProviderCredential;
 	errorWindow: ErrorWindow;
+	usageWindow: UsageWindow;
 	isAdmin: boolean;
 	onEdit: (credential: ProviderCredential) => void;
 	onDelete: (credential: ProviderCredential) => void;
@@ -566,6 +574,14 @@ function ManagedCredentialCells({
 				<ProviderKeySpendCell
 					keyRow={credential}
 					daily={credential.last7dDaily}
+					periodUsage={
+						usageWindow === "all"
+							? undefined
+							: {
+									usage: credential.windowUsage,
+									label: usageWindowLabel(usageWindow),
+								}
+					}
 				/>
 			</TableCell>
 			<TableCell>
@@ -655,6 +671,8 @@ export function ProviderCredentialsManager({
 	// Read server-side too: the page asks the API for this window's series.
 	const errorWindow = parseErrorWindow(searchParams.get("errors"));
 	const errorWindowLabel = errorWindowOption(errorWindow);
+	const usageWindow = parseUsageWindow(searchParams.get("usage"));
+	const usageLabel = usageWindowLabel(usageWindow);
 
 	// View state lives in the URL so a filtered or sorted view can be reloaded,
 	// shared and navigated back to, matching the other admin tables.
@@ -1007,6 +1025,7 @@ export function ProviderCredentialsManager({
 				<ManagedCredentialCells
 					credential={credential}
 					errorWindow={errorWindow}
+					usageWindow={usageWindow}
 					isAdmin={isAdmin}
 					onEdit={editCredential}
 					onDelete={requestDelete}
@@ -1103,6 +1122,30 @@ export function ProviderCredentialsManager({
 			)}
 
 			<TabsContent value="credentials" className="flex flex-col gap-2">
+				<div className="flex flex-wrap items-center gap-2">
+					<Label htmlFor="credential-usage-window">Usage period</Label>
+					<Select
+						value={usageWindow}
+						onValueChange={(next) =>
+							setParam("usage", next === "all" ? null : next)
+						}
+					>
+						<SelectTrigger
+							id="credential-usage-window"
+							className="w-36"
+							aria-label="Usage period"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{USAGE_WINDOW_OPTIONS.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
 				<p className="text-xs text-muted-foreground">
 					Positions are per provider, audience and region. Eligible round-robin
 					keys share one pool at their earliest member’s position. Ordered keys
@@ -1179,8 +1222,8 @@ export function ProviderCredentialsManager({
 								<TableHead>Models</TableHead>
 								<TableHead>Settings</TableHead>
 								<TableHead>
-									<span title="Lifetime attributed spend against the configured cap. The bars below it are daily spend over the last 7 UTC days; hover one for its total.">
-										Spend
+									<span title="Attributed spend in the selected usage period. Limits and their progress always use all-time spend. Bars show the last 7 UTC days, independently of the usage period.">
+										Spend ({usageLabel})
 									</span>
 								</TableHead>
 								<TableHead className="whitespace-nowrap">
@@ -1309,6 +1352,7 @@ export function ProviderCredentialsManager({
 																			<ManagedCredentialCells
 																				credential={credential}
 																				errorWindow={errorWindow}
+																				usageWindow={usageWindow}
 																				isAdmin={isAdmin}
 																				onEdit={editCredential}
 																				onDelete={requestDelete}
