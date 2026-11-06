@@ -5,6 +5,7 @@ import { Alert, Image, Text, View } from "react-native";
 import { api, client, queryClient } from "@/api/client";
 import { defaultImageSettings, generateImages } from "@/api/images";
 import { Choice } from "@/components/Choice";
+import { GeneratedImageView, isSvg } from "@/components/GeneratedImageView";
 import { ImageOptions } from "@/components/ImageOptions";
 import {
 	Button,
@@ -115,6 +116,9 @@ export function ImageStudio({
 				"org.webmproject.webp",
 			]);
 			if (file) {
+				setSettings((current) =>
+					current.map((option) => ({ ...option, format: "image" })),
+				);
 				setInputs((current) => [
 					...current,
 					{ base64: file.base64, mediaType: file.mimeType },
@@ -153,6 +157,11 @@ export function ImageStudio({
 		...settings.map((item) => getModelImageConfig(item.model).maxInputImages),
 	);
 	const busy = generate.isPending || save.isPending;
+	const svg = settings.every(
+		(item) =>
+			item.format === "svg" &&
+			getModelImageConfig(item.model).supportsSvgOutput,
+	);
 	return (
 		<Screen>
 			<Text style={styles.eyebrow}>IMAGE STUDIO</Text>
@@ -161,6 +170,7 @@ export function ImageStudio({
 				<View key={index} style={{ gap: 10 }}>
 					<ImageOptions
 						value={item}
+						hasReferences={inputs.length > 0}
 						onChange={(value) =>
 							setSettings((current) =>
 								current.map((option, i) => (i === index ? value : option)),
@@ -198,10 +208,10 @@ export function ImageStudio({
 			/>
 			<Choice
 				label="Images per model"
-				value={count}
+				value={svg ? "1" : count}
 				options={["1", "2", "3", "4"]}
 				onChange={setCount}
-				disabled={busy}
+				disabled={busy || svg}
 			/>
 			<Button
 				title="Add reference image"
@@ -281,13 +291,9 @@ export function ImageStudio({
 					<ErrorNotice error={result.error ? new Error(result.error) : null} />
 					{result.images.map((image, index) => (
 						<View key={index} style={styles.card}>
-							<Image
-								accessibilityLabel={`Generated image ${modelIndex + 1}.${index + 1}`}
-								source={{
-									uri: `data:${image.mediaType};base64,${image.base64}`,
-								}}
-								style={{ width: "100%", aspectRatio: 1, borderRadius: 18 }}
-								resizeMode="contain"
+							<GeneratedImageView
+								image={image}
+								label={`Generated image ${modelIndex + 1}.${index + 1}`}
 							/>
 							<Button
 								title={`Save image ${modelIndex + 1}.${index + 1}`}
@@ -301,15 +307,20 @@ export function ImageStudio({
 								disabled={exportFile.isPending}
 								onPress={() => exportFile.mutate({ image, action: "share" })}
 							/>
-							<Button
-								title={`Edit image ${modelIndex + 1}.${index + 1}`}
-								secondary
-								disabled={busy}
-								onPress={() => {
-									setInputs([image]);
-									setPrompt(displayedPrompt ?? "");
-								}}
-							/>
+							{!isSvg(image) && (
+								<Button
+									title={`Edit image ${modelIndex + 1}.${index + 1}`}
+									secondary
+									disabled={busy}
+									onPress={() => {
+										setSettings((current) =>
+											current.map((option) => ({ ...option, format: "image" })),
+										);
+										setInputs([image]);
+										setPrompt(displayedPrompt ?? "");
+									}}
+								/>
+							)}
 						</View>
 					))}
 				</View>

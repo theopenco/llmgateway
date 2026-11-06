@@ -26,6 +26,9 @@ export function imageMediaType(base64: string) {
 	if (base64.startsWith("/9j/")) {
 		return "image/jpeg";
 	}
+	if (base64.startsWith("PHN2Zy") || base64.startsWith("PD94bWw")) {
+		return "image/svg+xml";
+	}
 	if (base64.startsWith("UklGR")) {
 		return "image/webp";
 	}

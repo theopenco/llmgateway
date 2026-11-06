@@ -31,9 +31,11 @@ const ratios = [
 export function ImageOptions({
 	value,
 	onChange,
+	hasReferences = false,
 }: {
 	value: ImageSettings;
 	onChange: (value: ImageSettings) => void;
+	hasReferences?: boolean;
 }) {
 	const config = getModelImageConfig(value.model);
 	return (
@@ -43,6 +45,21 @@ export function ImageOptions({
 				onChange={(model) => onChange(defaultImageSettings(model))}
 				output="image"
 			/>
+			{config.supportsSvgOutput && (
+				<Choice
+					label="Format"
+					value={value.format}
+					options={["image", "svg"]}
+					format={(format) => (format === "svg" ? "SVG" : "Image")}
+					disabled={hasReferences}
+					onChange={(format) => onChange({ ...value, format })}
+				/>
+			)}
+			{config.supportsSvgOutput && value.format === "svg" && (
+				<Text style={styles.muted}>
+					SVG returns one vector image and does not use reference images.
+				</Text>
+			)}
 			{value.model !== "auto" && (
 				<Choice
 					label="Size"
