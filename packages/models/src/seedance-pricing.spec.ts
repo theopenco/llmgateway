@@ -71,7 +71,7 @@ describe("Seedance pricing", () => {
 
 	test("retires Seedance 1.5 Pro on the announced date", () => {
 		expect(mapping("seedance-1-5-pro").deactivatedAt).toEqual(
-			new Date("2026-11-11"),
+			new Date("2026-11-11T09:00:00Z"),
 		);
 	});
 });
