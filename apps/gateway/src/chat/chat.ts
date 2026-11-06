@@ -514,7 +514,7 @@ function injectImageStreamParams(
 function supportsImageStreamUpstream(
 	outputFormat: string | undefined,
 ): boolean {
-	return outputFormat !== "svg";
+	return outputFormat !== "svg" && outputFormat !== "gif";
 }
 
 function toDataStorageCostNumber(
