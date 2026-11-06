@@ -8,6 +8,11 @@ fullnameOverride: ""
 # -- Use an existing Kubernetes Secret instead of creating one (must contain all required keys)
 existingSecret: ""
 
+# Operator project key for Airside inference; inject only into API and worker.
+airsideVerification:
+  existingSecret: ""
+  apiKeyKey: AIRSIDE_GATEWAY_API_KEY
+
 # =============================================================================
 # Global settings
 # =============================================================================
@@ -144,6 +149,7 @@ gateway:
     gatewayTimeoutMs: 1500000
     aiStreamingTimeoutMs: 1200000
     aiTimeoutMs: 600000
+    imageFetchTimeoutMs: 15000
     keepAliveTimeoutS: 620
     shutdownGracePeriodMs: 480000
     healthCheckSkipDatabase: ""
@@ -521,7 +527,6 @@ llmProviders:
   # LLM_AWS_MANTLE_API_KEY: ""
   # LLM_AZURE_API_KEY: ""
   # LLM_INFERENCE_NET_API_KEY: ""
-  # LLM_NANO_GPT_API_KEY: ""
 
 # =============================================================================
 # Stripe / Billing (optional)

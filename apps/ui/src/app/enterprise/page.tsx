@@ -15,12 +15,13 @@ import { UptimeVisualization } from "@/components/enterprise/uptime";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Testimonials } from "@/components/landing/testimonials";
+import { pageTitle } from "@/lib/page-title";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Enterprise LLM Gateway – SSO, Audit Logs & Guardrails",
+	title: pageTitle("Enterprise LLM Gateway – SSO, Audit Logs & Guardrails"),
 	description:
 		"SOC 2 Type II LLM infrastructure with SAML SSO, audit logs, prompt-injection guardrails, per-project routing, and white-label chat for regulated teams.",
 	alternates: { canonical: "/enterprise" },

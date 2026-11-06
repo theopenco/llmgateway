@@ -75,3 +75,28 @@ export function assertEnterpriseForCompliancePolicy(
 		});
 	}
 }
+export function assertCanManageCompliancePolicy(
+	policy: ProviderCompliancePolicy | null | undefined,
+	role: string | null | undefined,
+): void {
+	if (policy !== undefined && role !== "owner" && role !== "admin") {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can manage compliance policies",
+		});
+	}
+}
+export function assertApiKeyComplianceWritesEnabled(
+	policy: ProviderCompliancePolicy | null | undefined,
+): void {
+	if (
+		policy !== undefined &&
+		policy !== null &&
+		process.env.API_KEY_COMPLIANCE_ENABLED !== "true"
+	) {
+		throw new HTTPException(503, {
+			message:
+				"API key compliance configuration is not enabled for this deployment",
+		});
+	}
+}

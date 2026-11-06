@@ -14,6 +14,9 @@ import {
 	supportsVideoEndFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
+	estimateVideoInputDurationSeconds,
+	supportsVideoReferenceAudioInput,
+	supportsVideoReasoningEffort,
 } from "./video-generation-config.js";
 
 import type {
@@ -114,6 +117,72 @@ describe("video provider selection", () => {
 		expect(
 			supportsVideoEndFrameInput("google-vertex/veo-3.1-generate-preview:us"),
 		).toBe(true);
+	});
+});
+
+describe("FLUX 3 Max", () => {
+	const sizes: VideoSize[] = ["1280x720", "720x1280", "1920x1080", "1080x1920"];
+	const durations = Array.from({ length: 16 }, (_, i) => i + 5);
+	const flux: VideoCatalogModel = {
+		id: "flux-3-max",
+		mappings: [
+			{
+				...mapping,
+				modelId: "flux-3-max",
+				providerId: "fal-ai",
+				supportedVideoSizes: sizes,
+				supportedVideoDurationsSeconds: durations,
+				supportedVideoDurationsSecondsImageToVideo: null,
+			},
+		],
+	};
+
+	test.each(["flux-3-max", "fal-ai/flux-3-max", "fal-ai/flux-3-max:us"])(
+		"offers text and frame menus for %s",
+		(modelId) => {
+			for (const mode of ["none", "frames"] as const) {
+				expect(
+					getSupportedVideoRequestOptions([flux], [modelId], mode),
+				).toEqual({ sizes, durations });
+			}
+			expect(getVideoResolutions(sizes)).toEqual(["720p", "1080p"]);
+			for (const resolution of ["720p", "1080p"] as const) {
+				expect(getVideoOrientations(sizes, resolution)).toEqual([
+					"landscape",
+					"portrait",
+				]);
+			}
+			expect(supportsVideoFrameInput(modelId)).toBe(true);
+			expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+			expect(supportsVideoReasoningEffort(modelId)).toBe(true);
+			expect(supportsVideoReferenceInput(modelId)).toBe(false);
+			expect(supportsVideoReferenceVideoInput(modelId)).toBe(false);
+			expect(supportsVideoReferenceAudioInput(modelId)).toBe(false);
+			expect(
+				getSupportedVideoRequestOptions([flux], [modelId], "reference"),
+			).toEqual({ sizes: [], durations: [] });
+		},
+	);
+
+	test("matches canonical root and provider, never upstream ids", () => {
+		for (const modelId of [
+			"openai/flux-3-max",
+			"fal-ai/blackforestlabs/flux-3-max",
+			"fal-ai/other",
+		]) {
+			expect(supportsVideoFrameInput(modelId)).toBe(false);
+			expect(supportsVideoEndFrameInput(modelId)).toBe(false);
+			expect(supportsVideoReasoningEffort(modelId)).toBe(false);
+		}
+		for (const overrides of [{ providerId: "openai" }, { modelId: "other" }]) {
+			const model = {
+				...flux,
+				mappings: [{ ...flux.mappings[0], ...overrides }],
+			};
+			expect(
+				getSupportedVideoRequestOptions([model], [flux.id], "frames"),
+			).toEqual({ sizes: [], durations: [] });
+		}
 	});
 });
 
@@ -321,5 +390,97 @@ describe("mergeVideoModelResults", () => {
 		expect(
 			mergeVideoModelResults([], [{ modelId: "b", videoUrl: null }]),
 		).toEqual([{ modelId: "b", videoUrl: null }]);
+	});
+});
+
+describe("Seedance reference video estimates", () => {
+	test("reserves the input-duration upper bound, rounded up", () => {
+		expect(
+			estimateVideoCostUsd(
+				{ perSecondPrice: { default_audio: "0.23112" } },
+				"720p",
+				5,
+				0,
+				30,
+			),
+		).toBe(8.0892);
+		expect(
+			estimateVideoCostUsd(
+				{ perSecondPrice: { "480p_audio": "0.10280025" } },
+				"480p",
+				5,
+				0,
+			),
+		).toBe(0.514002);
+	});
+
+	test("uses the same bounds in preview and gateway", () => {
+		expect(
+			estimateVideoInputDurationSeconds(
+				{ providerId: "bytedance", supportedVideoDurationsSeconds: [4, 15] },
+				true,
+			),
+		).toBe(15);
+		expect(
+			estimateVideoInputDurationSeconds(
+				{ providerId: "bytedance", supportedVideoDurationsSeconds: [4, 30] },
+				true,
+			),
+		).toBe(30);
+		expect(
+			estimateVideoInputDurationSeconds({ providerId: "bytedance" }, true),
+		).toBe(30);
+		expect(
+			estimateVideoInputDurationSeconds(
+				{ providerId: "bytedance", supportedVideoDurationsSeconds: [NaN, -1] },
+				true,
+			),
+		).toBe(30);
+		expect(
+			estimateVideoInputDurationSeconds({ providerId: "bytedance" }, false),
+		).toBe(0);
+		expect(
+			estimateVideoInputDurationSeconds(
+				{ providerId: "google-ai-studio" },
+				true,
+			),
+		).toBe(0);
+	});
+
+	test("includes reference videos in the selected-model preview", () => {
+		const model: VideoCatalogModel = {
+			id: "seedance-2-5",
+			mappings: [
+				{
+					...mapping,
+					modelId: "seedance-2-5",
+					providerId: "bytedance",
+					supportedVideoDurationsSeconds: [4, 5, 30],
+					perSecondPrice: { default_audio: "0.23112" },
+				},
+			],
+		};
+		expect(
+			estimateVideoSelectionCostUsd(
+				[model],
+				[model.id],
+				"reference",
+				"1280x720",
+				5,
+				0,
+				1,
+			),
+		).toBe(8.0892);
+		expect(
+			estimateVideoSelectionCostUsd(
+				[model],
+				[model.id],
+				"reference",
+				"1280x720",
+				5,
+				0,
+				0,
+			),
+		).toBe(1.1556);
 	});
 });

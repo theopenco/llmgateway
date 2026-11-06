@@ -1,5 +1,4 @@
 import { createHmac } from "node:crypto";
-import { lookup } from "node:dns/promises";
 
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
@@ -54,17 +53,22 @@ import {
 	isDailyWindowExpired,
 	isLoungeSource,
 	isPremiumWeekExpired,
-	isPrivateOrReservedIp,
 	usedModelBaseId,
 } from "@llmgateway/shared";
 import {
 	getLogRetentionCutoff,
 	LOG_RETENTION_DAYS,
 } from "@llmgateway/shared/log-retention";
+import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
+import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
+import {
+	scheduleDailyModelVerifications,
+	modelVerificationConcurrency,
+} from "./services/daily-model-verifications.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -81,6 +85,7 @@ import {
 	runTenantStatsByokSplitBackfillStep,
 } from "./services/hourly-stats-backfill.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
+import { deliverModelVerificationRegressions } from "./services/model-verification-regressions.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
 import {
@@ -100,7 +105,10 @@ import {
 	getModelHistoryRetentionCutoff,
 	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
-import { syncProvidersAndModels } from "./services/sync-models.js";
+import {
+	MODEL_SYNC_LOCK_KEY,
+	syncProvidersAndModels,
+} from "./services/sync-models.js";
 import {
 	processPendingVideoJobs,
 	processPendingWebhookDeliveries,
@@ -156,6 +164,7 @@ const TENANT_STATS_BYOK_SPLIT_BACKFILL_LOCK_KEY =
 	"tenant_stats_byok_split_backfill";
 const PROJECT_STATS_LOCK_KEY = "project_stats_refresh";
 const LOCK_DURATION_MINUTES = 5;
+const MODEL_SYNC_LOCK_WAIT_MS = LOCK_DURATION_MINUTES * 60 * 1000;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
 const WALLET_LOW_BALANCE_THRESHOLD = 1;
@@ -3109,24 +3118,7 @@ const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
  * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
  * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
  */
-/**
- * SSRF guard for an outbound webhook delivery: validate the URL is https + not
- * an internal literal, then resolve the host and reject if any resolved address
- * is private/reserved (DNS rebinding protection). Throws on an unsafe target.
- */
-async function assertSafeWebhookTarget(rawUrl: string): Promise<void> {
-	const url = assertSafeWebhookUrl(rawUrl);
-	const resolved = await lookup(url.hostname, { all: true });
-	for (const { address } of resolved) {
-		if (isPrivateOrReservedIp(address)) {
-			throw new Error(
-				`Webhook host ${url.hostname} resolves to a disallowed address (${address})`,
-			);
-		}
-	}
-}
-
-async function processWebhookDeliveries(): Promise<void> {
+export async function processWebhookDeliveries(): Promise<void> {
 	const lockAcquired = await acquireLock(WEBHOOK_DELIVERY_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -3160,12 +3152,12 @@ async function processWebhookDeliveries(): Promise<void> {
 
 			const attempts = delivery.attempts + 1;
 			try {
-				// SSRF guard at delivery time: https + literal checks, plus resolve
-				// the host and reject if any address is private/reserved (defeats
-				// DNS rebinding between registration and delivery).
-				await assertSafeWebhookTarget(delivery.endpoint.url);
+				// SSRF guard at delivery time: https + literal checks here, then
+				// fetchSafeUserUrl rejects private/reserved addresses when the socket
+				// connects (no DNS rebinding window) and refuses redirects.
+				assertSafeWebhookUrl(delivery.endpoint.url);
 
-				const res = await fetch(delivery.endpoint.url, {
+				const res = await fetchSafeUserUrl(delivery.endpoint.url, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -3637,15 +3629,45 @@ export async function startWorker() {
 	resetShutdown();
 	logger.info("Starting worker application...");
 
-	// Initialize providers and models sync - must complete before other stats syncs
+	// Initialize providers and models sync - must complete before other stats syncs.
+	// Counted as a loop so a shutdown during startup waits for it before
+	// closing the database pool.
+	activeLoops++;
 	try {
-		await syncProvidersAndModels();
-		logger.info("Initial sync completed");
+		// Price alerts pause while this lock is held, so a sync that is only
+		// partly written is never reported as a price change.
+		// Wait for another worker's sync so two builds never write at once.
+		let syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		for (
+			let waited = 0;
+			!syncLocked && waited < MODEL_SYNC_LOCK_WAIT_MS && !isStopRequested();
+			waited += 5000
+		) {
+			await interruptibleSleep(5000);
+			syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		}
+		if (syncLocked) {
+			try {
+				await syncProvidersAndModels();
+			} finally {
+				await releaseLock(MODEL_SYNC_LOCK_KEY);
+			}
+			logger.info("Initial sync completed");
+		} else {
+			logger.warn("Skipping initial model sync because the lock is held");
+		}
 	} catch (error) {
 		logger.error(
 			"Error during initial sync",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+	} finally {
+		activeLoops--;
+	}
+
+	if (isStopRequested()) {
+		logger.info("Stop requested during startup, not starting worker loops");
+		return;
 	}
 
 	void runHistoryStartupLoop();
@@ -3697,7 +3719,14 @@ export async function startWorker() {
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
-	void runModelVerificationLoop();
+	for (
+		let consumer = 0;
+		consumer < modelVerificationConcurrency();
+		consumer++
+	) {
+		void runModelVerificationLoop();
+	}
+	void runDailyModelVerificationLoop();
 	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
@@ -3861,5 +3890,29 @@ export async function enforceRetentionPlanGating(
 		return 0;
 	} finally {
 		await releaseLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	}
+}
+async function runDailyModelVerificationLoop() {
+	activeLoops++;
+	try {
+		while (!isStopRequested()) {
+			for (const service of [
+				scheduleDailyModelVerifications,
+				deliverModelVerificationRegressions,
+				deliverAirsideVerificationEmails,
+			]) {
+				try {
+					await service();
+				} catch (error) {
+					logger.error(
+						"Error in daily model verification loop",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+			}
+			await interruptibleSleep(5 * 60 * 1000);
+		}
+	} finally {
+		activeLoops--;
 	}
 }

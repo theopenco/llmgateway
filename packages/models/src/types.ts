@@ -259,6 +259,11 @@ export interface OpenAIFunctionToolInput {
 	 */
 	allowed_callers?: string[];
 	/**
+	 * Anthropic-only: stream tool input as it is generated (fine-grained tool
+	 * streaming). Stripped for every other upstream.
+	 */
+	eager_input_streaming?: boolean;
+	/**
 	 * Anthropic-only: keep this tool out of the rendered tools section so it
 	 * never enters the cached prompt prefix, and load it on demand when the
 	 * tool search tool discovers it. Stripped for every other upstream.
@@ -329,6 +334,7 @@ export interface AnthropicTool {
 	cache_control?: CacheControl;
 	strict?: boolean;
 	allowed_callers?: string[];
+	eager_input_streaming?: boolean;
 }
 
 export interface GoogleTool {
@@ -575,7 +581,7 @@ export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
 	/**
-	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * Processing tier for the Gemini Developer API (google-ai-studio).
 	 * "flex" / "priority" select Flex / Priority inference. The served tier is
 	 * returned in the `x-gemini-service-tier` response header.
 	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
@@ -827,6 +833,13 @@ export interface WebSearchTool {
 	 * with allowed_domains.
 	 */
 	blocked_domains?: string[];
+	/**
+	 * `false` asks for OpenAI's cache-only search, which never fetches live
+	 * pages. Only OpenAI's Responses API offers it; every other upstream drops
+	 * the tool rather than running a live search. Omitted or `true` is live
+	 * search.
+	 */
+	external_web_access?: boolean;
 	/**
 	 * Whether the caller demanded a search rather than offering one, i.e. sent
 	 * `tool_choice: {type: "web_search"}`. Not part of the tool the client

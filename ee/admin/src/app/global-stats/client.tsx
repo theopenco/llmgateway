@@ -305,6 +305,51 @@ function metricFormatter(metric: TimeseriesMetric) {
 	}
 }
 
+interface BreakdownOption {
+	value: string;
+	groupBy: GroupBy;
+	modelView?: ModelView;
+	label: string;
+	icon: typeof Cpu;
+}
+
+// One control for the dimension: the three model views first, then the
+// non-model groupings. Model views keep writing groupBy=model&modelView=… so
+// existing links stay valid.
+const BREAKDOWN_OPTIONS: BreakdownOption[] = [
+	{
+		value: "model:mapping",
+		groupBy: "model",
+		modelView: "mapping",
+		label: "Mappings",
+		icon: Layers,
+	},
+	{
+		value: "model:canonical",
+		groupBy: "model",
+		modelView: "canonical",
+		label: "Canonical",
+		icon: Cpu,
+	},
+	{
+		value: "model:provider",
+		groupBy: "model",
+		modelView: "provider",
+		label: "Providers",
+		icon: Server,
+	},
+	{ value: "family", groupBy: "family", label: "Family", icon: Boxes },
+	{ value: "source", groupBy: "source", label: "x-source", icon: Layers },
+	{ value: "mode", groupBy: "mode", label: "Mode", icon: Wallet },
+	{ value: "kind", groupBy: "kind", label: "Org kind", icon: Building2 },
+	{
+		value: "providerKey",
+		groupBy: "providerKey",
+		label: "Provider key",
+		icon: KeyRound,
+	},
+];
+
 function compactMetricFormatter(metric: TimeseriesMetric) {
 	switch (metric) {
 		case "cost":
@@ -358,13 +403,19 @@ export function GlobalStatsClient({
 	const [chartType, setChartType] = useState<ChartType>("bar");
 	const TimeseriesChart = chartType === "bar" ? BarChart : LineChart;
 
-	const updateParam = useCallback(
-		(key: string, value: string) => {
+	const updateParams = useCallback(
+		(entries: Record<string, string>) => {
 			const params = new URLSearchParams(searchParams.toString());
-			params.set(key, value);
+			for (const [key, value] of Object.entries(entries)) {
+				params.set(key, value);
+			}
 			router.replace(`${pathname}?${params.toString()}`, { scroll: false });
 		},
 		[router, pathname, searchParams],
+	);
+	const updateParam = useCallback(
+		(key: string, value: string) => updateParams({ [key]: value }),
+		[updateParams],
 	);
 
 	const [breakdownPage, setBreakdownPage] = useState(1);
@@ -379,24 +430,23 @@ export function GlobalStatsClient({
 		setBreakdownPage(1);
 	}
 
-	const setGroupBy = useCallback(
-		(value: GroupBy) => {
+	// The selected entry of the single breakdown control; model views are
+	// groupBy=model plus a modelView, every other grouping is its own value.
+	const breakdownValue = groupBy === "model" ? `model:${modelView}` : groupBy;
+	const setBreakdown = useCallback(
+		(option: BreakdownOption) => {
 			setBreakdownPage(1);
-			updateParam("groupBy", value);
+			updateParams({
+				groupBy: option.groupBy,
+				...(option.modelView ? { modelView: option.modelView } : {}),
+			});
 		},
-		[updateParam],
+		[updateParams],
 	);
 	const setChartMetric = useCallback(
 		(value: TimeseriesMetric) => {
 			setBreakdownPage(1);
 			updateParam("metric", value);
-		},
-		[updateParam],
-	);
-	const setModelView = useCallback(
-		(value: ModelView) => {
-			setBreakdownPage(1);
-			updateParam("modelView", value);
 		},
 		[updateParam],
 	);
@@ -840,8 +890,9 @@ export function GlobalStatsClient({
 						</h1>
 						<p className="mt-1 text-sm text-muted-foreground">
 							Cross-organization usage aggregated by{" "}
-							{hourly ? "hour" : "UTC day"}, grouped by model, model family,
-							x-source header, billing mode, organization kind or provider key.
+							{hourly ? "hour" : "UTC day"}, grouped by mapping, canonical
+							model, provider, model family, x-source header, billing mode,
+							organization kind or provider key.
 							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 						</p>
 						<p className="mt-1 text-xs text-muted-foreground">
@@ -887,41 +938,56 @@ export function GlobalStatsClient({
 						<ToolbarGroup label="Model family">
 							<ModelFamilySelector />
 						</ToolbarGroup>
-						<ToolbarGroup label="Break down by">
-							<div
-								className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
-								role="group"
-								aria-label="Break down by"
-							>
-								{GROUP_OPTIONS.map((opt) => {
+						<ToolbarGroup label="Breakdown by">
+							<div className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+								{BREAKDOWN_OPTIONS.map((opt) => {
 									const Icon = opt.icon;
 									const unavailable =
-										(opt.value === "source" && sourceUnavailable) ||
+										(opt.groupBy === "source" && sourceUnavailable) ||
 										(nonModelUnavailable &&
-											opt.value !== "model" &&
-											opt.value !== "family");
+											opt.groupBy !== "model" &&
+											opt.groupBy !== "family");
+									const selected = breakdownValue === opt.value;
 									return (
 										<Button
 											key={opt.value}
-											variant={groupBy === opt.value ? "default" : "ghost"}
+											variant={selected ? "default" : "ghost"}
 											size="sm"
 											className="h-7 gap-1.5 px-3 text-xs"
-											aria-pressed={groupBy === opt.value}
+											aria-pressed={selected}
 											disabled={unavailable}
 											title={
 												!unavailable
 													? undefined
-													: opt.value === "source" && sourceUnavailable
+													: opt.groupBy === "source" && sourceUnavailable
 														? "x-source is not tracked per provider or provider key"
 														: "Not derivable from a model while a family filter is active"
 											}
-											onClick={() => setGroupBy(opt.value)}
+											onClick={() => setBreakdown(opt)}
 										>
 											<Icon className="h-3.5 w-3.5" aria-hidden />
 											{opt.label}
 										</Button>
 									);
 								})}
+							</div>
+						</ToolbarGroup>
+						<ToolbarGroup label="Measure">
+							<div className="flex w-fit items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+								{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
+									(m) => (
+										<Button
+											key={m}
+											variant={chartMetric === m ? "default" : "ghost"}
+											size="sm"
+											className="h-7 px-3 text-xs"
+											aria-pressed={chartMetric === m}
+											onClick={() => setChartMetric(m)}
+										>
+											{timeseriesChartConfig[m].label as string}
+										</Button>
+									),
+								)}
 							</div>
 						</ToolbarGroup>
 						<ToolbarGroup label="Display time zone" className="ml-auto">
@@ -1063,56 +1129,6 @@ export function GlobalStatsClient({
 								)}
 								Breakdown
 							</Button>
-						</ToolbarGroup>
-						{showTimeseriesBreakdown && groupBy === "model" ? (
-							<ToolbarGroup label="Model view">
-								<div
-									className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
-									role="group"
-									aria-label="Model view"
-								>
-									{MODEL_VIEW_OPTIONS.map((opt) => {
-										const Icon = opt.icon;
-										return (
-											<Button
-												key={opt.value}
-												variant={
-													modelView === opt.value ? "secondary" : "ghost"
-												}
-												size="sm"
-												className="h-7 gap-1.5 px-3 text-xs shadow-none"
-												aria-pressed={modelView === opt.value}
-												onClick={() => setModelView(opt.value)}
-											>
-												<Icon className="h-3.5 w-3.5" aria-hidden />
-												{opt.label}
-											</Button>
-										);
-									})}
-								</div>
-							</ToolbarGroup>
-						) : null}
-						<ToolbarGroup label="Measure">
-							<div
-								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
-								role="group"
-								aria-label="Measure"
-							>
-								{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
-									(m) => (
-										<Button
-											key={m}
-											variant={chartMetric === m ? "secondary" : "ghost"}
-											size="sm"
-											className="h-7 px-3 text-xs shadow-none"
-											aria-pressed={chartMetric === m}
-											onClick={() => setChartMetric(m)}
-										>
-											{timeseriesChartConfig[m].label as string}
-										</Button>
-									),
-								)}
-							</div>
 						</ToolbarGroup>
 						<ToolbarGroup label="Chart">
 							<ChartTypeToggle value={chartType} onValueChange={setChartType} />
@@ -1318,56 +1334,6 @@ export function GlobalStatsClient({
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-end gap-3 border-t border-border/60 bg-muted/20 px-4 py-3 sm:px-6">
-						{groupBy === "model" ? (
-							<ToolbarGroup label="Model view">
-								<div
-									className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
-									role="group"
-									aria-label="Model view"
-								>
-									{MODEL_VIEW_OPTIONS.map((opt) => {
-										const Icon = opt.icon;
-										return (
-											<Button
-												key={opt.value}
-												variant={
-													modelView === opt.value ? "secondary" : "ghost"
-												}
-												size="sm"
-												className="h-7 gap-1.5 px-3 text-xs shadow-none"
-												aria-pressed={modelView === opt.value}
-												onClick={() => setModelView(opt.value)}
-											>
-												<Icon className="h-3.5 w-3.5" aria-hidden />
-												{opt.label}
-											</Button>
-										);
-									})}
-								</div>
-							</ToolbarGroup>
-						) : null}
-						<ToolbarGroup label="Measure">
-							<div
-								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
-								role="group"
-								aria-label="Measure"
-							>
-								{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
-									(m) => (
-										<Button
-											key={m}
-											variant={chartMetric === m ? "secondary" : "ghost"}
-											size="sm"
-											className="h-7 px-3 text-xs shadow-none"
-											aria-pressed={chartMetric === m}
-											onClick={() => setChartMetric(m)}
-										>
-											{timeseriesChartConfig[m].label as string}
-										</Button>
-									),
-								)}
-							</div>
-						</ToolbarGroup>
 						<ToolbarGroup label="Export" className="ml-auto">
 							<Button
 								variant="outline"

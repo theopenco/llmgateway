@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "6e71e918-aa0e-4f44-909a-f8f9b4b731e4",
+  "prevIds": [
+    "b58b52cd-1dd0-440e-b07a-db3cc17f193c"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "selection_strategy"
+      ],
+      "writes": [
+        "s|col|public.provider_key.selection_strategy",
+        "n|col|public.provider_key.selection_strategy",
+        "e|col|public.provider_key.selection_strategy"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "selection_strategy",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'ordered'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

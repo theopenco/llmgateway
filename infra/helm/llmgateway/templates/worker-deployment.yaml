@@ -61,9 +61,18 @@ spec:
                 name: {{ include "llmgateway.configMapName" . }}
             - secretRef:
                 name: {{ include "llmgateway.secretName" . }}
-          {{- with .Values.worker.extraEnv }}
+          {{- if or .Values.worker.extraEnv .Values.airsideVerification.existingSecret }}
           env:
-            {{- toYaml . | nindent 12 }}
+            {{- with .Values.worker.extraEnv }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.airsideVerification.existingSecret }}
+            - name: AIRSIDE_GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.airsideVerification.existingSecret | quote }}
+                  key: {{ .Values.airsideVerification.apiKeyKey | quote }}
+            {{- end }}
           {{- end }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}

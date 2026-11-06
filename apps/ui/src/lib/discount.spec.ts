@@ -18,6 +18,22 @@ const novita = qwen.providers.find((p) => p.providerId === "novita")!;
 
 // Mocked global 50% discount on qwen3.7-max, as configured in the admin
 // dashboard (stored as a 0-1 fraction).
+describe("virtual model discounts", () => {
+	it("uses the current canonical cut for moving aliases", () => {
+		const discount: DiscountData = {
+			id: "fixture",
+			provider: "typesafe",
+			model: "jev-1.14.0",
+			discountPercent: "0.2",
+			reason: null,
+			expiresAt: null,
+			createdAt: "2026-01-01",
+		};
+		expect(
+			getEffectiveProviderDiscount([discount], "typesafe", "jev-latest"),
+		).toBe("0.2");
+	});
+});
 const fiftyPercentOff: DiscountData = {
 	id: "test-discount",
 	provider: null,

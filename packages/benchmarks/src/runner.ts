@@ -80,6 +80,11 @@ function stripResponse(response: BenchmarkResponse): BenchmarkResponse {
 		error: redactError(response.error),
 		content: "",
 		reasoning: "",
+		reasoning_details: undefined,
+		anthropic_native_blocks: undefined,
+		extra_content: undefined,
+		provider_extra: undefined,
+		phase: undefined,
 		toolCalls: [],
 		streamChunks: [],
 		agent: response.agent

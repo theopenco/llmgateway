@@ -6,6 +6,8 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import {
+	getAzureCredentialBaseUrl,
+	getAzureUpstreamModel,
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
@@ -54,6 +56,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -64,6 +67,7 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
 	getGoogleVertexPublisherModelPath,
+	getOpenAiV1Prefix,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
 	managedCredentialOptions,
@@ -119,7 +123,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -776,12 +780,17 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
-			providerKey?.baseUrl ??
-			getCredentialSetting(providerId, "baseUrl", credential, {
-				configIndex,
-				variant: envVariant,
-			}) ??
-			getProviderDefaultBaseUrl(providerId);
+			providerId === "azure"
+				? getAzureCredentialBaseUrl(credential, {
+						configIndex,
+						variant: envVariant,
+					})
+				: (providerKey?.baseUrl ??
+					getCredentialSetting(providerId, "baseUrl", credential, {
+						configIndex,
+						variant: envVariant,
+					}) ??
+					getProviderDefaultBaseUrl(providerId));
 		if (!resolvedBaseUrl) {
 			throw new HTTPException(500, {
 				message: `No base URL set for provider: ${providerId}`,
@@ -903,10 +912,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				requestBody.dimensions = dimensions;
 			}
 		} else {
-			upstreamUrl = `${resolvedBaseUrl}/v1/embeddings`;
+			upstreamUrl = `${resolvedBaseUrl}${getOpenAiV1Prefix(providerId)}/embeddings`;
 			requestBody = {
 				input,
-				model: upstreamModel,
+				model:
+					providerId === "azure"
+						? getAzureUpstreamModel(credential, upstreamModel)
+						: upstreamModel,
 			};
 			if (encoding_format !== undefined) {
 				requestBody.encoding_format = encoding_format;
@@ -914,8 +926,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			if (providerId === "openai" || providerId === "azure") {
-				requestBody.user = safetyIdentifier;
+			const forwarded = providerKey
+				? undefined
+				: forwardedSafetyIdentifier(managedKey, safetyIdentifier);
+			if (
+				forwarded !== undefined &&
+				(providerId === "openai" || providerId === "azure")
+			) {
+				requestBody.user = forwarded;
 			}
 		}
 

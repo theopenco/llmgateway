@@ -5,8 +5,8 @@ import {
 	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
-	type ProviderApiFormat,
 	type ProviderId,
+	type RequestApiFormat,
 	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderDefinition,
@@ -25,6 +25,17 @@ import {
 import { getBedrockProfilePrefix } from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
+
+/**
+ * A provider key's settings (account id, resource, workspace id) are missing or
+ * malformed — tenant input, not a gateway fault.
+ */
+export class ProviderConfigError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "ProviderConfigError";
+	}
+}
 
 function appendPath(url: string, path: string): string {
 	let urlEnd = url.length;
@@ -101,12 +112,12 @@ function resolveWorkspaceScopedEndpoint(
 		if (fallback) {
 			return fallback;
 		}
-		throw new Error(
+		throw new ProviderConfigError(
 			`Provider ${provider} region ${region} is only reachable through a workspace-dedicated endpoint - set the workspace id on the provider key or via the ${regionalEnvVar} env var`,
 		);
 	}
 	if (!isProviderHostnameLabel(workspaceId)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			`Provider ${provider} workspace id is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${regionalEnvVar} env var)`,
 		);
 	}
@@ -227,23 +238,20 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
-	nanogpt: "https://nano-gpt.com/api",
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
 	reve: "https://api.reve.com",
 	xiaomi: "https://api.xiaomimimo.com",
 	canopywave: "https://inference.canopywave.io",
-	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
-	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
-	consensusprotocol: "https://api.consensusprotocol.org",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 	typesafe: "https://api.typesafe.ai",
+	"fal-ai": "https://queue.fal.run",
 };
 
 /**
@@ -269,11 +277,78 @@ export function getDecisionsUpstreamPath(provider: ProviderId): string {
  */
 export function getAzureFoundryBaseUrl(resource: string): string {
 	if (!isProviderHostnameLabel(resource)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
 		);
 	}
 	return `https://${resource}.services.ai.azure.com`;
+}
+
+/** OpenAI-compatible host of an Azure resource; see getOpenAiV1Prefix. */
+export function getAzureOpenAiBaseUrl(resource: string): string {
+	if (!isProviderHostnameLabel(resource)) {
+		throw new ProviderConfigError(
+			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
+		);
+	}
+	return `https://${resource}.openai.azure.com`;
+}
+
+/**
+ * Path prefix of the OpenAI v1 API on a provider's base URL, for endpoints
+ * that build their own URL. Azure serves it under /openai/v1.
+ */
+export function getOpenAiV1Prefix(provider: ProviderId): string {
+	return provider === "azure" ? "/openai/v1" : "/v1";
+}
+
+/**
+ * Host of the Azure credential serving a request, shared by every Azure route
+ * (chat, images, embeddings, speech, realtime, key validation) so they agree.
+ * An explicit base URL wins over the resource: it is the only way to reach a
+ * deployment serving the Azure surface from a host other than
+ * <resource>.openai.azure.com. Exactly one of the two belongs on a credential,
+ * but they can arrive from different layers — a managed credential's base URL
+ * must override a deployment-wide LLM_AZURE_RESOURCE. A caller holding a BYOK
+ * key's own base URL applies it before this. Returns undefined when neither is
+ * set.
+ */
+export function resolveAzureBaseUrl(options: {
+	providerKeyOptions?: ProviderKeyOptions;
+	skipEnvVars?: boolean;
+	configIndex?: number;
+	variant?: EnvVarVariant;
+}): string | undefined {
+	const { providerKeyOptions, skipEnvVars, configIndex, variant } = options;
+	const credentialConfig = providerKeyOptions?.env_config;
+	const envValue = (key: string) =>
+		skipEnvVars
+			? undefined
+			: getProviderEnvValue("azure", key, configIndex, undefined, variant);
+
+	const baseUrl = credentialConfig?.baseUrl ?? envValue("baseUrl");
+	if (baseUrl) {
+		let end = baseUrl.length;
+		while (end > 0 && baseUrl[end - 1] === "/") {
+			end--;
+		}
+		return baseUrl.slice(0, end);
+	}
+
+	const resource =
+		credentialConfig?.resource ??
+		providerKeyOptions?.azure_resource ??
+		envValue("resource");
+	if (!resource) {
+		return undefined;
+	}
+	if (!isProviderHostnameLabel(resource)) {
+		const azureEnv = getProviderEnvConfig("azure");
+		throw new ProviderConfigError(
+			`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
+		);
+	}
+	return getAzureOpenAiBaseUrl(resource);
 }
 
 /** Workers AI's OpenAI-compatible base URL is scoped to the account. */
@@ -281,12 +356,12 @@ export function getCloudflareWorkersAiBaseUrl(
 	accountId: string | undefined,
 ): string {
 	if (!accountId) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Cloudflare requires an account ID - set via provider options or the LLM_CLOUDFLARE_ACCOUNT_ID env var",
 		);
 	}
 	if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
-		throw new Error(
+		throw new ProviderConfigError(
 			"Cloudflare account ID is invalid - must be 32 lowercase hex characters",
 		);
 	}
@@ -327,7 +402,7 @@ export function getProviderEndpoint(
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
 	variant?: EnvVarVariant,
-	apiFormat?: ProviderApiFormat,
+	apiFormat?: RequestApiFormat,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -402,30 +477,13 @@ export function getProviderEndpoint(
 			case "google-vertex":
 			case "xiaomi":
 			case "runpod":
+			case "fal-ai":
 				url =
 					envValueOrDefault(
 						provider,
 						"baseUrl",
 						getProviderDefaultBaseUrl(provider),
 					) ?? getProviderDefaultBaseUrl(provider);
-				break;
-			case "glacier":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"glacier",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
-					);
-				}
 				break;
 			case "vertex-openai": {
 				const vertexOpenaiDefaultHost =
@@ -547,58 +605,18 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "azure": {
-				// An explicit base URL wins over the resource: it is the only way to
-				// reach a deployment that serves the Azure surface from a host other
-				// than <resource>.openai.azure.com.
-				//
-				// Exactly one of the two belongs on any single credential, which is
-				// enforced where credentials are authored. Precedence still matters
-				// here because the two can arrive from different layers — a managed
-				// credential supplying a base URL must override a deployment-wide
-				// LLM_AZURE_RESOURCE rather than conflict with it.
-				const azureBaseUrl =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (azureBaseUrl) {
-					url = azureBaseUrl;
-					break;
-				}
-
-				const resource =
-					credentialConfig?.resource ??
-					providerKeyOptions?.azure_resource ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure",
-								"resource",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (!resource) {
+				url = resolveAzureBaseUrl({
+					providerKeyOptions,
+					skipEnvVars,
+					configIndex,
+					variant,
+				});
+				if (!url) {
 					const azureEnv = getProviderEnvConfig("azure");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure requires a resource or a base URL - set either via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} / ${azureEnv?.optional?.baseUrl ?? "LLM_AZURE_BASE_URL"} env vars`,
 					);
 				}
-				if (!isProviderHostnameLabel(resource)) {
-					const azureEnv = getProviderEnvConfig("azure");
-					throw new Error(
-						`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
-					);
-				}
-				url = `https://${resource}.openai.azure.com`;
 				break;
 			}
 			case "azure-ai-foundry": {
@@ -617,13 +635,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
 					);
 				}
@@ -646,13 +664,13 @@ export function getProviderEndpoint(
 
 				if (!resource) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure Anthropic resource is required - set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var`,
 					);
 				}
 				if (!isProviderHostnameLabel(resource)) {
 					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
-					throw new Error(
+					throw new ProviderConfigError(
 						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
 					);
 				}
@@ -729,6 +747,13 @@ export function getProviderEndpoint(
 	if (apiFormat === "openai-responses") {
 		return appendPath(url, "/v1/responses");
 	}
+	if (apiFormat === "anthropic-messages") {
+		// DeepSeek serves its Anthropic-compatible API under `/anthropic`.
+		return appendPath(
+			url,
+			provider === "deepseek" ? "/anthropic/v1/messages" : "/v1/messages",
+		);
+	}
 	if (apiFormat === "google-vertex") {
 		return buildVertexCompatibleEndpoint(
 			"google-vertex",
@@ -745,25 +770,11 @@ export function getProviderEndpoint(
 	}
 
 	switch (provider) {
+		case "fal-ai":
+			return url;
 		case "anthropic":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
-			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = externalId
-				? `${url}/v1beta/models/${externalId}:${endpoint}`
-				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
-			const queryParams = [];
-			if (token) {
-				queryParams.push(`key=${token}`);
-			}
-			if (stream) {
-				queryParams.push("alt=sse");
-			}
-			return queryParams.length > 0
-				? `${baseEndpoint}?${queryParams.join("&")}`
-				: baseEndpoint;
-		}
-		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`
@@ -910,8 +921,15 @@ export function getProviderEndpoint(
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":
-			if (externalId === "kimi-k3") {
+			if (
+				externalId === "kimi-k3" ||
+				externalId === "kimi-k3.1-pro" ||
+				externalId === "kimi-k3.1-pro-highspeed"
+			) {
 				return appendPath(url, "/v2/moonshot-kimi/openai/v1/chat/completions");
+			}
+			if (externalId === "glm-5.3") {
+				return appendPath(url, "/v2/b1dd8hy2hqo1nb/openai/v1/chat/completions");
 			}
 			throw new Error(`Unsupported Runpod model: ${model}`);
 		case "zai":
@@ -1127,13 +1145,10 @@ export function getProviderEndpoint(
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
-		case "nanogpt":
 		case "canopywave":
 		case "minimax":
 		case "xiaomi":
-		case "embercloud":
 		case "ranoai":
-		case "consensusprotocol":
 		case "atria":
 		case "cloudflare":
 		case "custom":

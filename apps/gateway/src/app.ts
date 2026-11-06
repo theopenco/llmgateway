@@ -35,15 +35,18 @@ import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js
 import { decisionsRoute } from "./decisions/route.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
+import { airsideInference } from "./internal/airside-inference.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
+import { withManagedKeySelection } from "./lib/managed-key-selection.js";
 import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
 import { rejectionLogMiddleware } from "./middleware/rejection-log.js";
+import { requestDecompressionMiddleware } from "./middleware/request-decompression.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -56,6 +59,7 @@ import { speechRoute } from "./speech/route.js";
 import { systemoneRoute } from "./systemone/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
+import { videoAssets } from "./videos/videos.js";
 
 import type { ServerTypes } from "./vars.js";
 
@@ -103,6 +107,8 @@ This document: https://api.llmgateway.io/openapi.json (mirrored at https://llmga
 
 export const app = new OpenAPIHono<ServerTypes>();
 
+app.use("*", async (_c, next) => await withManagedKeySelection(next));
+
 const honoRequestLogger = createHonoRequestLogger({ service: "gateway" });
 
 const requestLifecycleMiddleware = createRequestLifecycleMiddleware({
@@ -133,6 +139,9 @@ app.use("*", rejectionLogMiddleware);
 // scale with the organization's lifetime spend tier. Only configured `/v1/*`
 // paths are throttled; everything else passes through.
 app.use("*", orgRateLimitMiddleware);
+
+// Decode gzip/deflate/br/zstd request bodies before any route reads them.
+app.use("*", requestDecompressionMiddleware);
 
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation
@@ -405,7 +414,10 @@ app.openapi(root, async (c) => {
 
 const v1 = new OpenAPIHono<ServerTypes>();
 
+v1.route("/video-assets", videoAssets);
+
 v1.route("/chat", chat);
+
 v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
 v1.route("/key", keyRoute);
@@ -423,6 +435,8 @@ v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
 v1.route("/credits", creditsRoute);
+
+v1.route("/", airsideInference);
 
 app.route("/v1", v1);
 

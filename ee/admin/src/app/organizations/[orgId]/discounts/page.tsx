@@ -130,7 +130,7 @@ export default async function OrganizationDiscountsPage({
 							<TableHead>Reason</TableHead>
 							<TableHead>Expires</TableHead>
 							<TableHead>Created</TableHead>
-							{isAdmin ? <TableHead className="w-[50px]" /> : null}
+							{isAdmin ? <TableHead className="w-[90px]" /> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -196,10 +196,20 @@ export default async function OrganizationDiscountsPage({
 									</TableCell>
 									{isAdmin ? (
 										<TableCell>
-											<DeleteDiscountButton
-												discountId={discount.id}
-												orgId={orgId}
-											/>
+											<div className="flex items-center justify-end gap-1">
+												{options && (
+													<DiscountForm
+														orgId={orgId}
+														discount={discount}
+														providers={options.providers}
+														mappings={options.mappings}
+													/>
+												)}
+												<DeleteDiscountButton
+													discountId={discount.id}
+													orgId={orgId}
+												/>
+											</div>
 										</TableCell>
 									) : null}
 								</TableRow>

@@ -28,6 +28,7 @@ export * from "./provider-metrics.js";
 export * from "./provider-metrics-history.js";
 export * from "./project-routing-usage.js";
 export * from "./query-tags.js";
+export * from "./service-tier-routing.js";
 export * from "./ttft.js";
 export * from "./webhook-helpers.js";
 

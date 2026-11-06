@@ -527,6 +527,7 @@ export const metaModels = [
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "llama-3.3-70b",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.85e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -751,6 +752,7 @@ export const metaModels = [
 				providerId: "novita",
 				test: "skip", // skip tests, provider returns 500
 				externalId: "meta-llama/llama-3-70b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.51e-6",
 				outputPrice: "0.74e-6",
 				requestPrice: "0",

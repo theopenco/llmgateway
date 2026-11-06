@@ -3,7 +3,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { assertNotTestingKey } from "@/lib/airside-carrier-keys.js";
+import {} from "@/lib/airside-carrier-keys.js";
 import {
 	listAirsideModelIds,
 	validateAirsideKey,
@@ -92,6 +92,8 @@ import {
 	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -107,6 +109,7 @@ import type {
 } from "@llmgateway/models";
 
 const usageWindowSchema = z.enum(["all", "1d", "7d", "30d"]);
+const selectionStrategySchema = z.enum(["ordered", "round_robin"]);
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
@@ -132,6 +135,7 @@ const credentialSchema = z.object({
 	provider: z.string(),
 	comment: z.string().nullable(),
 	variant: variantSchema,
+	selectionStrategy: selectionStrategySchema,
 	region: z.string().nullable(),
 	status: z
 		.enum(["active", "inactive", "pending_deletion", "deleted"])
@@ -159,6 +163,8 @@ const credentialSchema = z.object({
 	allowedModels: z.array(z.string()).nullable(),
 	/** Whether the daily model sync may append newly served models. */
 	modelSyncEnabled: z.boolean(),
+	/** Whether requests served by this credential send the API key's safety identifier upstream. */
+	forwardSafetyIdentifier: z.boolean(),
 	/** Request and token caps; the credential leaves rotation while at one. */
 	...providerKeyRateLimitsOutputShape,
 });
@@ -325,6 +331,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		provider: row.provider,
 		comment: row.comment,
 		variant: row.variant,
+		selectionStrategy: row.selectionStrategy,
 		region: row.region,
 		status: row.status,
 		deletionRequestedAt: row.deletionRequestedAt,
@@ -336,6 +343,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 		modelSyncEnabled: row.modelSyncEnabled,
+		forwardSafetyIdentifier: row.forwardSafetyIdentifier,
 		...pickProviderKeyRateLimits(row),
 	};
 }
@@ -419,6 +427,14 @@ async function validateConfig(
 		throw new HTTPException(400, {
 			message: `Invalid setting(s) for ${provider}: ${exclusiveViolations.join(" ")}`,
 		});
+	}
+
+	if (
+		provider === "cloudflare" &&
+		config.accountId !== undefined &&
+		!CLOUDFLARE_ACCOUNT_ID_REGEX.test(config.accountId)
+	) {
+		throw new HTTPException(400, { message: CLOUDFLARE_ACCOUNT_ID_MESSAGE });
 	}
 
 	for (const [key, value] of Object.entries(config)) {
@@ -549,27 +565,32 @@ async function probeCredentialToken(
 	token: string,
 	validationOptions: ReturnType<typeof managedCredentialValidationOptions>,
 	allowedModels: string[] | null | undefined,
+	incomingHeaders?: HeadersInit,
+	providerKeyId?: string,
+	region?: string | null,
 ): Promise<ProviderValidationResult | undefined> {
+	const airsideResult = await validateAirsideKey(
+		provider,
+		token,
+		undefined,
+		allowedModels,
+		{
+			providerKeyOptions: validationOptions,
+			skipEnvVars: true,
+			useGateway: true,
+			region,
+			incomingHeaders,
+			providerKeyId,
+			abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
+		},
+	);
+	if (airsideResult) {
+		return airsideResult;
+	}
 	let validationProvider = provider as ProviderId;
 	let validationBaseUrl: string | undefined;
 	let pinnedModelId: string | undefined;
 	if (providers.some((entry) => entry.id === provider)) {
-		// Airside listings exist only in the DB catalogue, so the static
-		// validation-model lookup below cannot probe them.
-		const airsideResult = await validateAirsideKey(
-			provider,
-			token,
-			undefined,
-			allowedModels,
-			{
-				providerKeyOptions: validationOptions,
-				skipEnvVars: true,
-				abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
-			},
-		);
-		if (airsideResult) {
-			return airsideResult;
-		}
 		pinnedModelId = pickAllowedValidationModel(
 			provider,
 			allowedModels ?? null,
@@ -629,6 +650,8 @@ async function validateCredentialToken(
 	config: Record<string, string>,
 	region: string | null | undefined,
 	allowedModels?: string[] | null,
+	incomingHeaders?: HeadersInit,
+	providerKeyId?: string,
 ): Promise<void> {
 	// Provider keys in unit tests are fixtures, not live credentials; e2e runs
 	// opt back in so the real upstream path stays covered.
@@ -646,6 +669,9 @@ async function validateCredentialToken(
 		token,
 		validationOptions,
 		allowedModels,
+		incomingHeaders,
+		providerKeyId,
+		region,
 	);
 	if (!result || result.valid) {
 		return;
@@ -1973,11 +1999,13 @@ const createCredential = createRoute({
 						token: z.string().min(1),
 						comment: z.string().max(500).optional(),
 						variant: variantSchema.optional(),
+						selectionStrategy: selectionStrategySchema.optional(),
 						region: z.string().max(64).optional(),
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 						/**
@@ -2008,13 +2036,14 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const body = c.req.valid("json");
 	const config = normalizeConfig(body.config);
 	const allowedModels = normalizeAllowedModels(body.allowedModels);
+	const region = body.region?.trim() || null;
 
 	await validateConfig(body.provider, config);
-	validateRegion(body.provider, body.region?.trim() || null);
+	validateRegion(body.provider, region);
 	await validateManagedAllowedModels(
 		body.provider,
 		allowedModels,
-		managedCredentialValidationOptions(body.provider, config, body.region),
+		managedCredentialValidationOptions(body.provider, config, region),
 	);
 
 	if (!body.skipValidation) {
@@ -2022,8 +2051,9 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			body.provider,
 			body.token,
 			config,
-			body.region,
+			region,
 			allowedModels,
+			c.req.raw.headers,
 		);
 	}
 
@@ -2034,10 +2064,6 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 		body.provider === "custom"
 			? undefined
 			: await findActiveCustomCarrier(body.provider);
-	// The carrier's testing key runs preflights; it never serves traffic.
-	if (carrier) {
-		assertNotTestingKey(carrier, body.token);
-	}
 	const created = await cdb.transaction(async (tx) => {
 		const [row] = await tx
 			.insert(tables.providerKey)
@@ -2055,11 +2081,13 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				tokenHash: getApiKeyFingerprint(body.token),
 				comment: body.comment?.trim() || null,
 				variant: body.variant ?? "default",
-				region: body.region?.trim() || null,
+				selectionStrategy: body.selectionStrategy ?? "ordered",
+				region,
 				config,
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
 				modelSyncEnabled: body.modelSyncEnabled ?? true,
+				forwardSafetyIdentifier: body.forwardSafetyIdentifier ?? true,
 				...providerKeyRateLimitUpdates(body),
 			})
 			.returning();
@@ -2106,6 +2134,7 @@ const updateCredential = createRoute({
 						token: z.string().min(1).optional(),
 						comment: z.string().max(500).nullable().optional(),
 						variant: variantSchema.optional(),
+						selectionStrategy: selectionStrategySchema.optional(),
 						region: z.string().max(64).nullable().optional(),
 						status: statusSchema.optional(),
 						config: z.record(z.string(), z.string()).optional(),
@@ -2117,6 +2146,7 @@ const updateCredential = createRoute({
 						 */
 						allowedModelsBase: allowedModelsSchema,
 						modelSyncEnabled: z.boolean().optional(),
+						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
 					}),
@@ -2151,6 +2181,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
+	const region =
+		body.region !== undefined ? body.region?.trim() || null : existing.region;
+
 	// Soft-deleted credentials stay editable (e.g. renamed for the history they
 	// are kept for), but never move back into rotation.
 	const wasDeleted = isRemovedProviderKeyStatus(existing.status);
@@ -2175,12 +2208,6 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 				"A credential pending deletion cannot change its token, config, region, variant or allowed models.",
 		});
 	}
-	if (body.token !== undefined && existing.provider !== "custom") {
-		const carrier = await findActiveCustomCarrier(existing.provider);
-		if (carrier) {
-			assertNotTestingKey(carrier, body.token);
-		}
-	}
 
 	const updates: Partial<typeof tables.providerKey.$inferInsert> =
 		providerKeyRateLimitUpdates(body);
@@ -2192,7 +2219,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.region !== undefined) {
-		validateRegion(existing.provider, body.region?.trim() || null);
+		validateRegion(existing.provider, region);
 	}
 
 	if (body.allowedModels !== undefined) {
@@ -2217,7 +2244,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			managedCredentialValidationOptions(
 				existing.provider,
 				updates.config ?? existing.config ?? {},
-				body.region !== undefined ? body.region : existing.region,
+				region,
 			),
 		);
 		updates.allowedModels = allowedModels;
@@ -2250,10 +2277,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			existing.provider,
 			body.token ?? readProviderKey(existing),
 			updates.config ?? existing.config ?? {},
-			body.region !== undefined ? body.region : existing.region,
+			region,
 			body.allowedModels !== undefined
 				? (updates.allowedModels ?? null)
 				: existing.allowedModels,
+			c.req.raw.headers,
+			body.token === undefined ? existing.id : undefined,
 		);
 	}
 
@@ -2273,8 +2302,11 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (body.variant !== undefined) {
 		updates.variant = body.variant;
 	}
+	if (body.selectionStrategy !== undefined) {
+		updates.selectionStrategy = body.selectionStrategy;
+	}
 	if (body.region !== undefined) {
-		updates.region = body.region?.trim() || null;
+		updates.region = region;
 	}
 	if (body.status !== undefined) {
 		updates.status = body.status;
@@ -2284,6 +2316,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 	if (body.modelSyncEnabled !== undefined) {
 		updates.modelSyncEnabled = body.modelSyncEnabled;
+	}
+	if (body.forwardSafetyIdentifier !== undefined) {
+		updates.forwardSafetyIdentifier = body.forwardSafetyIdentifier;
 	}
 
 	// Reactivating an over-limit credential without raising or clearing the
@@ -2365,6 +2400,7 @@ const credentialUnderTestSchema = z.object({
 
 interface CredentialUnderTest {
 	provider: string;
+	providerKeyId?: string;
 	token: string;
 	config: Record<string, string>;
 	region: string | null;
@@ -2433,6 +2469,7 @@ async function resolveCredentialUnderTest(
 
 	return {
 		provider,
+		providerKeyId: explicitToken ? undefined : credential?.id,
 		token,
 		config,
 		region,
@@ -2504,19 +2541,21 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 	// A provider served only through Airside listings has no static
 	// validation model, so probe one of its listings instead.
 	const result =
-		(target.customCarrier
-			? undefined
-			: await validateAirsideKey(
-					target.provider,
-					target.token,
-					undefined,
-					null,
-					{
-						providerKeyOptions: validationOptions,
-						skipEnvVars: true,
-						abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
-					},
-				)) ??
+		(await validateAirsideKey(
+			target.provider,
+			target.token,
+			undefined,
+			customCarrierModel ? [customCarrierModel[0]] : null,
+			{
+				providerKeyOptions: validationOptions,
+				skipEnvVars: true,
+				useGateway: true,
+				providerKeyId: target.providerKeyId,
+				region: target.region,
+				incomingHeaders: c.req.raw.headers,
+				abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+			},
+		)) ??
 		(await validateProviderKey(
 			target.customCarrier ? "custom" : (target.provider as ProviderId),
 			target.token,
@@ -2609,8 +2648,13 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 	const airsideModelIds = new Set(
 		target.customCarrier
 			? []
-			: ((await listAirsideModelIds([target.provider])).get(target.provider) ??
-					[]),
+			: ((
+					await listAirsideModelIds(
+						[target.provider],
+						new Date(),
+						target.region,
+					)
+				).get(target.provider) ?? []),
 	);
 
 	type VerifyResult = z.infer<typeof verifyModelsResultSchema>;
@@ -2629,15 +2673,26 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			if (isCredentialTestEnv()) {
 				return { model: modelId, inCatalog: true, valid: true };
 			}
-			const result = await validateProviderKey(
-				"custom",
+			const result = await validateAirsideKey(
+				target.provider,
 				target.token,
-				target.customCarrier.baseUrl,
-				false,
 				undefined,
-				externalId,
-				AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				[modelId],
+				{
+					providerKeyOptions: validationOptions,
+					skipEnvVars: true,
+					useGateway: true,
+					providerKeyId: target.providerKeyId,
+					region: target.region,
+					incomingHeaders: c.req.raw.headers,
+					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				},
 			);
+			if (!result) {
+				throw new HTTPException(503, {
+					message: "The carrier deployment is unavailable for verification.",
+				});
+			}
 			return {
 				model: modelId,
 				inCatalog: true,
@@ -2660,6 +2715,10 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 				{
 					providerKeyOptions: validationOptions,
 					skipEnvVars: true,
+					useGateway: true,
+					providerKeyId: target.providerKeyId,
+					region: target.region,
+					incomingHeaders: c.req.raw.headers,
 					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 				},
 			);
@@ -2680,7 +2739,22 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			modelId,
 			validationOptions,
 			skipLiveProbe: isCredentialTestEnv(),
-			validate: validateProviderKey,
+			validate: async (...args: Parameters<typeof validateProviderKey>) =>
+				(await validateAirsideKey(
+					target.provider,
+					target.token,
+					args[2],
+					[modelId],
+					{
+						providerKeyOptions: validationOptions,
+						skipEnvVars: true,
+						useGateway: true,
+						providerKeyId: target.providerKeyId,
+						region: target.region,
+						incomingHeaders: c.req.raw.headers,
+						abortSignal: args[6] ?? AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+					},
+				)) ?? (await validateProviderKey(...args)),
 		});
 	};
 

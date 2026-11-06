@@ -12,7 +12,11 @@ import {
 	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import {
+	managedCredentialOptions,
+	readProviderKey,
+	resolveAzureBaseUrl,
+} from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue, providers } from "@llmgateway/models";
 
@@ -105,6 +109,8 @@ export interface ResolvePlatformCredentialOptions {
 	filter?: (key: ProviderKeyRow) => boolean;
 	/** Lets a soft/lax-capped managed credential serve this request. */
 	rateLimitExemption?: ProviderKeyRateLimitExemption;
+	/** False for credential availability checks without an upstream attempt. */
+	advanceRoundRobin?: boolean;
 }
 
 /**
@@ -146,6 +152,7 @@ export async function resolvePlatformCredential(
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter,
 		rateLimitExemption: options.rateLimitExemption,
+		advanceRoundRobin: options.advanceRoundRobin,
 	});
 
 	if (managedKey) {
@@ -267,4 +274,60 @@ export function getCredentialSetting(
 		options.defaultValue,
 		options.variant,
 	);
+}
+
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL: its explicit base URL, else its resource's OpenAI host
+ * (a BYOK key's `azure_resource` option, the managed config, or the env var).
+ */
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL. Same precedence as chat: a BYOK key's own base URL,
+ * then the credential's base URL, then its resource's OpenAI host. Env vars
+ * apply only on the env path.
+ */
+export function getAzureCredentialBaseUrl(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	options: {
+		configIndex?: number;
+		variant?: EnvVarVariant;
+	} = {},
+): string | undefined {
+	if (credential.providerKey?.baseUrl) {
+		return resolveAzureBaseUrl({
+			providerKeyOptions: {
+				env_config: { baseUrl: credential.providerKey.baseUrl },
+			},
+			skipEnvVars: true,
+		});
+	}
+	return resolveAzureBaseUrl({
+		providerKeyOptions: credential.providerKey
+			? (credential.providerKey.options ?? undefined)
+			: managedCredentialOptions(credential.managedKey),
+		skipEnvVars: Boolean(credential.providerKey ?? credential.managedKey),
+		configIndex: options.configIndex,
+		variant: options.variant,
+	});
+}
+
+/**
+ * Upstream model for an Azure request: the credential's
+ * `azure_deployment_name` override when set, else the mapping's external id.
+ */
+export function getAzureUpstreamModel(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	externalId: string,
+): string {
+	const options = credential.providerKey
+		? credential.providerKey.options
+		: managedCredentialOptions(credential.managedKey);
+	return options?.azure_deployment_name || externalId;
 }

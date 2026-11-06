@@ -683,6 +683,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-thinking-2507",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.3e-6",
 				outputPrice: "3e-6",
 				requestPrice: "0",
@@ -720,6 +721,7 @@ export const alibabaModels = [
 				stability: "unstable",
 				providerId: "novita",
 				externalId: "qwen/qwen3-235b-a22b-fp8",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
 				requestPrice: "0",
@@ -1034,6 +1036,7 @@ export const alibabaModels = [
 				providerId: "novita",
 				stability: "unstable",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.38e-6",
 				outputPrice: "1.55e-6",
 				requestPrice: "0",
@@ -1087,6 +1090,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-coder-30b-a3b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.07e-6",
 				outputPrice: "0.27e-6",
 				requestPrice: "0",
@@ -1367,6 +1371,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-next-80b-a3b-instruct",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1456,6 +1461,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-max",
+				deactivatedAt: new Date("2026-10-28"),
 				// Novita tiers this model by prompt length; the flat fields below are
 				// the lowest tier for routing comparisons, actual billing uses
 				// pricingTiers (verified live 2026-08-18).
@@ -2133,6 +2139,7 @@ export const alibabaModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				deactivatedAt: new Date("2026-11-04"),
 			},
 			{
 				providerId: "deepinfra",
@@ -2334,49 +2341,6 @@ export const alibabaModels = [
 					"tool_choice",
 					"response_format",
 					"reasoning_effort",
-				],
-			},
-		],
-	},
-	{
-		id: "qwen3-coder-next",
-		name: "Qwen3 Coder Next",
-		description:
-			"Alibaba's Qwen3 Coder Next model optimized for coding tasks with 262K context.",
-		family: "alibaba",
-		releasedAt: new Date("2026-02-04"),
-		providers: [
-			{
-				deprecatedAt: new Date("2026-10-21"),
-				deactivatedAt: new Date("2026-10-28"),
-				providerId: "embercloud",
-				externalId: "qwen3-coder-next",
-				inputPrice: "0.108e-6",
-				outputPrice: "0.675e-6",
-				cachedInputPrice: "0.06e-6",
-				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 262144,
-				streaming: true,
-				vision: false,
-				tools: true,
-				// Embercloud leaks reasoning tags into JSON output, breaking json_object mode
-				jsonOutput: false,
-				// Embercloud bug: tool_choice other than "auto" breaks streaming tool calls for this model
-				supportedParameters: [
-					"messages",
-					"model",
-					"stream",
-					"stream_options",
-					"temperature",
-					"top_p",
-					"max_tokens",
-					"max_completion_tokens",
-					"seed",
-					"stop",
-					"response_format",
-					"tools",
-					"parallel_tool_calls",
 				],
 			},
 		],

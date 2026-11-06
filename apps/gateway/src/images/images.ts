@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { svgOptionsSchema } from "@/chat/schemas/completions.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import {
 	extractCustomHeaders,
@@ -18,6 +19,8 @@ import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { ExpectedHTTPException } from "@/lib/expected-http-exception.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { imageFormatFromBase64 } from "@/lib/image-format.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
@@ -25,12 +28,13 @@ import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { parseDynamicRouteModel } from "@llmgateway/shared/dynamic-route";
 
 import { isValidBase64ImageDataUrl } from "./data-url.js";
 
+import type { ImageFormat } from "@/lib/image-format.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderModelMapping } from "@llmgateway/models";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
@@ -83,6 +87,20 @@ const imageGenerationsRequestSchema = z.object({
 		description:
 			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
 		example: "low",
+	}),
+	output_format: z.enum(["png", "jpeg", "webp", "svg"]).optional().openapi({
+		description:
+			"The file format of the generated image for GPT Image models. `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
+		example: "svg",
+	}),
+	svg: svgOptionsSchema.nullable().optional().openapi({
+		description:
+			"SVG author model and reasoning settings. Required when the OpenAI account has SVG model selection enabled; otherwise omit it.",
+	}),
+	output_compression: z.number().int().min(0).max(100).optional().openapi({
+		description:
+			"Compression level (0-100) for `jpeg` and `webp` output on GPT Image models.",
+		example: 80,
 	}),
 	service_tier: z
 		.enum(["auto", "default", "flex", "priority"])
@@ -152,6 +170,7 @@ const imageGenerationsResponseSchema = z.object({
 			revised_prompt: z.string().optional(),
 		}),
 	),
+	output_format: z.enum(["png", "jpeg", "webp", "svg"]).optional(),
 	usage: imagesUsageSchema.optional(),
 });
 
@@ -450,7 +469,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("images"),
-		...forwardedIpHeaders(c.req.raw.headers),
+		...internalPrincipalHeaders(c.req.raw.headers),
 		...forwardedCustomHeaders(c.req.raw.headers),
 	};
 }
@@ -694,6 +713,65 @@ async function logImageClientError(
 	}
 }
 
+function parseImageModelRef(model: string): {
+	providerId: string | undefined;
+	modelId: string;
+} {
+	const slashIdx = model.indexOf("/");
+	if (slashIdx <= 0) {
+		return { providerId: undefined, modelId: model };
+	}
+	const modelKey = model.slice(slashIdx + 1);
+	return {
+		providerId: model.slice(0, slashIdx),
+		modelId: modelKey.includes(":")
+			? modelKey.slice(0, modelKey.lastIndexOf(":"))
+			: modelKey,
+	};
+}
+
+function providerMappings(modelId: string): ProviderModelMapping[] {
+	return (models.find((m) => m.id === modelId)?.providers ??
+		[]) as ProviderModelMapping[];
+}
+
+const svgOutputModelIds = models
+	.filter((m) => providerMappings(m.id).some((p) => p.svgOutput === true))
+	.map((m) => m.id);
+
+// SVG output is only served by mappings declaring `svgOutput`. A model
+// requested without a provider prefix must declare it on every active mapping,
+// so routing cannot land on one that rejects the format.
+function modelSupportsSvgOutput(model: string): boolean {
+	const { providerId, modelId } = parseImageModelRef(model);
+	const now = new Date();
+	const mappings = providerMappings(modelId).filter(
+		(p) =>
+			(!providerId || p.providerId === providerId) &&
+			(!p.deactivatedAt || p.deactivatedAt > now),
+	);
+	return mappings.length > 0 && mappings.every((p) => p.svgOutput === true);
+}
+
+function getSvgOutputError(
+	request: ImageGenerationsRequest,
+	model: string,
+): string | undefined {
+	if (request.output_format !== "svg") {
+		return request.svg ? "svg requires output_format=svg." : undefined;
+	}
+	if (!modelSupportsSvgOutput(model)) {
+		return `Model ${model} does not support SVG output. Use one of: ${svgOutputModelIds.join(", ")}.`;
+	}
+	if (request.n !== 1) {
+		return "SVG output supports only n=1.";
+	}
+	if (request.output_compression !== undefined) {
+		return "output_compression is not supported with SVG output.";
+	}
+	return undefined;
+}
+
 // Reject non-image models up front. Image generation forwards to
 // /v1/chat/completions (which accepts text and image models), so without this
 // guard a text-only model would be forwarded and produce a chat completion the
@@ -869,6 +947,19 @@ images.openapi(generations, async (c): Promise<any> => {
 
 	assertImageModel(model);
 
+	const svgOutputError = getSvgOutputError(request, model);
+	if (svgOutputError) {
+		await logImageClientError(
+			c,
+			getLogContext,
+			buildImageClientErrorLogRequest("images.generations", rawBody),
+			400,
+			svgOutputError,
+			startedAt,
+		);
+		throw new HTTPException(400, { message: svgOutputError });
+	}
+
 	// Build the chat completions request
 	const chatPrompt = buildImagePrompt(request);
 	const aspectRatio =
@@ -899,6 +990,8 @@ images.openapi(generations, async (c): Promise<any> => {
 		request.size ||
 		normalizedQuality ||
 		request.moderation ||
+		request.output_format ||
+		request.output_compression !== undefined ||
 		request.n > 1
 	) {
 		chatRequest.image_config = {
@@ -906,6 +999,11 @@ images.openapi(generations, async (c): Promise<any> => {
 			...(request.size && { image_size: request.size }),
 			...(normalizedQuality && { image_quality: normalizedQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.output_format && { output_format: request.output_format }),
+			...(request.svg && { svg: request.svg }),
+			...(request.output_compression !== undefined && {
+				output_compression: request.output_compression,
+			}),
 			n: request.n,
 		};
 	}
@@ -942,6 +1040,16 @@ images.openapi(generations, async (c): Promise<any> => {
 		data: truncatedImages,
 		...(usage && { usage }),
 	};
+	if (request.output_format) {
+		const outputFormat = nativeOutputOptionProviders.has(
+			chatResponse.metadata?.used_provider,
+		)
+			? request.output_format
+			: deliveredImageFormat(imageObjects);
+		if (outputFormat) {
+			imagesResponse.output_format = outputFormat;
+		}
+	}
 
 	logger.debug("Images API - returning response", {
 		imageCount: truncatedImages.length,
@@ -970,7 +1078,8 @@ const imageEditsRequestSchema = z.object({
 		example: "Add a watercolor effect to this image",
 	}),
 	background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
-		description: "Background behavior for generated image output.",
+		description:
+			"Background behavior for generated image output. OpenAI and Azure GPT Image models apply it natively and reject it when unsupported; `transparent` requires `png` or `webp` output. Other providers only receive it as a prompt hint.",
 		example: "transparent",
 	}),
 	input_fidelity: z.enum(["high", "low"]).optional().openapi({
@@ -1096,12 +1205,41 @@ async function fileToDataUri(file: File): Promise<string> {
 	return `data:${mimeType};base64,${base64}`;
 }
 
-function buildEditPrompt(request: ImageEditsRequest): string {
+const nativeOutputOptionProviders = new Set(["openai", "azure"]);
+
+function deliveredImageFormat(
+	images: Array<{ b64_json: string }>,
+): ImageFormat | undefined {
+	const formats = new Set(
+		images.map((img) => imageFormatFromBase64(img.b64_json)),
+	);
+	const [format] = formats;
+	return formats.size === 1 ? format : undefined;
+}
+
+function routesOnlyToNativeOutputOptionProviders(model: string): boolean {
+	const slashIdx = model.indexOf("/");
+	if (slashIdx > 0) {
+		return nativeOutputOptionProviders.has(model.slice(0, slashIdx));
+	}
+	const modelInfo = models.find((m) => m.id === model);
+	return (
+		modelInfo !== undefined &&
+		modelInfo.providers.every((p) =>
+			nativeOutputOptionProviders.has(p.providerId),
+		)
+	);
+}
+
+function buildEditPrompt(
+	request: ImageEditsRequest,
+	nativeOutputOptions: boolean,
+): string {
 	let prompt = `Edit the provided image(s) based on the following description: ${request.prompt}`;
 
-	if (request.background === "transparent") {
+	if (!nativeOutputOptions && request.background === "transparent") {
 		prompt += "\n\nBackground: transparent.";
-	} else if (request.background === "opaque") {
+	} else if (!nativeOutputOptions && request.background === "opaque") {
 		prompt += "\n\nBackground: opaque.";
 	}
 
@@ -1115,11 +1253,11 @@ function buildEditPrompt(request: ImageEditsRequest): string {
 		prompt += "\n\nQuality: prioritize speed over detail.";
 	}
 
-	if (request.output_format) {
+	if (!nativeOutputOptions && request.output_format) {
 		prompt += `\n\nOutput format: ${request.output_format}.`;
 	}
 
-	if (request.output_compression !== undefined) {
+	if (!nativeOutputOptions && request.output_compression !== undefined) {
 		prompt += `\n\nOutput compression: ${request.output_compression}.`;
 	}
 
@@ -1182,24 +1320,25 @@ async function parseMultipartEditsRequest(
 			rawRequest.n = n;
 		}
 	}
-	const sizeField = body["size"];
-	const sizeValue = Array.isArray(sizeField) ? sizeField[0] : sizeField;
-	if (typeof sizeValue === "string" && sizeValue) {
-		rawRequest.size = sizeValue;
+	for (const name of [
+		"size",
+		"quality",
+		"moderation",
+		"background",
+		"output_format",
+	]) {
+		const field = body[name];
+		const value = Array.isArray(field) ? field[0] : field;
+		if (typeof value === "string" && value) {
+			rawRequest[name] = value;
+		}
 	}
-	const qualityField = body["quality"];
-	const qualityValue = Array.isArray(qualityField)
-		? qualityField[0]
-		: qualityField;
-	if (typeof qualityValue === "string" && qualityValue) {
-		rawRequest.quality = qualityValue;
-	}
-	const moderationField = body["moderation"];
-	const moderationValue = Array.isArray(moderationField)
-		? moderationField[0]
-		: moderationField;
-	if (typeof moderationValue === "string" && moderationValue) {
-		rawRequest.moderation = moderationValue;
+	const compressionField = body["output_compression"];
+	const compressionValue = Array.isArray(compressionField)
+		? compressionField[0]
+		: compressionField;
+	if (typeof compressionValue === "string" && compressionValue) {
+		rawRequest.output_compression = Number(compressionValue);
 	}
 
 	const validationResult = imageEditsRequestSchema.safeParse(rawRequest);
@@ -1300,7 +1439,10 @@ async function processImageEdit(
 		});
 	}
 
-	const chatPrompt = buildEditPrompt(request);
+	const chatPrompt = buildEditPrompt(
+		request,
+		routesOnlyToNativeOutputOptionProviders(model),
+	);
 	contentParts.push({
 		type: "text",
 		text: chatPrompt,
@@ -1333,6 +1475,8 @@ async function processImageEdit(
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
 		request.output_format ||
+		request.output_compression !== undefined ||
+		request.background ||
 		normalizedEditQuality ||
 		request.moderation
 	) {
@@ -1341,6 +1485,7 @@ async function processImageEdit(
 			...(requestedSize && { image_size: requestedSize }),
 			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.background && { background: request.background }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {
@@ -1381,11 +1526,18 @@ async function processImageEdit(
 		...(usage && { usage }),
 	};
 
-	if (request.background && request.background !== "auto") {
-		imagesResponse.background = request.background;
-	}
-	if (request.output_format) {
-		imagesResponse.output_format = request.output_format;
+	if (nativeOutputOptionProviders.has(chatResponse.metadata?.used_provider)) {
+		if (request.background && request.background !== "auto") {
+			imagesResponse.background = request.background;
+		}
+		if (request.output_format) {
+			imagesResponse.output_format = request.output_format;
+		}
+	} else if (request.output_format) {
+		const deliveredFormat = deliveredImageFormat(imageObjects);
+		if (deliveredFormat && deliveredFormat !== "svg") {
+			imagesResponse.output_format = deliveredFormat;
+		}
 	}
 	if (request.quality && request.quality !== "auto") {
 		imagesResponse.quality = request.quality;

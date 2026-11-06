@@ -46,8 +46,11 @@ import {
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import {
-	clearClaimVerificationKey,
-	saveClaimVerificationKey,
+	assertVerificationCredentialCurrent,
+	buildVerificationTarget,
+	declaresPromptCaching,
+	pickCapabilities,
+	verificationTargetCovers,
 } from "@/lib/model-verification.js";
 import {
 	bucketLabel,
@@ -60,6 +63,7 @@ import { createRoute } from "@/utils/create-route.js";
 import {
 	collectProviderEnvCredentials,
 	readProviderEnvInventory,
+	hasMessageContentVerification,
 } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
@@ -565,6 +569,38 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const user = c.get("user");
 	const { id } = c.req.valid("param");
 	const filing = await getPendingFiling(id);
+	const proposed = buildVerificationTarget({
+		...filing.draftModel,
+		...pickCapabilities(filing.metadata ?? {}),
+	});
+	const metadataWidening =
+		filing.kind === "metadata" &&
+		!verificationTargetCovers(
+			buildVerificationTarget(filing.draftModel),
+			proposed,
+		);
+	if (filing.kind === "initial" || metadataWidening) {
+		const proof = await db.query.providerModelVerification.findFirst({
+			where: { draftModelId: { eq: filing.draftModelId } },
+			orderBy: { createdAt: "desc" },
+		});
+		const required = {
+			...proposed,
+			promptCaching: declaresPromptCaching(filing),
+		};
+		if (
+			!proof ||
+			proof.status !== "passed" ||
+			!verificationTargetCovers(proof.target, required) ||
+			!hasMessageContentVerification(required, proof.checks)
+		) {
+			throw new HTTPException(409, {
+				message:
+					"Run verification with the current provider key before approval.",
+			});
+		}
+		await assertVerificationCredentialCurrent(proof.target);
+	}
 	// cdb: approval flips a model live — the gateway's cached lookup must see it.
 	await cdb.transaction(async (tx) => {
 		if (filing.kind === "initial") {
@@ -1147,7 +1183,8 @@ adminAirside.openapi(approveClaim, async (c) => {
 					sql`${tables.providerRoutingSettings.modelId} IS NULL`,
 				),
 			)
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (!settings) {
 			await tx.insert(tables.providerRoutingSettings).values({
 				providerCompanyId: claim.providerCompanyId,
@@ -1756,7 +1793,8 @@ adminAirside.openapi(revokeClaim, async (c) => {
 					eq(tables.providerDraftModel.providerId, claim.providerId),
 					ne(tables.providerDraftModel.status, "delisted"),
 				),
-			);
+			)
+			.$withCache(false);
 		if (companyModels.length > 0) {
 			const modelIds = companyModels.map((m) => m.id);
 			await tx
@@ -1807,7 +1845,8 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				.select({ id: tables.modelProviderMapping.id })
 				.from(tables.modelProviderMapping)
 				.where(eq(tables.modelProviderMapping.providerId, claim.providerId))
-				.limit(1);
+				.limit(1)
+				.$withCache(false);
 			if (remaining.length === 0) {
 				await tx
 					.delete(tables.provider)
@@ -2455,7 +2494,8 @@ adminAirside.openapi(approveRoutingFiling, async (c) => {
 						: sql`${tables.providerRoutingSettings.modelId} IS NULL`,
 				),
 			)
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (current) {
 			await tx
 				.update(tables.providerRoutingSettings)
@@ -2634,58 +2674,6 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 			providerCompany: claim.providerCompany,
 		}),
 	});
-});
-
-const adminVerificationKeySchema = z.object({
-	verificationKeyMasked: z.string().nullable(),
-	verificationKeySetAt: z.string().nullable(),
-});
-
-const setClaimVerificationKey = createRoute({
-	method: "put",
-	path: "/airside/claims/{id}/verification-key",
-	request: {
-		params: z.object({ id: z.string() }),
-		body: {
-			content: {
-				"application/json": {
-					schema: z.object({ apiKey: z.string().min(1).max(20_000) }),
-				},
-			},
-		},
-	},
-	responses: {
-		200: {
-			content: { "application/json": { schema: adminVerificationKeySchema } },
-			description: "The saved verification key, masked.",
-		},
-	},
-});
-
-adminAirside.openapi(setClaimVerificationKey, async (c) => {
-	const { id } = c.req.valid("param");
-	const { apiKey } = c.req.valid("json");
-	const claim = await getActiveClaim(id);
-	return c.json(await saveClaimVerificationKey(claim, apiKey));
-});
-
-const deleteClaimVerificationKey = createRoute({
-	method: "delete",
-	path: "/airside/claims/{id}/verification-key",
-	request: { params: z.object({ id: z.string() }) },
-	responses: {
-		200: {
-			content: { "application/json": { schema: adminVerificationKeySchema } },
-			description: "The cleared verification key.",
-		},
-	},
-});
-
-adminAirside.openapi(deleteClaimVerificationKey, async (c) => {
-	const { id } = c.req.valid("param");
-	await getActiveClaim(id);
-	await clearClaimVerificationKey(id);
-	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
 });
 
 const updateCompanySettings = createRoute({
@@ -3017,7 +3005,8 @@ adminAirside.openapi(deleteRoutingOverride, async (c) => {
 			.select()
 			.from(tables.providerRoutingSettings)
 			.where(routingScope(providerId, null))
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		// Record the default fare the model now inherits.
 		await tx.insert(tables.providerRoutingFiling).values({
 			...adminFilingFields(userId),

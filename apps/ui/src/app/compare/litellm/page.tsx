@@ -3,6 +3,7 @@ import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonLiteLLM } from "@/components/landing/comparison-litellm";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -87,7 +88,7 @@ export default function CompareLiteLLMPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs LiteLLM — Feature Comparison",
+		title: pageTitle("LLM Gateway vs LiteLLM — Feature Comparison"),
 		description:
 			"Compare managed hosting, supply-chain security and billing vs LiteLLM's self-hosted proxy, compromised twice in 2026. See why teams pick LLM Gateway.",
 		alternates: { canonical: "/compare/litellm" },

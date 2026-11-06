@@ -55,31 +55,30 @@ export default function ListingGuide() {
 				<h2>3. Declare and verify the deployment</h2>
 				<p>
 					Keep Carrier default selected unless this deployment needs a different
-					upstream API format. Enter the context window, output limit and
-					capabilities your endpoint actually supports. Choose rate limits that
-					your infrastructure can sustain, including whether a limit covers all
-					organizations or applies separately to each one.
+					upstream API format. Enter the context window, output limit,
+					capabilities and proposed prices before running preflight. Choose rate
+					limits that your infrastructure can sustain, including whether a limit
+					covers all organizations or applies separately to each one.
 				</p>
 				<p className="mt-3">
-					Paste a provider API key that can call this model and run preflight
-					verification. Preflight checks each declared capability, fills most of
-					the declared context window and requests the full output limit. Some
-					checks are optional for now: a miss shows as a warning marked Optional
-					instead of failing, and may become required later. We store the key
-					encrypted as this carrier's test key, so later runs reuse it — change
-					or remove it under Settings at any time. Use a key separate from the
-					one behind your live integration: preflight traffic is billed by your
-					own platform and is not tracked in LLMGateway usage or billing.
-					Resolve failed checks before submitting the model. Changing the
-					verified mapping requires a new verification, and so does an edit that
-					adds a capability or raises a limit — narrowing one never does.
+					Preflight uses your carrier's saved provider key, managed by you or
+					LLM Gateway. It checks each declared capability, fills most of the
+					declared context window and requests the full output limit. Optional
+					checks show warnings instead of failing and may become required later.
+					Preflight, benchmarks, load tests and enabled scheduled checks consume
+					real usage on the same provider-key account. We record those requests
+					as gateway inference and bill our operator project, so usage is
+					included on both sides for accounting, billing and reconciliation.
+					Resolve failed checks before submitting. Changing the verified
+					mapping, adding capabilities or raising limits requires a new
+					verification; narrowing them does not.
 				</p>
 				<p className="mt-3">
-					A registered carrier files its provider key — the separate key we
-					serve live traffic with — together with its first model. We smoke-test
-					it against that model when you file, and it goes live once the model
-					is approved. Replacing it later under Settings is smoke-tested the
-					same way and reviewed by our team.
+					A newly registered carrier supplies one provider key with its first
+					preflight. Stored encrypted, the same key serves live traffic once the
+					model is approved. Replacements under Settings are smoke-tested and
+					reviewed by our team. Previously saved test keys are no longer used;
+					you do not need to remove them or resubmit your provider key.
 				</p>
 				<p className="mt-3">
 					Every preflight stays on the record. The Verify dialog lists past runs
@@ -88,7 +87,7 @@ export default function ListingGuide() {
 				</p>
 			</section>
 			<section>
-				<h2>4. Submit prices for review</h2>
+				<h2>4. Review and file prices</h2>
 				<p>
 					Enter input, output and cached-input prices per million tokens; a
 					per-request charge uses a flat amount. For an existing canonical

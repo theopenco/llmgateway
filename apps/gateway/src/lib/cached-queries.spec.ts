@@ -49,9 +49,9 @@ import {
  * is tested in packages/db/src/cdb-resilience.spec.ts. Those tests prove that the
  * select builder pattern (db.select().from()) works with Drizzle's cache layer.
  *
- * The functions in cached-queries.ts all use the select builder pattern,
- * which is the only pattern that goes through Drizzle's cache. The relational
- * query API (db.query.table.findFirst()) does NOT use the cache.
+ * The functions in cached-queries.ts all use the select builder pattern, so
+ * each call site sets its own cache tag and TTL. `cdb` hides the relational
+ * query API (db.query), which Drizzle would also cache.
  */
 describe("Cached Queries - Gateway Database Access", () => {
 	const testUserId = "test-user-cached-queries";
@@ -191,6 +191,10 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 	describe("findApiKeyByToken", () => {
 		async function insertEndUserSession(tokenValues: { tokenHash: string }) {
+			await db
+				.update(project)
+				.set({ endUserEnabled: true })
+				.where(eq(project.id, testProjectId));
 			await db.insert(endCustomer).values({
 				id: "test-end-customer-cached-queries",
 				organizationId: testOrgId,
@@ -287,6 +291,17 @@ describe("Cached Queries - Gateway Database Access", () => {
 			expect(result?.endUserSession?.id).toBe(
 				"test-end-user-session-cached-queries",
 			);
+		});
+
+		it("rejects session tokens once end-user sessions are disabled", async () => {
+			const token = "es_disabled-cached-queries";
+			await insertEndUserSession(hashTokenForStorage(token));
+			await db
+				.update(project)
+				.set({ endUserEnabled: false })
+				.where(eq(project.id, testProjectId));
+
+			expect(await findApiKeyByToken(token)).toBeUndefined();
 		});
 	});
 

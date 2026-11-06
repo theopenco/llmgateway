@@ -24,6 +24,8 @@ import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import {
 	assertEnterpriseForCompliancePolicy,
 	providerCompliancePolicySchema,
+	assertCanManageCompliancePolicy,
+	assertApiKeyComplianceWritesEnabled,
 } from "@/lib/provider-compliance-policy.js";
 import {
 	getUserProjectIds,
@@ -1237,6 +1239,13 @@ export async function createApiKeyForProject(
 		},
 	});
 
+	assertCanManageCompliancePolicy(
+		input.providerCompliancePolicy,
+		creatorMembership?.role,
+	);
+
+	assertApiKeyComplianceWritesEnabled(input.providerCompliancePolicy);
+
 	// A key's limits must stay at or below the creator's effective member budget.
 	// Skipped for programmatic (master-key) creation, which has no interactive
 	// member context; the gateway still enforces the member budget at request time.
@@ -1604,6 +1613,7 @@ interface MutableApiKeyAccess {
 	apiKey: ApiKeyRecord;
 	organizationId: string;
 	organization: InferSelectModel<typeof tables.organization> | null;
+	organizationRole: string | undefined;
 	/** Developers may only change keys they created; other roles any key. */
 	canMutate: boolean;
 }
@@ -1653,6 +1663,7 @@ async function loadMutableApiKeys(
 			apiKey,
 			organizationId: project.organizationId,
 			organization: userOrg?.organization ?? null,
+			organizationRole: userOrg?.role,
 			canMutate: !(
 				userOrg?.role === "developer" && apiKey.createdBy !== userId
 			),
@@ -2178,7 +2189,12 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	assertCanManageCompliancePolicy(
+		providerCompliancePolicy,
+		access.organizationRole,
+	);
 	assertEnterpriseForCompliancePolicy(providerCompliancePolicy, organization);
+	assertApiKeyComplianceWritesEnabled(providerCompliancePolicy);
 
 	// Resolve the effective TTL: an explicit value (or null) overrides, otherwise
 	// keep whatever expiry the key already had.

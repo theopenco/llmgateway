@@ -140,6 +140,45 @@ describe("transcriptions", () => {
 		expect(json.error.code).toBe("invalid_content_type");
 	});
 
+	test("/v1/audio/transcriptions rejects a media type that only mentions multipart in a parameter", async () => {
+		await seedKeys("real-token-stt-param", "token-id-stt-param");
+
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: {
+				"Content-Type": 'application/json; note="multipart/form-data"',
+				Authorization: "Bearer real-token-stt-param",
+			},
+			body: JSON.stringify({ model: "grok-stt-1-0" }),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("invalid_content_type");
+	});
+
+	test("/v1/audio/transcriptions accepts a case variant of multipart/form-data", async () => {
+		await seedKeys("real-token-stt-case", "token-id-stt-case");
+
+		const req = new Request("http://localhost/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { Authorization: "Bearer real-token-stt-case" },
+			body: buildForm("grok-stt-1-0"),
+		});
+		req.headers.set(
+			"Content-Type",
+			(req.headers.get("Content-Type") ?? "").replace(
+				"multipart/form-data",
+				"Multipart/Form-Data",
+			),
+		);
+		const res = await app.request(req);
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.text).toBe("The balance is $167,983.15.");
+	});
+
 	test("/v1/audio/transcriptions surfaces upstream errors", async () => {
 		await seedKeys("real-token-stt-error", "token-id-stt-error");
 

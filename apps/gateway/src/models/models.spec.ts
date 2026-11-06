@@ -5,7 +5,8 @@ import { app } from "@/app.js";
 import { cdb, eq, tables } from "@llmgateway/db";
 import { models as modelsList, providers } from "@llmgateway/models";
 
-import type { ProviderModelMapping } from "@llmgateway/models";
+import type { ListModelsResponse } from "./models.js";
+import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 describe("Models API", () => {
 	test.each([
@@ -615,6 +616,135 @@ describe("Models API", () => {
 		}
 	});
 
+	type ListedModel = ListModelsResponse["data"][number];
+
+	async function listModels(query = ""): Promise<ListedModel[]> {
+		const res = await app.request(`/v1/models${query}`);
+		expect(res.status).toBe(200);
+		const json: ListModelsResponse = await res.json();
+		return json.data;
+	}
+
+	function findMapping(predicate: (p: ProviderModelMapping) => boolean): {
+		definition: ModelDefinition;
+		mapping: ProviderModelMapping;
+	} {
+		for (const definition of modelsList as readonly ModelDefinition[]) {
+			const mapping = definition.providers.find(predicate);
+			if (mapping) {
+				return { definition, mapping };
+			}
+		}
+		throw new Error("no matching mapping in the catalogue");
+	}
+
+	async function listedProvider(
+		definition: ModelDefinition,
+		mapping: ProviderModelMapping,
+	): Promise<ListedModel["providers"][number]> {
+		const data = await listModels("?include_deactivated=true");
+		const provider = data
+			.find((model) => model.id === definition.id)
+			?.providers.find((p) => p.providerId === mapping.providerId);
+		if (!provider) {
+			throw new Error(`${mapping.providerId}/${definition.id} not listed`);
+		}
+		return provider;
+	}
+
+	test("GET /v1/models exposes context-length pricing tiers", async () => {
+		const { definition, mapping } = findMapping((p) => !!p.pricingTiers);
+		const provider = await listedProvider(definition, mapping);
+
+		const tiers = mapping.pricingTiers!;
+		const listed = provider.pricing?.tiers ?? [];
+		expect(listed).toHaveLength(tiers.length);
+		expect(listed[0]).toMatchObject({
+			name: tiers[0]!.name,
+			up_to_tokens: tiers[0]!.upToTokens,
+			prompt: tiers[0]!.inputPrice.toString(),
+			completion: tiers[0]!.outputPrice.toString(),
+		});
+		const last = tiers[tiers.length - 1]!;
+		expect(listed.at(-1)?.up_to_tokens).toBe(
+			Number.isFinite(last.upToTokens) ? last.upToTokens : null,
+		);
+	});
+
+	test("GET /v1/models exposes image token counts per resolution", async () => {
+		const { definition, mapping } = findMapping(
+			(p) => !!p.imageOutputTokensByResolution,
+		);
+		const provider = await listedProvider(definition, mapping);
+
+		expect(provider.pricing?.image_output_tokens_by_resolution).toEqual(
+			mapping.imageOutputTokensByResolution,
+		);
+		expect(provider.pricing?.image_output).toBe(
+			mapping.imageOutputPrice?.toString(),
+		);
+	});
+
+	test("GET /v1/models exposes regional pricing and service tiers", async () => {
+		const regional = findMapping((p) => (p.regions?.length ?? 0) > 1);
+		const regionalProvider = await listedProvider(
+			regional.definition,
+			regional.mapping,
+		);
+		expect(regionalProvider.regions?.map((r) => r.id)).toEqual(
+			regional.mapping.regions!.map((r) => r.id),
+		);
+
+		const tiered = findMapping((p) => !!p.serviceTiers?.length);
+		const tieredProvider = await listedProvider(
+			tiered.definition,
+			tiered.mapping,
+		);
+		const serviceTiers = tieredProvider.service_tiers ?? [];
+		expect(serviceTiers.map((t) => t.id)).toEqual(
+			expect.arrayContaining([...tiered.mapping.serviceTiers!]),
+		);
+		for (const tier of serviceTiers) {
+			expect(typeof tier.multiplier).toBe("number");
+		}
+	});
+
+	test("GET /v1/models exposes active global discounts", async () => {
+		const definition = (modelsList as readonly ModelDefinition[]).find(
+			(m) =>
+				!m.free &&
+				m.providers.length === 1 &&
+				m.providers.every(
+					(p) => !p.deactivatedAt && Number(p.inputPrice ?? 0) > 0,
+				),
+		)!;
+		const providerId = definition.providers[0]!.providerId;
+		const discountId = "models-api-spec-discount";
+		await cdb.delete(tables.discount).where(eq(tables.discount.id, discountId));
+		await cdb.insert(tables.discount).values({
+			id: discountId,
+			organizationId: null,
+			provider: providerId,
+			model: definition.id,
+			discountPercent: "0.3",
+		});
+		try {
+			for (const query of ["", "?mapped=true"]) {
+				const id = query ? `${providerId}/${definition.id}` : definition.id;
+				const model = (await listModels(query)).find((m) => m.id === id);
+				expect(Number(model?.pricing.discount)).toBe(0.3);
+				expect(Number(model?.providers[0]?.pricing?.discount)).toBe(0.3);
+			}
+		} finally {
+			await cdb
+				.delete(tables.discount)
+				.where(eq(tables.discount.id, discountId));
+		}
+
+		const model = (await listModels()).find((m) => m.id === definition.id);
+		expect(model?.pricing.discount).toBeUndefined();
+	});
+
 	test("GET /v1/models should expose per-page OCR pricing for mistral-ocr-latest", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);
@@ -748,30 +878,6 @@ describe("Models API", () => {
 				),
 			).toBe(false);
 		}
-	});
-
-	test("GET /v1/models should only expose glacier for supported models", async () => {
-		const res = await app.request("/v1/models?include_deactivated=true");
-		expect(res.status).toBe(200);
-
-		const json = await res.json();
-
-		const glacierModelIds = json.data
-			.filter((model: any) =>
-				model.providers.some(
-					(provider: any) => provider.providerId === "glacier",
-				),
-			)
-			.map((model: any) => model.id)
-			.sort();
-
-		expect(glacierModelIds).toEqual([
-			"gemini-2.5-flash-image",
-			"gemini-3-pro-image",
-			"gemini-3-pro-image-preview",
-			"gemini-3.1-flash-image",
-			"gemini-3.1-flash-image-preview",
-		]);
 	});
 
 	test("GET /v1/models should include stability information for models", async () => {

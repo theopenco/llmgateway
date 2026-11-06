@@ -1,11 +1,12 @@
 import { HTTPException } from "hono/http-exception";
 
 import {
-	decryptClaimVerificationKey,
 	encryptProviderKeyForStorage,
 	readProviderKey,
 	redactToken,
 	runProviderKeySmokeTest,
+	createAirsideGatewayFetch,
+	airsideInferencePricing,
 } from "@llmgateway/actions";
 import { and, cdb, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -15,11 +16,7 @@ import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type CacheTransaction = Parameters<Parameters<typeof cdb.transaction>[0]>[0];
 
-// A custom carrier hands us two keys: the provider key we serve its traffic
-// with, and a testing key for preflight runs. Test traffic is neither logged
-// nor billed by us, so it must land on a different account than production.
-const SEPARATE_KEYS_MESSAGE =
-	"Use two different keys: the testing key runs preflight checks, the provider key serves your traffic.";
+// Carrier checks use the same provider credential as live traffic.
 
 /** Compare-and-set guard on the claim's pending provider key pointer. */
 function pendingProviderKeyIs(id: string | null) {
@@ -28,34 +25,15 @@ function pendingProviderKeyIs(id: string | null) {
 		: isNull(tables.providerClaim.pendingProviderKeyId);
 }
 
-/**
- * Files a carrier's provider key for admin approval: stored encrypted and
- * inactive, replacing any submission still awaiting review. Callers must have
- * smoke-tested it first. Run inside a cdb transaction — managed provider_key
- * rows feed the gateway's credential cache.
- */
+/** Files an encrypted provider key for review; replacement keys are smoke-tested before linking. */
 export async function fileProviderKey(
 	tx: CacheTransaction,
 	claim: ProviderClaimRow,
 	apiKey: string,
+	storedKey?: typeof tables.providerKey.$inferSelect,
 ) {
-	const id = shortid();
-	const [key] = await tx
-		.insert(tables.providerKey)
-		.values({
-			id,
-			provider: claim.providerId,
-			managed: true,
-			organizationId: null,
-			status: "inactive",
-			comment: "Submitted by the carrier in Airside",
-			carrierSubmitted: true,
-			...encryptProviderKeyForStorage(apiKey, id, null),
-			// Prefix and suffix, like the testing key, so a carrier and a
-			// reviewer can tell a replacement from the key it replaces.
-			tokenMasked: maskToken(apiKey, 6, 4),
-		})
-		.returning();
+	const key = storedKey ?? (await storeCarrierProviderKey(tx, claim, apiKey));
+	const id = key.id;
 	if (claim.pendingProviderKeyId) {
 		await tx
 			.update(tables.providerKey)
@@ -69,6 +47,9 @@ export async function fileProviderKey(
 			and(
 				eq(tables.providerClaim.id, claim.id),
 				pendingProviderKeyIs(claim.pendingProviderKeyId),
+				claim.providerKeyId
+					? eq(tables.providerClaim.providerKeyId, claim.providerKeyId)
+					: isNull(tables.providerClaim.providerKeyId),
 			),
 		)
 		.returning({ id: tables.providerClaim.id });
@@ -123,20 +104,6 @@ export async function discardPendingProviderKey(
 	});
 }
 
-/** Rejects using the carrier's testing key to serve its traffic. */
-export function assertNotTestingKey(claim: ProviderClaimRow, token: string) {
-	const testingKey = claim.verificationKeyCiphertext
-		? decryptClaimVerificationKey(
-				claim.verificationKeyCiphertext,
-				claim.id,
-				claim.providerCompanyId,
-			)
-		: null;
-	if (token === testingKey) {
-		throw new HTTPException(400, { message: SEPARATE_KEYS_MESSAGE });
-	}
-}
-
 async function carrierProviderKeyTokens(
 	claim: ProviderClaimRow,
 ): Promise<string[]> {
@@ -152,20 +119,10 @@ async function carrierProviderKeyTokens(
 	return rows.map((row) => readProviderKey(row));
 }
 
-export async function assertTestingKeyIsSeparate(
-	claim: ProviderClaimRow,
-	testingKey: string,
-): Promise<void> {
-	if ((await carrierProviderKeyTokens(claim)).includes(testingKey)) {
-		throw new HTTPException(400, { message: SEPARATE_KEYS_MESSAGE });
-	}
-}
-
 export async function assertProviderKeyIsSeparate(
 	claim: ProviderClaimRow,
 	providerKey: string,
 ): Promise<void> {
-	assertNotTestingKey(claim, providerKey);
 	if ((await carrierProviderKeyTokens(claim)).includes(providerKey)) {
 		throw new HTTPException(400, {
 			message: "This key is already on file as your provider key.",
@@ -182,13 +139,73 @@ export async function assertProviderKeyServes(
 	claim: ProviderClaimRow,
 	apiKey: string,
 	target: ProviderModelVerificationTarget,
+	incomingHeaders?: HeadersInit,
+	providerKeyId?: string,
 ): Promise<void> {
+	const mapping = await db.query.modelProviderMapping.findFirst({
+		where: {
+			source: { eq: "airside" },
+			providerId: { eq: target.providerId },
+			modelId: { eq: target.modelName },
+			externalId: { eq: target.externalId },
+			status: { eq: "active" },
+			region: target.region ? { eq: target.region } : { isNull: true },
+		},
+	});
+	const listing = await db.query.providerDraftModel.findFirst({
+		where: {
+			providerCompanyId: { eq: claim.providerCompanyId },
+			providerId: { eq: target.providerId },
+			modelName: { eq: target.modelName },
+			externalId: { eq: target.externalId },
+		},
+	});
+	const filing = listing
+		? await db.query.providerPriceFiling.findFirst({
+				where: {
+					draftModelId: { eq: listing.id },
+					status: { in: ["pending", "approved"] },
+				},
+				orderBy: { createdAt: "desc" },
+			})
+		: undefined;
+	const pricing = mapping ?? filing ?? target.pricing;
+	if (
+		!pricing ||
+		typeof pricing.inputPrice !== "string" ||
+		typeof pricing.outputPrice !== "string"
+	) {
+		throw new HTTPException(503, {
+			message: "Provider verification pricing is not configured.",
+		});
+	}
+	let infrastructureError: Error | undefined;
 	const failure = await runProviderKeySmokeTest({
 		target,
 		token: apiKey,
 		baseUrl: claim.customBaseUrl ?? undefined,
 		skipEnvVars: true,
+		fetchImplementation: createAirsideGatewayFetch({
+			runId: `provider-key:${providerKeyId ?? shortid()}`,
+			providerKeyId,
+			onInfrastructureError: (error) => {
+				infrastructureError = error;
+			},
+			target,
+			pricing: airsideInferencePricing(
+				target,
+				mapping,
+				mapping ? undefined : filing,
+			),
+			incomingHeaders,
+		}),
 	});
+	if (infrastructureError) {
+		throw new HTTPException(503, {
+			message:
+				"The verification gateway is unavailable. Retry after its configuration is restored.",
+		});
+	}
 	if (failure) {
 		throw new HTTPException(400, {
 			message: `The provider key failed a smoke test against ${target.modelName}: ${redactToken(failure, apiKey)}`,
@@ -215,4 +232,59 @@ export async function latestListing(claim: ProviderClaimRow) {
 		},
 		orderBy: { createdAt: "desc" },
 	});
+}
+async function storeCarrierProviderKey(
+	tx: CacheTransaction,
+	claim: ProviderClaimRow,
+	apiKey: string,
+) {
+	const id = shortid();
+	const [key] = await tx
+		.insert(tables.providerKey)
+		.values({
+			id,
+			provider: claim.providerId,
+			managed: true,
+			organizationId: null,
+			status: "inactive",
+			comment: "Submitted by the carrier in Airside",
+			carrierSubmitted: true,
+			...encryptProviderKeyForStorage(apiKey, id, null),
+			tokenMasked: maskToken(apiKey, 6, 4),
+		})
+		.returning();
+	return key;
+}
+export async function fileVerifiedProviderKey(
+	claim: ProviderClaimRow,
+	apiKey: string,
+	target: ProviderModelVerificationTarget,
+	incomingHeaders: HeadersInit,
+) {
+	const key = await cdb.transaction(
+		async (tx) => await storeCarrierProviderKey(tx, claim, apiKey),
+	);
+	try {
+		await assertProviderKeyServes(
+			claim,
+			apiKey,
+			target,
+			incomingHeaders,
+			key.id,
+		);
+		return await cdb.transaction(
+			async (tx) => await fileProviderKey(tx, claim, apiKey, key),
+		);
+	} catch (error) {
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(
+				and(
+					eq(tables.providerKey.id, key.id),
+					eq(tables.providerKey.status, "inactive"),
+				),
+			);
+		throw error;
+	}
 }

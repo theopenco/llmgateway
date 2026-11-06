@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ProviderConfigError } from "./get-provider-endpoint.js";
 import {
 	createQueuedModelVerificationChecks,
 	disprovedCapabilities,
@@ -7,9 +8,18 @@ import {
 	encryptModelVerificationCredential,
 	runProviderKeySmokeTest,
 	runProviderModelVerification,
+	prepareProviderModelVerificationRequest,
 } from "./model-verification.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
+
+// Capability fixtures isolate their checks; the content baseline has its own suite.
+vi.mock("./model-verification-compatibility.js", () => ({
+	requiresMessageContentVerification: (target: {
+		apiFormat?: string;
+		decisions?: boolean;
+	}) => !target.decisions && target.apiFormat === "openai-chat-completions",
+}));
 
 vi.mock("./gcp-access-token.js", () => ({
 	getGcpServiceAccountAccessToken: vi.fn(async () => "derived-access-token"),
@@ -45,6 +55,167 @@ const chatStream = (usage: Record<string, unknown> | null = chatUsage) =>
 		.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
 		.join("") + "data: [DONE]\n\n";
 const responsesUsage = { input_tokens: 20, output_tokens: 2, total_tokens: 22 };
+
+it.each([
+	{ provider: "anthropic", reasoning: true },
+	{ provider: "anthropic", reasoning: false },
+	{ provider: "openai", reasoning: true },
+])(
+	"replays unpublished snapshot thinking only on its declared native protocol ($provider, $reasoning)",
+	async ({ provider, reasoning }) => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		try {
+			const native = await prepareProviderModelVerificationRequest(
+				{
+					model: "unpublished-replay-fixture",
+					messages: [
+						{ role: "user", content: "start" },
+						{
+							role: "assistant",
+							content: "",
+							reasoning_details: [
+								{
+									type: "reasoning.text",
+									format: "anthropic-claude-v1",
+									text: "thinking fixture",
+									signature: "anthropic:anthropic-signature-fixture",
+									block_index: 0,
+								},
+							],
+							tool_calls: [
+								{
+									id: "call-fixture",
+									type: "function",
+									function: { name: "ping", arguments: "{}" },
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call-fixture", content: "pong" },
+					],
+				},
+				{
+					target: {
+						...target,
+						providerId: provider,
+						modelName: "unpublished-replay-fixture",
+						reasoning,
+						apiFormat: "provider-native",
+					},
+					token: "provider-fixture",
+					baseUrl: "https://provider.example",
+					skipEnvVars: true,
+				},
+			);
+			const serialized = JSON.stringify(native.payload);
+			if (provider === "anthropic" && reasoning) {
+				expect(serialized).toContain("anthropic-signature-fixture");
+				expect(native.payload).toMatchObject({
+					messages: expect.arrayContaining([
+						expect.objectContaining({
+							role: "assistant",
+							content: expect.arrayContaining([
+								{
+									type: "thinking",
+									thinking: "thinking fixture",
+									signature: "anthropic-signature-fixture",
+								},
+							]),
+						}),
+					]),
+				});
+			} else {
+				expect(serialized).not.toContain("anthropic-signature-fixture");
+			}
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	},
+);
+
+it("treats an unregistered provider without a base URL as a permanent configuration failure", async () => {
+	const fetchImplementation = vi.fn<typeof fetch>();
+	const options = {
+		target: { ...target, providerId: "unregistered-provider-fixture" },
+		token: "verification-key-fixture",
+		skipEnvVars: true,
+		fetchImplementation,
+	};
+	await expect(
+		prepareProviderModelVerificationRequest(
+			{
+				model: options.target.modelName,
+				messages: [{ role: "user", content: "fixture" }],
+			},
+			options,
+		),
+	).rejects.toBeInstanceOf(ProviderConfigError);
+	const result = await runProviderModelVerification(options);
+	expect(result.passed).toBe(false);
+	expect(result.checks[0]).toMatchObject({
+		id: "basic",
+		status: "failed",
+		feedback:
+			"Provider unregistered-provider-fixture has no registered endpoint.",
+	});
+	expect(
+		result.checks
+			.slice(1)
+			.every(
+				(check) =>
+					check.status === "skipped" &&
+					check.feedback ===
+						"Skipped because provider configuration is incomplete.",
+			),
+	).toBe(true);
+	expect(result.unsupportedToolChoices).toBeUndefined();
+	expect(result.unsupportedReasoningEfforts).toBeUndefined();
+	expect(fetchImplementation).not.toHaveBeenCalled();
+});
+
+it.each(["configuration", "network"])(
+	"does not confuse %s failures with unsupported tool modes",
+	async (kind) => {
+		const error =
+			kind === "configuration"
+				? new ProviderConfigError("Missing provider workspace.")
+				: new TypeError("fetch failed");
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockRejectedValue(error)
+			.mockResolvedValueOnce(Response.json(chatBody({ content: "OK" })));
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "openai",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				reasoningEfforts: null,
+				webSearch: false,
+			},
+			token: "provider-fixture",
+			fetchImplementation,
+		});
+		expect(result.passed).toBe(false);
+		expect(result.checks.find((check) => check.id === "tools")).toMatchObject({
+			status: "failed",
+			feedback: error.message,
+		});
+		expect(result.unsupportedToolChoices).toBeUndefined();
+		expect(
+			result.checks.find((check) => check.id === "json_output")?.status,
+		).toBe(kind === "configuration" ? "skipped" : "failed");
+		expect(fetchImplementation).toHaveBeenCalledTimes(
+			kind === "configuration" ? 2 : 3,
+		);
+	},
+);
+
 const googleUsage = {
 	promptTokenCount: 20,
 	candidatesTokenCount: 2,
@@ -71,7 +242,9 @@ describe("model verification", () => {
 	it("keeps Chat Completions payloads when the base URL contains /responses", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
-			.mockResolvedValue(Response.json(chatBody({ content: "OK" })));
+			.mockImplementation(async () =>
+				Response.json(chatBody({ content: "OK" })),
+			);
 		const result = await runProviderModelVerification({
 			target: {
 				...target,
@@ -93,7 +266,7 @@ describe("model verification", () => {
 		});
 
 		expect(result.passed).toBe(true);
-		expect(fetchImplementation).toHaveBeenCalledOnce();
+		expect(fetchImplementation).toHaveBeenCalledTimes(4);
 		const [endpoint, request] = fetchImplementation.mock.calls[0];
 		expect(endpoint).toBe(
 			"https://carrier.example/responses-proxy/v1/chat/completions",
@@ -321,7 +494,10 @@ describe("model verification", () => {
 						],
 					}),
 				)
-				.mockResolvedValueOnce(Response.json(body));
+				.mockResolvedValueOnce(Response.json(body))
+				.mockImplementation(async () =>
+					Response.json(chatBody({ content: "OK" })),
+				);
 
 			const result = await runProviderModelVerification({
 				target: {
@@ -346,6 +522,7 @@ describe("model verification", () => {
 			expect(result.checks.map((check) => check.id)).toEqual([
 				"basic",
 				"tools",
+				...(apiFormat === "openai-chat-completions" ? ["message_content"] : []),
 			]);
 			expect(result.passed).toBe(true);
 			const [toolEndpoint, toolRequest] = fetchImplementation.mock.calls[1];
@@ -1954,7 +2131,10 @@ describe("model verification - declared web search format", () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
 			.mockResolvedValueOnce(Response.json(chatBody({ content: "OK" })))
-			.mockResolvedValueOnce(Response.json(searchResponse));
+			.mockResolvedValueOnce(Response.json(searchResponse))
+			.mockImplementation(async () =>
+				Response.json(chatBody({ content: "OK" })),
+			);
 		const result = await runProviderModelVerification({
 			target: searchTarget(webSearchFormat),
 			token: "provider-key",
@@ -2004,6 +2184,9 @@ describe("model verification - declared web search format", () => {
 					}),
 				),
 			);
+		fetchImplementation.mockImplementation(async () =>
+			Response.json(chatBody({ content: "OK" })),
+		);
 		const result = await runProviderModelVerification({
 			target: {
 				...searchTarget("web_search_tool"),

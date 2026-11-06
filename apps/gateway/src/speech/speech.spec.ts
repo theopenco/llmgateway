@@ -19,6 +19,7 @@ describe("speech", () => {
 			| "google-ai-studio"
 			| "google-vertex"
 			| "openai"
+			| "azure"
 			| "elevenlabs"
 			| "alibaba" = "google-ai-studio",
 	) {
@@ -30,8 +31,8 @@ describe("speech", () => {
 			createdBy: "user-id",
 		});
 		const providerToken =
-			provider === "openai"
-				? "openai-test-key"
+			provider === "openai" || provider === "azure"
+				? `${provider}-test-key`
 				: provider === "elevenlabs"
 					? "elevenlabs-test-key"
 					: provider === "alibaba"
@@ -737,6 +738,35 @@ describe("speech", () => {
 		expect(log?.completionTokens).toBe("42");
 		// $0.60/1M input text tokens + $12/1M output audio tokens.
 		expect(Number(log?.inputCost)).toBeCloseTo(7 * 0.6e-6, 12);
+		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
+	});
+
+	test("/v1/audio/speech serves gpt-4o-mini-tts on Azure's v1 API", async () => {
+		await seedKeys("real-token-speech-azure", "token-id-speech-azure", "azure");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-azure",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-4o-mini-tts",
+				input: "Hello there",
+				response_format: "wav",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_OPENAI_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/gpt-4o-mini-tts");
+		expect(log?.hasError).toBe(false);
+		expect(log?.promptTokens).toBe("7");
+		expect(log?.completionTokens).toBe("42");
 		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
 	});
 

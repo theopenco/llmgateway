@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import Decimal from "decimal.js";
 import {
 	AlertTriangle,
 	Check,
@@ -1014,14 +1015,22 @@ export function AirsideFilingsClient() {
 													<>
 														<div>
 															in:{" "}
-															{filing.currentPricing
+															{filing.currentPricing &&
+															hasPriceChanged(
+																filing.currentPricing.inputPrice,
+																filing.inputPrice,
+															)
 																? `${formatPerMillion(filing.currentPricing.inputPrice)} → `
 																: ""}
 															{formatPerMillion(filing.inputPrice)}
 														</div>
 														<div>
 															out:{" "}
-															{filing.currentPricing
+															{filing.currentPricing &&
+															hasPriceChanged(
+																filing.currentPricing.outputPrice,
+																filing.outputPrice,
+															)
 																? `${formatPerMillion(filing.currentPricing.outputPrice)} → `
 																: ""}
 															{formatPerMillion(filing.outputPrice)}
@@ -1031,8 +1040,10 @@ export function AirsideFilingsClient() {
 															<div>
 																cached:{" "}
 																{filing.currentPricing &&
-																filing.currentPricing.cachedInputPrice !==
-																	filing.cachedInputPrice
+																hasPriceChanged(
+																	filing.currentPricing.cachedInputPrice,
+																	filing.cachedInputPrice,
+																)
 																	? `${filing.currentPricing.cachedInputPrice ? formatPerMillion(filing.currentPricing.cachedInputPrice) : "none"} → `
 																	: ""}
 																{filing.cachedInputPrice
@@ -1583,4 +1594,13 @@ export function AirsideFilingsClient() {
 			</Dialog>
 		</div>
 	);
+}
+function hasPriceChanged(
+	current: string | null,
+	filed: string | null,
+): boolean {
+	if (current === null || filed === null) {
+		return current !== filed;
+	}
+	return !new Decimal(current).equals(filed);
 }

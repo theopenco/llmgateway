@@ -18,6 +18,7 @@ describe("image download names", () => {
 		expect(imageFileExtension("image/png")).toBe("png");
 		expect(imageFileExtension("image/jpeg")).toBe("jpg");
 		expect(imageFileExtension("image/webp; charset=binary")).toBe("webp");
+		expect(imageFileExtension("image/svg+xml")).toBe("svg");
 	});
 
 	it("keeps colliding archive entries apart", () => {

@@ -1,3 +1,7 @@
+import { models } from "@llmgateway/models";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
+
 export type AspectRatio =
 	| "auto"
 	| "1:1"
@@ -56,7 +60,7 @@ export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
 	const isGptImage = lower.includes("gpt-image");
-	const isGptImage25 = lower.includes("gpt-image-2.5-");
+	const hasGptImageMaxQuality = /gpt-image-2\.[56]-/.test(lower);
 	const isReve = lower.includes("reve");
 	const isMuseImage = lower.includes("muse-image");
 	const isHyImage = lower.includes("hy-image");
@@ -79,6 +83,8 @@ export function getModelImageConfig(model: string) {
 	const isGemini31FlashLiteImage = lower.includes(
 		"gemini-3.1-flash-lite-image",
 	);
+	// Ignores imageSize and always returns 1024px images.
+	const isGemini25FlashImage = lower.includes("gemini-2.5-flash-image");
 
 	const isGrokImagine20 = lower.includes("grok-imagine-image-2-0");
 
@@ -106,7 +112,7 @@ export function getModelImageConfig(model: string) {
 								? (["1K", "1.5K", "2K"] as const)
 								: isSeedream
 									? (["2K", "4K"] as const)
-									: isGemini31FlashLiteImage
+									: isGemini31FlashLiteImage || isGemini25FlashImage
 										? (["1K"] as const)
 										: isGemini31FlashImage
 											? (["0.5K", "1K", "2K", "4K"] as const)
@@ -121,7 +127,7 @@ export function getModelImageConfig(model: string) {
 				: "1K";
 
 	const supportsQuality = isGptImage || isGrokImagine20;
-	const availableQualities = isGptImage25
+	const availableQualities = hasGptImageMaxQuality
 		? (["auto", "low", "medium", "high", "xhigh", "max"] as const)
 		: isGptImage
 			? (["auto", "low", "medium", "high"] as const)
@@ -145,6 +151,8 @@ export function getModelImageConfig(model: string) {
 
 	const maxInputImages = getMaxInputImages(lower);
 
+	const supportsSvgOutput = modelSupportsSvgOutput(model);
+
 	const supportedAspectRatios: AspectRatio[] | undefined = isReve
 		? REVE_ASPECT_RATIOS
 		: undefined;
@@ -167,7 +175,26 @@ export function getModelImageConfig(model: string) {
 		defaultModeration,
 		maxInputImages,
 		supportedAspectRatios,
+		supportsSvgOutput,
 	};
+}
+
+// Mirrors the gateway's check: a bare model id needs SVG output on every active
+// mapping, a "provider/model" id only on that provider's mapping.
+function modelSupportsSvgOutput(model: string): boolean {
+	const slash = model.indexOf("/");
+	const providerId = slash > 0 ? model.slice(0, slash) : undefined;
+	const modelId = slash > 0 ? model.slice(slash + 1) : model;
+	const now = new Date();
+	const mappings = (
+		(models.find((m) => m.id === modelId)?.providers ??
+			[]) as ProviderModelMapping[]
+	).filter(
+		(p) =>
+			(!providerId || p.providerId === providerId) &&
+			(!p.deactivatedAt || p.deactivatedAt > now),
+	);
+	return mappings.length > 0 && mappings.every((p) => p.svgOutput === true);
 }
 
 function getMaxInputImages(lowerModel: string): number {
