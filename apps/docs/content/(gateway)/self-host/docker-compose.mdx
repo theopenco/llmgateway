@@ -130,11 +130,13 @@ them without redeploying, and each credential carries every setting the provider
 needs — API key, base URL, project, region, resource, API version — plus a free-form
 note so several keys for the same provider stay tellable apart.
 
-The credentials table's **Usage period** defaults to **All time**. Select **24h**,
-**7d**, or **30d** to show each key's attributed spend in that rolling window and
-rank by **Spend (selected window)**. Period totals use hourly aggregates; limits
-and their progress always use all-time spend. The daily spend bars still cover
-the last seven UTC days, and error rates keep their separate window.
+The credentials table's **Period** selector beside **Show deleted** controls both
+attributed spend and error rates and defaults to **7d**. Choose **All time**,
+**4h**, **24h**, **7d**, or **30d**, and rank by **Spend (selected window)**.
+Totals use hourly aggregates; error trends show hourly points for short periods,
+daily points for 7d and 30d, and monthly points for All time. Limits and their
+progress always use all-time spend. Daily spend bars still cover the last seven
+UTC days.
 
 Resolution is per provider: as soon as a provider has at least one managed
 credential, credits-mode requests to it use those credentials and its `LLM_*`

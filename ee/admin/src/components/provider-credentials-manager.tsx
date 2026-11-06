@@ -82,9 +82,7 @@ import { useAppConfig } from "@/lib/config";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import {
 	DEFAULT_ERROR_WINDOW,
-	ERROR_WINDOW_OPTIONS,
 	errorWindowOption,
-	parseErrorWindow,
 } from "@/lib/provider-key-error-window";
 import {
 	providerKeySelectionPositions,
@@ -92,7 +90,7 @@ import {
 } from "@/lib/provider-key-selection";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import {
-	parseUsageWindow,
+	resolveCredentialPeriod,
 	USAGE_WINDOW_OPTIONS,
 	usageWindowLabel,
 } from "@/lib/provider-key-usage-window";
@@ -669,9 +667,13 @@ export function ProviderCredentialsManager({
 	const showDeleted = searchParams.get("deleted") === "1";
 	const sort = parseSort(searchParams.get("sort"));
 	// Read server-side too: the page asks the API for this window's series.
-	const errorWindow = parseErrorWindow(searchParams.get("errors"));
+	const usageWindow = resolveCredentialPeriod({
+		period: searchParams.get("period"),
+		usage: searchParams.get("usage"),
+		errors: searchParams.get("errors"),
+	});
+	const errorWindow = usageWindow;
 	const errorWindowLabel = errorWindowOption(errorWindow);
-	const usageWindow = parseUsageWindow(searchParams.get("usage"));
 	const usageLabel = usageWindowLabel(usageWindow);
 
 	// View state lives in the URL so a filtered or sorted view can be reloaded,
@@ -679,6 +681,10 @@ export function ProviderCredentialsManager({
 	const setParam = useCallback(
 		(key: string, value: string | null) => {
 			const params = new URLSearchParams(searchParams.toString());
+			if (key === "period") {
+				params.delete("usage");
+				params.delete("errors");
+			}
 			if (value === null) {
 				params.delete(key);
 			} else {
@@ -1122,30 +1128,6 @@ export function ProviderCredentialsManager({
 			)}
 
 			<TabsContent value="credentials" className="flex flex-col gap-2">
-				<div className="flex flex-wrap items-center gap-2">
-					<Label htmlFor="credential-usage-window">Usage period</Label>
-					<Select
-						value={usageWindow}
-						onValueChange={(next) =>
-							setParam("usage", next === "all" ? null : next)
-						}
-					>
-						<SelectTrigger
-							id="credential-usage-window"
-							className="w-36"
-							aria-label="Usage period"
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{USAGE_WINDOW_OPTIONS.map((option) => (
-								<SelectItem key={option.value} value={option.value}>
-									{option.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
 				<p className="text-xs text-muted-foreground">
 					Positions are per provider, audience and region. Eligible round-robin
 					keys share one pool at their earliest member’s position. Ordered keys
@@ -1172,18 +1154,21 @@ export function ProviderCredentialsManager({
 							</Label>
 						</div>
 						<Select
-							value={errorWindow}
+							value={usageWindow}
 							onValueChange={(next) =>
-								setParam("errors", next === DEFAULT_ERROR_WINDOW ? null : next)
+								setParam("period", next === DEFAULT_ERROR_WINDOW ? null : next)
 							}
 						>
-							<SelectTrigger className="w-48" aria-label="Error rate window">
+							<SelectTrigger
+								className="w-48"
+								aria-label="Usage and errors period"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{ERROR_WINDOW_OPTIONS.map((option) => (
+								{USAGE_WINDOW_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
-										Errors: {option.label}
+										Period: {option.label}
 									</SelectItem>
 								))}
 							</SelectContent>

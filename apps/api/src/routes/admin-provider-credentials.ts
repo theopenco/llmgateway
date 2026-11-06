@@ -108,7 +108,7 @@ import type {
 	ProviderValidationResult,
 } from "@llmgateway/models";
 
-const usageWindowSchema = z.enum(["all", "1d", "7d", "30d"]);
+const usageWindowSchema = z.enum(["all", "4h", "1d", "7d", "30d"]);
 const selectionStrategySchema = z.enum(["ordered", "round_robin"]);
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
@@ -199,7 +199,7 @@ const credentialDailyPointSchema = z.object({
 });
 
 /** Windows the credentials table can show its error rate over. */
-const errorWindowSchema = z.enum(["4h", "1d", "7d"]);
+const errorWindowSchema = usageWindowSchema;
 
 type ErrorWindow = z.infer<typeof errorWindowSchema>;
 
@@ -852,9 +852,9 @@ const listCredentials = createRoute({
 			 * so their lifetime usage and rollup history are still there.
 			 */
 			includeDeleted: z.enum(["true", "false"]).optional(),
-			/** Window `errorSeries` covers; defaults to 1d. */
+			/** Window `errorSeries` covers; defaults to 7d. */
 			errorWindow: errorWindowSchema.optional(),
-			/** Spend display window; defaults to the lifetime usage counter. */
+			/** Spend display window; defaults to 7d. `all` uses the lifetime counter. */
 			usageWindow: usageWindowSchema.optional(),
 		}),
 	},
@@ -873,12 +873,8 @@ const listCredentials = createRoute({
 });
 
 adminProviderCredentials.openapi(listCredentials, async (c) => {
-	const {
-		provider,
-		includeDeleted,
-		usageWindow = "all",
-	} = c.req.valid("query");
-	const errorWindow = c.req.valid("query").errorWindow ?? "1d";
+	const { provider, includeDeleted, usageWindow = "7d" } = c.req.valid("query");
+	const errorWindow = c.req.valid("query").errorWindow ?? "7d";
 
 	const rows = await db.query.providerKey.findMany({
 		where: {
@@ -900,18 +896,16 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 
 	const credentialIds = rows.map((row) => row.id);
+	const now = new Date();
 	const [recent, daily, bucketed, carrierKeyIds, windowUsage] =
 		await Promise.all([
 			getRecentCredentialStats(credentialIds),
 			getDailyCredentialStats(credentialIds),
-			// The 7d window is the daily series the spend sparkline already loads.
-			errorWindow === "7d"
-				? null
-				: getBucketedCredentialErrorSeries(credentialIds, errorWindow),
+			getBucketedCredentialErrorSeries(credentialIds, errorWindow, now),
 			linkedCarrierKeyIds(),
 			usageWindow === "all"
 				? null
-				: getCredentialWindowUsage(credentialIds, usageWindow),
+				: getCredentialWindowUsage(credentialIds, usageWindow, now),
 		]);
 
 	return c.json({
@@ -923,9 +917,7 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 					windowUsage === null ? row.usage : (windowUsage.get(row.id) ?? "0"),
 				last24h: recent.get(row.id) ?? NO_RECENT_STATS,
 				last7dDaily,
-				errorSeries:
-					bucketed?.get(row.id) ??
-					last7dDaily.map(({ cost: _cost, ...point }) => point),
+				errorSeries: bucketed.get(row.id) ?? [],
 			};
 		}),
 	});
@@ -1096,26 +1088,28 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 
 const HOUR_MS = 60 * 60 * 1000;
 
-/**
- * Hourly request/error counts per credential for the sub-week error windows,
- * from the hourly rollup. One grouped query for every credential, like the
- * daily series. The rollup's grain is the hour, so nothing shorter is offered.
- */
+/** Group the same rolling window as spend; lifetime history uses monthly points. */
 async function getBucketedCredentialErrorSeries(
 	providerKeyIds: string[],
-	window: Exclude<ErrorWindow, "7d">,
+	window: ErrorWindow,
+	now: Date = new Date(),
 ) {
 	const series = new Map<string, CredentialErrorPoint[]>();
 	if (providerKeyIds.length === 0) {
 		return series;
 	}
-
-	const buckets = hourBucketStarts(window === "4h" ? 4 : 24);
 	const stats = tables.providerKeyHourlyStats;
+	const unit = window === "all" ? "month" : getBucketUnitForWindow(window);
+	const bucketExpr =
+		unit === "hour"
+			? sql<Date>`${stats.hourTimestamp}`
+			: unit === "day"
+				? sql<Date>`date_trunc('day', ${stats.hourTimestamp})`
+				: sql<Date>`date_trunc('month', ${stats.hourTimestamp})`;
 	const rows = await db
 		.select({
 			providerKeyId: stats.providerKeyId,
-			bucket: bucketLabel(sql<Date>`${stats.hourTimestamp}`).as("bucket"),
+			bucket: bucketLabel(bucketExpr).as("bucket"),
 			requestCount: sql<number>`COALESCE(SUM(${stats.requestCount}), 0)`.as(
 				"request_count",
 			),
@@ -1128,21 +1122,41 @@ async function getBucketedCredentialErrorSeries(
 		.where(
 			and(
 				inArray(stats.providerKeyId, providerKeyIds),
-				gte(stats.hourTimestamp, buckets[0]),
+				window === "all"
+					? undefined
+					: gte(stats.hourTimestamp, getTokenWindowStartDate(window, now)),
+				lt(stats.hourTimestamp, now),
 			),
 		)
-		.groupBy(stats.providerKeyId, stats.hourTimestamp);
-
-	const byKeyAndBucket = new Map<string, (typeof rows)[number]>();
-	for (const row of rows) {
-		byKeyAndBucket.set(`${row.providerKeyId}:${row.bucket}`, row);
+		.groupBy(stats.providerKeyId, bucketExpr);
+	let buckets: string[];
+	if (window === "all") {
+		const first = rows.reduce(
+			(earliest, row) => (row.bucket < earliest ? row.bucket : earliest),
+			now.toISOString(),
+		);
+		const month = new Date(first);
+		month.setUTCDate(1);
+		month.setUTCHours(0, 0, 0, 0);
+		buckets = [];
+		while (month <= now) {
+			buckets.push(month.toISOString());
+			month.setUTCMonth(month.getUTCMonth() + 1);
+		}
+	} else if (unit === "hour") {
+		buckets = hourBucketStarts(window === "4h" ? 4 : 24, now).map((bucket) =>
+			bucket.toISOString(),
+		);
+	} else {
+		buckets = getWindowBucketTimestamps(window, now);
 	}
-
+	const byKeyAndBucket = new Map(
+		rows.map((row) => [`${row.providerKeyId}:${row.bucket}`, row]),
+	);
 	for (const providerKeyId of providerKeyIds) {
 		series.set(
 			providerKeyId,
-			buckets.map((bucket) => {
-				const date = bucket.toISOString();
+			buckets.map((date) => {
 				const row = byKeyAndBucket.get(`${providerKeyId}:${date}`);
 				return {
 					date,
@@ -2952,12 +2966,12 @@ const reorderCredentials = createRoute({
 async function getCredentialWindowUsage(
 	providerKeyIds: string[],
 	window: Exclude<z.infer<typeof usageWindowSchema>, "all">,
+	now: Date = new Date(),
 ) {
 	if (providerKeyIds.length === 0) {
 		return new Map<string, string>();
 	}
 	const stats = tables.providerKeyHourlyStats;
-	const now = new Date();
 	const rows = await db
 		.select({
 			providerKeyId: stats.providerKeyId,

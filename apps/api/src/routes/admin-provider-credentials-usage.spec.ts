@@ -52,6 +52,8 @@ describe("provider credential usage windows", () => {
 					hourTimestamp: new Date(hour.getTime() - offsetMs),
 					cost,
 					requestCount: 1,
+					errorCount: 1,
+					upstreamErrorCount: 1,
 				};
 			}),
 		);
@@ -77,10 +79,16 @@ describe("provider credential usage windows", () => {
 				usage: string;
 				usageLimit: string | null;
 				windowUsage: string;
+				errorSeries: {
+					date: string;
+					requestCount: number;
+					errorCount: number;
+				}[];
 			}[];
 		};
 	}
 	test.each([
+		["4h", 1],
 		["1d", 3],
 		["7d", 15],
 		["30d", 63],
@@ -97,13 +105,43 @@ describe("provider credential usage windows", () => {
 			).toBe("0");
 		},
 	);
-	test.each(["", "?usageWindow=all"])(
-		"preserves the lifetime counter for all time (%s)",
-		async (query) => {
+	test.each([
+		["", "15"],
+		["?usageWindow=all", "100"],
+	])(
+		"defaults to 7d and preserves explicit all-time usage (%s)",
+		async (query, expected) => {
 			const { credentials } = await list(query);
 			expect(credentials.find(({ id }) => id === keyId)?.windowUsage).toBe(
-				"100",
+				expected,
 			);
+		},
+	);
+	test.each([
+		["4h", 1, 1],
+		["1d", 3, 2],
+		["7d", 15, 4],
+		["30d", 63, 6],
+		["all", 100, 7],
+	] as const)(
+		"uses the same %s window for spend and errors",
+		async (window, spend, requests) => {
+			const { credentials } = await list(
+				`?usageWindow=${window}&errorWindow=${window}`,
+			);
+			const key = credentials.find(({ id }) => id === keyId)!;
+			expect(Number(key.windowUsage)).toBe(spend);
+			expect(
+				key.errorSeries.reduce((sum, point) => sum + point.requestCount, 0),
+			).toBe(requests);
+			expect(
+				key.errorSeries.reduce((sum, point) => sum + point.errorCount, 0),
+			).toBe(requests);
+			expect(
+				credentials
+					.find(({ id }) => id === "usage-empty")!
+					.errorSeries.every((point) => point.requestCount === 0),
+			).toBe(true);
 		},
 	);
 	test("rejects unsupported windows", async () => {
