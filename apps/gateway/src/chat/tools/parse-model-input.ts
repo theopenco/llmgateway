@@ -4,9 +4,9 @@ import {
 	getVirtualModelTarget,
 	type Model,
 	type ModelDefinition,
-	models,
 	type Provider,
 	providers,
+	resolveModelDefinition,
 } from "@llmgateway/models";
 import {
 	DYNAMIC_ROUTE_NAME_REGEX,
@@ -114,17 +114,9 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 		if (requestedProvider === "custom") {
 			requestedModel = modelName as Model;
 		} else {
-			// First try to find by base model name with matching provider
-			let modelDef: ModelDefinition | undefined = models.find(
-				(m) =>
-					m.id === modelName &&
-					m.providers.some((p) => p.providerId === requestedProvider),
-			);
-
-			// Fall back to matching by catalog id only, then by virtual alias
-			modelDef ??=
-				models.find((m) => m.id === modelName) ??
-				getVirtualModelTarget(modelName);
+			// Resolve aliases before validating the replacement provider pin.
+			const modelDef: ModelDefinition | undefined =
+				resolveModelDefinition(modelName);
 
 			if (!modelDef) {
 				throw new HTTPException(400, {
@@ -145,8 +137,8 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			// separately from the selected provider mapping at request time.
 			requestedModel = modelDef.id as Model;
 		}
-	} else if (models.find((m) => m.id === modelInput)) {
-		requestedModel = modelInput as Model;
+	} else if (resolveModelDefinition(modelInput)) {
+		requestedModel = resolveModelDefinition(modelInput)!.id as Model;
 	} else {
 		// Virtual aliases ("…-latest") route to the cut they currently name.
 		const virtualTarget = getVirtualModelTarget(modelInput);

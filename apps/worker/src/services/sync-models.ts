@@ -20,6 +20,7 @@ import {
 	providers,
 	models,
 	expandAllProviderRegions,
+	getRetiredModelReplacement,
 } from "@llmgateway/models";
 
 /** Held while the startup sync writes catalogue prices; see model-price-alerts. */
@@ -86,6 +87,7 @@ export async function syncProvidersAndModels() {
 		);
 
 		for (const modelDef of models) {
+			const retired = !!getRetiredModelReplacement(modelDef.id);
 			await database
 				.insert(model)
 				.values({
@@ -104,13 +106,14 @@ export async function syncProvidersAndModels() {
 					stability: "stability" in modelDef ? modelDef.stability : undefined,
 					releasedAt:
 						"releasedAt" in modelDef ? modelDef.releasedAt : undefined,
-					status: "active",
+					status: retired ? "inactive" : "active",
 				})
 				.onConflictDoUpdate({
 					target: model.id,
 					// Use explicit defaults for notNull fields when not defined
 					set: {
 						name: modelDef.name,
+						status: retired ? "inactive" : undefined,
 						aliases: "aliases" in modelDef ? modelDef.aliases : [],
 						description:
 							"description" in modelDef ? modelDef.description : "(empty)",
@@ -127,6 +130,14 @@ export async function syncProvidersAndModels() {
 						updatedAt: new Date(),
 					},
 				});
+
+			if (retired) {
+				// Preserve carrier prices and history, but retire every old pair.
+				await cdb
+					.update(modelProviderMapping)
+					.set({ status: "inactive" })
+					.where(eq(modelProviderMapping.modelId, modelDef.id));
+			}
 
 			// Keep every listing of a catalogue pair carrying the static entry's
 			// catalogue-only fields, so the listing serves the same way once the
@@ -261,7 +272,7 @@ export async function syncProvidersAndModels() {
 									"test" in mapping
 										? (mapping.test as "skip" | "only" | null)
 										: null,
-								status: "active",
+								status: retired ? "inactive" : "active",
 								deprecatedAt:
 									"deprecatedAt" in mapping
 										? (mapping.deprecatedAt ?? null)
@@ -332,7 +343,7 @@ export async function syncProvidersAndModels() {
 							...catalogueMetadataColumns(
 								catalogueMetadataFromMapping(mapping),
 							),
-							status: "active",
+							status: retired ? "inactive" : "active",
 						});
 					}
 				}

@@ -55,7 +55,11 @@ import {
 } from "@llmgateway/db";
 import { managedKeySelectionsTotal } from "@llmgateway/instrumentation/metrics";
 import { logger } from "@llmgateway/logger";
-import { providers, getRegionScopedDefaultRegion } from "@llmgateway/models";
+import {
+	providers,
+	getRegionScopedDefaultRegion,
+	getRetiredModelReplacement,
+} from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	isProviderBaseUrlOverrideAllowed,
@@ -725,6 +729,7 @@ function groupAirsideRows(
 			continue;
 		}
 		if (
+			getRetiredModelReplacement(row.mapping.modelId) ||
 			row.mapping.status !== "active" ||
 			(!providers.some((provider) => provider.id === row.mapping.providerId) &&
 				!(row.carrier?.status === "active" && row.carrier.customBaseUrl))

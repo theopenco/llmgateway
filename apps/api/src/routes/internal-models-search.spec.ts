@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
-import { resetModelSearchRowsMemo } from "@/routes/internal-models.js";
+import {
+	resetModelSearchRowsMemo,
+	buildModelSearchEntries,
+} from "@/routes/internal-models.js";
 
 import { db, inArray, tables, eq } from "@llmgateway/db";
 
@@ -215,4 +218,46 @@ describe("GET /internal/models/search", () => {
 				.status,
 		).toBe(400);
 	});
+});
+
+test("search suppresses stale active retired roots without copying their carriers", () => {
+	const root = "deepseek-v4-flash";
+	const snapshot = "deepseek-v4-flash-0731";
+	const rows: Parameters<typeof buildModelSearchEntries>[0] = {
+		models: [root, snapshot].map((id) => ({
+			id,
+			name: id,
+			family: "deepseek",
+			aliases: id === snapshot ? [root] : [],
+			free: false,
+			createdAt: new Date("2026-07-31"),
+			releasedAt: new Date("2026-07-31"),
+		})),
+		mappings: [
+			{
+				modelId: root,
+				providerId: "old-carrier",
+				deactivatedAt: null,
+				requestPrice: null,
+			},
+			{
+				modelId: snapshot,
+				providerId: "snapshot-carrier",
+				deactivatedAt: null,
+				requestPrice: null,
+			},
+		],
+		providers: [
+			{ id: "old-carrier", name: "Old Carrier" },
+			{ id: "snapshot-carrier", name: "Snapshot Carrier" },
+		],
+	};
+	expect(buildModelSearchEntries(rows, new Date("2026-11-05"))).toHaveLength(2);
+	expect(buildModelSearchEntries(rows, new Date("2026-11-06"))).toEqual([
+		expect.objectContaining({
+			id: snapshot,
+			aliases: [root],
+			providerIds: ["snapshot-carrier"],
+		}),
+	]);
 });
