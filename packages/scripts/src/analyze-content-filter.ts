@@ -386,15 +386,19 @@ function parseGatewayResponses(value: string): ModerationResponse[] | null {
 
 	try {
 		const parsed = JSON.parse(trimmed) as unknown;
-		if (Array.isArray(parsed)) {
-			return parsed as ModerationResponse[];
-		}
-
-		if (typeof parsed === "string") {
-			const nested = JSON.parse(parsed) as unknown;
-			if (Array.isArray(nested)) {
-				return nested as ModerationResponse[];
-			}
+		const payload: unknown =
+			typeof parsed === "string" ? JSON.parse(parsed) : parsed;
+		const responses = Array.isArray(payload) ? payload : [payload];
+		if (
+			responses.every(
+				(response: unknown) =>
+					typeof response === "object" &&
+					response !== null &&
+					"results" in response &&
+					Array.isArray(response.results),
+			)
+		) {
+			return responses as ModerationResponse[];
 		}
 	} catch {
 		return null;
@@ -530,8 +534,7 @@ function evaluateThresholdSweep(
 			}),
 		}))
 		.filter(
-			(evaluation) =>
-				evaluation.metrics.falsePositives <= maxFalsePositives,
+			(evaluation) => evaluation.metrics.falsePositives <= maxFalsePositives,
 		);
 }
 
@@ -542,25 +545,28 @@ function pickBestThreshold(
 		return null;
 	}
 
-	return evaluations.reduce((best, current) => {
-		if (best === null) {
-			return current;
-		}
+	return evaluations.reduce(
+		(best, current) => {
+			if (best === null) {
+				return current;
+			}
 
-		if (current.metrics.truePositives !== best.metrics.truePositives) {
-			return current.metrics.truePositives > best.metrics.truePositives
-				? current
-				: best;
-		}
+			if (current.metrics.truePositives !== best.metrics.truePositives) {
+				return current.metrics.truePositives > best.metrics.truePositives
+					? current
+					: best;
+			}
 
-		if (current.metrics.falsePositives !== best.metrics.falsePositives) {
-			return current.metrics.falsePositives < best.metrics.falsePositives
-				? current
-				: best;
-		}
+			if (current.metrics.falsePositives !== best.metrics.falsePositives) {
+				return current.metrics.falsePositives < best.metrics.falsePositives
+					? current
+					: best;
+			}
 
-		return current.threshold > best.threshold ? current : best;
-	}, null as ThresholdEvaluation | null);
+			return current.threshold > best.threshold ? current : best;
+		},
+		null as ThresholdEvaluation | null,
+	);
 }
 
 function getCurrentRuleMetrics(
@@ -572,7 +578,8 @@ function getCurrentRuleMetrics(
 		description: `Any category score > ${formatNumber(currentThreshold)}`,
 		metrics: calculateMetrics(
 			rows,
-			(row) => row.maxScoreOverall !== null && row.maxScoreOverall > currentThreshold,
+			(row) =>
+				row.maxScoreOverall !== null && row.maxScoreOverall > currentThreshold,
 		),
 	};
 }
@@ -598,7 +605,8 @@ function getFlaggedOrThresholdRuleMetrics(
 			rows,
 			(row) =>
 				row.anyFlagged ||
-				(row.maxScoreOverall !== null && row.maxScoreOverall > currentThreshold),
+				(row.maxScoreOverall !== null &&
+					row.maxScoreOverall > currentThreshold),
 		),
 	};
 }
@@ -635,9 +643,7 @@ function getCategoryRecommendations(
 			}
 
 			const maxNegativeScore =
-				negativeScores.length === 0
-					? 0
-					: Math.max(...negativeScores);
+				negativeScores.length === 0 ? 0 : Math.max(...negativeScores);
 			const truePositives = positiveScores.filter(
 				(score) => score > maxNegativeScore,
 			).length;
@@ -900,7 +906,10 @@ function main(): void {
 	const currentFalseNegatives = tunableRows.filter(
 		(row) =>
 			row.isContentFiltered &&
-			!(row.maxScoreOverall !== null && row.maxScoreOverall > options.currentThreshold),
+			!(
+				row.maxScoreOverall !== null &&
+				row.maxScoreOverall > options.currentThreshold
+			),
 	);
 	const currentFalsePositives = tunableRows.filter(
 		(row) =>
@@ -955,7 +964,9 @@ function main(): void {
 	);
 
 	if (options.inspectId) {
-		const inspectedRow = analyzedRows.find((row) => row.id === options.inspectId);
+		const inspectedRow = analyzedRows.find(
+			(row) => row.id === options.inspectId,
+		);
 		if (!inspectedRow) {
 			fail(`Row id not found: ${options.inspectId}`);
 		}
