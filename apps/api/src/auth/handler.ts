@@ -1,5 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
+import { withSsoRequest } from "@/auth/sso-context.js";
+
 import { hasDeploymentEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import { apiAuth } from "./config.js";
@@ -49,6 +51,7 @@ authHandler.on(["POST", "GET"], "/auth/*", (c) => {
 	}
 	if (
 		(pathname === "/auth/sign-in/sso" || pathname.startsWith("/auth/sso/")) &&
+		process.env.HOSTED !== "true" &&
 		!hasDeploymentEnterpriseAccess()
 	) {
 		return c.json(
@@ -59,5 +62,5 @@ authHandler.on(["POST", "GET"], "/auth/*", (c) => {
 			403,
 		);
 	}
-	return apiAuth.handler(c.req.raw);
+	return withSsoRequest(() => apiAuth.handler(c.req.raw));
 });

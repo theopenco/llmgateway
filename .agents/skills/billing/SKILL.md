@@ -18,6 +18,11 @@ description: Organizations, plans, credits, and billing in LLM Gateway — org k
 - End-user wallet organizations are regular PAYG `default` orgs. `withWalletCredits` affects only downstream credit gating, never kind- or plan-gated gateway logic.
 - For "has this org ever paid for DevPass", use `hasBillingHistory` from `GET /dev-plans/status`; plan end clears every `devPlan*` column.
 
+## SSO identity trust
+
+- Paid SSO/SCIM entitlement and organization administration do not prove domain ownership. Keep new SAML connections unverified until every domain passes the scoped SDK DNS flow; domain edits clear proof and enforcement.
+- Reject out-of-domain asserted emails and existing account-owner bindings before user/account/session writes in `resolveSsoUser`. Bind JIT to its request-local trusted provider; self-serve SCIM tokens and identities stay within an owned verified connection. Preserve deployment licensing and Enterprise-only Google auto-join.
+
 ## Audit log, emails, notifications
 
 - `audit_log` records actions owned by one organization. User-account events (email, password, profile) belong in a user-scoped store.

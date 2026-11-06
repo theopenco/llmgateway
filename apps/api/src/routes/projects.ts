@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
 import { resolveProjectLimit } from "@/lib/project-limit.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
@@ -716,58 +717,56 @@ export async function createProjectForOrg(
 		}
 	}
 
-	const organizationRow = await db.query.organization.findFirst({
-		where: { id: { eq: organizationId } },
-	});
+	const newProject = await withOrganizationCapacity(
+		organizationId,
+		async (tx, organizationRow) => {
+			const existingProjects = await tx.query.project.findMany({
+				where: {
+					organizationId: { eq: organizationId },
+					status: { ne: "deleted" },
+				},
+			});
 
-	if (!organizationRow || organizationRow.status === "deleted") {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
+			const projectLimit = resolveProjectLimit(
+				organizationRow.id,
+				organizationRow.plan,
+				organizationRow.projectLimit,
+				organizationRow,
+			);
 
-	const existingProjects = await db.query.project.findMany({
-		where: {
-			organizationId: { eq: organizationId },
-			status: { ne: "deleted" },
+			if (existingProjects.length >= projectLimit) {
+				throw new HTTPException(403, {
+					message: `You have reached the limit of ${projectLimit} projects. Add extra projects to a Pro plan on the plan page, or contact us at contact@llmgateway.io.`,
+				});
+			}
+
+			if (
+				(cachingEnabled || providerCachingExplicitlyEnabled) &&
+				isZeroDataRetentionEnabled(organizationRow)
+			) {
+				throw new HTTPException(400, {
+					message: cachingEnabled
+						? zdrCachingConflictMessage
+						: zdrProviderCachingConflictMessage,
+				});
+			}
+
+			const [newProject] = await tx
+				.insert(tables.project)
+				.values({
+					name,
+					organizationId,
+					cachingEnabled,
+					cacheDurationSeconds,
+					providerCacheAutoTtl,
+					providerCacheControlMode,
+					mode,
+				})
+				.returning();
+
+			return newProject;
 		},
-	});
-
-	const projectLimit = resolveProjectLimit(
-		organizationRow.id,
-		organizationRow.plan,
-		organizationRow.projectLimit,
 	);
-
-	if (existingProjects.length >= projectLimit) {
-		throw new HTTPException(403, {
-			message: `You have reached the limit of ${projectLimit} projects. Contact us at contact@llmgateway.io to unlock more.`,
-		});
-	}
-
-	if (
-		(cachingEnabled || providerCachingExplicitlyEnabled) &&
-		isZeroDataRetentionEnabled(organizationRow)
-	) {
-		throw new HTTPException(400, {
-			message: cachingEnabled
-				? zdrCachingConflictMessage
-				: zdrProviderCachingConflictMessage,
-		});
-	}
-
-	const [newProject] = await db
-		.insert(tables.project)
-		.values({
-			name,
-			organizationId,
-			cachingEnabled,
-			cacheDurationSeconds,
-			providerCacheAutoTtl,
-			providerCacheControlMode,
-			mode,
-		})
-		.returning();
 
 	await logAuditEvent({
 		organizationId,

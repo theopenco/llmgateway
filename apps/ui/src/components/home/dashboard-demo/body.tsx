@@ -85,7 +85,7 @@ const ENTERPRISE_NOTES: Partial<Record<LiveView, string>> = {
 		"Member usage, limits and teams are Enterprise features, shown with sample data.",
 	"org/guardrails": "Enterprise feature, shown with sample data.",
 	"org/security-events": "Enterprise feature, shown with sample data.",
-	"org/sso": "Enterprise feature, shown with sample data.",
+
 	"org/audit-logs": "Enterprise feature, shown with sample data.",
 };
 

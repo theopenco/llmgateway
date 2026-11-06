@@ -1,0 +1,135 @@
+import { extractEmailDomain, normalizeSsoDomains } from "@/lib/sso-domains.js";
+
+import { db, eq, tables, and, sql } from "@llmgateway/db";
+import { PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+
+export async function validateSsoSessionOrganization(
+	organizationId: string,
+	sessionId: string,
+): Promise<Response | undefined> {
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+	});
+	if (
+		organization &&
+		organization.status !== "deleted" &&
+		hasSsoAccess(organization)
+	) {
+		return;
+	}
+	await db.delete(tables.session).where(eq(tables.session.id, sessionId));
+	return Response.json(
+		{
+			error: "sso_plan_required",
+			message: "An active SSO entitlement is required",
+		},
+		{ status: 403 },
+	);
+}
+
+// Hosted Pro add-ons do not replace the deployment license on self-hosted installs.
+// Check the seat cap here too, including changes made through the Stripe portal.
+export function hasSsoAccess(
+	org:
+		| {
+				id: string;
+				plan: string | null;
+				proSeats?: number | null;
+				proSsoEnabled: boolean | null;
+		  }
+		| null
+		| undefined,
+): boolean {
+	if (!org) {
+		return false;
+	}
+	if (org.plan === "enterprise") {
+		return hasOrganizationEnterpriseAccess(org.id, org.plan);
+	}
+	return (
+		org.plan === "pro" &&
+		(process.env.HOSTED === "true" ||
+			hasOrganizationEnterpriseAccess(org.id, "enterprise")) &&
+		!!org.proSsoEnabled &&
+		org.proSeats !== null &&
+		org.proSeats !== undefined &&
+		org.proSeats <= PRO_PLAN_SSO_MAX_SEATS
+	);
+}
+
+// SCIM provisioning is a separate add-on on top of SSO for Pro organizations;
+// enterprise includes it.
+export function hasScimAccess(
+	org:
+		| {
+				id: string;
+				plan: string | null;
+				proSeats?: number | null;
+				proSsoEnabled: boolean | null;
+				proScimEnabled: boolean | null;
+		  }
+		| null
+		| undefined,
+): boolean {
+	if (!org) {
+		return false;
+	}
+	return (
+		hasOrganizationEnterpriseAccess(org.id, org.plan) ||
+		(hasSsoAccess(org) && !!org.proScimEnabled)
+	);
+}
+
+export const SSO_PLAN_REQUIRED_MESSAGE = `SSO requires an enterprise plan or the Pro SSO add-on (available up to ${PRO_PLAN_SSO_MAX_SEATS} seats)`;
+
+export const SCIM_PLAN_REQUIRED_MESSAGE =
+	"SCIM provisioning requires an enterprise plan or the Pro SCIM add-on (on top of the SSO add-on)";
+
+export async function resolveSsoLoginProvider(input: {
+	providerId?: unknown;
+	email?: unknown;
+	domain?: unknown;
+}): Promise<string | null> {
+	const providerId =
+		typeof input.providerId === "string" ? input.providerId.trim() : null;
+	const domain =
+		typeof input.email === "string"
+			? extractEmailDomain(input.email)
+			: typeof input.domain === "string"
+				? normalizeSsoDomains(input.domain).domains[0]
+				: null;
+	if (!providerId && !domain) {
+		return null;
+	}
+	const rows = await db
+		.select({
+			providerId: tables.ssoProvider.providerId,
+			organization: {
+				id: tables.organization.id,
+				plan: tables.organization.plan,
+				status: tables.organization.status,
+				proSeats: tables.organization.proSeats,
+				proSsoEnabled: tables.organization.proSsoEnabled,
+			},
+		})
+		.from(tables.ssoProvider)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.ssoProvider.organizationId),
+		)
+		.where(
+			and(
+				eq(tables.ssoProvider.domainVerified, true),
+				providerId
+					? eq(tables.ssoProvider.providerId, providerId)
+					: sql`EXISTS (SELECT 1 FROM unnest(string_to_array(${tables.ssoProvider.domain}, ',')) AS domains(value) WHERE lower(btrim(value)) = ${domain})`,
+			),
+		);
+	return (
+		rows.find(
+			(row) =>
+				row.organization.status !== "deleted" && hasSsoAccess(row.organization),
+		)?.providerId ?? null
+	);
+}

@@ -320,6 +320,26 @@ export const organization = snakeCase.table(
 		// enforcement of the org-wide cap on non-deleted projects.
 		projectLimit: integer(),
 		subscriptionCancelled: boolean().notNull().default(false),
+		// Seat quantity purchased on the self-serve Pro subscription, synced from
+		// the Stripe subscription's seat line item. Null = not a seat-based Pro
+		// subscription (free orgs, enterprise orgs, and legacy flat-fee Pro
+		// subscribers, which keep the historical plan-default limits). Each seat
+		// includes one API key.
+		proSeats: integer(),
+		// Additional API keys purchased beyond the one included per seat, synced
+		// from the Stripe subscription's extra-API-key line item.
+		proExtraApiKeys: integer().notNull().default(0),
+		// Additional projects purchased beyond the included allowance (10),
+		// synced from the Stripe subscription's extra-project line item.
+		proExtraProjects: integer().notNull().default(0),
+		// Whether the Pro subscription includes the SSO add-on, synced from the
+		// Stripe subscription's SSO line item. Grants access to the SSO
+		// configuration routes that are otherwise enterprise-only.
+		proSsoEnabled: boolean().notNull().default(false),
+		// Whether the Pro subscription includes the SCIM provisioning add-on
+		// (requires the SSO add-on), synced from the Stripe subscription's SCIM
+		// line item. Grants access to SCIM token management.
+		proScimEnabled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),
 		isTrialActive: boolean().notNull().default(false),
@@ -534,6 +554,17 @@ export const organization = snakeCase.table(
 	],
 );
 
+export const organizationBillingOperation = snakeCase.table(
+	"organization_billing_operation",
+	{
+		organizationId: text()
+			.primaryKey()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		checkoutSessionId: text(),
+		checkoutConfiguration: text(),
+	},
+);
+
 // Stable Stripe card identifiers retained after the card itself is detached.
 // This preserves the one-card-per-DevPass-account rule without storing card
 // details locally.
@@ -634,6 +665,13 @@ export const transaction = snakeCase.table(
 		type: text({
 			enum: [
 				"subscription_start",
+				// Recurring monthly charge for an org Pro subscription
+				// (billing_reason `subscription_cycle`). Real dollars in `amount`.
+				"subscription_renewal",
+				// Proration invoice from a mid-cycle Pro change (seats, extra API
+				// keys, add-ons — billing_reason `subscription_update`). Real
+				// dollars in `amount`; can be small when mostly credited.
+				"subscription_update",
 				"subscription_cancel",
 				"subscription_end",
 				"credit_topup",
@@ -702,6 +740,12 @@ export const transaction = snakeCase.table(
 		stripePaymentIntentId: text(),
 		stripeInvoiceId: text(),
 		stripeRefundId: text(),
+		// Per-component USD amounts for multi-line-item purchases, keyed by
+		// component (Pro subscriptions: "seats" / "extraApiKeys" / "sso" /
+		// "scim"). Derived from the Stripe invoice's line items so feature-level
+		// revenue can be reported while `amount` stays the invoice total.
+		// Values are dollar strings and can be negative on proration credits.
+		amountBreakdown: json().$type<Record<string, string>>(),
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
@@ -3232,12 +3276,7 @@ export const ssoProvider = snakeCase.table(
 		// When true, users whose email domain matches this connection may only
 		// sign in via SSO; password/social/passkey sessions are rejected.
 		enforced: boolean().notNull().default(false),
-		// Better Auth's SSO domain-verification flag. The SAML callback only
-		// implicitly links an SSO login to an existing user (e.g. one
-		// pre-provisioned via SCIM) when the provider's domain is verified and
-		// the asserted email is on that domain; otherwise such logins fail with
-		// `account_not_linked`. We stamp it true at registration instead of
-		// running the plugin's DNS-TXT verification flow.
+		// Set only after DNS ownership verification; domain edits clear this proof.
 		domainVerified: boolean().notNull().default(false),
 	},
 	(table) => [
@@ -4873,6 +4912,7 @@ export const auditLogActions = [
 	"data_stream.settings_update",
 	// Subscription
 	"subscription.create",
+	"subscription.update",
 	"subscription.cancel",
 	"subscription.resume",
 	"subscription.upgrade_yearly",

@@ -1,3 +1,5 @@
+import { hasScimAccess, hasSsoAccess } from "@/lib/sso-access.js";
+
 import { organizationBillingFields } from "@llmgateway/db";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
@@ -6,8 +8,13 @@ import type { Organization, SerializedOrganization } from "@llmgateway/db";
 export function serializeOrganization(
 	organization: Organization,
 	role: string | undefined,
-): SerializedOrganization {
-	const serialized: SerializedOrganization = {
+): SerializedOrganization & { ssoAccess: boolean; scimAccess: boolean } {
+	const serialized: SerializedOrganization & {
+		ssoAccess: boolean;
+		scimAccess: boolean;
+	} = {
+		ssoAccess: hasSsoAccess(organization),
+		scimAccess: hasScimAccess(organization),
 		id: organization.id,
 		createdAt: organization.createdAt.toISOString(),
 		updatedAt: organization.updatedAt.toISOString(),
@@ -28,6 +35,11 @@ export function serializeOrganization(
 		seats: organization.seats,
 		apiKeyLimit: organization.apiKeyLimit,
 		projectLimit: organization.projectLimit,
+		proSeats: organization.proSeats,
+		proExtraApiKeys: organization.proExtraApiKeys,
+		proExtraProjects: organization.proExtraProjects,
+		proSsoEnabled: organization.proSsoEnabled,
+		proScimEnabled: organization.proScimEnabled,
 		retentionLevel: organization.retentionLevel,
 		providerCompliancePolicy: organization.providerCompliancePolicy,
 		smartRoutingConfig: organization.smartRoutingConfig,
@@ -86,5 +98,5 @@ export function serializeOrganization(
 		Object.entries(serialized).filter(
 			([field]) => !Object.hasOwn(organizationBillingFields, field),
 		),
-	) as SerializedOrganization;
+	) as typeof serialized;
 }

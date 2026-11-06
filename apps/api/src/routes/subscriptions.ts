@@ -1,22 +1,224 @@
+import { randomUUID } from "node:crypto";
+
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { withBillingOperation } from "@/lib/billing-operation.js";
 import { getBillingOrganization } from "@/lib/billing-organization.js";
+import {
+	proCheckoutContextHash,
+	proCheckoutIdempotencyKey,
+} from "@/lib/pro-checkout-key.js";
+import { extractProQuantities } from "@/lib/pro-plan.js";
+import {
+	recordProCancellationTransition,
+	trackProReactivation,
+} from "@/lib/pro-subscription-state.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { createRoute } from "@/utils/create-route.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import {
+	PRO_PLAN_INCLUDED_PROJECTS,
+	PRO_PLAN_MAX_EXTRA_API_KEYS,
+	PRO_PLAN_MAX_EXTRA_PROJECTS,
+	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_MIN_SEATS,
+	PRO_PLAN_SSO_MAX_SEATS,
+} from "@llmgateway/shared";
 
 import { getStripe } from "./payments.js";
 
+import type { CapacityTransaction } from "@/lib/billing-operation.js";
 import type { ServerTypes } from "@/vars.js";
+import type Stripe from "stripe";
 
 export const subscriptions = new OpenAPIHono<ServerTypes>();
 
 const organizationQuery = z.object({ organizationId: z.string().optional() });
+
+// Self-serve Pro configuration: seats (each including one API key), extra API
+// keys beyond the per-seat allowance, and the flat SSO and SCIM add-ons.
+const proSelectionSchema = z.object({
+	seats: z.number().int().min(PRO_PLAN_MIN_SEATS).max(PRO_PLAN_MAX_SEATS),
+	extraApiKeys: z
+		.number()
+		.int()
+		.min(0)
+		.max(PRO_PLAN_MAX_EXTRA_API_KEYS)
+		.optional()
+		.default(0),
+	extraProjects: z
+		.number()
+		.int()
+		.min(0)
+		.max(PRO_PLAN_MAX_EXTRA_PROJECTS)
+		.optional()
+		.default(0),
+	ssoAddon: z.boolean().optional().default(false),
+	// SCIM provisioning rides on the SSO connection, so it can only be bought
+	// together with the SSO add-on.
+	scimAddon: z.boolean().optional().default(false),
+});
+
+export function getProPriceIds(): {
+	seat: string;
+	extraApiKey: string;
+	extraProject: string;
+	sso: string;
+	scim: string;
+} {
+	const seat = process.env.STRIPE_PRO_SEAT_PRICE_ID;
+	const extraApiKey = process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID;
+	const extraProject = process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID;
+	const sso = process.env.STRIPE_PRO_SSO_PRICE_ID;
+	const scim = process.env.STRIPE_PRO_SCIM_PRICE_ID;
+	if (
+		!seat ||
+		!extraApiKey ||
+		!extraProject ||
+		!sso ||
+		!scim ||
+		new Set([seat, extraApiKey, extraProject, sso, scim]).size !== 5
+	) {
+		throw new HTTPException(500, {
+			message:
+				"Pro plan price IDs are not configured (STRIPE_PRO_SEAT_PRICE_ID, STRIPE_PRO_EXTRA_API_KEY_PRICE_ID, STRIPE_PRO_EXTRA_PROJECT_PRICE_ID, STRIPE_PRO_SSO_PRICE_ID, STRIPE_PRO_SCIM_PRICE_ID)",
+		});
+	}
+	return { seat, extraApiKey, extraProject, sso, scim };
+}
+
+function assertAddonDependency(
+	seats: number,
+	ssoAddon: boolean,
+	scimAddon: boolean,
+) {
+	if (scimAddon && !ssoAddon) {
+		throw new HTTPException(400, {
+			message: "The SCIM add-on requires the SSO add-on",
+		});
+	}
+	// SSO on Pro is capped; larger teams need an Enterprise agreement.
+	if (ssoAddon && seats > PRO_PLAN_SSO_MAX_SEATS) {
+		throw new HTTPException(400, {
+			message: `The SSO add-on is available for up to ${PRO_PLAN_SSO_MAX_SEATS} seats. Contact us at contact@llmgateway.io for Enterprise SSO.`,
+		});
+	}
+}
+
+function assertOwner(role: string) {
+	if (role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can manage subscriptions",
+		});
+	}
+}
+
+// A Pro configuration must cover what the organization already uses: every
+// member (and pending invite) needs a seat, every active developer API key
+// must be covered by a seat's included key or a purchased extra key, and
+// every non-deleted project must fit in the included allowance plus
+// purchased extra projects.
+async function assertSelectionCoversUsage(
+	organizationId: string,
+	seats: number,
+	extraApiKeys: number,
+	extraProjects: number,
+	client: typeof db | CapacityTransaction = db,
+) {
+	const [members, invites, orgProjects] = await Promise.all([
+		client.query.userOrganization.findMany({
+			where: { organizationId: { eq: organizationId } },
+			columns: { id: true },
+		}),
+		client.query.organizationInvite.findMany({
+			where: {
+				organizationId: { eq: organizationId },
+				status: { eq: "pending" },
+			},
+			columns: { expiresAt: true },
+		}),
+		client.query.project.findMany({
+			where: {
+				organizationId: { eq: organizationId },
+				status: { ne: "deleted" },
+			},
+			columns: { id: true },
+		}),
+	]);
+
+	const now = new Date();
+	const seatsUsed =
+		members.length + invites.filter((i) => i.expiresAt > now).length;
+
+	if (seats < seatsUsed) {
+		throw new HTTPException(400, {
+			message: `Your organization currently uses ${seatsUsed} seats (members plus pending invites). Select at least ${seatsUsed} seats or remove members first.`,
+		});
+	}
+
+	const activeKeys = orgProjects.length
+		? await client.query.apiKey.findMany({
+				where: {
+					projectId: { in: orgProjects.map((p) => p.id) },
+					status: { eq: "active" },
+					keyType: { eq: "user" },
+					// Playground session keys don't count toward the API-key cap
+					// (see keys-api), so they must not require paid extra keys.
+					kind: { ne: "playground" },
+				},
+				columns: { id: true },
+			})
+		: [];
+
+	if (seats + extraApiKeys < activeKeys.length) {
+		throw new HTTPException(400, {
+			message: `Your organization has ${activeKeys.length} active API keys, but the selected plan only covers ${seats + extraApiKeys} (one per seat plus extra keys). Add extra API keys or delete unused keys first.`,
+		});
+	}
+
+	const projectAllowance = PRO_PLAN_INCLUDED_PROJECTS + extraProjects;
+	if (orgProjects.length > projectAllowance) {
+		throw new HTTPException(400, {
+			message: `Your organization has ${orgProjects.length} projects, but the selected plan only covers ${projectAllowance} (${PRO_PLAN_INCLUDED_PROJECTS} included plus extra projects). Add extra projects or delete unused ones first.`,
+		});
+	}
+}
+
+function buildProLineItems(selection: {
+	seats: number;
+	extraApiKeys: number;
+	extraProjects: number;
+	ssoAddon: boolean;
+	scimAddon: boolean;
+}): { price: string; quantity: number }[] {
+	const priceIds = getProPriceIds();
+	const lineItems = [{ price: priceIds.seat, quantity: selection.seats }];
+	if (selection.extraApiKeys > 0) {
+		lineItems.push({
+			price: priceIds.extraApiKey,
+			quantity: selection.extraApiKeys,
+		});
+	}
+	if (selection.extraProjects > 0) {
+		lineItems.push({
+			price: priceIds.extraProject,
+			quantity: selection.extraProjects,
+		});
+	}
+	if (selection.ssoAddon) {
+		lineItems.push({ price: priceIds.sso, quantity: 1 });
+	}
+	if (selection.scimAddon) {
+		lineItems.push({ price: priceIds.scim, quantity: 1 });
+	}
+	return lineItems;
+}
 
 const createProSubscription = createRoute({
 	method: "post",
@@ -26,12 +228,7 @@ const createProSubscription = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						billingCycle: z
-							.enum(["monthly", "yearly"])
-							.optional()
-							.default("monthly"),
-					}),
+					schema: proSelectionSchema,
 				},
 			},
 		},
@@ -52,7 +249,9 @@ const createProSubscription = createRoute({
 
 subscriptions.openapi(createProSubscription, async (c) => {
 	const user = c.get("user");
-	const { billingCycle } = c.req.valid("json");
+	const { seats, extraApiKeys, extraProjects, ssoAddon, scimAddon } =
+		c.req.valid("json");
+	assertAddonDependency(seats, ssoAddon, scimAddon);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -72,104 +271,416 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		user.id,
 		organizationId,
 	);
+	assertOwner(userOrganization.role);
 
-	// Only owners can manage subscriptions
-	if (userOrganization.role !== "owner") {
+	const snapshot = userOrganization.organization;
+	if (snapshot.kind !== "default" || snapshot.plan === "enterprise") {
 		throw new HTTPException(403, {
-			message: "Only owners can manage subscriptions",
+			message: "This organization cannot purchase a Pro subscription",
 		});
 	}
-
-	const organization = userOrganization.organization;
-
-	// Block paid subscriptions for personal/chat orgs (dev/chat plans only)
-	if (organization.kind !== "default") {
-		throw new HTTPException(403, {
-			message:
-				"Paid subscriptions are not available for personal organizations. Please use Dev Plans at devpass.llmgateway.io or create a regular organization.",
-		});
-	}
-
-	// Check if organization already has a pro subscription
-	if (organization.plan === "pro" && organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "Organization already has an active pro subscription",
-		});
-	}
-
-	try {
-		const stripeCustomerId = await ensureStripeCustomer(organization.id);
-
-		// Determine which price ID to use based on billing cycle
-		const priceId =
-			billingCycle === "yearly"
-				? process.env.STRIPE_PRO_YEARLY_PRICE_ID
-				: process.env.STRIPE_PRO_MONTHLY_PRICE_ID;
-
-		if (!priceId) {
-			throw new HTTPException(500, {
-				message: `STRIPE_PRO_${billingCycle === "yearly" ? "YEARLY_" : "MONTHLY_"}PRICE_ID environment variable is not set`,
+	const stripeCustomerId = await ensureStripeCustomer(snapshot.id);
+	return await withBillingOperation(snapshot.id, async (tx, organization) => {
+		if (organization.kind !== "default" || organization.plan === "enterprise") {
+			throw new HTTPException(403, {
+				message: "This organization cannot purchase a Pro subscription",
 			});
 		}
-
-		// Create Stripe Checkout session
-		const session = await getStripe().checkout.sessions.create({
-			customer: stripeCustomerId,
-			mode: "subscription",
-			line_items: [
-				{
-					price: priceId,
-					quantity: 1,
-				},
-			],
-			allow_promotion_codes: true,
-			...(await forcedThreeDSecureOptions()),
-			success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?success=true`,
-			cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?canceled=true`,
-			metadata: {
-				organizationId: organization.id,
-				plan: "pro",
-				billingCycle,
-				userEmail: user.email,
-			},
-			subscription_data: {
-				metadata: {
-					organizationId: organization.id,
-					plan: "pro",
-					billingCycle,
-					userEmail: user.email,
-				},
-			},
-		});
-
-		if (!session.url) {
-			throw new HTTPException(500, {
-				message: "Failed to generate checkout URL",
+		if (organization.stripeSubscriptionId) {
+			throw new HTTPException(400, {
+				message: "Organization already has a pro subscription",
 			});
 		}
-
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.create",
-			resourceType: "subscription",
-			metadata: {
-				billingCycle,
-			},
-		});
-
-		return c.json({
-			checkoutUrl: session.url,
-		});
-	} catch (error) {
-		logger.error(
-			"Stripe checkout session error",
-			error instanceof Error ? error : new Error(String(error)),
+		await assertSelectionCoversUsage(
+			organization.id,
+			seats,
+			extraApiKeys,
+			extraProjects,
+			tx,
 		);
-		throw new HTTPException(500, {
-			message: `Failed to create checkout session: ${error}`,
+		const threeDSecure = await forcedThreeDSecureOptions();
+		const successUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?success=true`;
+		const cancelUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?canceled=true`;
+		const context = JSON.stringify({
+			organizationId: organization.id,
+			email: user.email,
+			successUrl,
+			cancelUrl,
+			threeDSecure,
+		});
+		const prices = getProPriceIds();
+		const publicParts = [
+			seats,
+			extraApiKeys,
+			extraProjects,
+			ssoAddon,
+			scimAddon,
+			...Object.values(prices),
+		];
+		const configuration = JSON.stringify({
+			seats,
+			extraApiKeys,
+			extraProjects,
+			ssoAddon,
+			scimAddon,
+			prices,
+			requestContext: proCheckoutContextHash(context),
+		});
+		const [pending] = await tx
+			.select()
+			.from(tables.organizationBillingOperation)
+			.where(
+				eq(tables.organizationBillingOperation.organizationId, organization.id),
+			);
+		try {
+			const stripe = getStripe();
+			let reusable: Stripe.Checkout.Session | undefined;
+			if (pending.checkoutSessionId) {
+				const previous = await stripe.checkout.sessions.retrieve(
+					pending.checkoutSessionId,
+				);
+				if (previous.metadata?.organizationId !== organization.id) {
+					throw new Error("Stored checkout organization mismatch");
+				}
+				if (previous.status === "complete") {
+					const id =
+						typeof previous.subscription === "string"
+							? previous.subscription
+							: previous.subscription?.id;
+					const current = id ? await stripe.subscriptions.retrieve(id) : null;
+					if (
+						!current ||
+						!["canceled", "incomplete_expired"].includes(current.status)
+					) {
+						throw new HTTPException(409, {
+							message:
+								"Checkout is being finalized; refresh your subscription status",
+						});
+					}
+				}
+				if (previous.status === "open") {
+					if (previous.metadata?.proConfiguration === configuration) {
+						reusable = previous;
+					} else {
+						await stripe.checkout.sessions.expire(previous.id);
+					}
+				}
+			}
+			let cursor: string | undefined;
+			for (;;) {
+				const page = await stripe.checkout.sessions.list({
+					customer: stripeCustomerId,
+					status: "open",
+					limit: 100,
+					...(cursor ? { starting_after: cursor } : {}),
+				});
+				for (const session of page.data) {
+					if (
+						session.mode !== "subscription" ||
+						session.metadata?.organizationId !== organization.id ||
+						session.metadata.plan !== "pro" ||
+						session.id === reusable?.id
+					) {
+						continue;
+					}
+					if (
+						!reusable &&
+						session.metadata.proConfiguration === configuration
+					) {
+						reusable = session;
+					} else {
+						await stripe.checkout.sessions.expire(session.id);
+					}
+				}
+				if (!page.has_more) {
+					break;
+				}
+				if (!page.data.length) {
+					throw new Error("Stripe returned an incomplete checkout page");
+				}
+				cursor = page.data[page.data.length - 1].id;
+			}
+			let session = reusable;
+			let generation = pending.checkoutSessionId ?? "initial";
+			for (let attempt = 0; !session && attempt < 3; attempt++) {
+				const created = await stripe.checkout.sessions.create(
+					{
+						customer: stripeCustomerId,
+						mode: "subscription",
+						line_items: buildProLineItems({
+							seats,
+							extraApiKeys,
+							extraProjects,
+							ssoAddon,
+							scimAddon,
+						}),
+						allow_promotion_codes: true,
+						...threeDSecure,
+						success_url: successUrl,
+						cancel_url: cancelUrl,
+						metadata: {
+							organizationId: organization.id,
+							plan: "pro",
+							userEmail: user.email,
+							proConfiguration: configuration,
+						},
+						subscription_data: {
+							metadata: {
+								organizationId: organization.id,
+								plan: "pro",
+								userEmail: user.email,
+								proBillingVersion: "seats_v1",
+							},
+						},
+					},
+					{
+						idempotencyKey: proCheckoutIdempotencyKey(
+							context,
+							generation,
+							publicParts,
+						),
+					},
+				);
+				const current = await stripe.checkout.sessions.retrieve(created.id);
+				if (current.metadata?.organizationId !== organization.id) {
+					throw new Error("Created checkout organization mismatch");
+				}
+				if (current.status === "complete") {
+					throw new HTTPException(409, {
+						message:
+							"Checkout is being finalized; refresh your subscription status",
+					});
+				}
+				if (current.status === "open") {
+					session = current;
+				} else {
+					generation =
+						attempt === 1 ? `${current.id}:${randomUUID()}` : current.id;
+				}
+			}
+			if (!session) {
+				throw new HTTPException(409, {
+					message: "Checkout expired; retry your request",
+				});
+			}
+			if (!session.url) {
+				throw new HTTPException(500, {
+					message: "Failed to generate checkout URL",
+				});
+			}
+			await tx
+				.update(tables.organizationBillingOperation)
+				.set({
+					checkoutSessionId: session.id,
+					checkoutConfiguration: configuration,
+				})
+				.where(
+					eq(
+						tables.organizationBillingOperation.organizationId,
+						organization.id,
+					),
+				);
+			await logAuditEvent({
+				organizationId: organization.id,
+				userId: user.id,
+				action: "subscription.create",
+				resourceType: "subscription",
+				metadata: { seats, extraApiKeys, extraProjects, ssoAddon, scimAddon },
+			});
+			return c.json({ checkoutUrl: session.url });
+		} catch (error) {
+			if (error instanceof HTTPException) {
+				throw error;
+			}
+			logger.error(
+				"Stripe checkout session error",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+			throw new HTTPException(500, {
+				message: "Failed to create checkout session",
+			});
+		}
+	});
+});
+
+const updateProSubscription = createRoute({
+	method: "post",
+	path: "/update-pro-subscription",
+	request: {
+		query: organizationQuery,
+		body: {
+			content: {
+				"application/json": {
+					schema: proSelectionSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+					}),
+				},
+			},
+			description: "Pro subscription updated successfully",
+		},
+	},
+});
+
+subscriptions.openapi(updateProSubscription, async (c) => {
+	const user = c.get("user");
+	const { seats, extraApiKeys, extraProjects, ssoAddon, scimAddon } =
+		c.req.valid("json");
+	assertAddonDependency(seats, ssoAddon, scimAddon);
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
 		});
 	}
+
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		organizationId,
+	);
+	assertOwner(userOrganization.role);
+
+	return await withBillingOperation(
+		userOrganization.organization.id,
+		async (tx, organization) => {
+			if (
+				organization.kind !== "default" ||
+				organization.plan !== "pro" ||
+				!organization.stripeSubscriptionId
+			) {
+				throw new HTTPException(400, {
+					message: "No active pro subscription found",
+				});
+			}
+
+			// Legacy flat-fee Pro subscriptions have no seat line item to adjust.
+			if (organization.proSeats === null) {
+				throw new HTTPException(400, {
+					message:
+						"Your legacy Pro subscription cannot be changed here. Cancel it first, then subscribe to the new per-seat Pro plan.",
+				});
+			}
+
+			await assertSelectionCoversUsage(
+				organization.id,
+				seats,
+				extraApiKeys,
+				extraProjects,
+				tx,
+			);
+
+			const priceIds = getProPriceIds();
+
+			try {
+				const stripe = getStripe();
+				const subscription = await stripe.subscriptions.retrieve(
+					organization.stripeSubscriptionId,
+				);
+
+				// A subscription that is ending or unpaid must not take prorated
+				// quantity changes — resume (or resolve payment) first.
+				if (subscription.cancel_at_period_end) {
+					throw new HTTPException(400, {
+						message:
+							"Your subscription is scheduled to cancel. Resume it before changing seats or add-ons.",
+					});
+				}
+				if (
+					subscription.status !== "active" &&
+					subscription.status !== "trialing"
+				) {
+					throw new HTTPException(400, {
+						message: `Your subscription is ${subscription.status} and cannot be changed right now.`,
+					});
+				}
+
+				// Map the desired quantities onto the existing subscription items:
+				// update quantities in place, add missing items, delete dropped ones.
+				const desired: { price: string; quantity: number }[] = [
+					{ price: priceIds.seat, quantity: seats },
+					{ price: priceIds.extraApiKey, quantity: extraApiKeys },
+					{ price: priceIds.extraProject, quantity: extraProjects },
+					{ price: priceIds.sso, quantity: ssoAddon ? 1 : 0 },
+					{ price: priceIds.scim, quantity: scimAddon ? 1 : 0 },
+				];
+
+				const items: Stripe.SubscriptionUpdateParams.Item[] = [];
+				for (const { price, quantity } of desired) {
+					const existing = subscription.items.data.find(
+						(item) => item.price.id === price,
+					);
+					if (existing && quantity > 0) {
+						items.push({ id: existing.id, quantity });
+					} else if (existing && quantity === 0) {
+						items.push({ id: existing.id, deleted: true });
+					} else if (!existing && quantity > 0) {
+						items.push({ price, quantity });
+					}
+				}
+
+				const updatedSubscription = await stripe.subscriptions.update(
+					organization.stripeSubscriptionId,
+					{
+						items,
+						proration_behavior: "create_prorations",
+					},
+				);
+
+				const quantities = extractProQuantities(
+					updatedSubscription,
+					organization.proSeats !== null,
+				);
+				if (!quantities) {
+					throw new HTTPException(409, {
+						message: "Stripe returned an unrecognized Pro subscription",
+					});
+				}
+				await tx
+					.update(tables.organization)
+					.set(quantities)
+					.where(eq(tables.organization.id, organization.id));
+
+				await logAuditEvent({
+					organizationId: organization.id,
+					userId: user.id,
+					action: "subscription.update",
+					resourceType: "subscription",
+					resourceId: organization.stripeSubscriptionId,
+					metadata: {
+						seats,
+						extraApiKeys,
+						extraProjects,
+						ssoAddon,
+						scimAddon,
+					},
+				});
+
+				return c.json({
+					success: true,
+				});
+			} catch (error) {
+				if (error instanceof HTTPException) {
+					throw error;
+				}
+				logger.error(
+					"Stripe subscription update error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				throw new HTTPException(500, {
+					message: "Failed to update subscription",
+				});
+			}
+		},
+	);
 });
 
 const cancelProSubscription = createRoute({
@@ -204,53 +715,66 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 		user.id,
 		organizationId,
 	);
+	assertOwner(userOrganization.role);
 
-	// Only owners can manage subscriptions
-	if (userOrganization.role !== "owner") {
-		throw new HTTPException(403, {
-			message: "Only owners can manage subscriptions",
-		});
+	const result = await withBillingOperation(
+		userOrganization.organization.id,
+		async (tx, organization) => {
+			if (!organization.stripeSubscriptionId) {
+				throw new HTTPException(400, {
+					message: "No active subscription found",
+				});
+			}
+
+			try {
+				// Cancel the subscription at the end of the current period
+				const updatedSubscription = await getStripe().subscriptions.update(
+					organization.stripeSubscriptionId,
+					{
+						cancel_at_period_end: true,
+					},
+				);
+
+				const reactivated = await recordProCancellationTransition(
+					tx,
+					organization,
+					updatedSubscription.cancel_at_period_end,
+				);
+				await logAuditEvent({
+					organizationId: organization.id,
+					userId: user.id,
+					action: "subscription.cancel",
+					resourceType: "subscription",
+					resourceId: organization.stripeSubscriptionId,
+				});
+
+				await tx
+					.update(tables.organization)
+					.set({
+						subscriptionCancelled: updatedSubscription.cancel_at_period_end,
+					})
+					.where(eq(tables.organization.id, organization.id));
+
+				return {
+					response: c.json({ success: true }, 200),
+					reactivated,
+					organization: { id: organization.id, name: organization.name },
+				};
+			} catch (error) {
+				logger.error(
+					"Stripe subscription cancellation error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				throw new HTTPException(500, {
+					message: "Failed to cancel subscription",
+				});
+			}
+		},
+	);
+	if (result.reactivated) {
+		trackProReactivation(result.organization, "dashboard");
 	}
-
-	const organization = userOrganization.organization;
-
-	if (!organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "No active subscription found",
-		});
-	}
-
-	try {
-		// Cancel the subscription at the end of the current period
-		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
-			cancel_at_period_end: true,
-		});
-
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.cancel",
-			resourceType: "subscription",
-			resourceId: organization.stripeSubscriptionId,
-		});
-
-		// let the webhook handler the rest to unify the logic
-		await new Promise((resolve) => {
-			setTimeout(resolve, 5000);
-		});
-
-		return c.json({
-			success: true,
-		});
-	} catch (error) {
-		logger.error(
-			"Stripe subscription cancellation error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw new HTTPException(500, {
-			message: "Failed to cancel subscription",
-		});
-	}
+	return result.response;
 });
 
 const resumeProSubscription = createRoute({
@@ -285,170 +809,80 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 		user.id,
 		organizationId,
 	);
+	assertOwner(userOrganization.role);
 
-	// Only owners can manage subscriptions
-	if (userOrganization.role !== "owner") {
-		throw new HTTPException(403, {
-			message: "Only owners can manage subscriptions",
-		});
-	}
+	const result = await withBillingOperation(
+		userOrganization.organization.id,
+		async (tx, organization) => {
+			if (!organization.stripeSubscriptionId) {
+				throw new HTTPException(400, {
+					message: "No active subscription found",
+				});
+			}
 
-	const organization = userOrganization.organization;
+			try {
+				// Check if subscription is actually cancelled
+				const subscription = await getStripe().subscriptions.retrieve(
+					organization.stripeSubscriptionId,
+				);
 
-	if (!organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "No active subscription found",
-		});
-	}
+				if (!subscription.cancel_at_period_end) {
+					throw new HTTPException(400, {
+						message: "Subscription is not cancelled",
+					});
+				}
 
-	try {
-		// Check if subscription is actually cancelled
-		const subscription = await getStripe().subscriptions.retrieve(
-			organization.stripeSubscriptionId,
-		);
+				// Resume the subscription by setting cancel_at_period_end to false
+				const updatedSubscription = await getStripe().subscriptions.update(
+					organization.stripeSubscriptionId,
+					{
+						cancel_at_period_end: false,
+					},
+				);
 
-		if (!subscription.cancel_at_period_end) {
-			throw new HTTPException(400, {
-				message: "Subscription is not cancelled",
-			});
-		}
+				const reactivated = await recordProCancellationTransition(
+					tx,
+					organization,
+					updatedSubscription.cancel_at_period_end,
+				);
+				await logAuditEvent({
+					organizationId: organization.id,
+					userId: user.id,
+					action: "subscription.resume",
+					resourceType: "subscription",
+					resourceId: organization.stripeSubscriptionId,
+				});
 
-		// Resume the subscription by setting cancel_at_period_end to false
-		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
-			cancel_at_period_end: false,
-		});
+				await tx
+					.update(tables.organization)
+					.set({
+						subscriptionCancelled: updatedSubscription.cancel_at_period_end,
+					})
+					.where(eq(tables.organization.id, organization.id));
 
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.resume",
-			resourceType: "subscription",
-			resourceId: organization.stripeSubscriptionId,
-		});
-
-		// let the webhook handler the rest to unify the logic
-		await new Promise((resolve) => {
-			setTimeout(resolve, 5000);
-		});
-
-		return c.json({
-			success: true,
-		});
-	} catch (error) {
-		logger.error(
-			"Stripe subscription resume error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw new HTTPException(500, {
-			message: "Failed to resume subscription",
-		});
-	}
-});
-
-const upgradeToYearlyPlan = createRoute({
-	method: "post",
-	path: "/upgrade-to-yearly",
-	request: { query: organizationQuery },
-	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-					}),
-				},
-			},
-			description: "Subscription upgraded to yearly successfully",
+				return {
+					response: c.json({ success: true }, 200),
+					reactivated,
+					organization: { id: organization.id, name: organization.name },
+				};
+			} catch (error) {
+				if (error instanceof HTTPException) {
+					throw error;
+				}
+				logger.error(
+					"Stripe subscription resume error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				throw new HTTPException(500, {
+					message: "Failed to resume subscription",
+				});
+			}
 		},
-	},
-});
-
-subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-
-	const { organizationId } = c.req.valid("query");
-	const userOrganization = await getBillingOrganization(
-		user.id,
-		organizationId,
 	);
-
-	// Only owners can manage subscriptions
-	if (userOrganization.role !== "owner") {
-		throw new HTTPException(403, {
-			message: "Only owners can manage subscriptions",
-		});
+	if (result.reactivated) {
+		trackProReactivation(result.organization, "dashboard");
 	}
-
-	const organization = userOrganization.organization;
-
-	if (!organization.stripeSubscriptionId) {
-		throw new HTTPException(400, {
-			message: "No active subscription found",
-		});
-	}
-
-	try {
-		// Get current subscription to check if it's already yearly
-		const subscription = await getStripe().subscriptions.retrieve(
-			organization.stripeSubscriptionId,
-		);
-
-		// Check if already on yearly plan
-		const currentPriceId = subscription.items.data[0]?.price.id;
-		const yearlyPriceId = process.env.STRIPE_PRO_YEARLY_PRICE_ID;
-		if (!yearlyPriceId) {
-			throw new HTTPException(500, {
-				message: "Yearly price ID is not configured",
-			});
-		}
-
-		if (currentPriceId === yearlyPriceId) {
-			throw new HTTPException(400, {
-				message: "Subscription is already on yearly plan",
-			});
-		}
-
-		// Update subscription to yearly plan
-		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
-			items: [
-				{
-					id: subscription.items.data[0].id,
-					price: yearlyPriceId,
-				},
-			],
-			proration_behavior: "create_prorations",
-			metadata: {
-				...subscription.metadata,
-				billingCycle: "yearly",
-			},
-		});
-
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.upgrade_yearly",
-			resourceType: "subscription",
-			resourceId: organization.stripeSubscriptionId,
-		});
-
-		return c.json({
-			success: true,
-		});
-	} catch (error) {
-		logger.error(
-			"Stripe subscription upgrade error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw new HTTPException(500, {
-			message: "Failed to upgrade subscription to yearly plan",
-		});
-	}
+	return result.response;
 });
 
 const getSubscriptionStatus = createRoute({
@@ -466,6 +900,13 @@ const getSubscriptionStatus = createRoute({
 						subscriptionCancelled: z.boolean(),
 						subscriptionPaymentStatus: z.enum(["current", "past_due"]),
 						billingCycle: z.enum(["monthly", "yearly"]).nullable(),
+						// Seat-based Pro configuration; `seats` is null for free,
+						// enterprise, and legacy flat-fee Pro organizations.
+						seats: z.number().nullable(),
+						extraApiKeys: z.number(),
+						extraProjects: z.number(),
+						ssoAddon: z.boolean(),
+						scimAddon: z.boolean(),
 					}),
 				},
 			},
@@ -476,6 +917,7 @@ const getSubscriptionStatus = createRoute({
 
 subscriptions.openapi(getSubscriptionStatus, async (c) => {
 	const user = c.get("user");
+	const { organizationId } = c.req.valid("query");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -483,7 +925,6 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 		});
 	}
 
-	const { organizationId } = c.req.valid("query");
 	const userOrganization = await getBillingOrganization(
 		user.id,
 		organizationId,
@@ -491,9 +932,13 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 
 	const organization = userOrganization.organization;
 
-	// Get billing cycle from Stripe subscription if available
+	// Get billing cycle from Stripe subscription if available. Only legacy
+	// flat-fee subscriptions have a monthly/yearly distinction — seat-based
+	// subs are monthly by definition, and their first item is the seat price,
+	// so the yearly-price comparison below would be meaningless (and would
+	// error-log on deployments that only configure the new price IDs).
 	let billingCycle: "monthly" | "yearly" | null = null;
-	if (organization.stripeSubscriptionId) {
+	if (organization.stripeSubscriptionId && organization.proSeats === null) {
 		try {
 			const subscription = await getStripe().subscriptions.retrieve(
 				organization.stripeSubscriptionId,
@@ -521,5 +966,10 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 		subscriptionCancelled: organization.subscriptionCancelled || false,
 		subscriptionPaymentStatus: organization.subscriptionPaymentStatus,
 		billingCycle,
+		seats: organization.proSeats,
+		extraApiKeys: organization.proExtraApiKeys,
+		extraProjects: organization.proExtraProjects,
+		ssoAddon: organization.proSsoEnabled,
+		scimAddon: organization.proScimEnabled,
 	});
 });

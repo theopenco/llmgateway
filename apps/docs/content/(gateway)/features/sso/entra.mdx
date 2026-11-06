@@ -10,9 +10,9 @@ import { Callout } from "fumadocs-ui/components/callout";
 This guide walks an organization admin through connecting **Microsoft Entra ID** (formerly Azure Active Directory) to LLM Gateway for SAML single sign-on and SCIM provisioning.
 
 <Callout type="info">
-	SSO & SCIM require the **Enterprise** plan and an organization **owner** or
-	**admin**. See the [SSO overview](/features/sso) for prerequisites and how the
-	URLs are derived.
+	SSO & SCIM require the **Enterprise** plan or the corresponding **Pro
+	add-ons**, and an organization **owner** or **admin**. See the [SSO
+	overview](/features/sso) for prerequisites and how the URLs are derived.
 </Callout>
 
 ## Finding "Enterprise applications" in Entra
@@ -171,6 +171,10 @@ Configuring SAML isn't enough on its own — Entra only issues a SAML assertion 
 </Callout>
 
 If you also set up SCIM below, these same assignments determine which users and groups are in provisioning scope. For SSO **without** SCIM this assignment step is still mandatory.
+
+## Verify ownership before enabling sign-in
+
+On the connection card, the connection creator must request DNS TXT records, publish every record and click **Verify domains**. All claimed email domains must pass. Follow the [domain verification steps](/features/sso#verify-domain-ownership), test SSO, and only then enable **Require SSO** or generate a Pro SCIM token. Domain changes require verification again.
 
 ## Configure SCIM provisioning
 

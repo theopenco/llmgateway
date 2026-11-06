@@ -104,6 +104,7 @@ import {
 	notPlanFilter,
 	notRefundFilter,
 	paidTransactionFilter,
+	PRO_SUBSCRIPTION_PAYMENT_TX_TYPES,
 	refundsCountedTopupFilter,
 } from "@/utils/devpass-filter.js";
 import {
@@ -201,6 +202,7 @@ import {
 	signUnsubscribeToken,
 } from "@llmgateway/shared/email-unsubscribe";
 
+import type { ProBreakdownComponent } from "@/lib/pro-plan.js";
 import type { ServerTypes } from "@/vars.js";
 import type { SystemBanner } from "@llmgateway/shared";
 
@@ -492,6 +494,15 @@ const adminMetricsSchema = z.object({
 	grossResetPassRevenue: z.number(),
 	grossChatPlansRevenue: z.number(),
 	grossProSubscriptionsRevenue: z.number(),
+	// Feature-level split of the Pro subscription total, summed from the
+	// per-line-item `amountBreakdown` on Pro payment rows (seats, extra API
+	// keys, SSO add-on, SCIM add-on). The four can sum to less than the total
+	// when legacy flat-fee rows (which have no breakdown) are in range.
+	grossProSeatsRevenue: z.number(),
+	grossProExtraApiKeysRevenue: z.number(),
+	grossProExtraProjectsRevenue: z.number(),
+	grossProSsoRevenue: z.number(),
+	grossProScimRevenue: z.number(),
 	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
 	// an administrator. Real revenue, just settled on another channel.
 	grossManualPaymentsRevenue: z.number(),
@@ -1165,6 +1176,15 @@ function sumTransactionWhere(column: AnyColumn, filter: SQL | undefined) {
 	return sql<number>`COALESCE(SUM(${column}) FILTER (WHERE ${filter}), 0)`;
 }
 
+// Sum one component of the per-line-item `amountBreakdown` json recorded on
+// Pro payment rows. Legacy flat-fee rows have no breakdown and contribute 0.
+function sumProBreakdownWhere(
+	component: ProBreakdownComponent,
+	filter: SQL | undefined,
+) {
+	return sql<number>`COALESCE(SUM(CAST(${tables.transaction.amountBreakdown}->>${component} AS NUMERIC)) FILTER (WHERE ${filter}), 0)`;
+}
+
 admin.openapi(getMetrics, async (c) => {
 	const query = c.req.valid("query");
 	const { from, to } = query;
@@ -1238,6 +1258,10 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.user)
 		.where(userDateFilter);
+	const proSubsFilter = and(
+		ne(tables.organization.kind, "devpass"),
+		inArray(tables.transaction.type, [...PRO_SUBSCRIPTION_PAYMENT_TX_TYPES]),
+	);
 	// stripe_invoice_id is unique; plan revenue needs no correlated dedup scan.
 	const transactionQuery = db
 		.select({
@@ -1325,13 +1349,26 @@ admin.openapi(getMetrics, async (c) => {
 					inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
 				),
 			),
+			// Org Pro subscriptions: payment rows on non-devpass orgs (the same
+			// legacy start type doubles as a DevPass row on devpass orgs, counted
+			// above). The TOTAL — checkout, renewals, and mid-cycle proration
+			// invoices — counts as Pro subscription revenue; the feature split
+			// below breaks the same rows down by line item.
 			grossProSubscriptionsRevenue: sumTransactionWhere(
 				tables.transaction.amount,
-				and(
-					ne(tables.organization.kind, "devpass"),
-					inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-				),
+				proSubsFilter,
 			),
+			grossProSeatsRevenue: sumProBreakdownWhere("seats", proSubsFilter),
+			grossProExtraApiKeysRevenue: sumProBreakdownWhere(
+				"extraApiKeys",
+				proSubsFilter,
+			),
+			grossProExtraProjectsRevenue: sumProBreakdownWhere(
+				"extraProjects",
+				proSubsFilter,
+			),
+			grossProSsoRevenue: sumProBreakdownWhere("sso", proSubsFilter),
+			grossProScimRevenue: sumProBreakdownWhere("scim", proSubsFilter),
 			grossManualPaymentsRevenue: sumTransactionWhere(
 				tables.transaction.amount,
 				and(
@@ -1527,6 +1564,17 @@ admin.openapi(getMetrics, async (c) => {
 	const grossProSubscriptionsRevenue = Number(
 		transactionRow?.grossProSubscriptionsRevenue ?? 0,
 	);
+	const grossProSeatsRevenue = Number(
+		transactionRow?.grossProSeatsRevenue ?? 0,
+	);
+	const grossProExtraApiKeysRevenue = Number(
+		transactionRow?.grossProExtraApiKeysRevenue ?? 0,
+	);
+	const grossProExtraProjectsRevenue = Number(
+		transactionRow?.grossProExtraProjectsRevenue ?? 0,
+	);
+	const grossProSsoRevenue = Number(transactionRow?.grossProSsoRevenue ?? 0);
+	const grossProScimRevenue = Number(transactionRow?.grossProScimRevenue ?? 0);
 	const grossManualPaymentsRevenue = Number(
 		transactionRow?.grossManualPaymentsRevenue ?? 0,
 	);
@@ -1599,6 +1647,11 @@ admin.openapi(getMetrics, async (c) => {
 		grossResetPassRevenue,
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
+		grossProSeatsRevenue,
+		grossProExtraApiKeysRevenue,
+		grossProExtraProjectsRevenue,
+		grossProSsoRevenue,
+		grossProScimRevenue,
 		grossManualPaymentsRevenue,
 		grossEnterpriseDealsRevenue,
 		grossProviderListingRevenue,

@@ -143,7 +143,7 @@ describe("billing authorization", () => {
 			"create-pro-subscription",
 			"cancel-pro-subscription",
 			"resume-pro-subscription",
-			"upgrade-to-yearly",
+			"update-pro-subscription",
 		])("cannot access subscription %s", async (path) => {
 			await setRole(role);
 			const response = await app.request(
@@ -151,7 +151,9 @@ describe("billing authorization", () => {
 				{
 					method: path === "status" ? "GET" : "POST",
 					headers: { Cookie: token, "Content-Type": "application/json" },
-					body: path === "status" ? undefined : JSON.stringify({}),
+					// A valid Pro selection so the 403 comes from the role check, not
+					// from body validation on the create/update endpoints.
+					body: path === "status" ? undefined : JSON.stringify({ seats: 3 }),
 				},
 			);
 			expect(response.status).toBe(403);

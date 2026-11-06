@@ -1,0 +1,351 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "b30e229b-0999-4681-b2d7-d5021243a772",
+  "prevIds": [
+    "76884d58-0fd7-4778-bd7d-f42aab0ca074",
+    "43b80ca5-b397-41f5-82fe-771ce81d59db",
+    "32c42d20-233a-4cc5-96ce-800ed23b8758"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "organization_billing_operation"
+      ],
+      "writes": [
+        "s|tbl|public.organization_billing_operation",
+        "n|tbl|public.organization_billing_operation",
+        "e|tbl|public.organization_billing_operation",
+        "n|rel|public.organization_billing_operation",
+        "n|type|public.organization_billing_operation",
+        "n|rel|public.organization_billing_operation_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "organization",
+        "pro_seats"
+      ],
+      "writes": [
+        "s|col|public.organization.pro_seats",
+        "n|col|public.organization.pro_seats",
+        "e|col|public.organization.pro_seats"
+      ],
+      "reads": [
+        "n|tbl|public.organization",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "organization",
+        "pro_extra_api_keys"
+      ],
+      "writes": [
+        "s|col|public.organization.pro_extra_api_keys",
+        "n|col|public.organization.pro_extra_api_keys",
+        "e|col|public.organization.pro_extra_api_keys"
+      ],
+      "reads": [
+        "n|tbl|public.organization",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "organization",
+        "pro_extra_projects"
+      ],
+      "writes": [
+        "s|col|public.organization.pro_extra_projects",
+        "n|col|public.organization.pro_extra_projects",
+        "e|col|public.organization.pro_extra_projects"
+      ],
+      "reads": [
+        "n|tbl|public.organization",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "organization",
+        "pro_sso_enabled"
+      ],
+      "writes": [
+        "s|col|public.organization.pro_sso_enabled",
+        "n|col|public.organization.pro_sso_enabled",
+        "e|col|public.organization.pro_sso_enabled"
+      ],
+      "reads": [
+        "n|tbl|public.organization",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "organization",
+        "pro_scim_enabled"
+      ],
+      "writes": [
+        "s|col|public.organization.pro_scim_enabled",
+        "n|col|public.organization.pro_scim_enabled",
+        "e|col|public.organization.pro_scim_enabled"
+      ],
+      "reads": [
+        "n|tbl|public.organization",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "transaction",
+        "amount_breakdown"
+      ],
+      "writes": [
+        "s|col|public.transaction.amount_breakdown",
+        "n|col|public.transaction.amount_breakdown",
+        "e|col|public.transaction.amount_breakdown"
+      ],
+      "reads": [
+        "n|tbl|public.transaction",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "organization_billing_operation"
+      ],
+      "writes": [
+        "s|fk|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey",
+        "n|fk|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey",
+        "e|fk|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey",
+        "n|con|public.organization_billing_operation.organization_billing_operation_On4mS2o8scuz_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.organization_billing_operation",
+        "n|sch|public",
+        "n|tbl|public.organization",
+        "n|sch|public",
+        "n|col|public.organization_billing_operation.organization_id",
+        "n|col|public.organization.id",
+        "e|uniqueness|public.organization.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "organization_billing_operation",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization",
+        "name": "pro_seats",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization",
+        "name": "pro_extra_api_keys",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization",
+        "name": "pro_extra_projects",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization",
+        "name": "pro_sso_enabled",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization",
+        "name": "pro_scim_enabled",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "organization_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "checkout_session_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "checkout_configuration",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "transaction",
+        "name": "amount_breakdown",
+        "type": "json",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "organization_billing_operation_On4mS2o8scuz_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "organization_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "organization",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "organization_billing_operation",
+        "name": "organization_billing_operation_pkey",
+        "columns": [
+          "organization_id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}
