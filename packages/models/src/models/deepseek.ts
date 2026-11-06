@@ -717,6 +717,7 @@ export const deepseekModels = [
 			{
 				providerId: "novita",
 				externalId: "deepseek/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-14"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -739,6 +740,7 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-14"),
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
 				outputPrice: "0.4e-6",
@@ -778,6 +780,7 @@ export const deepseekModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				deactivatedAt: new Date("2026-11-14"),
 				inputPrice: "0.08e-6",
 				cachedInputPrice: "0.016e-6",
 				outputPrice: "0.18e-6",
@@ -799,6 +802,7 @@ export const deepseekModels = [
 				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
 				// preview.
 				externalId: "deepseek-v4-flash-ga-260731",
+				deactivatedAt: new Date("2026-11-14"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
@@ -948,6 +952,7 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-14"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
@@ -1018,6 +1023,181 @@ export const deepseekModels = [
 				supportsDeveloperRole: false,
 				jsonOutput: true,
 				jsonOutputSchema: false,
+			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-14"),
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// reasoning_effort "none" still thinks; the chat-template flag
+				// turns it off.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				chatTemplateThinkingKey: "thinking",
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4-flash-0731",
+		name: "DeepSeek V4 Flash 0731",
+		description:
+			"The July 31 snapshot of DeepSeek V4 Flash with extended context and reasoning.",
+		family: "deepseek",
+		releasedAt: new Date("2026-07-31"),
+		providers: [
+			{
+				providerId: "novita",
+				externalId: "deepseek/deepseek-v4-flash-0731",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// Novita documents no reasoning_effort tiers for this model, so none
+				// are declared; the gateway still forwards whatever the caller sends.
+				vision: false,
+				tools: true,
+				// The -0731 deployment 400s on "required" and named-function
+				// tool_choice, and silently emits no tool call at all when "required"
+				// is streamed; only "auto"/"none" behave (verified 2026-08-02).
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "alibaba",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.2e-6",
+				cachedInputPrice: "0.04e-6",
+				outputPrice: "0.4e-6",
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{
+						id: "cn-beijing",
+						inputPrice: "0.138e-6",
+						cachedInputPrice: "0.028e-6",
+						outputPrice: "0.275e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				inputPrice: "0.08e-6",
+				cachedInputPrice: "0.016e-6",
+				outputPrice: "0.18e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// DeepInfra keeps thinking off unless an effort is requested, and
+				// takes `none` to keep it off, exactly like its V4 Pro deployment.
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "bytedance",
+				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
+				// preview.
+				externalId: "deepseek-v4-flash-ga-260731",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "cloudflare",

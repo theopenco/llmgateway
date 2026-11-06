@@ -10,6 +10,24 @@ LLMGateway provides flexible and intelligent routing options to help you get the
 
 LLMGateway also includes **automatic retry and fallback** — if a provider fails, your request is seamlessly retried on the next best provider, all within the same API call.
 
+## Dated model snapshots
+
+Use the canonical snapshot ID shown in the [models directory](https://llmgateway.io/models)
+when you need a specific release. A provider's upstream deployment name is not a
+canonical ID. During a migration, the original ID and the dated ID may serve the
+same deployment; the original mapping remains available until its announced
+deactivation date. Other deployments on the original ID are not moved implicitly.
+
+Update provider-pinned requests, dynamic routes, model allowlists, and session
+configuration before retiring mappings stop serving. Sessions do not alias one
+canonical ID to another. Snapshot IDs have their own routing history and pricing;
+check the directory for current providers, regional limits, and capabilities.
+
+Airside carriers relist snapshots through the normal filing and approval flow.
+Adding a static snapshot does not rename existing listings or replace their filed
+prices and capabilities. Keep the old listing during the transition and review
+model-scoped settings before switching traffic.
+
 ## Routing Analytics
 
 Admin routing analytics includes static catalogue mappings and Airside listings,
