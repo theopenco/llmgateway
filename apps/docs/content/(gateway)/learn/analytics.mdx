@@ -86,6 +86,8 @@ On **Global Stats**, **Breakdown by** and **Measure** live in the top filter bar
 
 These charts derive from the same activity data the rest of the dashboard already reads — there is no separate analytics pipeline to wait on. Aggregation happens per time bucket and is timezone-correct, so totals line up with the Activity and Usage pages for the same range.
 
+Cost rollups use double precision to reduce rounding across time buckets. They remain approximate: existing rounded history is not repaired, and analytics totals are not an exact-decimal billing ledger.
+
 For a per-key view of the same breakdowns, see [API Keys](/learn/api-keys#per-key-statistics). For an org-wide, per-person view on the Enterprise plan, see [Member Analytics](/learn/member-analytics).
 
 ## Idle periods and missing samples
