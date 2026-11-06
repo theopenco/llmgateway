@@ -3,8 +3,7 @@
 import { ArrowRight, Wallet } from "lucide-react";
 import Link from "next/link";
 
-import { DailyAllowanceMeter } from "./DailyAllowanceMeter";
-import { UsageBar } from "./UsageBar";
+import { AllowanceWindows } from "./AllowanceWindows";
 
 interface UsageSummaryCardProps {
 	planName: string;
@@ -14,6 +13,10 @@ interface UsageSummaryCardProps {
 	dailyCreditsUsed: number;
 	dailyLimit: number;
 	dayResetsAt: string | null;
+	premiumCreditsUsed?: number;
+	premiumWeeklyLimit?: number;
+	premiumWeekResetsAt?: string | null;
+	renewsAt?: string | null;
 	paygEnabled: boolean;
 	regularCredits: number;
 }
@@ -28,6 +31,10 @@ export default function UsageSummaryCard({
 	dailyCreditsUsed,
 	dailyLimit,
 	dayResetsAt,
+	premiumCreditsUsed = 0,
+	premiumWeeklyLimit = 0,
+	premiumWeekResetsAt = null,
+	renewsAt = null,
 	paygEnabled,
 	regularCredits,
 }: UsageSummaryCardProps) {
@@ -58,25 +65,31 @@ export default function UsageSummaryCard({
 					<ArrowRight className="h-3.5 w-3.5" />
 				</Link>
 			</div>
-			<DailyAllowanceMeter
-				used={dailyCreditsUsed}
-				limit={dailyLimit}
-				resetsAt={dayResetsAt}
-				paygEnabled={paygEnabled}
-				overflowCovering={paygAvailable}
-			/>
-			<UsageBar
-				used={creditsUsed}
-				limit={creditsLimit}
-				exhaustedMessage={
-					paygAvailable
+			<AllowanceWindows
+				daily={{
+					used: dailyCreditsUsed,
+					limit: dailyLimit,
+					resetsAt: dayResetsAt,
+				}}
+				weekly={{
+					used: premiumCreditsUsed,
+					limit: premiumWeeklyLimit,
+					resetsAt: premiumWeekResetsAt,
+				}}
+				monthly={{
+					used: creditsUsed,
+					limit: creditsLimit,
+					resetsAt: renewsAt ? new Date(renewsAt) : null,
+					exhaustedMessage: paygAvailable
 						? "Allowance reached — pay-as-you-go overflow is covering requests from your credits balance."
 						: paygEnabled
 							? "Allowance reached — your pay-as-you-go balance is empty. Top up on the Usage page to keep coding."
 							: unspendableBalance
 								? `Allowance reached — you have $${regularCredits.toFixed(2)} in credits waiting. Enable pay-as-you-go overflow on the Usage page to spend them.`
-								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow on the Usage page."
-				}
+								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow on the Usage page.",
+				}}
+				paygEnabled={paygEnabled}
+				overflowCovering={paygAvailable}
 			/>
 			{paygEnabled && (
 				<div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
