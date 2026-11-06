@@ -1,95 +1,98 @@
 name: pr-risk
 
-# Labels every PR as risk: low / medium / high once CodeRabbit has reviewed it,
-# and asks a maintainer to review the high-risk ones.
+# Risk-scaled human review. The change sets the tier, not the author.
 #
-# Runs on CodeRabbit's walkthrough comment (posted and edited after each review),
-# so it fires after CodeRabbit is done. issue_comment always runs from the
-# default branch with a write token, including for fork PRs; no PR code is
-# checked out or executed.
+# classify — on CodeRabbit's walkthrough comment (it carries a Merge Risk
+#   line), labels the PR risk: low / medium / high and asks a maintainer to
+#   review the high-risk ones.
+#
+# gate — publishes the `risk-gate` commit status on the PR head. It
+#   recomputes the tier from the changed files (labels can only raise it) and
+#   fails while a high-risk PR, or any PR from an outside author, lacks a
+#   maintainer approval of the current head commit. Runs on PR open/sync,
+#   after classify, and after a review. Make it a required status check on
+#   main so the approval is enforced, not advisory.
+#
+# Reviews arrive through workflow_run from pr-review-relay.yml: the
+#   pull_request_review event itself has a read-only token for forks.
+#
+# merge-queue — the queue re-runs checks on a synthetic commit that no
+#   approval covers; the gate already passed on the PR head, so report success.
+#
+# Fork safety: every job that holds a write token checks out the default
+# branch only (sparse, .github/scripts) and never runs PR code.
+#
+# Trust boundary: `risk-gate` is a commit status, and any workflow on a
+# same-repository branch could post one with the same name. The ruleset
+# should pin the required check's source to GitHub Actions, and write access
+# to this repository must stay limited to the maintainers in TRUSTED_AUTHORS
+# plus bots that never open code PRs. A GitHub App check run would close this
+# gap fully; it is not worth the extra moving part for a two-maintainer repo.
 
 on:
   issue_comment:
     types:
       - created
       - edited
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - labeled
+      - unlabeled
+  workflow_run:
+    workflows:
+      - pr-review-relay
+    types:
+      - completed
+  merge_group:
+    types:
+      - checks_requested
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
-
-# Only CodeRabbit comments share a group, so other comments never queue behind
-# or cancel a classification; runs for the same PR execute in order.
-concurrency:
-  group: pr-risk-${{ github.event.issue.number }}-${{ github.event.comment.user.login == 'coderabbitai[bot]' }}
-  cancel-in-progress: false
 
 jobs:
   classify:
     if: >-
+      github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
       github.event.comment.user.login == 'coderabbitai[bot]' &&
       contains(github.event.comment.body, 'Merge Risk:')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    concurrency:
+      group: pr-risk-classify-${{ github.event.issue.number }}
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+
       - uses: actions/github-script@v9.0.0
         with:
           script: |
-            const REVIEWERS = ["smakosh", "steebchen"];
-            const LABELS = {
-              high: { name: "risk: high", color: "d73a4a", description: "High-risk change; needs a maintainer review" },
-              medium: { name: "risk: medium", color: "fbca04", description: "Moderate-risk change" },
-              low: { name: "risk: low", color: "0e8a16", description: "Low-risk change" },
-            };
+            const { HIGH_PATHS, LABELS, classifyRisk, parseCodeRabbitLevel, pickReviewer } =
+              await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-risk.mjs`);
             const MARKER = "<!-- pr-risk-review -->";
-            const RANK = { low: 0, medium: 1, high: 2 };
 
             const { owner, repo } = context.repo;
             const number = context.issue.number;
+            const author = context.payload.issue.user.login;
 
-            // CodeRabbit's walkthrough ends with "**Merge Risk:** **⚪ Minimal**",
-            // "🔵 Low", "🟡 Moderate", or a higher level.
-            const match = context.payload.comment.body.match(/\*\*Merge Risk:\*\*\s*\*\*[^A-Za-z]*([A-Za-z]+)/);
-            const level = match?.[1]?.toLowerCase() ?? "";
-            if (!match) {
+            const codeRabbitLevel = parseCodeRabbitLevel(context.payload.comment.body);
+            if (!codeRabbitLevel) {
               core.warning("Could not parse Merge Risk from the CodeRabbit comment; classifying from paths only.");
             }
-            const fromCodeRabbit =
-              ["minimal", "low"].includes(level) ? "low"
-              : ["moderate", "medium"].includes(level) ? "medium"
-              : level ? "high"
-              : "low";
-
-            // Paths where a mistake costs money, data or access, regardless of size.
-            const HIGH_PATHS = [
-              /^packages\/db\/migrations\//,
-              /^packages\/db\/src\/schema\.ts$/,
-              /^apps\/api\/src\/auth\//,
-              /^apps\/api\/src\/routes\/(payments|platform-webhooks|stripe)/,
-              /^\.github\/workflows\//,
-            ];
-            const MEDIUM_PATHS = [
-              /^apps\/gateway\/src\//,
-              /^apps\/api\/src\//,
-              /^apps\/worker\/src\//,
-              /^packages\/actions\/src\//,
-              /^ee\/guardrails\/src\//,
-            ];
-            const GENERATED = /(^|\/)(pnpm-lock\.yaml|snapshot\.json)$|\.(png|jpe?g|webp|svg|csv)$/;
-
             const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
-            const paths = files.map((f) => f.filename);
-            const changedLines = files
-              .filter((f) => !GENERATED.test(f.filename))
-              .reduce((sum, f) => sum + f.additions + f.deletions, 0);
-
-            let fromPaths = "low";
-            if (paths.some((p) => HIGH_PATHS.some((re) => re.test(p)))) fromPaths = "high";
-            else if (paths.some((p) => MEDIUM_PATHS.some((re) => re.test(p))) || changedLines > 1000) fromPaths = "medium";
-
-            const risk = RANK[fromPaths] > RANK[fromCodeRabbit] ? fromPaths : fromCodeRabbit;
-            core.info(`CodeRabbit: ${level || "none"} -> ${fromCodeRabbit}; paths: ${fromPaths}; ${changedLines} lines; risk: ${risk}`);
+            const { risk, fromPaths, changedLines, paths } = classifyRisk({ files, codeRabbitLevel, author });
+            core.info(`CodeRabbit: ${codeRabbitLevel ?? "none"}; paths: ${fromPaths}; ${changedLines} lines; author: ${author}; risk: ${risk}`);
 
             for (const label of Object.values(LABELS)) {
               try {
@@ -111,10 +114,8 @@ jobs:
 
             if (risk !== "high") return;
 
-            const author = context.payload.issue.user.login;
-            const candidates = REVIEWERS.filter((r) => r.toLowerCase() !== author.toLowerCase());
-            if (candidates.length === 0) return;
-            const reviewer = candidates[number % candidates.length];
+            const reviewer = pickReviewer(number, author);
+            if (!reviewer) return;
 
             // The review request and the explanation comment are tracked separately:
             // a failed request is retried on the next CodeRabbit update even after
@@ -122,8 +123,8 @@ jobs:
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
             const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 });
             const alreadyAsked =
-              pr.requested_reviewers.some((u) => u.login.toLowerCase() === reviewer.toLowerCase()) ||
-              reviews.some((r) => r.user?.login.toLowerCase() === reviewer.toLowerCase());
+              pr.requested_reviewers.some((u) => u.login.toLowerCase() === reviewer) ||
+              reviews.some((r) => r.user?.login.toLowerCase() === reviewer);
             if (!alreadyAsked) {
               try {
                 await github.rest.pulls.requestReviewers({ owner, repo, pull_number: number, reviewers: [reviewer] });
@@ -136,7 +137,7 @@ jobs:
             if (comments.some((c) => c.body?.includes(MARKER))) return;
 
             const reasons = [];
-            if (fromCodeRabbit === "high") reasons.push(`CodeRabbit rated the merge risk **${match[1]}**`);
+            if (codeRabbitLevel === "high") reasons.push("CodeRabbit rated the merge risk high");
             if (fromPaths === "high") {
               const hits = paths.filter((p) => HIGH_PATHS.some((re) => re.test(p))).slice(0, 5);
               reasons.push(`touches high-risk paths: ${hits.map((p) => `\`${p}\``).join(", ")}`);
@@ -145,5 +146,98 @@ jobs:
               owner,
               repo,
               issue_number: number,
-              body: `${MARKER}\n@${reviewer} this PR is labelled **risk: high** (${reasons.join("; ")}). CodeRabbit has reviewed it; please review before merging.`,
+              body: `${MARKER}\n@${reviewer} this PR is labelled **risk: high** (${reasons.join("; ")}). The \`risk-gate\` check stays red until a maintainer approves the latest commit.`,
+            });
+
+  gate:
+    needs: classify
+    if: >-
+      always() &&
+      (
+        github.event_name == 'pull_request_target' ||
+        (github.event_name == 'issue_comment' && needs.classify.result == 'success') ||
+        github.event_name == 'workflow_run'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    concurrency:
+      group: pr-risk-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+
+      - uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const { STATUS_CONTEXT, classifyRisk, gateDecision, labelRisk, RANK } =
+              await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-risk.mjs`);
+
+            const { owner, repo } = context.repo;
+            let number = context.payload.pull_request?.number ?? context.payload.issue?.number;
+            if (!number && context.eventName === "workflow_run") {
+              // workflow_run.pull_requests is empty for forks; resolve by head
+              // branch and sha instead.
+              const run = context.payload.workflow_run;
+              number = run.pull_requests[0]?.number;
+              if (!number && run.head_repository) {
+                const { data: prs } = await github.rest.pulls.list({
+                  owner,
+                  repo,
+                  state: "open",
+                  head: `${run.head_repository.owner.login}:${run.head_branch}`,
+                  per_page: 100,
+                });
+                number = (prs.find((p) => p.head.sha === run.head_sha) ?? prs[0])?.number;
+              }
+            }
+            if (!number) {
+              core.info("No pull request for this event; nothing to gate.");
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
+            const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 });
+
+            const fromFiles = classifyRisk({ files, author: pr.user.login }).risk;
+            const fromLabel = labelRisk(pr.labels.map((l) => l.name));
+            const risk = fromLabel && RANK[fromLabel] > RANK[fromFiles] ? fromLabel : fromFiles;
+
+            const decision = gateDecision({ risk, author: pr.user.login, reviews, headSha: pr.head.sha });
+            core.info(`${STATUS_CONTEXT} ${decision.state} @ ${pr.head.sha} (files: ${fromFiles}, label: ${fromLabel ?? "none"}): ${decision.description}`);
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: pr.head.sha,
+              state: decision.state,
+              context: STATUS_CONTEXT,
+              description: decision.description.slice(0, 140),
+              target_url: `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+            });
+
+  merge-queue:
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: context.sha,
+              state: "success",
+              context: "risk-gate",
+              description: "merge queue: gate passed on the pull request head",
             });
