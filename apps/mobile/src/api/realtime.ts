@@ -1,8 +1,11 @@
 import { gatewayClient } from "@/api/gateway";
 import { config } from "@/config";
 
+import { models as catalogue } from "@llmgateway/models";
+
 import type { CatalogModel } from "@/components/ProviderOptions";
 import type { paths } from "@/lib/api/gateway";
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 type SessionRequest = NonNullable<
 	paths["/v1/realtime/client_secrets"]["post"]["requestBody"]
@@ -127,6 +130,33 @@ export function transcriptionOptions(
 			: [];
 	});
 }
+function catalogueTranscriptionDefault(provider: string) {
+	const now = new Date();
+	const model = catalogue.find((definition) =>
+		(definition.providers as readonly ProviderModelMapping[]).some(
+			(mapping) =>
+				mapping.providerId === provider &&
+				mapping.realtimeTranscription === true &&
+				(!mapping.deactivatedAt || mapping.deactivatedAt > now),
+		),
+	);
+	return model ? `${provider}/${model.id}` : undefined;
+}
+export function chooseTranscription(
+	options: TranscriptionOption[],
+	preferred?: string | null,
+) {
+	const provider = options[0]?.model.split("/")[0];
+	const fallback = provider && catalogueTranscriptionDefault(provider);
+	return (
+		options.find((option) => option.model === preferred) ??
+		options.find(
+			(option) =>
+				option.model === fallback || option.model.startsWith(`${fallback}:`),
+		) ??
+		options[0]
+	);
+}
 export function voiceSelection(
 	model: string,
 	voice: string | null,
@@ -150,10 +180,7 @@ export function voiceSelection(
 	}
 	const transcriptionModel = native
 		? undefined
-		: (
-				options.find((option) => option.model === preferredTranscription) ??
-				options[0]
-			).model;
+		: chooseTranscription(options, preferredTranscription)?.model;
 	return { model: resolved.id, voice, protocol, transcriptionModel };
 }
 export function mintVoiceSession(
