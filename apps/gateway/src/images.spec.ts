@@ -45,6 +45,7 @@ describe("image generation upstream streaming", () => {
 		size?: unknown;
 		quality?: unknown;
 		moderation?: unknown;
+		complexity?: unknown;
 		background?: unknown;
 		outputFormat?: unknown;
 		outputCompression?: unknown;
@@ -109,6 +110,7 @@ describe("image generation upstream streaming", () => {
 				size: body.size,
 				quality: body.quality,
 				moderation: body.moderation,
+				complexity: body.complexity,
 				background: body.background,
 				outputFormat: body.output_format,
 				outputCompression: body.output_compression,
@@ -831,6 +833,78 @@ describe("image generation upstream streaming", () => {
 			}
 		});
 	});
+
+	describe.each(["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"])(
+		"%s complexity",
+		(model) => {
+			describe.each(["generations", "edits", "multipart", "chat"])(
+				"%s",
+				(endpoint) => {
+					test.each(["low", "medium", "high", undefined, "invalid"])(
+						"handles complexity=%s",
+						async (complexity) => {
+							const headers = {
+								Authorization: "Bearer test-token",
+								"x-no-fallback": "true",
+							};
+							const form = new FormData();
+							form.set("model", `openai/${model}`);
+							form.set("prompt", "Change the background");
+							form.set(
+								"image",
+								new File([pngBytes], "image.png", { type: "image/png" }),
+							);
+							if (complexity !== undefined) {
+								form.set("complexity", complexity);
+							}
+							const res = await app.request(
+								endpoint === "chat"
+									? "/v1/chat/completions"
+									: `/v1/images/${endpoint === "multipart" ? "edits" : endpoint}`,
+								{
+									method: "POST",
+									headers:
+										endpoint === "multipart"
+											? headers
+											: { ...headers, "Content-Type": "application/json" },
+									body:
+										endpoint === "multipart"
+											? form
+											: JSON.stringify({
+													model: `openai/${model}`,
+													...(endpoint === "chat"
+														? {
+																messages: [
+																	{
+																		role: "user",
+																		content: "Change the background",
+																	},
+																],
+																image_config: { complexity },
+															}
+														: { prompt: "Change the background", complexity }),
+													...(endpoint === "edits" && {
+														images: [{ image_url: inputImage }],
+													}),
+												}),
+								},
+							);
+							const json = await res.json();
+							expect(res.status, JSON.stringify(json)).toBe(
+								complexity === "invalid" ? 400 : 200,
+							);
+							if (complexity === "invalid") {
+								expect(upstreamRequests).toHaveLength(0);
+								return;
+							}
+							expect(upstreamRequests).toHaveLength(1);
+							expect(upstreamRequests[0].complexity).toBe(complexity);
+						},
+					);
+				},
+			);
+		},
+	);
 });
 
 describe("image service tiers", () => {

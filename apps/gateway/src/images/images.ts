@@ -83,6 +83,11 @@ const imageGenerationsRequestSchema = z.object({
 			"The aspect ratio of the generated images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size if both are provided.",
 		example: "16:9",
 	}),
+	complexity: z.enum(["low", "medium", "high"]).optional().openapi({
+		description:
+			"Image complexity for supported models. When omitted, the provider default applies.",
+		example: "low",
+	}),
 	moderation: z.enum(["auto", "low"]).optional().openapi({
 		description:
 			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
@@ -990,6 +995,7 @@ images.openapi(generations, async (c): Promise<any> => {
 		request.size ||
 		normalizedQuality ||
 		request.moderation ||
+		request.complexity ||
 		request.output_format ||
 		request.output_compression !== undefined ||
 		request.n > 1
@@ -999,6 +1005,7 @@ images.openapi(generations, async (c): Promise<any> => {
 			...(request.size && { image_size: request.size }),
 			...(normalizedQuality && { image_quality: normalizedQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.complexity && { complexity: request.complexity }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.svg && { svg: request.svg }),
 			...(request.output_compression !== undefined && {
@@ -1118,6 +1125,11 @@ const imageEditsRequestSchema = z.object({
 		description:
 			"The aspect ratio of the edited images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size-derived defaults.",
 		example: "16:9",
+	}),
+	complexity: z.enum(["low", "medium", "high"]).optional().openapi({
+		description:
+			"Image complexity for supported models. When omitted, the provider default applies.",
+		example: "low",
 	}),
 	moderation: z.enum(["auto", "low"]).optional().openapi({
 		description:
@@ -1324,6 +1336,7 @@ async function parseMultipartEditsRequest(
 		"size",
 		"quality",
 		"moderation",
+		"complexity",
 		"background",
 		"output_format",
 	]) {
@@ -1478,13 +1491,15 @@ async function processImageEdit(
 		request.output_compression !== undefined ||
 		request.background ||
 		normalizedEditQuality ||
-		request.moderation
+		request.moderation ||
+		request.complexity
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(requestedSize && { image_size: requestedSize }),
 			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.complexity && { complexity: request.complexity }),
 			...(request.background && { background: request.background }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),

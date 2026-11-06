@@ -719,6 +719,7 @@ export type RequestBodyPreparer = (
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		complexity?: "low" | "medium" | "high";
 		n?: number;
 		seed?: number;
 	},

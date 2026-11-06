@@ -243,6 +243,7 @@ interface OpenAIImageRequest {
 	size?: string;
 	quality?: OpenAIImageQuality;
 	moderation?: OpenAIImageModeration;
+	complexity?: "low" | "medium" | "high";
 	background?: string;
 	output_format?: string;
 	output_compression?: number;
@@ -1754,6 +1755,7 @@ export async function prepareRequestBody(
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		complexity?: "low" | "medium" | "high";
 		background?: string;
 		output_format?: string;
 		svg?: SvgImageOptions | null;
@@ -2006,6 +2008,7 @@ export async function prepareRequestBody(
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(openaiModeration && { moderation: openaiModeration }),
+			...(image_config?.complexity && { complexity: image_config.complexity }),
 			...(image_config?.background && { background: image_config.background }),
 			...(image_config?.output_format && {
 				output_format: image_config.output_format,
@@ -2034,6 +2037,9 @@ export async function prepareRequestBody(
 			}
 			if (openaiImageRequest.moderation) {
 				formData.append("moderation", openaiImageRequest.moderation);
+			}
+			if (openaiImageRequest.complexity) {
+				formData.append("complexity", openaiImageRequest.complexity);
 			}
 			if (openaiImageRequest.background) {
 				formData.append("background", openaiImageRequest.background);

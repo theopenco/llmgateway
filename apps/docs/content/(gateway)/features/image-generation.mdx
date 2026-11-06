@@ -32,6 +32,7 @@ The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI'
 | `size`               | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration)             |
 | `quality`            | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)               |
 | `moderation`         | string  | `"auto"`     | Content filtering strictness for models that support it: `auto` or `low` — see [Moderation](#moderation)                     |
+| `complexity`         | string  | —            | `low`, `medium`, or `high` for supported models — see [Complexity](#complexity)                                              |
 | `response_format`    | string  | `"b64_json"` | Only `b64_json` is supported                                                                                                 |
 | `style`              | string  | —            | Image style: `vivid` or `natural`                                                                                            |
 | `output_format`      | string  | `"png"`      | GPT Image models: `png`, `jpeg`, `webp`, or `svg` — see [SVG output](#svg-output)                                            |
@@ -183,6 +184,7 @@ When `/v1/chat/completions` is converted to an OpenAI-compatible multipart image
 | `output_compression` | integer                  | no       | Compression level for `jpeg`/`webp`                                               |
 | `quality`            | enum                     | no       | `low`, `medium`, `high`, or `auto`; GPT Image 2.5 also supports `xhigh` and `max` |
 | `moderation`         | enum                     | no       | `auto` or `low` — see [Moderation](#moderation)                                   |
+| `complexity`         | enum                     | no       | `low`, `medium`, or `high` — see [Complexity](#complexity)                        |
 | `size`               | string                   | no       | Output size. Examples: `1024x1024`, `1536x1024`, `1K`, `2K`, `4K`                 |
 | `aspect_ratio`       | string                   | no       | Aspect ratio override. Examples: `1:1`, `16:9`, `4:3`, `5:4`                      |
 | `service_tier`       | enum                     | no       | `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers)   |
@@ -841,6 +843,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 | `image_size`         | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.                                                          |
 | `image_quality`      | string | `"low"`, `"medium"`, `"high"`, or `"auto"`; GPT Image 2.5 and 2.6 also support `"xhigh"` and `"max"`. Defaults to `"auto"` when omitted. |
 | `moderation`         | string | `"auto"` or `"low"` — see [Moderation](#moderation). Defaults to `"auto"` when omitted.                                                  |
+| `complexity`         | string | `low`, `medium`, or `high` — see [Complexity](#complexity).                                                                              |
 | `background`         | string | `"transparent"`, `"opaque"`, or `"auto"` — see [Transparency](#transparency).                                                            |
 | `output_format`      | string | `"png"`, `"jpeg"`, or `"webp"`; GPT Image 2.6 also supports `"svg"` — see [SVG output](#svg-output).                                     |
 | `output_compression` | number | `0`–`100`, for `jpeg` and `webp` output.                                                                                                 |
@@ -951,6 +954,12 @@ Each request returns one image. Tencent bills a fixed token count per image
 (more at 4K); billing uses the token count Tencent reports. See the
 [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for
 current pricing.
+
+## Complexity
+
+GPT Image 2.6 Sunburst and Flare accept `complexity: "low" | "medium" | "high"` on `/v1/images/generations` and `/v1/images/edits` (JSON or multipart). For chat completions, use `image_config.complexity`. If omitted, OpenAI defaults both models to `high`; the gateway does not override this default.
+
+Complexity controls planning before rendering, independently of `quality`. Lower values can suit focused edits such as changing an outfit or background; higher values can help with dense text and complex layouts. See OpenAI's [image complexity guide](https://developers.openai.com/api/docs/guides/image-generation).
 
 ## Moderation
 

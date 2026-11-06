@@ -574,6 +574,7 @@ export const completionsRequestSchema = z.object({
 				.enum(["low", "medium", "high", "xhigh", "max", "auto"])
 				.optional(),
 			moderation: z.enum(["auto", "low"]).optional(),
+			complexity: z.enum(["low", "medium", "high"]).optional(),
 			background: z.string().optional(),
 			output_format: z.string().optional(),
 			svg: svgOptionsSchema.nullable().optional(),
