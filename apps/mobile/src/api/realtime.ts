@@ -3,7 +3,6 @@ import { config } from "@/config";
 
 import { models as catalogue } from "@llmgateway/models";
 
-
 import type { CatalogModel } from "@/components/ProviderOptions";
 import type { paths } from "@/lib/api/gateway";
 import type { ProviderModelMapping } from "@llmgateway/models";
