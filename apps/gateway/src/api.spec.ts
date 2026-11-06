@@ -5479,7 +5479,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-spend-cap",
 				},
 				body: JSON.stringify({
-					model: "gpt-4o-mini",
+					model: "openai/gpt-4o-mini",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -9380,7 +9380,7 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "gpt-4o-mini",
+				model: "openai/gpt-4o-mini",
 				messages: [
 					{
 						role: "user",
