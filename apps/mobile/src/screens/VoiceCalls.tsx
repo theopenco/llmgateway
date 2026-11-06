@@ -71,7 +71,7 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const [voice, setVoice] = useState("");
 	const transcriptionPreference = useCallTranscriptionModel();
 	const transcription = transcriptionPreference.data || null;
-	const preferenceLoading = transcriptionPreference.isPending;
+	const preferenceLoading = transcriptionPreference.data === undefined;
 	const setTranscription = (value: string) =>
 		transcriptionPreference.save.mutate(value);
 	const [selectedId, setSelectedId] = useState<string>();
@@ -216,9 +216,21 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 				error={
 					state.error
 						? new Error(state.error)
-						: (error ?? models.error ?? transcriptionPreference.save.error)
+						: (error ??
+							models.error ??
+							transcriptionPreference.error ??
+							transcriptionPreference.save.error)
 				}
 			/>
+			{transcriptionPreference.isError && (
+				<Button
+					title="Retry loading transcription choice"
+					secondary
+					onPress={() => {
+						void transcriptionPreference.refetch();
+					}}
+				/>
+			)}
 			{state.error?.includes("iOS Settings") && (
 				<Button
 					title="Open microphone settings"

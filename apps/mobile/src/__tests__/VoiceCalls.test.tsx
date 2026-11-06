@@ -292,6 +292,33 @@ test("waits for the saved transcription model before calling", async () => {
 	queries.clear();
 });
 
+test("blocks calls until a failed transcription choice loads", async () => {
+	jest
+		.mocked(Keychain.getGenericPassword)
+		.mockRejectedValueOnce(new Error("Keychain locked"));
+	const queries = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	const view = await render(tree(queries));
+	const user = userEvent.setup();
+	await user.press(screen.getByRole("button", { name: "Model: Choose" }));
+	await user.press(screen.getByRole("button", { name: "Choose Voice model" }));
+	expect(await screen.findByText("Keychain locked")).toBeOnTheScreen();
+	expect(
+		screen.getByRole("button", { name: "Start voice call" }),
+	).toBeDisabled();
+	await user.press(
+		screen.getByRole("button", { name: "Retry loading transcription choice" }),
+	);
+	await waitFor(() =>
+		expect(
+			screen.getByRole("button", { name: "Start voice call" }),
+		).toBeEnabled(),
+	);
+	await view.unmount();
+	queries.clear();
+});
+
 test("restores the saved transcription model", async () => {
 	jest.mocked(Keychain.getGenericPassword).mockResolvedValueOnce({
 		username: "model",
