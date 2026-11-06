@@ -9,7 +9,10 @@ import { Callout } from "fumadocs-ui/components/callout";
 Provider compliance policies let you guarantee that requests are only ever routed to providers that meet your organization's regulatory requirements. When a request would be routed to a provider that doesn't meet the policy, the gateway blocks it **before any data leaves the gateway**.
 
 <Callout type="info">
-	The complete provider compliance policy is available on
+	The organization-level data-protection controls — **GDPR compliant**, **No
+	training on prompts**, **No stealth providers** and the allowed-countries list
+	— are available on every plan. The certification requirements and the
+	fine-grained provider/model lists are available on
 	[**Enterprise**](https://llmgateway.io/enterprise). DevPass offers only **No
 	AI training**.
 </Callout>
@@ -28,6 +31,10 @@ Enable a policy under **Settings → Compliance** in the dashboard and toggle th
 
 In DevPass, enable **No AI training** directly under **Settings**. It uses the same fail-closed provider policy described below, but the other requirements are not available on DevPass.
 
+On plans below Enterprise, saving a policy that sets anything outside the data-protection controls is rejected with a `403` naming the settings that need Enterprise — a policy is never saved with requirements the gateway would not enforce.
+
+Stored restrictions remain enforced after a downgrade. The dashboard shows their actual values and prevents an ordinary save from silently removing Enterprise-only rules. Explicitly disable and save the policy before replacing those rules, or restore Enterprise access.
+
 | Requirement                   | A provider is allowed when…                                      |
 | ----------------------------- | ---------------------------------------------------------------- |
 | **Zero data retention (ZDR)** | it does not log prompts and declares a zero-day retention period |
@@ -41,9 +48,9 @@ In DevPass, enable **No AI training** directly under **Settings**. It uses the s
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
-Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on. ZDR is a separate Enterprise compliance policy and is unchanged by the Enterprise requirement for **Retain All Data** itself.
+Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on. ZDR remains an Enterprise compliance requirement, distinct from the Enterprise permission to retain payloads. The organization-level controls listed above do not unlock ZDR. Key-policy configuration keeps the Enterprise and deployment checks described below.
 
-Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer available for new configuration and does not enable the gateway-level ZDR controls described above.
+Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer offered as a new dashboard control and does not enable the gateway-level ZDR controls described above.
 
 Stealth providers are undisclosed platforms that LLM Gateway routes to without naming the operator, so their data policy and headquarters are unknown. That already makes them fail every certification and data-policy requirement above, but **No stealth providers** excludes them explicitly — useful when you want them gone without turning on any other requirement.
 
@@ -51,7 +58,7 @@ The settings page shows a live **Provider Impact** preview of which providers ar
 
 ## Provider headquarters
 
-Beyond certifications, you can restrict routing by the country a provider is headquartered in. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.
+On supported organization plans, you can restrict routing by the country a provider is headquartered in. Headquarters alone does not establish processing/storage location or an applicable transfer safeguard. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.
 
 The selector only offers countries that are referenced by a catalogue provider or active Airside profile — browse the [providers directory](https://llmgateway.io/providers) to see the current set and each provider's headquarters. Selecting no country applies no location restriction. The country filter is also fail-closed: when at least one country is selected, a provider whose headquarters is unknown is treated as non-compliant.
 
@@ -109,7 +116,7 @@ Configuring key policies requires Enterprise access. Saved restrictions remain e
 
 ### Deployment rollout
 
-Key-level policy configuration is off by default. After applying the database migration, upgrade every gateway instance and drain pre-upgrade realtime sessions. Then set `API_KEY_COMPLIANCE_ENABLED=true` on the internal API to allow new key-policy settings. Deploy the editor last. Until enabled, key-policy create/update requests return `503`; ordinary key operations and organization policy updates are unaffected. Owners and admins can still clear a key policy with `null`.
+Key-level policy configuration is off by default. After applying the database migration, upgrade every gateway instance and drain pre-upgrade realtime sessions. Then set `API_KEY_COMPLIANCE_ENABLED=true` on the internal API to allow new key-policy settings. Deploy the editor last. Until enabled, otherwise authorized non-null key-policy writes return `503`; role and Enterprise checks still apply. Ordinary key operations and organization policy updates are unaffected. Owners and admins can still clear a key policy with `null`.
 
 The rollout switch controls configuration only: saved organization and API-key restrictions remain enforced even when the switch is off. Existing keys default to no explicit policy and continue to use their organization policy unchanged.
 
@@ -133,6 +140,10 @@ This applies to both routing modes:
 - **Pinned providers** — a request such as `deepseek/deepseek-v4-pro` is blocked when that specific provider does not meet the policy.
 
 Each block is recorded as a **security event** so administrators can review what was rejected and why.
+
+### Signed data-processing agreements
+
+A deployment can require that **GDPR compliant** also means LLM Gateway holds a signed data-processing agreement with the provider, by setting `REQUIRE_PROVIDER_DPA_FOR_GDPR=true`. With it on, a provider that is GDPR compliant in the catalogue but has no agreement on record is blocked under **GDPR compliant**, including providers listed through Airside; your own custom providers are unaffected, because their posture is the attestation below. It applies whenever either enabled organization or key policy requires GDPR, without weakening the other policy. Signed-provider records are cached for up to 60 seconds; lookup errors never extend an expired grant. The flag changes nothing for policies that do not require GDPR compliance, and the dashboard's impact preview does not reflect it, so a provider it shows as allowed can still be blocked.
 
 ## Custom providers
 
@@ -221,4 +232,4 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 
 ## Get Started
 
-DevPass subscribers can configure **No AI training** under **Settings**. [Contact us](https://llmgateway.io/enterprise) for the complete provider compliance policy.
+DevPass subscribers can configure **No AI training** under **Settings**. Organization-level data-protection controls are available on every supported plan under **Settings → Compliance**; [contact us](https://llmgateway.io/enterprise) for the certification requirements and the fine-grained provider and model lists.

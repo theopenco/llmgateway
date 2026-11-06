@@ -17,6 +17,7 @@ import {
 	getActiveCompliancePolicy,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	withDpaEnforcement,
 } from "@/lib/compliance.js";
 import { customModelToProviderMapping } from "@/lib/custom-model.js";
 import {
@@ -101,7 +102,9 @@ export async function filterAccessibleModels(
 	},
 ): Promise<ModelDefinition[]> {
 	const { apiKey, organization, project, wallet, iamRules, clientIp } = access;
-	const policy = getActiveCompliancePolicy(organization, apiKey);
+	const policy = await withDpaEnforcement(
+		getActiveCompliancePolicy(organization, apiKey),
+	);
 	const effectiveProviders = policy ? await getEffectiveProviders() : undefined;
 	const isDevPlan =
 		organization.kind === "devpass" && organization.devPlan !== "none";

@@ -170,6 +170,12 @@ Self-hosted deployments have full control over data retention:
 - Data is stored in your own PostgreSQL database
 - No additional storage costs (you manage your own infrastructure)
 
+## Personal data export
+
+**Settings → Account → Download Your Data** returns a JSON copy of your account-scoped profile, memberships, API key metadata, chats, playground history and preferences. Credentials and organization-controlled request logs are excluded; the file explains each exclusion.
+
+Each account can request **five exports per hour**. An export includes up to **1,000 chats**, **1,000 messages across those chats**, and **100 records per other collection**. Records over **16 KiB** are replaced with their ID and `exportOmitted: true` before leaving the database. The `notes.truncated` section identifies affected collections; contact the address in the file for the remainder.
+
 ## Privacy and Security
 
 - All stored data is encrypted at rest

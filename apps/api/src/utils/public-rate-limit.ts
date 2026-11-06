@@ -28,6 +28,7 @@ export async function consumeRateLimit(
 	key: string,
 	max: number,
 	windowSeconds: number,
+	options: { failOpen?: boolean } = {},
 ): Promise<boolean> {
 	try {
 		const count = await redisClient.eval(
@@ -39,6 +40,9 @@ export async function consumeRateLimit(
 		return Number(count) <= max;
 	} catch (error) {
 		logger.error("Public rate limit check failed", toError(error));
+		if (options.failOpen === false) {
+			throw error;
+		}
 		return true;
 	}
 }

@@ -14,16 +14,31 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import {
+	anonymizeBillingRecordsForEmail,
 	findSoleMemberOrganizations,
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
+import {
+	buildUserDataExport,
+	userDataExportSchema,
+} from "@/lib/data-export.js";
 import { requestEmailChange } from "@/lib/email-change.js";
 import { getAdminRole } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	tables,
+	cdb,
+	drizzleCache,
+	getTableName,
+} from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import type { AdminRole } from "@/middleware/admin.js";
@@ -656,6 +671,79 @@ user.openapi(getDeletionPreview, async (c) => {
 	);
 });
 
+const exportUserData = createRoute({
+	method: "get",
+	path: "/me/export",
+	summary: "Export my personal data",
+	description:
+		"Returns a bounded JSON download of account-scoped records. Notes identify truncation and a contact for authorized access review; this download alone is not a complete response to every access or portability request. Credentials, organization-owned request logs and security audit records are excluded; the payload documents each exclusion and why.",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: userDataExportSchema,
+				},
+			},
+			description: "The user's personal data as a JSON download.",
+		},
+	},
+});
+
+// One export fans out into ~20 queries and serializes a whole chat history,
+// including base64 attachments, so a loop on it is a cheap way for a single
+// account to exhaust the database pool. The window is far above what exercising
+// Art. 15 needs, and bounds that.
+const EXPORT_RATE_LIMIT_MAX = 5;
+const EXPORT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+
+// Only the 200 is declared: the 401/404/429 paths throw `HTTPException` and are
+// rendered by the global error handler, matching the other download routes here.
+user.openapi(exportUserData, async (c) => {
+	const authUser = c.get("user");
+
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	// Keyed by user, not IP: the cost is per account's data, and the session is
+	// the only identity that can reach this route.
+	const withinRateLimit = await consumeRateLimit(
+		`user_data_export:${authUser.id}`,
+		EXPORT_RATE_LIMIT_MAX,
+		EXPORT_RATE_LIMIT_WINDOW_SECONDS,
+		{ failOpen: false },
+	);
+
+	if (!withinRateLimit) {
+		throw new HTTPException(429, {
+			message:
+				"Too many data export requests. Please try again in an hour, or email contact@llmgateway.io.",
+		});
+	}
+
+	const data = await buildUserDataExport(authUser.id);
+
+	if (!data) {
+		throw new HTTPException(404, {
+			message: "User not found",
+		});
+	}
+
+	// Content-Disposition makes the browser write the file to disk under a
+	// sensible name instead of rendering a wall of JSON.
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="llmgateway-data-export-${authUser.id}.json"`,
+	);
+	// Personal data — never let a shared cache hold a copy.
+	c.header("Cache-Control", "no-store");
+
+	return c.json(data, 200);
+});
+
 const deleteUser = createRoute({
 	method: "delete",
 	path: "/me",
@@ -739,6 +827,21 @@ user.openapi(deleteUser, async (c) => {
 		)
 		.toString();
 
+	// Strip the account email out of the billing tables that outlive the user
+	// row. `payment_failure` cascades from `organization`, and organizations are
+	// kept (marked deleted) for the 10-year accounting period, so the address
+	// would otherwise survive the erasure indefinitely.
+	const anonymizedBillingRecords = await anonymizeBillingRecordsForEmail(
+		userRecord.email,
+		closedOrganizations.map((org) => org.id),
+	);
+
+	if (anonymizedBillingRecords > 0) {
+		logger.info(
+			`Anonymized ${anonymizedBillingRecords} payment failure record(s) on account deletion of user ${authUser.id}`,
+		);
+	}
+
 	// Sign out before deleting the user: the delete cascades the session rows
 	// away, after which better-auth can no longer resolve the session to revoke
 	// it or emit the cookie-clearing headers.
@@ -747,7 +850,9 @@ user.openapi(deleteUser, async (c) => {
 		returnHeaders: true,
 	});
 
-	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
+	await cdb.delete(tables.user).where(eq(tables.user.id, authUser.id));
+	// FK cascades bypass child-table mutation hooks; evict after the cascade.
+	await drizzleCache.onMutate({ tables: [getTableName(tables.apiKey)] });
 
 	await notifyUserAccountDeleted(userRecord.email, userRecord.name, {
 		closedOrganizations: closedOrganizations.length,

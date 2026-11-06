@@ -68,7 +68,10 @@ import {
 	projectHourlyStats,
 	getEffectiveProviders,
 } from "@llmgateway/db";
-import { getProviderCountries } from "@llmgateway/models";
+import {
+	getProviderCountries,
+	DATA_PROTECTION_POLICY_KEYS,
+} from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	getBaseLimit,
@@ -786,9 +789,22 @@ organization.openapi(updateOrganization, async (c) => {
 				userOrganization.organization?.plan,
 			)
 		) {
-			throw new HTTPException(403, {
-				message: "Provider compliance policies require an enterprise plan",
-			});
+			const unsupportedKeys = Object.entries(providerCompliancePolicy)
+				.filter(([key, value]) => {
+					if (
+						key === "enabled" ||
+						(DATA_PROTECTION_POLICY_KEYS as readonly string[]).includes(key)
+					) {
+						return false;
+					}
+					return Array.isArray(value) ? value.length > 0 : Boolean(value);
+				})
+				.map(([key]) => key);
+			if (unsupportedKeys.length > 0) {
+				throw new HTTPException(403, {
+					message: `These compliance settings require an Enterprise plan: ${unsupportedKeys.join(", ")}`,
+				});
+			}
 		}
 	}
 

@@ -18,6 +18,7 @@ import {
 	assertProviderCompliant,
 	getActiveCompliancePolicy,
 	isModelIdCompliant,
+	withDpaEnforcement,
 } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -353,7 +354,9 @@ async function runRealtimePreflightInner(
 
 	// ASR is separately billable. Every candidate must pass IAM and both model
 	// policies; its provider already passed compliance above.
-	const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
+	const compliancePolicy = await withDpaEnforcement(
+		getActiveCompliancePolicy(organization, apiKey),
+	);
 	const allowedTranscriptionModelIds: string[] =
 		sessionType === "transcription" ? [match.modelId] : [];
 	for (const candidate of sessionType === "transcription"

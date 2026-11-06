@@ -71,6 +71,7 @@ const providerSchema = z.object({
 	// Airworthy certificate, present only while it is active, unexpired and
 	// the carrier's live profile still matches what it attests.
 	airsideCertification: publicCertificationSchema.nullable(),
+	apiTraining: z.boolean().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -712,6 +713,17 @@ const getProvidersRoute = createRoute({
 
 internalModels.openapi(getProvidersRoute, async (c) => {
 	const providers = await db.query.provider.findMany({
+		columns: {
+			id: true,
+			createdAt: true,
+			name: true,
+			description: true,
+			cancellation: true,
+			color: true,
+			website: true,
+			announcement: true,
+			status: true,
+		},
 		where: {
 			status: { eq: "active" },
 		},
@@ -745,6 +757,12 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		},
 	});
 	const publicProviderIds = getPublicProviderIds(activeClaims);
+	const effectivePolicies = new Map(
+		(await getEffectiveProviders()).map((provider) => [
+			provider.id,
+			provider.dataPolicy,
+		]),
+	);
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
 	);
@@ -791,6 +809,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 				airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
 				airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
 				airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
+				apiTraining: effectivePolicies.get(provider.id)?.apiTraining ?? null,
 				airsideCertification: airsideCertificationFor(
 					brandingByProvider.get(provider.id),
 				),

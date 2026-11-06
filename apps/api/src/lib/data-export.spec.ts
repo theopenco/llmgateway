@@ -1,0 +1,420 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+import { redisClient } from "@/auth/config.js";
+import { app } from "@/index.js";
+import { createTestUser, deleteAll } from "@/testing.js";
+
+import { db, tables, eq } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+
+import { buildUserDataExport } from "./data-export.js";
+
+const USER_ID = "test-user-id";
+const ORG_ID = "test-org-id";
+const PROJECT_ID = "test-project-id";
+
+/** Values that must never appear anywhere in an export payload. */
+const SECRETS = {
+	apiKeyToken: "secret-api-key-token-do-not-export",
+	accountPassword: "secret-password-hash-do-not-export",
+	accountAccessToken: "secret-access-token-do-not-export",
+	accountRefreshToken: "secret-refresh-token-do-not-export",
+	sessionToken: "secret-session-token-do-not-export",
+	// API keys are stored hashed; the hash is as sensitive as a token lookup key.
+	apiKeyTokenHash: hashApiKeyForStorage("secret-api-key-token-do-not-export")
+		.tokenHash,
+};
+
+async function seedUserData() {
+	await db.insert(tables.organization).values({
+		id: ORG_ID,
+		name: "Test Organization",
+		billingEmail: "admin@example.com",
+	});
+	await db.insert(tables.userOrganization).values({
+		userId: USER_ID,
+		organizationId: ORG_ID,
+		role: "owner",
+	});
+	await db.insert(tables.project).values({
+		id: PROJECT_ID,
+		name: "Default Project",
+		organizationId: ORG_ID,
+		mode: "hybrid",
+	});
+	await db.insert(tables.apiKey).values({
+		id: "test-api-key-id",
+		...hashApiKeyForStorage(SECRETS.apiKeyToken),
+		description: "My key",
+		projectId: PROJECT_ID,
+		createdBy: USER_ID,
+	});
+	await db.insert(tables.account).values({
+		id: "export-account-id",
+		providerId: "credential",
+		accountId: "export-account-id",
+		userId: USER_ID,
+		password: SECRETS.accountPassword,
+		accessToken: SECRETS.accountAccessToken,
+		refreshToken: SECRETS.accountRefreshToken,
+	});
+	await db.insert(tables.session).values({
+		id: "export-session-id",
+		token: SECRETS.sessionToken,
+		userId: USER_ID,
+		expiresAt: new Date(Date.now() + 60_000),
+		ipAddress: "203.0.113.4",
+		userAgent: "vitest",
+	});
+	await db.insert(tables.chat).values({
+		id: "export-chat-id",
+		userId: USER_ID,
+		title: "My chat",
+		model: "gpt-4o-mini",
+	});
+	await db.insert(tables.message).values({
+		id: "export-message-id",
+		chatId: "export-chat-id",
+		role: "user",
+		content: "hello from my chat",
+		sequence: 1,
+	});
+	await db.insert(tables.userFavoriteModel).values({
+		userId: USER_ID,
+		modelId: "gpt-4o-mini",
+	});
+}
+
+describe("buildUserDataExport", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		await db.insert(tables.user).values({
+			id: USER_ID,
+			name: "Test User",
+			email: "admin@example.com",
+			emailVerified: true,
+		});
+		await seedUserData();
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	test("never includes a credential anywhere in the payload", async () => {
+		const data = await buildUserDataExport(USER_ID);
+		const serialized = JSON.stringify(data);
+
+		for (const [name, secret] of Object.entries(SECRETS)) {
+			expect(serialized, `${name} leaked into the export`).not.toContain(
+				secret,
+			);
+		}
+	});
+
+	test("includes the profile, memberships and key metadata", async () => {
+		const data = (await buildUserDataExport(USER_ID))!;
+
+		expect(data.profile).toMatchObject({
+			id: USER_ID,
+			email: "admin@example.com",
+			name: "Test User",
+		});
+		expect(data.organizations).toHaveLength(1);
+		expect(data.apiKeys).toEqual([
+			expect.objectContaining({ description: "My key", status: "active" }),
+		]);
+	});
+
+	test("includes user-generated content with its messages", async () => {
+		const data = (await buildUserDataExport(USER_ID))!;
+
+		const chats = data.chats as { title: string; messages: unknown[] }[];
+		expect(chats).toHaveLength(1);
+		expect(chats[0].title).toBe("My chat");
+		expect(chats[0].messages).toEqual([
+			expect.objectContaining({ role: "user", content: "hello from my chat" }),
+		]);
+
+		expect(data.preferences).toMatchObject({
+			favoriteModels: [expect.objectContaining({ modelId: "gpt-4o-mini" })],
+		});
+	});
+
+	test("documents what was withheld and why", async () => {
+		const data = (await buildUserDataExport(USER_ID))!;
+
+		expect(data.notes.excluded.map((entry) => entry.category)).toContain(
+			"Credentials",
+		);
+		for (const entry of data.notes.excluded) {
+			expect(entry).toMatchObject({
+				detail: expect.any(String),
+				reason: expect.any(String),
+			});
+		}
+	});
+
+	test("reports no truncation for a small account", async () => {
+		const data = (await buildUserDataExport(USER_ID))!;
+		expect(data.notes.truncated).toEqual([]);
+	});
+
+	test("returns nothing for a user that does not exist", async () => {
+		expect(await buildUserDataExport("no-such-user")).toBeNull();
+	});
+
+	test("does not include another user's data", async () => {
+		await db.insert(tables.user).values({
+			id: "other-user-id",
+			name: "Other User",
+			email: "other@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.chat).values({
+			id: "other-chat-id",
+			userId: "other-user-id",
+			title: "Other user's private chat",
+			model: "gpt-4o-mini",
+		});
+
+		const serialized = JSON.stringify(await buildUserDataExport(USER_ID));
+		expect(serialized).not.toContain("Other user's private chat");
+		expect(serialized).not.toContain("other@example.com");
+	});
+});
+
+describe("GET /user/me/export", () => {
+	let token: string;
+
+	// The limiter is keyed by user id and the key outlives the test database, so
+	// clear it or a later run in the same hour starts already throttled.
+	const rateLimitKey = `user_data_export:${USER_ID}`;
+	// Mirrors EXPORT_RATE_LIMIT_MAX in apps/api/src/routes/user.ts.
+	const EXPORT_RATE_LIMIT_MAX = 5;
+
+	beforeEach(async () => {
+		await redisClient.del(rateLimitKey);
+		token = await createTestUser();
+		await seedUserData();
+	});
+
+	afterEach(async () => {
+		await redisClient.del(rateLimitKey);
+		await deleteAll();
+	});
+
+	test("returns the export as a named download and refuses to be cached", async () => {
+		const res = await app.request("/user/me/export", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-disposition")).toBe(
+			`attachment; filename="llmgateway-data-export-${USER_ID}.json"`,
+		);
+		expect(res.headers.get("cache-control")).toBe("no-store");
+
+		const json = await res.json();
+		expect(json.subject).toMatchObject({ id: USER_ID });
+		expect(json.format).toBe("llmgateway.user-data-export.v1");
+		expect(JSON.stringify(json)).not.toContain(SECRETS.apiKeyToken);
+	});
+
+	test("rejects an unauthenticated request", async () => {
+		const res = await app.request("/user/me/export");
+		expect(res.status).toBe(401);
+	});
+
+	test("atomically limits concurrent exports and ignores another subject in the query", async () => {
+		const responses = await Promise.all(
+			Array.from({ length: 6 }, () =>
+				app.request("/user/me/export?userId=other-user-id", {
+					headers: { Cookie: token },
+				}),
+			),
+		);
+		expect(
+			responses.filter((response) => response.status === 200),
+		).toHaveLength(5);
+		expect(
+			responses.filter((response) => response.status === 429),
+		).toHaveLength(1);
+		const success = responses.find((response) => response.status === 200)!;
+		expect((await success.json()).subject.id).toBe(USER_ID);
+	});
+	test("rejects an export when its rate-limit store is unavailable", async () => {
+		const evalSpy = vi
+			.spyOn(redisClient, "eval")
+			.mockRejectedValueOnce(new Error("Synthetic rate-limit outage"));
+		try {
+			const response = await app.request("/user/me/export", {
+				headers: { Cookie: token },
+			});
+			expect(response.status).toBe(500);
+		} finally {
+			evalSpy.mockRestore();
+		}
+	});
+	test("throttles an account that exhausts its export quota", async () => {
+		// One export fans out into ~20 queries and serializes every chat, so the
+		// route has to stay rate limited even for an authenticated caller.
+		await redisClient.set(
+			rateLimitKey,
+			String(EXPORT_RATE_LIMIT_MAX),
+			"EX",
+			60,
+		);
+
+		const res = await app.request("/user/me/export", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(429);
+	});
+});
+describe("bounded personal content export", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		await db.insert(tables.user).values({
+			id: USER_ID,
+			name: "Test User",
+			email: "admin@example.com",
+			emailVerified: true,
+		});
+		await seedUserData();
+	});
+	afterEach(async () => {
+		await deleteAll();
+	});
+	test("preserves message sequence when copied messages share timestamps", async () => {
+		await db
+			.update(tables.message)
+			.set({ createdAt: new Date("2026-01-01T00:00:00Z") })
+			.where(eq(tables.message.id, "export-message-id"));
+		await db.insert(tables.message).values({
+			id: "a-copied-message",
+			chatId: "export-chat-id",
+			createdAt: new Date("2026-01-01T00:00:00Z"),
+			role: "assistant",
+			content: "reply",
+			sequence: 2,
+		});
+		const result = await buildUserDataExport(USER_ID);
+		expect(result?.chats).toMatchObject([
+			{ messages: [{ sequence: 1 }, { sequence: 2 }] },
+		]);
+	});
+	test("includes notification preferences and the account inbox", async () => {
+		await db
+			.insert(tables.notificationPreference)
+			.values({ userId: USER_ID, type: "model_price_change", inApp: true });
+		await db.insert(tables.notification).values({
+			id: "export-notification",
+			userId: USER_ID,
+			type: "model_price_change",
+			eventKey: "synthetic-event",
+			title: "Test notification",
+			message: "Synthetic message",
+			href: "/dashboard",
+			inApp: true,
+			email: false,
+		});
+		const result = await buildUserDataExport(USER_ID);
+		expect(result?.preferences).toMatchObject({
+			notificationPreferences: [{ type: "model_price_change", inApp: true }],
+		});
+		expect(result).toMatchObject({
+			notifications: [
+				{ id: "export-notification", title: "Test notification" },
+			],
+		});
+	});
+	test("includes decision and sandbox history and bounds media row counts", async () => {
+		await db.insert(tables.playgroundDecisionHistory).values({
+			id: "decision-export",
+			userId: USER_ID,
+			prompt: "Test decision",
+			questions: [],
+			models: [],
+		});
+		await db.insert(tables.sandboxEscapeRun).values({
+			id: "sandbox-export",
+			userId: USER_ID,
+			levelId: 1,
+			model: "test-model",
+			outcome: "timeout",
+			steps: 1,
+			par: 2,
+			moves: [],
+		});
+		await db.insert(tables.playgroundAudioHistory).values(
+			Array.from({ length: 101 }, (_, i) => ({
+				id: `audio-export-${i}`,
+				userId: USER_ID,
+				prompt: "Test audio",
+				models: [],
+			})),
+		);
+		const result = await buildUserDataExport(USER_ID);
+		expect(result?.playgroundHistory.decisions).toMatchObject([
+			{ id: "decision-export" },
+		]);
+		expect(result?.playgroundHistory.sandbox).toMatchObject([
+			{ id: "sandbox-export" },
+		]);
+		expect(result?.playgroundHistory.audio).toHaveLength(100);
+		expect(result?.notes.truncated.map((item) => item.section)).toContain(
+			"playgroundHistory.audio",
+		);
+	});
+	test("represents an oversized message and media record without its payload", async () => {
+		const oversized = "oversized-personal-content-".repeat(10000);
+		await db
+			.update(tables.message)
+			.set({ content: oversized })
+			.where(eq(tables.message.id, "export-message-id"));
+		await db.insert(tables.playgroundImageHistory).values({
+			id: "large-image-history",
+			userId: USER_ID,
+			prompt: oversized,
+			models: [],
+		});
+		const result = await buildUserDataExport(USER_ID);
+		expect(JSON.stringify(result).includes(oversized)).toBe(false);
+		expect(result?.chats).toMatchObject([
+			{ messages: [{ id: "export-message-id", exportOmitted: true }] },
+		]);
+		expect(result?.playgroundHistory.images).toMatchObject([
+			{ id: "large-image-history", exportOmitted: true },
+		]);
+		expect(result?.notes.truncated.map((item) => item.section)).toEqual(
+			expect.arrayContaining(["chatMessages", "playgroundHistory.images"]),
+		);
+	});
+	test("bounds messages inside one chat and does not load oversized content", async () => {
+		await db.insert(tables.message).values(
+			Array.from({ length: 1001 }, (_, i) => ({
+				id: `bounded-message-${i}`,
+				chatId: "export-chat-id",
+				role: "user" as const,
+				content: "hello",
+				sequence: i + 2,
+			})),
+		);
+		const oversized = "oversized-personal-content-".repeat(10000);
+		await db
+			.update(tables.message)
+			.set({ content: oversized })
+			.where(eq(tables.message.id, "export-message-id"));
+		const result = await buildUserDataExport(USER_ID);
+		expect(JSON.stringify(result).includes(oversized)).toBe(false);
+		expect(
+			result?.notes.truncated.some((item) => item.section === "chatMessages"),
+		).toBe(true);
+		const chat = result?.chats.find(
+			(item) => (item as { id: string }).id === "export-chat-id",
+		) as { messages: unknown[] };
+		expect(chat.messages.length).toBeLessThanOrEqual(1000);
+	});
+});

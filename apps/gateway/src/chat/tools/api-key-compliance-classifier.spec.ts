@@ -4,6 +4,7 @@ import { resolveDynamicRouteClassification } from "./resolve-dynamic-route-class
 
 import type { ClassifierRequestContext } from "./log-classifier-usage.js";
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
+import type * as ComplianceModule from "@/lib/compliance.js";
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
@@ -19,7 +20,8 @@ const mocks = vi.hoisted(() => ({
 	store: vi.fn(),
 }));
 
-vi.mock("@/lib/compliance.js", () => ({
+vi.mock("@/lib/compliance.js", async (importOriginal) => ({
+	...(await importOriginal<typeof ComplianceModule>()),
 	getActiveCompliancePolicy: mocks.policy,
 	isProviderIdCompliant: (provider: string, policy: ProviderCompliancePolicy) =>
 		!policy.blockedProviders?.includes(provider),

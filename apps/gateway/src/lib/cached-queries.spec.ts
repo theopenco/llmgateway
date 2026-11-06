@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { redisClient } from "@llmgateway/cache";
+import {
+	redisClient,
+	resetDbCircuit,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
 import {
 	cdb,
 	db,
@@ -40,6 +44,7 @@ import {
 	findActiveIamRules,
 	findUserFromOrganization,
 	listEligibleProviderKeys,
+	findDpaSignedProviderIds,
 } from "./cached-queries.js";
 
 /**
@@ -717,5 +722,26 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 			expect(result).toBeUndefined();
 		});
+	});
+});
+describe("signed DPA freshness", () => {
+	it("does not authorize from a stale DPA mirror after a lookup failure", async () => {
+		resetDbCircuit();
+		const fetch = vi.fn().mockResolvedValue([{ id: "openai" }]);
+		const query = { from: () => query, where: () => query, $withCache: fetch };
+		const select = vi
+			.spyOn(cdb, "select")
+			.mockReturnValue(query as unknown as ReturnType<typeof cdb.select>);
+		try {
+			expect(await findDpaSignedProviderIds()).toEqual(["openai"]);
+			await waitForSwrMirrorWrites();
+			fetch.mockRejectedValue(new Error("DPA storage unavailable"));
+			await expect(findDpaSignedProviderIds()).rejects.toThrow(
+				"DPA storage unavailable",
+			);
+		} finally {
+			select.mockRestore();
+			resetDbCircuit();
+		}
 	});
 });

@@ -35,3 +35,4 @@ export * from "./models-directory/capability-filters";
 export * from "./models-directory/pricing-schedule";
 export * from "./models-directory/use-case-filters";
 export { RoutingMetadataExpired } from "./routing-metadata-expired.js";
+export * from "./api-training-warning";
