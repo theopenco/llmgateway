@@ -18,6 +18,7 @@ import {
 	consumeFromQueue,
 	LOG_QUEUE,
 	publishToQueue,
+	redisClient,
 } from "@llmgateway/cache";
 import {
 	addApiKeyPeriodDuration,
@@ -184,6 +185,21 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
 );
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
+// Bound retries per selected log; SQL failures never discard charges.
+const POISON_LOG_MAX_ATTEMPTS = Math.max(
+	1,
+	Math.min(
+		10,
+		Math.floor(Number(process.env.CREDIT_POISON_LOG_MAX_ATTEMPTS) || 3),
+	),
+);
+// Cap unreadable-row retirement across replicas and restarts. Schema drift
+// must stall billing rather than silently discard the entire backlog.
+const QUARANTINE_BUDGET_WINDOW_SECONDS = 3600;
+const DEFAULT_QUARANTINE_BUDGET = 5;
+// Pause after the budget is spent, so a pass that can only fail does not keep
+// narrowing against an unhealthy database once per caller interval.
+const QUARANTINE_STALL_BACKOFF_MS = 5000;
 // 1s: this interval is the floor of the spend-to-balance settlement gap the
 // credit gates operate on, so it directly bounds how far a burst can
 // overshoot a balance. Idle cost is one lock round-trip per tick.
@@ -271,20 +287,41 @@ function buildApiKeyUsageUpdate(
 	};
 }
 
+// Postgres `real` columns can legitimately hold NaN and ±Infinity, which a
+// plain z.number() rejects. Such a row is unusable for money math either way,
+// so read it as "no cost recorded" rather than letting it fail to parse — an
+// unparseable row is quarantined and never billed at all.
+const finiteCost = z.preprocess(
+	(value) =>
+		typeof value === "number" && !Number.isFinite(value) ? null : value,
+	z.number().nullable(),
+);
+
+const finiteDecimalCost = z
+	.string()
+	.nullable()
+	.refine(
+		(value) => value === null || new Decimal(value).isFinite(),
+		"Cost must be finite",
+	);
 const schema = z.object({
 	id: z.string(),
 	created_at: z.date(),
 	request_id: z.string(),
 	organization_id: z.string(),
 	project_id: z.string(),
-	cost: z.number().nullable(),
-	billing_cost: z.string().nullable(),
-	cached: z.boolean(),
+	cost: finiteCost,
+	billing_cost: finiteDecimalCost,
+	// Nullable in the database (the column only has a default), so never assume
+	// a boolean is present.
+	cached: z.boolean().nullable(),
 	api_key_id: z.string(),
 	provider_key_id: z.string().nullable(),
 	end_user_session_id: z.string().nullable(),
 	end_customer_wallet_id: z.string().nullable(),
-	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
+	// Comes from a left join on project: null once the project is hard-deleted.
+	// Only used for logging, so a missing mode is not worth failing the row over.
+	project_mode: z.enum(["api-keys", "credits", "hybrid"]).nullable(),
 	used_mode: z.enum(["api-keys", "credits"]),
 	duration: z.number(),
 	requested_model: z.string(),
@@ -294,18 +331,20 @@ const schema = z.object({
 	used_provider: z.string(),
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
-	data_storage_cost: z.string().nullable(),
+	data_storage_cost: finiteDecimalCost,
 	prompt_tokens: z.string().nullable(),
 	completion_tokens: z.string().nullable(),
 	total_tokens: z.string().nullable(),
 	reasoning_tokens: z.string().nullable(),
 	cached_tokens: z.string().nullable(),
 	cache_write_tokens: z.string().nullable(),
-	input_cost: z.number().nullable(),
-	output_cost: z.number().nullable(),
-	cached_input_cost: z.number().nullable(),
-	cache_write_input_cost: z.number().nullable(),
+	input_cost: finiteCost,
+	output_cost: finiteCost,
+	cached_input_cost: finiteCost,
+	cache_write_input_cost: finiteCost,
 	estimated_cost: z.boolean().nullable(),
+	// Purely echoed into the processing log line, so an unexpected shape
+	// degrades to null instead of making the row unprocessable.
 	error_details: z
 		.object({
 			statusCode: z.number(),
@@ -313,7 +352,8 @@ const schema = z.object({
 			responseText: z.string(),
 			cause: z.string().optional(),
 		})
-		.nullable(),
+		.nullable()
+		.catch(null),
 	trace_id: z.string().nullable(),
 	unified_finish_reason: z.string().nullable(),
 	source: z.string().nullable(),
@@ -1129,13 +1169,26 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 	}
 }
 
-export async function batchProcessLogs(): Promise<number> {
-	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
-	if (!lockAcquired) {
-		return 0;
-	}
+interface CreditBatchResult {
+	/** Logs committed as processed. 0 whenever the transaction rolled back. */
+	processed: number;
+	/** True when the transaction rolled back; the same rows are still queued. */
+	failed: boolean;
+	/** Rows the batch had selected, kept across the rollback for narrowing. */
+	selectedLogs: Array<{ id: string; organizationId: string }>;
+	error?: Error;
+}
 
+/**
+ * Runs one credit-deduction batch of at most `batchSize` logs, oldest first.
+ * Never throws: a rolled-back transaction comes back as `failed` so the caller
+ * can narrow the batch and isolate whichever row is poisoning it.
+ */
+async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 	let processedCount = 0;
+	// Captured inside the transaction and deliberately read after a rollback:
+	// this is what tells the caller which rows the failing batch covered.
+	const selectedLogs: CreditBatchResult["selectedLogs"] = [];
 	const deductedOrgIds: string[] = [];
 	// Every org whose row was debited this batch (plan pools or regular
 	// credits). Their tagged cache entries are evicted after commit so the
@@ -1155,7 +1208,7 @@ export async function batchProcessLogs(): Promise<number> {
 
 	try {
 		// Only batches that actually commit count toward processedCount, so a
-		// rolled-back transaction leaves it at 0 and the loop backs off instead
+		// rolled-back transaction leaves it at 0 and the caller narrows instead
 		// of hot-looping on a failing batch.
 		processedCount = await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
@@ -1204,9 +1257,16 @@ export async function batchProcessLogs(): Promise<number> {
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
 				.where(sql`${log.processedAt} IS NULL`)
 				.orderBy(sql`${log.createdAt} ASC`)
-				.limit(CREDIT_BATCH_SIZE)
+				.limit(batchSize)
 				.for("update", { of: [log], skipLocked: true });
 			const unprocessedLogs = { rows };
+
+			for (const row of rows) {
+				selectedLogs.push({
+					id: row.id,
+					organizationId: row.organization_id,
+				});
+			}
 
 			if (unprocessedLogs.rows.length === 0) {
 				return 0;
@@ -1243,6 +1303,11 @@ export async function batchProcessLogs(): Promise<number> {
 			// spends at the provider — not billingCost, which carries plan/margin
 			// adjustments on what the org pays us.
 			const providerKeyCosts = new Map<string, Decimal>();
+			// Rows we could not even read. They are stamped processed instead of
+			// throwing, because a single unreadable row would otherwise roll back
+			// every batch it lands in — forever. The reason goes to the infra logs
+			// only, never to a column on this table.
+			const unreadableLogIds: string[] = [];
 
 			// Accepts both the current and the pre-move Lounge host: logs written
 			// before the domain move are still queued here, and rewriting them is
@@ -1267,7 +1332,34 @@ export async function batchProcessLogs(): Promise<number> {
 			);
 
 			for (const raw of unprocessedLogs.rows) {
-				const row = schema.parse(raw);
+				const parsed = schema.safeParse(raw);
+				if (!parsed.success) {
+					if (!(await claimQuarantineBudget())) {
+						logger.error(
+							"Credit quarantine budget unavailable; leaving unreadable log queued",
+							{
+								kind: "log-quarantine-budget-spent",
+								logId: raw.id,
+								organizationId: raw.organization_id,
+							},
+						);
+						continue;
+					}
+					unreadableLogIds.push(raw.id);
+					logger.error(
+						`Quarantining unreadable log ${raw.id}: its cost will not be billed`,
+						parsed.error,
+						{
+							kind: "log-quarantine",
+							logId: raw.id,
+							organizationId: raw.organization_id,
+							cause: "unparseable",
+							reason: parsed.error.message,
+						},
+					);
+					continue;
+				}
+				const row = parsed.data;
 
 				// Log each processed log with JSON format
 				logger.info("processing log", {
@@ -1956,9 +2048,46 @@ export async function batchProcessLogs(): Promise<number> {
 
 			logger.debug(`Marked ${logIds.length} logs as processed`);
 
-			return unprocessedLogs.rows.length;
-		});
+			// Retire unreadable rows in the same transaction so they drop out of
+			// every `processed_at IS NULL` consumer (the batch queue itself, the
+			// unsettled-spend gate) rather than blocking them indefinitely. Alert
+			// on `kind: "log-quarantine"`: more than the occasional row means this
+			// schema has drifted from what the gateway writes, and the ids in
+			// those log lines are what a re-queue would run against.
+			if (unreadableLogIds.length > 0) {
+				logger.error(
+					`Quarantined ${unreadableLogIds.length} of ${unprocessedLogs.rows.length} logs in this batch`,
+					{
+						kind: "log-quarantine-batch",
+						cause: "unparseable",
+						count: unreadableLogIds.length,
+						logIds: unreadableLogIds,
+					},
+				);
 
+				await tx
+					.update(log)
+					.set({
+						processedAt: new Date(),
+					})
+					.where(sql`${log.id} = ANY(${sql.param(unreadableLogIds)}::text[])`);
+			}
+
+			return logIds.length + unreadableLogIds.length;
+		});
+	} catch (error) {
+		return {
+			processed: 0,
+			failed: true,
+			selectedLogs,
+			error: error instanceof Error ? error : new Error(String(error)),
+		};
+	}
+
+	// Post-commit follow-ups. The batch is already durable at this point, so a
+	// failure here must not be reported as a batch failure: that would make the
+	// caller narrow and eventually quarantine rows that were billed correctly.
+	try {
 		// Evict the debited orgs' tagged cache entries so the gateway's next
 		// org read (and thus its credit gate) sees the new balance now rather
 		// than after the cache TTL — the debits above went through the plain
@@ -2035,14 +2164,136 @@ export async function batchProcessLogs(): Promise<number> {
 		}
 	} catch (error) {
 		logger.error(
-			"Error processing batch credit deductions",
+			"Error in post-commit credit batch follow-ups",
 			error instanceof Error ? error : new Error(String(error)),
 		);
-	} finally {
-		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
 	}
 
-	return processedCount;
+	return { processed: processedCount, failed: false, selectedLogs };
+}
+
+/**
+ * Flattens the cause chain: Drizzle wraps driver errors, so the message that
+ * actually says what went wrong is usually one or two causes down.
+ */
+function describeError(error: Error): string {
+	const parts: string[] = [];
+	const seen = new Set<unknown>();
+	let current: unknown = error;
+
+	while (current instanceof Error && !seen.has(current)) {
+		seen.add(current);
+		parts.push(`${current.name}: ${current.message}`);
+		current = current.cause;
+	}
+
+	return parts.join(" | ");
+}
+
+/**
+ * Claims one slot from the quarantine budget. The counter lives in Redis so it
+ * survives a worker restart — a crash loop must not hand itself a fresh
+ * allowance — and is shared by every replica. The slot is taken before the row
+ * is retired, so a quarantine that then fails still costs its slot; erring
+ * towards fewer dropped rows is the point.
+ *
+ * Returns false once the budget for the current window is spent, or when the
+ * counter cannot be read: the caller then leaves the row queued, because a
+ * stalled queue is recoverable and an unbilled row is not.
+ */
+async function claimQuarantineBudget(): Promise<boolean> {
+	const budget = Number(
+		process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW ?? DEFAULT_QUARANTINE_BUDGET,
+	);
+	if (!Number.isInteger(budget) || budget <= 0 || budget > 100) {
+		return false;
+	}
+	const windowMs = QUARANTINE_BUDGET_WINDOW_SECONDS * 1000;
+	const key = `credit-quarantine-budget:${Math.floor(Date.now() / windowMs)}`;
+	try {
+		return (
+			(await redisClient.eval(
+				`
+			local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+			if used >= tonumber(ARGV[1]) then return 0 end
+			redis.call('INCR', KEYS[1])
+			redis.call('EXPIRE', KEYS[1], ARGV[2])
+			return 1
+		`,
+				1,
+				key,
+				budget,
+				QUARANTINE_BUDGET_WINDOW_SECONDS,
+			)) === 1
+		);
+	} catch (error) {
+		logger.error(
+			"Failed to claim a credit quarantine budget slot; leaving the log queued",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return false;
+	}
+}
+
+/** Narrows failed batches; SQL failures remain queued for recovery. */
+export async function batchProcessLogs(): Promise<number> {
+	const leaseId = await acquireLease(CREDIT_PROCESSING_LOCK_KEY);
+	if (!leaseId) {
+		return 0;
+	}
+	try {
+		let batchSize = CREDIT_BATCH_SIZE;
+		let singleLogAttempts = 0;
+		let singleLogId: string | null = null;
+		while (!isStopRequested()) {
+			const result = await runCreditBatch(batchSize);
+			if (!result.failed) {
+				if (result.processed === 0 && result.selectedLogs.length > 0) {
+					await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
+				}
+				return result.processed;
+			}
+			logger.error(
+				`Error processing batch credit deductions (batch size ${batchSize}, ${result.selectedLogs.length} logs selected)`,
+				result.error,
+			);
+			if (result.selectedLogs.length === 0) {
+				await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
+				return 0;
+			}
+			if (batchSize > 1) {
+				batchSize = Math.max(1, Math.floor(batchSize / 2));
+				continue;
+			}
+			const selectedLog = result.selectedLogs[0];
+			if (selectedLog.id !== singleLogId) {
+				singleLogId = selectedLog.id;
+				singleLogAttempts = 0;
+			}
+			singleLogAttempts++;
+			if (singleLogAttempts < POISON_LOG_MAX_ATTEMPTS) {
+				await interruptibleSleep(250 * singleLogAttempts);
+				continue;
+			}
+			// SQL failures cannot prove row corruption. Preserve charges through
+			// permission errors, trigger failures, deadlocks and outages.
+			logger.error(
+				"Credit processing still failing; leaving log queued",
+				result.error,
+				{
+					kind: "credit-processing-stalled",
+					logId: selectedLog.id,
+					organizationId: selectedLog.organizationId,
+					reason: result.error ? describeError(result.error) : "unknown error",
+				},
+			);
+			await interruptibleSleep(QUARANTINE_STALL_BACKOFF_MS);
+			return 0;
+		}
+		return 0;
+	} finally {
+		await releaseLease(leaseId);
+	}
 }
 
 export async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {

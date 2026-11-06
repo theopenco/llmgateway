@@ -20,6 +20,8 @@ The Billing page is your central hub for managing credits, plans, and payment me
 
 Displays your current credit balance. Credits are consumed as you make API requests through the gateway. Click **Top Up Credits** to add more credits to your account. Top-ups are whole-dollar amounts from **$10** to **$5,000**.
 
+Credit settlement runs in the background. Unreadable request records are isolated so they do not block healthy charges; isolation is capped across workers (five records per UTC hour by default). Database failures are retried without discarding pending charges, so settlement can be delayed until recovery.
+
 ## Self-service refunds
 
 For credit top-ups and DevPass or Lounge plan payments made on or after
