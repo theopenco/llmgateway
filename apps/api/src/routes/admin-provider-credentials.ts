@@ -106,6 +106,8 @@ import type {
 	ProviderValidationResult,
 } from "@llmgateway/models";
 
+const usageWindowSchema = z.enum(["all", "1d", "7d", "30d"]);
+
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
 adminProviderCredentials.use("/*", adminMiddleware);
@@ -204,6 +206,8 @@ type CredentialErrorPoint = z.infer<typeof credentialErrorPointSchema>;
 
 /** List view only — the mutation responses do not compute the rollup. */
 const listedCredentialSchema = credentialSchema.extend({
+	/** Spend in `usageWindow`; lifetime `usage` remains unchanged for caps. */
+	windowUsage: z.string(),
 	last24h: credentialRecentStatsSchema,
 	/**
 	 * The last 7 UTC days, oldest first, always 7 entries. The final entry is the
@@ -824,6 +828,8 @@ const listCredentials = createRoute({
 			includeDeleted: z.enum(["true", "false"]).optional(),
 			/** Window `errorSeries` covers; defaults to 1d. */
 			errorWindow: errorWindowSchema.optional(),
+			/** Spend display window; defaults to the lifetime usage counter. */
+			usageWindow: usageWindowSchema.optional(),
 		}),
 	},
 	responses: {
@@ -841,7 +847,11 @@ const listCredentials = createRoute({
 });
 
 adminProviderCredentials.openapi(listCredentials, async (c) => {
-	const { provider, includeDeleted } = c.req.valid("query");
+	const {
+		provider,
+		includeDeleted,
+		usageWindow = "all",
+	} = c.req.valid("query");
 	const errorWindow = c.req.valid("query").errorWindow ?? "1d";
 
 	const rows = await db.query.providerKey.findMany({
@@ -864,21 +874,27 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 
 	const credentialIds = rows.map((row) => row.id);
-	const [recent, daily, bucketed, carrierKeyIds] = await Promise.all([
-		getRecentCredentialStats(credentialIds),
-		getDailyCredentialStats(credentialIds),
-		// The 7d window is the daily series the spend sparkline already loads.
-		errorWindow === "7d"
-			? null
-			: getBucketedCredentialErrorSeries(credentialIds, errorWindow),
-		linkedCarrierKeyIds(),
-	]);
+	const [recent, daily, bucketed, carrierKeyIds, windowUsage] =
+		await Promise.all([
+			getRecentCredentialStats(credentialIds),
+			getDailyCredentialStats(credentialIds),
+			// The 7d window is the daily series the spend sparkline already loads.
+			errorWindow === "7d"
+				? null
+				: getBucketedCredentialErrorSeries(credentialIds, errorWindow),
+			linkedCarrierKeyIds(),
+			usageWindow === "all"
+				? null
+				: getCredentialWindowUsage(credentialIds, usageWindow),
+		]);
 
 	return c.json({
 		credentials: rows.map((row) => {
 			const last7dDaily = daily.get(row.id) ?? buildEmptyDailySeries();
 			return {
 				...toCredential(row, carrierKeyIds),
+				windowUsage:
+					windowUsage === null ? row.usage : (windowUsage.get(row.id) ?? "0"),
 				last24h: recent.get(row.id) ?? NO_RECENT_STATS,
 				last7dDaily,
 				errorSeries:
@@ -2858,6 +2874,35 @@ const reorderCredentials = createRoute({
 		},
 	},
 });
+
+async function getCredentialWindowUsage(
+	providerKeyIds: string[],
+	window: Exclude<z.infer<typeof usageWindowSchema>, "all">,
+) {
+	if (providerKeyIds.length === 0) {
+		return new Map<string, string>();
+	}
+	const stats = tables.providerKeyHourlyStats;
+	const now = new Date();
+	const rows = await db
+		.select({
+			providerKeyId: stats.providerKeyId,
+			usage:
+				sql<string>`COALESCE(SUM(CAST(CAST(${stats.cost} AS DOUBLE PRECISION) AS NUMERIC)), 0)::text`.as(
+					"usage",
+				),
+		})
+		.from(stats)
+		.where(
+			and(
+				inArray(stats.providerKeyId, providerKeyIds),
+				gte(stats.hourTimestamp, getTokenWindowStartDate(window, now)),
+				lt(stats.hourTimestamp, now),
+			),
+		)
+		.groupBy(stats.providerKeyId);
+	return new Map(rows.map((row) => [row.providerKeyId, row.usage]));
+}
 
 /**
  * Sets the order the gateway tries a provider's managed credentials.

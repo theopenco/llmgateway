@@ -122,6 +122,12 @@ them without redeploying, and each credential carries every setting the provider
 needs — API key, base URL, project, region, resource, API version — plus a free-form
 note so several keys for the same provider stay tellable apart.
 
+The credentials table's **Usage period** defaults to **All time**. Select **24h**,
+**7d**, or **30d** to show each key's attributed spend in that rolling window and
+rank by **Spend (selected window)**. Period totals use hourly aggregates; limits
+and their progress always use all-time spend. The daily spend bars still cover
+the last seven UTC days, and error rates keep their separate window.
+
 Resolution is per provider: as soon as a provider has at least one managed
 credential, credits-mode requests to it use those credentials and its `LLM_*`
 environment variables are ignored entirely. Providers with no managed credential
