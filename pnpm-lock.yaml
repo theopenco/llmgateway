@@ -224,7 +224,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(175546ece606d409856c4ad2a59b1d62)
+        version: 1.7.16(36b8a39383186e02f0f09dee34b1da76)
       '@fontsource-variable/archivo':
         specifier: 5.3.0
         version: 5.3.0
@@ -541,7 +541,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(175546ece606d409856c4ad2a59b1d62)
+        version: 1.7.16(36b8a39383186e02f0f09dee34b1da76)
       '@content-collections/core':
         specifier: 0.15.0
         version: 0.15.0(typescript@5.9.3)
@@ -1112,7 +1112,7 @@ importers:
         version: 4.0.99(react@19.3.1)(zod@4.6.7)
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(175546ece606d409856c4ad2a59b1d62)
+        version: 1.7.16(36b8a39383186e02f0f09dee34b1da76)
       '@fontsource-variable/fraunces':
         specifier: 5.3.0
         version: 5.3.0
@@ -1401,7 +1401,7 @@ importers:
         version: 4.0.99(react@19.3.1)(zod@4.6.7)
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(175546ece606d409856c4ad2a59b1d62)
+        version: 1.7.16(36b8a39383186e02f0f09dee34b1da76)
       '@better-auth/sso':
         specifier: 1.7.16
         version: 1.7.16(afd8c6a8b4557e8ffb42bcdfd4e63482)
@@ -1711,7 +1711,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(175546ece606d409856c4ad2a59b1d62)
+        version: 1.7.16(36b8a39383186e02f0f09dee34b1da76)
       '@fontsource-variable/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -2092,6 +2092,9 @@ importers:
       '@llmgateway/shared':
         specifier: workspace:*
         version: link:../shared
+      decimal.js:
+        specifier: 10.5.0
+        version: 10.5.0
       nanoid:
         specifier: 5.1.16
         version: 5.1.16
@@ -16084,7 +16087,7 @@ snapshots:
       '@better-auth/core': 1.7.16(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.0)(better-call@1.4.5(zod@4.6.7))(jose@6.2.9)(kysely@0.28.17)(nanostores@1.5.0)
       '@better-auth/utils': 0.5.1
 
-  '@better-auth/passkey@1.7.16(175546ece606d409856c4ad2a59b1d62)':
+  '@better-auth/passkey@1.7.16(36b8a39383186e02f0f09dee34b1da76)':
     dependencies:
       '@better-auth/core': 1.7.16(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.0)(better-call@1.4.5(zod@4.6.7))(jose@6.2.9)(kysely@0.28.17)(nanostores@1.5.0)
       '@better-auth/utils': 0.5.1
