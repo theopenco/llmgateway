@@ -104,19 +104,20 @@ export function getUnifiedFinishReason(
 		case "anthropic":
 		case "vertex-anthropic":
 		case "azure-anthropic":
-			if (finishReason === "stop_sequence") {
+			// Cache entries and OpenAI-compatible transports can carry normalized reasons.
+			if (finishReason === "stop" || finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
 			}
-			if (finishReason === "max_tokens") {
+			if (finishReason === "max_tokens" || finishReason === "length") {
 				return UnifiedFinishReason.LENGTH_LIMIT;
 			}
 			if (finishReason === "end_turn") {
 				return UnifiedFinishReason.COMPLETED;
 			}
-			if (finishReason === "tool_use") {
+			if (finishReason === "tool_use" || finishReason === "tool_calls") {
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
-			if (finishReason === "refusal") {
+			if (finishReason === "content_filter") {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
 			break;
