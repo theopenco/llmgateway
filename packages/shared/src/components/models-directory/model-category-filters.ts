@@ -43,7 +43,6 @@ export const curatedCategoryModelIds: Record<
 	roleplay: new Set([
 		"deepseek-v3.2",
 		"deepseek-v4-pro",
-		"deepseek-v4-flash",
 		"deepseek-v4-flash-0731",
 		"deepseek-v4.1-flash",
 		"deepseek-v4.1-flash-1017",
@@ -144,7 +143,6 @@ export const curatedCategoryModelIds: Record<
 		"claude-haiku-4-5",
 		"qwen3.7-max",
 		"qwen3.7-plus",
-		"deepseek-v4-flash",
 		"deepseek-v4-flash-0731",
 		"deepseek-v4.1-flash",
 		"deepseek-v4.1-flash-1017",

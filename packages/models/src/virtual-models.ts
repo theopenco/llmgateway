@@ -16,7 +16,7 @@ export function getModelAliases(modelId: string): string[] {
 export function getModelDenyRefs(modelId: string): string[] {
 	const catalogue = models as ModelDefinition[];
 	const canonical =
-		catalogue.find((model) => model.id === modelId) ??
+		resolveModelDefinition(modelId) ??
 		catalogue.find((model) => model.aliases?.includes(modelId));
 	return Array.from(
 		new Set([
@@ -48,9 +48,24 @@ export function getRequestedModelAlias(
 		: undefined;
 }
 
-export function getVirtualModelTarget(id: string): ModelDefinition | undefined {
-	return (models as ModelDefinition[]).find(
-		(model) => model.aliasesAreVirtual && model.aliases?.includes(id),
+export function getVirtualModelTarget(
+	id: string,
+	now = new Date(),
+): ModelDefinition | undefined {
+	const catalogue = models as ModelDefinition[];
+	const exact = catalogue.find((model) => model.id === id);
+	if (
+		exact &&
+		(!exact.providers.length ||
+			exact.providers.some(
+				(mapping) => !mapping.deactivatedAt || mapping.deactivatedAt > now,
+			))
+	) {
+		return undefined;
+	}
+	return catalogue.find(
+		(model) =>
+			model.id !== id && model.aliasesAreVirtual && model.aliases?.includes(id),
 	);
 }
 
@@ -58,8 +73,12 @@ export function getVirtualModelTarget(id: string): ModelDefinition | undefined {
 export function expandVirtualModels<
 	T extends { id: string; name?: string | null; source?: "catalog" | "custom" },
 >(catalogue: T[]): (T & { virtualModelTarget?: string })[] {
-	const ids = new Set(catalogue.map((model) => model.id));
-	return catalogue.flatMap((model) => {
+	const visible = catalogue.filter(
+		(model) =>
+			model.source === "custom" || !getRetiredModelReplacement(model.id),
+	);
+	const ids = new Set(visible.map((model) => model.id));
+	return visible.flatMap((model) => {
 		const definition = (models as ModelDefinition[]).find(
 			(cut) => cut.id === model.id,
 		);
@@ -82,4 +101,21 @@ export function expandVirtualModels<
 				}),
 		];
 	});
+}
+
+/** Historical IDs remain stored, but cannot be revived by old carrier listings. */
+export function getRetiredModelReplacement(
+	id: string,
+	now = new Date(),
+): ModelDefinition | undefined {
+	return models.some((model) => model.id === id)
+		? getVirtualModelTarget(id, now)
+		: undefined;
+}
+
+/** Resolve request names without changing historical catalogue identities. */
+export function resolveModelDefinition(
+	id: string,
+): ModelDefinition | undefined {
+	return getVirtualModelTarget(id) ?? models.find((model) => model.id === id);
 }

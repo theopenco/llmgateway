@@ -23,6 +23,7 @@ import {
 	type PricingTier,
 	type ProviderModelMapping,
 	type ModelDefinition,
+	getRetiredModelReplacement,
 } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
@@ -420,7 +421,10 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 		const deactivationFilteredModels = allCatalogueModels.filter(
 			(model: ModelDefinition) => {
 				// Every mapping belonged to a listing that is out of service.
-				if (model.providers.length === 0) {
+				if (
+					model.providers.length === 0 ||
+					getRetiredModelReplacement(model.id)
+				) {
 					return false;
 				}
 

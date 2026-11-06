@@ -971,34 +971,36 @@ describe("airside-listed models", () => {
 
 	test("an unlisted listing drops only its own provider from the model", async () => {
 		const staticProviderIds = models
-			.find((model) => model.id === "deepseek-v4-flash")!
+			.find((model) => model.id === "deepseek-v4-flash-0731")!
 			.providers.map((mapping) => mapping.providerId);
 		expect(staticProviderIds).toContain("novita");
 		try {
 			await materializeTestMapping({
 				providerId: "novita",
-				modelId: "deepseek-v4-flash",
+				modelId: "deepseek-v4-flash-0731",
 				inputPrice: "1e-6",
 				outputPrice: "2e-6",
 			});
 			const routedProviderIds = async () =>
 				(
-					await resolveAirsideModel("deepseek-v4-flash")
+					await resolveAirsideModel("deepseek-v4-flash-0731")
 				)?.modelInfoResult.modelInfo.providers.map(
 					(mapping) => mapping.providerId,
 				);
 			expect(await routedProviderIds()).toContain("novita");
 
-			await setListingServing("novita", "deepseek-v4-flash", false);
+			await setListingServing("novita", "deepseek-v4-flash-0731", false);
 
 			const unlisted = await routedProviderIds();
 			expect(unlisted).not.toContain("novita");
 			expect(unlisted).toContain("deepinfra");
 			await expect(
-				resolveAirsideModel("novita/deepseek-v4-flash"),
+				resolveAirsideModel("novita/deepseek-v4-flash-0731"),
 			).rejects.toThrow("Provider novita does not support model");
 			// Pinning another provider must not fall back onto the unlisted one.
-			const sibling = await resolveAirsideModel("deepinfra/deepseek-v4-flash");
+			const sibling = await resolveAirsideModel(
+				"deepinfra/deepseek-v4-flash-0731",
+			);
 			expect(sibling?.parseResult.requestedProvider).toBe("deepinfra");
 			expect(
 				sibling?.modelInfoResult.allModelProviders.map(
@@ -1006,12 +1008,12 @@ describe("airside-listed models", () => {
 				),
 			).not.toContain("novita");
 			const mapped = await mappedModelIds();
-			expect(mapped).not.toContain("novita/deepseek-v4-flash");
-			expect(mapped).toContain("deepinfra/deepseek-v4-flash");
+			expect(mapped).not.toContain("novita/deepseek-v4-flash-0731");
+			expect(mapped).toContain("deepinfra/deepseek-v4-flash-0731");
 
-			await setListingServing("novita", "deepseek-v4-flash", true);
+			await setListingServing("novita", "deepseek-v4-flash-0731", true);
 			expect(await routedProviderIds()).toContain("novita");
-			expect(await mappedModelIds()).toContain("novita/deepseek-v4-flash");
+			expect(await mappedModelIds()).toContain("novita/deepseek-v4-flash-0731");
 		} finally {
 			// The catalogue tables outlive the harness reset.
 			await db
@@ -1019,7 +1021,7 @@ describe("airside-listed models", () => {
 				.where(
 					and(
 						eq(tables.modelProviderMapping.providerId, "novita"),
-						eq(tables.modelProviderMapping.modelId, "deepseek-v4-flash"),
+						eq(tables.modelProviderMapping.modelId, "deepseek-v4-flash-0731"),
 						eq(tables.modelProviderMapping.source, "airside"),
 					),
 				);
@@ -2741,6 +2743,84 @@ describe("airside-listed models", () => {
 		expect(res.status).toBe(400);
 		expect(captured).toHaveLength(0);
 	});
+	test("retired aliases ignore active old listings and retain snapshot prices and identity", async () => {
+		const root = "deepseek-v4-flash";
+		const snapshot = "deepseek-v4-flash-0731";
+		const token = "retired-alias-token";
+		await setupCustomCarrier(token, { modelId: root, contextSize: 1050000 });
+		expect(await findAirsideModel("acme-sky", root)).toBeUndefined();
+		await expect(resolveAirsideModel(`acme-sky/${root}`)).rejects.toThrow(
+			/does not support/,
+		);
+		await materializeTestMapping({
+			providerId: "acme-sky",
+			modelId: snapshot,
+			externalId: "snapshot-deployment",
+			inputPrice: "3e-6",
+			outputPrice: "9e-6",
+			contextSize: 1050000,
+		});
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: snapshot,
+			providerId: "acme-sky",
+			externalId: "snapshot-region",
+			source: "airside",
+			region: "test-region",
+			inputPrice: "4e-6",
+			outputPrice: "10e-6",
+			contextSize: 1050000,
+			status: "active",
+		});
+		await clearCache();
+		for (const input of [
+			root,
+			`acme-sky/${root}`,
+			`acme-sky/${root}:test-region`,
+		]) {
+			const result = await resolveAirsideModel(input);
+			expect(result?.parseResult.requestedModel).toBe(snapshot);
+			expect(result?.parseResult.requestedProvider).toBe(
+				input.includes("/") ? "acme-sky" : undefined,
+			);
+			expect(result?.parseResult.requestedRegion).toBe(
+				input.includes(":") ? "test-region" : undefined,
+			);
+			expect(
+				result?.pricingMappings.find((mapping) => !mapping.region)?.inputPrice,
+			).toBe("0.000003");
+			expect(
+				result?.pricingMappings.find(
+					(mapping) => mapping.region === "test-region",
+				)?.inputPrice,
+			).toBe("0.000004");
+		}
+		const response = await carrierRequest(token, `acme-sky/${root}`, {
+			noFallback: true,
+		});
+		expect(response.status, await response.clone().text()).toBe(200);
+		expect(captured.at(-1)?.body.model).toBe("snapshot-deployment");
+		const log = await waitForLogByRequestId(`${token}-request`);
+		expect(log?.usedModel).toBe(`acme-sky/${snapshot}`);
+		expect(log?.usedProvider).toBe("acme-sky");
+		for (const query of ["", "?include_deactivated=true", "?mapped=true"]) {
+			const listed = await app.request(`/v1/models${query}`);
+			const body = (await listed.json()) as {
+				data: { id: string; providers?: { providerId: string }[] }[];
+			};
+			expect(
+				body.data.some(
+					(model) => model.id === root || model.id.endsWith(`/${root}`),
+				),
+			).toBe(false);
+			expect(
+				body.data.some(
+					(model) =>
+						model.id === snapshot || model.id === `acme-sky/${snapshot}`,
+				),
+			).toBe(true);
+		}
+	});
+
 	test("resolves a pinned canonical alias on an Airside-only carrier", async () => {
 		const canonical = (models as readonly ModelDefinition[]).find(
 			(model) => model.aliases?.length,

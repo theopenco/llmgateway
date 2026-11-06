@@ -36,6 +36,7 @@ import {
 	providers as providerDefinitions,
 	type PeakPricing,
 	type ProviderModelMapping,
+	getRetiredModelReplacement,
 } from "@llmgateway/models";
 import {
 	deriveStabilityMetrics,
@@ -278,175 +279,179 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	}
 
 	// Transform and apply effective discount
-	const transformedModels = models.map((model) => ({
-		...model,
-		unlistedProviderIds: unlistedProviderIdsByModelId.get(model.id) ?? [],
-		mappings: (mappingsByModelId.get(model.id) ?? []).map((mapping) => {
-			const sharedMapping: ProviderModelMapping | null =
-				modelDefinitions
-					.find((modelDefinition) => modelDefinition.id === model.id)
-					?.providers.find(
-						(provider) => provider.providerId === mapping.providerId,
-					) ?? null;
-			return {
-				...mapping,
-				discount:
-					mapping.deactivatedAt && mapping.deactivatedAt <= now
-						? null
-						: (getPublicDiscount(mapping.providerId, model.id)
-								?.discountPercent ?? null),
-				quantization:
-					mapping.source === "airside"
-						? mapping.quantization
-						: (sharedMapping?.quantization ?? null),
-				// Airside-materialized mappings carry their own efforts in the DB
-				// row; static rows are served from the shared definition.
-				reasoningEfforts:
-					mapping.source === "airside"
-						? ((mapping.reasoningEfforts as
-								NonNullable<typeof sharedMapping>["reasoningEfforts"] | null) ??
-							null)
-						: (sharedMapping?.reasoningEfforts ?? null),
-				reasoningMaxTokens:
-					mapping.source === "airside"
-						? mapping.reasoningMaxTokens
-						: (sharedMapping?.reasoningMaxTokens ?? null),
-				rerank: sharedMapping?.rerank ?? null,
-				audio: mapping.audio ?? sharedMapping?.audio ?? null,
-				document: sharedMapping?.document ?? null,
-				realtime: sharedMapping?.realtime ?? null,
-				speechGenerations: sharedMapping?.speechGenerations ?? null,
-				realtimeTranscription: sharedMapping?.realtimeTranscription ?? null,
-				realtimeTranscriptionTurnDetection:
-					sharedMapping?.realtimeTranscriptionTurnDetection ?? null,
-				supportedVoices: sharedMapping?.supportedVoices ?? null,
-				imageOutputPrice:
-					sharedMapping?.imageOutputPrice !== undefined
-						? String(sharedMapping.imageOutputPrice)
-						: null,
-				imageInputTokensByResolution:
-					sharedMapping?.imageInputTokensByResolution ?? null,
-				imageOutputTokensByResolution:
-					sharedMapping?.imageOutputTokensByResolution ?? null,
-				inputCharacterPrice:
-					sharedMapping?.inputCharacterPrice !== undefined
-						? String(sharedMapping.inputCharacterPrice)
-						: null,
-				inputAudioPrice:
-					sharedMapping?.inputAudioPrice !== undefined
-						? String(sharedMapping.inputAudioPrice)
-						: null,
-				cachedInputAudioPrice:
-					sharedMapping?.cachedInputAudioPrice !== undefined
-						? String(sharedMapping.cachedInputAudioPrice)
-						: null,
-				outputAudioPrice:
-					sharedMapping?.outputAudioPrice !== undefined
-						? String(sharedMapping.outputAudioPrice)
-						: null,
-				inputAudioHourPrice:
-					sharedMapping?.inputAudioHourPrice !== undefined
-						? String(sharedMapping.inputAudioHourPrice)
-						: null,
-				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
-				supportedVideoDurationsSeconds:
-					sharedMapping?.supportedVideoDurationsSeconds ?? null,
-				supportedVideoDurationsSecondsImageToVideo:
-					sharedMapping?.supportedVideoDurationsSecondsImageToVideo ?? null,
-				supportsVideoAudio: sharedMapping?.supportsVideoAudio ?? null,
-				supportsVideoWithoutAudio:
-					sharedMapping?.supportsVideoWithoutAudio ?? null,
-				perSecondPrice: sharedMapping?.perSecondPrice
-					? Object.fromEntries(
-							Object.entries(sharedMapping.perSecondPrice).map(
-								([key, price]) => [key, price.toString()],
-							),
-						)
-					: null,
-				perImagePrice: sharedMapping?.perImagePrice
-					? Object.fromEntries(
-							Object.entries(sharedMapping.perImagePrice).map(
-								([key, price]) => [key, price.toString()],
-							),
-						)
-					: null,
-				// Airside-owned rows bill one flat filed price pair; the gateway drops
-				// inherited tiers and peak windows, so the directory must too.
-				pricingTiers: (() => {
-					if (mapping.source === "airside") {
-						return null;
-					}
-					const regionDef = mapping.region
-						? sharedMapping?.regions?.find((r) => r.id === mapping.region)
-						: null;
-					const rawTiers =
-						regionDef?.pricingTiers ?? sharedMapping?.pricingTiers ?? null;
-					if (!rawTiers) {
-						return null;
-					}
-					return rawTiers.map((t) => ({
-						name: t.name,
-						upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
-						inputPrice: String(t.inputPrice),
-						outputPrice: String(t.outputPrice),
-						cachedInputPrice:
-							t.cachedInputPrice !== undefined
-								? String(t.cachedInputPrice)
-								: null,
-						cacheReadInputPrice:
-							t.cacheReadInputPrice !== undefined
-								? String(t.cacheReadInputPrice)
-								: null,
-						cacheWriteInputPrice:
-							t.cacheWriteInputPrice !== undefined
-								? String(t.cacheWriteInputPrice)
-								: null,
-						cacheWriteInputPrice1h:
-							t.cacheWriteInputPrice1h !== undefined
-								? String(t.cacheWriteInputPrice1h)
-								: null,
-						peakPricing: t.peakPricing
-							? {
-									peak: serializeTimeBasedPrices(t.peakPricing.peak),
-									offPeak: serializeTimeBasedPrices(t.peakPricing.offPeak),
-								}
+	const transformedModels = models
+		.filter((model) => !getRetiredModelReplacement(model.id))
+		.map((model) => ({
+			...model,
+			unlistedProviderIds: unlistedProviderIdsByModelId.get(model.id) ?? [],
+			mappings: (mappingsByModelId.get(model.id) ?? []).map((mapping) => {
+				const sharedMapping: ProviderModelMapping | null =
+					modelDefinitions
+						.find((modelDefinition) => modelDefinition.id === model.id)
+						?.providers.find(
+							(provider) => provider.providerId === mapping.providerId,
+						) ?? null;
+				return {
+					...mapping,
+					discount:
+						mapping.deactivatedAt && mapping.deactivatedAt <= now
+							? null
+							: (getPublicDiscount(mapping.providerId, model.id)
+									?.discountPercent ?? null),
+					quantization:
+						mapping.source === "airside"
+							? mapping.quantization
+							: (sharedMapping?.quantization ?? null),
+					// Airside-materialized mappings carry their own efforts in the DB
+					// row; static rows are served from the shared definition.
+					reasoningEfforts:
+						mapping.source === "airside"
+							? ((mapping.reasoningEfforts as
+									| NonNullable<typeof sharedMapping>["reasoningEfforts"]
+									| null) ?? null)
+							: (sharedMapping?.reasoningEfforts ?? null),
+					reasoningMaxTokens:
+						mapping.source === "airside"
+							? mapping.reasoningMaxTokens
+							: (sharedMapping?.reasoningMaxTokens ?? null),
+					rerank: sharedMapping?.rerank ?? null,
+					audio: mapping.audio ?? sharedMapping?.audio ?? null,
+					document: sharedMapping?.document ?? null,
+					realtime: sharedMapping?.realtime ?? null,
+					speechGenerations: sharedMapping?.speechGenerations ?? null,
+					realtimeTranscription: sharedMapping?.realtimeTranscription ?? null,
+					realtimeTranscriptionTurnDetection:
+						sharedMapping?.realtimeTranscriptionTurnDetection ?? null,
+					supportedVoices: sharedMapping?.supportedVoices ?? null,
+					imageOutputPrice:
+						sharedMapping?.imageOutputPrice !== undefined
+							? String(sharedMapping.imageOutputPrice)
 							: null,
-					}));
-				})(),
-				peakPricing:
-					mapping.source !== "airside" && sharedMapping?.peakPricing
-						? {
-								peak: serializeTimeBasedPrices(sharedMapping.peakPricing.peak),
-								offPeak: serializeTimeBasedPrices(
-									sharedMapping.peakPricing.offPeak,
+					imageInputTokensByResolution:
+						sharedMapping?.imageInputTokensByResolution ?? null,
+					imageOutputTokensByResolution:
+						sharedMapping?.imageOutputTokensByResolution ?? null,
+					inputCharacterPrice:
+						sharedMapping?.inputCharacterPrice !== undefined
+							? String(sharedMapping.inputCharacterPrice)
+							: null,
+					inputAudioPrice:
+						sharedMapping?.inputAudioPrice !== undefined
+							? String(sharedMapping.inputAudioPrice)
+							: null,
+					cachedInputAudioPrice:
+						sharedMapping?.cachedInputAudioPrice !== undefined
+							? String(sharedMapping.cachedInputAudioPrice)
+							: null,
+					outputAudioPrice:
+						sharedMapping?.outputAudioPrice !== undefined
+							? String(sharedMapping.outputAudioPrice)
+							: null,
+					inputAudioHourPrice:
+						sharedMapping?.inputAudioHourPrice !== undefined
+							? String(sharedMapping.inputAudioHourPrice)
+							: null,
+					supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
+					supportedVideoDurationsSeconds:
+						sharedMapping?.supportedVideoDurationsSeconds ?? null,
+					supportedVideoDurationsSecondsImageToVideo:
+						sharedMapping?.supportedVideoDurationsSecondsImageToVideo ?? null,
+					supportsVideoAudio: sharedMapping?.supportsVideoAudio ?? null,
+					supportsVideoWithoutAudio:
+						sharedMapping?.supportsVideoWithoutAudio ?? null,
+					perSecondPrice: sharedMapping?.perSecondPrice
+						? Object.fromEntries(
+								Object.entries(sharedMapping.perSecondPrice).map(
+									([key, price]) => [key, price.toString()],
 								),
-								hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
-									([start, end]) => [start, end] as [number, number],
-								),
-								offPeakDaysUtc: sharedMapping.peakPricing.offPeakDaysUtc
-									? [...sharedMapping.peakPricing.offPeakDaysUtc]
-									: null,
-							}
+							)
 						: null,
-				serviceTiers: (() => {
-					const tiers = sharedMapping?.serviceTiers ?? null;
-					if (!tiers || tiers.length === 0) {
-						return null;
-					}
-					const tierRegions = sharedMapping?.serviceTierRegions;
-					if (tierRegions && tierRegions.length > 0) {
-						const effectiveRegion =
-							mapping.region ??
-							(tierRegions.includes("global") ? "global" : undefined);
-						if (!effectiveRegion || !tierRegions.includes(effectiveRegion)) {
+					perImagePrice: sharedMapping?.perImagePrice
+						? Object.fromEntries(
+								Object.entries(sharedMapping.perImagePrice).map(
+									([key, price]) => [key, price.toString()],
+								),
+							)
+						: null,
+					// Airside-owned rows bill one flat filed price pair; the gateway drops
+					// inherited tiers and peak windows, so the directory must too.
+					pricingTiers: (() => {
+						if (mapping.source === "airside") {
 							return null;
 						}
-					}
-					return tiers;
-				})(),
-			};
-		}),
-	}));
+						const regionDef = mapping.region
+							? sharedMapping?.regions?.find((r) => r.id === mapping.region)
+							: null;
+						const rawTiers =
+							regionDef?.pricingTiers ?? sharedMapping?.pricingTiers ?? null;
+						if (!rawTiers) {
+							return null;
+						}
+						return rawTiers.map((t) => ({
+							name: t.name,
+							upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
+							inputPrice: String(t.inputPrice),
+							outputPrice: String(t.outputPrice),
+							cachedInputPrice:
+								t.cachedInputPrice !== undefined
+									? String(t.cachedInputPrice)
+									: null,
+							cacheReadInputPrice:
+								t.cacheReadInputPrice !== undefined
+									? String(t.cacheReadInputPrice)
+									: null,
+							cacheWriteInputPrice:
+								t.cacheWriteInputPrice !== undefined
+									? String(t.cacheWriteInputPrice)
+									: null,
+							cacheWriteInputPrice1h:
+								t.cacheWriteInputPrice1h !== undefined
+									? String(t.cacheWriteInputPrice1h)
+									: null,
+							peakPricing: t.peakPricing
+								? {
+										peak: serializeTimeBasedPrices(t.peakPricing.peak),
+										offPeak: serializeTimeBasedPrices(t.peakPricing.offPeak),
+									}
+								: null,
+						}));
+					})(),
+					peakPricing:
+						mapping.source !== "airside" && sharedMapping?.peakPricing
+							? {
+									peak: serializeTimeBasedPrices(
+										sharedMapping.peakPricing.peak,
+									),
+									offPeak: serializeTimeBasedPrices(
+										sharedMapping.peakPricing.offPeak,
+									),
+									hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
+										([start, end]) => [start, end] as [number, number],
+									),
+									offPeakDaysUtc: sharedMapping.peakPricing.offPeakDaysUtc
+										? [...sharedMapping.peakPricing.offPeakDaysUtc]
+										: null,
+								}
+							: null,
+					serviceTiers: (() => {
+						const tiers = sharedMapping?.serviceTiers ?? null;
+						if (!tiers || tiers.length === 0) {
+							return null;
+						}
+						const tierRegions = sharedMapping?.serviceTierRegions;
+						if (tierRegions && tierRegions.length > 0) {
+							const effectiveRegion =
+								mapping.region ??
+								(tierRegions.includes("global") ? "global" : undefined);
+							if (!effectiveRegion || !tierRegions.includes(effectiveRegion)) {
+								return null;
+							}
+						}
+						return tiers;
+					})(),
+				};
+			}),
+		}));
 
 	return c.json({ models: transformedModels });
 });
@@ -628,7 +633,11 @@ export function buildModelSearchEntries(
 	}
 	return rows.models.flatMap((model) => {
 		const active = activeMappingsByModel.get(model.id);
-		if (model.id === "custom" || !active) {
+		if (
+			model.id === "custom" ||
+			!active ||
+			getRetiredModelReplacement(model.id, now)
+		) {
 			return [];
 		}
 		const providerIds = Array.from(

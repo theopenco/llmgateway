@@ -44,7 +44,7 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 				(mapping) => mapping.providerId === providerId,
 			)!;
 			const { deactivatedAt, ...metadata } = previous;
-			expect(deactivatedAt).toEqual(new Date("2026-11-14"));
+			expect(deactivatedAt).toEqual(new Date("2026-11-06"));
 			expect(
 				snapshot()?.providers.find(
 					(mapping) => mapping.providerId === providerId,
@@ -99,7 +99,7 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			expect(
 				root.providers.find((mapping) => mapping.providerId === providerId)
 					?.deactivatedAt,
-			).toBeUndefined();
+			).toEqual(new Date("2026-11-06"));
 		}
 	});
 });

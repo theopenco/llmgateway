@@ -13,20 +13,22 @@ LLMGateway also includes **automatic retry and fallback** — if a provider fail
 ## Dated model snapshots
 
 Use the canonical snapshot ID shown in the [models directory](https://llmgateway.io/models)
-when you need a specific release. A provider's upstream deployment name is not a
-canonical ID. During a migration, the original ID and the dated ID may serve the
-same deployment; the original mapping remains available until its announced
-deactivation date. Other deployments on the original ID are not moved implicitly.
+when you need a specific release. An upstream deployment name is not a canonical ID.
+A routing alias names its current snapshot, including when it replaces a fully
+retired historical ID. Bare aliases and `provider/alias:region` resolve to that
+snapshot before provider selection, preserving any explicit provider and region.
+A pin fails if the provider or region does not serve the target; it does not
+reuse an old deployment or silently change your pin.
 
-Update provider-pinned requests, dynamic routes, model allowlists, and session
-configuration before retiring mappings stop serving. Sessions do not alias one
-canonical ID to another. Snapshot IDs have their own routing history and pricing;
-check the directory for current providers, regional limits, and capabilities.
+New requests use the target snapshot's identity, routing history, and prices.
+Historical usage keeps its original canonical ID. Review dynamic routes,
+allowlists, and session settings when changing snapshots; an alias does not
+transfer the old model's session learning or eligibility.
 
-Airside carriers relist snapshots through the normal filing and approval flow.
-Adding a static snapshot does not rename existing listings or replace their filed
-prices and capabilities. Keep the old listing during the transition and review
-model-scoped settings before switching traffic.
+Airside carriers file snapshots through the normal approval flow. Listings under
+a retired historical ID cannot serve through its replacement alias. Approved
+snapshot listings retain their own filed prices and capabilities; old deployments
+are never copied to the new snapshot implicitly.
 
 ## Routing Analytics
 
