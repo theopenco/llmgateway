@@ -61,9 +61,11 @@ export function ModelPicker({
 	const remove = api.useMutation("delete", "/user/favorites", {
 		onSuccess: refresh,
 	});
+	const liveMappingsOnly =
+		output === "audio" || output === "decision" || Boolean(capability);
 	const choices = (models.data?.models ?? [])
 		.map((model) =>
-			output === "audio" || capability
+			liveMappingsOnly
 				? {
 						...model,
 						mappings: model.mappings.filter(
@@ -72,7 +74,7 @@ export function ModelPicker({
 									? supportsRealtimeTranscription(mapping)
 									: capability
 										? mapping[capability]
-										: mapping.speechGenerations) &&
+										: output === "decision" || mapping.speechGenerations) &&
 								mapping.status === "active" &&
 								(!mapping.deactivatedAt ||
 									new Date(mapping.deactivatedAt).getTime() > Date.now()),
@@ -83,7 +85,7 @@ export function ModelPicker({
 		.filter(
 			(model) =>
 				model.status === "active" &&
-				(!(output === "audio" || capability) || model.mappings.length > 0) &&
+				(!liveMappingsOnly || model.mappings.length > 0) &&
 				(capability ||
 					(model.output ? model.output.includes(output) : output === "text")) &&
 				`${model.name} ${model.id}`

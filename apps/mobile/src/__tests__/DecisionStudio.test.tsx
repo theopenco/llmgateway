@@ -26,7 +26,16 @@ jest.mock("@/api/client", () => ({
 									name: "Jev",
 									status: "active",
 									output: ["decision"],
-									mappings: [{ providerId: "typesafe", vision: false }],
+									mappings: [
+										{ providerId: "typesafe", vision: false, status: "active" },
+									],
+								},
+								{
+									id: "paused",
+									name: "Paused decider",
+									status: "active",
+									output: ["decision"],
+									mappings: [{ providerId: "airside", status: "inactive" }],
 								},
 							],
 						}
@@ -144,6 +153,33 @@ test("runs a preset, shows probabilities and saves the run", async () => {
 			}),
 		}),
 	);
+});
+
+test("keeps answers and allows another run when saving fails", async () => {
+	jest.mocked(runDecision).mockResolvedValue({
+		modelId: "jev",
+		modelName: "jev",
+		answers: [{ type: "predicate", name: "q1", probability: 0.4 }],
+	});
+	jest.mocked(client.POST).mockRejectedValueOnce(new Error("History down"));
+	await renderStudio();
+	const user = userEvent.setup();
+	await user.press(
+		screen.getByRole("button", { name: "Decision model 1: Choose" }),
+	);
+	expect(
+		screen.queryByRole("button", { name: "Choose Paused decider" }),
+	).not.toBeOnTheScreen();
+	await user.press(screen.getByRole("button", { name: "Choose Jev" }));
+	await user.type(screen.getByLabelText("Text to evaluate"), "Hello");
+	await user.type(screen.getByLabelText("Question 1 instructions"), "Hi?");
+	await user.press(screen.getByRole("button", { name: "Run decision" }));
+	expect(await screen.findByText("History down")).toBeOnTheScreen();
+	expect(screen.getByLabelText("Yes: 40%")).toBeOnTheScreen();
+	expect(
+		screen.getByRole("button", { name: "Retry saving decision" }),
+	).toBeOnTheScreen();
+	expect(screen.getByRole("button", { name: "Run decision" })).toBeEnabled();
 });
 
 test("blocks runs until the questions are valid", async () => {

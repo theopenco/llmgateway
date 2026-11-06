@@ -108,6 +108,15 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const transcript = saved?.transcript ?? displayState.transcript;
 	const usage = saved?.usage ?? displayState.usage;
 	const savedModel = saved && findVoiceModel(saved.model, catalog);
+	const savedAsr = savedModel
+		? transcriptionOptions(savedModel.id, catalog)
+		: [];
+	const savedAsrChoice =
+		savedAsr.find((option) => option.model === transcription) ?? savedAsr[0];
+	const savedAsrUnavailable =
+		Boolean(savedModel) &&
+		!savedAsr.length &&
+		typeof savedModel?.mapping.inputAudioHourPrice !== "string";
 	const text = transcript
 		.map(
 			(entry) =>
@@ -306,27 +315,54 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 							read and replay.
 						</Text>
 					) : (
-						<Button
-							title="Continue this call"
-							secondary
-							disabled={locked || !savedModel || !focused}
-							onPress={() => {
-								try {
-									const selection = voiceSelection(
-										saved.model,
-										saved.voice,
-										catalog,
-										asrChoice?.model,
-									);
-									setSelectedId(undefined);
-									setReplay(undefined);
-									setError(undefined);
-									calls.start(selection, saved);
-								} catch (cause) {
-									setError(cause);
+						<>
+							{savedAsrChoice && (
+								<Choice
+									label="Transcription"
+									value={savedAsrChoice.model}
+									options={savedAsr.map((option) => option.model)}
+									format={(value) => {
+										const option = savedAsr.find(
+											(entry) => entry.model === value,
+										);
+										return option?.price
+											? `${option.label} · ${option.price}`
+											: (option?.label ?? value);
+									}}
+									disabled={locked}
+									onChange={setTranscription}
+								/>
+							)}
+							{savedAsrUnavailable && (
+								<Text style={styles.muted}>
+									Transcription unavailable: this provider has no active
+									transcription model, so calls can't continue.
+								</Text>
+							)}
+							<Button
+								title="Continue this call"
+								secondary
+								disabled={
+									locked || !savedModel || savedAsrUnavailable || !focused
 								}
-							}}
-						/>
+								onPress={() => {
+									try {
+										const selection = voiceSelection(
+											saved.model,
+											saved.voice,
+											catalog,
+											savedAsrChoice?.model,
+										);
+										setSelectedId(undefined);
+										setReplay(undefined);
+										setError(undefined);
+										calls.start(selection, saved);
+									} catch (cause) {
+										setError(cause);
+									}
+								}}
+							/>
+						</>
 					)}
 				</View>
 			)}

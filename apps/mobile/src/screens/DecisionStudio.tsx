@@ -296,7 +296,6 @@ export function DecisionStudio({
 	]);
 	const [run, setRun] = useState<Run>();
 	const [selectedId, setSelectedId] = useState<string>();
-	const [unsaved, setUnsaved] = useState(false);
 	const [showJson, setShowJson] = useState(false);
 	const [editing, setEditing] = useState(true);
 	const [copied, setCopied] = useState<string>();
@@ -342,7 +341,6 @@ export function DecisionStudio({
 					models: value.models,
 				},
 			});
-			setUnsaved(false);
 			if (data?.item.id) {
 				setRun((current) => current && { ...current, id: data.item.id });
 			}
@@ -379,7 +377,6 @@ export function DecisionStudio({
 			const completed = { ...value, models: results };
 			setRun(completed);
 			if (results.some((result) => result.answers)) {
-				setUnsaved(true);
 				save.mutate(completed);
 			}
 		},
@@ -613,7 +610,6 @@ export function DecisionStudio({
 				title={generate.isPending ? "Deciding…" : "Run decision"}
 				disabled={
 					busy ||
-					unsaved ||
 					Boolean(problem) ||
 					models.some((model) => !model) ||
 					(images.length > 0 && !imagesAllowed)
@@ -633,7 +629,8 @@ export function DecisionStudio({
 			{save.error && run && (
 				<View style={styles.card}>
 					<Text style={styles.body}>
-						Your answers are ready, but history could not be saved.
+						Your answers are ready, but history could not be saved. Retry, or
+						run again to replace them.
 					</Text>
 					<ErrorNotice error={save.error} />
 					<Button
