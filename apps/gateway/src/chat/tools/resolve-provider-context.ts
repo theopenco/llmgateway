@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
@@ -510,9 +511,13 @@ export function assertDevPlanDailyCapNotExceeded(
 	const resetsAt = new Date(dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS);
 	const paygHint = organization.devPlanPaygEnabled
 		? " Pay-as-you-go overflow is enabled but your credits balance is empty — top up from your DevPass dashboard to keep going."
-		: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily usage cap.";
+		: new Decimal(organization.credits ?? "0").lte(0)
+			? " Enable pay-as-you-go overflow and top up credits in your DevPass dashboard to keep going past the daily usage cap."
+			: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily usage cap.";
+	const upgradeHint =
+		tier === "max" ? "" : " Upgrade for a higher daily allowance.";
 	throw new HTTPException(402, {
-		message: `You've reached the daily pacing allowance on the ${tier} plan (daily usage cap: $${dailyLimit.toFixed(2)} per rolling 24 hours). This cap applies to all models, independently of your monthly and weekly premium allowances. Daily allowance resets at ${resetsAt.toISOString()} — resets in ${formatTimeUntilReset(msUntilReset)}. Upgrade for a higher daily allowance.${paygHint}`,
+		message: `You've reached the daily pacing allowance on the ${tier} plan (daily usage cap: $${dailyLimit.toFixed(2)} per rolling 24 hours). This cap applies to all models, independently of your monthly and weekly premium allowances. Daily allowance resets at ${resetsAt.toISOString()} — resets in ${formatTimeUntilReset(msUntilReset)}.${upgradeHint}${paygHint}`,
 	});
 }
 

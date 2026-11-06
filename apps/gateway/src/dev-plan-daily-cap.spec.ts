@@ -8,6 +8,41 @@ import { app } from "./app.js";
 import { assertDevPlanDailyCapNotExceeded } from "./chat/tools/resolve-provider-context.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 
+test.each([
+	["pro", "0", false],
+	["max", "0", false],
+	["pro", "10", false],
+	["pro", "0", true],
+] as const)(
+	"daily cap recovery on %s with credits %s and overflow %s",
+	(tier, credits, paygEnabled) => {
+		const reject = () =>
+			assertDevPlanDailyCapNotExceeded({
+				id: "org-id",
+				devPlan: tier,
+				credits,
+				devPlanPaygEnabled: paygEnabled,
+				devPlanCreditsLimit: "158",
+				devPlanCreditsUsed: "20",
+				devPlanDailyCreditsUsed: "999",
+				devPlanDayStart: new Date(),
+				chatPlan: "none",
+				chatPlanCreditsLimit: "0",
+				chatPlanCreditsUsed: "0",
+			});
+		if (credits === "0") {
+			expect(reject).toThrow("top up");
+		} else {
+			expect(reject).not.toThrow(/top up/);
+		}
+		if (tier === "max") {
+			expect(reject).not.toThrow(/Upgrade/);
+		} else {
+			expect(reject).toThrow("Upgrade");
+		}
+	},
+);
+
 test("daily cap errors identify the limit, affected models, and exact reset", () => {
 	const dayStart = new Date();
 	const reject = () =>
