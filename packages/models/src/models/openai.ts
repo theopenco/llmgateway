@@ -752,6 +752,7 @@ export const openaiModels = [
 			{
 				providerId: "bytedance",
 				externalId: "gpt-oss-120b-250805",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				inputPrice: "0.1e-6",
 				cachedInputPrice: "0.02e-6",
 				outputPrice: "0.5e-6",
