@@ -7,7 +7,7 @@ appId: io.llmgateway.lounge
     timeout: 15000
 - runFlow:
     when:
-      true: ${["Compare models", "Group discussion", "Canvas", "Audio Studio", "Live transcription", "Skills", "Connectors", "Shared conversations", "Sandbox Escape"].includes(DESTINATION)}
+      true: ${["Compare models", "Group discussion", "Canvas", "Audio Studio", "Decision Studio", "Live transcription", "Skills", "Connectors", "Shared conversations", "Sandbox Escape"].includes(DESTINATION)}
     commands:
       - scrollUntilVisible:
           element: "All tools|Fewer tools"

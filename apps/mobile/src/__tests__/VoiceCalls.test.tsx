@@ -10,6 +10,7 @@ import { AppState } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { client } from "@/api/client";
+import { mintVoiceSession } from "@/api/realtime";
 import { VoiceCallsProvider } from "@/components/VoiceCallsProvider";
 import { createMicrophone } from "@/lib/microphone";
 import { NativeRealtimePlayback } from "@/lib/realtime-playback";
@@ -39,6 +40,32 @@ jest.mock("@/api/client", () => ({
 											realtime: true,
 											status: "active",
 											supportedVoices: ["alloy"],
+										},
+									],
+								},
+								{
+									id: "asr",
+									name: "Live ASR",
+									status: "active",
+									mappings: [
+										{
+											providerId: "openai",
+											realtimeTranscription: true,
+											status: "active",
+											inputAudioPrice: "0.000003",
+										},
+									],
+								},
+								{
+									id: "scribe",
+									name: "Scribe",
+									status: "active",
+									mappings: [
+										{
+											providerId: "openai",
+											realtimeTranscription: true,
+											status: "active",
+											inputAudioHourPrice: "0.6",
 										},
 									],
 								},
@@ -173,6 +200,28 @@ test("keeps failed saves across navigation and retries without making another ca
 	expect(microphone.start).toHaveBeenCalledTimes(1);
 	expect(microphone.stop).toHaveBeenCalledTimes(1);
 	expect(client.POST).toHaveBeenCalledTimes(2);
+	await view.unmount();
+	queries.clear();
+});
+
+test("starts calls with the chosen transcription model", async () => {
+	const queries = new QueryClient();
+	const view = await render(tree(queries));
+	const user = userEvent.setup();
+	await user.press(screen.getByRole("button", { name: "Model: Choose" }));
+	await user.press(screen.getByRole("button", { name: "Choose Voice model" }));
+	await user.press(
+		screen.getByRole("button", {
+			name: "Transcription: Live ASR · $3.00/M audio tokens",
+		}),
+	);
+	await user.press(screen.getByRole("button", { name: "Scribe · $0.010/min" }));
+	await user.press(screen.getByRole("button", { name: "Start voice call" }));
+	await waitFor(() => expect(mintVoiceSession).toHaveBeenCalledTimes(1));
+	expect(jest.mocked(mintVoiceSession).mock.calls[0][1]).toMatchObject({
+		model: "openai/voice",
+		transcriptionModel: "openai/scribe",
+	});
 	await view.unmount();
 	queries.clear();
 });

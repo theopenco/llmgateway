@@ -5,7 +5,11 @@ import { useEffect, useState } from "react";
 import { Alert, Linking, Text, View } from "react-native";
 
 import { api } from "@/api/client";
-import { findVoiceModel, voiceSelection } from "@/api/realtime";
+import {
+	findVoiceModel,
+	transcriptionOptions,
+	voiceSelection,
+} from "@/api/realtime";
 import { AudioResult } from "@/components/AudioResult";
 import { Choice } from "@/components/Choice";
 import { ModelPicker } from "@/components/ModelPicker";
@@ -63,6 +67,7 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const focused = useIsFocused();
 	const [model, setModel] = useState("");
 	const [voice, setVoice] = useState("");
+	const [transcription, setTranscription] = useState<string | null>(null);
 	const [selectedId, setSelectedId] = useState<string>();
 	const [search, setSearch] = useState("");
 	const [error, setError] = useState<unknown>();
@@ -78,6 +83,14 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const resolved = findVoiceModel(model, catalog);
 	const voices = resolved?.mapping.supportedVoices ?? [];
 	const effectiveVoice = voices.includes(voice) ? voice : (voices[0] ?? "");
+	const asr = resolved ? transcriptionOptions(resolved.id, catalog) : [];
+	const asrChoice =
+		asr.find((option) => option.model === transcription) ?? asr[0];
+	const asrUnavailable =
+		Boolean(resolved) &&
+		!asr.length &&
+		resolved?.mapping.providerId !== "google-ai-studio" &&
+		typeof resolved?.mapping.inputAudioHourPrice !== "string";
 	const busy = state.status !== "idle";
 	const locked = busy || Boolean(calls.pending) || calls.saving;
 	const viewedId = selectedId ?? calls.savedId;
@@ -159,6 +172,33 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 					onChange={setVoice}
 				/>
 			)}
+			{asrChoice && (
+				<>
+					<Choice
+						label="Transcription"
+						value={asrChoice.model}
+						options={asr.map((option) => option.model)}
+						format={(value) => {
+							const option = asr.find((entry) => entry.model === value);
+							return option?.price
+								? `${option.label} · ${option.price}`
+								: (option?.label ?? value);
+						}}
+						disabled={locked}
+						onChange={setTranscription}
+					/>
+					<Text style={styles.muted}>
+						The transcription model turns your speech into the transcript. It is
+						billed separately from the call.
+					</Text>
+				</>
+			)}
+			{asrUnavailable && (
+				<Text style={styles.muted}>
+					Transcription unavailable: this provider has no active transcription
+					model, so calls can't start.
+				</Text>
+			)}
 			<ErrorNotice
 				error={state.error ? new Error(state.error) : (error ?? models.error)}
 			/>
@@ -215,13 +255,14 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 				) : (
 					<Button
 						title="Start voice call"
-						disabled={locked || !resolved || !focused}
+						disabled={locked || !resolved || asrUnavailable || !focused}
 						onPress={() => {
 							try {
 								const selection = voiceSelection(
 									model,
 									effectiveVoice || null,
 									catalog,
+									asrChoice?.model,
 								);
 								setSelectedId(undefined);
 								setReplay(undefined);
@@ -275,6 +316,7 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 										saved.model,
 										saved.voice,
 										catalog,
+										asrChoice?.model,
 									);
 									setSelectedId(undefined);
 									setReplay(undefined);

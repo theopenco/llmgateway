@@ -18,6 +18,7 @@ import { AudioStudio } from "@/screens/AudioStudio";
 import { Canvas } from "@/screens/Canvas";
 import { Comparison } from "@/screens/Comparison";
 import { Conversation } from "@/screens/Conversation";
+import { DecisionStudio } from "@/screens/DecisionStudio";
 import { Escape } from "@/screens/Escape";
 import { EscapeLeaderboard } from "@/screens/EscapeLeaderboard";
 import { EscapeReplay } from "@/screens/EscapeReplay";
@@ -58,6 +59,7 @@ type Routes = {
 	ImageStudio: undefined;
 	VideoStudio: undefined;
 	AudioStudio: undefined;
+	DecisionStudio: undefined;
 	Transcription: undefined;
 	VoiceCalls: undefined;
 	Workspaces: undefined;
@@ -292,6 +294,17 @@ function Lounge({
 					<Stack.Screen name="AudioStudio" options={{ title: "Audio Studio" }}>
 						{() => (
 							<AudioStudio
+								organizationId={organizationId}
+								projectId={projectId}
+							/>
+						)}
+					</Stack.Screen>
+					<Stack.Screen
+						name="DecisionStudio"
+						options={{ title: "Decision Studio" }}
+					>
+						{() => (
+							<DecisionStudio
 								organizationId={organizationId}
 								projectId={projectId}
 							/>

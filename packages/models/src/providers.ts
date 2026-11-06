@@ -2594,11 +2594,16 @@ export function countryCodeToFlag(code: string): string {
 		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
-const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+// Created on first use: Hermes (the iOS app) has no Intl.DisplayNames.
+let regionNames: Intl.DisplayNames | null | undefined;
 
 /** English name for an ISO 3166-1 alpha-2 country code. */
 export function countryName(code: string): string {
-	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames.of(code) ?? code;
+	regionNames ??=
+		typeof Intl.DisplayNames === "function"
+			? new Intl.DisplayNames(["en"], { type: "region" })
+			: null;
+	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames?.of(code) ?? code;
 }
 
 /** Distinct provider-headquarters countries, sorted by name. */

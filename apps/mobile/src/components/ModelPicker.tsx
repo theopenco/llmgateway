@@ -31,7 +31,7 @@ export function ModelPicker({
 }: {
 	value: string;
 	onChange: (model: string) => void;
-	output?: "text" | "image" | "video" | "audio";
+	output?: "text" | "image" | "video" | "audio" | "decision";
 	label?: string;
 	disabled?: boolean;
 	compact?: boolean;

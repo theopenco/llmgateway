@@ -28,6 +28,7 @@ const tools = [
 	{ route: "GroupConversation", title: "Group discussion", icon: "user" },
 	{ route: "Canvas", title: "Canvas", icon: "grid" },
 	{ route: "AudioStudio", title: "Audio Studio", icon: "waveform" },
+	{ route: "DecisionStudio", title: "Decision Studio", icon: "sparkles" },
 	{ route: "Transcription", title: "Live transcription", icon: "mic" },
 	{ route: "Skills", title: "Skills", icon: "sparkles" },
 	{ route: "Connectors", title: "Connectors", icon: "globe" },

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	getContextSizeDeviation,
@@ -717,5 +717,25 @@ describe("AtlasCloud video models", () => {
 				supportsVideoWithoutAudio ?? true,
 			);
 		}
+	});
+});
+
+describe("countryName", () => {
+	it("loads without Intl.DisplayNames, as in Hermes", async () => {
+		vi.resetModules();
+		vi.stubGlobal("Intl", { ...Intl, DisplayNames: undefined });
+		try {
+			const { countryName } = await import("./providers.js");
+			expect(countryName("US")).toBe("United States");
+			expect(countryName("DE")).toBe("DE");
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("names countries with Intl.DisplayNames", async () => {
+		vi.resetModules();
+		const { countryName } = await import("./providers.js");
+		expect(countryName("DE")).toBe("Germany");
 	});
 });
