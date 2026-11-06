@@ -6,6 +6,7 @@ import { Alert, Linking, Text, View } from "react-native";
 
 import { api } from "@/api/client";
 import {
+	chooseTranscription,
 	findVoiceModel,
 	transcriptionOptions,
 	voiceSelection,
@@ -23,6 +24,7 @@ import {
 	styles,
 } from "@/components/ui";
 import { useVoiceCalls } from "@/components/VoiceCallsProvider";
+import { useCallTranscriptionModel } from "@/lib/call-transcription-model";
 import { playbackTime } from "@/lib/playback-time";
 
 import type { TranscriptionStatus } from "@/lib/transcription-session";
@@ -67,7 +69,10 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const focused = useIsFocused();
 	const [model, setModel] = useState("");
 	const [voice, setVoice] = useState("");
-	const [transcription, setTranscription] = useState<string | null>(null);
+	const transcriptionPreference = useCallTranscriptionModel();
+	const transcription = transcriptionPreference.data || null;
+	const setTranscription = (value: string) =>
+		transcriptionPreference.save.mutate(value);
 	const [selectedId, setSelectedId] = useState<string>();
 	const [search, setSearch] = useState("");
 	const [error, setError] = useState<unknown>();
@@ -84,8 +89,7 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const voices = resolved?.mapping.supportedVoices ?? [];
 	const effectiveVoice = voices.includes(voice) ? voice : (voices[0] ?? "");
 	const asr = resolved ? transcriptionOptions(resolved.id, catalog) : [];
-	const asrChoice =
-		asr.find((option) => option.model === transcription) ?? asr[0];
+	const asrChoice = chooseTranscription(asr, transcription);
 	const asrUnavailable =
 		Boolean(resolved) &&
 		!asr.length &&
@@ -111,8 +115,7 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 	const savedAsr = savedModel
 		? transcriptionOptions(savedModel.id, catalog)
 		: [];
-	const savedAsrChoice =
-		savedAsr.find((option) => option.model === transcription) ?? savedAsr[0];
+	const savedAsrChoice = chooseTranscription(savedAsr, transcription);
 	const savedAsrUnavailable =
 		Boolean(savedModel) &&
 		!savedAsr.length &&
@@ -209,7 +212,11 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 				</Text>
 			)}
 			<ErrorNotice
-				error={state.error ? new Error(state.error) : (error ?? models.error)}
+				error={
+					state.error
+						? new Error(state.error)
+						: (error ?? models.error ?? transcriptionPreference.save.error)
+				}
 			/>
 			{state.error?.includes("iOS Settings") && (
 				<Button

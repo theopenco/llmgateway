@@ -7,6 +7,7 @@ import {
 	waitFor,
 } from "@testing-library/react-native";
 import { AppState } from "react-native";
+import * as Keychain from "react-native-keychain";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { client } from "@/api/client";
@@ -20,6 +21,13 @@ import { VoiceCalls } from "@/screens/VoiceCalls";
 import type { RealtimeSocket } from "@/lib/transcription-session";
 
 jest.mock("@react-navigation/native", () => ({ useIsFocused: () => true }));
+jest.mock("react-native-keychain", () => ({
+	ACCESSIBLE: { WHEN_UNLOCKED_THIS_DEVICE_ONLY: "unlocked" },
+	getGenericPassword: jest.fn(async () => false),
+	setGenericPassword: jest.fn(async () => true),
+	resetGenericPassword: jest.fn(async () => true),
+}));
+let mockQueries: QueryClient | undefined;
 jest.mock("@react-native-clipboard/clipboard", () => ({
 	setString: jest.fn(),
 }));
@@ -69,6 +77,19 @@ jest.mock("@/api/client", () => ({
 										},
 									],
 								},
+								{
+									id: "gpt-4o-mini-transcribe",
+									name: "GPT-4o mini Transcribe",
+									status: "active",
+									mappings: [
+										{
+											providerId: "openai",
+											realtimeTranscription: true,
+											status: "active",
+											inputAudioPrice: "0.000003",
+										},
+									],
+								},
 							],
 						}
 					: { items: [], favorites: [] },
@@ -76,6 +97,10 @@ jest.mock("@/api/client", () => ({
 		useMutation: () => ({ mutate: jest.fn() }),
 	},
 	client: { POST: jest.fn(), PATCH: jest.fn() },
+	queryClient: {
+		setQueryData: (key: unknown[], value: unknown) =>
+			mockQueries?.setQueryData(key, value),
+	},
 }));
 jest.mock("@/api/realtime", () => ({
 	...jest.requireActual("@/api/realtime"),
@@ -132,6 +157,7 @@ afterEach(() => {
 });
 
 function tree(queries: QueryClient, visible = true) {
+	mockQueries = queries;
 	return (
 		<SafeAreaProvider
 			initialMetrics={{
@@ -211,17 +237,52 @@ test("starts calls with the chosen transcription model", async () => {
 	await user.press(screen.getByRole("button", { name: "Model: Choose" }));
 	await user.press(screen.getByRole("button", { name: "Choose Voice model" }));
 	await user.press(
-		screen.getByRole("button", {
-			name: "Transcription: Live ASR · $3.00/M audio tokens",
+		await screen.findByRole("button", {
+			name: "Transcription: GPT-4o mini Transcribe · $3.00/M audio tokens",
 		}),
 	);
 	await user.press(screen.getByRole("button", { name: "Scribe · $0.010/min" }));
+	await waitFor(() =>
+		expect(Keychain.setGenericPassword).toHaveBeenCalledWith(
+			"model",
+			"openai/scribe",
+			expect.objectContaining({
+				service: "io.llmgateway.lounge.call-transcription-model",
+			}),
+		),
+	);
+	expect(
+		await screen.findByRole("button", {
+			name: "Transcription: Scribe · $0.010/min",
+		}),
+	).toBeOnTheScreen();
 	await user.press(screen.getByRole("button", { name: "Start voice call" }));
 	await waitFor(() => expect(mintVoiceSession).toHaveBeenCalledTimes(1));
 	expect(jest.mocked(mintVoiceSession).mock.calls[0][1]).toMatchObject({
 		model: "openai/voice",
 		transcriptionModel: "openai/scribe",
 	});
+	await view.unmount();
+	queries.clear();
+});
+
+test("restores the saved transcription model", async () => {
+	jest.mocked(Keychain.getGenericPassword).mockResolvedValueOnce({
+		username: "model",
+		password: "openai/scribe",
+		service: "io.llmgateway.lounge.call-transcription-model",
+		storage: "keychain",
+	} as unknown as Awaited<ReturnType<typeof Keychain.getGenericPassword>>);
+	const queries = new QueryClient();
+	const view = await render(tree(queries));
+	const user = userEvent.setup();
+	await user.press(screen.getByRole("button", { name: "Model: Choose" }));
+	await user.press(screen.getByRole("button", { name: "Choose Voice model" }));
+	expect(
+		await screen.findByRole("button", {
+			name: "Transcription: Scribe · $0.010/min",
+		}),
+	).toBeOnTheScreen();
 	await view.unmount();
 	queries.clear();
 });
