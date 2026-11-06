@@ -12,6 +12,8 @@ import { AppConfigProvider } from "@/lib/config";
 import type { AppConfig } from "@/lib/config-server";
 import type { ReactNode } from "react";
 
+const US_POSTHOG_HOST = "https://us.i.posthog.com";
+
 interface ProvidersProps {
 	children: ReactNode;
 	config: AppConfig;
@@ -22,14 +24,15 @@ export function Providers({ children, config }: ProvidersProps) {
 		if (!config.posthogKey) {
 			return;
 		}
+		const host = config.posthogHost ?? US_POSTHOG_HOST;
+		const proxied =
+			new URL(host).hostname === new URL(US_POSTHOG_HOST).hostname;
 		posthog.init(config.posthogKey, {
-			// Ingest through our own origin (see the /ingest rewrites in
-			// next.config.ts) so ad blockers that block *.posthog.com don't
-			// silently drop pageviews.
-			api_host: "/ingest",
-			ui_host:
-				config.posthogHost?.replace(".i.posthog.com", ".posthog.com") ??
-				"https://us.posthog.com",
+			// The /ingest rewrites in next.config.ts proxy US PostHog through our
+			// own origin so ad blockers don't drop pageviews; any other
+			// configured host is called directly.
+			api_host: proxied ? "/ingest" : host,
+			ui_host: host.replace(".i.posthog.com", ".posthog.com"),
 			capture_pageview: "history_change",
 			autocapture: false,
 			disable_session_recording: true,
