@@ -172,6 +172,7 @@ interface MappingMinuteStats extends Record<TierRoutingMetricColumn, number> {
 	totalTokens: number;
 	totalReasoningTokens: number;
 	totalCachedTokens: number;
+	totalCacheWriteTokens: number;
 	totalDuration: number;
 	totalTimeToFirstToken: number;
 	totalTimeToFirstReasoningToken: number;
@@ -181,6 +182,7 @@ interface MappingMinuteStats extends Record<TierRoutingMetricColumn, number> {
 	totalInputCost: number;
 	totalOutputCost: number;
 	totalCachedInputCost: number;
+	totalCacheWriteInputCost: number;
 	serviceTierExplicitCount: number;
 	serviceTierImplicitCount: number;
 	serviceTierServedCount: number;
@@ -216,6 +218,7 @@ function createEmptyMappingMinuteStats(
 		totalTokens: 0,
 		totalReasoningTokens: 0,
 		totalCachedTokens: 0,
+		totalCacheWriteTokens: 0,
 		totalDuration: 0,
 		totalTimeToFirstToken: 0,
 		totalTimeToFirstReasoningToken: 0,
@@ -225,6 +228,7 @@ function createEmptyMappingMinuteStats(
 		totalInputCost: 0,
 		totalOutputCost: 0,
 		totalCachedInputCost: 0,
+		totalCacheWriteInputCost: 0,
 		serviceTierExplicitCount: 0,
 		serviceTierImplicitCount: 0,
 		serviceTierServedCount: 0,
@@ -256,6 +260,7 @@ function mergeMappingMinuteStats(
 	target.totalTokens += source.totalTokens;
 	target.totalReasoningTokens += source.totalReasoningTokens;
 	target.totalCachedTokens += source.totalCachedTokens;
+	target.totalCacheWriteTokens += source.totalCacheWriteTokens;
 	target.totalDuration += source.totalDuration;
 	target.totalTimeToFirstToken += source.totalTimeToFirstToken;
 	target.totalTimeToFirstReasoningToken +=
@@ -267,6 +272,7 @@ function mergeMappingMinuteStats(
 	target.totalInputCost += source.totalInputCost;
 	target.totalOutputCost += source.totalOutputCost;
 	target.totalCachedInputCost += source.totalCachedInputCost;
+	target.totalCacheWriteInputCost += source.totalCacheWriteInputCost;
 	target.serviceTierExplicitCount += source.serviceTierExplicitCount;
 	target.serviceTierImplicitCount += source.serviceTierImplicitCount;
 	target.serviceTierServedCount += source.serviceTierServedCount;
@@ -296,6 +302,7 @@ const HISTORY_METRIC_COLUMNS = [
 	"totalTokens",
 	"totalReasoningTokens",
 	"totalCachedTokens",
+	"totalCacheWriteTokens",
 	"totalDuration",
 	"totalTimeToFirstToken",
 	"totalTimeToFirstReasoningToken",
@@ -305,6 +312,7 @@ const HISTORY_METRIC_COLUMNS = [
 	"totalInputCost",
 	"totalOutputCost",
 	"totalCachedInputCost",
+	"totalCacheWriteInputCost",
 	"serviceTierExplicitCount",
 	"serviceTierImplicitCount",
 	"serviceTierServedCount",
@@ -563,6 +571,10 @@ async function calculateModelHistoryForMinute(
 				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.cachedTokens} as integer) else 0 end), 0)::int`.as(
 					"totalCachedTokens",
 				),
+			totalCacheWriteTokens:
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.cacheWriteTokens} as integer) else 0 end), 0)::int`.as(
+					"totalCacheWriteTokens",
+				),
 			totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
 				"totalDuration",
 			),
@@ -600,6 +612,10 @@ async function calculateModelHistoryForMinute(
 			totalCachedInputCost:
 				sql<number>`coalesce(sum(cast(${log.cachedInputCost} as double precision)), 0)`.as(
 					"totalCachedInputCost",
+				),
+			totalCacheWriteInputCost:
+				sql<number>`coalesce(sum(cast(${log.cacheWriteInputCost} as double precision)), 0)`.as(
+					"totalCacheWriteInputCost",
 				),
 			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
 			// actually asked for, which for a coding-plan org may be a default the
@@ -688,6 +704,7 @@ async function calculateModelHistoryForMinute(
 			const totalTokens = stat?.totalTokens ?? 0;
 			const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
 			const totalCachedTokens = stat?.totalCachedTokens ?? 0;
+			const totalCacheWriteTokens = stat?.totalCacheWriteTokens ?? 0;
 			const totalDuration = stat?.totalDuration ?? 0;
 			const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
 			const totalTimeToFirstReasoningToken =
@@ -699,6 +716,7 @@ async function calculateModelHistoryForMinute(
 			const totalInputCost = stat?.totalInputCost ?? 0;
 			const totalOutputCost = stat?.totalOutputCost ?? 0;
 			const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+			const totalCacheWriteInputCost = stat?.totalCacheWriteInputCost ?? 0;
 			const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
 			const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
 			const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
@@ -728,6 +746,7 @@ async function calculateModelHistoryForMinute(
 				totalTokens,
 				totalReasoningTokens,
 				totalCachedTokens,
+				totalCacheWriteTokens,
 				totalDuration,
 				totalTimeToFirstToken,
 				totalTimeToFirstReasoningToken,
@@ -737,6 +756,7 @@ async function calculateModelHistoryForMinute(
 				totalInputCost,
 				totalOutputCost,
 				totalCachedInputCost,
+				totalCacheWriteInputCost,
 				serviceTierExplicitCount,
 				serviceTierImplicitCount,
 				serviceTierServedCount,
@@ -927,6 +947,10 @@ async function calculateHistoryForMinute(
 				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.cachedTokens} as integer) else 0 end), 0)::int`.as(
 					"totalCachedTokens",
 				),
+			totalCacheWriteTokens:
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.cacheWriteTokens} as integer) else 0 end), 0)::int`.as(
+					"totalCacheWriteTokens",
+				),
 			totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
 				"totalDuration",
 			),
@@ -964,6 +988,10 @@ async function calculateHistoryForMinute(
 			totalCachedInputCost:
 				sql<number>`coalesce(sum(cast(${log.cachedInputCost} as double precision)), 0)`.as(
 					"totalCachedInputCost",
+				),
+			totalCacheWriteInputCost:
+				sql<number>`coalesce(sum(cast(${log.cacheWriteInputCost} as double precision)), 0)`.as(
+					"totalCacheWriteInputCost",
 				),
 			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
 			// actually asked for, which for a coding-plan org may be a default the
@@ -1120,6 +1148,7 @@ async function calculateHistoryForMinute(
 			const totalTokens = stat?.totalTokens ?? 0;
 			const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
 			const totalCachedTokens = stat?.totalCachedTokens ?? 0;
+			const totalCacheWriteTokens = stat?.totalCacheWriteTokens ?? 0;
 			const totalDuration = stat?.totalDuration ?? 0;
 			const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
 			const totalTimeToFirstReasoningToken =
@@ -1131,6 +1160,7 @@ async function calculateHistoryForMinute(
 			const totalInputCost = stat?.totalInputCost ?? 0;
 			const totalOutputCost = stat?.totalOutputCost ?? 0;
 			const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+			const totalCacheWriteInputCost = stat?.totalCacheWriteInputCost ?? 0;
 			const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
 			const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
 			const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
@@ -1168,6 +1198,7 @@ async function calculateHistoryForMinute(
 				totalTokens,
 				totalReasoningTokens,
 				totalCachedTokens,
+				totalCacheWriteTokens,
 				totalDuration,
 				totalTimeToFirstToken,
 				totalTimeToFirstReasoningToken,
@@ -1177,6 +1208,7 @@ async function calculateHistoryForMinute(
 				totalInputCost,
 				totalOutputCost,
 				totalCachedInputCost,
+				totalCacheWriteInputCost,
 				serviceTierExplicitCount,
 				serviceTierImplicitCount,
 				serviceTierServedCount,
@@ -1511,6 +1543,7 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 			totalTokens: sql<number>`coalesce(sum(${modelHistory.totalTokens}), 0)::bigint`,
 			totalReasoningTokens: sql<number>`coalesce(sum(${modelHistory.totalReasoningTokens}), 0)::bigint`,
 			totalCachedTokens: sql<number>`coalesce(sum(${modelHistory.totalCachedTokens}), 0)::bigint`,
+			totalCacheWriteTokens: sql<number>`coalesce(sum(${modelHistory.totalCacheWriteTokens}), 0)::bigint`,
 			totalDuration: sql<number>`coalesce(sum(${modelHistory.totalDuration}), 0)::int`,
 			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstToken}), 0)::int`,
 			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstReasoningToken}), 0)::int`,
@@ -1520,6 +1553,7 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 			totalInputCost: sql<number>`coalesce(sum(cast(${modelHistory.totalInputCost} as double precision)), 0)`,
 			totalOutputCost: sql<number>`coalesce(sum(cast(${modelHistory.totalOutputCost} as double precision)), 0)`,
 			totalCachedInputCost: sql<number>`coalesce(sum(cast(${modelHistory.totalCachedInputCost} as double precision)), 0)`,
+			totalCacheWriteInputCost: sql<number>`coalesce(sum(cast(${modelHistory.totalCacheWriteInputCost} as double precision)), 0)`,
 			serviceTierExplicitCount: sql<number>`coalesce(sum(${modelHistory.serviceTierExplicitCount}), 0)::int`,
 			serviceTierImplicitCount: sql<number>`coalesce(sum(${modelHistory.serviceTierImplicitCount}), 0)::int`,
 			serviceTierServedCount: sql<number>`coalesce(sum(${modelHistory.serviceTierServedCount}), 0)::int`,
@@ -1634,6 +1668,7 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			totalTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTokens}), 0)::bigint`,
 			totalReasoningTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalReasoningTokens}), 0)::bigint`,
 			totalCachedTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCachedTokens}), 0)::bigint`,
+			totalCacheWriteTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCacheWriteTokens}), 0)::bigint`,
 			totalDuration: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalDuration}), 0)::int`,
 			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)::int`,
 			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken}), 0)::int`,
@@ -1643,6 +1678,7 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			totalInputCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalInputCost} as double precision)), 0)`,
 			totalOutputCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalOutputCost} as double precision)), 0)`,
 			totalCachedInputCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalCachedInputCost} as double precision)), 0)`,
+			totalCacheWriteInputCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalCacheWriteInputCost} as double precision)), 0)`,
 			serviceTierExplicitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierExplicitCount}), 0)::int`,
 			serviceTierImplicitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierImplicitCount}), 0)::int`,
 			serviceTierServedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierServedCount}), 0)::int`,

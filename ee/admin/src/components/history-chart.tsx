@@ -74,9 +74,11 @@ export interface HistoryDataPoint {
 	totalCost: number;
 	inputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	outputTokens: number;
 	inputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	outputCost: number;
 }
 
@@ -85,6 +87,7 @@ export interface HistoryDataPoint {
 const TOKEN_COST_KEY: Record<string, keyof HistoryDataPoint> = {
 	inputTokens: "inputCost",
 	cachedTokens: "cachedInputCost",
+	cacheWriteTokens: "cacheWriteInputCost",
 	outputTokens: "outputCost",
 };
 
@@ -108,6 +111,7 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 	tokens: {
 		inputTokens: { label: "Input", color: "hsl(221 83% 53%)" },
 		cachedTokens: { label: "Cached", color: "hsl(142 71% 45%)" },
+		cacheWriteTokens: { label: "Cache write", color: "hsl(330 81% 60%)" },
 		outputTokens: { label: "Output", color: "hsl(32 95% 44%)" },
 	},
 	providerCacheRate: {
@@ -269,10 +273,18 @@ export function HistoryChart({
 		breakdown: {
 			inputTokens: data.reduce((sum, d) => sum + (d.inputTokens ?? 0), 0),
 			cachedTokens: data.reduce((sum, d) => sum + (d.cachedTokens ?? 0), 0),
+			cacheWriteTokens: data.reduce(
+				(sum, d) => sum + (d.cacheWriteTokens ?? 0),
+				0,
+			),
 			outputTokens: data.reduce((sum, d) => sum + (d.outputTokens ?? 0), 0),
 			inputCost: data.reduce((sum, d) => sum + (d.inputCost ?? 0), 0),
 			cachedInputCost: data.reduce(
 				(sum, d) => sum + (d.cachedInputCost ?? 0),
+				0,
+			),
+			cacheWriteInputCost: data.reduce(
+				(sum, d) => sum + (d.cacheWriteInputCost ?? 0),
 				0,
 			),
 			outputCost: data.reduce((sum, d) => sum + (d.outputCost ?? 0), 0),
