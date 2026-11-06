@@ -247,6 +247,8 @@ interface OpenAIImageRequest {
 	background?: string;
 	output_format?: string;
 	output_compression?: number;
+	frame_count?: number;
+	frame_duration_ms?: number;
 	n?: number;
 	image?: string | string[];
 	svg?: SvgImageOptions | null;
@@ -337,6 +339,40 @@ async function fetchImageAsBlob(
 		blob: new Blob([buffer], { type: mimeType }),
 		filename: `image-${index}.${ext}`,
 	};
+}
+
+async function fetchMarkupAsBlob(
+	url: string,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
+): Promise<Blob> {
+	try {
+		const { data, mimeType } = await processImageUrl(
+			url,
+			isProd,
+			maxSizeMB,
+			userPlan,
+		);
+		if (mimeType !== "image/png") {
+			throw new RequestError("markup must be a PNG image.");
+		}
+		const { blob } = await fetchImageAsBlob(
+			`data:${mimeType};base64,${data}`,
+			0,
+			isProd,
+			maxSizeMB,
+			userPlan,
+		);
+		return blob;
+	} catch (error) {
+		if (error instanceof RequestError) {
+			throw error;
+		}
+		throw new RequestError(
+			"Invalid markup image. Use a publicly accessible HTTPS PNG or a PNG data URL.",
+		);
+	}
 }
 
 /**
@@ -1760,6 +1796,9 @@ export async function prepareRequestBody(
 		output_format?: string;
 		svg?: SvgImageOptions | null;
 		output_compression?: number;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		markup?: { image_url: string };
 		n?: number;
 		seed?: number;
 	},
@@ -2009,6 +2048,12 @@ export async function prepareRequestBody(
 			...(openaiQuality && { quality: openaiQuality }),
 			...(openaiModeration && { moderation: openaiModeration }),
 			...(image_config?.complexity && { complexity: image_config.complexity }),
+			...(image_config?.frame_count !== undefined && {
+				frame_count: image_config.frame_count,
+			}),
+			...(image_config?.frame_duration_ms !== undefined && {
+				frame_duration_ms: image_config.frame_duration_ms,
+			}),
 			...(image_config?.background && { background: image_config.background }),
 			...(image_config?.output_format && {
 				output_format: image_config.output_format,
@@ -2057,6 +2102,20 @@ export async function prepareRequestBody(
 				formData.append("n", String(openaiImageRequest.n));
 			}
 
+			for (const field of ["frame_count", "frame_duration_ms"] as const) {
+				if (openaiImageRequest[field] !== undefined) {
+					formData.append(field, String(openaiImageRequest[field]));
+				}
+			}
+			if (image_config?.markup) {
+				const blob = await fetchMarkupAsBlob(
+					image_config.markup.image_url,
+					isProd,
+					maxImageSizeMB,
+					userPlan,
+				);
+				formData.append("markup", blob, "markup.png");
+			}
 			const decoded = await Promise.all(
 				imageUrls.map((url, index) =>
 					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),

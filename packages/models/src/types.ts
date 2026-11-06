@@ -719,6 +719,9 @@ export type RequestBodyPreparer = (
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		markup?: { image_url: string };
 		complexity?: "low" | "medium" | "high";
 		n?: number;
 		seed?: number;

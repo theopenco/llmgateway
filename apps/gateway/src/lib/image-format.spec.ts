@@ -27,3 +27,11 @@ describe("imageFormatFromBase64", () => {
 		expect(imageFormatFromBase64(b64(text))).toBeUndefined();
 	});
 });
+
+it.each(["GIF87a", "GIF89a"])("detects %s animations", (signature) => {
+	expect(imageFormatFromBase64(b64(signature))).toBe("gif");
+	expect(imageMimeType("gif")).toBe("image/gif");
+});
+it("does not detect unrelated GIF prefixes", () => {
+	expect(imageFormatFromBase64(b64("GIF89b"))).toBeUndefined();
+});
