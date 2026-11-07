@@ -1,0 +1,27 @@
+{
+  "runId": "linear-router__claude-code__opus-5.5__r10",
+  "task": "linear-router",
+  "agent": "claude-code",
+  "model": "opus-5.5",
+  "gatewayId": "anthropic/claude-opus-5-5",
+  "rep": 10,
+  "startedAt": "2026-11-04T21:54:12.571Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 51292,
+  "passed": true,
+  "tests": "90 passed | 15 skipped",
+  "patchLines": 19,
+  "agentVersion": "2.1.317 (Claude Code)",
+  "agentConfig": {
+    "ANTHROPIC_BASE_URL": "https://api.llmgateway.io",
+    "ANTHROPIC_MODEL": "anthropic/claude-opus-5-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "anthropic/claude-opus-5-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "anthropic/claude-opus-5-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "anthropic/claude-opus-5-5",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "anthropic/claude-opus-5-5",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}

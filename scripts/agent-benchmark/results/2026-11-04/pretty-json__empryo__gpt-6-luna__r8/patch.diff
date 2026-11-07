@@ -1,0 +1,114 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..270c562 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -120,3 +120,80 @@ describe('JSON pretty by Middleware', () => {
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
+ })
++
++describe('JSON pretty middleware passthrough', () => {
++  it('Should pass through responses whose bodies cannot be prettified', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('*', async (c, next) => {
++      await next()
++      if (c.req.path === '/consumed') {
++        await c.res.text()
++      }
++    })
++    app.get('/no-content', (c) =>
++      c.newResponse(null, 204, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++      })
++    )
++    app.get('/not-modified', (c) =>
++      c.newResponse(null, 304, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++      })
++    )
++    app.get('/empty', (c) =>
++      c.newResponse('', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++      })
++    )
++    app.get('/invalid', (c) =>
++      c.newResponse('not json', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++      })
++    )
++    app.get('/consumed', (c) =>
++      c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '19',
++      })
++    )
++
++    for (const [path, status, body, contentLength] of [
++      ['/no-content', 204, '', '0'],
++      ['/not-modified', 304, '', '0'],
++      ['/empty', 200, '', '0'],
++      ['/invalid', 200, 'not json', '8'],
++      ['/consumed', 200, '{"message":"Hono!"}', '19'],
++    ] as const) {
++      const res = await app.request(`http://localhost${path}`)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.headers.get('Content-Length')).toBe(contentLength)
++      if (path !== '/consumed') {
++        expect(await res.text()).toBe(body)
++      }
++    }
++  })
++
++  it('Should remove Content-Length when the response body is prettified', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '19',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
++})
++
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..bad854f 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -51,9 +51,21 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+-    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++    if (pretty && contentType && jsonContentTypeRegex.test(contentType) && !c.res.bodyUsed) {
++      try {
++        const response = c.res
++        const obj = await response.clone().json()
++        const headers = new Headers(response.headers)
++        headers.delete('Content-Length')
++        c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), {
++          headers,
++          status: response.status,
++          statusText: response.statusText,
++        })
++        c.res.headers.delete('Content-Length')
++      } catch {
++        // Leave responses with unavailable or invalid JSON bodies unchanged.
++      }
+     }
+   }
+ }

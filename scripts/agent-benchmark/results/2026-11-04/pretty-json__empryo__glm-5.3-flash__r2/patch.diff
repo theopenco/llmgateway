@@ -1,0 +1,235 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..df39222 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,79 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should pass through responses with a JSON content-type but no parseable body', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/204', (c) => c.body(null, 204, { 'Content-Type': 'application/json' }))
++    app.get('/304', (c) => c.body(null, 304, { 'Content-Type': 'application/json' }))
++    app.get('/empty', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    app.get('/invalid', (c) => c.body('not json', 200, { 'Content-Type': 'application/json' }))
++    app.get('/consumed', async (c) => {
++      const res = new Response('{"message":"Hono!"}', {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      })
++      await res.text() // Body already read by another middleware
++      return c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++      })
++    })
++
++    const noBodyRes = await app.request('http://localhost/204')
++    expect(noBodyRes.status).toBe(204)
++    expect(await noBodyRes.text()).toBe('')
++
++    const notModifiedRes = await app.request('http://localhost/304')
++    expect(notModifiedRes.status).toBe(304)
++    expect(await notModifiedRes.text()).toBe('')
++
++    const emptyRes = await app.request('http://localhost/empty')
++    expect(emptyRes.status).toBe(200)
++    expect(await emptyRes.text()).toBe('')
++
++    const invalidRes = await app.request('http://localhost/invalid')
++    expect(invalidRes.status).toBe(200)
++    expect(await invalidRes.text()).toBe('not json')
++
++    const consumedRes = await app.request('http://localhost/consumed')
++    expect(consumedRes.status).toBe(200)
++    expect(await consumedRes.text()).toBe('{"message":"Hono!"}')
++  })
++
++  it('Should remove the original Content-Length header when prettifying', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.body('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '18',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++    expect(res.headers.has('Content-Length')).toBe(false)
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
++
++  it('Should keep the Content-Length header when the body is already pretty', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.body('{\n  "message": "Hono!"\n}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '22',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Content-Length')).toBe('22')
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..133407a 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,27 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      let body: string
++      try {
++        body = await c.res.text()
++      } catch {
++        return
++      }
++      let obj: unknown
++      try {
++        obj = JSON.parse(body)
++      } catch {
++        return
++      }
++      const prettyJson = JSON.stringify(obj, null, options?.space ?? 2)
++      if (body !== prettyJson) {
++        c.res = new Response(prettyJson, {
++          status: c.res.status,
++          statusText: c.res.statusText,
++          headers: c.res.headers,
++        })
++        c.res.headers.delete('Content-Length')
++      }
+     }
+   }
+ }
+diff --git a/src/middleware/pretty-json/probe2.test.ts b/src/middleware/pretty-json/probe2.test.ts
+new file mode 100644
+index 0000000..decedf7
+--- /dev/null
++++ b/src/middleware/pretty-json/probe2.test.ts
+@@ -0,0 +1,111 @@
++import { Hono } from '../../hono'
++import { prettyJSON } from '.'
++
++describe('probe2', () => {
++  it('empty body', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('status', res.status, 'cl', res.headers.get('Content-Length'), 'body', await res.text())
++  })
++  it('already pretty', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => c.body('{\n  "message": "Hono!"\n}', 200, { 'Content-Type': 'application/json', 'Content-Length': '22' }))
++    const res = await app.request('http://localhost/')
++    console.log('status', res.status, 'cl', res.headers.get('Content-Length'), 'body', await res.text())
++  })
++  it('no middleware baseline', async () => {
++    const app = new Hono()
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('baseline status', res.status, 'cl', res.headers.get('Content-Length'), 'body', await res.text())
++  })
++  it('middleware that does not touch body', async () => {
++    const app = new Hono()
++    app.use('*', async (_c, next) => { await next() })
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('noopmw status', res.status, 'cl', res.headers.get('Content-Length'), 'body', await res.text())
++  })
++  it('prettyJSON force, no content-type', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => c.body('hello', 200))
++    const res = await app.request('http://localhost/')
++    console.log('noct status', res.status, 'cl', res.headers.get('Content-Length'), 'body', await res.text())
++  })
++  it('prettyJSON force, empty body, no query', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/?pretty')
++    console.log('withquery status', res.status, 'cl', res.headers.get('Content-Length'), 'body', await res.text())
++  })
++  it('prettyJSON force, empty body, raw fetch', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.fetch(new Request('http://localhost/'))
++    console.log('rawfetch status', res.status, 'cl', res.headers.get('Content-Length'), 'body', await res.text())
++  })
++  it('prettyJSON force, empty body, direct middleware', async () => {
++    let mwRes: Response | undefined
++    const app = new Hono()
++    app.use('*', async (c, next) => {
++      await next()
++      mwRes = c.res
++      console.log('inside mw: bodyUsed', c.res.bodyUsed, 'locked', c.res.body !== null)
++    })
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('direct status', res.status, 'body', await res.text())
++  })
++  it('prettyJSON force, empty body, manual text() in mw', async () => {
++    const app = new Hono()
++    app.use('*', async (c, next) => {
++      await next()
++      try {
++        const t = await c.res.text()
++        console.log('manual text ok:', JSON.stringify(t))
++      } catch (e) {
++        console.log('manual text failed:', (e as Error).message)
++      }
++    })
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('manual status', res.status, 'body', await res.text())
++  })
++  it('prettyJSON force, empty body, no return in mw', async () => {
++    const app = new Hono()
++    app.use('*', async (c, next) => {
++      await next()
++      const t = await c.res.text()
++      console.log('read:', JSON.stringify(t))
++      c.res = new Response('{"x":1}', c.res)
++    })
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('noreturn status', res.status, 'body', await res.text())
++  })
++  it('prettyJSON force, empty body, return undefined', async () => {
++    const app = new Hono()
++    app.use('*', async (c, next) => {
++      await next()
++      const t = await c.res.text()
++      console.log('read2:', JSON.stringify(t))
++      c.res = new Response('{"x":1}', c.res)
++      return undefined as any
++    })
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('retundef status', res.status, 'body', await res.text())
++  })
++  it('prettyJSON force, empty body, return undefined, no read, with ct, no res setter, with ct, no headers, with mw, with ct handler, no pretty, no mw, no mw2, no mw3, no mw4, no mw5, no mw6, no mw7, no mw8, no mw9, no mw10, no mw11, no mw12, no mw13, no mw14, no mw15, no mw16, no mw17, no mw18, no mw19, no mw20, no mw21, no mw22, no mw23, no mw24, no mw25, no mw26, no mw27, no mw28, no mw29, no mw30, no mw31, no mw32, no mw33, no mw34, no mw35, no mw36, no mw37, no mw38, no mw39, no mw40, no mw41, no mw42, no mw43, no mw44, no mw45, no mw46, no mw47, no mw48, no mw49, no mw50, no mw51, no mw52, no mw53, no mw54, no mw55, no mw56, no mw57, no mw58, no mw59, no mw60, no mw61, no mw62, no mw63, no mw64, no mw65, no mw66, no mw67, no mw68, no mw69, no mw70, no mw71, no mw72, no mw73, no mw74, no mw75, no mw76, no mw77, no mw78, no mw79, no mw80, no mw81, no mw82, no mw83, no mw84, no mw85, no mw86', async () => {
++    const app = new Hono()
++    app.get('/', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    const res = await app.request('http://localhost/')
++    console.log('noheaders-mw-ct-nopretty-nomw86 status', res.status, 'ct', res.headers.get('Content-Type'), 'body', await res.text())
++  })
++})

@@ -1,0 +1,78 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..c6dd003 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -1,7 +1,13 @@
+ import { setCookie } from '../../helper/cookie'
+ import { Hono } from '../../hono'
+ import { bodyLimit } from '../../middleware/body-limit'
+-import type { APIGatewayProxyEventV2, LambdaEvent, LatticeProxyEventV2 } from './handler'
++import type {
++  APIGatewayProxyEventV2,
++  LambdaEvent,
++  LatticeProxyEventV2,
++  ALBProxyEvent,
++  APIGatewayProxyEvent,
++} from './handler'
+ import {
+   getProcessor,
+   handle,
+@@ -580,6 +586,36 @@ describe('handle', () => {
+   })
+ })
+ 
++describe('EventProcessor.createRequest single-value query parameters', () => {
++  it.each<{ name: string; event: APIGatewayProxyEvent | ALBProxyEvent }>([
++    { name: 'API Gateway REST v1', event: baseV1Event },
++    {
++      name: 'ALB',
++      event: {
++        path: '/my/path',
++        httpMethod: 'GET',
++        headers: { host: 'example.com' },
++        requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++        body: null,
++        isBase64Encoded: false,
++      },
++    },
++  ])(
++    'Should preserve empty strings and omit undefined values for $name',
++    ({ event: baseEvent }) => {
++      const event: LambdaEvent = {
++        ...baseEvent,
++        queryStringParameters: { empty: '', present: '0', omitted: undefined },
++      }
++      const request = getProcessor(event).createRequest(event)
++
++      expect(new URL(request.url).pathname + new URL(request.url).search).toBe(
++        '/my/path?empty=&present=0'
++      )
++    }
++  )
++})
++
+ describe('V2 request context authorizer', () => {
+   const baseV2RequestContext = baseV2Event.requestContext as ApiGatewayRequestContextV2
+ 
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..d7bb904 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,7 +465,7 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
+         .join('&')
+     }
+@@ -555,7 +555,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }

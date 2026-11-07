@@ -1,0 +1,47 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..8fe2a62 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -78,3 +78,19 @@ describe('LinearRouter', () => {
+     })
+   })
+ })
++
++describe('LinearRouter named parameters', () => {
++  it.each(['/u//posts', '/u//posts/'])('does not match an empty middle segment: %s', (path) => {
++    const router = new LinearRouter<string>()
++    router.add('GET', '/u/:id/posts', 'posts')
++
++    expect(router.match('GET', path)).toEqual([[]])
++  })
++
++  it.each(['/u/123/posts', '/u/123/posts/'])('matches a non-empty middle segment: %s', (path) => {
++    const router = new LinearRouter<string>()
++    router.add('GET', '/u/:id/posts', 'posts')
++
++    expect(router.match('GET', path)).toEqual([[['posts', { id: '123' }]]])
++  })
++})
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..a59c639 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -116,6 +116,9 @@ export class LinearRouter<T> implements Router<T> {
+                   }
+                   endValuePos = path.length
+                 }
++                if (endValuePos === pos + 1) {
++                  continue ROUTES_LOOP
++                }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos
+               }

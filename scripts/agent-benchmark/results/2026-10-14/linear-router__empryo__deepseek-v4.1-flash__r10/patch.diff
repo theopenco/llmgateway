@@ -1,0 +1,54 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..2ef8e52 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -65,6 +65,26 @@ describe('LinearRouter', () => {
+     })
+   })
+ 
++  describe('Empty path segment', () => {
++    let router: LinearRouter<string>
++
++    beforeEach(() => {
++      router = new LinearRouter<string>()
++      router.add('GET', '/u/:id/posts', 'GET /u/:id/posts')
++    })
++
++    it('GET /u//posts', () => {
++      const [res] = router.match('GET', '/u//posts')
++      expect(res.length).toBe(0)
++    })
++
++    it('GET /u/x/posts', () => {
++      const [res] = router.match('GET', '/u/x/posts')
++      expect(res.length).toBe(1)
++      expect(res[0][1]['id']).toBe('x')
++    })
++  })
++
+   describe('Skip part', () => {
+     const router = new LinearRouter<string>()
+ 
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..8664733 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -115,6 +115,9 @@ export class LinearRouter<T> implements Router<T> {
+                     continue ROUTES_LOOP
+                   }
+                   endValuePos = path.length
++                } else if (endValuePos === pos + 1) {
++                  // An empty segment must not be captured, e.g. `/u//posts` for `/u/:id/posts`
++                  continue ROUTES_LOOP
+                 }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos

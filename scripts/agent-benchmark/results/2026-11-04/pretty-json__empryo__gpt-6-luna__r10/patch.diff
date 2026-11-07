@@ -1,0 +1,112 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..ad13bd7 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -120,3 +120,83 @@ describe('JSON pretty by Middleware', () => {
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
+ })
++
++describe('prettyJSON responses that are not valid JSON', () => {
++  it.each([
++    ['empty body', ''],
++    ['invalid JSON body', 'not JSON'],
++  ])('passes through a response with an %s', async (_name, body) => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse(body, 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++        'X-Test': 'preserved',
++      })
++    )
++
++    const res = await app.request('/')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++    expect(res.headers.get('Content-Length')).toBe('8')
++    expect(res.headers.get('X-Test')).toBe('preserved')
++    expect(await res.text()).toBe(body)
++  })
++
++  it.each([204, 304])('passes through a %i response with a JSON Content-Type', async (status) => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse(null, status as 204 | 304, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Test': 'preserved',
++      })
++    )
++
++    const res = await app.request('/')
++    expect(res.status).toBe(status)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++    expect(res.headers.get('Content-Length')).toBe('0')
++    expect(res.headers.get('X-Test')).toBe('preserved')
++    expect(await res.text()).toBe('')
++  })
++
++  it('passes through a response whose body was already read', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('*', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/', (c) =>
++      c.newResponse('{invalid', 200, {
++        'Content-Type': 'application/json',
++        'X-Test': 'preserved',
++      })
++    )
++
++    const res = await app.request('/')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('X-Test')).toBe('preserved')
++  })
++
++  it('removes Content-Length when prettifying a response', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse('{"value":1}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '11',
++      })
++    )
++
++    const res = await app.request('/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "value": 1
++}`)
++  })
++})
++
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..607588c 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -50,10 +50,16 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+   return async function prettyJSON(c, next) {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+-    const contentType = c.res.headers.get('Content-Type')
++    const response = c.res
++    const contentType = response.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      try {
++        const obj = await response.clone().json()
++        response.headers.delete('Content-Length')
++        c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), response)
++      } catch {
++        // Leave responses with unreadable or invalid JSON bodies unchanged.
++      }
+     }
+   }
+ }

@@ -1,0 +1,96 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..1a2d16e 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,70 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  describe.each([false, true])('With force: %s', (force) => {
++    it.each([
++      { status: 204, body: null, consumed: false },
++      { status: 304, body: null, consumed: false },
++      { status: 200, body: '', consumed: false },
++      { status: 502, body: 'Not JSON', consumed: false },
++      { status: 200, body: '{"message":', consumed: false },
++      { status: 200, body: '{"message":"Hono!"}', consumed: true },
++    ])('Should preserve an unparseable response: %j', async ({ status, body, consumed }) => {
++      const app = new Hono()
++      app.use('*', prettyJSON({ force }))
++      app.use('*', async (c, next) => {
++        await next()
++        if (consumed) {
++          await c.res.text()
++        }
++      })
++      const original = new Response(body, {
++        status,
++        statusText: 'Original status',
++        headers: {
++          'Content-Type': 'application/json',
++          'Content-Length': String(body?.length ?? 0),
++          'X-Custom': 'preserved',
++        },
++      })
++      const headers = [...original.headers]
++      app.get('/', () => original)
++
++      const res = await app.request(force ? '/' : '/?pretty')
++      expect(res).toBe(original)
++      expect(res.status).toBe(status)
++      expect(res.statusText).toBe('Original status')
++      expect([...res.headers]).toEqual(headers)
++      expect(res.bodyUsed).toBe(consumed)
++      if (!consumed) {
++        expect(await res.text()).toBe(body ?? '')
++      }
++    })
++
++    it('Should remove Content-Length only when prettifying the body', async () => {
++      const app = new Hono()
++      app.use('*', prettyJSON({ force }))
++      const body = '{"message":"Hono!"}'
++      app.get(
++        '/',
++        () =>
++          new Response(body, {
++            status: 201,
++            headers: {
++              'Content-Type': 'application/json',
++              'Content-Length': String(body.length),
++              'X-Custom': 'preserved',
++            },
++          })
++      )
++
++      const res = await app.request(force ? '/' : '/?pretty')
++      expect(res.status).toBe(201)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.headers.get('X-Custom')).toBe('preserved')
++      expect(res.headers.has('Content-Length')).toBe(false)
++      expect(await res.text()).toBe(JSON.stringify({ message: 'Hono!' }, null, 2))
++    })
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..aad1ba2 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,15 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
++      let obj: unknown
++      try {
++        // Parse a clone so failures leave the original response body untouched.
++        obj = await c.res.clone().json()
++      } catch {
++        return
++      }
+       c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      c.res.headers.delete('Content-Length')
+     }
+   }
+ }
