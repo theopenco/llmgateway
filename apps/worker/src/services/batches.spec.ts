@@ -752,6 +752,26 @@ describe("batch worker", () => {
 		expect(await credentialExists()).toBe(false);
 	});
 
+	test("expires a started batch through its requests, keeping them for the error file", async () => {
+		await createBatch([line("a", "ok")]);
+		await runBatchHousekeeping();
+		await db
+			.update(tables.batch)
+			.set({ expiresAt: new Date(Date.now() - 1000) })
+			.where(eq(tables.batch.id, batchId));
+		const [started] = await db
+			.select({ status: tables.batch.status })
+			.from(tables.batch)
+			.where(eq(tables.batch.id, batchId));
+		expect(started.status).toBe("in_progress");
+
+		await runBatchHousekeeping();
+
+		expect((await loadBatch()).status).toBe("expired");
+		const rows = await requestsByCustomId();
+		expect(rows.a.error?.code).toBe("batch_expired");
+	});
+
 	test("leaves a validating batch to the validator that holds its lease", async () => {
 		await createBatch([line("a", "ok")], {
 			expiresAt: new Date(Date.now() - 1000),

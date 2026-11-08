@@ -134,11 +134,15 @@ async function endUnstartedBatch(
 		.where(
 			and(
 				eq(tables.batch.id, batchId),
+				// The lease holder may also end a batch cancelled while validating.
 				lease
 					? eq(tables.batch.claimedUntil, lease)
-					: or(
-							isNull(tables.batch.claimedUntil),
-							lt(tables.batch.claimedUntil, now),
+					: and(
+							eq(tables.batch.status, "validating"),
+							or(
+								isNull(tables.batch.claimedUntil),
+								lt(tables.batch.claimedUntil, now),
+							),
 						),
 			),
 		)
