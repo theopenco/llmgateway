@@ -389,6 +389,11 @@ describe("row-leak: model-level filter vs table flatten", () => {
 			qualifying: { webSearch: true },
 			nonQualifying: { webSearch: false },
 		},
+		{
+			capability: "batch",
+			qualifying: { batchEndpoints: ["/v1/chat/completions", "/v1/responses"] },
+			nonQualifying: { batchEndpoints: [] },
+		},
 	];
 
 	for (const { capability, qualifying, nonQualifying } of cases) {
@@ -424,6 +429,24 @@ describe("row-leak: model-level filter vs table flatten", () => {
 			}
 		});
 	}
+});
+
+describe("batch capability filter", () => {
+	test("rejects mappings without batch endpoint data", () => {
+		expect(
+			matchesCapability("batch", makeMapping({ batchEndpoints: null })),
+		).toBe(false);
+		expect(matchesCapability("batch", makeMapping({}))).toBe(false);
+	});
+
+	test("accepts embeddings-only batch support", () => {
+		expect(
+			matchesCapability(
+				"batch",
+				makeMapping({ batchEndpoints: ["/v1/embeddings"] }),
+			),
+		).toBe(true);
+	});
 });
 
 describe("model-level output capability filters", () => {

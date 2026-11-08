@@ -19,6 +19,7 @@ import {
 	Eye,
 	FileText,
 	Info,
+	Layers,
 	Linkedin,
 	ListFilter,
 	Radio,
@@ -66,7 +67,12 @@ import {
 	formatPerSecondPriceLabel,
 	formatPerUnitPrice,
 } from "./format";
-import { getMappingCapabilities } from "./mapping-capabilities";
+import {
+	BATCH_DOCS_URL,
+	batchSupportDescription,
+	getMappingCapabilities,
+	hasBatchSupport,
+} from "./mapping-capabilities";
 import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
 import {
@@ -199,6 +205,7 @@ const MAPPING_CAPABILITY_ICONS = {
 	webSearch: Search,
 	realtime: Radio,
 	rerank: ListFilter,
+	batchEndpoints: Layers,
 } satisfies Record<(typeof MAPPING_CAPABILITIES)[number]["key"], typeof Zap>;
 
 export function ModelCard({
@@ -832,6 +839,29 @@ export function ProviderSection({
 							<Zap className="h-2.5 w-2.5" />
 							{providerInfo.modelCardBadge}
 						</Badge>
+					)}
+					{hasBatchSupport(activeMapping) && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<a
+									href={BATCH_DOCS_URL}
+									target="_blank"
+									rel="noopener noreferrer"
+									onClick={(e) => e.stopPropagation()}
+									aria-label={`Batch API: ${batchSupportDescription(activeMapping.batchEndpoints)}`}
+									className="shrink-0"
+								>
+									<Badge className="text-[10px] px-1.5 py-0 h-4 gap-1 font-semibold whitespace-nowrap bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-500/20 hover:bg-fuchsia-500/15">
+										<Layers className="h-2.5 w-2.5" aria-hidden="true" />
+										Batch
+									</Badge>
+								</a>
+							</TooltipTrigger>
+							<TooltipContent side="top" className="max-w-xs text-xs">
+								{batchSupportDescription(activeMapping.batchEndpoints)} Learn
+								more in the Batch API docs.
+							</TooltipContent>
+						</Tooltip>
 					)}
 					{headerExtra}
 				</div>

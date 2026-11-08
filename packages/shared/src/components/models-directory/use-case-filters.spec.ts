@@ -129,6 +129,7 @@ describe("use case per-row re-check in the flatten loop", () => {
 				jsonOutput: false,
 				jsonOutputSchema: false,
 				webSearch: false,
+				batch: false,
 				discounted: false,
 			},
 			category,
@@ -299,6 +300,7 @@ describe("providerRowPassesFilters: full production row-filter path", () => {
 				jsonOutput: false,
 				jsonOutputSchema: false,
 				webSearch: false,
+				batch: false,
 				discounted: false,
 			},
 		};

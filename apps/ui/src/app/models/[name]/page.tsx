@@ -17,6 +17,7 @@ import {
 	Mic,
 	ListOrdered,
 	Globe,
+	Layers,
 	Search,
 } from "lucide-react";
 import Link from "next/link";
@@ -58,10 +59,13 @@ import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	expandAllProviderRegions,
+	getBatchEndpoints,
 	type StabilityLevel,
 	getVirtualModelTarget,
 } from "@llmgateway/models";
 import {
+	BATCH_DOCS_URL,
+	batchSupportDescription,
 	formatPerUnitPrice,
 	getMinPerSecondPrice,
 	isMappingDeactivated,
@@ -575,6 +579,8 @@ export default async function ModelPage({ params }: PageProps) {
 									icon: any;
 									label: string;
 									color: string;
+									href?: string;
+									title?: string;
 								}> = [];
 								const hasStreaming = visibleProviders.some((p) => p.streaming);
 								const hasVision = visibleProviders.some((p) => p.vision);
@@ -743,16 +749,48 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-sky-500",
 									});
 								}
+								const batchEndpoints = Array.from(
+									new Set(
+										visibleProviders.flatMap((p) =>
+											getBatchEndpoints(p, modelDef),
+										),
+									),
+								);
+								if (batchEndpoints.length > 0) {
+									items.push({
+										key: "batch",
+										icon: Layers,
+										label: "Batch API",
+										color: "text-fuchsia-500",
+										href: BATCH_DOCS_URL,
+										title: batchSupportDescription(batchEndpoints),
+									});
+								}
 
-								return items.map(({ key, icon: Icon, label, color }) => (
-									<div
-										key={key}
-										className="inline-flex items-center gap-2 text-sm text-foreground"
-									>
-										<Icon className={`h-4 w-4 ${color}`} />
-										<span className="text-muted-foreground">{label}</span>
-									</div>
-								));
+								return items.map(
+									({ key, icon: Icon, label, color, href, title }) =>
+										href ? (
+											<a
+												key={key}
+												href={href}
+												target="_blank"
+												rel="noopener noreferrer"
+												title={title}
+												className="inline-flex items-center gap-2 text-sm text-foreground underline-offset-4 hover:underline"
+											>
+												<Icon className={`h-4 w-4 ${color}`} />
+												<span className="text-muted-foreground">{label}</span>
+											</a>
+										) : (
+											<div
+												key={key}
+												className="inline-flex items-center gap-2 text-sm text-foreground"
+											>
+												<Icon className={`h-4 w-4 ${color}`} />
+												<span className="text-muted-foreground">{label}</span>
+											</div>
+										),
+								);
 							})()}
 						</div>
 
