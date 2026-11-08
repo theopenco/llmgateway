@@ -104,18 +104,18 @@ checks Postgres and Redis; its `/` skips Postgres by default.
 Grant admin dashboard access with comma-separated email lists on the API service.
 Only verified email addresses count.
 
-| Variable                   | Role    | Access                                  |
-| -------------------------- | ------- | --------------------------------------- |
-| `ADMIN_FULL_ACCESS_EMAILS` | Admin   | Full access                             |
-| `ADMIN_SUPPORT_EMAILS`     | Support | Read-only, plus issuing DevPass refunds |
-| `ADMIN_VIEWER_EMAILS`      | Viewer  | Read-only                               |
+| Variable                   | Role    | Access                                         |
+| -------------------------- | ------- | ---------------------------------------------- |
+| `ADMIN_FULL_ACCESS_EMAILS` | Admin   | Full access                                    |
+| `ADMIN_SUPPORT_EMAILS`     | Support | Restricted reads, plus issuing DevPass refunds |
+| `ADMIN_VIEWER_EMAILS`      | Viewer  | Read-only, including financial information     |
 
-Support and viewer accounts do not see platform-wide revenue or profit: the
+Support accounts do not see platform-wide revenue or profit: the
 dashboard home, Global Stats, LLM SDK, DevPass and Lounge plan KPIs, and provider
 credential spend are hidden, and the gateway's own margin and fee fields —
 including Airside carrier margins and routing adjustments — are removed from
 every response. A subscriber's plan margin stays visible, since it is the plan
-price minus usage these roles already see. Request payloads in logs are shown
+price minus usage support already sees. Request payloads in logs are shown
 unmodified.
 
 ## Gateway during database outages
