@@ -69,6 +69,7 @@ CREATE TABLE "batch_request" (
 --> statement-breakpoint
 CREATE INDEX "batch_project_id_created_at_idx" ON "batch" ("project_id","created_at");--> statement-breakpoint
 CREATE INDEX "batch_active_status_idx" ON "batch" ("status") WHERE "status" in ('validating', 'in_progress', 'finalizing', 'cancelling');--> statement-breakpoint
+CREATE INDEX "batch_finished_updated_at_idx" ON "batch" ("updated_at") WHERE "status" in ('completed', 'failed', 'expired', 'cancelled');--> statement-breakpoint
 CREATE INDEX "batch_file_project_id_created_at_idx" ON "batch_file" ("project_id","created_at");--> statement-breakpoint
 CREATE INDEX "batch_file_expires_at_idx" ON "batch_file" ("expires_at");--> statement-breakpoint
 CREATE INDEX "batch_request_batch_id_line_number_idx" ON "batch_request" ("batch_id","line_number");--> statement-breakpoint

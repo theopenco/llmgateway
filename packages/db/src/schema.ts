@@ -8211,13 +8211,13 @@ export const globalHourlyProviderKeyModelStats = snakeCase.table(
 	],
 );
 
-export const BATCH_ENDPOINTS = [
+// Mirrors BATCH_ENDPOINTS in @llmgateway/models; schema.ts only takes types
+// from the catalogue.
+const BATCH_ENDPOINTS = [
 	"/v1/chat/completions",
 	"/v1/responses",
 	"/v1/embeddings",
 ] as const;
-
-export type BatchEndpoint = (typeof BATCH_ENDPOINTS)[number];
 
 export const BATCH_STATUSES = [
 	"validating",
@@ -8320,12 +8320,19 @@ export const batch = snakeCase.table(
 			.where(
 				sql`${table.status} in ('validating', 'in_progress', 'finalizing', 'cancelling')`,
 			),
+		// Retention cleanup of finished batches.
+		index("batch_finished_updated_at_idx")
+			.on(table.updatedAt)
+			.where(
+				sql`${table.status} in ('completed', 'failed', 'expired', 'cancelled')`,
+			),
 	],
 );
 
 // The bearer token that created a batch, encrypted with the provider-key
 // keyring. The gateway stores only token hashes, so the worker needs it to call
-// the gateway as the key. Deleted when the batch reaches a terminal state.
+// the gateway as the key. Deleted when the batch reaches a terminal state or
+// its key is disabled, deleted or rolled.
 export const batchCredential = snakeCase.table("batch_credential", {
 	batchId: text()
 		.primaryKey()

@@ -10,7 +10,12 @@ import { logger } from "@llmgateway/logger";
 
 import { startWorker, stopWorker } from "./worker.js";
 
-export { processLogQueue } from "./worker.js";
+export { batchProcessLogs, processLogQueue } from "./worker.js";
+export {
+	createBatchLoopState,
+	runBatchHousekeeping,
+	startBatchRequests,
+} from "./services/batches.js";
 export {
 	processPendingVideoJobs,
 	processPendingWebhookDeliveries,

@@ -2545,9 +2545,13 @@ async function runVideoJobsLoop() {
 	}
 }
 
-// Shorter than stopWorker's 15s deadline, so interrupted requests are settled
-// before the process exits.
-const BATCH_SHUTDOWN_DRAIN_MS = 10_000;
+// How long a stopping worker lets running batch requests finish before failing
+// them as interrupted. Requests can run up to 10 minutes, so a deployment that
+// wants no interrupted requests raises this together with its termination
+// grace period. stopWorker waits at least this long plus a margin.
+const BATCH_SHUTDOWN_DRAIN_MS =
+	(Number(process.env.BATCH_SHUTDOWN_DRAIN_SECONDS) || 10) * 1000;
+const STOP_MARGIN_MS = 5000;
 const BATCH_POLL_INTERVAL_MS =
 	(Number(process.env.BATCH_POLL_INTERVAL_SECONDS) || 2) * 1000;
 
@@ -3846,7 +3850,7 @@ export async function stopWorker(): Promise<boolean> {
 	requestStop();
 
 	// Wait for all loops to finish by polling activeLoops counter
-	const maxWaitTime = 15000; // 15 seconds timeout
+	const maxWaitTime = Math.max(15000, BATCH_SHUTDOWN_DRAIN_MS + STOP_MARGIN_MS);
 	const pollInterval = 100; // 100ms per iteration
 	const startTime = Date.now();
 
