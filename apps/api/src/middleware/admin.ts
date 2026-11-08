@@ -70,7 +70,7 @@ const STAFF_HIDDEN_ROUTES: RegExp[] = [
 	/^\/provider-credentials\/spend$/,
 ];
 
-// Response keys stripped for non-admin roles. `routingAdjustment` is derived
+// Response keys stripped for support. `routingAdjustment` is derived
 // from the Airside margin, so it goes with it.
 const STAFF_REDACTED_KEY =
 	/margin|profit|platformFee|^kpis$|^routingAdjustment$/i;

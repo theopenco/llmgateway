@@ -1086,7 +1086,7 @@ export function ProviderCredentialsManager({
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<TabsList>
 					<TabsTrigger value="credentials">Credentials</TabsTrigger>
-					{isAdmin && <TabsTrigger value="spend">Spend</TabsTrigger>}
+					{showSpend && <TabsTrigger value="spend">Spend</TabsTrigger>}
 				</TabsList>
 				<div className="flex flex-1 flex-wrap items-center justify-end gap-3">
 					<div className="w-full sm:w-72">
