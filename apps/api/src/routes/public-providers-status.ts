@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { redisClient } from "@/auth/config.js";
 import {
 	fetchOfficialStatus,
 	OFFICIAL_INDICATORS,
@@ -74,10 +75,6 @@ const measuredSchema = z.object({
 const daySchema = measuredSchema.extend({ date: z.string() });
 
 /** Catalogue providers that get a public status page. */
-export function resetLastGoodOfficialStatus() {
-	lastGoodOfficial.clear();
-}
-
 export function statusPageProviders(): ProviderDefinition[] {
 	return providerDefinitions.filter(
 		(provider) =>
@@ -93,21 +90,20 @@ function findStatusPageProvider(
 	return statusPageProviders().find((provider) => provider.id === providerId);
 }
 
+function lastGoodKey(statusPageUrl: string) {
+	return `provider-official-status:last-good:${statusPageUrl}`;
+}
+
 type OfficialResult =
 	| { state: "ok"; official: OfficialStatus }
 	| { state: "unsupported" | "unavailable"; official: null };
 
-const lastGoodOfficial = new Map<
-	string,
-	{ result: OfficialResult; at: number }
->();
-
 /**
  * A transient failure is cached like any other result, so a provider whose
  * page is down costs one fetch per refresh interval rather than a slow cold
- * path on every request. Within LAST_GOOD_MAX_AGE_MS of a successful read the
- * last good status is served instead of "unavailable", so one timeout does not
- * blank the page.
+ * path on every request. The last good result is kept in Redis for
+ * LAST_GOOD_MAX_AGE_MS and served instead of "unavailable", so one timeout on
+ * any pod does not blank the page.
  */
 async function loadOfficial(
 	provider: ProviderDefinition,
@@ -125,18 +121,31 @@ async function loadOfficial(
 				const result: OfficialResult = official
 					? { state: "ok", official }
 					: { state: "unsupported", official: null };
-				lastGoodOfficial.set(url, { result, at: Date.now() });
+				await redisClient
+					.set(
+						lastGoodKey(url),
+						JSON.stringify(result),
+						"PX",
+						LAST_GOOD_MAX_AGE_MS,
+					)
+					.catch((error: unknown) => {
+						logger.warn("Could not store last good official status", {
+							statusPageUrl: url,
+							error: error instanceof Error ? error.message : String(error),
+						});
+					});
 				return result;
 			} catch (error) {
 				logger.warn("Official status page unavailable", {
 					statusPageUrl: url,
 					error: error instanceof Error ? error.message : String(error),
 				});
-				const lastGood = lastGoodOfficial.get(url);
-				if (lastGood && Date.now() - lastGood.at <= LAST_GOOD_MAX_AGE_MS) {
-					return lastGood.result;
-				}
-				return { state: "unavailable", official: null };
+				const lastGood = await redisClient
+					.get(lastGoodKey(url))
+					.catch(() => null);
+				return lastGood
+					? (JSON.parse(lastGood) as OfficialResult)
+					: { state: "unavailable", official: null };
 			}
 		},
 	);

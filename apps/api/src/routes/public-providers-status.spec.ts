@@ -8,10 +8,7 @@ import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
 import { isStealthProvider, providers } from "@llmgateway/models";
 
-import {
-	resetLastGoodOfficialStatus,
-	STATUS_HISTORY_DAYS,
-} from "./public-providers-status.js";
+import { STATUS_HISTORY_DAYS } from "./public-providers-status.js";
 
 const PROVIDER_ID = "anthropic";
 const HOUR_MS = 60 * 60 * 1000;
@@ -107,7 +104,6 @@ describe("public providers status", () => {
 		await db.delete(tables.modelProviderMappingHistoryHourly);
 		await redisClient.flushdb();
 		resetLocalPublicResponseCache();
-		resetLastGoodOfficialStatus();
 		fetchMock.mockReset();
 		fetchMock.mockImplementation(statusPageHandler);
 		vi.stubGlobal("fetch", fetchMock);
@@ -261,7 +257,13 @@ describe("public providers status", () => {
 
 	test("keeps the last good status through a transient failure", async () => {
 		await app.request(`/public/providers/status/${PROVIDER_ID}`);
-		await redisClient.flushdb();
+		expect(
+			await redisClient.get(
+				"provider-official-status:last-good:https://status.claude.com",
+			),
+		).toContain('"state":"ok"');
+		const responseKeys = await redisClient.keys("public-response:*");
+		await redisClient.del(...responseKeys);
 		resetLocalPublicResponseCache();
 		fetchMock.mockImplementation(async () => {
 			throw new TypeError("fetch failed");

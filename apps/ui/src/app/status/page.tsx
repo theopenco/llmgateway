@@ -87,6 +87,7 @@ export default async function StatusIndexPage() {
 	const issues = rows.filter(
 		(row) => row.official && row.official.indicator !== "none",
 	);
+	const hasOfficial = rows.some((row) => row.official !== null);
 	const worst = rows.reduce<OfficialIndicator>(
 		(current, row) =>
 			row.official ? worseIndicator(current, row.official.indicator) : current,
@@ -128,10 +129,12 @@ export default async function StatusIndexPage() {
 							model.
 						</p>
 						<p className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border/60 px-4 py-2 text-sm font-medium">
-							<IndicatorDot indicator={worst} />
-							{issues.length > 0
-								? `${issues.length} provider${issues.length === 1 ? "" : "s"} reporting issues`
-								: "All providers with a status feed report no issues"}
+							<IndicatorDot indicator={hasOfficial ? worst : null} />
+							{!hasOfficial
+								? "Official status unavailable"
+								: issues.length > 0
+									? `${issues.length} provider${issues.length === 1 ? "" : "s"} reporting issues`
+									: "All providers with a status feed report no issues"}
 						</p>
 					</header>
 
