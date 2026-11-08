@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
 	fetchOfficialStatus,
 	OFFICIAL_INDICATORS,
+	type OfficialStatus,
 } from "@/lib/official-status.js";
 import { cachedPublicResponse } from "@/lib/public-response-cache.js";
 import { createRoute } from "@/utils/create-route.js";
@@ -35,7 +36,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const LAST_24H_SPAN_MS = 23 * HOUR_MS;
 export const STATUS_HISTORY_DAYS = 90;
-const OFFICIAL_REFRESH_MS = 5 * 60 * 1000;
+const OFFICIAL_REFRESH_MS = 2 * 60 * 1000;
 const HISTORY_REFRESH_MS = 5 * 60 * 1000;
 const OFFICIAL_FETCH_CONCURRENCY = 6;
 
@@ -61,6 +62,8 @@ const officialSchema = officialSummarySchema.extend({
 	),
 });
 
+const officialStateSchema = z.enum(["ok", "unsupported", "unavailable"]);
+
 const measuredSchema = z.object({
 	requestCount: z.number(),
 	errorsCount: z.number(),
@@ -85,24 +88,40 @@ function findStatusPageProvider(
 	return statusPageProviders().find((provider) => provider.id === providerId);
 }
 
-async function loadOfficial(provider: ProviderDefinition) {
-	if (!provider.statusPageUrl) {
-		return null;
-	}
+type OfficialResult =
+	| { state: "ok"; official: OfficialStatus }
+	| { state: "unsupported" | "unavailable"; official: null };
+
+/**
+ * A transient failure is cached as "unavailable" like any other result, so a
+ * provider whose page is down costs one fetch per refresh interval rather than
+ * a slow cold path on every request.
+ */
+async function loadOfficial(
+	provider: ProviderDefinition,
+): Promise<OfficialResult> {
 	const url = provider.statusPageUrl;
-	try {
-		return await cachedPublicResponse(
-			`provider-official-status:${url}`,
-			{ refreshAfterMs: OFFICIAL_REFRESH_MS },
-			async () => await fetchOfficialStatus(url),
-		);
-	} catch (error) {
-		logger.warn("Official status page unavailable", {
-			statusPageUrl: url,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return null;
+	if (!url) {
+		return { state: "unsupported", official: null };
 	}
+	return await cachedPublicResponse<OfficialResult>(
+		`provider-official-status:${url}`,
+		{ refreshAfterMs: OFFICIAL_REFRESH_MS },
+		async () => {
+			try {
+				const official = await fetchOfficialStatus(url);
+				return official
+					? { state: "ok", official }
+					: { state: "unsupported", official: null };
+			} catch (error) {
+				logger.warn("Official status page unavailable", {
+					statusPageUrl: url,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return { state: "unavailable", official: null };
+			}
+		},
+	);
 }
 
 async function mapWithConcurrency<T, R>(
@@ -141,7 +160,8 @@ export async function loadMeasuredHistory(providerId: string, now: Date) {
 	const from = new Date(today.getTime() - historySpanMs);
 	const last24hFrom = last24hStart(now);
 	const mph = tables.modelProviderMappingHistoryHourly;
-	const day = sql<string>`to_char(date_trunc('day', ${mph.hourTimestamp} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
+	const day = sql<string>`to_char(date_trunc('day', ${mph.hourTimestamp}), 'YYYY-MM-DD')`;
+	const inLast24h = gte(mph.hourTimestamp, last24hFrom);
 
 	const rows = await db
 		.select({
@@ -150,10 +170,10 @@ export async function loadMeasuredHistory(providerId: string, now: Date) {
 			clientErrorsCount: sql<string>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`,
 			gatewayErrorsCount: sql<string>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`,
 			upstreamErrorsCount: sql<string>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`,
-			last24hLogsCount: sql<string>`COALESCE(SUM(${mph.logsCount}) FILTER (WHERE ${mph.hourTimestamp} >= ${last24hFrom}), 0)`,
-			last24hClientErrorsCount: sql<string>`COALESCE(SUM(${mph.clientErrorsCount}) FILTER (WHERE ${mph.hourTimestamp} >= ${last24hFrom}), 0)`,
-			last24hGatewayErrorsCount: sql<string>`COALESCE(SUM(${mph.gatewayErrorsCount}) FILTER (WHERE ${mph.hourTimestamp} >= ${last24hFrom}), 0)`,
-			last24hUpstreamErrorsCount: sql<string>`COALESCE(SUM(${mph.upstreamErrorsCount}) FILTER (WHERE ${mph.hourTimestamp} >= ${last24hFrom}), 0)`,
+			last24hLogsCount: sql<string>`COALESCE(SUM(${mph.logsCount}) FILTER (WHERE ${inLast24h}), 0)`,
+			last24hClientErrorsCount: sql<string>`COALESCE(SUM(${mph.clientErrorsCount}) FILTER (WHERE ${inLast24h}), 0)`,
+			last24hGatewayErrorsCount: sql<string>`COALESCE(SUM(${mph.gatewayErrorsCount}) FILTER (WHERE ${inLast24h}), 0)`,
+			last24hUpstreamErrorsCount: sql<string>`COALESCE(SUM(${mph.upstreamErrorsCount}) FILTER (WHERE ${inLast24h}), 0)`,
 		})
 		.from(mph)
 		.where(
@@ -260,6 +280,7 @@ const listRoute = createRoute({
 							z.object({
 								providerId: z.string(),
 								statusPageUrl: z.string().nullable(),
+								officialState: officialStateSchema,
 								official: officialSummarySchema.nullable(),
 								last24h: measuredSchema,
 							}),
@@ -289,10 +310,11 @@ async function loadStatusIndex() {
 		statusPageProviders(),
 		OFFICIAL_FETCH_CONCURRENCY,
 		async (provider) => {
-			const official = await loadOfficial(provider);
+			const { state, official } = await loadOfficial(provider);
 			return {
 				providerId: provider.id,
 				statusPageUrl: provider.statusPageUrl ?? null,
+				officialState: state,
 				official: official
 					? {
 							indicator: official.indicator,
@@ -323,6 +345,7 @@ const detailRoute = createRoute({
 					schema: z.object({
 						providerId: z.string(),
 						statusPageUrl: z.string().nullable(),
+						officialState: officialStateSchema,
 						official: officialSchema.nullable(),
 						measured: z.object({
 							days: z.array(daySchema),
@@ -358,7 +381,8 @@ publicProvidersStatus.openapi(detailRoute, async (c) => {
 	return c.json({
 		providerId: provider.id,
 		statusPageUrl: provider.statusPageUrl ?? null,
-		official,
+		officialState: official.state,
+		official: official.official,
 		measured,
 	});
 });

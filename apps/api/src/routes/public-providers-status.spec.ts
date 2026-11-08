@@ -5,7 +5,7 @@ import { resetLocalPublicResponseCache } from "@/lib/public-response-cache.js";
 import { deleteAll } from "@/testing.js";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { isStealthProvider, providers } from "@llmgateway/models";
 
 import { STATUS_HISTORY_DAYS } from "./public-providers-status.js";
@@ -15,6 +15,22 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 let seq = 0;
+
+async function seedAt(
+	hourTimestamp: Date,
+	stats: { logsCount: number; upstreamErrorsCount?: number },
+	modelProviderMappingId?: string,
+) {
+	seq += 1;
+	await db.insert(tables.modelProviderMappingHistoryHourly).values({
+		modelId: "claude-test",
+		providerId: PROVIDER_ID,
+		modelProviderMappingId: modelProviderMappingId ?? `status-test-${seq}`,
+		usedMode: "credits",
+		hourTimestamp,
+		...stats,
+	});
+}
 
 async function seedHour(
 	hoursAgo: number,
@@ -131,6 +147,7 @@ describe("public providers status", () => {
 
 		expect(body.providerId).toBe(PROVIDER_ID);
 		expect(body.statusPageUrl).toBe("https://status.claude.com");
+		expect(body.officialState).toBe("ok");
 		expect(body.official).toMatchObject({
 			indicator: "minor",
 			components: [{ name: "Claude API", status: "operational" }],
@@ -190,11 +207,11 @@ describe("public providers status", () => {
 				(p: { providerId: string }) => p.providerId === "openai",
 			).last24h,
 		).toEqual({ requestCount: 0, errorsCount: 0, uptime: null });
-		expect(
-			body.providers.find(
-				(p: { providerId: string }) => p.providerId === "openai",
-			).official,
-		).toBeNull();
+		const openai = body.providers.find(
+			(p: { providerId: string }) => p.providerId === "openai",
+		);
+		expect(openai.official).toBeNull();
+		expect(openai.officialState).toBe("unsupported");
 	});
 
 	test("caches official status between requests", async () => {
@@ -219,7 +236,74 @@ describe("public providers status", () => {
 		const body = await res.json();
 
 		expect(body.official).toBeNull();
+		expect(body.officialState).toBe("unavailable");
 		expect(body.measured.last24h.requestCount).toBe(10);
+	});
+
+	test("buckets traffic by UTC day", async () => {
+		const today = new Date();
+		const midnight = Date.UTC(
+			today.getUTCFullYear(),
+			today.getUTCMonth(),
+			today.getUTCDate() - 2,
+		);
+		await seedAt(new Date(midnight - HOUR_MS), { logsCount: 300 });
+		await seedAt(new Date(midnight), {
+			logsCount: 200,
+			upstreamErrorsCount: 50,
+		});
+
+		const res = await app.request(`/public/providers/status/${PROVIDER_ID}`);
+		const { measured } = await res.json();
+		const byDate = new Map(
+			measured.days.map((day: { date: string }) => [day.date, day]),
+		);
+
+		expect(
+			byDate.get(new Date(midnight - HOUR_MS).toISOString().slice(0, 10)),
+		).toMatchObject({ requestCount: 300, uptime: 100 });
+		expect(
+			byDate.get(new Date(midnight).toISOString().slice(0, 10)),
+		).toMatchObject({ requestCount: 200, errorsCount: 50, uptime: 75 });
+	});
+
+	test("does not double count regional mapping rows", async () => {
+		await db
+			.insert(tables.provider)
+			.values({ id: PROVIDER_ID, name: "Anthropic", description: "test" })
+			.onConflictDoNothing();
+		await db.insert(tables.model).values({
+			id: "status-test-model",
+			name: "Status test model",
+			family: "test",
+		});
+		await db.insert(tables.modelProviderMapping).values({
+			id: "status-test-regional",
+			modelId: "status-test-model",
+			providerId: PROVIDER_ID,
+			externalId: "status-test-model",
+			region: "eu",
+		});
+		try {
+			await seedHour(1, { logsCount: 100 }, {});
+			await seedAt(
+				new Date((Math.floor(Date.now() / HOUR_MS) - 1) * HOUR_MS),
+				{ logsCount: 100 },
+				"status-test-regional",
+			);
+
+			const res = await app.request(`/public/providers/status/${PROVIDER_ID}`);
+			const { measured } = await res.json();
+
+			expect(measured.last24h.requestCount).toBe(100);
+		} finally {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.id, "status-test-regional"));
+			await db
+				.delete(tables.model)
+				.where(eq(tables.model.id, "status-test-model"));
+		}
 	});
 
 	test.each([

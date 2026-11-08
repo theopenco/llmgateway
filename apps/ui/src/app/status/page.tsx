@@ -62,13 +62,14 @@ export default async function StatusIndexPage() {
 		.map((provider) => {
 			const row = statusById.get(provider.id);
 			const official = row?.official ?? null;
+			const officialState = row?.officialState ?? "unavailable";
 			const last24h: NonNullable<typeof row>["last24h"] | undefined =
 				row?.last24h;
 			const uptime =
 				last24h && hasEnoughRequestsForStats(last24h.requestCount)
 					? last24h.uptime
 					: null;
-			return { provider, official, uptime };
+			return { provider, official, officialState, uptime };
 		})
 		.sort((a, b) => {
 			const rank = (indicator: OfficialIndicator | undefined) =>
@@ -149,7 +150,7 @@ export default async function StatusIndexPage() {
 								</tr>
 							</thead>
 							<tbody className="divide-y divide-border/60">
-								{rows.map(({ provider, official, uptime }) => {
+								{rows.map(({ provider, official, officialState, uptime }) => {
 									const Logo = providerLogoUrls[provider.id];
 									return (
 										<tr
@@ -177,7 +178,9 @@ export default async function StatusIndexPage() {
 													>
 														{official
 															? indicatorLabels[official.indicator]
-															: "No official feed"}
+															: officialState === "unsupported"
+																? "No official feed"
+																: "Status unavailable"}
 													</span>
 												</span>
 											</td>

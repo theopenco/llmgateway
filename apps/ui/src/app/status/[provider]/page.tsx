@@ -159,6 +159,7 @@ export default async function ProviderStatusPage({ params }: PageProps) {
 
 	const status = await fetchProviderStatus(provider.id);
 	const official = status?.official ?? null;
+	const officialState = status?.officialState ?? "unavailable";
 	const statusPageUrl = provider.statusPageUrl ?? null;
 	const incidents = official?.incidents ?? [];
 	const incidentsByDay = incidentImpactByDay(incidents);
@@ -175,7 +176,9 @@ export default async function ProviderStatusPage({ params }: PageProps) {
 			question: `Is ${provider.name} down right now?`,
 			answer: official
 				? `${provider.name}'s official status page currently reports: ${official.description}. This page also shows the success rate LLM Gateway measured on real ${provider.name} traffic over the last 24 hours.`
-				: `${provider.name} does not publish a machine-readable status feed. This page shows the success rate LLM Gateway measured on real ${provider.name} traffic over the last 24 hours and 90 days.`,
+				: officialState === "unsupported"
+					? `${provider.name} does not publish a machine-readable status feed. This page shows the success rate LLM Gateway measured on real ${provider.name} traffic over the last 24 hours and 90 days.`
+					: `${provider.name}'s official status page could not be reached just now. This page shows the success rate LLM Gateway measured on real ${provider.name} traffic over the last 24 hours and 90 days.`,
 		},
 		{
 			question: `How is ${provider.name} uptime measured?`,
@@ -263,7 +266,11 @@ export default async function ProviderStatusPage({ params }: PageProps) {
 						<div className="flex items-center gap-2 rounded-lg border border-border/60 px-4 py-3">
 							<IndicatorDot indicator={official?.indicator ?? null} />
 							<span className="font-medium">
-								{official ? official.description : "No official feed"}
+								{official
+									? official.description
+									: officialState === "unsupported"
+										? "No official feed"
+										: "Official status unavailable"}
 							</span>
 						</div>
 					</header>

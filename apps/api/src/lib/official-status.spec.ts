@@ -123,9 +123,19 @@ describe("fetchOfficialStatus", () => {
 		});
 	});
 
-	test("keeps the summary when incidents are unavailable", async () => {
+	test("rejects when incidents fail transiently", async () => {
 		stubFetch((url) =>
-			url.endsWith("/summary.json") ? json(summary) : json({}, 500),
+			url.endsWith("/summary.json") ? json(summary) : json({}, 503),
+		);
+
+		await expect(
+			fetchOfficialStatus("https://status.example.com", NOW),
+		).rejects.toThrow();
+	});
+
+	test("keeps the summary when the page has no incidents feed", async () => {
+		stubFetch((url) =>
+			url.endsWith("/summary.json") ? json(summary) : json({}, 404),
 		);
 
 		const status = await fetchOfficialStatus("https://status.example.com", NOW);

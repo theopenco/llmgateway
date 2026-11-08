@@ -140,7 +140,12 @@ export async function fetchOfficialStatus(
 	try {
 		const [summaryRaw, incidentsRaw] = await Promise.all([
 			fetchJson(`${base}/summary.json`),
-			fetchJson(`${base}/incidents.json`).catch(() => null),
+			fetchJson(`${base}/incidents.json`).catch((error: unknown) => {
+				if (error instanceof UnsupportedStatusPageError) {
+					return null;
+				}
+				throw error;
+			}),
 		]);
 		const parsedSummary = summarySchema.safeParse(summaryRaw);
 		if (!parsedSummary.success) {
@@ -193,6 +198,7 @@ export async function fetchOfficialStatus(
 		throw error;
 	}
 }
+
 function toIsoOrNull(value: string | null | undefined): string | null {
 	if (!value) {
 		return null;
