@@ -71,15 +71,15 @@ const errorResponses = standardErrorResponses();
 
 type BatchAccess = Awaited<ReturnType<typeof getAuthenticatedReadAccess>>;
 
-const accessByRequest = new WeakMap<Request, BatchAccess>();
+const accessByContext = new WeakMap<Context<ServerTypes>, BatchAccess>();
 
 async function requireBatchAccess(c: Context<ServerTypes>) {
-	const cached = accessByRequest.get(c.req.raw);
+	const cached = accessByContext.get(c);
 	if (cached) {
 		return cached;
 	}
 	const access = await getAuthenticatedReadAccess(c);
-	accessByRequest.set(c.req.raw, access);
+	accessByContext.set(c, access);
 	return access;
 }
 
@@ -272,7 +272,7 @@ files.openapi(listFiles, async (c): Promise<any> => {
 						eq(tables.batchFile.projectId, project.id),
 					),
 				)
-				.then((rows) => rows[0])
+				.then((rows) => rows[0] ?? invalidRequest(`No object with id ${after}`))
 		: undefined;
 	const rows = await db
 		.select(fileColumns)
@@ -602,7 +602,7 @@ batches.openapi(listBatches, async (c): Promise<any> => {
 						eq(tables.batch.projectId, project.id),
 					),
 				)
-				.then((rows) => rows[0])
+				.then((rows) => rows[0] ?? invalidRequest(`No object with id ${after}`))
 		: undefined;
 	const rows = await db
 		.select()

@@ -8376,6 +8376,7 @@ export const batchRequest = snakeCase.table(
 			table.batchId,
 			table.lineNumber,
 		),
+		index("batch_request_batch_id_status_idx").on(table.batchId, table.status),
 		index("batch_request_pending_idx")
 			.on(table.batchId, table.nextAttemptAt)
 			.where(sql`${table.status} = 'pending'`),

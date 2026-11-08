@@ -72,6 +72,7 @@ CREATE INDEX "batch_active_status_idx" ON "batch" ("status") WHERE "status" in (
 CREATE INDEX "batch_file_project_id_created_at_idx" ON "batch_file" ("project_id","created_at");--> statement-breakpoint
 CREATE INDEX "batch_file_expires_at_idx" ON "batch_file" ("expires_at");--> statement-breakpoint
 CREATE INDEX "batch_request_batch_id_line_number_idx" ON "batch_request" ("batch_id","line_number");--> statement-breakpoint
+CREATE INDEX "batch_request_batch_id_status_idx" ON "batch_request" ("batch_id","status");--> statement-breakpoint
 CREATE INDEX "batch_request_pending_idx" ON "batch_request" ("batch_id","next_attempt_at") WHERE "status" = 'pending';--> statement-breakpoint
 CREATE INDEX "batch_request_in_progress_idx" ON "batch_request" ("claimed_until") WHERE "status" = 'in_progress';--> statement-breakpoint
 ALTER TABLE "batch" ADD CONSTRAINT "batch_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint

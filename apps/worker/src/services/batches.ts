@@ -377,15 +377,18 @@ async function loadCallContext(
 	if (!row) {
 		return null;
 	}
-	return {
-		token: decryptProviderKey(
+	let token: string;
+	try {
+		token = decryptProviderKey(
 			row.encryptedToken,
 			credentialRowId(batchId),
 			row.organizationId,
-		),
-		endpoint: row.endpoint,
-		clientIp: row.clientIp,
-	};
+		);
+	} catch (error) {
+		logBatchError("credential decryption", error);
+		return null;
+	}
+	return { token, endpoint: row.endpoint, clientIp: row.clientIp };
 }
 
 function retryDelayMs(attempts: number): number {

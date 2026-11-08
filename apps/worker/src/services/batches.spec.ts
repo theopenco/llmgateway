@@ -423,6 +423,30 @@ describe("batch worker", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	test("fails the remaining requests when the credential cannot be decrypted", async () => {
+		await createBatch([line("a", "ok"), line("b", "ok")]);
+		await runBatchHousekeeping();
+		await db
+			.update(tables.batchCredential)
+			.set({
+				encryptedToken: encryptProviderKey(
+					token,
+					"batch:other",
+					organizationId,
+				),
+			})
+			.where(eq(tables.batchCredential.batchId, batchId));
+
+		await processBatchRequestsOnce(1);
+		await runBatchHousekeeping();
+
+		expect(await loadBatch()).toMatchObject({
+			status: "completed",
+			requestFailed: 2,
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	test("fails a batch whose input file was deleted", async () => {
 		await createBatch([line("a", "ok")]);
 		await db.delete(tables.batchFile).where(eq(tables.batchFile.id, fileId));

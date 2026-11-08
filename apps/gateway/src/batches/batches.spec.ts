@@ -396,6 +396,13 @@ describe("Batch API", () => {
 		expect(
 			(await app.request("/v1/batches?limit=101", { headers: auth() })).status,
 		).toBe(400);
+		expect(
+			(
+				await app.request("/v1/batches?after=batch_unknown", {
+					headers: auth(),
+				})
+			).status,
+		).toBe(400);
 	});
 
 	test("rejects uploads past the project's storage quota", async () => {

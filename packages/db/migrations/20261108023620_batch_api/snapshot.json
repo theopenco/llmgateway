@@ -2,7 +2,7 @@
   "type": "diff",
   "version": "9",
   "dialect": "postgres",
-  "id": "62649b96-7ec4-427a-aeb1-459c51466fd5",
+  "id": "60c16518-13f7-4f6a-8a9d-75de4a30eb69",
   "prevIds": [
     "76884d58-0fd7-4778-bd7d-f42aab0ca074",
     "43b80ca5-b397-41f5-82fe-771ce81d59db",
@@ -187,6 +187,27 @@
         "n|sch|public",
         "n|col|public.batch_request.batch_id",
         "n|col|public.batch_request.line_number"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "batch_request",
+        "batch_request_batch_id_status_idx"
+      ],
+      "writes": [
+        "s|idx|public.batch_request_batch_id_status_idx",
+        "n|idx|public.batch_request_batch_id_status_idx",
+        "e|idx|public.batch_request_batch_id_status_idx",
+        "n|rel|public.batch_request_batch_id_status_idx"
+      ],
+      "reads": [
+        "n|tbl|public.batch_request",
+        "n|sch|public",
+        "n|col|public.batch_request.batch_id",
+        "n|col|public.batch_request.status"
       ]
     },
     {
@@ -1498,6 +1519,37 @@
           },
           {
             "value": "line_number",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "batch_request",
+        "name": "batch_request_batch_id_status_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "batch_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "status",
             "isExpression": false,
             "asc": true,
             "nullsFirst": false,
