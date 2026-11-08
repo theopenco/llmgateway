@@ -142,7 +142,16 @@ async function loadOfficial(
 				});
 				const lastGood = await redisClient
 					.get(lastGoodKey(url))
-					.catch(() => null);
+					.catch((readError: unknown) => {
+						logger.warn("Could not read last good official status", {
+							statusPageUrl: url,
+							error:
+								readError instanceof Error
+									? readError.message
+									: String(readError),
+						});
+						return null;
+					});
 				return lastGood
 					? (JSON.parse(lastGood) as OfficialResult)
 					: { state: "unavailable", official: null };
