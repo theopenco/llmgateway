@@ -187,6 +187,19 @@ describe("fetchOfficialStatus", () => {
 		).rejects.toThrow();
 	});
 
+	test("treats a page without a summary feed as unsupported even if incidents fail", async () => {
+		stubFetch((url) => {
+			if (url.endsWith("/summary.json")) {
+				return json({}, 404);
+			}
+			throw new TypeError("fetch failed");
+		});
+
+		expect(
+			await fetchOfficialStatus("https://status.example.com", NOW),
+		).toBeNull();
+	});
+
 	test("does not fetch pages without a Statuspage API", async () => {
 		const fetchMock = stubFetch(() => json(summary));
 

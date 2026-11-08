@@ -45,6 +45,10 @@ export const metadata: Metadata = {
 	},
 };
 
+// Safari ignores position: relative on table rows; a clip path makes the row
+// the containing block for the row-wide link overlay.
+const ROW_CLIP = { clipPath: "inset(0)" } as const;
+
 const indicatorOrder: Record<OfficialIndicator, number> = {
 	critical: 0,
 	major: 1,
@@ -156,6 +160,7 @@ export default async function StatusIndexPage() {
 										<tr
 											key={provider.id}
 											className="relative hover:bg-muted/30"
+											style={ROW_CLIP}
 										>
 											<td className="px-4 py-3">
 												<Link

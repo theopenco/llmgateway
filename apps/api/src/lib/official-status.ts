@@ -127,7 +127,7 @@ function incidentUrl(
  * tenant-supplied URLs must go through the user-content URL guard.
  *
  * Resolves null when the page does not serve the Statuspage API, and rejects
- * on transient failures (network, timeout, 5xx) so they are not cached.
+ * on transient failures (network, timeout, 5xx).
  */
 export async function fetchOfficialStatus(
 	statusPageUrl: string,
@@ -138,16 +138,22 @@ export async function fetchOfficialStatus(
 		return null;
 	}
 	try {
-		const [summaryRaw, incidentsRaw] = await Promise.all([
+		const [summaryResult, incidentsResult] = await Promise.allSettled([
 			fetchJson(`${base}/summary.json`),
-			fetchJson(`${base}/incidents.json`).catch((error: unknown) => {
-				if (error instanceof UnsupportedStatusPageError) {
-					return null;
-				}
-				throw error;
-			}),
+			fetchJson(`${base}/incidents.json`),
 		]);
-		const parsedSummary = summarySchema.safeParse(summaryRaw);
+		if (summaryResult.status === "rejected") {
+			throw summaryResult.reason;
+		}
+		let incidentsRaw: unknown = null;
+		if (incidentsResult.status === "fulfilled") {
+			incidentsRaw = incidentsResult.value;
+		} else if (
+			!(incidentsResult.reason instanceof UnsupportedStatusPageError)
+		) {
+			throw incidentsResult.reason;
+		}
+		const parsedSummary = summarySchema.safeParse(summaryResult.value);
 		if (!parsedSummary.success) {
 			throw new UnsupportedStatusPageError("Unexpected summary shape");
 		}

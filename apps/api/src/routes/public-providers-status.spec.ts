@@ -8,7 +8,10 @@ import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
 import { isStealthProvider, providers } from "@llmgateway/models";
 
-import { STATUS_HISTORY_DAYS } from "./public-providers-status.js";
+import {
+	resetLastGoodOfficialStatus,
+	STATUS_HISTORY_DAYS,
+} from "./public-providers-status.js";
 
 const PROVIDER_ID = "anthropic";
 const HOUR_MS = 60 * 60 * 1000;
@@ -104,6 +107,7 @@ describe("public providers status", () => {
 		await db.delete(tables.modelProviderMappingHistoryHourly);
 		await redisClient.flushdb();
 		resetLocalPublicResponseCache();
+		resetLastGoodOfficialStatus();
 		fetchMock.mockReset();
 		fetchMock.mockImplementation(statusPageHandler);
 		vi.stubGlobal("fetch", fetchMock);
@@ -239,6 +243,60 @@ describe("public providers status", () => {
 		expect(body.officialState).toBe("unavailable");
 		expect(body.measured.last24h.requestCount).toBe(10);
 	});
+
+	test("caches a failing status page instead of refetching it", async () => {
+		fetchMock.mockImplementation(async () => {
+			throw new TypeError("fetch failed");
+		});
+
+		await app.request(`/public/providers/status/${PROVIDER_ID}`);
+		await app.request(`/public/providers/status/${PROVIDER_ID}`);
+
+		expect(
+			fetchMock.mock.calls.filter(([input]) =>
+				String(input).endsWith("/summary.json"),
+			),
+		).toHaveLength(1);
+	});
+
+	test("keeps the last good status through a transient failure", async () => {
+		await app.request(`/public/providers/status/${PROVIDER_ID}`);
+		await redisClient.flushdb();
+		resetLocalPublicResponseCache();
+		fetchMock.mockImplementation(async () => {
+			throw new TypeError("fetch failed");
+		});
+
+		const res = await app.request(`/public/providers/status/${PROVIDER_ID}`);
+		const body = await res.json();
+
+		expect(body.officialState).toBe("ok");
+		expect(body.official.indicator).toBe("minor");
+	});
+
+	test.each([
+		[503, "unavailable", null],
+		[404, "ok", 0],
+	] as const)(
+		"incidents feed answering %i reports %s",
+		async (status, officialState, incidentCount) => {
+			fetchMock.mockImplementation(async (input) => {
+				const url = String(input);
+				return url.endsWith("/incidents.json")
+					? new Response("{}", {
+							status,
+							headers: { "content-type": "application/json" },
+						})
+					: await statusPageHandler(input);
+			});
+
+			const res = await app.request(`/public/providers/status/${PROVIDER_ID}`);
+			const body = await res.json();
+
+			expect(body.officialState).toBe(officialState);
+			expect(body.official?.incidents.length ?? null).toBe(incidentCount);
+		},
+	);
 
 	test("buckets traffic by UTC day", async () => {
 		const today = new Date();

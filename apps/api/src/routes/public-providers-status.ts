@@ -39,6 +39,7 @@ export const STATUS_HISTORY_DAYS = 90;
 const OFFICIAL_REFRESH_MS = 2 * 60 * 1000;
 const HISTORY_REFRESH_MS = 5 * 60 * 1000;
 const OFFICIAL_FETCH_CONCURRENCY = 6;
+const LAST_GOOD_MAX_AGE_MS = 30 * 60 * 1000;
 
 const indicatorSchema = z.enum(OFFICIAL_INDICATORS);
 
@@ -73,6 +74,10 @@ const measuredSchema = z.object({
 const daySchema = measuredSchema.extend({ date: z.string() });
 
 /** Catalogue providers that get a public status page. */
+export function resetLastGoodOfficialStatus() {
+	lastGoodOfficial.clear();
+}
+
 export function statusPageProviders(): ProviderDefinition[] {
 	return providerDefinitions.filter(
 		(provider) =>
@@ -92,10 +97,17 @@ type OfficialResult =
 	| { state: "ok"; official: OfficialStatus }
 	| { state: "unsupported" | "unavailable"; official: null };
 
+const lastGoodOfficial = new Map<
+	string,
+	{ result: OfficialResult; at: number }
+>();
+
 /**
- * A transient failure is cached as "unavailable" like any other result, so a
- * provider whose page is down costs one fetch per refresh interval rather than
- * a slow cold path on every request.
+ * A transient failure is cached like any other result, so a provider whose
+ * page is down costs one fetch per refresh interval rather than a slow cold
+ * path on every request. Within LAST_GOOD_MAX_AGE_MS of a successful read the
+ * last good status is served instead of "unavailable", so one timeout does not
+ * blank the page.
  */
 async function loadOfficial(
 	provider: ProviderDefinition,
@@ -110,14 +122,20 @@ async function loadOfficial(
 		async () => {
 			try {
 				const official = await fetchOfficialStatus(url);
-				return official
+				const result: OfficialResult = official
 					? { state: "ok", official }
 					: { state: "unsupported", official: null };
+				lastGoodOfficial.set(url, { result, at: Date.now() });
+				return result;
 			} catch (error) {
 				logger.warn("Official status page unavailable", {
 					statusPageUrl: url,
 					error: error instanceof Error ? error.message : String(error),
 				});
+				const lastGood = lastGoodOfficial.get(url);
+				if (lastGood && Date.now() - lastGood.at <= LAST_GOOD_MAX_AGE_MS) {
+					return lastGood.result;
+				}
 				return { state: "unavailable", official: null };
 			}
 		},
