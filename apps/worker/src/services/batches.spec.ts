@@ -6,10 +6,22 @@ import { buildBatchOutputLine } from "@llmgateway/shared/batch";
 import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
 import {
+	BATCH_CLEANUP_INTERVAL_MS,
+	BATCH_REQUEST_CONCURRENCY_PER_BATCH,
 	cleanupExpiredBatchData,
-	processBatchRequestsOnce,
+	createBatchLoopState,
 	runBatchHousekeeping,
+	runBatchLoopIteration,
+	startBatchRequests,
 } from "./batches.js";
+
+/** Starts one claim round the way the worker loop does and waits for it. */
+async function processOnce(limit = 16) {
+	const state = createBatchLoopState();
+	const started = await startBatchRequests(state, limit);
+	await Promise.all([...state.inFlight]);
+	return started;
+}
 
 const userId = "batch-worker-user";
 const organizationId = "batch-worker-org";
@@ -221,7 +233,7 @@ describe("batch worker", () => {
 			requestTotal: 5,
 		});
 
-		expect(await processBatchRequestsOnce(16)).toBe(5);
+		expect(await processOnce(16)).toBe(5);
 		const first = calls();
 		expect(first).toHaveLength(5);
 		for (const call of first) {
@@ -256,7 +268,7 @@ describe("batch worker", () => {
 							: init?.body,
 				});
 			});
-			await processBatchRequestsOnce(16);
+			await processOnce(16);
 		}
 
 		rows = await requestsByCustomId();
@@ -312,6 +324,84 @@ describe("batch worker", () => {
 		expect(errors?.bytes).toBe(bytes(["failed"]));
 	});
 
+	test("the worker loop bounds in-flight requests and finishes the batch", async () => {
+		const total = BATCH_REQUEST_CONCURRENCY_PER_BATCH + 2;
+		await createBatch(
+			Array.from({ length: total }, (_, index) => line(`r${index}`, "ok")),
+		);
+		const release: (() => void)[] = [];
+		fetchMock.mockImplementation(async (input, init) => {
+			await new Promise<void>((resolve) => release.push(resolve));
+			return await gateway(input, init);
+		});
+		const state = createBatchLoopState();
+
+		expect(await runBatchLoopIteration(state)).toBe(
+			BATCH_REQUEST_CONCURRENCY_PER_BATCH,
+		);
+		expect(state.inFlight.size).toBe(BATCH_REQUEST_CONCURRENCY_PER_BATCH);
+		await vi.waitFor(() =>
+			expect(release).toHaveLength(BATCH_REQUEST_CONCURRENCY_PER_BATCH),
+		);
+
+		expect(await runBatchLoopIteration(state)).toBe(0);
+		expect(fetchMock).toHaveBeenCalledTimes(
+			BATCH_REQUEST_CONCURRENCY_PER_BATCH,
+		);
+
+		release.splice(0).forEach((resolve) => resolve());
+		await Promise.all([...state.inFlight]);
+		expect(state.inFlight.size).toBe(0);
+
+		expect(await runBatchLoopIteration(state)).toBe(2);
+		await vi.waitFor(() => expect(release).toHaveLength(2));
+		release.splice(0).forEach((resolve) => resolve());
+		await Promise.all([...state.inFlight]);
+		await runBatchLoopIteration(state);
+
+		expect(await loadBatch()).toMatchObject({
+			status: "completed",
+			requestCompleted: total,
+			requestFailed: 0,
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(total);
+		const ids = calls().map((call) => call.headers.get("x-request-id"));
+		expect(new Set(ids).size).toBe(total);
+	});
+
+	test("the worker loop runs cleanup at most once an hour", async () => {
+		const state = createBatchLoopState();
+		const now = new Date();
+		await runBatchLoopIteration(state, now);
+		expect(state.lastCleanupAt).toBe(now.getTime());
+
+		await runBatchLoopIteration(state, new Date(now.getTime() + 1000));
+		expect(state.lastCleanupAt).toBe(now.getTime());
+
+		const later = new Date(now.getTime() + BATCH_CLEANUP_INTERVAL_MS);
+		await runBatchLoopIteration(state, later);
+		expect(state.lastCleanupAt).toBe(later.getTime());
+	});
+
+	test("runs requests whose body contains an escaped NUL character", async () => {
+		await createBatch([line("nul", "ok\u0000")]);
+		fetchMock.mockImplementation(async (_input, init) => {
+			const content = JSON.parse(String(init?.body)).messages[0].content;
+			return new Response(JSON.stringify({ echo: content }), {
+				headers: { "content-type": "application/json" },
+			});
+		});
+
+		await runBatchHousekeeping();
+		await processOnce();
+		await runBatchHousekeeping();
+
+		const rows = await requestsByCustomId();
+		expect(JSON.parse(rows.nul.body).messages[0].content).toBe("ok\u0000");
+		expect(JSON.parse(rows.nul.responseBody ?? "null").echo).toBe("ok\u0000");
+		expect((await loadBatch()).status).toBe("completed");
+	});
+
 	test("fails a batch whose input does not validate", async () => {
 		await createBatch([line("a", "ok"), line("a", "ok"), "{oops"]);
 
@@ -330,7 +420,7 @@ describe("batch worker", () => {
 	test("cancels pending requests and reports them in the error file", async () => {
 		await createBatch([line("a", "ok"), line("b", "ok"), line("c", "ok")]);
 		await runBatchHousekeeping();
-		await processBatchRequestsOnce(1);
+		await processOnce(1);
 		await db
 			.update(tables.batch)
 			.set({ status: "cancelling", cancellingAt: new Date() })
@@ -363,7 +453,7 @@ describe("batch worker", () => {
 			.where(eq(tables.batch.id, batchId));
 
 		await runBatchHousekeeping();
-		expect(await processBatchRequestsOnce(16)).toBe(0);
+		expect(await processOnce(16)).toBe(0);
 
 		const batch = await loadBatch();
 		expect(batch.status).toBe("expired");
@@ -377,7 +467,7 @@ describe("batch worker", () => {
 		await createBatch([line("a", "revoked"), line("b", "ok")]);
 		await runBatchHousekeeping();
 
-		await processBatchRequestsOnce(1);
+		await processOnce(1);
 
 		const rows = await requestsByCustomId();
 		expect(rows.a).toMatchObject({ status: "pending", attempts: 0 });
@@ -396,7 +486,7 @@ describe("batch worker", () => {
 		await createBatch([line("a", "revoked"), line("b", "ok"), line("c", "ok")]);
 		await runBatchHousekeeping();
 
-		await processBatchRequestsOnce(1);
+		await processOnce(1);
 		await runBatchHousekeeping();
 
 		const batch = await loadBatch();
@@ -413,7 +503,7 @@ describe("batch worker", () => {
 			.delete(tables.batchCredential)
 			.where(eq(tables.batchCredential.batchId, batchId));
 
-		await processBatchRequestsOnce(1);
+		await processOnce(1);
 		await runBatchHousekeeping();
 
 		expect(await loadBatch()).toMatchObject({
@@ -437,7 +527,7 @@ describe("batch worker", () => {
 			})
 			.where(eq(tables.batchCredential.batchId, batchId));
 
-		await processBatchRequestsOnce(1);
+		await processOnce(1);
 		await runBatchHousekeeping();
 
 		expect(await loadBatch()).toMatchObject({
@@ -490,7 +580,7 @@ describe("batch worker", () => {
 			.where(eq(tables.batch.id, batchId));
 		await runBatchHousekeeping();
 
-		await processBatchRequestsOnce(16);
+		await processOnce(16);
 
 		expect(calls()[0].url).toBe(`${gatewayUrl}/v1/responses`);
 		expect((await requestsByCustomId()).r.status).toBe("completed");
@@ -505,7 +595,7 @@ describe("batch worker", () => {
 			.where(eq(tables.batchRequest.batchId, batchId));
 
 		await runBatchHousekeeping();
-		await processBatchRequestsOnce(16);
+		await processOnce(16);
 		await runBatchHousekeeping();
 
 		expect((await loadBatch()).status).toBe("completed");

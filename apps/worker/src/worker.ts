@@ -66,11 +66,9 @@ import { deliverAirsideVerificationEmails } from "./services/airside-verificatio
 import { backfillPauseMs } from "./services/backfill-pacing.js";
 import {
 	BATCH_REQUEST_CONCURRENCY,
-	claimBatchRequests,
-	cleanupExpiredBatchData,
-	executeBatchRequest,
+	createBatchLoopState,
 	logBatchError,
-	runBatchHousekeeping,
+	runBatchLoopIteration,
 } from "./services/batches.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
@@ -2548,7 +2546,6 @@ async function runVideoJobsLoop() {
 
 const BATCH_POLL_INTERVAL_MS =
 	(Number(process.env.BATCH_POLL_INTERVAL_SECONDS) || 2) * 1000;
-const BATCH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 async function runBatchApiLoop() {
 	if (
@@ -2566,34 +2563,18 @@ async function runBatchApiLoop() {
 	logger.info(
 		`Starting batch API loop (concurrency: ${BATCH_REQUEST_CONCURRENCY})...`,
 	);
-	const inFlight = new Set<Promise<void>>();
-	let lastCleanup = 0;
+	const state = createBatchLoopState();
 	try {
 		while (!isStopRequested()) {
 			try {
-				await runBatchHousekeeping();
-				if (Date.now() - lastCleanup >= BATCH_CLEANUP_INTERVAL_MS) {
-					await cleanupExpiredBatchData();
-					lastCleanup = Date.now();
-				}
-				const claimed = await claimBatchRequests(
-					BATCH_REQUEST_CONCURRENCY - inFlight.size,
-				);
-				for (const request of claimed) {
-					const task = executeBatchRequest(request)
-						.catch((error: unknown) => logBatchError("request", error))
-						.finally(() => {
-							inFlight.delete(task);
-						});
-					inFlight.add(task);
-				}
+				await runBatchLoopIteration(state);
 			} catch (error) {
 				logBatchError("loop", error);
 			}
 			await interruptibleSleep(BATCH_POLL_INTERVAL_MS);
 		}
 	} finally {
-		await Promise.allSettled([...inFlight]);
+		await Promise.allSettled([...state.inFlight]);
 		activeLoops--;
 		logger.info("Batch API loop stopped");
 	}

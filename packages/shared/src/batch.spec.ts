@@ -51,6 +51,11 @@ describe("parseBatchInput", () => {
 			line({ custom_id: undefined }),
 			"invalid_custom_id",
 		],
+		[
+			"a NUL in custom_id",
+			line({ custom_id: "a\u0000b" }),
+			"invalid_custom_id",
+		],
 		["a GET", line({ method: "GET" }), "invalid_method"],
 		["another endpoint", line({ url: "/v1/embeddings" }), "mismatched_url"],
 		["a non-object body", line({ body: "hi" }), "invalid_body"],

@@ -212,6 +212,11 @@ files.openapi(uploadFile, async (c): Promise<any> => {
 	}
 	await assertProjectStorageAvailable(project.id, upload.size);
 	const content = await upload.text();
+	if (content.includes("\u0000")) {
+		invalidRequest(
+			"The file contains NUL bytes. Batch files must be UTF-8 JSONL text.",
+		);
+	}
 	const now = new Date();
 	const [file] = await db
 		.insert(tables.batchFile)
@@ -221,7 +226,7 @@ files.openapi(uploadFile, async (c): Promise<any> => {
 			projectId: project.id,
 			apiKeyId: apiKey.id,
 			purpose: "batch",
-			filename: upload.name || "batch.jsonl",
+			filename: upload.name.replaceAll("\u0000", "") || "batch.jsonl",
 			bytes: Buffer.byteLength(content),
 			content,
 			createdAt: now,
@@ -512,7 +517,9 @@ function validateMetadata(metadata: Record<string, string> | null | undefined) {
 		entries.some(
 			([key, value]) =>
 				key.length > MAX_METADATA_KEY_LENGTH ||
-				value.length > MAX_METADATA_VALUE_LENGTH,
+				value.length > MAX_METADATA_VALUE_LENGTH ||
+				key.includes("\u0000") ||
+				value.includes("\u0000"),
 		)
 	) {
 		invalidRequest(

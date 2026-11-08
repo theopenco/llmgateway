@@ -105,12 +105,13 @@ export function parseBatchInput(
 		if (
 			typeof customId !== "string" ||
 			customId.length === 0 ||
-			customId.length > MAX_CUSTOM_ID_LENGTH
+			customId.length > MAX_CUSTOM_ID_LENGTH ||
+			customId.includes("\u0000")
 		) {
 			fail(
 				line,
 				"invalid_custom_id",
-				`custom_id must be a non-empty string of at most ${MAX_CUSTOM_ID_LENGTH} characters.`,
+				`custom_id must be a non-empty string of at most ${MAX_CUSTOM_ID_LENGTH} characters without NUL characters.`,
 				"custom_id",
 			);
 			continue;

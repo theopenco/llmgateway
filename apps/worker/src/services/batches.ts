@@ -561,23 +561,58 @@ export async function executeBatchRequest(
 	}
 }
 
-/** Claims and runs one round of requests, waiting for all of them. */
-export async function processBatchRequestsOnce(
-	limit = BATCH_REQUEST_CONCURRENCY,
+export const BATCH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
+export interface BatchLoopState {
+	/** Requests still running, shared across iterations of the loop. */
+	inFlight: Set<Promise<void>>;
+	lastCleanupAt: number;
+}
+
+export function createBatchLoopState(): BatchLoopState {
+	return { inFlight: new Set(), lastCleanupAt: 0 };
+}
+
+/**
+ * Claims as many requests as free slots allow and starts them without waiting.
+ * The credential is decrypted once per batch per claim round.
+ */
+export async function startBatchRequests(
+	state: BatchLoopState,
+	limit: number = BATCH_REQUEST_CONCURRENCY,
 ): Promise<number> {
-	const claimed = await claimBatchRequests(limit);
+	const claimed = await claimBatchRequests(limit - state.inFlight.size);
 	const contexts = new Map<string, Promise<BatchCallContext | null>>();
-	await Promise.all(
-		claimed.map(async (request) => {
-			let context = contexts.get(request.batchId);
-			if (!context) {
-				context = loadCallContext(request.batchId);
-				contexts.set(request.batchId, context);
-			}
-			await executeBatchRequest(request, await context);
-		}),
-	);
+	for (const request of claimed) {
+		let context = contexts.get(request.batchId);
+		if (!context) {
+			context = loadCallContext(request.batchId);
+			contexts.set(request.batchId, context);
+		}
+		const pending = context;
+		const task: Promise<void> = (async () => {
+			await executeBatchRequest(request, await pending);
+		})()
+			.catch((error: unknown) => logBatchError("request", error))
+			.finally(() => {
+				state.inFlight.delete(task);
+			});
+		state.inFlight.add(task);
+	}
 	return claimed.length;
+}
+
+/** One pass of the worker's batch loop: housekeeping, cleanup, new requests. */
+export async function runBatchLoopIteration(
+	state: BatchLoopState,
+	now = new Date(),
+): Promise<number> {
+	await runBatchHousekeeping(now);
+	if (now.getTime() - state.lastCleanupAt >= BATCH_CLEANUP_INTERVAL_MS) {
+		await cleanupExpiredBatchData(now);
+		state.lastCleanupAt = now.getTime();
+	}
+	return await startBatchRequests(state);
 }
 
 async function fileBytes(

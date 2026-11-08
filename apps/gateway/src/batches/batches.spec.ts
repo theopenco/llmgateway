@@ -134,6 +134,24 @@ describe("Batch API", () => {
 		expect(gone.status).toBe(404);
 	});
 
+	test("rejects files containing NUL bytes", async () => {
+		const res = await uploadFile(`${chatLine("a")}\u0000\n`);
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain("NUL");
+
+		const escaped = JSON.stringify({
+			custom_id: "escaped",
+			method: "POST",
+			url: "/v1/chat/completions",
+			body: {
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "a\u0000b" }],
+			},
+		});
+		expect(escaped.includes("\\u0000")).toBe(true);
+		expect((await uploadFile(escaped)).status).toBe(200);
+	});
+
 	test("rejects unsupported purposes and missing files", async () => {
 		expect(
 			(await uploadFile(chatLine("a"), { purpose: "fine-tune" })).status,
@@ -224,6 +242,9 @@ describe("Batch API", () => {
 		);
 		expect(
 			(await createBatch(file.id, { metadata: tooMuchMetadata })).status,
+		).toBe(400);
+		expect(
+			(await createBatch(file.id, { metadata: { note: "a\u0000b" } })).status,
 		).toBe(400);
 		expect((await createBatch("file-missing")).status).toBe(404);
 	});
