@@ -633,6 +633,33 @@ function additionalDailyTests() {
 			mappingTarget({ ...row, source: "catalogue" }).reasoningEfforts,
 		).toEqual(provider.reasoningEfforts);
 	});
+	it("verifies catalogue mappings on the API the gateway serves them on", async () => {
+		const { mapping } = await seed("catalogue");
+		expect(mappingTarget(mapping).apiFormat).toBe("provider-native");
+		expect(
+			mappingTarget({ ...mapping, apiFormat: "openai-responses" }).apiFormat,
+		).toBe("openai-responses");
+		expect(mappingTarget({ ...mapping, source: "airside" }).apiFormat).toBe(
+			"openai-chat-completions",
+		);
+		const definition = (catalogueModels as readonly ModelDefinition[]).find(
+			(model) =>
+				model.providers.some(
+					(provider) => provider.apiFormat === "openai-chat-completions",
+				),
+		)!;
+		const declared = definition.providers.find(
+			(provider) => provider.apiFormat === "openai-chat-completions",
+		)!;
+		expect(
+			mappingTarget({
+				...mapping,
+				modelId: definition.id,
+				providerId: declared.providerId,
+				region: declared.region ?? null,
+			}).apiFormat,
+		).toBe("openai-chat-completions");
+	});
 	it("discovers static decision metadata when sync left the row flag false", async () => {
 		const definition = (catalogueModels as readonly ModelDefinition[]).find(
 			(model) => model.providers.some((provider) => provider.decisions),

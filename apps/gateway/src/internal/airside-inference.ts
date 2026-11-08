@@ -37,6 +37,7 @@ import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 
 import {
+	AIRSIDE_INFERENCE_LOG_SOURCE,
 	calculateCosts,
 	openAirsideInference,
 	redactToken,
@@ -429,27 +430,30 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 	}
 	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 	const requestId = shortid();
-	const base = createLogEntry({
-		requestId,
-		project,
-		apiKey,
-		usedProviderKeyId: payload.providerKeyId,
-		usedModel: formatUsedModelForDisplay(
-			target.providerId,
-			target.modelName,
-			undefined,
-			target.region ?? undefined,
-		),
-		usedModelMapping: target.externalId,
-		usedProvider: target.providerId,
-		requestedModel: target.modelName,
-		requestedProvider: target.providerId,
-		messages: [],
-		source: "airside",
-		apiOrigin: target.decisions ? "decisions" : "chat-completions",
-		customHeaders: { "x-airside-run-id": payload.runId },
-		debugMode: false,
-	});
+	const base = {
+		...createLogEntry({
+			requestId,
+			project,
+			apiKey,
+			usedProviderKeyId: payload.providerKeyId,
+			usedModel: formatUsedModelForDisplay(
+				target.providerId,
+				target.modelName,
+				undefined,
+				target.region ?? undefined,
+			),
+			usedModelMapping: target.externalId,
+			usedProvider: target.providerId,
+			requestedModel: target.modelName,
+			requestedProvider: target.providerId,
+			messages: [],
+			apiOrigin: target.decisions ? "decisions" : "chat-completions",
+			customHeaders: { "x-airside-run-id": payload.runId },
+			debugMode: false,
+		}),
+		// Set after createLogEntry: client source normalization drops this value.
+		source: AIRSIDE_INFERENCE_LOG_SOURCE,
+	};
 	const controller = new AbortController();
 	const signal = AbortSignal.any([
 		c.req.raw.signal,

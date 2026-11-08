@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, modelProviderMappingHistory, systemSetting } from "@llmgateway/db";
+import {
+	db,
+	eq,
+	modelProviderMappingHistory,
+	systemSetting,
+	tables,
+} from "@llmgateway/db";
 import {
 	DEFAULT_MODEL_ERROR_RATE_ALERT_RULES,
 	MODEL_ERROR_RATE_ALERTS_SETTING_ID,
 } from "@llmgateway/shared";
 
 import {
+	buildAlertPayload,
 	checkModelErrorRateAlerts,
 	cooldownKey,
 	findMappingsOverThreshold,
@@ -96,10 +103,36 @@ describe("findMappingsOverThreshold", () => {
 	});
 });
 
+describe("buildAlertPayload", () => {
+	it("says how many counted errors the gateway retried elsewhere", () => {
+		const row = {
+			...counts,
+			upstreamErrorsCount: 40,
+			retriedUpstreamErrorsCount: 38,
+		};
+		const [hit] = findMappingsOverThreshold(shortRule, [row]);
+		expect(
+			buildAlertPayload(shortRule, [hit], undefined).embeds?.[0]?.fields?.[0]
+				?.value,
+		).toContain("· 38 retried elsewhere");
+		const strict = { ...shortRule, includeRetriedErrors: false };
+		const [unretried] = findMappingsOverThreshold(
+			{ ...strict, errorRatePercent: 1 },
+			[row],
+		);
+		expect(
+			buildAlertPayload(strict, [unretried], undefined).embeds?.[0]?.fields?.[0]
+				?.value,
+		).not.toContain("retried");
+	});
+});
+
 describe("checkModelErrorRateAlerts", () => {
 	const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
 	const originalUrl = process.env.MODEL_ERROR_RATE_DISCORD_URL;
 	const mappingId = "mer-alert-mapping";
+	const providerId = "mer-alert-provider";
+	const modelId = "mer-alert-model";
 
 	async function saveSetting(
 		enabled: boolean,
@@ -124,6 +157,18 @@ describe("checkModelErrorRateAlerts", () => {
 		await db.delete(systemSetting);
 		await db.delete(modelProviderMappingHistory);
 		await redisClient.del(cooldownKey(shortRule.id, mappingId));
+		await db
+			.insert(tables.provider)
+			.values({ id: providerId, name: "Alert Provider", description: "Test" })
+			.onConflictDoNothing();
+		await db
+			.insert(tables.model)
+			.values({ id: modelId, name: "Alert Model", family: "test" })
+			.onConflictDoNothing();
+		await db
+			.insert(tables.modelProviderMapping)
+			.values({ id: mappingId, modelId, providerId, externalId: modelId })
+			.onConflictDoNothing();
 		const now = new Date();
 		now.setSeconds(0, 0);
 		await db.insert(modelProviderMappingHistory).values([
@@ -159,6 +204,8 @@ describe("checkModelErrorRateAlerts", () => {
 		await db.delete(systemSetting);
 		await db.delete(modelProviderMappingHistory);
 		await redisClient.del(cooldownKey(shortRule.id, mappingId));
+		await db.delete(tables.model).where(eq(tables.model.id, modelId));
+		await db.delete(tables.provider).where(eq(tables.provider.id, providerId));
 	});
 
 	it("does nothing until enabled", async () => {
@@ -205,6 +252,22 @@ describe("checkModelErrorRateAlerts", () => {
 		await checkModelErrorRateAlerts();
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
+
+	it.each([
+		{ status: "inactive" as const, deactivatedAt: null },
+		{ status: "active" as const, deactivatedAt: new Date(Date.now() - 60_000) },
+	])(
+		"skips mappings taken out of service ($status)",
+		async ({ status, deactivatedAt }) => {
+			await db
+				.update(tables.modelProviderMapping)
+				.set({ status, deactivatedAt })
+				.where(eq(tables.modelProviderMapping.id, mappingId));
+			await saveSetting(true);
+			await checkModelErrorRateAlerts();
+			expect(fetchMock).not.toHaveBeenCalled();
+		},
+	);
 
 	it("skips disabled rules and rules whose threshold is not met", async () => {
 		await saveSetting(true, [

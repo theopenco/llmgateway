@@ -538,7 +538,8 @@ describe("durable email attempt retirement", () => {
 		const job = await verify(fixture, "failed");
 		await db
 			.update(tables.modelProviderMapping)
-			.set({ source: "catalogue" })
+			// Keep the verified API surface; catalogue rows default to native.
+			.set({ source: "catalogue", apiFormat: "openai-chat-completions" })
 			.where(eq(tables.modelProviderMapping.id, fixture.mapping.id));
 		await db
 			.update(tables.providerModelVerification)
