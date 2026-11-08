@@ -64,6 +64,14 @@ import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 import { posthog } from "./posthog.js";
 import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
+import {
+	BATCH_REQUEST_CONCURRENCY,
+	claimBatchRequests,
+	cleanupExpiredBatchData,
+	executeBatchRequest,
+	logBatchError,
+	runBatchHousekeeping,
+} from "./services/batches.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	scheduleDailyModelVerifications,
@@ -2538,6 +2546,48 @@ async function runVideoJobsLoop() {
 	}
 }
 
+const BATCH_POLL_INTERVAL_MS =
+	(Number(process.env.BATCH_POLL_INTERVAL_SECONDS) || 2) * 1000;
+const BATCH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
+async function runBatchApiLoop() {
+	activeLoops++;
+	logger.info(
+		`Starting batch API loop (concurrency: ${BATCH_REQUEST_CONCURRENCY})...`,
+	);
+	const inFlight = new Set<Promise<void>>();
+	let lastCleanup = 0;
+	try {
+		while (!isStopRequested()) {
+			try {
+				await runBatchHousekeeping();
+				if (Date.now() - lastCleanup >= BATCH_CLEANUP_INTERVAL_MS) {
+					await cleanupExpiredBatchData();
+					lastCleanup = Date.now();
+				}
+				const claimed = await claimBatchRequests(
+					BATCH_REQUEST_CONCURRENCY - inFlight.size,
+				);
+				for (const request of claimed) {
+					const task = executeBatchRequest(request)
+						.catch((error: unknown) => logBatchError("request", error))
+						.finally(() => {
+							inFlight.delete(task);
+						});
+					inFlight.add(task);
+				}
+			} catch (error) {
+				logBatchError("loop", error);
+			}
+			await interruptibleSleep(BATCH_POLL_INTERVAL_MS);
+		}
+	} finally {
+		await Promise.allSettled([...inFlight]);
+		activeLoops--;
+		logger.info("Batch API loop stopped");
+	}
+}
+
 async function runModelVerificationLoop() {
 	activeLoops++;
 	const interval = MODEL_VERIFICATION_POLL_INTERVAL_SECONDS * 1000;
@@ -3719,6 +3769,7 @@ export async function startWorker() {
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
+	void runBatchApiLoop();
 	for (
 		let consumer = 0;
 		consumer < modelVerificationConcurrency();

@@ -29,6 +29,7 @@ import { buildSecurityTxt } from "@llmgateway/shared/security-txt";
 import { aisdk } from "./aisdk/aisdk.js";
 import { creditsRoute } from "./aisdk/credits.js";
 import { anthropic } from "./anthropic/anthropic.js";
+import { batches, files } from "./batches/batches.js";
 import { chat } from "./chat/chat.js";
 import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
 import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
@@ -148,13 +149,16 @@ app.use("*", requestDecompressionMiddleware);
 // Excludes /oauth endpoints which accept form-urlencoded or JSON
 // Excludes /v1/images endpoints which accept multipart/form-data for file uploads
 // Excludes /v1/audio/transcriptions which accepts multipart/form-data audio uploads
+// Excludes /v1/files (multipart uploads) and batch cancellation (no body)
 app.use("*", async (c, next) => {
 	if (
 		c.req.method === "POST" &&
 		!c.req.path.startsWith("/mcp") &&
 		!c.req.path.startsWith("/oauth") &&
 		!c.req.path.startsWith("/v1/images") &&
-		!c.req.path.startsWith("/v1/audio/transcriptions")
+		!c.req.path.startsWith("/v1/audio/transcriptions") &&
+		c.req.path !== "/v1/files" &&
+		!/^\/v1\/batches\/[^/]+\/cancel$/.test(c.req.path)
 	) {
 		const contentType = c.req.header("Content-Type");
 		if (!contentType || !contentType.includes("application/json")) {
@@ -434,6 +438,8 @@ v1.route("/audio/speech", speechRoute);
 v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
+v1.route("/files", files);
+v1.route("/batches", batches);
 v1.route("/credits", creditsRoute);
 
 v1.route("/", airsideInference);
