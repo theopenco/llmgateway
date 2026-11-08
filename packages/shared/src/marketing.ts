@@ -4,16 +4,12 @@
 // platforms (46 provider ids when endpoint variants such as vertex-anthropic
 // count separately), 289 models with an active mapping (270 after scheduled
 // retirements; retired models never count), 1.95T tokens and 86M requests
-// from /public/apps, 1,663 GitHub stars on theopenco/llmgateway. The *30d
-// stats are floors of /public/models/stats?window=30d: 1.30T tokens and 37.1M
-// requests as of 2026-11-08.
+// from /public/apps, 1,663 GitHub stars on theopenco/llmgateway.
 export const MARKETING_STATS = {
 	providers: "40+",
 	models: "250+",
 	tokensRouted: "1T+",
 	requestsRouted: "80M+",
-	tokensRouted30d: "1T+",
-	requestsRouted30d: "35M+",
 	uptimeSla: "99.9%",
 	effectiveUptime: "99.9999%",
 	platformFee: "5%",
