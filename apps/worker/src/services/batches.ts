@@ -460,6 +460,20 @@ export async function claimBatchRequests(
 		where ranked.org_rank <= ${CLAIM_SCAN_PER_ORG}
 		order by ranked.organization_id, ranked.created_at, ranked.id
 	`);
+	// Running requests per organization across all of its batches, not only the
+	// candidates above.
+	const running = await db
+		.select({
+			organizationId: tables.batch.organizationId,
+			count: sql<number>`count(*)::int`,
+		})
+		.from(tables.batchRequest)
+		.innerJoin(tables.batch, eq(tables.batch.id, tables.batchRequest.batchId))
+		.where(eq(tables.batchRequest.status, "in_progress"))
+		.groupBy(tables.batch.organizationId);
+	const runningByOrg = new Map(
+		running.map((row) => [row.organizationId, Number(row.count)]),
+	);
 	const byOrg = new Map<string, ClaimCandidate[]>();
 	for (const row of result.rows) {
 		const list = byOrg.get(row.organization_id) ?? [];
@@ -476,13 +490,9 @@ export async function claimBatchRequests(
 		if (remaining <= 0) {
 			break;
 		}
-		const orgInFlight = orgBatches.reduce(
-			(sum, batch) => sum + batch.in_flight,
-			0,
-		);
 		const orgShare = Math.min(
 			Math.ceil(remaining / (orgs.length - orgIndex)),
-			perOrg - orgInFlight,
+			perOrg - (runningByOrg.get(orgBatches[0].organization_id) ?? 0),
 		);
 		const batches = rotate(orgBatches, rotation);
 		let orgClaimed = 0;

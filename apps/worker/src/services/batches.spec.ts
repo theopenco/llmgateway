@@ -989,6 +989,35 @@ describe("batch worker", () => {
 		expect(await claimBatchRequests(10, 8, new Date(), 3)).toHaveLength(0);
 	});
 
+	test("counts running requests of batches with nothing due against the org cap", async () => {
+		await createBatch([line("a", "ok")]);
+		await runBatchHousekeeping();
+		const busyId = `${batchId}_busy`;
+		await db.insert(tables.batch).values({
+			id: busyId,
+			organizationId,
+			projectId,
+			endpoint: "/v1/chat/completions",
+			inputFileId: fileId,
+			status: "in_progress",
+			expiresAt: new Date(Date.now() + 86_400_000),
+		});
+		await db.insert(tables.batchRequest).values(
+			Array.from({ length: 3 }, (_, index) => ({
+				id: `batch_req_busy_${index}`,
+				batchId: busyId,
+				lineNumber: index + 1,
+				customId: `busy${index}`,
+				body: "{}",
+				status: "in_progress" as const,
+				claimedUntil: new Date(Date.now() + 60_000),
+			})),
+		);
+
+		expect(await claimBatchRequests(10, 8, new Date(), 3)).toHaveLength(0);
+		expect(await claimBatchRequests(10, 8, new Date(), 4)).toHaveLength(1);
+	});
+
 	test("fails requests of a crashed worker instead of resending them", async () => {
 		await createBatch([line("a", "ok")]);
 		await runBatchHousekeeping();

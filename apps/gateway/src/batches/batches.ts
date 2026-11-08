@@ -118,11 +118,17 @@ type BatchFileInsert = typeof tables.batchFile.$inferInsert;
 
 /**
  * Stores an uploaded file if the project's unexpired batch files, input and
- * output alike, stay within the quota. The project row lock serializes
- * concurrent uploads so they cannot all pass the check.
+ * output alike, stay within the quota. The file is written first, then checked
+ * under a short lock on the project row together with every other committed
+ * file, so concurrent uploads cannot all pass; the one that does not fit is
+ * deleted again. The large write itself holds no lock.
  */
 async function insertFileWithinQuota(values: BatchFileInsert) {
-	return await db.transaction(async (tx) => {
+	const [file] = await db
+		.insert(tables.batchFile)
+		.values(values)
+		.returning(fileColumns);
+	const fits = await db.transaction(async (tx) => {
 		await tx
 			.select({ id: tables.project.id })
 			.from(tables.project)
@@ -139,21 +145,19 @@ async function insertFileWithinQuota(values: BatchFileInsert) {
 					gt(tables.batchFile.expiresAt, new Date()),
 				),
 			);
-		if (
-			Number(row?.bytes ?? 0) + values.bytes >
-			BATCH_MAX_PROJECT_STORAGE_BYTES
-		) {
-			throw new HTTPException(413, {
-				message:
-					"This project's batch files exceed 10 GB. Delete files you no longer need.",
-			});
+		if (Number(row?.bytes ?? 0) <= BATCH_MAX_PROJECT_STORAGE_BYTES) {
+			return true;
 		}
-		const [file] = await tx
-			.insert(tables.batchFile)
-			.values(values)
-			.returning(fileColumns);
-		return file;
+		await tx.delete(tables.batchFile).where(eq(tables.batchFile.id, file.id));
+		return false;
 	});
+	if (!fits) {
+		throw new HTTPException(413, {
+			message:
+				"This project's batch files exceed 10 GB. Delete files you no longer need.",
+		});
+	}
+	return file;
 }
 
 function invalidRequest(message: string): never {
@@ -600,11 +604,12 @@ batches.openapi(createBatch, async (c): Promise<any> => {
 	const id = newBatchId();
 	const now = new Date();
 	const created = await db.transaction(async (tx) => {
-		// Serializes batch creation per project; the count is per organization.
+		// Serializes batch creation per organization for the active-batch cap.
+		// The transaction only counts and inserts two small rows.
 		await tx
-			.select({ id: tables.project.id })
-			.from(tables.project)
-			.where(eq(tables.project.id, project.id))
+			.select({ id: tables.organization.id })
+			.from(tables.organization)
+			.where(eq(tables.organization.id, project.organizationId))
 			.for("no key update");
 		const [active] = await tx
 			.select({ count: sql<number>`count(*)::int` })
