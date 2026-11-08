@@ -2,6 +2,7 @@ import { changelogPath, changelogTags } from "@/lib/changelog";
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
 import { isRedirectedModelId } from "@/lib/model-redirects";
+import { listedProviders } from "@/lib/providers-catalog";
 import { slugify } from "@/lib/slugify";
 
 import {
@@ -494,6 +495,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		});
 	}
 
+	const statusPages: MetadataRoute.Sitemap = [
+		{ url: `${baseUrl}/status`, changeFrequency: "hourly", priority: 0.7 },
+		...listedProviders.map((provider) => ({
+			url: `${baseUrl}/status/${provider.id}`,
+			changeFrequency: "hourly" as const,
+			priority: 0.6,
+		})),
+	];
+
 	// Per-country provider pages
 	const providerCountryPages: MetadataRoute.Sitemap =
 		getProviderCountries().map((country) => ({
@@ -639,6 +649,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...timelineYearPages,
 		...modelPages,
 		...providerPages,
+		...statusPages,
 		...providerCountryPages,
 		...featurePages,
 		...enterpriseFeaturePages,
