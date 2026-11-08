@@ -3426,12 +3426,16 @@ describe("managed credential Airside listings", () => {
 	});
 
 	/** A catalogue provider with no live static mapping, so every model it
-	 *  serves comes from Airside listings. */
+	 *  serves comes from Airside listings. Providers that need settings beyond
+	 *  an API key (e.g. an Azure resource) are skipped: the self-test cannot
+	 *  reach them with a bare token, and which provider qualifies changes as
+	 *  catalogue mappings retire. */
 	function airsideOnlyProvider(): string {
 		const now = new Date();
 		const provider = catalogueProviders.find(
 			(entry) =>
 				entry.id !== "custom" &&
+				Object.keys(entry.env.required).every((key) => key === "apiKey") &&
 				!catalogueModels.some((model) =>
 					(model.providers as readonly ProviderModelMapping[]).some(
 						(mapping) =>
