@@ -39,7 +39,10 @@ import { imagesRoute } from "./images/route.js";
 import { airsideInference } from "./internal/airside-inference.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
-import { renderGatewayError } from "./lib/error-response.js";
+import {
+	CodedHTTPException,
+	renderGatewayError,
+} from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
 import { withManagedKeySelection } from "./lib/managed-key-selection.js";
 import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
@@ -232,7 +235,12 @@ app.onError((error, c) => {
 			logger.warn("HTTP client error", { status, message: error.message });
 		}
 
-		return renderGatewayError(c, status, error.message || "An error occurred");
+		return renderGatewayError(
+			c,
+			status,
+			error.message || "An error occurred",
+			error instanceof CodedHTTPException ? error.code : undefined,
+		);
 	}
 
 	// Handle timeout errors (from AbortSignal.timeout) - these are expected
