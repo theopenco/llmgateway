@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi";
 
-import { BATCH_ENDPOINT_PATHS } from "@llmgateway/shared/batch";
+import { BATCH_ENDPOINTS } from "@llmgateway/shared/batch";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -22,7 +22,7 @@ export const batchObjectSchema = z
 	.object({
 		id: z.string(),
 		object: z.literal("batch"),
-		endpoint: z.enum(BATCH_ENDPOINT_PATHS),
+		endpoint: z.enum(BATCH_ENDPOINTS),
 		errors: z
 			.object({
 				object: z.literal("list"),

@@ -17,6 +17,11 @@ export interface PathRateLimitConfig {
 	key: string;
 	/** Path prefix this config applies to. */
 	prefix: string;
+	/**
+	 * Only requests with this method match. Such an entry must come before the
+	 * catch-all entry for the same prefix.
+	 */
+	method?: "POST";
 	/** Default requests per minute for regular (pay-as-you-go) orgs. */
 	defaultRpm: number;
 	/** Default requests per minute for dev ("devpass") plan orgs. */
@@ -165,6 +170,39 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		defaultRpm: 300,
 		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
+	},
+	// Batch API. Uploads buffer up to 50 MB each and batch creation queues up to
+	// 50,000 requests, so both stay tight; reads, polls and downloads are cheap
+	// per call and get a looser bucket.
+	{
+		key: "files_upload",
+		prefix: "/v1/files",
+		method: "POST",
+		defaultRpm: 30,
+		devDefaultRpm: 10,
+		chatDefaultRpm: 5,
+	},
+	{
+		key: "files",
+		prefix: "/v1/files",
+		defaultRpm: 300,
+		devDefaultRpm: 60,
+		chatDefaultRpm: 30,
+	},
+	{
+		key: "batches_create",
+		prefix: "/v1/batches",
+		method: "POST",
+		defaultRpm: 60,
+		devDefaultRpm: 20,
+		chatDefaultRpm: 10,
+	},
+	{
+		key: "batches",
+		prefix: "/v1/batches",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
 	},
 	// AI SDK Gateway protocol surface. All four spec-version prefixes forward
 	// to /v1/chat/completions internally (that hop is origin-stamped and
@@ -594,13 +632,20 @@ export function getBaseLimit(
 
 /**
  * Resolve the rate limit config for a request path, or `null` if the path is
- * not rate limited (e.g. `/`, `/metrics`, `/docs`, `/mcp`).
+ * not rate limited (e.g. `/`, `/metrics`, `/docs`, `/mcp`). Entries with a
+ * `method` match only when `method` is given and equal.
  */
-export function resolvePathRateLimit(path: string): PathRateLimitConfig | null {
+export function resolvePathRateLimit(
+	path: string,
+	method?: string,
+): PathRateLimitConfig | null {
 	if (path === "/v1/internal/airside/inference") {
-		return resolvePathRateLimit("/v1/chat/completions");
+		return resolvePathRateLimit("/v1/chat/completions", method);
 	}
 	for (const config of PATH_RATE_LIMITS) {
+		if (config.method && config.method !== method) {
+			continue;
+		}
 		if (path === config.prefix || path.startsWith(`${config.prefix}/`)) {
 			return config;
 		}
@@ -673,6 +718,8 @@ export const INFLIGHT_LIMITED_KEYS: ReadonlySet<string> = new Set([
 	"audio_transcriptions",
 	"videos",
 	"ai_sdk",
+	// Multipart uploads hold up to 50 MB in memory until they are stored.
+	"files_upload",
 ]);
 
 /** Redis sorted set holding an org's in-flight inference request slots. */

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 
+import { getAvailableCredits } from "@/chat/tools/resolve-provider-context.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
@@ -22,7 +23,7 @@ import {
 import {
 	BATCH_COMPLETION_WINDOW,
 	BATCH_COMPLETION_WINDOW_MS,
-	BATCH_ENDPOINT_PATHS,
+	BATCH_ENDPOINTS,
 	BATCH_FILE_TTL_MS,
 	BATCH_MAX_FILE_BYTES,
 	buildBatchOutputLine,
@@ -48,6 +49,14 @@ export const batches = new OpenAPIHono<ServerTypes>();
 const OUTPUT_PAGE_SIZE = 1000;
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const BATCH_MAX_PROJECT_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
+const MAX_ACTIVE_BATCHES_PER_ORG =
+	Number(process.env.BATCH_MAX_ACTIVE_BATCHES_PER_ORG) || 100;
+const ACTIVE_BATCH_STATUSES = [
+	"validating",
+	"in_progress",
+	"finalizing",
+	"cancelling",
+] as const;
 const MAX_METADATA_KEYS = 16;
 const MAX_METADATA_KEY_LENGTH = 64;
 const MAX_METADATA_VALUE_LENGTH = 512;
@@ -87,25 +96,64 @@ const authenticateFirst: MiddlewareHandler<ServerTypes> = async (c, next) => {
 	await next();
 };
 
-async function assertProjectStorageAvailable(projectId: string, bytes: number) {
-	const [row] = await db
-		.select({
-			bytes: sql<string>`coalesce(sum(${tables.batchFile.bytes}), 0)`,
-		})
-		.from(tables.batchFile)
-		.where(
-			and(
-				eq(tables.batchFile.projectId, projectId),
-				eq(tables.batchFile.purpose, "batch"),
-				gt(tables.batchFile.expiresAt, new Date()),
-			),
-		);
-	if (Number(row?.bytes ?? 0) + bytes > BATCH_MAX_PROJECT_STORAGE_BYTES) {
-		throw new HTTPException(413, {
-			message:
-				"This project's batch files exceed 10 GB. Delete files you no longer need.",
-		});
+/**
+ * Batch requests are billed like live ones, so a project paying from credits
+ * needs a balance or a plan allowance before it can queue work.
+ */
+function assertCanQueueBatchWork({ project, organization }: BatchAccess) {
+	if (
+		project.mode !== "credits" ||
+		organization.plan === "enterprise" ||
+		getAvailableCredits(organization).totalAvailableCredits > 0
+	) {
+		return;
 	}
+	throw new HTTPException(402, {
+		message:
+			"Batch requests are billed from your credits. Add credits before uploading batch files or creating batches.",
+	});
+}
+
+type BatchFileInsert = typeof tables.batchFile.$inferInsert;
+
+/**
+ * Stores an uploaded file if the project's unexpired batch files, input and
+ * output alike, stay within the quota. The project row lock serializes
+ * concurrent uploads so they cannot all pass the check.
+ */
+async function insertFileWithinQuota(values: BatchFileInsert) {
+	return await db.transaction(async (tx) => {
+		await tx
+			.select({ id: tables.project.id })
+			.from(tables.project)
+			.where(eq(tables.project.id, values.projectId))
+			.for("no key update");
+		const [row] = await tx
+			.select({
+				bytes: sql<string>`coalesce(sum(${tables.batchFile.bytes}), 0)`,
+			})
+			.from(tables.batchFile)
+			.where(
+				and(
+					eq(tables.batchFile.projectId, values.projectId),
+					gt(tables.batchFile.expiresAt, new Date()),
+				),
+			);
+		if (
+			Number(row?.bytes ?? 0) + values.bytes >
+			BATCH_MAX_PROJECT_STORAGE_BYTES
+		) {
+			throw new HTTPException(413, {
+				message:
+					"This project's batch files exceed 10 GB. Delete files you no longer need.",
+			});
+		}
+		const [file] = await tx
+			.insert(tables.batchFile)
+			.values(values)
+			.returning(fileColumns);
+		return file;
+	});
 }
 
 function invalidRequest(message: string): never {
@@ -190,7 +238,9 @@ const uploadFile = createRoute({
 });
 
 files.openapi(uploadFile, async (c): Promise<any> => {
-	const { apiKey, project } = await requireBatchAccess(c);
+	const access = await requireBatchAccess(c);
+	const { apiKey, project } = access;
+	assertCanQueueBatchWork(access);
 	let form: Record<string, string | File>;
 	try {
 		form = await c.req.parseBody();
@@ -207,29 +257,34 @@ files.openapi(uploadFile, async (c): Promise<any> => {
 	if (upload.size > BATCH_MAX_FILE_BYTES) {
 		throw new HTTPException(413, { message: "Files are limited to 50 MB" });
 	}
-	await assertProjectStorageAvailable(project.id, upload.size);
-	const content = await upload.text();
+	let content: string;
+	try {
+		content = new TextDecoder("utf-8", { fatal: true }).decode(
+			await upload.arrayBuffer(),
+		);
+	} catch {
+		invalidRequest(
+			"The file is not valid UTF-8. Batch files must be UTF-8 JSONL text.",
+		);
+	}
 	if (content.includes("\u0000")) {
 		invalidRequest(
 			"The file contains NUL bytes. Batch files must be UTF-8 JSONL text.",
 		);
 	}
 	const now = new Date();
-	const [file] = await db
-		.insert(tables.batchFile)
-		.values({
-			id: newBatchFileId(),
-			organizationId: project.organizationId,
-			projectId: project.id,
-			apiKeyId: apiKey.id,
-			purpose: "batch",
-			filename: upload.name.replaceAll("\u0000", "") || "batch.jsonl",
-			bytes: Buffer.byteLength(content),
-			content,
-			createdAt: now,
-			expiresAt: new Date(now.getTime() + BATCH_FILE_TTL_MS),
-		})
-		.returning(fileColumns);
+	const file = await insertFileWithinQuota({
+		id: newBatchFileId(),
+		organizationId: project.organizationId,
+		projectId: project.id,
+		apiKeyId: apiKey.id,
+		purpose: "batch",
+		filename: upload.name.replaceAll("\u0000", "") || "batch.jsonl",
+		bytes: Buffer.byteLength(content),
+		content,
+		createdAt: now,
+		expiresAt: new Date(now.getTime() + BATCH_FILE_TTL_MS),
+	});
 	return c.json(toFileObject(file));
 });
 
@@ -282,6 +337,7 @@ files.openapi(listFiles, async (c): Promise<any> => {
 		.where(
 			and(
 				eq(tables.batchFile.projectId, project.id),
+				gt(tables.batchFile.expiresAt, new Date()),
 				purpose ? eq(tables.batchFile.purpose, purpose) : undefined,
 				afterCursor(tables.batchFile, cursor),
 			),
@@ -299,6 +355,8 @@ async function findFile(projectId: string, fileId: string) {
 			and(
 				eq(tables.batchFile.id, fileId),
 				eq(tables.batchFile.projectId, projectId),
+				// Expired files wait for the hourly cleanup but are already gone.
+				gt(tables.batchFile.expiresAt, new Date()),
 			),
 		);
 	return file ?? notFound("File", fileId);
@@ -444,6 +502,8 @@ files.openapi(fileContent, async (c): Promise<any> => {
 	const { file_id: fileId } = c.req.valid("param");
 	const file = await findFile(project.id, fileId);
 	c.header("Content-Type", "application/jsonl");
+	c.header("X-Content-Type-Options", "nosniff");
+	c.header("Content-Disposition", `attachment; filename="${file.id}.jsonl"`);
 	if (file.purpose === "batch") {
 		const [row] = await db
 			.select({ content: tables.batchFile.content })
@@ -477,7 +537,7 @@ const createBatch = createRoute({
 	operationId: "v1_batches_create",
 	summary: "Create batch",
 	description:
-		"Creates a batch from an uploaded JSONL file. Requests run asynchronously within 24 hours through the normal gateway path, billed at standard rates.",
+		"Creates a batch from an uploaded JSONL file. Requests run asynchronously within 24 hours through the normal gateway path. Each request is billed at the same per-token price as a live request, priced when it runs; no batch discount is applied.",
 	method: "post",
 	path: "/",
 	security: [{ bearerAuth: [] }],
@@ -487,7 +547,7 @@ const createBatch = createRoute({
 				"application/json": {
 					schema: z.object({
 						input_file_id: z.string(),
-						endpoint: z.enum(BATCH_ENDPOINT_PATHS),
+						endpoint: z.enum(BATCH_ENDPOINTS),
 						completion_window: z.literal(BATCH_COMPLETION_WINDOW),
 						metadata: z.record(z.string(), z.string()).nullable().optional(),
 					}),
@@ -527,7 +587,9 @@ function validateMetadata(metadata: Record<string, string> | null | undefined) {
 }
 
 batches.openapi(createBatch, async (c): Promise<any> => {
-	const { apiKey, project, clientIp } = await requireBatchAccess(c);
+	const access = await requireBatchAccess(c);
+	const { apiKey, project, clientIp } = access;
+	assertCanQueueBatchWork(access);
 	const token = extractApiToken(c);
 	const body = c.req.valid("json");
 	const metadata = validateMetadata(body.metadata);
@@ -538,6 +600,26 @@ batches.openapi(createBatch, async (c): Promise<any> => {
 	const id = newBatchId();
 	const now = new Date();
 	const created = await db.transaction(async (tx) => {
+		// Serializes batch creation per project; the count is per organization.
+		await tx
+			.select({ id: tables.project.id })
+			.from(tables.project)
+			.where(eq(tables.project.id, project.id))
+			.for("no key update");
+		const [active] = await tx
+			.select({ count: sql<number>`count(*)::int` })
+			.from(tables.batch)
+			.where(
+				and(
+					eq(tables.batch.organizationId, project.organizationId),
+					inArray(tables.batch.status, [...ACTIVE_BATCH_STATUSES]),
+				),
+			);
+		if ((active?.count ?? 0) >= MAX_ACTIVE_BATCHES_PER_ORG) {
+			throw new HTTPException(429, {
+				message: `This organization already has ${MAX_ACTIVE_BATCHES_PER_ORG} batches in progress. Wait for some to finish or cancel them.`,
+			});
+		}
 		const [row] = await tx
 			.insert(tables.batch)
 			.values({

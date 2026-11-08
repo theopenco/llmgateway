@@ -10,6 +10,7 @@ import {
 	getOrgInflightLimit,
 	getOrgSpendTier,
 	getPlanClass,
+	INFLIGHT_LIMITED_KEYS,
 	isOrgRateLimitEnabled,
 	PATH_RATE_LIMITS,
 	resolvePathRateLimit,
@@ -120,6 +121,32 @@ describe("resolvePathRateLimit", () => {
 		expect(resolvePathRateLimit("/v1/audio/transcriptions")?.key).toBe(
 			"audio_transcriptions",
 		);
+	});
+
+	it("gives Batch API uploads and creation their own tighter buckets", () => {
+		expect(resolvePathRateLimit("/v1/files", "POST")?.key).toBe("files_upload");
+		expect(resolvePathRateLimit("/v1/files", "GET")?.key).toBe("files");
+		expect(resolvePathRateLimit("/v1/files/file-1/content", "GET")?.key).toBe(
+			"files",
+		);
+		expect(resolvePathRateLimit("/v1/files/file-1", "DELETE")?.key).toBe(
+			"files",
+		);
+		expect(resolvePathRateLimit("/v1/batches", "POST")?.key).toBe(
+			"batches_create",
+		);
+		expect(
+			resolvePathRateLimit("/v1/batches/batch_1/cancel", "POST")?.key,
+		).toBe("batches_create");
+		expect(resolvePathRateLimit("/v1/batches/batch_1", "GET")?.key).toBe(
+			"batches",
+		);
+		expect(resolvePathRateLimit("/v1/batches")?.key).toBe("batches");
+		const upload = PATH_RATE_LIMITS.find((c) => c.key === "files_upload");
+		const reads = PATH_RATE_LIMITS.find((c) => c.key === "files");
+		expect(upload!.defaultRpm).toBeLessThan(reads!.defaultRpm);
+		expect(INFLIGHT_LIMITED_KEYS.has("files_upload")).toBe(true);
+		expect(INFLIGHT_LIMITED_KEYS.has("batches")).toBe(false);
 	});
 
 	it("returns null for non-rate-limited paths", () => {

@@ -1,12 +1,10 @@
 import { randomInt } from "node:crypto";
 
-export const BATCH_ENDPOINT_PATHS = [
-	"/v1/chat/completions",
-	"/v1/responses",
-	"/v1/embeddings",
-] as const;
+import { BATCH_ENDPOINTS, type BatchEndpoint } from "@llmgateway/models";
 
-export type BatchEndpointPath = (typeof BATCH_ENDPOINT_PATHS)[number];
+import { getClientIpHeaderName } from "./client-ip.js";
+
+export { BATCH_ENDPOINTS, type BatchEndpoint } from "@llmgateway/models";
 
 export const BATCH_MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const BATCH_MAX_REQUESTS = 50_000;
@@ -14,6 +12,16 @@ export const BATCH_COMPLETION_WINDOW = "24h";
 export const BATCH_COMPLETION_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const BATCH_FILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const BATCH_SOURCE = "llmgateway-batch";
+/** Larger upstream responses fail their line instead of being stored. */
+export const BATCH_MAX_STORED_RESPONSE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * `error.code` values the gateway returns when an API key or team member
+ * reached a spend limit. The batch worker waits for these to reset instead of
+ * failing the batch.
+ */
+export const API_KEY_USAGE_LIMIT_ERROR_CODE = "api_key_usage_limit_exceeded";
+export const MEMBER_BUDGET_EXCEEDED_ERROR_CODE = "member_budget_exceeded";
 
 const MAX_REPORTED_ERRORS = 100;
 const MAX_CUSTOM_ID_LENGTH = 512;
@@ -32,10 +40,10 @@ export const newBatchFileId = () => `file-${randomId()}`;
 export const newBatchId = () => `batch_${randomId()}`;
 export const newBatchRequestId = () => `batch_req_${randomId()}`;
 
-export function isBatchEndpoint(value: unknown): value is BatchEndpointPath {
+export function isBatchEndpoint(value: unknown): value is BatchEndpoint {
 	return (
 		typeof value === "string" &&
-		(BATCH_ENDPOINT_PATHS as readonly string[]).includes(value)
+		(BATCH_ENDPOINTS as readonly string[]).includes(value)
 	);
 }
 
@@ -66,7 +74,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 export function parseBatchInput(
 	content: string,
-	endpoint: BatchEndpointPath,
+	endpoint: BatchEndpoint,
 ): ParsedBatchInput {
 	const errors: BatchLineError[] = [];
 	const requests: ParsedBatchRequest[] = [];
@@ -188,6 +196,27 @@ export function buildBatchOutputLine(row: BatchOutputRow): string {
 			? "null"
 			: `{"status_code":${row.responseStatus},"request_id":${JSON.stringify(row.requestId)},"body":${row.responseBody ?? "null"}}`;
 	return `{"id":${JSON.stringify(row.id)},"custom_id":${JSON.stringify(row.customId)},"response":${response},"error":${JSON.stringify(row.error)}}\n`;
+}
+
+/**
+ * Headers the worker sends with each batch request: the creating key, the
+ * batch request id as `x-request-id`, the batch log source and the creator's
+ * client IP so IP rules still apply.
+ */
+export function batchGatewayHeaders(options: {
+	token: string;
+	requestId: string;
+	clientIp: string | null;
+}): Record<string, string> {
+	return {
+		Authorization: `Bearer ${options.token}`,
+		"Content-Type": "application/json",
+		"x-request-id": options.requestId,
+		"x-source": BATCH_SOURCE,
+		...(options.clientIp
+			? { [getClientIpHeaderName()]: options.clientIp }
+			: {}),
+	};
 }
 
 /** Stores an upstream response body as JSON text for {@link buildBatchOutputLine}. */

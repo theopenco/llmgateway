@@ -36,7 +36,7 @@ function isInferenceRequest(c: Pick<Context, "req">): boolean {
 	if (c.req.method !== "POST") {
 		return false;
 	}
-	const config = resolvePathRateLimit(c.req.path);
+	const config = resolvePathRateLimit(c.req.path, c.req.method);
 	return config !== null && INFLIGHT_LIMITED_KEYS.has(config.key);
 }
 
