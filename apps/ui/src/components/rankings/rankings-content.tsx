@@ -425,12 +425,12 @@ export function RankingsContent({
 			</div>
 
 			<p className="-mt-5 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-muted-foreground">
-				<span>Want to see which tools drive this traffic?</span>
+				<span>Curious which apps send the most tokens overall?</span>
 				<Link
 					href="/apps"
 					className="group inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
 				>
-					Explore app stats
+					See all-time app stats
 					<ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
 				</Link>
 			</p>
