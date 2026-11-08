@@ -14,9 +14,19 @@ export interface UsageReceiptContext {
 	usage: Record<string, number>;
 	/** Billable request logs recorded so far. */
 	logCount: number;
+	/** Set once any provider call started. */
+	dispatched: boolean;
 	/** Set once the response left the handler; later logs settle directly. */
 	responseReturned: boolean;
 	resourceId?: string;
 }
 
 export const usageReceiptContext = new AsyncLocalStorage<UsageReceiptContext>();
+
+/** Called from `fetchProvider`, so a rejection logged before any provider call stays retryable. */
+export function markUsageReceiptDispatched(): void {
+	const context = usageReceiptContext.getStore();
+	if (context) {
+		context.dispatched = true;
+	}
+}

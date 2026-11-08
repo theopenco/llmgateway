@@ -1,5 +1,6 @@
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { getTenantUpstreamDispatcher } from "@/lib/upstream-dispatcher.js";
+import { markUsageReceiptDispatched } from "@/usage/context.js";
 
 import { fetchNoRedirect, RedirectError } from "@llmgateway/actions";
 import {
@@ -17,6 +18,7 @@ export async function fetchProvider(
 	init?: RequestInit,
 	tenantBaseUrl?: string | null,
 ): Promise<Response> {
+	markUsageReceiptDispatched();
 	const requestInit =
 		tenantBaseUrl && isProviderUrlGuardEnabled()
 			? ({

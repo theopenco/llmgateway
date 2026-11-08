@@ -36,6 +36,9 @@ function operationKey(projectId: string, operationId: string) {
 	return `usage-operation:v1:${projectId}:${operationId}`;
 }
 
+const SWAP_OPERATION_SCRIPT =
+	"if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) return 1 end return 0";
+
 export function buildUsageReceipt(
 	context: UsageReceiptContext,
 	state: UsageReceipt["state"],
@@ -107,21 +110,37 @@ export async function claimUsageOperation(
 	if (claimed === "OK") {
 		return;
 	}
-	const previous = await getUsageReceipt(
-		context.projectId,
-		context.operationId,
-	);
-	if (previous?.state !== "final" || previous.notDispatched !== true) {
-		throw new HTTPException(409, {
-			message:
-				"Usage operation ID was already used; retrieve its receipt instead of retrying",
-		});
+	const conflict = new HTTPException(409, {
+		message:
+			"Usage operation ID was already used; retrieve its receipt instead of retrying",
+	});
+	const previousId = await storageRedisClient.get(key);
+	const previous = previousId
+		? await readReceipt(context.projectId, previousId)
+		: null;
+	if (
+		!previousId ||
+		previous?.state !== "final" ||
+		previous.notDispatched !== true
+	) {
+		throw conflict;
 	}
-	await exec(
+	// Compare-and-set, so only one of several concurrent retries takes it over.
+	const [[, swapped]] = await exec(
 		storageRedisClient
 			.pipeline()
-			.set(key, context.receiptId, "EX", RECEIPT_TTL_SECONDS),
+			.eval(
+				SWAP_OPERATION_SCRIPT,
+				1,
+				key,
+				previousId,
+				context.receiptId,
+				RECEIPT_TTL_SECONDS,
+			),
 	);
+	if (swapped !== 1) {
+		throw conflict;
+	}
 }
 
 async function readReceipt(

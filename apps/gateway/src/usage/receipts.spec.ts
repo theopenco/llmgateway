@@ -256,6 +256,30 @@ describe("usage receipts", () => {
 		expect(retry.status).toBe(200);
 	});
 
+	test("a request that reached a provider keeps its operation ID even when it failed", async () => {
+		await seedKeys();
+		const body = JSON.stringify({
+			model: "openai/gpt-4o-mini",
+			messages: [{ role: "user", content: "TRIGGER_STATUS_500 receipt" }],
+		});
+		const failed = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: receiptHeaders("op-failed-1"),
+			body,
+		});
+		expect(failed.status).toBeGreaterThanOrEqual(500);
+		const receipt = decodeReceipt(failed.headers.get("x-llmgateway-usage"));
+		expect(receipt.state).toBe("final");
+		expect(receipt.notDispatched).toBeUndefined();
+
+		const retry = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: receiptHeaders("op-failed-1"),
+			body,
+		});
+		expect(retry.status).toBe(409);
+	});
+
 	test("a served operation ID cannot be reused", async () => {
 		await seedKeys();
 		const body = JSON.stringify({

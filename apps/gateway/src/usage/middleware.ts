@@ -131,8 +131,11 @@ async function settleReturnedResponse(
 		}
 		return receipt;
 	}
+	// A rejection may log a zero-cost row before any provider call; it is still
+	// not dispatched, so its operation ID stays retryable.
 	const receipt = buildUsageReceipt(context, "final", {
-		notDispatched: !response.ok && context.logCount === 0,
+		notDispatched:
+			!response.ok && !context.dispatched && context.costUsd.isZero(),
 	});
 	await persist(context, receipt);
 	return receipt;
@@ -184,6 +187,7 @@ export const usageReceiptMiddleware: MiddlewareHandler<ServerTypes> = async (
 		costUsd: new Decimal(0),
 		usage: {},
 		logCount: 0,
+		dispatched: false,
 		responseReturned: false,
 	};
 	await claimUsageOperation(context);
