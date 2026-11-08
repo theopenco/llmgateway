@@ -150,6 +150,15 @@ describe("Batch API", () => {
 
 	test("requires a valid API key", async () => {
 		expect((await app.request("/v1/files")).status).toBe(401);
+		const form = new FormData();
+		form.append("purpose", "batch");
+		form.append("file", new File([chatLine("a")], "requests.jsonl"));
+		const upload = await app.request("/v1/files", {
+			method: "POST",
+			headers: auth("nope"),
+			body: form,
+		});
+		expect(upload.status).toBe(401);
 		expect(
 			(await app.request("/v1/batches", { headers: auth("nope") })).status,
 		).toBe(401);
@@ -270,7 +279,7 @@ describe("Batch API", () => {
 			method: "POST",
 			headers: auth(),
 		});
-		expect(done.status).toBe(409);
+		expect(done.status).toBe(400);
 	});
 
 	test("streams output and error files from batch requests", async () => {
@@ -387,5 +396,105 @@ describe("Batch API", () => {
 		expect(
 			(await app.request("/v1/batches?limit=101", { headers: auth() })).status,
 		).toBe(400);
+	});
+
+	test("rejects uploads past the project's storage quota", async () => {
+		await db.insert(tables.batchFile).values(
+			Array.from({ length: 6 }, (_, index) => ({
+				id: `file-huge-${index}`,
+				organizationId: "org-id",
+				projectId: "project-id",
+				purpose: "batch" as const,
+				filename: "huge.jsonl",
+				bytes: 2_000_000_000,
+				content: "",
+				expiresAt: new Date(Date.now() + 60_000),
+			})),
+		);
+
+		expect((await uploadFile(chatLine("a"))).status).toBe(413);
+	});
+
+	test("reports live request counts while a batch runs", async () => {
+		const file = await (await uploadFile(chatLine("a"))).json();
+		const batch = await (await createBatch(file.id)).json();
+		await db
+			.update(tables.batch)
+			.set({ status: "in_progress", requestTotal: 3 })
+			.where(eq(tables.batch.id, batch.id));
+		await db.insert(tables.batchRequest).values(
+			(["completed", "failed", "pending"] as const).map((status, index) => ({
+				id: `batch_req_live_${index}`,
+				batchId: batch.id,
+				lineNumber: index + 1,
+				customId: `c${index}`,
+				body: "{}",
+				status,
+			})),
+		);
+
+		const retrieved = await (
+			await app.request(`/v1/batches/${batch.id}`, { headers: auth() })
+		).json();
+		expect(retrieved.request_counts).toEqual({
+			total: 3,
+			completed: 1,
+			failed: 1,
+		});
+		const listed = await (
+			await app.request("/v1/batches", { headers: auth() })
+		).json();
+		expect(listed.data[0].request_counts).toEqual({
+			total: 3,
+			completed: 1,
+			failed: 1,
+		});
+	});
+
+	test("deleting an output file deletes its responses", async () => {
+		const file = await (await uploadFile(chatLine("a"))).json();
+		const batch = await (await createBatch(file.id)).json();
+		await db.insert(tables.batchRequest).values([
+			{
+				id: "batch_req_done",
+				batchId: batch.id,
+				lineNumber: 1,
+				customId: "a",
+				body: "{}",
+				status: "completed",
+				responseStatus: 200,
+				responseBody: "{}",
+			},
+			{
+				id: "batch_req_err",
+				batchId: batch.id,
+				lineNumber: 2,
+				customId: "b",
+				body: "{}",
+				status: "failed",
+			},
+		]);
+		await db.insert(tables.batchFile).values({
+			id: "file-output-del",
+			organizationId: "org-id",
+			projectId: "project-id",
+			purpose: "batch_output",
+			filename: "out.jsonl",
+			bytes: 0,
+			batchId: batch.id,
+			expiresAt: new Date(Date.now() + 60_000),
+		});
+
+		const res = await app.request("/v1/files/file-output-del", {
+			method: "DELETE",
+			headers: auth(),
+		});
+		expect(res.status).toBe(200);
+
+		const remaining = await db
+			.select({ id: tables.batchRequest.id })
+			.from(tables.batchRequest)
+			.where(eq(tables.batchRequest.batchId, batch.id));
+		expect(remaining.map((row) => row.id)).toEqual(["batch_req_err"]);
 	});
 });

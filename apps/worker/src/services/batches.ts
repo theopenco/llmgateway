@@ -10,6 +10,7 @@ import {
 	lte,
 	or,
 	sql,
+	deleteBatchRequests,
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -37,9 +38,11 @@ const REQUEST_LEASE_MS = REQUEST_TIMEOUT_MS + REQUEST_LEASE_GRACE_MS;
 const MAX_SERVER_ERROR_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 30_000;
 const THROTTLE_DELAY_MS = 60_000;
+const USAGE_LIMIT_DELAY_MS = 5 * 60 * 1000;
 const MAX_RETRY_DELAY_MS = 15 * 60 * 1000;
 const MAX_ACTIVE_BATCHES_PER_TICK = 50;
 const CLEANUP_LIMIT = 500;
+const CLEANUP_BATCH_LIMIT = 20;
 const MS_PER_SECOND = 1000;
 
 export const BATCH_REQUEST_CONCURRENCY =
@@ -73,9 +76,7 @@ async function failBatch(batchId: string, errors: BatchLineError[]) {
 		.update(tables.batch)
 		.set({ status: "failed", failedAt: new Date(), errors, claimedUntil: null })
 		.where(eq(tables.batch.id, batchId));
-	await db
-		.delete(tables.batchRequest)
-		.where(eq(tables.batchRequest.batchId, batchId));
+	await deleteBatchRequests(batchId);
 	await deleteCredential(batchId);
 }
 
@@ -146,9 +147,7 @@ async function validateBatch(batch: BatchRow) {
 	}
 
 	// A previous attempt may have died midway through the inserts.
-	await db
-		.delete(tables.batchRequest)
-		.where(eq(tables.batchRequest.batchId, batch.id));
+	await deleteBatchRequests(batch.id);
 	for (
 		let start = 0;
 		start < parsed.requests.length;
@@ -403,18 +402,44 @@ function retryAfterMs(response: Response): number {
 }
 
 async function settleRequest(
-	id: string,
+	request: ClaimedBatchRequest,
 	update: Partial<typeof tables.batchRequest.$inferInsert>,
 ) {
+	// The attempt guard keeps a worker that outlived its lease from overwriting
+	// the result of a newer claim.
 	await db
 		.update(tables.batchRequest)
 		.set({ claimedUntil: null, ...update })
 		.where(
 			and(
-				eq(tables.batchRequest.id, id),
+				eq(tables.batchRequest.id, request.id),
 				eq(tables.batchRequest.status, "in_progress"),
+				eq(tables.batchRequest.attempts, request.attempts),
 			),
 		);
+}
+
+/**
+ * The gateway answers 401 both for a revoked key and for a key that reached
+ * its usage limit. Only the first ends the batch.
+ */
+async function isBatchKeyUsable(batchId: string): Promise<boolean> {
+	const [row] = await db
+		.select({
+			status: tables.apiKey.status,
+			expiresAt: tables.apiKey.expiresAt,
+		})
+		.from(tables.batchCredential)
+		.innerJoin(
+			tables.apiKey,
+			eq(tables.apiKey.id, tables.batchCredential.apiKeyId),
+		)
+		.where(eq(tables.batchCredential.batchId, batchId));
+	return (
+		row !== undefined &&
+		row.status === "active" &&
+		(row.expiresAt === null || row.expiresAt.getTime() > Date.now())
+	);
 }
 
 async function failRemainingRequests(batchId: string, message: string) {
@@ -441,14 +466,14 @@ export async function executeBatchRequest(
 	const call =
 		context === undefined ? await loadCallContext(request.batchId) : context;
 	if (!call) {
-		await settleRequest(request.id, {
+		const message =
+			"The API key that created this batch is no longer available.";
+		await settleRequest(request, {
 			status: "failed",
 			completedAt: new Date(),
-			error: {
-				code: "authentication_failed",
-				message: "The API key that created this batch is no longer available.",
-			},
+			error: { code: "authentication_failed", message },
 		});
+		await failRemainingRequests(request.batchId, message);
 		return;
 	}
 
@@ -474,12 +499,12 @@ export async function executeBatchRequest(
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (request.attempts < MAX_SERVER_ERROR_ATTEMPTS) {
-			await settleRequest(request.id, {
+			await settleRequest(request, {
 				status: "pending",
 				nextAttemptAt: new Date(Date.now() + retryDelayMs(request.attempts)),
 			});
 		} else {
-			await settleRequest(request.id, {
+			await settleRequest(request, {
 				status: "failed",
 				completedAt: new Date(),
 				error: { code: "request_failed", message },
@@ -492,19 +517,25 @@ export async function executeBatchRequest(
 	const requestId = response.headers.get("x-request-id") ?? request.id;
 	const status = response.status;
 
-	if (status === 429 || status === 402) {
+	const usageLimited =
+		status === 401 && (await isBatchKeyUsable(request.batchId));
+
+	if (status === 429 || status === 402 || usageLimited) {
 		// Rate limits and empty balances do not count as attempts; the request
 		// waits until the limit resets or credits are added, within the window.
-		await settleRequest(request.id, {
+		await settleRequest(request, {
 			status: "pending",
 			attempts: Math.max(request.attempts - 1, 0),
-			nextAttemptAt: new Date(Date.now() + retryAfterMs(response)),
+			nextAttemptAt: new Date(
+				Date.now() +
+					(usageLimited ? USAGE_LIMIT_DELAY_MS : retryAfterMs(response)),
+			),
 		});
 		return;
 	}
 
 	if (status >= 500 && request.attempts < MAX_SERVER_ERROR_ATTEMPTS) {
-		await settleRequest(request.id, {
+		await settleRequest(request, {
 			status: "pending",
 			nextAttemptAt: new Date(Date.now() + retryDelayMs(request.attempts)),
 		});
@@ -512,7 +543,7 @@ export async function executeBatchRequest(
 	}
 
 	const ok = status >= 200 && status < 300;
-	await settleRequest(request.id, {
+	await settleRequest(request, {
 		status: ok ? "completed" : "failed",
 		completedAt: new Date(),
 		responseStatus: status,
@@ -596,6 +627,22 @@ async function fileBytes(
 	}
 }
 
+async function countRequests(
+	batchId: string,
+	status: (typeof tables.batchRequest.$inferSelect)["status"],
+): Promise<number> {
+	const [row] = await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(tables.batchRequest)
+		.where(
+			and(
+				eq(tables.batchRequest.batchId, batchId),
+				eq(tables.batchRequest.status, status),
+			),
+		);
+	return row?.count ?? 0;
+}
+
 /** Finishes batches with no pending or running requests left. */
 export async function finalizeBatches(now = new Date()): Promise<number> {
 	const candidates = await db
@@ -641,6 +688,8 @@ export async function finalizeBatches(now = new Date()): Promise<number> {
 
 		const output = await fileBytes(batch.id, ["completed"]);
 		const errors = await fileBytes(batch.id, TERMINAL_ERROR_STATUSES);
+		const failedCount = await countRequests(batch.id, "failed");
+		const expiredCount = await countRequests(batch.id, "expired");
 		const expiresAt = new Date(now.getTime() + BATCH_FILE_TTL_MS);
 		const outputFileId = output.count > 0 ? newBatchFileId() : null;
 		const errorFileId = errors.count > 0 ? newBatchFileId() : null;
@@ -669,7 +718,7 @@ export async function finalizeBatches(now = new Date()): Promise<number> {
 
 		const wasCancelled =
 			batch.status === "cancelling" || batch.cancellingAt !== null;
-		const wasExpired = !wasCancelled && batch.expiresAt <= now;
+		const wasExpired = !wasCancelled && expiredCount > 0;
 		const finalStatus = wasCancelled
 			? "cancelled"
 			: wasExpired
@@ -696,7 +745,7 @@ export async function finalizeBatches(now = new Date()): Promise<number> {
 					outputFileId,
 					errorFileId,
 					requestCompleted: output.count,
-					requestFailed: errors.count,
+					requestFailed: failedCount,
 					completedAt: finalStatus === "completed" ? now : null,
 					cancelledAt: finalStatus === "cancelled" ? now : null,
 					expiredAt: finalStatus === "expired" ? now : null,
@@ -726,26 +775,25 @@ export async function cleanupExpiredBatchData(now = new Date()) {
 			),
 		);
 	const cutoff = new Date(now.getTime() - BATCH_FILE_TTL_MS);
-	await db.delete(tables.batch).where(
-		inArray(
-			tables.batch.id,
-			db
-				.select({ id: tables.batch.id })
-				.from(tables.batch)
-				.where(
-					and(
-						inArray(tables.batch.status, [
-							"completed",
-							"failed",
-							"expired",
-							"cancelled",
-						]),
-						lt(tables.batch.updatedAt, cutoff),
-					),
-				)
-				.limit(CLEANUP_LIMIT),
-		),
-	);
+	const old = await db
+		.select({ id: tables.batch.id })
+		.from(tables.batch)
+		.where(
+			and(
+				inArray(tables.batch.status, [
+					"completed",
+					"failed",
+					"expired",
+					"cancelled",
+				]),
+				lt(tables.batch.updatedAt, cutoff),
+			),
+		)
+		.limit(CLEANUP_BATCH_LIMIT);
+	for (const { id } of old) {
+		await deleteBatchRequests(id);
+		await db.delete(tables.batch).where(eq(tables.batch.id, id));
+	}
 }
 
 /** Housekeeping steps that run before requests are claimed. */

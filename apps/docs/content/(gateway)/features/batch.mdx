@@ -65,7 +65,7 @@ from openai import OpenAI
 client = OpenAI(base_url="https://api.llmgateway.io/v1", api_key=LLM_GATEWAY_API_KEY)
 
 batch = client.batches.retrieve("batch_abc123")
-print(batch.status, batch.request_counts)
+print(batch.status, batch.request_counts)  # updates while the batch runs
 
 if batch.status == "completed":
     output = client.files.content(batch.output_file_id).text
@@ -91,13 +91,13 @@ The output file holds requests that returned a 2xx response. The error file hold
 {"id":"batch_req_456","custom_id":"review-2","response":null,"error":{"code":"batch_expired","message":"This request did not run within the completion window."}}
 ```
 
-`response.request_id` matches the request in your [logs](/learn/activity).
+`response.request_id` matches the request in your [logs](/learn/activity). `request_counts.failed` counts requests that returned an error; cancelled and expired requests appear only in the error file.
 
 ## Retries and limits
 
 - Rate limits (429) and insufficient credits (402) do not fail a request. It waits and retries until the window ends, so a batch resumes after you top up.
 - Server errors and network failures are retried up to three times.
-- If the API key that created the batch is deleted or disabled, its remaining requests fail with `authentication_failed`.
+- If the API key that created the batch reaches its usage limit, requests wait and retry. If the key is deleted, disabled, or expires, its remaining requests fail with `authentication_failed`.
 - IP restrictions on the API key apply to the client IP that created the batch.
 
 | Limit                          | Value   |
@@ -106,6 +106,7 @@ The output file holds requests that returned a 2xx response. The error file hold
 | Requests per batch             | 50,000  |
 | Completion window              | 24h     |
 | File and batch result lifetime | 30 days |
+| Batch file storage per project | 10 GB   |
 
 ## Managing files and batches
 

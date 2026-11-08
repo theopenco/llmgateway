@@ -9,13 +9,16 @@ import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import {
 	and,
 	db,
+	deleteBatchRequests,
 	desc,
 	eq,
 	gt,
 	inArray,
 	lt,
 	or,
+	sql,
 	tables,
+	type InferSelectModel,
 	type SQL,
 } from "@llmgateway/db";
 import {
@@ -39,13 +42,14 @@ import {
 } from "./schemas.js";
 
 import type { ServerTypes } from "@/vars.js";
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 
 export const files = new OpenAPIHono<ServerTypes>();
 export const batches = new OpenAPIHono<ServerTypes>();
 
 const OUTPUT_PAGE_SIZE = 1000;
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+const BATCH_MAX_PROJECT_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
 const MAX_METADATA_KEYS = 16;
 const MAX_METADATA_KEY_LENGTH = 64;
 const MAX_METADATA_VALUE_LENGTH = 512;
@@ -65,8 +69,45 @@ const fileColumns = {
 
 const errorResponses = standardErrorResponses();
 
+type BatchAccess = Awaited<ReturnType<typeof getAuthenticatedReadAccess>>;
+
+const accessByRequest = new WeakMap<Request, BatchAccess>();
+
 async function requireBatchAccess(c: Context<ServerTypes>) {
-	return await getAuthenticatedReadAccess(c);
+	const cached = accessByRequest.get(c.req.raw);
+	if (cached) {
+		return cached;
+	}
+	const access = await getAuthenticatedReadAccess(c);
+	accessByRequest.set(c.req.raw, access);
+	return access;
+}
+
+// Authenticates before the multipart validator buffers the upload.
+const authenticateFirst: MiddlewareHandler<ServerTypes> = async (c, next) => {
+	await requireBatchAccess(c);
+	await next();
+};
+
+async function assertProjectStorageAvailable(projectId: string, bytes: number) {
+	const [row] = await db
+		.select({
+			bytes: sql<string>`coalesce(sum(${tables.batchFile.bytes}), 0)`,
+		})
+		.from(tables.batchFile)
+		.where(
+			and(
+				eq(tables.batchFile.projectId, projectId),
+				eq(tables.batchFile.purpose, "batch"),
+				gt(tables.batchFile.expiresAt, new Date()),
+			),
+		);
+	if (Number(row?.bytes ?? 0) + bytes > BATCH_MAX_PROJECT_STORAGE_BYTES) {
+		throw new HTTPException(413, {
+			message:
+				"This project's batch files exceed 10 GB. Delete files you no longer need.",
+		});
+	}
 }
 
 function invalidRequest(message: string): never {
@@ -119,6 +160,7 @@ const uploadFile = createRoute({
 	method: "post",
 	path: "/",
 	middleware: [
+		authenticateFirst,
 		bodyLimit({
 			maxSize: BATCH_MAX_FILE_BYTES + MULTIPART_OVERHEAD_BYTES,
 			onError: () => {
@@ -168,6 +210,7 @@ files.openapi(uploadFile, async (c): Promise<any> => {
 	if (upload.size > BATCH_MAX_FILE_BYTES) {
 		throw new HTTPException(413, { message: "Files are limited to 50 MB" });
 	}
+	await assertProjectStorageAvailable(project.id, upload.size);
 	const content = await upload.text();
 	const now = new Date();
 	const [file] = await db
@@ -312,6 +355,16 @@ files.openapi(deleteFile, async (c): Promise<any> => {
 	const { file_id: fileId } = c.req.valid("param");
 	const file = await findFile(project.id, fileId);
 	await db.delete(tables.batchFile).where(eq(tables.batchFile.id, file.id));
+	// Output and error files are rendered from the request rows, which hold the
+	// prompts and completions, so deleting a file deletes its rows.
+	if (file.batchId && file.purpose !== "batch") {
+		await deleteBatchRequests(
+			file.batchId,
+			file.purpose === "batch_output"
+				? ["completed"]
+				: ["failed", "cancelled", "expired"],
+		);
+	}
 	return c.json({ id: file.id, object: "file", deleted: true });
 });
 
@@ -562,8 +615,49 @@ batches.openapi(listBatches, async (c): Promise<any> => {
 		)
 		.orderBy(desc(tables.batch.createdAt), desc(tables.batch.id))
 		.limit(limit + 1);
-	return c.json(toList(rows.map(toBatchObject), limit));
+	return c.json(toList((await withLiveCounts(rows)).map(toBatchObject), limit));
 });
+
+const LIVE_COUNT_STATUSES = new Set([
+	"in_progress",
+	"cancelling",
+	"finalizing",
+]);
+
+/** Running batches report progress from their request rows. */
+async function withLiveCounts(
+	rows: InferSelectModel<typeof tables.batch>[],
+): Promise<InferSelectModel<typeof tables.batch>[]> {
+	const live = rows.filter((row) => LIVE_COUNT_STATUSES.has(row.status));
+	if (live.length === 0) {
+		return rows;
+	}
+	const counts = await db
+		.select({
+			batchId: tables.batchRequest.batchId,
+			completed: sql<number>`count(*) filter (where ${tables.batchRequest.status} = 'completed')::int`,
+			failed: sql<number>`count(*) filter (where ${tables.batchRequest.status} = 'failed')::int`,
+		})
+		.from(tables.batchRequest)
+		.where(
+			inArray(
+				tables.batchRequest.batchId,
+				live.map((row) => row.id),
+			),
+		)
+		.groupBy(tables.batchRequest.batchId);
+	const byId = new Map(counts.map((row) => [row.batchId, row]));
+	return rows.map((row) => {
+		const count = byId.get(row.id);
+		return count && LIVE_COUNT_STATUSES.has(row.status)
+			? {
+					...row,
+					requestCompleted: count.completed,
+					requestFailed: count.failed,
+				}
+			: row;
+	});
+}
 
 async function findBatch(projectId: string, batchId: string) {
 	const [row] = await db
@@ -596,7 +690,8 @@ const retrieveBatch = createRoute({
 batches.openapi(retrieveBatch, async (c): Promise<any> => {
 	const { project } = await requireBatchAccess(c);
 	const { batch_id: batchId } = c.req.valid("param");
-	return c.json(toBatchObject(await findBatch(project.id, batchId)));
+	const [batch] = await withLiveCounts([await findBatch(project.id, batchId)]);
+	return c.json(toBatchObject(batch));
 });
 
 const cancelBatch = createRoute({
@@ -613,7 +708,6 @@ const cancelBatch = createRoute({
 			content: { "application/json": { schema: batchObjectSchema } },
 			description: "The batch.",
 		},
-		409: { ...errorResponses[400], description: "The batch already finished." },
 		...errorResponses,
 	},
 });
@@ -639,7 +733,7 @@ batches.openapi(cancelBatch, async (c): Promise<any> => {
 	if (current.status === "cancelling" || current.status === "cancelled") {
 		return c.json(toBatchObject(current));
 	}
-	throw new HTTPException(409, {
+	throw new HTTPException(400, {
 		message: `Batch ${batchId} is ${current.status} and cannot be cancelled`,
 	});
 });

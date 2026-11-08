@@ -17,6 +17,7 @@ export * from "./schema.js";
 export * from "./log-payloads.js";
 export * from "./log-filters.js";
 export * from "./mapping-history-scope.js";
+export * from "./batch.js";
 export * from "./log-retention.js";
 export * from "./types.js";
 export * from "./migrate.js";

@@ -2551,6 +2551,17 @@ const BATCH_POLL_INTERVAL_MS =
 const BATCH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 async function runBatchApiLoop() {
+	if (
+		process.env.HOSTED === "true" &&
+		!process.env.GATEWAY_BACKEND_URL?.trim()
+	) {
+		// Through the public load balancer the client IP header is overwritten,
+		// so batch requests would lose the creator's IP and fail IP rules.
+		logger.error(
+			"Batch API loop not started: GATEWAY_BACKEND_URL must point at the in-cluster gateway",
+		);
+		return;
+	}
 	activeLoops++;
 	logger.info(
 		`Starting batch API loop (concurrency: ${BATCH_REQUEST_CONCURRENCY})...`,

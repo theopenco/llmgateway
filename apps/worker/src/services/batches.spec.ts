@@ -342,8 +342,13 @@ describe("batch worker", () => {
 		expect(batch).toMatchObject({
 			status: "cancelled",
 			requestCompleted: 1,
-			requestFailed: 2,
+			requestFailed: 0,
 		});
+		const [errorFile] = await db
+			.select()
+			.from(tables.batchFile)
+			.where(eq(tables.batchFile.id, batch.errorFileId ?? ""));
+		expect(errorFile.bytes).toBeGreaterThan(0);
 		const rows = Object.values(await requestsByCustomId());
 		expect(rows.filter((row) => row.status === "cancelled")).toHaveLength(2);
 		expect(await credentialExists()).toBe(false);
@@ -362,12 +367,32 @@ describe("batch worker", () => {
 
 		const batch = await loadBatch();
 		expect(batch.status).toBe("expired");
-		expect(batch.requestFailed).toBe(2);
+		expect(batch.requestFailed).toBe(0);
+		expect(batch.errorFileId).not.toBeNull();
 		const rows = Object.values(await requestsByCustomId());
 		expect(rows.every((row) => row.error?.code === "batch_expired")).toBe(true);
 	});
 
-	test("stops a batch when its API key is rejected", async () => {
+	test("waits when the key hits its usage limit", async () => {
+		await createBatch([line("a", "revoked"), line("b", "ok")]);
+		await runBatchHousekeeping();
+
+		await processBatchRequestsOnce(1);
+
+		const rows = await requestsByCustomId();
+		expect(rows.a).toMatchObject({ status: "pending", attempts: 0 });
+		const fourMinutesMs = 4 * 60 * 1000;
+		expect(rows.a.nextAttemptAt.getTime()).toBeGreaterThan(
+			Date.now() + fourMinutesMs,
+		);
+		expect(rows.b.status).toBe("pending");
+	});
+
+	test("stops a batch when its API key is disabled", async () => {
+		await db
+			.update(tables.apiKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.apiKey.id, apiKeyId));
 		await createBatch([line("a", "revoked"), line("b", "ok"), line("c", "ok")]);
 		await runBatchHousekeeping();
 
@@ -379,6 +404,72 @@ describe("batch worker", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const rows = await requestsByCustomId();
 		expect(rows.b.error?.code).toBe("authentication_failed");
+	});
+
+	test("fails the remaining requests when the credential is gone", async () => {
+		await createBatch([line("a", "ok"), line("b", "ok"), line("c", "ok")]);
+		await runBatchHousekeeping();
+		await db
+			.delete(tables.batchCredential)
+			.where(eq(tables.batchCredential.batchId, batchId));
+
+		await processBatchRequestsOnce(1);
+		await runBatchHousekeeping();
+
+		expect(await loadBatch()).toMatchObject({
+			status: "completed",
+			requestFailed: 3,
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	test("fails a batch whose input file was deleted", async () => {
+		await createBatch([line("a", "ok")]);
+		await db.delete(tables.batchFile).where(eq(tables.batchFile.id, fileId));
+
+		await runBatchHousekeeping();
+
+		expect(await loadBatch()).toMatchObject({
+			status: "failed",
+			errors: [expect.objectContaining({ code: "input_file_missing" })],
+		});
+	});
+
+	test("cancels a batch before it was validated", async () => {
+		await createBatch([line("a", "ok")], { status: "cancelling" });
+
+		await runBatchHousekeeping();
+
+		expect(await loadBatch()).toMatchObject({
+			status: "cancelled",
+			requestTotal: 0,
+		});
+		expect(await credentialExists()).toBe(false);
+	});
+
+	test("sends Responses API batches to /v1/responses", async () => {
+		await createBatch([
+			JSON.stringify({
+				custom_id: "r",
+				method: "POST",
+				url: "/v1/responses",
+				body: {
+					model: "gpt-4o-mini",
+					input: "hi",
+					messages: [{ content: "ok" }],
+				},
+			}),
+		]);
+		await db
+			.update(tables.batch)
+			.set({ endpoint: "/v1/responses" })
+			.where(eq(tables.batch.id, batchId));
+		await runBatchHousekeeping();
+
+		await processBatchRequestsOnce(16);
+
+		expect(calls()[0].url).toBe(`${gatewayUrl}/v1/responses`);
+		expect((await requestsByCustomId()).r.status).toBe("completed");
 	});
 
 	test("puts requests of a crashed worker back in the queue", async () => {
