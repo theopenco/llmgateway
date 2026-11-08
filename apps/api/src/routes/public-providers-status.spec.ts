@@ -276,6 +276,20 @@ describe("public providers status", () => {
 		expect(body.official.indicator).toBe("minor");
 	});
 
+	test("ignores a corrupt last good status", async () => {
+		await redisClient.set(
+			"provider-official-status:last-good:https://status.claude.com",
+			"not json",
+		);
+		fetchMock.mockImplementation(async () => {
+			throw new TypeError("fetch failed");
+		});
+
+		const res = await app.request(`/public/providers/status/${PROVIDER_ID}`);
+		expect(res.status).toBe(200);
+		expect((await res.json()).officialState).toBe("unavailable");
+	});
+
 	test.each([
 		[503, "unavailable", null],
 		[404, "ok", 0],

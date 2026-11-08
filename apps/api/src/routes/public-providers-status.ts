@@ -105,6 +105,19 @@ type OfficialResult =
  * LAST_GOOD_MAX_AGE_MS and served instead of "unavailable", so one timeout on
  * any pod does not blank the page.
  */
+async function readLastGood(url: string): Promise<OfficialResult | null> {
+	try {
+		const lastGood = await redisClient.get(lastGoodKey(url));
+		return lastGood ? (JSON.parse(lastGood) as OfficialResult) : null;
+	} catch (error) {
+		logger.warn("Could not read last good official status", {
+			statusPageUrl: url,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
+}
+
 async function loadOfficial(
 	provider: ProviderDefinition,
 ): Promise<OfficialResult> {
@@ -112,52 +125,55 @@ async function loadOfficial(
 	if (!url) {
 		return { state: "unsupported", official: null };
 	}
-	return await cachedPublicResponse<OfficialResult>(
-		`provider-official-status:${url}`,
-		{ refreshAfterMs: OFFICIAL_REFRESH_MS },
-		async () => {
-			try {
-				const official = await fetchOfficialStatus(url);
-				const result: OfficialResult = official
-					? { state: "ok", official }
-					: { state: "unsupported", official: null };
-				await redisClient
-					.set(
-						lastGoodKey(url),
-						JSON.stringify(result),
-						"PX",
-						LAST_GOOD_MAX_AGE_MS,
-					)
-					.catch((error: unknown) => {
-						logger.warn("Could not store last good official status", {
-							statusPageUrl: url,
-							error: error instanceof Error ? error.message : String(error),
+	try {
+		return await cachedPublicResponse<OfficialResult>(
+			`provider-official-status:${url}`,
+			{ refreshAfterMs: OFFICIAL_REFRESH_MS },
+			async () => {
+				try {
+					const official = await fetchOfficialStatus(url);
+					const result: OfficialResult = official
+						? { state: "ok", official }
+						: { state: "unsupported", official: null };
+					await redisClient
+						.set(
+							lastGoodKey(url),
+							JSON.stringify(result),
+							"PX",
+							LAST_GOOD_MAX_AGE_MS,
+						)
+						.catch((error: unknown) => {
+							logger.warn("Could not store last good official status", {
+								statusPageUrl: url,
+								error: error instanceof Error ? error.message : String(error),
+							});
 						});
+					return result;
+				} catch (error) {
+					logger.warn("Official status page unavailable", {
+						statusPageUrl: url,
+						error: error instanceof Error ? error.message : String(error),
 					});
-				return result;
-			} catch (error) {
-				logger.warn("Official status page unavailable", {
-					statusPageUrl: url,
-					error: error instanceof Error ? error.message : String(error),
-				});
-				const lastGood = await redisClient
-					.get(lastGoodKey(url))
-					.catch((readError: unknown) => {
-						logger.warn("Could not read last good official status", {
-							statusPageUrl: url,
-							error:
-								readError instanceof Error
-									? readError.message
-									: String(readError),
-						});
-						return null;
-					});
-				return lastGood
-					? (JSON.parse(lastGood) as OfficialResult)
-					: { state: "unavailable", official: null };
-			}
-		},
-	);
+					return (
+						(await readLastGood(url)) ?? {
+							state: "unavailable",
+							official: null,
+						}
+					);
+				}
+			},
+		);
+	} catch (error) {
+		// The response cache itself failed (cold wait, Redis): official status is
+		// optional, so the page still renders with measured uptime.
+		logger.warn("Official status cache unavailable", {
+			statusPageUrl: url,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return (
+			(await readLastGood(url)) ?? { state: "unavailable", official: null }
+		);
+	}
 }
 
 async function mapWithConcurrency<T, R>(
