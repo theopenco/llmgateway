@@ -71,7 +71,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { canWrite } from "@/lib/admin-role";
+import { canReadFinancials, canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import {
 	apiErrorMessage,
@@ -658,10 +658,11 @@ export function ProviderCredentialsManager({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
-	// Staff roles cannot load the spend overview or change credentials.
-	const isAdmin = canWrite(useAdminRole());
+	const role = useAdminRole();
+	const isAdmin = canWrite(role);
+	const showSpend = canReadFinancials(role);
 	const view =
-		isAdmin && searchParams.get("view") === "spend" ? "spend" : "credentials";
+		showSpend && searchParams.get("view") === "spend" ? "spend" : "credentials";
 	// The page reads `deleted` server-side to decide whether the API returns
 	// soft-deleted credentials at all.
 	const showDeleted = searchParams.get("deleted") === "1";
@@ -1116,7 +1117,7 @@ export function ProviderCredentialsManager({
 			{/* Inactive tab content is unmounted, so the charts and their query
 			    only exist once the Spend tab is opened — with dozens of providers
 			    the table view stays free of them entirely. */}
-			{isAdmin && (
+			{showSpend && (
 				<TabsContent value="spend">
 					<ProviderCredentialsSpendOverview
 						providerFilter={
