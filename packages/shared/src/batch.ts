@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
 
 export const BATCH_ENDPOINT_PATHS = [
 	"/v1/chat/completions",
@@ -21,10 +21,9 @@ const ID_ALPHABET =
 	"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 function randomId(length = 24): string {
-	const bytes = randomBytes(length);
 	let id = "";
-	for (let index = 0; index < bytes.length; index++) {
-		id += ID_ALPHABET[bytes[index] % ID_ALPHABET.length];
+	for (let index = 0; index < length; index++) {
+		id += ID_ALPHABET[randomInt(ID_ALPHABET.length)];
 	}
 	return id;
 }

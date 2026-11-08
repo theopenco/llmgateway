@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, sql, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { decryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
@@ -392,6 +392,32 @@ describe("Batch API", () => {
 				.split("\n")
 				.map((l) => JSON.parse(l).custom_id),
 		).toEqual(["b", "c"]);
+	});
+
+	test("paginates batches that share a millisecond", async () => {
+		const file = await (await uploadFile(chatLine("a"))).json();
+		const ids: string[] = [];
+		for (let index = 0; index < 3; index++) {
+			ids.push((await (await createBatch(file.id)).json()).id);
+		}
+		await db.execute(
+			sql`update batch set created_at = timestamp '2026-11-08 10:00:00.123001' + case when id = ${ids[0]} then interval '1 microsecond' when id = ${ids[1]} then interval '2 microsecond' else interval '3 microsecond' end where project_id = 'project-id'`,
+		);
+		const seen: string[] = [];
+		let after: string | null = null;
+		for (let page = 0; page < 5; page++) {
+			const res: Response = await app.request(
+				`/v1/batches?limit=1${after ? `&after=${after}` : ""}`,
+				{ headers: auth() },
+			);
+			const body = await res.json();
+			seen.push(...body.data.map((b: { id: string }) => b.id));
+			if (!body.has_more) {
+				break;
+			}
+			after = body.last_id;
+		}
+		expect(seen).toEqual([ids[2], ids[1], ids[0]]);
 	});
 
 	test("paginates batches with after and limit", async () => {

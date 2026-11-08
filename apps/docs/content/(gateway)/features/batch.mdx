@@ -96,7 +96,8 @@ The output file holds requests that returned a 2xx response. The error file hold
 ## Retries and limits
 
 - Rate limits (429) and insufficient credits (402) do not fail a request. It waits and retries until the window ends, so a batch resumes after you top up.
-- Server errors and network failures are retried up to three times.
+- Server errors (5xx) and connections that never reached the gateway are retried up to three times.
+- A request is never sent twice once it may have reached the gateway. If the connection drops mid-request or the worker restarts while it runs, it fails with `request_failed` or `request_interrupted` instead of being retried, so it cannot be billed twice.
 - A request rejected because a team member's spend budget is exhausted (403) fails and is not retried.
 - If the API key that created the batch reaches its usage limit, requests wait and retry. If the key is deleted, disabled, or expires, its remaining requests fail with `authentication_failed`.
 - IP restrictions on the API key apply to the client IP that created the batch.

@@ -14,8 +14,6 @@ import {
 	eq,
 	gt,
 	inArray,
-	lt,
-	or,
 	sql,
 	tables,
 	type InferSelectModel,
@@ -128,17 +126,16 @@ function clampLimit(raw: string | undefined, fallback: number, max: number) {
 	return value;
 }
 
+// created_at has microsecond precision and a JS Date only milliseconds, so the
+// cursor carries the timestamp as text and is compared exactly.
 function afterCursor(
 	table: typeof tables.batch | typeof tables.batchFile,
-	after: { id: string; createdAt: Date } | undefined,
+	after: { id: string; createdAt: string } | undefined,
 ): SQL | undefined {
 	if (!after) {
 		return undefined;
 	}
-	return or(
-		lt(table.createdAt, after.createdAt),
-		and(eq(table.createdAt, after.createdAt), lt(table.id, after.id)),
-	);
+	return sql`(${table.createdAt}, ${table.id}) < (${after.createdAt}::timestamp, ${after.id})`;
 }
 
 function toList<T extends { id: string }>(rows: T[], limit: number) {
@@ -268,7 +265,7 @@ files.openapi(listFiles, async (c): Promise<any> => {
 		? await db
 				.select({
 					id: tables.batchFile.id,
-					createdAt: tables.batchFile.createdAt,
+					createdAt: sql<string>`${tables.batchFile.createdAt}::text`,
 				})
 				.from(tables.batchFile)
 				.where(
@@ -601,7 +598,10 @@ batches.openapi(listBatches, async (c): Promise<any> => {
 	const limit = clampLimit(rawLimit, 20, 100);
 	const cursor = after
 		? await db
-				.select({ id: tables.batch.id, createdAt: tables.batch.createdAt })
+				.select({
+					id: tables.batch.id,
+					createdAt: sql<string>`${tables.batch.createdAt}::text`,
+				})
 				.from(tables.batch)
 				.where(
 					and(

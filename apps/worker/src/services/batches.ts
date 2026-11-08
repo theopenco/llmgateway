@@ -40,8 +40,21 @@ const RETRY_BASE_DELAY_MS = 30_000;
 const THROTTLE_DELAY_MS = 60_000;
 const USAGE_LIMIT_DELAY_MS = 5 * 60 * 1000;
 const MAX_RETRY_DELAY_MS = 15 * 60 * 1000;
-const MAX_ACTIVE_BATCHES_PER_TICK = 50;
+const MAX_ACTIVE_BATCHES = 1000;
 const CLEANUP_LIMIT = 500;
+const INTERRUPTED_ERROR = {
+	code: "request_interrupted",
+	message:
+		"The worker stopped while this request was running, so its result is unknown. It was not retried to avoid running it twice.",
+};
+// Connection errors raised before any byte reached the gateway.
+const UNDELIVERED_ERROR_CODES = new Set([
+	"ECONNREFUSED",
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	"UND_ERR_CONNECT_TIMEOUT",
+]);
+let claimRotation = 0;
 const CLEANUP_BATCH_LIMIT = 20;
 const MS_PER_SECOND = 1000;
 
@@ -187,11 +200,19 @@ async function validateBatch(batch: BatchRow) {
 	}
 }
 
-/** Moves requests whose worker died mid-call back to pending. */
+/**
+ * Fails requests whose worker died mid-call. The gateway may already have run
+ * and billed them, so they are not sent again.
+ */
 export async function recoverStaleRequests(now = new Date()) {
 	await db
 		.update(tables.batchRequest)
-		.set({ status: "pending", claimedUntil: null, nextAttemptAt: now })
+		.set({
+			status: "failed",
+			claimedUntil: null,
+			completedAt: now,
+			error: INTERRUPTED_ERROR,
+		})
 		.where(
 			and(
 				eq(tables.batchRequest.status, "in_progress"),
@@ -275,7 +296,7 @@ export async function claimBatchRequests(
 	if (limit <= 0) {
 		return [];
 	}
-	const active = await db
+	const ordered = await db
 		.select({ id: tables.batch.id })
 		.from(tables.batch)
 		.where(
@@ -285,14 +306,19 @@ export async function claimBatchRequests(
 			),
 		)
 		.orderBy(asc(tables.batch.createdAt))
-		.limit(MAX_ACTIVE_BATCHES_PER_TICK);
+		.limit(MAX_ACTIVE_BATCHES);
+	// Rotate the starting batch every round and split the slots evenly, so a
+	// few large batches cannot starve the rest.
+	const offset = ordered.length > 0 ? claimRotation++ % ordered.length : 0;
+	const active = [...ordered.slice(offset), ...ordered.slice(0, offset)];
 
 	const claimed: ClaimedBatchRequest[] = [];
-	for (const { id: batchId } of active) {
+	for (const [index, { id: batchId }] of active.entries()) {
 		const remaining = limit - claimed.length;
 		if (remaining <= 0) {
 			break;
 		}
+		const share = Math.ceil(remaining / (active.length - index));
 		const inFlight = await db
 			.select({ count: sql<number>`count(*)::int` })
 			.from(tables.batchRequest)
@@ -303,7 +329,7 @@ export async function claimBatchRequests(
 				),
 			)
 			.then((rows) => rows[0]?.count ?? 0);
-		const take = Math.min(remaining, perBatch - inFlight);
+		const take = Math.min(share, perBatch - inFlight);
 		if (take <= 0) {
 			continue;
 		}
@@ -389,6 +415,20 @@ async function loadCallContext(
 		return null;
 	}
 	return { token, endpoint: row.endpoint, clientIp: row.clientIp };
+}
+
+function isUndelivered(error: unknown): boolean {
+	for (
+		let current: unknown = error;
+		current instanceof Error;
+		current = current.cause
+	) {
+		const code = (current as Error & { code?: unknown }).code;
+		if (typeof code === "string" && UNDELIVERED_ERROR_CODES.has(code)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 function retryDelayMs(attempts: number): number {
@@ -501,7 +541,7 @@ export async function executeBatchRequest(
 		);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		if (request.attempts < MAX_SERVER_ERROR_ATTEMPTS) {
+		if (isUndelivered(error) && request.attempts < MAX_SERVER_ERROR_ATTEMPTS) {
 			await settleRequest(request, {
 				status: "pending",
 				nextAttemptAt: new Date(Date.now() + retryDelayMs(request.attempts)),
@@ -516,9 +556,25 @@ export async function executeBatchRequest(
 		return;
 	}
 
-	const text = await response.text();
 	const requestId = response.headers.get("x-request-id") ?? request.id;
 	const status = response.status;
+	let text: string;
+	try {
+		text = await response.text();
+	} catch (error) {
+		// The gateway answered, so the request ran; only its body was lost.
+		await settleRequest(request, {
+			status: "failed",
+			completedAt: new Date(),
+			responseStatus: status,
+			requestId,
+			error: {
+				code: "response_read_failed",
+				message: error instanceof Error ? error.message : String(error),
+			},
+		});
+		return;
+	}
 
 	const usageLimited =
 		status === 401 && (await isBatchKeyUsable(request.batchId));
@@ -566,11 +622,39 @@ export const BATCH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export interface BatchLoopState {
 	/** Requests still running, shared across iterations of the loop. */
 	inFlight: Set<Promise<void>>;
+	running: Map<Promise<void>, ClaimedBatchRequest>;
 	lastCleanupAt: number;
 }
 
 export function createBatchLoopState(): BatchLoopState {
-	return { inFlight: new Set(), lastCleanupAt: 0 };
+	return { inFlight: new Set(), running: new Map(), lastCleanupAt: 0 };
+}
+
+/**
+ * Waits up to `timeoutMs` for running requests, then fails the ones still
+ * running instead of leaving them to be retried after the lease.
+ */
+export async function drainBatchRequests(
+	state: BatchLoopState,
+	timeoutMs: number,
+): Promise<number> {
+	let timer: NodeJS.Timeout | undefined;
+	await Promise.race([
+		Promise.allSettled([...state.inFlight]),
+		new Promise<void>((resolve) => {
+			timer = setTimeout(resolve, timeoutMs);
+		}),
+	]);
+	clearTimeout(timer);
+	const interrupted = [...state.running.values()];
+	for (const request of interrupted) {
+		await settleRequest(request, {
+			status: "failed",
+			completedAt: new Date(),
+			error: INTERRUPTED_ERROR,
+		});
+	}
+	return interrupted.length;
 }
 
 /**
@@ -596,8 +680,10 @@ export async function startBatchRequests(
 			.catch((error: unknown) => logBatchError("request", error))
 			.finally(() => {
 				state.inFlight.delete(task);
+				state.running.delete(task);
 			});
 		state.inFlight.add(task);
+		state.running.set(task, request);
 	}
 	return claimed.length;
 }

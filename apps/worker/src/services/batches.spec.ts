@@ -8,8 +8,10 @@ import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 import {
 	BATCH_CLEANUP_INTERVAL_MS,
 	BATCH_REQUEST_CONCURRENCY_PER_BATCH,
+	claimBatchRequests,
 	cleanupExpiredBatchData,
 	createBatchLoopState,
+	drainBatchRequests,
 	runBatchHousekeeping,
 	runBatchLoopIteration,
 	startBatchRequests,
@@ -586,7 +588,46 @@ describe("batch worker", () => {
 		expect((await requestsByCustomId()).r.status).toBe("completed");
 	});
 
-	test("puts requests of a crashed worker back in the queue", async () => {
+	test("splits claim slots across active batches", async () => {
+		await createBatch(
+			Array.from({ length: 10 }, (_, index) => line(`a${index}`, "ok")),
+		);
+		await runBatchHousekeeping();
+		const otherId = `${batchId}_other`;
+		await db.insert(tables.batch).values({
+			id: otherId,
+			organizationId,
+			projectId,
+			apiKeyId,
+			endpoint: "/v1/chat/completions",
+			inputFileId: fileId,
+			status: "in_progress",
+			expiresAt: new Date(Date.now() + 86_400_000),
+		});
+		await db.insert(tables.batchRequest).values(
+			Array.from({ length: 10 }, (_, index) => ({
+				id: `batch_req_other_${index}`,
+				batchId: otherId,
+				lineNumber: index + 1,
+				customId: `b${index}`,
+				body: "{}",
+				nextAttemptAt: new Date(0),
+			})),
+		);
+
+		const claimed = await claimBatchRequests(4);
+
+		const perBatch = new Map<string, number>();
+		for (const request of claimed) {
+			perBatch.set(request.batchId, (perBatch.get(request.batchId) ?? 0) + 1);
+		}
+		expect(Object.fromEntries(perBatch)).toEqual({
+			[batchId]: 2,
+			[otherId]: 2,
+		});
+	});
+
+	test("fails requests of a crashed worker instead of resending them", async () => {
 		await createBatch([line("a", "ok")]);
 		await runBatchHousekeeping();
 		await db
@@ -595,11 +636,75 @@ describe("batch worker", () => {
 			.where(eq(tables.batchRequest.batchId, batchId));
 
 		await runBatchHousekeeping();
-		await processOnce(16);
+		await processOnce();
 		await runBatchHousekeeping();
 
-		expect((await loadBatch()).status).toBe("completed");
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect((await requestsByCustomId()).a.error?.code).toBe(
+			"request_interrupted",
+		);
+		expect(await loadBatch()).toMatchObject({
+			status: "completed",
+			requestFailed: 1,
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	test("retries only network errors that prove the request was not sent", async () => {
+		await createBatch([line("refused", "refused"), line("reset", "reset")]);
+		fetchMock.mockImplementation(async (_input, init) => {
+			const content = JSON.parse(String(init?.body)).messages[0].content;
+			const code = content === "refused" ? "ECONNREFUSED" : "ECONNRESET";
+			throw new TypeError("fetch failed", {
+				cause: Object.assign(new Error(code), { code }),
+			});
+		});
+		await runBatchHousekeeping();
+
+		await processOnce();
+
+		const rows = await requestsByCustomId();
+		expect(rows.refused).toMatchObject({ status: "pending", attempts: 1 });
+		expect(rows.reset).toMatchObject({ status: "failed" });
+		expect(rows.reset.error?.code).toBe("request_failed");
+	});
+
+	test("fails a request whose response body cannot be read", async () => {
+		await createBatch([line("a", "ok")]);
+		fetchMock.mockImplementation(
+			async () =>
+				new Response(
+					new ReadableStream({
+						start(controller) {
+							controller.error(new Error("socket closed"));
+						},
+					}),
+					{ status: 200 },
+				),
+		);
+		await runBatchHousekeeping();
+
+		await processOnce();
+
+		expect((await requestsByCustomId()).a).toMatchObject({
+			status: "failed",
+			responseStatus: 200,
+			error: expect.objectContaining({ code: "response_read_failed" }),
+		});
+	});
+
+	test("fails requests still running when the worker drains on shutdown", async () => {
+		await createBatch([line("a", "ok")]);
+		fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+		await runBatchHousekeeping();
+		const state = createBatchLoopState();
+		await startBatchRequests(state);
+
+		expect(await drainBatchRequests(state, 20)).toBe(1);
+
+		expect((await requestsByCustomId()).a).toMatchObject({
+			status: "failed",
+			error: expect.objectContaining({ code: "request_interrupted" }),
+		});
 	});
 
 	test("deletes expired files and old finished batches", async () => {

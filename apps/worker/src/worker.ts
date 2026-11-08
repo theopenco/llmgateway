@@ -67,6 +67,7 @@ import { backfillPauseMs } from "./services/backfill-pacing.js";
 import {
 	BATCH_REQUEST_CONCURRENCY,
 	createBatchLoopState,
+	drainBatchRequests,
 	logBatchError,
 	runBatchLoopIteration,
 } from "./services/batches.js";
@@ -2544,6 +2545,9 @@ async function runVideoJobsLoop() {
 	}
 }
 
+// Shorter than stopWorker's 15s deadline, so interrupted requests are settled
+// before the process exits.
+const BATCH_SHUTDOWN_DRAIN_MS = 10_000;
 const BATCH_POLL_INTERVAL_MS =
 	(Number(process.env.BATCH_POLL_INTERVAL_SECONDS) || 2) * 1000;
 
@@ -2574,7 +2578,15 @@ async function runBatchApiLoop() {
 			await interruptibleSleep(BATCH_POLL_INTERVAL_MS);
 		}
 	} finally {
-		await Promise.allSettled([...state.inFlight]);
+		const interrupted = await drainBatchRequests(
+			state,
+			BATCH_SHUTDOWN_DRAIN_MS,
+		);
+		if (interrupted > 0) {
+			logger.warn(
+				`Batch API loop failed ${interrupted} interrupted request(s)`,
+			);
+		}
 		activeLoops--;
 		logger.info("Batch API loop stopped");
 	}
