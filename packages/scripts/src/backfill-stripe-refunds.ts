@@ -1,335 +1,579 @@
 /* eslint-disable no-console */
-/**
- * One-time backfill: reconcile legacy credit_refund rows whose amount was
- * stored as the cumulative `charge.amount_refunded` (pre-fix in
- * apps/api/src/stripe.ts) and which therefore have no stripe_refund_id.
- *
- * For each affected DevPass payment intent, pulls the actual succeeded refunds
- * from Stripe, deletes the DevPass legacy NULL-refund-id rows, and inserts one
- * correct row per Stripe refund delta — keyed on stripe_refund_id so the run is
- * idempotent. Regular credit top-up refunds are intentionally skipped.
- *
- * Usage:
- *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds                       # dry run
- *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds --commit              # apply
- *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds --payment-intent=pi_x # scope to one PI
- *
- * Environment:
- *   STRIPE_SECRET_KEY - required
- *   DATABASE_URL      - defaults to local postgres if unset
- */
-
+/** Historical DevPass refund ledger repair. Dry-run by default; never issues Stripe writes. */
+import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 
-import { and, db, eq, inArray, isNull, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	gt,
+	inArray,
+	isNull,
+	or,
+	tables,
+	notInArray,
+} from "@llmgateway/db";
 
-const STRIPE_API_VERSION = "2025-04-30.basil" as const;
-const DEV_PLAN_TX_TYPES = [
-	"dev_plan_start",
-	"dev_plan_upgrade",
-	"dev_plan_downgrade",
-	"dev_plan_renewal",
-] as const;
-const LEGACY_DEV_PLAN_TX_TYPES = [
-	"subscription_start",
-	"subscription_cancel",
-	"subscription_end",
-] as const;
+import {
+	centsToDollars,
+	parseBackfillArgs,
+	refundDescription,
+	REFUNDABLE_ORIGINAL_TYPES,
+} from "./lib/devpass-refund-backfill.js";
 
-function getStripe(): Stripe {
-	const key = process.env.STRIPE_SECRET_KEY;
-	if (!key) {
+import type { TransactionRow } from "./lib/devpass-refund-backfill.js";
+
+type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0];
+const originalTypes = REFUNDABLE_ORIGINAL_TYPES;
+const identity = (value: string | { id?: string } | null | undefined) =>
+	typeof value === "string" ? value : value?.id;
+
+function assertOriginal(row: TransactionRow) {
+	if (
+		!originalTypes.includes(row.type as (typeof originalTypes)[number]) ||
+		row.status !== "completed" ||
+		row.currency.toUpperCase() !== "USD" ||
+		!new Decimal(row.amount ?? 0).gt(0)
+	) {
+		throw new Error("Source must be a completed positive USD plan payment");
+	}
+}
+
+async function resolveInvoicePaymentIntents(stripe: Stripe, invoice: string) {
+	const ids = new Set<string>();
+	for await (const payment of stripe.invoicePayments.list({
+		invoice,
+		status: "paid",
+		limit: 100,
+	})) {
+		if (identity(payment.invoice) !== invoice || payment.status !== "paid") {
+			throw new Error("Invoice payment ownership/status mismatch");
+		}
+		if (payment.payment.type === "payment_intent") {
+			const id = identity(payment.payment.payment_intent);
+			if (!id) {
+				throw new Error("Invoice payment has no payment intent");
+			}
+			ids.add(id);
+		}
+	}
+	if (!ids.size) {
 		throw new Error(
-			"STRIPE_SECRET_KEY environment variable is required to run this script.",
+			"Invoice has no paid payment intents; manual reconciliation required",
 		);
 	}
-	return new Stripe(key, { apiVersion: STRIPE_API_VERSION });
+	return [...ids];
 }
 
-function parseFlag(name: string): string | undefined {
-	const flag = `--${name}=`;
-	const arg = process.argv.find((a) => a.startsWith(flag));
-	return arg ? arg.slice(flag.length) : undefined;
-}
-
-function hasFlag(name: string): boolean {
-	return process.argv.includes(`--${name}`);
-}
-
-async function main(): Promise<void> {
-	const stripe = getStripe();
-	const commit = hasFlag("commit");
-	const scopePI = parseFlag("payment-intent");
-
-	console.log(
-		`Mode: ${commit ? "COMMIT (writes enabled)" : "DRY RUN (no writes)"}`,
-	);
-	if (scopePI) {
-		console.log(`Scoped to payment intent: ${scopePI}`);
+async function listSucceededRefunds(stripe: Stripe, pi: string) {
+	const refunds: Stripe.Refund[] = [];
+	const seen = new Set<string>();
+	for await (const refund of stripe.refunds.list({
+		payment_intent: pi,
+		limit: 100,
+	})) {
+		if (refund.status !== "succeeded") {
+			continue;
+		}
+		if (
+			!refund.id ||
+			seen.has(refund.id) ||
+			identity(refund.payment_intent) !== pi ||
+			refund.currency !== "usd" ||
+			!Number.isSafeInteger(refund.amount) ||
+			refund.amount <= 0 ||
+			!Number.isSafeInteger(refund.created) ||
+			refund.created < 0
+		) {
+			throw new Error("Invalid, duplicate or unrelated Stripe refund evidence");
+		}
+		seen.add(refund.id);
+		refunds.push(refund);
 	}
+	return refunds;
+}
 
-	const legacyRows = await db
+function assertRecorded(
+	row: TransactionRow,
+	original: TransactionRow,
+	refund: Stripe.Refund,
+) {
+	if (
+		row.organizationId !== original.organizationId ||
+		row.relatedTransactionId !== original.id ||
+		row.type !== "credit_refund" ||
+		row.status !== "completed" ||
+		row.currency.toUpperCase() !== "USD" ||
+		row.stripePaymentIntentId !== identity(refund.payment_intent) ||
+		!new Decimal(row.amount ?? 0).eq(centsToDollars(refund.amount)) ||
+		!new Decimal(row.creditAmount ?? 0).isZero()
+	) {
+		throw new Error(
+			"Recorded refund conflicts with its Stripe/source identity; manual reconciliation required",
+		);
+	}
+}
+
+async function insertRefundRow(
+	tx: Executor,
+	original: TransactionRow,
+	refund: Stripe.Refund,
+) {
+	const inserted = await tx
+		.insert(tables.transaction)
+		.values({
+			organizationId: original.organizationId,
+			type: "credit_refund",
+			status: "completed",
+			amount: centsToDollars(refund.amount).toString(),
+			creditAmount: "0",
+			currency: "USD",
+			stripePaymentIntentId: identity(refund.payment_intent),
+			stripeRefundId: refund.id,
+			relatedTransactionId: original.id,
+			refundReason: refund.reason,
+			description: refundDescription(
+				centsToDollars(refund.amount),
+				new Decimal(original.amount ?? 0),
+			),
+			createdAt: new Date(refund.created * 1000),
+			updatedAt: new Date(refund.created * 1000),
+		})
+		.onConflictDoNothing()
+		.returning();
+	if (!inserted.length) {
+		const [existing] = await tx
+			.select()
+			.from(tables.transaction)
+			.where(eq(tables.transaction.stripeRefundId, refund.id));
+		if (!existing) {
+			throw new Error("Conflicting refund disappeared");
+		}
+		assertRecorded(existing, original, refund);
+	}
+	return inserted.length;
+}
+
+async function reconcileOriginal(
+	original: TransactionRow,
+	pis: string[],
+	evidence: Stripe.Refund[],
+	commit: boolean,
+	scopePI?: string,
+) {
+	return await db.transaction(async (tx) => {
+		// Both concurrent CLI passes re-read the ledger only after this common lock.
+		const [organization] = await tx
+			.select()
+			.from(tables.organization)
+			.where(eq(tables.organization.id, original.organizationId))
+			.for("update");
+		const [current] = await tx
+			.select()
+			.from(tables.transaction)
+			.where(eq(tables.transaction.id, original.id))
+			.for("update");
+		if (!organization || organization.kind !== "devpass" || !current) {
+			throw new Error(
+				"Source organization/payment disappeared or changed kind",
+			);
+		}
+		assertOriginal(current);
+		if (
+			current.organizationId !== original.organizationId ||
+			current.stripeInvoiceId !== original.stripeInvoiceId ||
+			current.stripePaymentIntentId !== original.stripePaymentIntentId ||
+			current.amount !== original.amount
+		) {
+			throw new Error("Source changed after Stripe lookup; rerun dry-run");
+		}
+		const ledger = await tx
+			.select()
+			.from(tables.transaction)
+			.where(
+				or(
+					eq(tables.transaction.relatedTransactionId, original.id),
+					inArray(tables.transaction.stripePaymentIntentId, pis),
+				),
+			);
+		const legacy = ledger.filter(
+			(row) => row.type === "credit_refund" && !row.stripeRefundId,
+		);
+		for (const row of legacy) {
+			if (
+				row.organizationId !== original.organizationId ||
+				row.relatedTransactionId !== original.id ||
+				!row.stripePaymentIntentId ||
+				!pis.includes(row.stripePaymentIntentId) ||
+				row.status !== "completed" ||
+				row.currency.toUpperCase() !== "USD" ||
+				!new Decimal(row.amount ?? 0).gt(0) ||
+				!new Decimal(row.creditAmount ?? 0).isZero()
+			) {
+				throw new Error(
+					"Legacy source/PI/financial fields require manual reconciliation",
+				);
+			}
+		}
+		const total = evidence.reduce(
+			(sum, refund) => sum.plus(centsToDollars(refund.amount)),
+			new Decimal(0),
+		);
+		if (total.gt(new Decimal(current.amount ?? 0))) {
+			throw new Error(
+				"Stripe refunds exceed the original payment across its payment intents",
+			);
+		}
+		const selected = evidence.filter(
+			(refund) => !scopePI || identity(refund.payment_intent) === scopePI,
+		);
+		const selectedLegacy = legacy.filter(
+			(row) => !scopePI || row.stripePaymentIntentId === scopePI,
+		);
+		for (const row of selectedLegacy) {
+			const covered = selected.reduce(
+				(sum, refund) =>
+					identity(refund.payment_intent) === row.stripePaymentIntentId
+						? sum.plus(centsToDollars(refund.amount))
+						: sum,
+				new Decimal(0),
+			);
+			if (new Decimal(row.amount ?? 0).gt(covered)) {
+				throw new Error(
+					"Legacy refund exceeds succeeded Stripe evidence on its payment intent; retaining it",
+				);
+			}
+		}
+		const recorded = evidence.length
+			? await tx
+					.select()
+					.from(tables.transaction)
+					.where(
+						inArray(
+							tables.transaction.stripeRefundId,
+							evidence.map((refund) => refund.id),
+						),
+					)
+			: [];
+		const recordedById = new Map(
+			recorded.map((row) => [row.stripeRefundId, row]),
+		);
+		for (const refund of evidence) {
+			const row = recordedById.get(refund.id);
+			if (row) {
+				assertRecorded(row, current, refund);
+			}
+		}
+		const missing = selected.filter((refund) => !recordedById.has(refund.id));
+		const knownIds = new Set(evidence.map((refund) => refund.id));
+		if (
+			ledger.some(
+				(row) =>
+					row.stripeRefundId &&
+					!knownIds.has(row.stripeRefundId) &&
+					row.status === "completed",
+			)
+		) {
+			throw new Error(
+				"Recorded refund is absent from Stripe evidence; manual reconciliation required",
+			);
+		}
+		if (!missing.length && !selectedLegacy.length) {
+			return { inserted: 0, deleted: 0 };
+		}
+		if (current.type === "dev_plan_reset_pass") {
+			throw new Error(
+				"Reset Pass refunds require manual inventory reconciliation before history repair",
+			);
+		}
+		if (
+			organization.devPlanStripeSubscriptionId ||
+			organization.chatPlanStripeSubscriptionId ||
+			organization.stripeSubscriptionId
+		) {
+			throw new Error(
+				"Active subscription: reconcile cancellation/entitlements before recording historical refunds",
+			);
+		}
+		console.log(
+			"Plan: source=" +
+				current.id +
+				" org=" +
+				current.organizationId +
+				" delete=" +
+				selectedLegacy.length +
+				" insert=" +
+				missing.length,
+		);
+		if (!commit) {
+			return { inserted: missing.length, deleted: selectedLegacy.length };
+		}
+		let inserted = 0;
+		for (const refund of missing) {
+			inserted += await insertRefundRow(tx, current, refund);
+		}
+		if (selectedLegacy.length) {
+			await tx.delete(tables.transaction).where(
+				inArray(
+					tables.transaction.id,
+					selectedLegacy.map((row) => row.id),
+				),
+			);
+		}
+		return { inserted, deleted: selectedLegacy.length };
+	});
+}
+
+async function main() {
+	const opts = parseBackfillArgs(process.argv.slice(2));
+	const scopePI = opts["payment-intent"];
+	console.log(
+		opts.commit ? "Mode: COMMIT (writes enabled)" : "Mode: DRY RUN (no writes)",
+	);
+	if (!process.env.STRIPE_SECRET_KEY) {
+		throw new Error("STRIPE_SECRET_KEY is required");
+	}
+	const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+		apiVersion: "2025-04-30.basil",
+	});
+	const organizations = await db
+		.select({ id: tables.organization.id })
+		.from(tables.organization)
+		.where(
+			and(
+				eq(tables.organization.kind, "devpass"),
+				...(opts.org ? [eq(tables.organization.id, opts.org)] : []),
+			),
+		);
+	if (!organizations.length) {
+		if (opts.org) {
+			throw new Error("No DevPass organization matches --org");
+		}
+		return;
+	}
+	const originals = await db
 		.select()
 		.from(tables.transaction)
 		.where(
 			and(
+				inArray(
+					tables.transaction.organizationId,
+					organizations.map((org) => org.id),
+				),
+				inArray(tables.transaction.type, [...originalTypes]),
+				eq(tables.transaction.status, "completed"),
+				gt(tables.transaction.amount, "0"),
+			),
+		);
+	const pisByOriginal = new Map<string, string[]>();
+	const invoices = new Map<string, Promise<string[]>>();
+	const owners = new Map<string, Set<string>>();
+	const blocked = new Set<string>();
+	let failures = 0;
+	for (const original of originals) {
+		if (
+			scopePI &&
+			original.stripePaymentIntentId &&
+			!original.stripeInvoiceId &&
+			original.stripePaymentIntentId !== scopePI
+		) {
+			continue;
+		}
+		try {
+			assertOriginal(original);
+			let pis: string[];
+			if (original.stripeInvoiceId) {
+				let lookup = invoices.get(original.stripeInvoiceId);
+				if (!lookup) {
+					lookup = resolveInvoicePaymentIntents(
+						stripe,
+						original.stripeInvoiceId,
+					);
+					invoices.set(original.stripeInvoiceId, lookup);
+				}
+				pis = await lookup;
+				if (
+					original.stripePaymentIntentId &&
+					!pis.includes(original.stripePaymentIntentId)
+				) {
+					throw new Error(
+						"Stored payment intent does not belong to the source invoice",
+					);
+				}
+			} else if (original.stripePaymentIntentId) {
+				pis = [original.stripePaymentIntentId];
+			} else {
+				throw new Error("Completed payment has no recoverable Stripe identity");
+			}
+			if (scopePI && !pis.includes(scopePI)) {
+				continue;
+			}
+			pisByOriginal.set(original.id, pis);
+			for (const pi of pis) {
+				const ids = owners.get(pi) ?? new Set<string>();
+				ids.add(original.id);
+				owners.set(pi, ids);
+			}
+		} catch (error) {
+			failures++;
+			blocked.add(original.id);
+			console.error("INCOMPLETE source=" + original.id, error);
+		}
+	}
+	const legacy = await db
+		.select()
+		.from(tables.transaction)
+		.where(
+			and(
+				inArray(
+					tables.transaction.organizationId,
+					organizations.map((org) => org.id),
+				),
 				eq(tables.transaction.type, "credit_refund"),
 				isNull(tables.transaction.stripeRefundId),
 				...(scopePI
-					? [eq(tables.transaction.stripePaymentIntentId, scopePI)]
+					? [
+							or(
+								eq(tables.transaction.stripePaymentIntentId, scopePI),
+								...(pisByOriginal.size
+									? [
+											inArray(tables.transaction.relatedTransactionId, [
+												...pisByOriginal.keys(),
+											]),
+										]
+									: []),
+							),
+						]
 					: []),
 			),
 		);
-
-	console.log(
-		`\nFound ${legacyRows.length} legacy credit_refund row(s) without stripe_refund_id`,
-	);
-	if (legacyRows.length === 0) {
-		console.log("Nothing to backfill.");
-		process.exit(0);
-	}
-
-	const devpassRows: typeof legacyRows = [];
-	const originalAmountByRefundId = new Map<string, number>();
-	let nonDevpassRows = 0;
-	for (const row of legacyRows) {
-		if (!row.relatedTransactionId) {
-			nonDevpassRows += 1;
+	for (const row of legacy) {
+		const original = row.relatedTransactionId
+			? await db.query.transaction.findFirst({
+					where: { id: { eq: row.relatedTransactionId } },
+				})
+			: undefined;
+		if (
+			original &&
+			!(originalTypes as readonly string[]).includes(original.type)
+		) {
 			continue;
 		}
-
-		const original = await db.query.transaction.findFirst({
-			where: { id: { eq: row.relatedTransactionId } },
-		});
-		if (!original) {
-			nonDevpassRows += 1;
-			continue;
-		}
-
-		const isDevPlan = (DEV_PLAN_TX_TYPES as readonly string[]).includes(
-			original.type,
-		);
-		const isLegacyDevPlan = (
-			LEGACY_DEV_PLAN_TX_TYPES as readonly string[]
-		).includes(original.type);
-		if (isLegacyDevPlan) {
-			const organization = await db.query.organization.findFirst({
-				where: { id: { eq: row.organizationId } },
-			});
-			if (organization?.kind !== "devpass") {
-				nonDevpassRows += 1;
-				continue;
+		if (
+			!original ||
+			original.organizationId !== row.organizationId ||
+			!row.stripePaymentIntentId ||
+			!pisByOriginal.get(original.id)?.includes(row.stripePaymentIntentId)
+		) {
+			failures++;
+			if (original) {
+				blocked.add(original.id);
 			}
-		}
-
-		if (!isDevPlan && !isLegacyDevPlan) {
-			nonDevpassRows += 1;
-			continue;
-		}
-
-		devpassRows.push(row);
-		originalAmountByRefundId.set(
-			row.id,
-			Number.parseFloat(original.amount ?? "0"),
-		);
-	}
-
-	if (nonDevpassRows > 0) {
-		console.log(
-			`Skipping ${nonDevpassRows} non-DevPass legacy refund row(s).`,
-		);
-	}
-	if (devpassRows.length === 0) {
-		console.log("No DevPass refund rows to backfill.");
-		process.exit(0);
-	}
-
-	const byPI = new Map<string, typeof devpassRows>();
-	const noPI: typeof legacyRows = [];
-	for (const row of devpassRows) {
-		if (!row.stripePaymentIntentId) {
-			noPI.push(row);
-			continue;
-		}
-		const list = byPI.get(row.stripePaymentIntentId) ?? [];
-		list.push(row);
-		byPI.set(row.stripePaymentIntentId, list);
-	}
-
-	if (noPI.length > 0) {
-		console.warn(
-			`\nWARNING: ${noPI.length} legacy row(s) have no stripe_payment_intent_id — they will be skipped:`,
-		);
-		for (const r of noPI) {
-			console.warn(
-				`  - id=${r.id} org=${r.organizationId} amount=${r.amount} related=${r.relatedTransactionId}`,
+			for (const owner of owners.get(row.stripePaymentIntentId ?? "") ?? []) {
+				blocked.add(owner);
+			}
+			console.error(
+				"INCOMPLETE legacy=" +
+					row.id +
+					": missing or mismatched source; evidence retained",
 			);
 		}
 	}
-
-	console.log(`\nGrouped into ${byPI.size} unique payment intent(s)\n`);
-
-	let totalInsert = 0;
-	let totalDelete = 0;
-	let totalSkippedPI = 0;
-
-	for (const [pi, rows] of byPI) {
-		console.log(`=== ${pi} (${rows.length} legacy row(s)) ===`);
-
-		const legacyTotal = rows.reduce(
-			(s, r) => s + Number.parseFloat(r.amount ?? "0"),
-			0,
-		);
-		console.log(`  Legacy rows sum: $${legacyTotal.toFixed(2)}`);
-		for (const r of rows) {
-			console.log(
-				`    - id=${r.id} amount=$${Number.parseFloat(r.amount ?? "0").toFixed(2)} created=${r.createdAt.toISOString()}`,
-			);
+	let inserted = 0;
+	let deleted = 0;
+	for (const original of originals) {
+		const pis = pisByOriginal.get(original.id);
+		if (!pis || blocked.has(original.id)) {
+			continue;
 		}
-
-		let refundAttempts: Stripe.Refund[] = [];
 		try {
-			for await (const r of stripe.refunds.list({
-				payment_intent: pi,
-				limit: 100,
-			})) {
-				refundAttempts.push(r);
+			const invoiceIds = new Set(
+				original.stripeInvoiceId ? [original.stripeInvoiceId] : [],
+			);
+			for (const pi of pis) {
+				for (const invoice of await resolvePaymentIntentInvoices(stripe, pi)) {
+					invoiceIds.add(invoice);
+				}
 			}
-		} catch (err) {
-			console.warn(
-				`  Failed to list Stripe refunds: ${(err as Error).message}`,
-			);
-			totalSkippedPI += 1;
-			continue;
-		}
-
-		if (refundAttempts.length === 0) {
-			console.warn(
-				`  No Stripe refunds found for this PI — leaving legacy rows in place`,
-			);
-			totalSkippedPI += 1;
-			continue;
-		}
-
-		refundAttempts = refundAttempts.sort((a, b) => a.created - b.created);
-		const skippedAttempts = refundAttempts.filter((r) => r.status !== "succeeded");
-		if (skippedAttempts.length > 0) {
-			console.log(
-				`  Ignoring ${skippedAttempts.length} non-succeeded Stripe refund attempt(s):`,
-			);
-			for (const r of skippedAttempts) {
-				console.log(
-					`    - ${r.id} $${(r.amount / 100).toFixed(2)} status=${r.status ?? "unknown"} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
+			// Reverse Stripe lookup prevents a scope from concealing invoice-only owners.
+			const competing = await db
+				.select()
+				.from(tables.transaction)
+				.where(
+					and(
+						notInArray(tables.transaction.type, ["credit_refund"]),
+						gt(tables.transaction.amount, "0"),
+						or(
+							inArray(tables.transaction.stripePaymentIntentId, pis),
+							...(invoiceIds.size
+								? [inArray(tables.transaction.stripeInvoiceId, [...invoiceIds])]
+								: []),
+						),
+					),
+				);
+			if (
+				pis.some((pi) => (owners.get(pi)?.size ?? 0) !== 1) ||
+				competing.some((row) => row.id !== original.id)
+			) {
+				throw new Error(
+					"Ambiguous payment/invoice source; manual attribution required",
 				);
 			}
-		}
-
-		const refunds = refundAttempts.filter((r) => r.status === "succeeded");
-		if (refunds.length === 0) {
-			console.warn(
-				`  No succeeded Stripe refunds found for this PI — leaving legacy rows in place`,
+			const evidence: Stripe.Refund[] = [];
+			for (const pi of pis) {
+				evidence.push(...(await listSucceededRefunds(stripe, pi)));
+			}
+			const result = await reconcileOriginal(
+				original,
+				pis,
+				evidence,
+				opts.commit ?? false,
+				scopePI,
 			);
-			totalSkippedPI += 1;
-			continue;
+			inserted += result.inserted;
+			deleted += result.deleted;
+		} catch (error) {
+			failures++;
+			console.error("INCOMPLETE source=" + original.id, error);
 		}
-
-		const stripeTotal = refunds.reduce((s, r) => s + r.amount / 100, 0);
-		console.log(
-			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
-		);
-		for (const r of refunds) {
-			console.log(
-				`    - ${r.id} $${(r.amount / 100).toFixed(2)} status=${r.status ?? "unknown"} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
-			);
-		}
-
-		const existingForPI = await db
-			.select({
-				id: tables.transaction.id,
-				refundId: tables.transaction.stripeRefundId,
-			})
-			.from(tables.transaction)
-			.where(
-				and(
-					eq(tables.transaction.type, "credit_refund"),
-					eq(tables.transaction.stripePaymentIntentId, pi),
-				),
-			);
-		const existingRefundIds = new Set(
-			existingForPI
-				.map((r) => r.refundId)
-				.filter((id): id is string => id !== null),
-		);
-		const toInsert = refunds.filter((r) => !existingRefundIds.has(r.id));
-
-		if (toInsert.length < refunds.length) {
-			console.log(
-				`  ${refunds.length - toInsert.length} refund(s) already correctly stored — skipping those`,
-			);
-		}
-
-		const sample = rows[0];
-		const originalAmount = originalAmountByRefundId.get(sample.id) ?? 0;
-
-		console.log(
-			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${(stripeTotal - legacyTotal).toFixed(2)}`,
-		);
-
-		if (commit) {
-			await db.transaction(async (tx) => {
-				await tx
-					.delete(tables.transaction)
-					.where(
-						inArray(
-							tables.transaction.id,
-							rows.map((row) => row.id),
-						),
-					);
-
-				for (const r of toInsert) {
-					const refundDollars = r.amount / 100;
-					const ratio = originalAmount > 0 ? refundDollars / originalAmount : 0;
-					await tx.insert(tables.transaction).values({
-						createdAt: new Date(r.created * 1000),
-						updatedAt: new Date(r.created * 1000),
-						organizationId: sample.organizationId,
-						type: "credit_refund",
-						amount: refundDollars.toString(),
-						creditAmount: "0",
-						currency: sample.currency ?? "USD",
-						status: "completed",
-						stripePaymentIntentId: pi,
-						stripeRefundId: r.id,
-						relatedTransactionId: sample.relatedTransactionId,
-						refundReason: r.reason ?? null,
-						description: `Credit refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
-					});
-				}
-			});
-			console.log(`  Applied`);
-		}
-
-		totalDelete += rows.length;
-		totalInsert += toInsert.length;
 	}
-
-	console.log(`\n=== Summary ===`);
 	console.log(
-		`  ${totalDelete} legacy row(s) ${commit ? "deleted" : "would be deleted"}`,
+		"Summary: inserted=" +
+			inserted +
+			" deleted=" +
+			deleted +
+			" incomplete=" +
+			failures,
 	);
-	console.log(
-		`  ${totalInsert} correct row(s) ${commit ? "inserted" : "would be inserted"}`,
-	);
-	console.log(`  ${totalSkippedPI} payment intent(s) skipped`);
-
-	if (!commit) {
-		console.log(`\n(Dry run — re-run with --commit to apply)`);
+	if (failures) {
+		process.exitCode = 1;
 	}
-
-	process.exit(0);
 }
 
-main().catch((err) => {
-	console.error("Error:", err);
-	process.exit(1);
-});
+main()
+	.then(() => process.exit(process.exitCode ?? 0))
+	.catch((error: unknown) => {
+		console.error("INCOMPLETE", error);
+		process.exit(1);
+	});
+async function resolvePaymentIntentInvoices(stripe: Stripe, pi: string) {
+	const invoices = new Set<string>();
+	for await (const payment of stripe.invoicePayments.list({
+		payment: { type: "payment_intent", payment_intent: pi },
+		status: "paid",
+		limit: 100,
+	})) {
+		const invoice = identity(payment.invoice);
+		if (
+			!invoice ||
+			payment.status !== "paid" ||
+			payment.payment.type !== "payment_intent" ||
+			identity(payment.payment.payment_intent) !== pi
+		) {
+			throw new Error("Payment intent/invoice ownership mismatch");
+		}
+		invoices.add(invoice);
+	}
+	return [...invoices];
+}
